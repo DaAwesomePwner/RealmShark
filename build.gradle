@@ -1,0 +1,93 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '7.0.0'
+}
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+project.version = 'v1.2.3'
+applicationName = 'RealmShark'
+
+project.ext.lwjglVersion = "3.3.1"
+project.ext.jomlVersion = "1.10.5"
+
+switch (org.gradle.internal.os.OperatingSystem.current()) {
+    case org.gradle.internal.os.OperatingSystem.MAC_OS:
+        project.ext.lwjglNatives = "natives-macos"
+        break
+    case org.gradle.internal.os.OperatingSystem.WINDOWS:
+        project.ext.lwjglNatives = "natives-windows"
+        break
+}
+
+repositories {
+    mavenCentral()
+    maven {url="https://s01.oss.sonatype.org/content/repositories/snapshots/"}
+}
+
+dependencies {
+    implementation 'com.ardikars.pcap:pcap-spi:1.4.2'
+    implementation 'com.ardikars.pcap:pcap-jdk7:1.4.2'
+    implementation 'com.google.code.gson:gson:2.9.1'
+    implementation 'com.google.flatbuffers:flatbuffers-java:23.5.26'
+    implementation 'com.github.weisj:darklaf-core:3.0.2'
+    implementation 'com.formdev:flatlaf:3.5.4'
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+    runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+mainClassName = 'tomato.Tomato'
+
+
+jar {
+    manifest {
+        attributes(
+                'Main-Class': mainClassName
+        )
+    }
+}
+
+// Ugly solution to get version into source.
+task generateSources {
+    doFirst {
+        def srcFile = new File(file("$buildDir/../src/main/java/" + applicationName.toLowerCase() + "/version"), "Version.java")
+        srcFile.parentFile.mkdirs()
+        srcFile.write("""package """ + applicationName.toLowerCase() + """.version;
+/**
+ * Don't edit this class. It's a gradle class to grab version from the build.gradle
+ */
+public class Version {
+    public static final String VERSION = "$project.version";
+}
+
+""")
+    }
+}
+compileJava.dependsOn generateSources
+compileJava.source generateSources.outputs.files, sourceSets.main.java
+
+/**
+ * add to vm optoins
+ * "-XstartOnFirstThread"
+ */
+shadowJar {
+    manifest {
+        attributes 'Main-Class': mainClassName
+    }
+    archiveFileName = "${applicationName}-${project.version}.jar"
+}
+
+apply plugin: 'com.github.johnrengelman.shadow'
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+test {
+    // Keep GUI-test preferences and session files away from real user settings.
+    workingDir = file("$buildDir/ui-test")
+    doFirst { workingDir.mkdirs() }
+    testLogging { events 'passed', 'skipped', 'failed'; exceptionFormat 'full' }
+}

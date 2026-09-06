@@ -12,7 +12,6 @@
 dpsLogs/
 error/
 .gradle/
-gradle/
 
 # Package Files #
 .idea

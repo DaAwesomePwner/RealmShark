@@ -1,4 +1,6 @@
 # RealmShark  
+> **Desktop UI refresh:** This checkout includes the full Tomato GUI with a dark violet theme, responsive sidebar and chat search. Double-click `Launch-RealmShark.cmd` to run it, or `Preview-RealmShark.cmd` to inspect it without capture. See [UI refresh, feature map and build instructions](docs/UI-REDESIGN.md). The original upstream README is preserved below.
+
 ### A library/GUI packet sniffer for Realm of the Mad God built with Java.
 
 Discord link: https://discord.gg/uDK2EhJUtv
