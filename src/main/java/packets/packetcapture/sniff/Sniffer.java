@@ -4,7 +4,6 @@ import packets.packetcapture.sniff.ardikars.NativeBridge;
 import packets.packetcapture.sniff.assembly.Ip4Defragmenter;
 import packets.packetcapture.sniff.assembly.TcpStreamErrorHandler;
 import packets.packetcapture.sniff.assembly.TcpStreamBuilder;
-import packets.packetcapture.sniff.netpackets.EthernetPacket;
 import packets.packetcapture.sniff.netpackets.Ip4Packet;
 import packets.packetcapture.sniff.netpackets.RawPacket;
 import packets.packetcapture.sniff.netpackets.TcpPacket;
@@ -15,287 +14,180 @@ import pcap.spi.Service;
 import pcap.spi.exception.ErrorException;
 import pcap.spi.exception.error.*;
 import pcap.spi.option.DefaultLiveOptions;
-import util.Util;
 
 import java.net.Inet4Address;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+import java.util.function.Consumer;
 
-/**
- * A sniffer used to tap packets out of the Windows OS network layer. Before sniffing
- * packets it needs to find what network interface the packets are sent or received from,
- * aka if proxies are used.
- */
+/** Discover the interface carrying game traffic, including raw-IP VPN tunnels. */
 public class Sniffer {
-    private static final boolean disableChecksum = true; // disabled given most routers checksum packets automatically.
-    private final int port = 2050; // 2050 is default rotmg server port.
-    private final Sniffer thisObject;
-    private final RingBuffer<RawPacket> ringBuffer;
+    private static final int PORT = 2050;
+    private final CaptureQueue<Pcap> queue = new CaptureQueue<>();
+    // A handle is closed only by its reader after pcap_loop has returned.
+    private final Set<Pcap> active = Collections.newSetFromMap(new IdentityHashMap<Pcap, Boolean>());
     private final TcpStreamBuilder incoming;
     private final TcpStreamBuilder outgoing;
-    private Pcap[] pcaps;
-    private Pcap realmPcap;
-    private boolean stop;
+    private boolean openingFinished;
+    private volatile Consumer<String> statusListener = message -> {};
 
-    /**
-     * Constructor of a Windows sniffer.
-     *
-     * @param processor PProcessor instance used as the base.
-     */
     public Sniffer(PProcessor processor) {
-        thisObject = this;
-        ringBuffer = new RingBuffer<>(32);
         incoming = new TcpStreamBuilder(processor::resetIncoming, processor::incomingStream);
         outgoing = new TcpStreamBuilder(processor::resetOutgoing, processor::outgoingStream);
     }
 
-    /**
-     * Main sniffer method to listen on the network tap for any packets filtered by port
-     * 2050 (default port rotmg uses) and TCP packets only (the packet type rotmg uses).
-     * All network interfaces are listen to given some users might have multiple. A thread
-     * is created to listen to all interfaces until any packet of the correct type (port
-     * 2050 of type TCP) is found. The all other channels are halted and only the correct
-     * interface is listened on.
-     *
-     * @throws Error... If any unexpected issues are found.
-     */
+    public void setStatusListener(Consumer<String> listener) {
+        statusListener = listener == null ? message -> {} : listener;
+    }
+
+    private void report(String message) {
+        System.out.println("[Capture] " + message);
+        statusListener.accept(message);
+    }
+
     public void startSniffer() throws ErrorException, RadioFrequencyModeNotSupportedException,
             ActivatedException, InterfaceNotSupportTimestampTypeException,
             PromiscuousModePermissionDeniedException, InterfaceNotUpException,
             PermissionDeniedException, NoSuchDeviceException, TimestampPrecisionNotSupportedException {
-
-        Service service = Service.Creator.create("PcapService");
-        Interface[] interfaceList = NativeBridge.getInterfaces(service);
-        pcaps = new Pcap[interfaceList.length];
-        realmPcap = null;
-        stop = false;
-
-        for (int i = 0; i < interfaceList.length; i++) {
-            DefaultLiveOptions defaultLiveOptions = new DefaultLiveOptions();
-            defaultLiveOptions.timeout(60000);
-            Pcap pcap = null;
-
-            try {
-                /*
-                If we're running on macOS we only want to start sniffing if it is a 'valid' interface
-                That is, it is actually being used and has a valid IPv4 address
-                Otherwise it will break and not work
-                */
-
-                // Check if we're running on macOS
-                if (System.getProperty("os.name").toLowerCase().contains("mac")) {
-                    // Loop over the interfaces addresses and check if there is a valid IPv4 address
-                    for (Address addr : interfaceList[i].addresses()) {
-                        if (addr.address() instanceof Inet4Address) {
-                            Inet4Address ip = (Inet4Address) addr.address();
-
-                            // If we've got an IPv4 address that isn't loopback or link local, start the sniffer
-                            if (!ip.isLoopbackAddress() && !ip.isLinkLocalAddress()) {
-                                pcap = service.live(interfaceList[i], defaultLiveOptions);
-                            }
-                        }
-                    }
-                } else {
-                    pcap = service.live(interfaceList[i], defaultLiveOptions);
-                }
-
-                // If pcap is null, meaning this was not a 'valid' interface on macOS continue on to the next one
-                if (pcap == null) {
-                    continue;
-                }
-
-                pcap.setFilter("tcp port " + port, true);
-                pcaps[i] = pcap;
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                continue;
-            }
-
-            startPacketSniffer(pcap);
-        }
-
-        closeUnusedSniffers();
-        processBufferedPackets();
-    }
-
-    /**
-     * Small pauses for async to finish tasks.
-     *
-     * @param ms Millisecond of pause
-     */
-    private static void pause(int ms) {
+        if (queue.isStopped()) return;
         try {
-            Thread.sleep(ms);
-        } catch (InterruptedException ignored) {}
-    }
-
-    /**
-     * Start a packet sniffers on different threads
-     * and close any sniffer not being used.
-     *
-     * @param pcap Current handle to the Pcap instance.
-     */
-    public void startPacketSniffer(Pcap pcap) {
-        new Thread(new Runnable() {
-            final Pcap p = pcap;
-
-            @Override
-            public void run() {
-                NativeBridge.PacketListener listener = packet -> {
-                    TcpStreamErrorHandler.INSTANCE.logTCPPacket(packet);
-
-                    if (packet != null && computeChecksum(packet.getPayload())) {
-                        synchronized (ringBuffer) {
-                            ringBuffer.push(packet);
-                        }
-                        realmPcap = pcap;
-                        synchronized (thisObject) {
-                            thisObject.notifyAll();
-                        }
+            Service service = Service.Creator.create("PcapService");
+            Interface[] interfaces = NativeBridge.getInterfaces(service);
+            report("Looking for game traffic on available adapters...");
+            for (Interface adapter : interfaces) {
+                if (queue.isStopped()) break;
+                if (!usableOnMac(adapter)) continue;
+                Pcap pcap = null;
+                try {
+                    DefaultLiveOptions options = new DefaultLiveOptions();
+                    options.snapshotLength(262144);
+                    options.timeout(250);
+                    pcap = service.live(adapter, options);
+                    if (!RawPacket.supportsDataLink(pcap.datalink())) {
+                        System.err.println("[Capture] Unsupported link type " + pcap.datalink() + " on " + adapter.description());
+                        pcap.close();
+                        continue;
                     }
-                };
-                NativeBridge.loop(p, -1, listener);
+                    pcap.setFilter("tcp port " + PORT, true);
+                    startPacketSniffer(pcap, adapter.description() == null ? adapter.name() : adapter.description());
+                    pcap = null; // The reader now owns this handle.
+                } catch (Exception e) {
+                    if (pcap != null) pcap.close();
+                    System.err.println("[Capture] Cannot open " + adapter.description() + ": " + e.getMessage());
+                }
             }
-        }).start();
-        pause(1);
+            synchronized (active) {
+                openingFinished = true;
+                if (active.isEmpty()) queue.stop();
+            }
+            if (queue.isStopped()) {
+                report("Capture stopped; no active adapter. Check Npcap and restart capture.");
+                return;
+            }
+            closeUnusedSniffers();
+            processBufferedPackets();
+        } finally {
+            closeSniffers();
+        }
     }
 
-    /**
-     * Close threads of sniffer network interfaces not being used after
-     * capturing at least one realm packet in the correct net-interface.
-     */
+    private boolean usableOnMac(Interface adapter) {
+        if (!System.getProperty("os.name").toLowerCase().contains("mac")) return true;
+        if (adapter.addresses() == null) return false;
+        for (Address addr : adapter.addresses()) {
+            if (addr.address() instanceof Inet4Address) {
+                Inet4Address ip = (Inet4Address) addr.address();
+                if (!ip.isLoopbackAddress() && !ip.isLinkLocalAddress()) return true;
+            }
+        }
+        return false;
+    }
+
+    public void startPacketSniffer(Pcap pcap) {
+        startPacketSniffer(pcap, "Network adapter");
+    }
+
+    private void startPacketSniffer(Pcap pcap, String name) {
+        synchronized (active) {
+            if (queue.isStopped()) { pcap.close(); return; }
+            active.add(pcap);
+        }
+        Thread reader = new Thread(() -> {
+            try {
+                NativeBridge.loop(pcap, -1, packet -> acceptPacket(pcap, name, packet));
+            } catch (RuntimeException e) {
+                System.err.println("[Capture] " + name + ": " + e.getMessage());
+            } finally {
+                synchronized (active) {
+                    active.remove(pcap);
+                    pcap.close();
+                    if (queue.owner() == pcap || (openingFinished && active.isEmpty())) queue.stop();
+                }
+            }
+        }, "RealmShark capture: " + name);
+        reader.setDaemon(true);
+        reader.start();
+    }
+
+    void acceptPacket(Pcap source, String name, RawPacket packet) {
+        if (packet == null || queue.isStopped()) return;
+        Ip4Packet ip = packet.getNewIp4Packet();
+        // Only a decodable game packet can select an adapter.
+        boolean fragmentOnSelectedAdapter = queue.owner() == source && ip != null
+                && ip.getProtocol() == 6 && ip.getFragmentOffset() != 0;
+        if (!fragmentOnSelectedAdapter && !isGamePacket(ip)) return;
+        boolean first;
+        synchronized (queue) {
+            first = queue.owner() == null;
+            if (!queue.offer(source, packet)) return;
+            TcpStreamErrorHandler.INSTANCE.logTCPPacket(packet);
+        }
+        if (first) report("Listening on " + name + " (link type " + packet.getDataLink() + ")");
+    }
+
+    static boolean isGamePacket(Ip4Packet ip) {
+        if (ip == null || ip.getProtocol() != 6 || ip.getFragmentOffset() != 0 || ip.getPayloadLength() < 20) return false;
+        byte[] tcp = ip.getPayload();
+        int tcpHeader = (tcp[12] >>> 4 & 15) * 4;
+        if (tcpHeader < 20 || tcpHeader > tcp.length) return false;
+        int src = (tcp[0] & 255) << 8 | tcp[1] & 255;
+        int dst = (tcp[2] & 255) << 8 | tcp[3] & 255;
+        return src == PORT || dst == PORT;
+    }
+
     private void closeUnusedSniffers() {
         try {
-            synchronized (thisObject) {
-                thisObject.wait();
-            }
-            while (!stop) {
-                if (realmPcap != null) {
-                    for (Pcap pcap : pcaps) {
-                        if (pcap != null && realmPcap != pcap) {
-                            pcap.close();
-                        }
-                    }
-                    return;
-                }
-                pause(100);
+            Pcap selected = queue.awaitOwner();
+            synchronized (active) {
+                for (Pcap pcap : active) if (pcap != selected) pcap.breakLoop();
             }
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            closeSniffers();
         }
     }
 
-    /**
-     * Processing waits until new packets are captured by the sniffer, wakes
-     * up and processes the buffered packets in the ring buffer and goes
-     * back to sleep.
-     */
-    private void processBufferedPackets() {
+    void processBufferedPackets() {
         try {
-            while (!stop) {
-                synchronized (thisObject) {
-                    thisObject.wait();
-                }
-                while (!ringBuffer.isEmpty()) {
-                    RawPacket packet;
-                    synchronized (ringBuffer) {
-                        packet = ringBuffer.pop();
-                    }
-                    if (packet == null) continue;
-
-                    try {
-                        EthernetPacket ethernetPacket = packet.getNewEthernetPacket();
-                        if (ethernetPacket != null) {
-                            Ip4Packet ip4packet = ethernetPacket.getNewIp4Packet();
-                            Ip4Packet assembledIp4packet = Ip4Defragmenter.defragment(ip4packet);
-                            if (assembledIp4packet != null) {
-                                TcpPacket tcpPacket = assembledIp4packet.getNewTcpPacket();
-                                if (tcpPacket != null) {
-                                    receivedPackets(tcpPacket);
-                                }
-                            }
-                        }
-                    } catch (ArrayIndexOutOfBoundsException | IllegalArgumentException | NullPointerException e) {
-                        Util.printLogs(e.getMessage());
-                        Util.printLogs(Arrays.toString(packet.getPayload()));
-                        e.printStackTrace();
-                    }
-                }
+            RawPacket packet;
+            while ((packet = queue.take()) != null) {
+                Ip4Packet ip = Ip4Defragmenter.defragment(packet.getNewIp4Packet());
+                if (ip == null) continue;
+                TcpPacket tcp = ip.getNewTcpPacket();
+                if (tcp == null) continue;
+                if (tcp.getSrcPort() == PORT) incoming.streamBuilder(tcp);
+                else if (tcp.getDstPort() == PORT) outgoing.streamBuilder(tcp);
             }
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
         }
     }
 
-    /**
-     * Sorting method to arrange incoming and outgoing packets based on ports.
-     *
-     * @param packet The TCP packets retrieved from the network tap.
-     */
-    private void receivedPackets(TcpPacket packet) {
-        if (packet.getSrcPort() == port) { // Incoming packets have 2050 source port.
-            incoming.streamBuilder(packet);
-        } else if (packet.getDstPort() == port) { // Outgoing packets have 2050 destination port.
-            outgoing.streamBuilder(packet);
-        }
-    }
-
-    /**
-     * Verify checksum of TCP packets. This does however not checksum the Ip4Header
-     * given only the data of the TCP packet is vital. Not the header data.
-     * <p>
-     * WARNING! Don't use this checksum given the router handles checksums. Filtering packets
-     * with checksum results in packets being lost. Even if the checksum fails the packets
-     * pass the RC4 cipher meaning the packets are fine, even if the checksum miss matches.
-     *
-     * @param bytes Raw bytes of the packet being received.
-     * @return true if the checksum is similar to the TCP checksum sent in the packet.
-     * <p>
-     */
-    private static boolean computeChecksum(byte[] bytes) {
-        if (disableChecksum) return true;
-        int tcpLen = (Byte.toUnsignedInt(bytes[17]) + (Byte.toUnsignedInt(bytes[16]) << 8)) - ((bytes[14] & 15) * 4);
-        int sum = 6 + tcpLen; // add tcp num + length of tcp
-
-        for (int i = 26; i < tcpLen + 33; i += 2) { // compute all byte pairs starting from ip dest/src to end of tcp payload
-            if (i == 50) continue; // skip the TCP checksum values at address 50 & 51
-            sum += (Byte.toUnsignedInt(bytes[i + 1]) + (Byte.toUnsignedInt(bytes[i]) << 8));
-        }
-
-        if ((tcpLen & 1) == 1) // add the last odd pair as if the whole packet had a zero byte added to the end
-            sum += (Byte.toUnsignedInt(bytes[bytes.length - 1]) << 8);
-
-        while ((sum >> 16) != 0) // one compliment
-            sum = (sum & 0xFFFF) + (sum >> 16);
-
-        sum = ~sum; // invert bits
-        sum = sum & 0xFFFF; // remove upper bits
-
-        int checksumTCP = (Byte.toUnsignedInt(bytes[51]) + (Byte.toUnsignedInt(bytes[50]) << 8));
-        if (checksumTCP == 0xFFFF) checksumTCP = 0; // get checksum from tcp packet and set to 0 if value is FFFF,
-        //                                                                              FFFF is impossible to have.
-
-        return checksumTCP == sum;
-    }
-
-    /**
-     * Close all network interfaces sniffing the wire.
-     */
     public void closeSniffers() {
-        stop = true;
-        if (realmPcap != null) {
-            realmPcap.close();
-        } else {
-            try {
-                for (Pcap c : pcaps) {
-                    if (c != null) {
-                        c.close();
-                    }
-                }
-            } catch (NullPointerException e) {
-                // Network tap is already closed
-                System.out.println("[X] Error stopping sniffer: sniffer not running.");
-            }
+        queue.stop(); // Wake Java waiters even when no packet has arrived.
+        synchronized (active) {
+            for (Pcap pcap : active) pcap.breakLoop();
         }
     }
 }

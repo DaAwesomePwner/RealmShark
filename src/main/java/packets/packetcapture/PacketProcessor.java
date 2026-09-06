@@ -42,6 +42,10 @@ public class PacketProcessor extends Thread implements PProcessor {
         srcAddr = new byte[4];
     }
 
+    public void setCaptureStatusListener(java.util.function.Consumer<String> listener) {
+        sniffer.setStatusListener(listener);
+    }
+
     /**
      * Start method for PacketProcessor.
      */

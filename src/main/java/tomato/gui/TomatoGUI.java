@@ -250,6 +250,10 @@ public class TomatoGUI {
         if (SwingUtilities.isEventDispatchThread()) update.run(); else SwingUtilities.invokeLater(update);
     }
 
+    public static void setCaptureDetail(String detail) {
+        SwingUtilities.invokeLater(() -> { if (shell != null) shell.setCaptureDetail(detail); });
+    }
+
     /**
      * Getter for the main object.
      *

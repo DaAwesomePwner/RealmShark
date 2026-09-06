@@ -75,9 +75,15 @@ public class NativeBridge {
             field.setAccessible(true);
             Pointer p = (Pointer) field.get(pcap);
 
-            NativeMappings.pcap_loop(p, packetCount, new GotPacketFuncExecutor(listener, SimpleExecutor.getInstance()), null);
+            int result = NativeMappings.pcap_loop(p, packetCount,
+                    new GotPacketFuncExecutor(listener, SimpleExecutor.getInstance(),
+                            pcap.datalink(), pcap.getTimestampPrecision().value()), null);
+            if (result == -1) {
+                Pointer error = NativeMappings.pcap_geterr(p);
+                throw new IllegalStateException("Packet capture failed: " + (error == null ? "unknown error" : error.getString(0)));
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Unable to read capture interface", e);
         }
     }
 
@@ -132,11 +138,14 @@ public class NativeBridge {
     private static final class GotPacketFuncExecutor implements NativeMappings.pcap_handler {
         private final PacketListener listener;
         private final Executor executor;
-        private final int timestampPrecision = 1;
+        private final int timestampPrecision;
+        private final int dataLink;
 
-        public GotPacketFuncExecutor(PacketListener listener, Executor executor) {
+        public GotPacketFuncExecutor(PacketListener listener, Executor executor, int dataLink, int timestampPrecision) {
             this.listener = listener;
             this.executor = executor;
+            this.dataLink = dataLink;
+            this.timestampPrecision = timestampPrecision;
         }
 
         @Override
@@ -148,7 +157,7 @@ public class NativeBridge {
             try {
                 executor.execute(() -> {
                     if (data.length == len) {
-                        listener.gotPacket(RawPacket.newPacket(data, now));
+                        listener.gotPacket(RawPacket.newPacket(data, now, dataLink));
                     }
                 });
             } catch (Throwable e) {

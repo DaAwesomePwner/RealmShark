@@ -117,6 +117,12 @@ public final class WorkspaceShell extends JPanel {
         capture.setText(running ? "Stop capture" : "Start capture");
         status.setText(running ? "Capture enabled" : "Capture is off");
         hint.setText(running ? "Waiting for game traffic or receiving packets." : "Start capture, then enter the Realm to see activity.");
+        status.setToolTipText(hint.getText());
+    }
+    public void setCaptureDetail(String detail) {
+        hint.setText(detail);
+        hint.setToolTipText(detail);
+        status.setToolTipText(detail);
     }
     private void adapt() {
         boolean nextCompact = getWidth() < 1000;

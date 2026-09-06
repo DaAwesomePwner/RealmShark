@@ -37,7 +37,7 @@ public class Tomato {
     public static URL imagePath = Tomato.class.getResource(
         "/icon/tomatoIcon.png"
     );
-    private static PacketProcessor packetProcessor;
+    private static volatile PacketProcessor packetProcessor;
     private static TomatoRootController rootController;
     private static boolean preview;
 
@@ -294,8 +294,12 @@ public class Tomato {
      */
     public static void startPacketSniffer() {
         if (packetProcessor == null) {
-            packetProcessor = new PacketProcessor();
-            packetProcessor.start();
+            PacketProcessor next = new PacketProcessor();
+            packetProcessor = next;
+            next.setCaptureStatusListener(message -> {
+                if (packetProcessor == next) TomatoGUI.setCaptureDetail(message);
+            });
+            next.start();
         }
     }
 

@@ -55,3 +55,15 @@ Tests open the actual application in preview mode, exercise all eight navigation
 Validated on 2026-09-06: the build and all five UI/search tests passed, including switching to the legacy high-contrast light theme and back. The packaged JAR's `--help` entry point also passed. All main views and their existing sub-tabs were rendered for review. Preview logs include an expected missing `assets/xml/players.xml` diagnostic because no game assets were extracted. Darklaf also logs a Windows cleanup warning when trying to delete its loaded native DLL; the theme-switch assertions passed.
 
 No live packet-capture/gameplay validation has been performed. Packet parsing, damage calculations and the original library implementation were retained; this refresh is focused on presentation and the combined build.
+
+## ProtonVPN capture fix (2026-09-06)
+
+The later VPN fix supersedes the capture-validation limitation above for the tested capture path. On this machine ProtonVPN Smart mode selected a WireGuard adapter, which Npcap 1.88 opened successfully with `DLT_RAW` (12). The original sniffer interpreted every packet as Ethernet and could therefore open the tunnel without decoding its packets.
+
+Capture now carries the actual adapter link type into packet decoding, supporting Ethernet (including the existing VLAN path), raw IPv4, and NULL/LOOP loopback headers. Original Ethernet packet factories remain compatible. IPv6, unsupported formats and truncated frames are ignored rather than selecting an unusable adapter. This follows [libpcap's per-handle link-type contract](https://www.tcpdump.org/manpages/pcap_datalink.3pcap.html).
+
+Adapter selection and packet consumption now share a condition-guarded queue. This retains a first packet received before the consumer starts, prevents another adapter from overwriting the winner, and wakes waiting consumers on stop. Unused adapters are stopped with `breakLoop`; each native reader closes its own handle after the loop exits. The capture buffer timeout is 250 ms instead of 60 seconds. Packet timestamps use the handle's actual precision. The footer displays the selected adapter; its tooltip remains available in compact layouts.
+
+Validation: all **13 tests passed** (8 capture/packet regressions and the existing 5 UI tests). An eight-second passive check of the existing game connection selected **WireGuard Tunnel (link type 12)** and delivered **105 incoming / 37 outgoing payload segments**, with **0 stream errors**. Shutdown left **0 capture reader threads**. The diagnostic printed only status and counts; packet/account contents were not saved or displayed. This validates adapter discovery, decoding and stream delivery, not every downstream gameplay feature.
+
+Close and reopen RealmShark to load the rebuilt JAR. Connect ProtonVPN before starting capture. After reconnecting the VPN or changing protocol while capture is active, stop and start capture to rescan interfaces; automatic adapter migration during a running capture is not implemented. No VPN settings or network drivers were changed.
