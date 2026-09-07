@@ -76,7 +76,7 @@ public class CheckVersion {
     }
 
     private static void updateMessage() {
-        JEditorPane ep = new JEditorPane("text/html", "<html>Outdated Tomato version<br>Download the latest version and replace the Tomato-v.xx.jar<br><a href=\\\\\\\"\"https://github.com/X-com/RealmShark/releases\\\\\\\">https://github.com/X-com/RealmShark/releases</a></html>");
+        JEditorPane ep = new JEditorPane("text/html", "<html>A different upstream Tomato release is available.<br>This is a customized RealmShark build. Upstream changes must be merged<br>and rebuilt to retain its UI and fixes; do not replace it with the stock JAR.<br><a href='https://github.com/X-com/RealmShark/releases'>View upstream releases</a></html>");
         ep.addHyperlinkListener(e -> {
             if (e.getEventType().equals(HyperlinkEvent.EventType.ACTIVATED)) {
                 try {

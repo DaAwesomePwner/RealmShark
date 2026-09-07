@@ -151,7 +151,7 @@ public class Tomato {
             CrashLogger.loadThisClass();
             TomatoGUI.loadThemePreset();
             CheckVersion.checkVersion();
-            AssetExtractor.checkForExtraction(Version.VERSION);
+            AssetExtractor.checkForExtraction(Version.ASSET_CACHE_VERSION);
             TomatoData data = new TomatoData();
             loadControllers(data);
             SwingUtilities.invokeAndWait(() -> new TomatoGUI(data).create());
