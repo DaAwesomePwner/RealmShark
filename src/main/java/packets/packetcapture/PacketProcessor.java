@@ -30,6 +30,7 @@ public class PacketProcessor extends Thread implements PProcessor {
     private volatile boolean stopRequested;
     private volatile java.util.function.Consumer<String> captureStatus = message -> {};
     private volatile Runnable stoppedListener = () -> {};
+    private volatile String stopReason = "Capture ended unexpectedly. See logs/capture-health.log.";
     private final Object lifecycle = new Object();
     private volatile long decodedPackets;
     private volatile long decodedTicks;
@@ -56,6 +57,18 @@ public class PacketProcessor extends Thread implements PProcessor {
         stoppedListener = listener == null ? () -> {} : listener;
     }
 
+    public String getStopReason() { return stopReason; }
+
+    private void recordTerminalFailure(Throwable failure) {
+        Throwable cause = failure;
+        while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+        StackTraceElement[] frames = cause.getStackTrace();
+        String location = frames.length == 0 ? "" : " in " + frames[0].getClassName().replaceAll(".*\\.", "")
+                + "." + frames[0].getMethodName();
+        stopReason = "Capture stopped: " + cause.getClass().getSimpleName() + location + ". See logs/capture-health.log.";
+        CaptureDiagnostics.record("Capture worker terminated", failure);
+    }
+
     protected Sniffer createSniffer() { return new Sniffer(this); }
 
     private void reportCapture(String message) {
@@ -67,7 +80,7 @@ public class PacketProcessor extends Thread implements PProcessor {
      */
     public void run() {
         try { tapPackets(); }
-        catch (RuntimeException | LinkageError e) { CaptureDiagnostics.record("Capture worker terminated", e); }
+        catch (RuntimeException | LinkageError e) { recordTerminalFailure(e); }
         finally { stoppedListener.run(); }
     }
 
@@ -103,6 +116,7 @@ public class PacketProcessor extends Thread implements PProcessor {
                 CaptureDiagnostics.record("Starting capture attempt", null);
                 attempt.startSniffer();
             } catch (UnsatisfiedLinkError e) {
+                stopReason = "Capture stopped: Npcap could not load. Install or repair Npcap, then restart RealmShark.";
                 CaptureDiagnostics.record("Npcap unavailable", e);
                 javax.swing.SwingUtilities.invokeLater(MissingNpcapGUI::new);
                 break;

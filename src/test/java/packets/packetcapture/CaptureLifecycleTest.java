@@ -15,6 +15,8 @@ public class CaptureLifecycleTest {
         processor.setStoppedListener(() -> callback.set(true));
         processor.start(); processor.join(1000);
         assertFalse(processor.isAlive()); assertTrue(callback.get());
+        assertTrue(processor.getStopReason().contains("IllegalStateException"));
+        assertTrue(processor.getStopReason().contains("createSniffer"));
     }
     @Test(timeout = 6000) public void restartsAfterReaderExitAndProcessingFailureButHonorsStop() throws Exception {
         AtomicInteger attempts = new AtomicInteger();

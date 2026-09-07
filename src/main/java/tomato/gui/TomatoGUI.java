@@ -254,6 +254,11 @@ public class TomatoGUI {
         SwingUtilities.invokeLater(() -> { if (shell != null) shell.setCaptureDetail(detail); });
     }
 
+    public static void setCaptureFailure(String reason) {
+        Runnable update = () -> { if (shell != null) shell.setCaptureFailure(reason); };
+        if (SwingUtilities.isEventDispatchThread()) update.run(); else SwingUtilities.invokeLater(update);
+    }
+
     /**
      * Getter for the main object.
      *

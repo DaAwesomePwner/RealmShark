@@ -81,3 +81,13 @@ Lifecycle failures are recorded in `logs/capture-health.log`, with a single rota
 Validation: **28 tests passed**, including the original UI and VPN tests plus recovery, cancellation, TCP, framing and handshake regressions. A passive 20-second check through WireGuard observed **3,686 decoded packets and 73 NEWTICK packets** by the last status update; shutdown left no capture readers. This verifies the real decoder path, not a prolonged gameplay soak or every DPS calculation. No packet contents were printed or saved by the diagnostic.
 
 Restart RealmShark using `Launch-RealmShark.cmd` to load the update. If capture must recover mid-connection and ticks remain at zero, change areas or reconnect the game to provide a fresh handshake. Recovery cannot reconstruct packets already missed during an outage.
+
+## Loot-triggered capture crash (2026-09-06)
+
+The next user's run produced a concrete cause in `capture-health.log`: `LootGUI.displayDungeonIcon` initialized `ParseDungeon`, whose mandatory read of missing `assets/xml/mods2.xml` threw `FileNotFoundException` and then `ExceptionInInitializerError`. Later attempts in the same app failed with `NoClassDefFoundError` because Java retained the failed class initialization. The installed assets contain `mods.xml` and `portals.xml`; the second modifier file is absent. This explains why a decoder-only probe passed while gameplay with a loot entry stopped capture.
+
+Dungeon metadata now loads files independently, treats `mods2.xml` as optional, closes input streams, preserves valid modifier and portal lookups, and tolerates missing/malformed metadata. Unknown modifier names remain in the map data but do not produce invented numeric IDs or null-unboxing exceptions. Dungeon grades and fallback portal icons remain available. The old public `ParseDungeon` methods remain compatible.
+
+Terminal capture failures now carry the exception type and code location to a persistent, wrapping error message. It remains visible at compact widths where the ordinary footer hint is hidden. Restarting capture clears the message.
+
+Validation: **35 tests passed**, including absent/optional/malformed metadata, known modifier and portal lookups, repeated loot dungeon rendering, and the compact error display. A standalone reproduction against the user's extracted assets failed with `FileNotFoundException: assets\\xml\\mods2.xml` using the previous JAR, then rendered three consecutive dungeon icons successfully using the rebuilt JAR and returned modifier IDs `[98, -15]` for `FEEBLEMINIONS_1;|D`. This reproduction did not capture traffic or submit loot. A full app restart is necessary to replace the previously failed Java class.

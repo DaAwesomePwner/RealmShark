@@ -68,6 +68,47 @@ public class WorkspaceUiTest {
         });
     }
 
+    @Test public void captureFailureRemainsVisibleAtCompactWidths() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            frame.setSize(680, 620); frame.validate();
+            shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
+            String reason = "Capture stopped: FileNotFoundException in dungeon metadata. See logs/capture-health.log.";
+            TomatoGUI.setCaptureFailure(reason); frame.validate();
+            JTextArea area = findFailure(shell);
+            assertNotNull(area); assertTrue(area.isShowing());
+            assertEquals(reason,area.getText()); assertTrue(area.getLineWrap());
+            assertTrue(area.getHeight() > 30);
+            assertEquals("Start capture",findButton(shell,"capture-toggle").getText());
+            TomatoGUI.setStateOfSniffer(true); assertFalse(area.isVisible());
+            TomatoGUI.setStateOfSniffer(false);
+        });
+    }
+
+    private static JTextArea findFailure(Container container) {
+        for (Component c : container.getComponents()) {
+            if (c instanceof JTextArea && "capture-failure".equals(c.getName())) return (JTextArea)c;
+            if (c instanceof Container) { JTextArea area = findFailure((Container)c); if (area != null) return area; }
+        }
+        return null;
+    }
+
+    @Test public void lootDungeonRenderingSurvivesUnavailableOptionalAssets() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                java.lang.reflect.Method render = tomato.gui.stats.LootGUI.class.getDeclaredMethod(
+                        "displayDungeonIcon", packets.incoming.MapInfoPacket.class, JPanel.class);
+                render.setAccessible(true);
+                packets.incoming.MapInfoPacket map = new packets.incoming.MapInfoPacket();
+                map.name = "The Shatters"; map.dungeonModifiers = "UNKNOWN_MOD";
+                for (int i = 0; i < 3; i++) {
+                    JPanel row = new JPanel(); render.invoke(null, map, row);
+                    assertEquals(1,row.getComponentCount());
+                    assertTrue(((JLabel)row.getComponent(0)).getToolTipText().contains("The Shatters"));
+                }
+            } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+        });
+    }
+
     @Test public void legacyThemeCanSwitchBackWithoutLosingTheWorkspace() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             shell.select(7);

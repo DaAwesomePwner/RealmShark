@@ -30,6 +30,7 @@ public final class WorkspaceShell extends JPanel {
     private final JButton capture = new JButton("Start capture");
     private final JLabel previewLabel = new JLabel("PREVIEW");
     private boolean compact;
+    private final JTextArea captureFailure = new JTextArea();
     private int selected;
 
     public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview) {
@@ -92,7 +93,14 @@ public final class WorkspaceShell extends JPanel {
         JPanel footer = new JPanel(new BorderLayout(16, 0));
         status.setFont(new Font("Segoe UI", Font.BOLD, 12));
         hint.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        footer.add(status, BorderLayout.WEST); footer.add(hint, BorderLayout.CENTER); workspace.add(footer, BorderLayout.SOUTH);
+        footer.add(status, BorderLayout.WEST); footer.add(hint, BorderLayout.CENTER);
+        captureFailure.setName("capture-failure");
+        captureFailure.setEditable(false); captureFailure.setLineWrap(true); captureFailure.setWrapStyleWord(true);
+        captureFailure.setOpaque(false); captureFailure.setForeground(new Color(0xF4B4C0));
+        captureFailure.setFont(status.getFont()); captureFailure.setRows(3); captureFailure.setVisible(false);
+        JPanel captureInfo = new JPanel(new BorderLayout(0, 8));
+        captureInfo.add(footer, BorderLayout.NORTH); captureInfo.add(captureFailure, BorderLayout.CENTER);
+        workspace.add(captureInfo, BorderLayout.SOUTH);
         add(workspace, BorderLayout.CENTER);
         addComponentListener(new ComponentAdapter() { @Override public void componentResized(ComponentEvent e) { adapt(); }});
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "capture");
@@ -114,6 +122,7 @@ public final class WorkspaceShell extends JPanel {
     public int getSelectedPage() { return selected; }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {
+        captureFailure.setText(""); captureFailure.setVisible(false);
         capture.setText(running ? "Stop capture" : "Start capture");
         status.setText(running ? "Capture enabled" : "Capture is off");
         hint.setText(running ? "Waiting for game traffic or receiving packets." : "Start capture, then enter the Realm to see activity.");
@@ -123,6 +132,13 @@ public final class WorkspaceShell extends JPanel {
         hint.setText(detail);
         hint.setToolTipText(detail);
         status.setToolTipText(detail);
+    }
+    public void setCaptureFailure(String reason) {
+        setCaptureState(false);
+        status.setText("Capture stopped — error");
+        setCaptureDetail("Restart capture after resolving the error below.");
+        captureFailure.setText(reason); captureFailure.setVisible(true);
+        revalidate(); repaint();
     }
     private void adapt() {
         boolean nextCompact = getWidth() < 1000;

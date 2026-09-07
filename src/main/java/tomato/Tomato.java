@@ -302,7 +302,7 @@ public class Tomato {
             next.setStoppedListener(() -> javax.swing.SwingUtilities.invokeLater(() -> {
                 if (packetProcessor == next) {
                     TomatoMenuBar.stopPacketSniffer();
-                    TomatoGUI.setCaptureDetail("Capture ended. Check logs/capture-health.log, then start capture again.");
+                    TomatoGUI.setCaptureFailure(next.getStopReason());
                 }
             }));
             next.start();
