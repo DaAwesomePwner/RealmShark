@@ -1,6 +1,7 @@
 package packets.packetcapture.sniff;
 
 import packets.packetcapture.sniff.ardikars.NativeBridge;
+import packets.packetcapture.CaptureDiagnostics;
 import packets.packetcapture.sniff.assembly.Ip4Defragmenter;
 import packets.packetcapture.sniff.assembly.TcpStreamErrorHandler;
 import packets.packetcapture.sniff.assembly.TcpStreamBuilder;
@@ -31,6 +32,8 @@ public class Sniffer {
     private final TcpStreamBuilder outgoing;
     private boolean openingFinished;
     private volatile Consumer<String> statusListener = message -> {};
+    private volatile String selectedName = "adapter";
+    private long receivedPackets;
 
     public Sniffer(PProcessor processor) {
         incoming = new TcpStreamBuilder(processor::resetIncoming, processor::incomingStream);
@@ -117,12 +120,15 @@ public class Sniffer {
             try {
                 NativeBridge.loop(pcap, -1, packet -> acceptPacket(pcap, name, packet));
             } catch (RuntimeException e) {
+                CaptureDiagnostics.record("Adapter reader failed", e);
                 System.err.println("[Capture] " + name + ": " + e.getMessage());
             } finally {
                 synchronized (active) {
                     active.remove(pcap);
-                    pcap.close();
-                    if (queue.owner() == pcap || (openingFinished && active.isEmpty())) queue.stop();
+                    try { pcap.close(); }
+                    finally {
+                        if (queue.owner() == pcap || (openingFinished && active.isEmpty())) queue.stop();
+                    }
                 }
             }
         }, "RealmShark capture: " + name);
@@ -143,7 +149,10 @@ public class Sniffer {
             if (!queue.offer(source, packet)) return;
             TcpStreamErrorHandler.INSTANCE.logTCPPacket(packet);
         }
-        if (first) report("Listening on " + name + " (link type " + packet.getDataLink() + ")");
+        if (first) {
+            selectedName = name;
+            report("Listening on " + name + " (link type " + packet.getDataLink() + ")");
+        }
     }
 
     static boolean isGamePacket(Ip4Packet ip) {
@@ -158,7 +167,12 @@ public class Sniffer {
 
     private void closeUnusedSniffers() {
         try {
-            Pcap selected = queue.awaitOwner();
+            Pcap selected = queue.awaitOwnerFor(15000);
+            if (selected == null) {
+                report("No game traffic; refreshing available adapters...");
+                closeSniffers();
+                return;
+            }
             synchronized (active) {
                 for (Pcap pcap : active) if (pcap != selected) pcap.breakLoop();
             }
@@ -171,13 +185,26 @@ public class Sniffer {
     void processBufferedPackets() {
         try {
             RawPacket packet;
-            while ((packet = queue.take()) != null) {
+            long lastReport = 0;
+            while (!queue.isStopped()) {
+                packet = queue.poll(15000);
+                if (packet == null) {
+                    if (!queue.isStopped()) report("No game traffic for 15 seconds; checking the VPN adapter again...");
+                    break;
+                }
+                receivedPackets++;
                 Ip4Packet ip = Ip4Defragmenter.defragment(packet.getNewIp4Packet());
                 if (ip == null) continue;
+                if (!isGamePacket(ip)) continue;
                 TcpPacket tcp = ip.getNewTcpPacket();
                 if (tcp == null) continue;
                 if (tcp.getSrcPort() == PORT) incoming.streamBuilder(tcp);
                 else if (tcp.getDstPort() == PORT) outgoing.streamBuilder(tcp);
+                long now = System.nanoTime();
+                if (now - lastReport >= 5000000000L) {
+                    lastReport = now;
+                    report("Listening on " + selectedName + " | TCP packets: " + receivedPackets);
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -187,7 +214,10 @@ public class Sniffer {
     public void closeSniffers() {
         queue.stop(); // Wake Java waiters even when no packet has arrived.
         synchronized (active) {
-            for (Pcap pcap : active) pcap.breakLoop();
+            for (Pcap pcap : active) {
+                try { pcap.breakLoop(); }
+                catch (RuntimeException e) { CaptureDiagnostics.record("Unable to interrupt adapter reader", e); }
+            }
         }
     }
 }

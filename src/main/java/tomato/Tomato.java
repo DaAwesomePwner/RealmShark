@@ -299,6 +299,12 @@ public class Tomato {
             next.setCaptureStatusListener(message -> {
                 if (packetProcessor == next) TomatoGUI.setCaptureDetail(message);
             });
+            next.setStoppedListener(() -> javax.swing.SwingUtilities.invokeLater(() -> {
+                if (packetProcessor == next) {
+                    TomatoMenuBar.stopPacketSniffer();
+                    TomatoGUI.setCaptureDetail("Capture ended. Check logs/capture-health.log, then start capture again.");
+                }
+            }));
             next.start();
         }
     }

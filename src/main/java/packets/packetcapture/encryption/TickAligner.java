@@ -99,5 +99,13 @@ public class TickAligner {
      */
     public void reset() {
         CURRENT_TICK = -1;
+        synced = true; // A captured SYN starts a fresh cipher; retain the initial map/player packets.
+        TickA = null;
+        packetBytes = 0;
+    }
+
+    public void awaitAlignment() {
+        reset();
+        synced = false; // Starting capture mid-connection has no known cipher position.
     }
 }

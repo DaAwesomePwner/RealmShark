@@ -38,10 +38,9 @@ public class ROTMGPacketConstructor {
             if (index >= 4) {
                 if (pSize == 0) {
                     pSize = Util.decodeInt(bytes);
-                    if (pSize > 200000) {
-                        Util.printLogs("Oversize packet construction.");
-                        pSize = 0;
-                        return;
+                    if (pSize < 5 || pSize > bytes.length) {
+                        reset();
+                        throw new IllegalStateException("Invalid game packet framing; capture must resynchronize");
                     }
                 }
 

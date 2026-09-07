@@ -66,4 +66,18 @@ Adapter selection and packet consumption now share a condition-guarded queue. Th
 
 Validation: all **13 tests passed** (8 capture/packet regressions and the existing 5 UI tests). An eight-second passive check of the existing game connection selected **WireGuard Tunnel (link type 12)** and delivered **105 incoming / 37 outgoing payload segments**, with **0 stream errors**. Shutdown left **0 capture reader threads**. The diagnostic printed only status and counts; packet/account contents were not saved or displayed. This validates adapter discovery, decoding and stream delivery, not every downstream gameplay feature.
 
-Close and reopen RealmShark to load the rebuilt JAR. Connect ProtonVPN before starting capture. After reconnecting the VPN or changing protocol while capture is active, stop and start capture to rescan interfaces; automatic adapter migration during a running capture is not implemented. No VPN settings or network drivers were changed.
+Close and reopen RealmShark to load the rebuilt JAR. Connect ProtonVPN before starting capture. The subsequent recovery fix below adds automatic adapter rescanning. No VPN settings or network drivers were changed.
+
+## Live capture recovery (2026-09-06)
+
+Read-only diagnostics of the stalled running app confirmed `processorPresent=true`, `processorAlive=false`, `queueStopped=true`, and zero native capture readers. The window's event thread was responsive. Both Chat and DPS stopped because their shared capture worker had exited while the app retained its processor reference. The old build did not retain the triggering exception, so the specific historical trigger could not be recovered.
+
+The capture worker now supervises individual capture attempts. A reader exit or processing exception closes the attempt and reopens adapters after one second. Fifteen seconds without game traffic refreshes adapter discovery, including VPN interfaces recreated by a reconnect. Explicit Stop cancels retries. Terminal failures reset the UI control through the event thread. The footer reports captured TCP packets, successfully decoded packets and game ticks; these counts restart on each capture attempt.
+
+TCP reassembly now handles overlapping retransmissions, out-of-order first data after SYN, 32-bit sequence wrap, FIN payloads, and changed connection endpoints. ACK-only packets do not accumulate. The old gap handler could skip missing encrypted bytes and had an unreachable stop branch. Gaps exceeding the bounded reorder buffer now trigger recovery instead. Invalid game-frame lengths fail promptly rather than poisoning the framing buffer. Fresh handshakes clear stale framing/alignment history and preserve the initial game packets; capture begun mid-connection still uses the existing alignment mechanism.
+
+Lifecycle failures are recorded in `logs/capture-health.log`, with a single rotated previous file (approximately 256 KiB each). These new logs contain event descriptions, exception classes and stack frames, not packet bodies, addresses or credentials. They are ignored by Git. The legacy optional packet/error logging features are unchanged.
+
+Validation: **28 tests passed**, including the original UI and VPN tests plus recovery, cancellation, TCP, framing and handshake regressions. A passive 20-second check through WireGuard observed **3,686 decoded packets and 73 NEWTICK packets** by the last status update; shutdown left no capture readers. This verifies the real decoder path, not a prolonged gameplay soak or every DPS calculation. No packet contents were printed or saved by the diagnostic.
+
+Restart RealmShark using `Launch-RealmShark.cmd` to load the update. If capture must recover mid-connection and ticks remain at zero, change areas or reconnect the game to provide a fresh handshake. Recovery cannot reconstruct packets already missed during an outage.

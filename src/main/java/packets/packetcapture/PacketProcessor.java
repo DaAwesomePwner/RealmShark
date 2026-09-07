@@ -26,7 +26,13 @@ import java.util.Arrays;
 public class PacketProcessor extends Thread implements PProcessor {
     private final PacketConstructor incomingPacketConstructor;
     private final PacketConstructor outgoingPacketConstructor;
-    private final Sniffer sniffer;
+    private volatile Sniffer sniffer;
+    private volatile boolean stopRequested;
+    private volatile java.util.function.Consumer<String> captureStatus = message -> {};
+    private volatile Runnable stoppedListener = () -> {};
+    private final Object lifecycle = new Object();
+    private volatile long decodedPackets;
+    private volatile long decodedTicks;
     private final PacketLogger logger;
     private final byte[] srcAddr;
 
@@ -35,7 +41,7 @@ public class PacketProcessor extends Thread implements PProcessor {
      * TODO: Add linux and mac support later
      */
     public PacketProcessor() {
-        sniffer = new Sniffer(this);
+        setName("RealmShark packet processor");
         incomingPacketConstructor = new PacketConstructor(this, new RC4(RotMGRC4Keys.INCOMING_STRING));
         outgoingPacketConstructor = new PacketConstructor(this, new RC4(RotMGRC4Keys.OUTGOING_STRING));
         logger = new PacketLogger();
@@ -43,21 +49,37 @@ public class PacketProcessor extends Thread implements PProcessor {
     }
 
     public void setCaptureStatusListener(java.util.function.Consumer<String> listener) {
-        sniffer.setStatusListener(listener);
+        captureStatus = listener == null ? message -> {} : listener;
+    }
+
+    public void setStoppedListener(Runnable listener) {
+        stoppedListener = listener == null ? () -> {} : listener;
+    }
+
+    protected Sniffer createSniffer() { return new Sniffer(this); }
+
+    private void reportCapture(String message) {
+        captureStatus.accept(message);
     }
 
     /**
      * Start method for PacketProcessor.
      */
     public void run() {
-        tapPackets();
+        try { tapPackets(); }
+        catch (RuntimeException | LinkageError e) { CaptureDiagnostics.record("Capture worker terminated", e); }
+        finally { stoppedListener.run(); }
     }
 
     /**
      * Stop method for PacketProcessor.
      */
     public void stopSniffer() {
-        sniffer.closeSniffers();
+        synchronized (lifecycle) {
+            stopRequested = true;
+            if (sniffer != null) sniffer.closeSniffers();
+            lifecycle.notifyAll();
+        }
     }
 
     /**
@@ -65,14 +87,37 @@ public class PacketProcessor extends Thread implements PProcessor {
      */
     public void tapPackets() {
         logger.startLogger();
-        incomingPacketConstructor.startResets();
-        outgoingPacketConstructor.startResets();
-        try {
-            sniffer.startSniffer();
-        } catch (UnsatisfiedLinkError e) {
-            new MissingNpcapGUI();
-        } catch (Exception e) {
-            e.printStackTrace();
+        while (!stopRequested) {
+            incomingPacketConstructor.reset();
+            outgoingPacketConstructor.reset();
+            incomingPacketConstructor.startResets();
+            outgoingPacketConstructor.startResets();
+            decodedPackets = decodedTicks = 0;
+            Sniffer attempt = createSniffer();
+            attempt.setStatusListener(message -> reportCapture(message + " | Decoded: " + decodedPackets + " | Ticks: " + decodedTicks));
+            synchronized (lifecycle) {
+                if (stopRequested) break;
+                sniffer = attempt;
+            }
+            try {
+                CaptureDiagnostics.record("Starting capture attempt", null);
+                attempt.startSniffer();
+            } catch (UnsatisfiedLinkError e) {
+                CaptureDiagnostics.record("Npcap unavailable", e);
+                javax.swing.SwingUtilities.invokeLater(MissingNpcapGUI::new);
+                break;
+            } catch (Exception e) {
+                CaptureDiagnostics.record("Capture attempt failed", e);
+            } finally {
+                attempt.closeSniffers();
+            }
+            synchronized (lifecycle) {
+                if (stopRequested) break;
+                reportCapture("Capture interrupted or idle; reopening adapters...");
+                CaptureDiagnostics.record("Reopening adapters after capture ended or became idle", null);
+                try { lifecycle.wait(1000); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            }
         }
     }
 
@@ -84,6 +129,7 @@ public class PacketProcessor extends Thread implements PProcessor {
      */
     @Override
     public void incomingStream(byte[] data, byte[] srcAddr) {
+        if (stopRequested) return;
         logger.addIncoming(data.length);
         ipEmitter(srcAddr);
         incomingPacketConstructor.build(data);
@@ -97,6 +143,7 @@ public class PacketProcessor extends Thread implements PProcessor {
      */
     @Override
     public void outgoingStream(byte[] data, byte[] srcAddr) {
+        if (stopRequested) return;
         logger.addOutgoing(data.length);
         outgoingPacketConstructor.build(data);
         Register.INSTANCE.emitLogs(logger);
@@ -126,6 +173,7 @@ public class PacketProcessor extends Thread implements PProcessor {
      * @param data Constructed packet data.
      */
     public void processPackets(int type, int size, ByteBuffer data) {
+        if (stopRequested) return;
         if (!PacketType.containsKey(type)) {
             System.err.println("Unknown packet type:" + type + " Data:" + Arrays.toString(data.array()));
             return;
@@ -145,6 +193,8 @@ public class PacketProcessor extends Thread implements PProcessor {
             debugPackets(type, data.array());
             return;
         }
+        decodedPackets++;
+        if (type == PacketType.NEWTICK.getIndex()) decodedTicks++;
         Register.INSTANCE.emitPacketLogs(packetType);
     }
 
@@ -161,7 +211,7 @@ public class PacketProcessor extends Thread implements PProcessor {
      * Closes the sniffer for shutdown.
      */
     public void closeSniffer() {
-        sniffer.closeSniffers();
+        stopSniffer();
     }
 
     @Override

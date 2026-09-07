@@ -6,6 +6,18 @@ import java.util.concurrent.*;
 import static org.junit.Assert.*;
 
 public class CaptureQueueTest {
+    @Test(timeout = 1500) public void idleWaitsExpireAndStillAcceptLaterTraffic() throws Exception {
+        CaptureQueue<Object> queue = new CaptureQueue<>();
+        assertNull(queue.awaitOwnerFor(25));
+        assertNull(queue.poll(25));
+        Object owner = new Object();
+        packets.packetcapture.sniff.netpackets.RawPacket packet = CaptureTestPackets.packet(12, false, 2050, 55000);
+        assertTrue(queue.offer(owner, packet));
+        assertSame(owner, queue.awaitOwnerFor(25));
+        assertSame(packet, queue.poll(25));
+        queue.stop();
+        assertNull(queue.poll(1000));
+    }
     @Test(timeout = 3000) public void aPacketReceivedBeforeWaitingIsNotLostAndOtherAdaptersAreIgnored() throws Exception {
         CaptureQueue<Object> queue = new CaptureQueue<>();
         Object vpn = new Object(), ethernet = new Object();

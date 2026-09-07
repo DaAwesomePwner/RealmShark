@@ -76,6 +76,7 @@ public class PacketConstructor {
      * Reset method to reset both cipher and the aligner tick counter when a reset packet is received.
      */
     public void reset() {
+        firstNonLargePacket = false;
         rc4Cipher.reset();
         tickAligner.reset();
         rotmgConst.reset();
@@ -90,5 +91,6 @@ public class PacketConstructor {
      */
     public void startResets() {
         firstNonLargePacket = true;
+        tickAligner.awaitAlignment();
     }
 }

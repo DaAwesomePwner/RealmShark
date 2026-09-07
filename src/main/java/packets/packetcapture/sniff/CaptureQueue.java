@@ -22,8 +22,28 @@ final class CaptureQueue<S> {
         return owner;
     }
 
+    synchronized S awaitOwnerFor(long timeoutMillis) throws InterruptedException {
+        long deadline = System.nanoTime() + timeoutMillis * 1000000L;
+        while (owner == null && !stopped) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break;
+            java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(this, remaining);
+        }
+        return owner;
+    }
+
     synchronized RawPacket take() throws InterruptedException {
         while (packets.isEmpty() && !stopped) wait();
+        return stopped ? null : packets.removeFirst();
+    }
+
+    synchronized RawPacket poll(long timeoutMillis) throws InterruptedException {
+        long deadline = System.nanoTime() + timeoutMillis * 1000000L;
+        while (packets.isEmpty() && !stopped) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) return null;
+            java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(this, remaining);
+        }
         return stopped ? null : packets.removeFirst();
     }
 
