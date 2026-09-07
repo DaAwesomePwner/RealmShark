@@ -392,7 +392,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
     public static int getStringSize(String str) {
         Graphics2D g2d = ig.createGraphics();
-        FontMetrics fm = g2d.getFontMetrics(mainFont);
+        FontMetrics fm = g2d.getFontMetrics(mainFont != null ? mainFont : g2d.getFont());
         int size = fm.stringWidth(str);
         g2d.dispose();
         return size;

@@ -130,6 +130,9 @@ public class ImageBuffer {
             }
         }
 
+        // Unknown entities and empty equipment slots use zero/nonpositive IDs.
+        // getImage intentionally returns null for them; their damage rows still need rendering.
+        if (img == null) img = getEmptyImg();
         Image scaledInstance = img.getScaledInstance(size - 2, size - 2, Image.SCALE_DEFAULT);
 
         BufferedImage bimage = new BufferedImage(scaledInstance.getWidth(null) + 2, scaledInstance.getHeight(null) + 2, BufferedImage.TYPE_INT_ARGB);
@@ -180,6 +183,7 @@ public class ImageBuffer {
             }
         }
 
+        if (img == null) img = getEmptyImg();
         Image scaledInstance = img.getScaledInstance(size - 2, size - 2, Image.SCALE_SMOOTH);
 
         int baseW = scaledInstance.getWidth(null);

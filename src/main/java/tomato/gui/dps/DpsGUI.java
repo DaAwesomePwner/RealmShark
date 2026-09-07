@@ -157,6 +157,7 @@ public class DpsGUI extends JPanel {
         centerDisplay = display;
         center.removeAll();
         center.add(display);
+        center.revalidate();
         repaint();
     }
 
@@ -319,6 +320,7 @@ public class DpsGUI extends JPanel {
         if (index == -1) {
             liveUpdates = true;
             dList.setText("Live");
+            updateGui();
             return;
         } else {
             liveUpdates = false;
@@ -346,6 +348,7 @@ public class DpsGUI extends JPanel {
             liveUpdates = true;
             dList.setText("Live");
             setCenterDisplay();
+            updateGui();
             return;
         } else if (index < 0) {
             index = 0;
