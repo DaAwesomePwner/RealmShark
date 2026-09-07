@@ -66,13 +66,20 @@ public class PacketProcessor extends Thread implements PProcessor {
         String location = frames.length == 0 ? "" : " in " + frames[0].getClassName().replaceAll(".*\\.", "")
                 + "." + frames[0].getMethodName();
         stopReason = "Capture stopped: " + cause.getClass().getSimpleName() + location + ". See logs/capture-health.log.";
+        if (failure instanceof LinkageError) {
+            String missingClass = CaptureDiagnostics.missingClassName(cause);
+            stopReason = "Restart RealmShark using Launch-RealmShark.cmd: Java could not load an application class"
+                    + (missingClass.isEmpty() ? "" : " (" + missingClass + ")")
+                    + ". Restarting capture alone cannot repair this. See logs/capture-health.log.";
+        }
         CaptureDiagnostics.record("Capture worker terminated", failure);
     }
 
     protected Sniffer createSniffer() { return new Sniffer(this); }
 
     private void reportCapture(String message) {
-        captureStatus.accept(message);
+        try { captureStatus.accept(message); }
+        catch (RuntimeException e) { CaptureDiagnostics.record("Capture status listener failed", e); }
     }
 
     /**
@@ -90,7 +97,7 @@ public class PacketProcessor extends Thread implements PProcessor {
     public void stopSniffer() {
         synchronized (lifecycle) {
             stopRequested = true;
-            if (sniffer != null) sniffer.closeSniffers();
+            if (sniffer != null) closeAttempt(sniffer);
             lifecycle.notifyAll();
         }
     }
@@ -100,21 +107,26 @@ public class PacketProcessor extends Thread implements PProcessor {
      */
     public void tapPackets() {
         logger.startLogger();
+        int consecutiveFailures = 0;
         while (!stopRequested) {
-            incomingPacketConstructor.reset();
-            outgoingPacketConstructor.reset();
-            incomingPacketConstructor.startResets();
-            outgoingPacketConstructor.startResets();
-            decodedPackets = decodedTicks = 0;
-            Sniffer attempt = createSniffer();
-            attempt.setStatusListener(message -> reportCapture(message + " | Decoded: " + decodedPackets + " | Ticks: " + decodedTicks));
-            synchronized (lifecycle) {
-                if (stopRequested) break;
-                sniffer = attempt;
-            }
+            Sniffer attempt = null;
+            long retryDelay = 1000;
+            String retryReason = "Capture interrupted or idle";
             try {
                 CaptureDiagnostics.record("Starting capture attempt", null);
+                incomingPacketConstructor.reset();
+                outgoingPacketConstructor.reset();
+                incomingPacketConstructor.startResets();
+                outgoingPacketConstructor.startResets();
+                decodedPackets = decodedTicks = 0;
+                attempt = createSniffer();
+                attempt.setStatusListener(message -> reportCapture(message + " | Decoded: " + decodedPackets + " | Ticks: " + decodedTicks));
+                synchronized (lifecycle) {
+                    if (stopRequested) break;
+                    sniffer = attempt;
+                }
                 attempt.startSniffer();
+                consecutiveFailures = 0;
             } catch (UnsatisfiedLinkError e) {
                 stopReason = "Capture stopped: Npcap could not load. Install or repair Npcap, then restart RealmShark.";
                 CaptureDiagnostics.record("Npcap unavailable", e);
@@ -122,17 +134,31 @@ public class PacketProcessor extends Thread implements PProcessor {
                 break;
             } catch (Exception e) {
                 CaptureDiagnostics.record("Capture attempt failed", e);
+                retryDelay = 1000L << consecutiveFailures;
+                consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
+                retryReason = "Capture failed (" + e.getClass().getSimpleName() + ")";
             } finally {
-                attempt.closeSniffers();
+                if (attempt != null) closeAttempt(attempt);
+                sniffer = null;
             }
             synchronized (lifecycle) {
                 if (stopRequested) break;
-                reportCapture("Capture interrupted or idle; reopening adapters...");
+                reportCapture(retryReason + "; reopening adapters in " + (retryDelay / 1000) + "s...");
                 CaptureDiagnostics.record("Reopening adapters after capture ended or became idle", null);
-                try { lifecycle.wait(1000); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                try { lifecycle.wait(retryDelay); }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    stopReason = "Capture worker was interrupted. Start capture to resume.";
+                    CaptureDiagnostics.record("Capture worker interrupted while waiting to retry", null);
+                    break;
+                }
             }
         }
+    }
+
+    private void closeAttempt(Sniffer attempt) {
+        try { attempt.closeSniffers(); }
+        catch (RuntimeException e) { CaptureDiagnostics.record("Capture cleanup failed", e); }
     }
 
     /**

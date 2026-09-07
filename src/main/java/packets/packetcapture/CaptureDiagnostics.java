@@ -12,6 +12,8 @@ public final class CaptureDiagnostics {
         StringBuilder line = new StringBuilder(Instant.now().toString()).append(" ").append(event);
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             line.append("\n  ").append(cause.getClass().getName());
+            String missingClass = missingClassName(cause);
+            if (!missingClass.isEmpty()) line.append(" [missing class: ").append(missingClass).append(']');
             for (StackTraceElement frame : cause.getStackTrace()) line.append("\n    at ").append(frame);
         }
         line.append('\n');
@@ -25,5 +27,14 @@ public final class CaptureDiagnostics {
         } catch (java.io.IOException e) {
             System.err.println("[Capture] Unable to write capture health log: " + e.getClass().getSimpleName());
         }
+    }
+
+    // Only class identifiers are safe here; arbitrary exception messages may contain packet data.
+    static String missingClassName(Throwable failure) {
+        if (!(failure instanceof ClassNotFoundException) && !(failure instanceof NoClassDefFoundError)) return "";
+        String message = failure.getMessage();
+        return message != null && message.length() <= 240
+                && message.matches("[A-Za-z_$][A-Za-z0-9_$]*(?:[./][A-Za-z_$][A-Za-z0-9_$]*)*")
+                ? message.replace('/', '.') : "";
     }
 }
