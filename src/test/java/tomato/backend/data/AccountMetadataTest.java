@@ -6,6 +6,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
+import javax.swing.JTable;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import packets.data.*;
@@ -14,6 +15,7 @@ import packets.incoming.*;
 import packets.outgoing.HelloPacket;
 import tomato.backend.TomatoPacketCapture;
 import tomato.gui.character.CharacterPetsGUI;
+import tomato.gui.myinfo.MyInfoGUI;
 import tomato.realmshark.RealmCharacter;
 import static org.junit.Assert.*;
 
@@ -224,6 +226,225 @@ public class AccountMetadataTest {
                 } catch (IllegalAccessException e) { throw new AssertionError(e); }
             });
         } finally { release.countDown(); data.awaitMetadataIdle(2000); SwingUtilities.invokeAndWait(CharacterPetsGUI::clearPets); }
+    }
+
+    @Test public void myInfoClearsDisplayedPlayerAndPetOnRealMapAndHelloResets() throws Exception {
+        TomatoData data = petData(new AtomicReference<>(petXml()));
+        MyInfoGUI view = myInfo(data);
+        TomatoPacketCapture capture = new TomatoPacketCapture(data);
+        connect(capture, "token-A", "{s.nexus}");
+        capture.packetCapture(build("A", 75));
+        loadRoster(data);
+        assertMana(view, 54d, true);
+        Entity oldPlayer = data.player, oldPet = data.pet;
+        TomatoData.MyInfoIdentity oldIdentity = data.myInfoIdentity();
+        data.clear();
+        MyInfoGUI.updatePet(oldPet); MyInfoGUI.updatePlayer(oldPlayer);
+        MyInfoGUI.updateSnapshot(data, oldIdentity, oldPlayer, oldPet, TomatoData.PetAvailability.PRESENT);
+        SwingUtilities.invokeAndWait(() -> assertEquals(0, table(view).getRowCount()));
+        assertNull(data.pet);
+
+        data.setUserId(1, 7, "AAAAAA=="); capture.packetCapture(build("A", 75)); loadRoster(data);
+        assertMana(view, 54d, true);
+        data.updateToken("token-A"); // Reusing a credential is still a new capture generation.
+        MyInfoGUI.updatePlayer(data.player); MyInfoGUI.updatePet(oldPet);
+        SwingUtilities.invokeAndWait(() -> assertEquals(0, table(view).getRowCount()));
+        assertNull(data.pet);
+        assertTrue(data.awaitMetadataIdle(2000));
+    }
+
+    @Test public void blockedEdtCannotMixQueuedOldPetWithNewMapCharacterOrAccount() throws Exception {
+        for (int transition = 0; transition < 4; transition++) {
+            TomatoData data = petData(new AtomicReference<>(petXml()));
+            MyInfoGUI view = myInfo(data);
+            TomatoPacketCapture capture = new TomatoPacketCapture(data);
+            connect(capture, "token-A", "{s.nexus}"); capture.packetCapture(build("A", 75)); loadRoster(data);
+            assertMana(view, 54d, true);
+            Entity oldPlayer = data.player, oldPet = data.pet;
+            TomatoData.MyInfoIdentity identity = data.myInfoIdentity();
+            final int change = transition;
+            whileEdtBlocked(() -> {
+                MyInfoGUI.updatePlayer(oldPlayer); MyInfoGUI.updatePet(oldPet);
+                SwingUtilities.invokeLater(() -> MyInfoGUI.updatePet(oldPet));
+                switchBuild(data, capture, change);
+                // Exercise both legacy callbacks and an already detached old-generation publication.
+                MyInfoGUI.updatePet(oldPet); MyInfoGUI.updatePlayer(oldPlayer);
+                MyInfoGUI.updateSnapshot(data, identity, oldPlayer, oldPet, TomatoData.PetAvailability.PRESENT);
+            });
+            assertMana(view, null, false);
+            SwingUtilities.invokeAndWait(() -> assertEquals(10d, (Double) value(view, "Wisdom"), 0));
+            assertNull(data.pet);
+            assertNotSame(identity, data.myInfoIdentity());
+            assertEquals(change == 1 ? 8 : 7, data.myInfoIdentity().characterId);
+            assertEquals(CharacterJournal.accountKey(change >= 2 ? "B" : "A"), data.myInfoIdentity().account);
+            assertTrue(data.awaitMetadataIdle(2000));
+        }
+    }
+
+    @Test public void delayedPetRosterCannotRepublishAfterMapCharacterOrAccountSwitch() throws Exception {
+        for (int transition = 0; transition < 4; transition++) {
+            CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+            AtomicInteger requests = new AtomicInteger();
+            TomatoData data = data((token, endpoint) -> {
+                if (!"char/list".equals(endpoint)) return "<AccountPowerups/>";
+                if (requests.incrementAndGet() > 1) { entered.countDown(); await(release); }
+                return petRoster(petXml());
+            });
+            MyInfoGUI view = myInfo(data);
+            TomatoPacketCapture capture = new TomatoPacketCapture(data);
+            try {
+                connect(capture, "token-A", "{s.nexus}"); capture.packetCapture(build("A", 75)); loadRoster(data);
+                assertMana(view, 54d, true);
+                data.charListHttpRequest(); assertTrue(entered.await(2, TimeUnit.SECONDS));
+                switchBuild(data, capture, transition);
+                release.countDown(); assertTrue(data.awaitMetadataIdle(2000));
+                capture.packetCapture(tick(status(1)));
+                assertMana(view, null, false);
+                assertNull(data.pet);
+            } finally { release.countDown(); data.awaitMetadataIdle(2000); }
+        }
+    }
+
+    @Test public void petMetadataDistinguishesExplicitAbsenceMissingAndPartialAbilities() throws Exception {
+        AtomicReference<String> pet = new AtomicReference<>(petXml());
+        TomatoData data = petData(pet); MyInfoGUI view = myInfo(data);
+        TomatoPacketCapture capture = new TomatoPacketCapture(data);
+        connect(capture, "token-A", "{s.nexus}"); capture.packetCapture(build("A", 75)); loadRoster(data);
+        assertMana(view, 54d, true);
+        for (String unknown : new String[] {"", "<Pet instanceId='42'/>",
+            "<Pet><Abilities><Ability type='408' power='100' points='0'/></Abilities></Pet>",
+            "<Pet><Abilities><Ability type='408' points='0'/></Abilities></Pet>"}) {
+            pet.set(unknown); loadRoster(data);
+            assertMana(view, null, false);
+            assertNull(data.pet);
+            SwingUtilities.invokeAndWait(() -> assertTrue(note(view, "Pet capture").contains("not yet known")));
+        }
+        pet.set("<Pet/>"); loadRoster(data);
+        assertMana(view, 9d, false);
+        SwingUtilities.invokeAndWait(() -> assertTrue(note(view, "Pet capture").contains("no equipped pet")));
+        pet.set(petXml()); loadRoster(data);
+        assertMana(view, 54d, true);
+    }
+
+    @Test public void petSnapshotsAreDetachedAndForeignOwnersCannotPublishIntoCurrentView() throws Exception {
+        TomatoData data = petData(new AtomicReference<>(petXml())); MyInfoGUI view = myInfo(data);
+        TomatoPacketCapture capture = new TomatoPacketCapture(data);
+        connect(capture, "token-A", "{s.nexus}"); capture.packetCapture(build("A", 75)); loadRoster(data);
+        assertMana(view, 54d, true);
+        TomatoData other = petData(new AtomicReference<>(petXml()));
+        whileEdtBlocked(() -> {
+            MyInfoGUI.updatePet(data.pet);
+            data.pet.stat.get(StatType.PET_FIRST_ABILITY_POWER_STAT).statValue = 1;
+            Entity foreign = new Entity(other, data.player.id, 0);
+            foreign.stat.set(StatType.WISDOM_STAT, stat(StatType.WISDOM_STAT, 999));
+            MyInfoGUI.updatePlayer(foreign); MyInfoGUI.updatePet(foreign);
+            MyInfoGUI.updateSnapshot(other, other.myInfoIdentity(), foreign, foreign, TomatoData.PetAvailability.PRESENT);
+            MyInfoGUI.updateSnapshot(data, data.myInfoIdentity(), data.player, foreign, TomatoData.PetAvailability.PRESENT);
+            MyInfoGUI.updateSnapshot(data, data.myInfoIdentity(), foreign, data.pet, TomatoData.PetAvailability.PRESENT);
+        });
+        assertMana(view, 54d, true);
+        SwingUtilities.invokeAndWait(() -> assertEquals(45d, (Double) value(view, "Magic heal"), .001));
+    }
+
+    @Test public void petMetadataWaitsForOwnerIdentityAndMissingCurrentCharacterClearsIt() throws Exception {
+        AtomicReference<String> roster = new AtomicReference<>(petRoster(petXml()));
+        TomatoData data = data((token, endpoint) -> "char/list".equals(endpoint) ? roster.get() : "<AccountPowerups/>");
+        MyInfoGUI view = myInfo(data); TomatoPacketCapture capture = new TomatoPacketCapture(data);
+        connect(capture, "token-A", "{s.nexus}");
+        capture.packetCapture(update(object(1, 782, stat(StatType.WISDOM_STAT, 75),
+            stat(StatType.MAX_MP_STAT, 400), stat(StatType.MAX_HP_STAT, 900), stringStat(StatType.UNIQUE_DATA_STRING, ""))));
+        loadRoster(data); // Request is complete, but no authenticated account has been observed.
+        assertNull(data.pet); assertMana(view, null, false);
+        capture.packetCapture(tick(status(1, stringStat(StatType.ACCOUNT_ID_STAT, "A"))));
+        assertMana(view, 54d, true);
+        roster.set(petRoster(petXml()).replace("id='7'", "id='8'"));
+        loadRoster(data);
+        assertNull(data.pet); assertMana(view, null, false);
+        assertNotNull(data.charMap.get(8));
+        roster.set("<Chars><Char id='7'><ObjectType>782</ObjectType><Pet/></Char></Chars>");
+        loadRoster(data); // Partial roster: missing equipment must not prevent publishing explicit pet absence.
+        assertMana(view, 9d, false);
+    }
+
+    private TomatoData petData(AtomicReference<String> pet) throws IOException {
+        return data((token, endpoint) -> "char/list".equals(endpoint) ? petRoster(pet.get()) : "<AccountPowerups/>");
+    }
+
+    private static void loadRoster(TomatoData data) throws Exception {
+        data.charListHttpRequest(); assertTrue(data.awaitMetadataIdle(2000)); data.rememberCharacter();
+    }
+
+    private static String petXml() {
+        return "<Pet instanceId='42'><Abilities><Ability type='408' power='100' points='0'/>"
+            + "<Ability type='407' power='100' points='0'/><Ability type='406' power='100' points='0'/></Abilities></Pet>";
+    }
+
+    private static String petRoster(String pet) {
+        return "<Chars><Account><AccountId>A</AccountId></Account><Char id='7'><ObjectType>782</ObjectType>"
+            + "<Equipment>-1,-1,-1,-1</Equipment>" + pet + "</Char></Chars>";
+    }
+
+    private static UpdatePacket build(String account, int wisdom) {
+        return update(object(1, 782, stringStat(StatType.ACCOUNT_ID_STAT, account),
+            stat(StatType.WISDOM_STAT, wisdom), stat(StatType.MAX_MP_STAT, 400), stat(StatType.MAX_HP_STAT, 900),
+            stringStat(StatType.UNIQUE_DATA_STRING, "")));
+    }
+
+    private static void switchBuild(TomatoData data, TomatoPacketCapture capture, int transition) {
+        if (transition == 3) {
+            capture.packetCapture(tick(status(1, stringStat(StatType.ACCOUNT_ID_STAT, "B"),
+                stat(StatType.WISDOM_STAT, 10), stringStat(StatType.UNIQUE_DATA_STRING, ""))));
+            return;
+        }
+        if (transition == 0) data.clear();
+        if (transition == 2) data.updateToken("token-B");
+        data.setUserId(1, transition == 1 ? 8 : 7, "AAAAAA==");
+        capture.packetCapture(build(transition == 2 ? "B" : "A", 10));
+    }
+
+    private static MyInfoGUI myInfo(TomatoData data) throws Exception {
+        AtomicReference<MyInfoGUI> view = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> view.set(new MyInfoGUI(data)));
+        return view.get();
+    }
+
+    private static JTable table(java.awt.Container root) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (child instanceof JTable) return (JTable) child;
+            if (child instanceof java.awt.Container) { JTable found = table((java.awt.Container) child); if (found != null) return found; }
+        }
+        return null;
+    }
+
+    private static int detailRow(MyInfoGUI view, String name) {
+        javax.swing.table.TableModel model = table(view).getModel();
+        for (int i = 0; i < model.getRowCount(); i++) if (name.equals(model.getValueAt(i, 1))) return i;
+        return -1;
+    }
+    private static Object value(MyInfoGUI view, String name) { return table(view).getModel().getValueAt(detailRow(view, name), 2); }
+    private static String note(MyInfoGUI view, String name) { return (String) table(view).getModel().getValueAt(detailRow(view, name), 4); }
+
+    private static void assertMana(MyInfoGUI view, Double expected, boolean hasPet) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Object actual = value(view, "Estimated mana recovery");
+            if (expected == null) assertNull(actual); else assertEquals(expected, (Double) actual, .001);
+            assertEquals(hasPet, detailRow(view, "Magic heal") >= 0);
+        });
+    }
+
+    private static void whileEdtBlocked(Runnable captureWork) throws Exception {
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
+        SwingUtilities.invokeLater(() -> {
+            entered.countDown();
+            try { assertTrue("EDT blocker was not released", release.await(5, TimeUnit.SECONDS)); }
+            catch (InterruptedException e) { throw new AssertionError(e); }
+        });
+        ExecutorService producer = Executors.newSingleThreadExecutor();
+        try {
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            producer.submit(captureWork).get(2, TimeUnit.SECONDS);
+        } finally { release.countDown(); producer.shutdownNow(); }
+        SwingUtilities.invokeAndWait(() -> {});
     }
 
     private static void connect(TomatoPacketCapture capture, String token, String mapName) {

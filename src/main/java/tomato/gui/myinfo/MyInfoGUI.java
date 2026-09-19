@@ -18,10 +18,13 @@ import tomato.gui.modern.ContentStyle;
 /** Captured character details and explicitly scoped build estimates. */
 public class MyInfoGUI extends JPanel {
     private static volatile MyInfoGUI INSTANCE;
+    private final TomatoData data;
     private Entity player, pet;
+    private TomatoData.PetAvailability petAvailability = TomatoData.PetAvailability.UNKNOWN;
     private final Object pendingLock = new Object();
-    private Entity pendingPlayer, pendingPet;
-    private boolean playerPending, petPending, refreshScheduled, dirty;
+    private BuildSnapshot pending;
+    private boolean refreshScheduled, dirty;
+    private long latestGeneration = -1;
     private final JLabel status = new JLabel("Enter the game during capture to see your build.");
     private final JLabel[] summary = new JLabel[4];
     private final JLabel[] icons = new JLabel[4];
@@ -347,7 +350,7 @@ public class MyInfoGUI extends JPanel {
     };
 
     public MyInfoGUI(TomatoData data) {
-        INSTANCE = this;
+        this.data = data;
         setLayout(new BorderLayout(0, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel header = new JPanel(new BorderLayout(0, 8));
@@ -444,6 +447,7 @@ public class MyInfoGUI extends JPanel {
                 dirty = false; updateMe();
             }
         });
+        INSTANCE = this;
     }
 
     private void filter() {
@@ -463,34 +467,53 @@ public class MyInfoGUI extends JPanel {
 
     public static void updatePlayer(Entity value) {
         MyInfoGUI view = INSTANCE;
-        if (view != null) view.enqueue(value, true);
+        if (view != null && view.data != null) view.data.publishMyInfoPlayer(value);
     }
 
     public static void updatePet(Entity value) {
         MyInfoGUI view = INSTANCE;
-        if (view != null) view.enqueue(value, false);
+        if (view != null && view.data != null) view.data.publishMyInfoPet(value);
     }
 
-    private void enqueue(Entity value, boolean character) {
-        Entity copy = copyStats(value);
-        synchronized (pendingLock) {
-            if (character) { pendingPlayer = copy; playerPending = true; }
-            else { pendingPet = copy; petPending = true; }
-            if (refreshScheduled) return;
-            refreshScheduled = true;
+    /** One detached owner/pet pair per publication; resets replace pending work even with a blocked EDT. */
+    public static void updateSnapshot(TomatoData source, TomatoData.MyInfoIdentity identity,
+                                      Entity player, Entity pet, TomatoData.PetAvailability availability) {
+        MyInfoGUI view = INSTANCE;
+        if (view == null || source == null || view.data != source
+            || !source.isCurrentMyInfoSnapshot(identity, player, pet, availability)) return;
+        BuildSnapshot snapshot = new BuildSnapshot(identity, copyStats(player), copyStats(pet), availability);
+        synchronized (view.pendingLock) {
+            if (!source.isCurrentMyInfoSnapshot(identity, player, pet, availability)
+                || identity.generation < view.latestGeneration) return;
+            view.latestGeneration = identity.generation;
+            view.pending = snapshot;
+            if (view.refreshScheduled) return;
+            view.refreshScheduled = true;
         }
-        SwingUtilities.invokeLater(this::drainUpdates);
+        SwingUtilities.invokeLater(view::drainUpdates);
     }
 
     private void drainUpdates() {
         synchronized (pendingLock) {
-            if (playerPending) player = pendingPlayer;
-            if (petPending) pet = pendingPet;
-            pendingPlayer = pendingPet = null;
-            playerPending = petPending = refreshScheduled = false;
+            BuildSnapshot snapshot = pending;
+            boolean current = snapshot != null && data.myInfoIdentity() == snapshot.identity;
+            player = current ? snapshot.player : null;
+            pet = current ? snapshot.pet : null;
+            petAvailability = current ? snapshot.availability : TomatoData.PetAvailability.UNKNOWN;
+            pending = null;
+            refreshScheduled = false;
         }
         dirty = true;
         if (isShowing() || !isDisplayable()) { dirty = false; updateMe(); }
+    }
+
+    private static final class BuildSnapshot {
+        final TomatoData.MyInfoIdentity identity;
+        final Entity player, pet;
+        final TomatoData.PetAvailability availability;
+        BuildSnapshot(TomatoData.MyInfoIdentity identity, Entity player, Entity pet, TomatoData.PetAvailability availability) {
+            this.identity = identity; this.player = player; this.pet = pet; this.availability = availability;
+        }
     }
 
     /** Copy only build statistics on the producer; combat histories are not needed by this view. */
@@ -541,9 +564,7 @@ public class MyInfoGUI extends JPanel {
                 if (i == 10 && value != null) value /= 1000;
                 add("Character", names[i], value, i == 10 ? "×" : "points", value == null ? "Not captured yet." : "Captured character stat.");
             }
-            String[] enchants;
-            try { enchants = ParseEnchants.extractEnchants(player); }
-            catch (RuntimeException e) { enchants = new String[] {"Unavailable", "Unavailable", "Unavailable", "Unavailable"}; }
+            ParseEnchants.EquippedCapture enchants = ParseEnchants.equippedCapture(player);
             StatType[] slots = {StatType.INVENTORY_0_STAT, StatType.INVENTORY_1_STAT, StatType.INVENTORY_2_STAT, StatType.INVENTORY_3_STAT};
             Weapon weapon = null;
             for (int i = 0; i < 4; i++) {
@@ -551,11 +572,12 @@ public class MyInfoGUI extends JPanel {
                 String item = id == null ? "Not captured" : id < 0 ? "Empty slot" : itemName(id.intValue());
                 equipmentNames[i].setText(item); equipmentNames[i].setToolTipText(item);
                 if (id != null && id >= 0) displayImg(icons[i], id.intValue());
-                add("Equipment", SLOT_NAMES[i], id, "item ID", item + (enchants[i].isEmpty() ? "" : "\n" + enchants[i]));
+                String enchant = enchants.description(i);
+                add("Equipment", SLOT_NAMES[i], id, "item ID", item + (enchant.isEmpty() ? "" : "\n" + enchant));
                 if (i == 0 && id != null && id >= 0) weapon = Equip.get(id.intValue());
             }
             damage(weapon);
-            recovery();
+            recovery(enchants);
             dust();
         } else status.setText("Enter the game during capture to see your build.");
         model.fireTableDataChanged();
@@ -605,32 +627,36 @@ public class MyInfoGUI extends JPanel {
                 + format(interval) + " sec. Estimate assumes continuous hits.");
         }
         add("Damage", "Weapon + observed pet attacks", total == null ? null : total + petDps, "dmg/sec",
-            assumptions + (pet == null ? " No pet captured; pet damage excluded." : " Includes captured pet attack abilities."));
+            assumptions + (petAvailability == TomatoData.PetAvailability.UNKNOWN ? " Partial estimate: pet data unavailable; pet damage excluded."
+                : petAvailability == TomatoData.PetAvailability.ABSENT ? " Metadata reports no equipped pet." : " Includes pet attack abilities from character metadata."));
         add("Damage", "Ability damage", null, "dmg/sec", "Not implemented; excluded from damage estimates.");
-        if (pet == null) add("Pet", "Pet capture", null, "", "No pet captured yet.");
+        if (pet == null) add("Pet", "Pet capture", null, "", petAvailability == TomatoData.PetAvailability.ABSENT
+            ? "Metadata reports no equipped pet." : "Pet data not yet known for this account, character and capture generation.");
     }
 
-    private void recovery() {
+    private void recovery(ParseEnchants.EquippedCapture enchants) {
         Double wis = stat(player, StatType.WISDOM_STAT), maxMp = stat(player, StatType.MAX_MP_STAT),
             maxHp = stat(player, StatType.MAX_HP_STAT);
         Double manaEnchant = null, hpEnchant = null;
         String mode = outOfCombatCheck.isSelected() ? "Out of combat" : "In combat";
-        try {
-            String[] raw = ParseEnchants.getEnchantStrings(player);
+        String[] raw = enchants.completeCodes();
+        if (raw != null) {
             if (maxMp != null) manaEnchant = (double) ParseEnchants.getManaRegenPerSecondFromEnchants(raw, maxMp.intValue(), outOfCombatCheck.isSelected());
             if (maxHp != null) hpEnchant = (double) ParseEnchants.getLifeRegenPerSecondFromEnchants(raw, maxHp.intValue(), outOfCombatCheck.isSelected());
-        } catch (RuntimeException ignored) { /* Missing or malformed enchant data stays unavailable. */ }
+        }
         Double base = wis == null ? null : wis * .12;
         add("Recovery", "Wisdom mana recovery", base, "mana/sec", "Existing estimate: Wisdom × 0.12.");
-        add("Recovery", "Enchant mana recovery", manaEnchant, "mana/sec", mode + " • Supported enchant effects; requires maximum mana.");
+        add("Recovery", "Enchant mana recovery", manaEnchant, "mana/sec", mode + " • Supported enchant effects; requires maximum mana. " + enchants.evidence());
         int level = getPetStat(408);
         double petMana = level < 1 ? 0 : petManaPerLevel[level - 1] / (double) petRegenTimeMpHp[level - 1];
         if (level > 0) add("Pet", "Magic heal", petMana, "mana/sec", "Level " + level + " • "
             + petManaPerLevel[level - 1] + " mana every " + petRegenTimeMpHp[level - 1] + " sec.");
-        Double total = base == null || manaEnchant == null ? null : base + manaEnchant + petMana;
-        add("Recovery", "Estimated mana recovery", total, "mana/sec", mode + " • Wisdom + supported enchants + observed pet Magic Heal. Does not model pet suppression.");
+        Double total = base == null || manaEnchant == null || petAvailability == TomatoData.PetAvailability.UNKNOWN
+            ? null : base + manaEnchant + petMana;
+        add("Recovery", "Estimated mana recovery", total, "mana/sec", mode + " • Wisdom + supported enchants + pet Magic Heal. Does not model pet suppression. "
+            + enchants.evidence() + (petAvailability == TomatoData.PetAvailability.UNKNOWN ? " Pet data unavailable for the current character." : ""));
         summary[3].setText(total == null ? "—" : format(total));
-        add("Recovery", "Enchant health recovery", hpEnchant, "hp/sec", mode + " • Partial estimate only. Base Vitality recovery and pet Heal are not included.");
+        add("Recovery", "Enchant health recovery", hpEnchant, "hp/sec", mode + " • Partial estimate only. Base Vitality recovery and pet Heal are not included. " + enchants.evidence());
     }
 
     private void dust() {

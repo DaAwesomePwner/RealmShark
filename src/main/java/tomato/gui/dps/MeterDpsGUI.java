@@ -38,6 +38,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private List<CombatMeterData.Row> visible = new ArrayList<>();
     private CombatMeterData snapshot = new CombatMeterData(Collections.emptyList(), null);
     private Entity localPlayer;
+    private DpsData.LocalPlayerContext playerContext;
     private Object encounter;
     private boolean updating;
     private String mapName = "No encounter";
@@ -145,12 +146,16 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
 
     void setContext(Object key, Entity player) {
+        setContext(key, player, DpsData.LocalPlayerContext.capture(player));
+    }
+    void setContext(Object key, Entity player, DpsData.LocalPlayerContext context) {
         if (encounter != key) {
             encounter = key; paused.setSelected(false);
             updating = true; enemyList.clearSelection(); updating = false;
             missingLocalSpawn = key instanceof DpsData && missingLocalSpawn((DpsData)key);
         }
         localPlayer = player;
+        playerContext = context;
     }
     static boolean missingLocalSpawn(DpsData saved) {
         if (saved.debugPackets == null) return false;
@@ -218,7 +223,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         for (CombatMeterData.Row row : snapshot.rows) {
             if (!"All classes".equals(classes.getSelectedItem()) && !row.className().equals(classes.getSelectedItem())) continue;
             if (!String.valueOf(row.player.name()).toLowerCase(Locale.ROOT).contains(query)) continue;
-            if (Filter.shouldFilter() && Filter.filter(row.player, localPlayer) != 1) continue;
+            if (Filter.shouldFilter(playerContext) && Filter.filter(row.player, playerContext) != 1) continue;
             visible.add(row);
         }
         updateMeterMaximum();
@@ -324,7 +329,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             setBorder(BorderFactory.createCompoundBorder(getBorder(),
                 BorderFactory.createEmptyBorder(0, 0, 0, amountLabel.getPreferredSize().width + 8)));
             setFont(ContentStyle.emphasis(t.getFont()));
-            setText((row + 1) + "   " + String.valueOf(value) + (entry.player.isUser() ? " (you)" : "") + (Filter.filter(entry.player, localPlayer) == 2 ? " ★" : ""));
+            setText((row + 1) + "   " + String.valueOf(value) + (entry.player.isUser() ? " (you)" : "") + (Filter.filter(entry.player, playerContext) == 2 ? " ★" : ""));
             setToolTipText(String.valueOf(value) + " · " + entry.className() + " · " + metric.getSelectedItem() + ": " + amount);
             setOpaque(false); return this;
         }

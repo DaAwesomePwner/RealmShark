@@ -59,12 +59,15 @@ public class DpsRefreshTest {
         Entity boss=new Entity(data,20,0); hits(data).put(20,boss);
         Projectile projectile=new Projectile(100); boss.genericDamageHit(player,projectile,1000); boss.updateDamageTaken(1000);
         player.getDamageList().add(new Damage(boss,1100,25)); // Cyclic owner links must be copied once.
+        StatData guild=new StatData(); guild.stringStatValue="Snapshot guild"; player.stat.set(StatType.GUILD_NAME_STAT,guild);
         DpsSnapshot snapshot=DpsSnapshot.capture(data);
         assertSame(snapshot.player,snapshot.targets[0].getDamageList().get(0).owner);
         assertSame(snapshot.targets[0],snapshot.player.getDamageList().get(0).owner);
         player.stat.get(StatType.NAME_STAT).stringStatValue="Changed";
+        guild.stringStatValue="Changed guild";
         boss.genericDamageHit(player,new Projectile(900),2000); boss.updateDamageTaken(2000); projectile.clear();
         assertEquals("Local test",snapshot.player.getStatName());
+        assertEquals("Snapshot guild",snapshot.localPlayerContext.guild);
         assertEquals(1,snapshot.targets[0].getDamageList().size());
         assertEquals(100,snapshot.targets[0].getDamageList().get(0).projectile.getDamage());
         assertEquals(100,snapshot.targets[0].getPlayerDamageList().get(0).damage);
@@ -73,6 +76,22 @@ public class DpsRefreshTest {
         assertEquals(-4686692941424283051L,ObjectStreamClass.lookup(Entity.class).getSerialVersionUID());
         assertEquals(5852326746681358741L,ObjectStreamClass.lookup(Projectile.class).getSerialVersionUID());
     }
+    @Test public void archiveKeepsLocalContextWithoutLocalDamageAfterCaptureIsCleared() {
+        TomatoData data = new TomatoData(); data.map = map("The Nest");
+        Entity local = player(data);
+        StatData guild = new StatData(); guild.stringStatValue = "Recorded guild";
+        local.stat.set(StatType.GUILD_NAME_STAT, guild);
+        data.clear();
+        assertNull(data.player);
+        assertEquals(1, data.dpsData.size());
+        DpsData saved = data.dpsData.get(0);
+        assertTrue(saved.hitList.isEmpty());
+        local.objectType = 775; guild.stringStatValue = "Next guild";
+        assertEquals(768, saved.getLocalPlayerContext().classType);
+        assertEquals("Recorded guild", saved.getLocalPlayerContext().guild);
+        assertEquals("Recorded guild", saved.getSaveFile(false).getLocalPlayerContext().guild);
+    }
+
     @Test public void selectedEnemySurvivesReplacementSnapshots() throws Exception {
         TomatoData data=new TomatoData(); data.map=map("The Nest"); Entity player=player(data);
         Entity boss=new Entity(data,20,0); hits(data).put(20,boss); boss.genericDamageHit(player,new Projectile(100),1000);

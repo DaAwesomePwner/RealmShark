@@ -146,24 +146,17 @@ public class DungeonListGUI extends JPanel {
         List<DpsData> exports = new ArrayList<>();
         List<String> names = new ArrayList<>();
         for (DpsData saved : encounters) if (saved != null && checked.contains(saved)) {
-            exports.add(new DpsData(saved.map, new HashMap<>(saved.hitList), new ArrayList<>(saved.deathNotifications),
-                saved.totalDungeonPcTime, saved.dungeonStartTime,
-                debug && saved.debugPackets != null ? new ArrayList<>(saved.debugPackets) : null));
+            exports.add(saved.getSaveFile(debug));
             names.add(name(saved));
         }
         setBusy(true, "Saving " + exports.size() + " encounters…");
         SwingWorker<Integer, Void> worker = new SwingWorker<Integer, Void>() {
             protected Integer doInBackground() throws IOException {
                 SimpleDateFormat date = new SimpleDateFormat("yyyy-MM-dd-HH.mm.ss");
-                Set<String> used = new HashSet<>();
                 for (int i = 0; i < exports.size(); i++) {
                     DpsData saved = exports.get(i);
                     String base = names.get(i).replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]", "_") + " " + date.format(new Date(saved.dungeonStartTime));
-                    String filename = base + ".dps";
-                    for (int suffix = 2; !used.add(filename); suffix++) filename = base + " (" + suffix + ").dps";
-                    try (ObjectOutputStream output = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(new File(folder, filename))))) {
-                        output.writeObject(saved);
-                    }
+                    DpsExport.write(folder.toPath(), base, saved);
                 }
                 return exports.size();
             }

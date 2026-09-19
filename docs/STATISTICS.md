@@ -21,6 +21,12 @@ Ranges end at the selected character's latest sample, not the computer clock. On
 
 Character rates exclude intervals spent on another observed character. Map attribution updates only the active character, retains zero-gain visits and includes each open visit once. At a map transition, the previous character's known fame can seed the next visit only if the same character continues. A newly observed character starts from its first sample. Open visits end at their latest sample; closed visits also include the known map-exit time. Consequently, map durations and character sample spans can differ. These changes apply to new observations; saved historical sessions are not rewritten.
 
+## Saved fame sessions
+
+View Saved Sessions includes every character with saved fame or map records, including zero-gain, negative-gain, map-only, and single-sample histories. Character tables sort numeric values numerically; an em dash identifies missing fame samples.
+
+The character selector controls the graph and map visits. **With fame gain** is an optional map-visit filter, alongside the dungeon selector; it does not remove characters or change graph samples. Switching to a character without fame samples clears the previous graph. Session Info separates unfiltered saved totals from current-view counts. Viewing and filtering do not rewrite the saved file.
+
 ## Loot
 
 **Explore loot** and the separate Loot workspace share session counters while retaining independent filters. Filter by bag type and dungeon; search narrows each table. Cards follow bag/dungeon scope before text search.

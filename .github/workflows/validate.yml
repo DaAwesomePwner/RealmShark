@@ -1,0 +1,54 @@
+name: Validate RealmShark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows tests and JAR
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Prepare display for desktop UI
+        shell: powershell
+        run: .\scripts\Set-CiDisplay.ps1
+      - name: Test and build
+        shell: pwsh
+        run: .\gradlew.bat --no-daemon --continue -PrealmSharkBuildDir=build/ci test shadowJar
+      - name: Check runnable JAR
+        shell: pwsh
+        run: java -jar build/ci/libs/RealmShark-v1.2.3.jar --help
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-test-reports
+          path: |
+            build/ci/reports/tests/
+            build/ci/test-results/
+          retention-days: 14
+      - name: Upload runnable JAR
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: RealmShark-JAR
+          path: build/ci/libs/RealmShark-v1.2.3.jar
+          if-no-files-found: error
+          retention-days: 14
