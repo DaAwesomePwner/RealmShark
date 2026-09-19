@@ -3,13 +3,15 @@ package tomato.gui.stats.session;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
+import java.util.TreeSet;
 import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import tomato.gui.stats.Fame;
 import tomato.gui.stats.FameTablePanel;
+import tomato.gui.stats.Formatters;
 import tomato.gui.stats.GraphPanel;
 import tomato.gui.stats.data.MapFameData;
 
@@ -24,9 +26,14 @@ public class FameSessionViewer extends JFrame {
     private JTable characterFameTable;
     private JTable mapFameTable;
     private JTextArea sessionInfoArea;
-    private JComboBox<String> characterSelector;
+    private JComboBox<CharacterChoice> characterSelector;
     private JComboBox<String> dungeonFilter;
+    private final JCheckBox gainedOnly = new JCheckBox("With fame gain");
+    private final JLabel characterStatus = new JLabel();
+    private final JLabel mapStatus = new JLabel();
+    private final JLabel graphStatus = new JLabel();
     private GraphPanel graphPanel;
+    private boolean updatingFilters;
 
     public FameSessionViewer(FameSession session) {
         realmshark.branding.AppIdentity.apply(this);
@@ -47,7 +54,8 @@ public class FameSessionViewer extends JFrame {
         JPanel selectorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         selectorPanel.add(new JLabel("Select Character (Class & ID): "));
         characterSelector = new JComboBox<>();
-        characterSelector.addActionListener(e -> updateCharacterData());
+        characterSelector.setName("saved-fame-character");
+        characterSelector.addActionListener(e -> { if (!updatingFilters) updateCharacterData(); });
         selectorPanel.add(characterSelector);
         add(selectorPanel, BorderLayout.NORTH);
 
@@ -57,8 +65,13 @@ public class FameSessionViewer extends JFrame {
 
         // Use shared GraphPanel (minimal mode - no time range dropdown)
         graphPanel = GraphPanel.createMinimal();
+        graphPanel.setName("saved-fame-graph");
         graphPanel.setPreferredSize(new Dimension(800, 400));
-        tabbedPane.addTab("Fame Graph", graphPanel);
+        JPanel graph = new JPanel(new BorderLayout());
+        graph.add(graphPanel, BorderLayout.CENTER);
+        graph.add(graphStatus, BorderLayout.SOUTH);
+        graphStatus.setName("saved-fame-graph-status");
+        tabbedPane.addTab("Fame Graph", graph);
 
         tabbedPane.addTab("Map Fame", createMapFamePanel());
         tabbedPane.addTab("Session Info", createSessionInfoPanel());
@@ -83,16 +96,18 @@ public class FameSessionViewer extends JFrame {
             "End Fame",
             "Fame Gained",
         };
-        DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
+        DefaultTableModel model = model(columnNames,
+            Integer.class, String.class, Integer.class, Double.class, Double.class, Double.class);
         characterFameTable = new JTable(model);
+        characterFameTable.setName("saved-fame-characters");
         characterFameTable.setAutoCreateRowSorter(true);
+        numberColumn(characterFameTable, 3, 0);
+        numberColumn(characterFameTable, 4, 0);
+        numberColumn(characterFameTable, 5, 1);
 
         panel.add(new JScrollPane(characterFameTable), BorderLayout.CENTER);
+        characterStatus.setName("saved-fame-character-status");
+        panel.add(characterStatus, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -103,9 +118,14 @@ public class FameSessionViewer extends JFrame {
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         filterPanel.add(new JLabel("Filter Dungeon: "));
         dungeonFilter = new JComboBox<>();
+        dungeonFilter.setName("saved-fame-dungeon");
         dungeonFilter.addItem("All Dungeons");
-        dungeonFilter.addActionListener(e -> updateMapFameData());
+        dungeonFilter.addActionListener(e -> { if (!updatingFilters) updateMapFameData(); });
         filterPanel.add(dungeonFilter);
+        gainedOnly.setName("saved-fame-gained-only");
+        gainedOnly.setToolTipText("Show only visits with positive fame gain. Character rows and graph samples are unaffected.");
+        gainedOnly.addActionListener(e -> updateMapFameData());
+        filterPanel.add(gainedOnly);
         panel.add(filterPanel, BorderLayout.NORTH);
 
         // Table
@@ -116,16 +136,22 @@ public class FameSessionViewer extends JFrame {
             "Time Spent",
             "Fame/Minute",
         };
-        DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
+        DefaultTableModel model = model(columnNames,
+            String.class, String.class, Double.class, Long.class, Double.class);
         mapFameTable = new JTable(model);
+        mapFameTable.setName("saved-fame-maps");
         mapFameTable.setAutoCreateRowSorter(true);
+        numberColumn(mapFameTable, 2, 1);
+        numberColumn(mapFameTable, 4, 1);
+        mapFameTable.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override protected void setValue(Object value) {
+                setText(value == null ? "—" : Formatters.formatDurationHMS(((Number)value).longValue()));
+            }
+        });
 
         panel.add(new JScrollPane(mapFameTable), BorderLayout.CENTER);
+        mapStatus.setName("saved-fame-map-status");
+        panel.add(mapStatus, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -134,6 +160,7 @@ public class FameSessionViewer extends JFrame {
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         sessionInfoArea = new JTextArea();
+        sessionInfoArea.setName("saved-fame-session-info");
         sessionInfoArea.setEditable(false);
         sessionInfoArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
 
@@ -143,82 +170,47 @@ public class FameSessionViewer extends JFrame {
 
     private void populateData() {
         populateCharacterFameData();
-        populateDungeonFilter();
-        updateMapFameData();
-        populateSessionInfo();
+        updateCharacterData();
     }
 
     private void populateCharacterFameData() {
         DefaultTableModel model =
             (DefaultTableModel) characterFameTable.getModel();
         model.setRowCount(0);
-        characterSelector.removeAllItems();
-
-        HashMap<Integer, List<Fame>> fameData = session.getCharacterFameData();
-
-        for (Integer charId : fameData.keySet()) {
-            List<Fame> entries = fameData.get(charId);
-            if (entries != null && !entries.isEmpty()) {
+        Integer selectedId = getSelectedCharacterId();
+        updatingFilters = true;
+        try {
+            characterSelector.removeAllItems();
+            for (Integer charId : characterIds()) {
+                List<Fame> entries = fameSamples(charId);
                 String className = getClassNameForCharacter(charId);
-                double startFame = entries.get(0).getFame();
-                double endFame = entries.get(entries.size() - 1).getFame();
-                double fameGained = endFame - startFame;
-
-                if (fameGained > 0) {
-                    model.addRow(
-                        new Object[] {
-                            charId,
-                            className,
-                            entries.size(),
-                            String.format("%.0f", startFame),
-                            String.format("%.0f", endFame),
-                            String.format("%.1f", fameGained),
-                        }
-                    );
-                    characterSelector.addItem(
-                        className + " (ID: " + charId + ")"
-                    );
-                }
+                Double startFame = entries.isEmpty() ? null : entries.get(0).getFame();
+                Double endFame = entries.isEmpty() ? null : entries.get(entries.size() - 1).getFame();
+                model.addRow(new Object[]{charId, className, entries.size(), startFame, endFame,
+                    entries.isEmpty() ? null : endFame - startFame});
+                CharacterChoice choice = new CharacterChoice(charId, className);
+                characterSelector.addItem(choice);
+                if (Integer.valueOf(charId).equals(selectedId)) characterSelector.setSelectedItem(choice);
             }
+        } finally {
+            updatingFilters = false;
         }
-
-        if (characterSelector.getItemCount() > 0) {
-            characterSelector.setSelectedIndex(0);
-        }
+        characterStatus.setText(model.getRowCount() == 0 ? "No saved character or map records."
+            : model.getRowCount() + " saved characters · All session records · — means no saved fame samples");
     }
 
     private void populateDungeonFilter() {
-        dungeonFilter.removeAllItems();
-        dungeonFilter.addItem("All Dungeons");
-
-        Integer selectedCharId = getSelectedCharacterId();
-        HashSet<String> uniqueMaps = new HashSet<>();
-        HashMap<Integer, List<MapFameData>> mapData =
-            session.getCharacterMapFameData();
-
-        if (selectedCharId == null) {
-            // Show all dungeons from all characters
-            for (List<MapFameData> entries : mapData.values()) {
-                if (entries != null) {
-                    for (MapFameData mapFame : entries) {
-                        uniqueMaps.add(mapFame.mapName);
-                    }
-                }
-            }
-        } else {
-            // Show dungeons only for selected character
-            List<MapFameData> entries = mapData.get(selectedCharId);
-            if (entries != null) {
-                for (MapFameData mapFame : entries) {
-                    uniqueMaps.add(mapFame.mapName);
-                }
-            }
-        }
-
-        ArrayList<String> sortedMaps = new ArrayList<>(uniqueMaps);
-        Collections.sort(sortedMaps);
-        for (String mapName : sortedMaps) {
-            dungeonFilter.addItem(mapName);
+        String selectedDungeon = (String)dungeonFilter.getSelectedItem();
+        TreeSet<String> maps = new TreeSet<>();
+        for (MapFameData visit : mapVisits(getSelectedCharacterId())) maps.add(visit.mapName);
+        updatingFilters = true;
+        try {
+            dungeonFilter.removeAllItems();
+            dungeonFilter.addItem("All Dungeons");
+            for (String map : maps) dungeonFilter.addItem(map);
+            if (maps.contains(selectedDungeon)) dungeonFilter.setSelectedItem(selectedDungeon);
+        } finally {
+            updatingFilters = false;
         }
     }
 
@@ -230,44 +222,18 @@ public class FameSessionViewer extends JFrame {
         String selectedDungeon = (String) dungeonFilter.getSelectedItem();
         boolean showAllDungeons = "All Dungeons".equals(selectedDungeon);
 
-        HashMap<Integer, List<MapFameData>> mapData =
-            session.getCharacterMapFameData();
-
-        for (Integer charId : mapData.keySet()) {
-            if (selectedCharId != null && !charId.equals(selectedCharId)) {
-                continue;
-            }
-
-            List<MapFameData> entries = mapData.get(charId);
-            if (entries == null) continue;
-
-            String className = getClassNameForCharacter(charId);
-            for (MapFameData mapFame : entries) {
-                if (
-                    !showAllDungeons && !mapFame.mapName.equals(selectedDungeon)
-                ) {
-                    continue;
-                }
-
-                long timeSpent = mapFame.endTime - mapFame.startTime;
-                double minutesSpent = timeSpent / 60000.0;
-                double famePerMinute = minutesSpent > 0
-                    ? mapFame.getFameGained() / minutesSpent
-                    : 0;
-
-                if (mapFame.getFameGained() > 0) {
-                    model.addRow(
-                        new Object[] {
-                            className,
-                            mapFame.mapName,
-                            String.format("%.1f", mapFame.getFameGained()),
-                            formatDuration(timeSpent),
-                            String.format("%.1f", famePerMinute),
-                        }
-                    );
-                }
-            }
+        List<MapFameData> visits = mapVisits(selectedCharId);
+        for (MapFameData visit : visits) {
+            if (!showAllDungeons && !visit.mapName.equals(selectedDungeon)) continue;
+            if (gainedOnly.isSelected() && visit.getFameGained() <= 0) continue;
+            long timeSpent = Math.max(0, visit.getTimeSpent());
+            model.addRow(new Object[]{getClassNameForCharacter(selectedCharId), visit.mapName,
+                visit.getFameGained(), timeSpent,
+                timeSpent > 0 ? visit.getFameGained() * 60000.0 / timeSpent : null});
         }
+        mapStatus.setText(model.getRowCount() + " of " + visits.size()
+            + " saved visits shown · Selected character · Dungeon and gain filters affect visits only");
+        populateSessionInfo();
     }
 
     private void populateSessionInfo() {
@@ -285,8 +251,9 @@ public class FameSessionViewer extends JFrame {
             .append(formatTimestamp(session.getLastModifiedTimestamp()))
             .append("\n\n");
         info
+            .append("Entire saved session (unfiltered)\n")
             .append("Characters Tracked: ")
-            .append(session.getCharacterFameData().size())
+            .append(characterIds().size())
             .append("\n");
         info
             .append("Total Fame Entries: ")
@@ -296,6 +263,15 @@ public class FameSessionViewer extends JFrame {
             .append("Total Map Fame Entries: ")
             .append(getTotalMapFameEntries())
             .append("\n\n");
+        info.append("Current view\n")
+            .append("Character Rows: ").append(characterFameTable.getRowCount()).append("\n")
+            .append("Selected Character: ").append(characterSelector.getSelectedItem() == null
+                ? "None" : characterSelector.getSelectedItem()).append("\n")
+            .append("Graph Samples (all for selected character): ").append(graphPanel.getScores().size()).append("\n")
+            .append("Map Visits Shown: ").append(mapFameTable.getRowCount()).append(" of ")
+            .append(mapVisits(getSelectedCharacterId()).size()).append(" for selected character\n")
+            .append("Dungeon: ").append(dungeonFilter.getSelectedItem()).append("\n")
+            .append("With fame gain (map visits only): ").append(gainedOnly.isSelected()).append("\n\n");
         info
             .append("Description:\n")
             .append(session.getDescription())
@@ -307,34 +283,44 @@ public class FameSessionViewer extends JFrame {
 
     private void updateCharacterData() {
         Integer selectedCharId = getSelectedCharacterId();
-        if (selectedCharId != null) {
-            List<Fame> fameData = session
-                .getCharacterFameData()
-                .get(selectedCharId);
-            if (fameData != null) {
-                graphPanel.setScores(new ArrayList<>(fameData));
-            }
-        }
+        ArrayList<Fame> samples = fameSamples(selectedCharId);
+        graphPanel.setScores(samples);
+        graphStatus.setText(selectedCharId == null ? "No saved character selected."
+            : samples.isEmpty() ? "No saved fame samples for this character. Map visits are available separately."
+            : samples.size() == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
+            : samples.size() + " saved samples · Selected character, entire session · Map filters do not affect the graph");
         populateDungeonFilter();
         updateMapFameData();
     }
 
     private Integer getSelectedCharacterId() {
-        String selectedItem = (String) characterSelector.getSelectedItem();
-        if (selectedItem == null) return null;
+        CharacterChoice choice = (CharacterChoice)characterSelector.getSelectedItem();
+        return choice == null ? null : choice.id;
+    }
 
-        try {
-            int startIndex = selectedItem.lastIndexOf("(ID: ") + 5;
-            int endIndex = selectedItem.lastIndexOf(")");
-            if (startIndex > 4 && endIndex > startIndex) {
-                return Integer.parseInt(
-                    selectedItem.substring(startIndex, endIndex).trim()
-                );
-            }
-        } catch (Exception e) {
-            // Parsing failed
-        }
-        return null;
+    private TreeSet<Integer> characterIds() {
+        TreeSet<Integer> ids = new TreeSet<>(session.getCharacterFameData().keySet());
+        ids.addAll(session.getCharacterMapFameData().keySet());
+        return ids;
+    }
+
+    private ArrayList<Fame> fameSamples(Integer id) {
+        List<Fame> saved = session.getCharacterFameData().get(id);
+        ArrayList<Fame> samples = saved == null ? new ArrayList<>() : new ArrayList<>(saved);
+        samples.sort(Comparator.comparingLong(Fame::getTime));
+        return samples;
+    }
+
+    private List<MapFameData> mapVisits(Integer id) {
+        List<MapFameData> visits = session.getCharacterMapFameData().get(id);
+        return visits == null ? Collections.emptyList() : visits;
+    }
+
+    private static final class CharacterChoice {
+        final int id;
+        final String className;
+        CharacterChoice(int id, String className) { this.id = id; this.className = className; }
+        @Override public String toString() { return className + " (ID: " + id + ")"; }
     }
 
     private String getClassNameForCharacter(int charId) {
@@ -367,17 +353,24 @@ public class FameSessionViewer extends JFrame {
     }
 
     private String formatTimestamp(long timestamp) {
-        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(
-            new java.util.Date(timestamp)
-        );
+        return Formatters.formatTimestamp(timestamp);
     }
 
-    private String formatDuration(long milliseconds) {
-        long seconds = milliseconds / 1000;
-        long hours = seconds / 3600;
-        long minutes = (seconds % 3600) / 60;
-        seconds = seconds % 60;
-        return String.format("%02d:%02d:%02d", hours, minutes, seconds);
+    private static DefaultTableModel model(String[] names, Class<?>... types) {
+        return new DefaultTableModel(names, 0) {
+            @Override public boolean isCellEditable(int row, int column) { return false; }
+            @Override public Class<?> getColumnClass(int column) { return types[column]; }
+        };
+    }
+
+    private static void numberColumn(JTable table, int column, int decimals) {
+        DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
+            @Override protected void setValue(Object value) {
+                setText(value == null ? "—" : Formatters.formatNumber(((Number)value).doubleValue(), decimals));
+            }
+        };
+        renderer.setHorizontalAlignment(SwingConstants.RIGHT);
+        table.getColumnModel().getColumn(column).setCellRenderer(renderer);
     }
 
     /**

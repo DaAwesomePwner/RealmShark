@@ -3,6 +3,7 @@ package tomato.gui.dps;
 import java.util.HashSet;
 import java.util.Locale;
 import tomato.backend.data.Entity;
+import tomato.backend.data.DpsData.LocalPlayerContext;
 import tomato.realmshark.enums.CharacterClass;
 
 /**
@@ -42,13 +43,13 @@ public final class Filter {
     }
 
     /**
-     * Returns the filter decision for the given owner vs. the current player.
+     * Returns the filter decision against the displayed encounter's detached local context.
      * - 0 => NOT matched (in filter mode, row is hidden; in highlight mode, normal row)
      * - 1 => matched while in filter mode (row is shown)
      * - 2 => matched while in highlight mode (row is shown and highlighted)
      */
 
-    public static int filter(Entity owner, Entity player) {
+    public static int filter(Entity owner, LocalPlayerContext player) {
         if (filter == 0 || owner == null) return 0;
 
         int classType = owner.objectType;
@@ -57,7 +58,7 @@ public final class Filter {
 
         String ownerGuild = lower(owner.getStatGuild());
 
-        String myGuild = (player != null) ? lower(player.getStatGuild()) : "";
+        String myGuild = (player != null) ? lower(player.guild) : "";
 
         // Only perform player-dependent checks when player is available
         if (player != null) {
@@ -67,7 +68,7 @@ public final class Filter {
                 myGuild.equals(ownerGuild)
             ) {
                 return filter;
-            } else if (myClassFilter && player.objectType == classType) {
+            } else if (myClassFilter && player.hasClass() && player.classType == classType) {
                 return filter;
             }
         }
@@ -90,6 +91,29 @@ public final class Filter {
      */
     public static boolean shouldFilter() {
         return filter == 1;
+    }
+
+    /** Ignore unavailable relative predicates, while retaining every explicit predicate. */
+    public static boolean shouldFilter(LocalPlayerContext player) {
+        return shouldFilter() && (!(myClassFilter || myGuildFilter) || hasUsablePredicate(player));
+    }
+
+    private static boolean hasUsablePredicate(LocalPlayerContext player) {
+        return !filterNames.isEmpty() || !filterGuilds.isEmpty() || !filterClasses.isEmpty()
+            || player != null && (myClassFilter && player.hasClass() || myGuildFilter && player.hasGuild());
+    }
+
+    public static String unavailableReason(LocalPlayerContext player) {
+        if (filter == 0) return "";
+        boolean missingClass = myClassFilter && (player == null || !player.hasClass());
+        boolean missingGuild = myGuildFilter && (player == null || !player.hasGuild());
+        if (!missingClass && !missingGuild) return "";
+        String predicates = missingClass && missingGuild ? "My Class and My Guild" : missingClass ? "My Class" : "My Guild";
+        String reason = player == null ? "no reliable local-player context was recorded"
+            : missingGuild && !missingClass && "".equals(player.guild) ? "the recorded local player has no guild"
+            : "the required local class/guild was not recorded";
+        return predicates + " unavailable: " + reason + ". "
+            + (hasUsablePredicate(player) ? "Other filter predicates still apply." : "Showing all players without relative filtering/highlighting.");
     }
 
     /**

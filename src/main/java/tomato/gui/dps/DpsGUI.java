@@ -34,6 +34,7 @@ public class DpsGUI extends JPanel {
     private JComboBox<String> viewMode;
     private JPanel dpsTopPanel;
     private JPanel center;
+    private final JTextArea filterNotice = new JTextArea();
     private boolean liveUpdates = true;
     private int index = 0;
     private JComboBox<String> filterComboBox;
@@ -103,7 +104,14 @@ public class DpsGUI extends JPanel {
 
         setLayout(new BorderLayout());
         JPanel damagePage = new JPanel(new BorderLayout());
-        damagePage.add(dpsTopPanel, BorderLayout.NORTH);
+        filterNotice.setEditable(false); filterNotice.setFocusable(false);
+        filterNotice.setLineWrap(true); filterNotice.setWrapStyleWord(true); filterNotice.setOpaque(false);
+        filterNotice.setName("dps-relative-filter-notice");
+        ContentStyle.font(filterNotice, ContentStyle.metadata(ContentStyle.body()));
+        filterNotice.setVisible(false);
+        JPanel header = new JPanel(new BorderLayout(0, 4));
+        header.add(dpsTopPanel, BorderLayout.NORTH); header.add(filterNotice, BorderLayout.CENTER);
+        damagePage.add(header, BorderLayout.NORTH);
 
         center = new JPanel();
         center.setLayout(new BorderLayout());
@@ -208,9 +216,13 @@ public class DpsGUI extends JPanel {
 
     private void renderData(MapInfoPacket map, Entity[] entityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean b) {
         setCenterDisplay();
-        Entity player = b ? rendered.player : null;
-        displayMeter.setContext(b ? map : data.dpsData.get(index), player);
-        displayString.setPlayerContext(latest.player);
+        DpsData saved = b ? null : data.dpsData.get(index);
+        DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
+        displayMeter.setContext(b ? map : saved, b ? rendered.player : null, context);
+        displayString.setPlayerContext(context);
+        displayIcon.setPlayerContext(context);
+        String notice = Filter.unavailableReason(context);
+        filterNotice.setText(notice); filterNotice.setVisible(!notice.isEmpty());
         List<Entity> sortedEntityHitList = centerDisplay == displayMeter ? Arrays.asList(entityHitList) : getSortedEntityList(entityHitList);
         centerDisplay.renderData(map, sortedEntityHitList, notifications, totalDungeonPcTime, b);
     }

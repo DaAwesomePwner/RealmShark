@@ -37,7 +37,9 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
     private JScrollPane scrollPane;
 
-    private final TomatoData data;
+    private DpsData.LocalPlayerContext playerContext;
+
+    void setPlayerContext(DpsData.LocalPlayerContext player) { playerContext = player; }
 
     private static Font mainFont;
 
@@ -62,8 +64,6 @@ public class IconDpsGUI extends DisplayDpsGUI {
     }
 
     public IconDpsGUI(TomatoData data) {
-        this.data = data;
-
         setLayout(new BorderLayout());
 
         charPanel = new JPanel();
@@ -120,7 +120,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             if (CharacterClass.isPlayerCharacter(e.objectType)) continue;
 
             EquipmentUsageAggregator eqAgg = EquipmentUsageAggregator.of(e);
-            JPanel panel = createMainBox(e, deaths, data.player, eqAgg);
+            JPanel panel = createMainBox(e, deaths, playerContext, eqAgg);
 
             if (panel != null) {
                 charPanel.add(panel);
@@ -136,7 +136,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
     private static JPanel createMainBox(
         Entity entity,
         Map<String, Integer> deaths,
-        Entity player,
+        DpsData.LocalPlayerContext player,
         EquipmentUsageAggregator eqAgg
     ) {
         JPanel panel = new JPanel();
@@ -199,7 +199,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             boolean highlight = false;
             counter++;
 
-            if (Filter.shouldFilter() && filter != 1) {
+            if (Filter.shouldFilter(player) && filter != 1) {
                 continue;
             } else if (filter == 2) {
                 highlight = true;

@@ -8,6 +8,7 @@ import java.util.Map;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Damage;
+import tomato.backend.data.DpsData.LocalPlayerContext;
 import tomato.backend.data.Entity;
 import tomato.backend.data.Equipment;
 import tomato.backend.data.PlayerRemoved;
@@ -42,7 +43,7 @@ public class DpsToString {
         MapInfoPacket map,
         List<Entity> sortedEntityHitList,
         ArrayList<NotificationPacket> notifications,
-        Entity player,
+        LocalPlayerContext player,
         long totalDungeonPcTime
     ) {
         StringBuilder sb = new StringBuilder();
@@ -85,7 +86,7 @@ public class DpsToString {
     public static String display(
         Entity entity,
         Map<String, Integer> deathMap,
-        Entity player,
+        LocalPlayerContext player,
         EquipmentUsageAggregator eqAgg
     ) {
         if (entity == null) return "";
@@ -105,7 +106,7 @@ public class DpsToString {
 
             // Filter logic
             int filterDecision = Filter.filter(dmg.owner, player);
-            if (Filter.shouldFilter() && filterDecision != 1) continue;
+            if (Filter.shouldFilter(player) && filterDecision != 1) continue;
 
             boolean highlight = (filterDecision == 2);
 

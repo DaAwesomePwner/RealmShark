@@ -74,8 +74,68 @@ public class TomatoData {
     // bounded mailbox below crosses into the HTTP worker.
     private long metadataConnection, metadataAccount, metadataSequence, rosterRequest, exaltRequest;
     private boolean metadataAwaitingCreate;
-    private volatile long metadataUiGeneration;
     private final MetadataWorker metadataWorker;
+    private volatile MyInfoIdentity myInfoIdentity = new MyInfoIdentity(0, null, -1, -1);
+    private Entity myInfoOwner;
+    private MyInfoIdentity petIdentity;
+    private Entity petOwner;
+    private PetAvailability petAvailability = PetAvailability.UNKNOWN;
+
+    public enum PetAvailability { UNKNOWN, ABSENT, PRESENT }
+
+    /** Identity is a generation token, never persisted in an Entity or DPS archive. */
+    public static final class MyInfoIdentity {
+        public final long generation;
+        public final String account;
+        public final int characterId, worldPlayerId;
+        private MyInfoIdentity(long generation, String account, int characterId, int worldPlayerId) {
+            this.generation = generation; this.account = account;
+            this.characterId = characterId; this.worldPlayerId = worldPlayerId;
+        }
+    }
+
+    public MyInfoIdentity myInfoIdentity() { return myInfoIdentity; }
+
+    /** Rechecked around detaching a publication, so neither a changed owner nor a replaced pet can slip through. */
+    public boolean isCurrentMyInfoSnapshot(MyInfoIdentity identity, Entity owner, Entity companion, PetAvailability availability) {
+        if (identity != myInfoIdentity) return false;
+        if (owner == null) return companion == null && availability == PetAvailability.UNKNOWN;
+        if (metadataAwaitingCreate || owner != player || owner != myInfoOwner || owner.id != identity.worldPlayerId) return false;
+        if (availability == PetAvailability.UNKNOWN) return companion == null;
+        return identity.account != null && petIdentity == identity && petOwner == owner
+            && companion == pet && availability == petAvailability;
+    }
+
+    private void resetMyInfo(String account, int characterId, int objectId) {
+        myInfoOwner = null;
+        pet = null; petOwner = null; petIdentity = null; petAvailability = PetAvailability.UNKNOWN;
+        myInfoIdentity = new MyInfoIdentity(myInfoIdentity.generation + 1, account, characterId, objectId);
+        MyInfoGUI.updateSnapshot(this, myInfoIdentity, null, null, PetAvailability.UNKNOWN);
+    }
+
+    /** Capture-thread entry point, including the legacy callback from Entity.updateStats(). */
+    public void publishMyInfoPlayer(Entity value) {
+        if (value == null || value != player || metadataAwaitingCreate || worldPlayerId < 0 || value.id != worldPlayerId) return;
+        StatData stat = value.stat.get(StatType.ACCOUNT_ID_STAT);
+        String account = stat == null || stat.stringStatValue == null || stat.stringStatValue.trim().isEmpty()
+            ? null : CharacterJournal.accountKey(stat.stringStatValue);
+        MyInfoIdentity identity = myInfoIdentity;
+        if (!Objects.equals(account, identity.account) || charId != identity.characterId
+            || worldPlayerId != identity.worldPlayerId || (myInfoOwner != null && myInfoOwner != value)) {
+            resetMyInfo(account, charId, worldPlayerId);
+            identity = myInfoIdentity;
+        }
+        myInfoOwner = value;
+        boolean ownedPet = identity.account != null && petIdentity == identity && petOwner == value;
+        MyInfoGUI.updateSnapshot(this, identity, value, ownedPet ? pet : null,
+            ownedPet ? petAvailability : PetAvailability.UNKNOWN);
+    }
+
+    /** Unscoped/stale pet callbacks may only republish the currently bound owner/pet pair. */
+    public void publishMyInfoPet(Entity value) {
+        if (value == null || value != pet || petOwner != player || petIdentity != myInfoIdentity) return;
+        publishMyInfoPlayer(player);
+    }
 
     public TomatoData() { this(HttpCharListRequest::webRequest); }
 
@@ -108,6 +168,7 @@ public class TomatoData {
         String account = characterJournal().observe(player, charId);
         if (account == null) return;
         journalAccount = account;
+        publishMyInfoPlayer(player);
         applyMetadataResponses();
         if (journalPendingRoster != null) {
             characterJournal().mergeRoster(account, journalPendingRoster);
@@ -167,8 +228,15 @@ public class TomatoData {
     public void setUserId(int objectId, int charId, String str) {
         metadataAwaitingCreate = false;
         invalidateRosterRequest();
+        // CREATE establishes a new character even when the server reuses an object ID.
+        if (player != null) {
+            entityList.remove(player.id); playerList.remove(player.id); playerListUpdated.remove(player.id);
+        }
+        entityList.remove(objectId);
+        player = null;
         this.worldPlayerId = objectId;
         this.charId = charId;
+        resetMyInfo(null, charId, objectId);
         updateDungeonStats(charId, str);
     }
 
@@ -324,7 +392,7 @@ public class TomatoData {
             if (localPlayer) {
                 player = entity;
                 entity.setUser(charId);
-                MyInfoGUI.updatePlayer(player);
+                publishMyInfoPlayer(player);
             } else {
                 entity.isPlayer();
             }
@@ -899,6 +967,7 @@ public class TomatoData {
     public void clear() {
         invalidateRosterRequest();
         metadataAwaitingCreate = true;
+        resetMyInfo(null, -1, -1);
         worldPlayerId = -1;
         charId = -1;
         time = -1;
@@ -910,7 +979,8 @@ public class TomatoData {
                     deathNotifications,
                     dungeonTime(),
                     timePcFirst,
-                    dpsPacketLog
+                    dpsPacketLog,
+                    player
                 )
             );
             DpsGUI.updateLabel();
@@ -988,6 +1058,10 @@ public class TomatoData {
     }
 
     public void characterListUpdate(ArrayList<RealmCharacter> chars) {
+        characterListUpdate(chars, Collections.emptyMap());
+    }
+
+    private void characterListUpdate(ArrayList<RealmCharacter> chars, Map<Integer, PetAvailability> petStates) {
         if (chars == null) return;
         // A delayed roster must not roll the active character back to older API stats.
         for (RealmCharacter character : chars) {
@@ -1004,6 +1078,7 @@ public class TomatoData {
         seasonalVault.clearChar();
         regularVault.clearChar();
         for (RealmCharacter c : chars) {
+            if (c.equipment == null) continue;
             if (c.seasonal) {
                 seasonalVault.updateCharInventory(c);
             } else {
@@ -1011,15 +1086,28 @@ public class TomatoData {
             }
         }
         RealmCharacter currentChar = charMap.get(charId);
-        if (charId != -1 && currentChar != null && currentChar.petAbilitys != null && currentChar.petAbilitys.length >= 9) {
-            makePet(currentChar);
-            Entity loadedPet = pet;
-            long generation = metadataUiGeneration;
-            SwingUtilities.invokeLater(() -> {
-                if (generation == metadataUiGeneration) MyInfoGUI.updatePet(loadedPet);
-            });
+        publishMyInfoPlayer(player); // Resolve account changes before binding metadata to its owner.
+        pet = null; petOwner = null; petIdentity = null; petAvailability = PetAvailability.UNKNOWN;
+        if (!metadataAwaitingCreate && player != null && player.id == worldPlayerId
+            && myInfoIdentity.account != null && currentChar != null) {
+            petAvailability = petStates.getOrDefault(charId, PetAvailability.UNKNOWN);
+            if (validPetAbilities(currentChar.petAbilitys)) {
+                makePet(currentChar);
+                petAvailability = PetAvailability.PRESENT;
+            }
+            petOwner = player;
+            petIdentity = myInfoIdentity;
         }
+        publishMyInfoPlayer(player);
         SwingUtilities.invokeLater(CharacterPanelGUI::updateRealmChars);
+    }
+
+    private static boolean validPetAbilities(int[] abilities) {
+        if (abilities == null || abilities.length != 9) return false;
+        for (int i = 0; i < 9; i += 3) {
+            if (abilities[i] < 0 || abilities[i + 1] < 0 || abilities[i + 1] > 100 || abilities[i + 2] <= 0) return false;
+        }
+        return true;
     }
 
     private void makePet(RealmCharacter currentChar) {
@@ -1091,8 +1179,8 @@ public class TomatoData {
     public void updateToken(String token) {
         // HELLO is a new connection even when its access token was reused.
         metadataConnection++;
-        metadataUiGeneration++;
         metadataAwaitingCreate = true;
+        resetMyInfo(null, -1, -1);
         metadataWorker.invalidate(false);
         if (!Objects.equals(this.token, token)) {
             resetAccountMetadata();
@@ -1108,7 +1196,6 @@ public class TomatoData {
     }
 
     private void invalidateRosterRequest() {
-        metadataUiGeneration++;
         rosterRequest = ++metadataSequence;
         metadataWorker.invalidate(true);
         journalPendingRoster = null;
@@ -1116,8 +1203,9 @@ public class TomatoData {
 
     private void resetAccountMetadata() {
         metadataAccount++;
-        metadataUiGeneration++;
         metadataWorker.invalidate(false);
+        resetMyInfo(null, charId, worldPlayerId);
+        CharacterPetsGUI.clearPets();
         journalAccount = null; journalPendingRoster = null;
         updatedExaltStats = false; characterDataRecieved = false;
         chars = null; charMap = null;
@@ -1147,8 +1235,12 @@ public class TomatoData {
                 || (request.roster && request.characterId != charId)) continue;
             if (request.roster) {
                 ArrayList<RealmCharacter> characters = new ArrayList<>();
-                for (CharacterMetadata character : response.characters) characters.add(character.copy());
-                characterListUpdate(characters);
+                Map<Integer, PetAvailability> petStates = new HashMap<>();
+                for (CharacterMetadata character : response.characters) {
+                    RealmCharacter copy = character.copy();
+                    characters.add(copy); petStates.put(copy.charId, character.petAvailability);
+                }
+                characterListUpdate(characters, petStates);
             } else updatedExaltStats = true;
             if (!response.exalts.isEmpty()) {
                 TreeMap<Integer, int[]> next = new TreeMap<>(RealmCharacter.exalts);
@@ -1257,7 +1349,10 @@ public class TomatoData {
     /** No mutable legacy bean or array is exposed from a response to the live model. */
     private static final class CharacterMetadata {
         private final RealmCharacter value;
-        CharacterMetadata(RealmCharacter value) { this.value = copyCharacter(value); }
+        private final PetAvailability petAvailability;
+        CharacterMetadata(RealmCharacter value, PetAvailability petAvailability) {
+            this.value = copyCharacter(value); this.petAvailability = petAvailability;
+        }
         RealmCharacter copy() { return copyCharacter(value); }
     }
 
@@ -1303,8 +1398,14 @@ public class TomatoData {
         List<CharacterMetadata> characters = new ArrayList<>();
         Map<Integer, List<Integer>> exalts = new TreeMap<>();
         if (request.roster) {
-            for (Element node : children(root)) if ("Char".equals(node.getTagName()))
-                characters.add(new CharacterMetadata(parseCharacter(node)));
+            for (Element node : children(root)) if ("Char".equals(node.getTagName())) {
+                RealmCharacter character = parseCharacter(node);
+                Element pet = child(node, "Pet");
+                // An explicitly empty Pet element is absence. Omitted or incomplete metadata is unknown.
+                PetAvailability state = pet != null && !pet.hasAttributes() && children(pet).isEmpty()
+                    && pet.getTextContent().trim().isEmpty() ? PetAvailability.ABSENT : PetAvailability.UNKNOWN;
+                characters.add(new CharacterMetadata(character, state));
+            }
             org.w3c.dom.NodeList stats = root.getElementsByTagName("ClassStats");
             for (int i = 0; i < stats.getLength(); i++) {
                 Element stat = (Element) stats.item(i);
@@ -1368,13 +1469,17 @@ public class TomatoData {
                     c.petRarity=attributeInt(field,"rarity"); c.petSkin=attributeInt(field,"skin"); c.petType=attributeInt(field,"type");
                     Element abilities=child(field,"Abilities");
                     if (abilities != null) {
-                        c.petAbilitys=new int[9]; int i=0;
+                        List<Integer> values = new ArrayList<>();
                         for (Element ability : children(abilities)) {
-                            if (i == 9) break;
-                            c.petAbilitys[i++]=attributeInt(ability,"points");
-                            c.petAbilitys[i++]=attributeInt(ability,"power");
-                            c.petAbilitys[i++]=attributeInt(ability,"type");
+                            if (!"Ability".equals(ability.getTagName()) || !ability.hasAttribute("points")
+                                || !ability.hasAttribute("power") || !ability.hasAttribute("type")) {
+                                values.clear(); break;
+                            }
+                            values.add(attributeInt(ability,"points"));
+                            values.add(attributeInt(ability,"power"));
+                            values.add(attributeInt(ability,"type"));
                         }
+                        c.petAbilitys=values.stream().mapToInt(Integer::intValue).toArray();
                     }
                     break;
                 default: break;

@@ -55,11 +55,8 @@ public class ParseEnchants {
     }
 
     private static void loadEnchants(String path) {
-        try {
-            FileInputStream file = new FileInputStream(path);
-            String result = new BufferedReader(new InputStreamReader(file))
-                .lines()
-                .collect(Collectors.joining("\n"));
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(path)))) {
+            String result = reader.lines().collect(Collectors.joining("\n"));
             StringXML base = StringXML.getParsedXML(result);
 
             for (StringXML xml : base) {
@@ -327,6 +324,58 @@ public class ParseEnchants {
             ids.add(enchantId);
         }
         return ids;
+    }
+
+    public enum CaptureState { KNOWN, MISSING, MALFORMED }
+
+    /** Strict, per-equipped-slot evidence for advisory build estimates; legacy parsers stay permissive. */
+    public static final class EquippedCapture {
+        private final String[] codes = new String[4];
+        private final CaptureState[] states = new CaptureState[4];
+
+        private EquippedCapture(String captured) {
+            // The explicitly empty stat is the protocol's known-empty shorthand. A nonempty
+            // list must actually contain all four slots, including trailing empty fields.
+            String[] slots = captured == null ? new String[0]
+                : captured.isEmpty() ? new String[] {"", "", "", ""} : captured.split(",", -1);
+            for (int i = 0; i < 4; i++) {
+                codes[i] = i < slots.length ? slots[i] : null;
+                states[i] = codes[i] == null ? CaptureState.MISSING
+                    : summarize(codes[i]).slots < 0 ? CaptureState.MALFORMED : CaptureState.KNOWN;
+                if (states[i] == CaptureState.KNOWN && !codes[i].isEmpty()) {
+                    // The legacy effect decoder requires padding; summarize also accepts unpadded URL Base64.
+                    codes[i] = Base64.getUrlEncoder().encodeToString(Base64.getUrlDecoder().decode(codes[i]));
+                }
+            }
+        }
+
+        public CaptureState state(int slot) { return states[slot]; }
+
+        public String description(int slot) {
+            if (states[slot] == CaptureState.MISSING) return "Enchant data not captured.";
+            if (states[slot] == CaptureState.MALFORMED) return "Malformed enchant data; effects unavailable.";
+            return parse(codes[slot]);
+        }
+
+        /** Null means the four-slot total is unknown, even if some individual effects are valid. */
+        public String[] completeCodes() {
+            for (CaptureState state : states) if (state != CaptureState.KNOWN) return null;
+            return codes.clone();
+        }
+
+        public String evidence() {
+            String[] names = {"Weapon", "Ability", "Armor", "Ring"};
+            List<String> unknown = new ArrayList<>();
+            for (int i = 0; i < 4; i++) if (states[i] != CaptureState.KNOWN)
+                unknown.add(names[i] + (states[i] == CaptureState.MISSING ? " not captured" : " malformed"));
+            return unknown.isEmpty() ? "All four equipped enchant slots decoded."
+                : "Enchant total unavailable: " + String.join(", ", unknown) + ".";
+        }
+    }
+
+    public static EquippedCapture equippedCapture(Entity player) {
+        StatData stat = player == null ? null : player.stat.get(StatType.UNIQUE_DATA_STRING);
+        return new EquippedCapture(stat == null ? null : stat.stringStatValue);
     }
 
     /**

@@ -3,6 +3,7 @@ package tomato.gui.dps;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -93,6 +94,49 @@ public class DungeonListTest {
         worker.addPropertyChangeListener(e -> {
             if ("state".equals(e.getPropertyName()) && e.getNewValue() == SwingWorker.StateValue.DONE) done.countDown();
         });
+    }
+
+    @Test public void collidingBatchAndRepeatedExportKeepDebugRichRecordings() throws Exception {
+        File folder = temporary.newFolder("repeated");
+        TomatoData data = new TomatoData();
+        DpsData first = encounter("Same encounter"), second = encounter("Same encounter");
+        first.debugPackets = new ArrayList<>(); first.debugPackets.add(new MapInfoPacket());
+        second.debugPackets = new ArrayList<>(); second.debugPackets.add(new MapInfoPacket());
+        second.debugPackets.add(new MapInfoPacket());
+        data.dpsData.add(first); data.dpsData.add(second);
+        DungeonListGUI[] chooser = new DungeonListGUI[1];
+        SwingUtilities.invokeAndWait(() -> {
+            chooser[0] = new DungeonListGUI(new DpsGUI(data), data);
+            table(chooser[0]).setValueAt(true, 1, 0); table(chooser[0]).setValueAt(true, 2, 0);
+        });
+        export(chooser[0], folder, true);
+        Map<File, byte[]> originals = new HashMap<>();
+        for (File file : folder.listFiles()) originals.put(file, Files.readAllBytes(file.toPath()));
+        assertEquals(2, originals.size());
+
+        export(chooser[0], folder, false);
+
+        assertEquals(4, folder.listFiles().length);
+        Set<Integer> debugSizes = new HashSet<>();
+        for (File file : folder.listFiles()) {
+            try (ObjectInputStream input = new ObjectInputStream(new FileInputStream(file))) {
+                DpsData saved = (DpsData) input.readObject();
+                if (originals.containsKey(file)) {
+                    assertArrayEquals(originals.get(file), Files.readAllBytes(file.toPath()));
+                    debugSizes.add(saved.debugPackets.size());
+                } else assertNull(saved.debugPackets);
+            }
+        }
+        assertEquals(new HashSet<>(Arrays.asList(1, 2)), debugSizes);
+        assertEquals(1, first.debugPackets.size()); assertEquals(2, second.debugPackets.size());
+    }
+
+    private static void export(DungeonListGUI chooser, File folder, boolean debug) throws Exception {
+        SwingWorker<?, ?>[] job = new SwingWorker<?, ?>[1];
+        CountDownLatch done = new CountDownLatch(1);
+        SwingUtilities.invokeAndWait(() -> { job[0] = chooser.exportFiles(folder, debug); onDone(job[0], done); });
+        assertEquals(2, job[0].get(5, TimeUnit.SECONDS));
+        assertTrue(done.await(5, TimeUnit.SECONDS));
     }
     private static DpsData encounter(String name) {
         MapInfoPacket map = new MapInfoPacket(); map.name = map.displayName = name;

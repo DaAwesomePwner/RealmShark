@@ -160,7 +160,7 @@ public class SendLoot {
             String[] enchants = null;
             StatData udata = bag.stat.get(StatType.UNIQUE_DATA_STRING);
             if (udata != null && udata.stringStatValue != null) {
-                enchants = udata.stringStatValue.split(",");
+                enchants = udata.stringStatValue.split(",", -1);
             }
 
             for (int i = 0; i < 8; i++) {
@@ -178,17 +178,16 @@ public class SendLoot {
                     enchants != null &&
                     i < enchants.length &&
                     !enchants[i].isEmpty() &&
-                    !enchants[i].equals("AAIE_f_9__3__f8=")
+                    !enchants[i].equals("AAIE_f_9__3__f8=") &&
+                    ParseEnchants.summarize(enchants[i]).slots >= 0
                 ) {
-                    String enchantText = ParseEnchants.parse(enchants[i]);
-
-                    if (!enchantText.isEmpty()) {
-                        sl = Math.min(4, enchantText.split("\n").length);
-
-                        // Check for enchant pings
-                        if (data.isEnchantPing(enchantText)) {
-                            Sound.custom.play();
-                        }
+                    try {
+                        String encoded = enchants[i];
+                        while (encoded.length() % 4 != 0) encoded += "=";
+                        String enchantText = ParseEnchants.parse(encoded);
+                        if (!enchantText.isEmpty()) sl = Math.min(4, enchantText.split("\n").length);
+                    } catch (RuntimeException e) {
+                        // Preserve the item and remaining bag when this slot cannot be decoded.
                     }
                 }
 

@@ -3,6 +3,7 @@ package tomato.gui.dps;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Entity;
+import tomato.backend.data.DpsData.LocalPlayerContext;
 import tomato.backend.data.TomatoData;
 import tomato.gui.TomatoGUI;
 import tomato.gui.modern.ContentStyle;
@@ -19,8 +20,8 @@ public class StringDpsGUI extends DisplayDpsGUI {
     private final JButton button;
     private final JPanel actions = ContentStyle.controls();
     private boolean freeze;
-    private Entity playerContext;
-    void setPlayerContext(Entity player) { playerContext=player; }
+    private LocalPlayerContext playerContext;
+    void setPlayerContext(LocalPlayerContext player) { playerContext=player; }
 
     public StringDpsGUI(TomatoData data) {
         this.data = data;

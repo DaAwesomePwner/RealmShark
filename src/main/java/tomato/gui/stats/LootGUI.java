@@ -132,11 +132,8 @@ public class LootGUI extends JPanel {
         if (Sound.goldbag.isEnabled() && isGoldBag(bag)) Sound.goldbag.play();
         if (Sound.eggbag.isEnabled() && isEggBag(bag)) Sound.eggbag.play();
         if (Sound.bluebag.isEnabled() && isBlueBag(bag)) Sound.bluebag.play();
-        notifyItems(bag);
-
-        if (!disableLootSharing) {
-            SendLoot.sendLoot(data, map, bag, dropper, player, time);
-        }
+        notifyItems(bag, Sound.custom::play,
+            () -> SendLoot.sendLoot(data, map, bag, dropper, player, time));
 
     }
 
@@ -168,12 +165,40 @@ public class LootGUI extends JPanel {
         }
     }
 
-    private static void notifyItems(Entity bag) {
+    /** Local alerts precede optional sharing. Callbacks allow verification without audio or networking. */
+    void notifyItems(Entity bag, Runnable alert, Runnable share) {
+        StatData unique = bag.stat.get(StatType.UNIQUE_DATA_STRING);
+        String[] enchants = unique == null || unique.stringStatValue == null
+            ? new String[0] : unique.stringStatValue.split(",", -1);
         for (int slot = 0; slot < 8; slot++) {
             StatData item = bag.stat.get(StatType.INVENTORY_0_STAT.get() + slot);
             if (item == null || item.statValue < 1) continue;
-            if (data.isItemPing(String.valueOf(item.statValue)) || data.isItemPing(IdToAsset.objectName(item.statValue))) Sound.custom.play();
-            if (data.isEnchantPing("")) Sound.custom.play();
+            String name = IdToAsset.objectName(item.statValue);
+            boolean itemMatch = data.isItemPing(String.valueOf(item.statValue))
+                || (name != null && data.isItemPing(name));
+            String enchantText = notificationEnchants(slot < enchants.length ? enchants[slot] : null);
+            boolean enchantMatch = !enchantText.isEmpty() && data.isEnchantPing(enchantText);
+            // Several matching rules (including an item rule) still describe one dropped item.
+            if (itemMatch || enchantMatch) alert.run();
+        }
+        if (!disableLootSharing) share.run();
+    }
+
+    private static String notificationEnchants(String encoded) {
+        if (ParseEnchants.summarize(encoded).applied <= 0) return "";
+        try {
+            // Valid URL Base64 may omit padding; the legacy ID decoder requires complete groups.
+            while (encoded.length() % 4 != 0) encoded += "=";
+            StringBuilder text = new StringBuilder();
+            // Unlike the legacy display parser, include applied enchants after empty/locked slots.
+            for (short id : ParseEnchants.extractEnchantIds(encoded)) {
+                text.append(ParseEnchants.ENCHANTS.getOrDefault(id, "Unknown"))
+                    .append('(').append(id).append(")\n");
+            }
+            return text.toString();
+        } catch (RuntimeException e) {
+            // One malformed slot must not suppress other item alerts or ordinary bag processing.
+            return "";
         }
     }
 

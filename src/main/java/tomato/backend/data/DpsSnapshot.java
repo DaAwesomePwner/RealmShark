@@ -9,6 +9,7 @@ public final class DpsSnapshot {
     public final MapInfoPacket map;
     public final Entity[] targets;
     public final Entity player;
+    public final DpsData.LocalPlayerContext localPlayerContext;
     public final ArrayList<NotificationPacket> notifications;
     public final long elapsed;
 
@@ -20,6 +21,7 @@ public final class DpsSnapshot {
         targets=data.getEntityHitList();
         for(int i=0;i<targets.length;i++) targets[i]=targets[i].copyForDisplay(copies);
         player=data.player==null?null:data.player.copyForDisplay(copies);
+        localPlayerContext=DpsData.LocalPlayerContext.capture(player);
     }
 
     /** Call on the packet producer, or before capture has started. */
