@@ -53,3 +53,5 @@ java -jar build/step1-validation/libs/RealmShark-v1.2.3.jar --help
 - Reports: `build/step1-validation/reports/tests/{test,testUi150,testUi200}/index.html`.
 
 `.github/workflows/validate.yml` runs the same test/build tasks on Windows with JDK 17 for pull requests and pushes to `main`. GitHub Actions omits `--offline` so a fresh runner can obtain dependencies, uses `build/ci`, and uploads test reports and the runnable JAR. Hosted results are tracked on the pull request.
+
+The hosted UI job prepares a supported primary-display mode with room for a 1240×800 logical window at 200% scaling. `scripts/Set-CiDisplay.ps1` is restricted to Windows GitHub Actions runners; it checks native mode-change results and runs `CheckUiDisplay.java` at 100/150/200% to verify the actual window size and AWT transform. An insufficient runner desktop fails explicitly instead of silently substituting compact layouts for desktop checks. The popup keyboard test also waits for real Swing focus transfer before activating Enter.
