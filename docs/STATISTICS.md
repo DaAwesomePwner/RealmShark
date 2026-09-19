@@ -21,6 +21,8 @@ Ranges end at the selected character's latest sample, not the computer clock. On
 
 Character rates exclude intervals spent on another observed character. Map attribution updates only the active character, retains zero-gain visits and includes each open visit once. At a map transition, the previous character's known fame can seed the next visit only if the same character continues. A newly observed character starts from its first sample. Open visits end at their latest sample; closed visits also include the known map-exit time. Consequently, map durations and character sample spans can differ. These changes apply to new observations; saved historical sessions are not rewritten.
 
+Captured fame updates change the graph and table models together relative to New Session and save boundaries. Tracking continues while Swing is busy or the views are hidden. Presentation updates coalesce and catch up when shown; the table no longer retains a redundant sample series. Graph/session samples and map visits remain available to persistence.
+
 ## Saved fame sessions
 
 View Saved Sessions includes every character with saved fame or map records, including zero-gain, negative-gain, map-only, and single-sample histories. Character tables sort numeric values numerically; an em dash identifies missing fame samples.
@@ -40,6 +42,8 @@ Rarity is derived from unlocked slots: **Common / Unenchanted (0)**, **Uncommon 
 Recent Drops includes each item's tier, rarity, slots and applied count and offers 5-minute, 15-minute and one-hour ranges relative to the latest captured drop. Its 1,000-bag history limit does not truncate the aggregate session totals, including enchantment breakdowns. Dates sort chronologically. Whites means contents observed in white or boosted white bags, not an inferred item rarity.
 
 **Live log** shows rarity, unlocked slots and applied enchant counts in item tooltips, alongside enchant descriptions. Icon glow follows unlocked slot count. Its bag visibility still follows **Edit > Filter Loot**. Explorer filters do not change capture, sounds, or sharing settings. Counts represent observed drops, not inventory pickups. Loot explorer totals are retained for the current app session only; restart the rebuilt app to begin recording the new breakdowns.
+
+The Statistics Loot panel includes a compact **legacy sharing** status and a Details action. Connection and delivery run on a bounded FIFO worker (256 waiting payloads and one active). **Sent to socket** is a completed local write, not server acceptance. Definite unsent failures/overflow count as dropped; a failure after enqueue is uncertain and is not retried. A definite pre-enqueue rejection permits one reconnect attempt. Opting out clears unsent queued/pending bags and prevents late connection completion from sending them. In-flight bytes cannot be recalled. Local alerts remain independent. This status is separate from Guild Bridge Review.
 
 ## Dungeon Stats
 

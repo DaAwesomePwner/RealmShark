@@ -2,6 +2,8 @@
 
 Start capture and enable **Record** in any activity module. Record is the same shared collection switch as Collect in Logging. The existing Save logs setting controls automatic persistence across launches. Freeze pauses the selected view; Export history saves a local JSON snapshot.
 
+Activity export uses the last displayed history revision, including while frozen. Changing the Resources & buffs visit while frozen reads that frozen history; unfreezing catches up with current capture. Full export materialization and file writing run on a background worker. Runs/Timeline refreshes omit chart samples, and Resources & buffs reads only the selected visit's chart data. Hidden views defer automatic refreshes.
+
 ## Runs
 
 Runs has its own sidebar entry and Alt+R shortcut. It lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, and status. Select a run for HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; Export history includes all retained dungeon runs and their linked events regardless of search.
@@ -39,3 +41,5 @@ Existing aggregate-only visits remain readable, including uptime summaries. They
 History retains up to 200 visits and 1,000 timeline events. Resource points and condition intervals are each capped at 1,000 per visit and 12,000 across retained visits. Adjacent identical condition intervals are merged. The oldest plot records are removed first; the visit details disclose omissions, and aggregate statistics remain available.
 
 Gameplay history is stored in `logs/discovery/activity-history.json`. Clearing Logging diagnostics preserves it. Reports remain local and follow the field restrictions described in [Discovery logging](LOGGING.md).
+
+Checkpoint snapshots are acquired by the persistence worker. Dirty history is acknowledged only after a successful write, so a failed final checkpoint remains eligible for retry on orderly close. See [Step 2 validation](STEP-2-RESPONSIVENESS.md) for concurrency coverage and synthetic measurements.
