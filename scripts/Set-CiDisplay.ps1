@@ -92,9 +92,10 @@ Write-Host "Current mode: $(Format-Mode $current)"
 Write-Host "Available modes: $available"
 
 try {
-    # 1240x800 logical at 200% needs 2480x1600 pixels, plus taskbar margin.
-    $minimumWidth = 2560
-    $minimumHeight = 1800
+    # Full desktop fixtures need 1240x800 logical pixels, plus taskbar margin.
+    # Hosted Hyper-V displays top out at 1920x1080; scaled tasks run locally.
+    $minimumWidth = 1600
+    $minimumHeight = 900
     if ($current.PelsWidth -ge $minimumWidth -and $current.PelsHeight -ge $minimumHeight) {
         Write-Host 'Keeping the current display mode.'
     } else {
@@ -108,7 +109,7 @@ try {
             Write-Host "CDS_TEST $(Format-Mode $candidate): $result"
             if ($result -eq 0) { $selected = $candidate; break }
         }
-        if ($null -eq $selected) { throw 'No supported mode can provide the required 2560x1800 physical desktop.' }
+        if ($null -eq $selected) { throw 'No supported mode can provide the required 1600x900 physical desktop.' }
         $result = [RealmSharkCiDisplay]::ChangeDisplaySettingsEx($deviceName, [ref] $selected, [IntPtr]::Zero, 0, [IntPtr]::Zero)
         Write-Host "Apply $(Format-Mode $selected): $result"
         if ($result -ne 0) { throw "Display change failed with code $result (0 required; 1 means restart required)." }
@@ -119,12 +120,9 @@ try {
         }
     }
 
-    # Each JVM initializes AWT against the prepared desktop with its own scale.
-    foreach ($scale in @('1', '1.5', '2')) {
-        & $java "-Dsun.java2d.uiScale=$scale" $probe $scale
-        if ($LASTEXITCODE -ne 0) { throw "The ${scale}x Java display probe failed (exit $LASTEXITCODE)." }
-    }
-    Write-Host 'PASS: CI desktop supports a real 1240x800 logical window at 100%, 150%, and 200%.'
+    & $java '-Dsun.java2d.uiScale=1' $probe '1'
+    if ($LASTEXITCODE -ne 0) { throw "The 1x Java display probe failed (exit $LASTEXITCODE)." }
+    Write-Host 'PASS: CI desktop supports a real 1240x800 logical window at 100%.'
 } catch {
     throw "CI display setup failed: $($_.Exception.Message) Available modes: $available. A runner display supporting the required native window sizes is necessary."
 }

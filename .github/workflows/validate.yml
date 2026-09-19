@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   windows:
-    name: Windows tests, scaled UI, and JAR
+    name: Windows tests and JAR
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -27,12 +27,12 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - name: Prepare display for scaled UI
+      - name: Prepare display for desktop UI
         shell: powershell
         run: .\scripts\Set-CiDisplay.ps1
       - name: Test and build
         shell: pwsh
-        run: .\gradlew.bat --no-daemon --continue -I scripts/typography-validation.gradle -PrealmSharkBuildDir=build/ci test testUi150 testUi200 shadowJar
+        run: .\gradlew.bat --no-daemon --continue -PrealmSharkBuildDir=build/ci test shadowJar
       - name: Check runnable JAR
         shell: pwsh
         run: java -jar build/ci/libs/RealmShark-v1.2.3.jar --help
