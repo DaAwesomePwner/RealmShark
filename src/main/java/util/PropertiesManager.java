@@ -1,21 +1,35 @@
 package util;
 
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.nio.file.Paths;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 
-/** Local application preferences. Writers are closed before subsequent updates. */
+/**
+ * Memory-immediate application preferences; disk work belongs to PreferencesStore.
+ * Startup must call preload() off the EDT before creating models/views that cache preferences.
+ */
 public class PropertiesManager {
+    // Retained for existing reflection-based test presets; production updates use the store.
     private static final Properties properties = new Properties();
+    private static final PreferencesStore store = new PreferencesStore(
+        Paths.get("realmShark.properties"), properties, new PreferencesStore.FileStorage());
     static {
-        try (FileReader reader = new FileReader("realmShark.properties")) { properties.load(reader); }
-        catch (IOException ignored) { }
+        Runtime.getRuntime().addShutdownHook(new Thread(() ->
+            store.shutdown(3, TimeUnit.SECONDS, System.err::println), "preferences-shutdown"));
     }
-    public static synchronized void setProperties(String name, String value) {
-        properties.setProperty(name, value);
-        try (FileWriter writer = new FileWriter("realmShark.properties")) { properties.store(writer, "RealmShark properties"); }
-        catch (IOException e) { System.err.println("Could not save application preferences: " + e.getMessage()); }
+
+    public static void setProperties(String name, String value) { store.setProperties(name, value); }
+    public static void setProperties(Map<String, String> updates) { store.setProperties(updates); }
+    public static String getProperty(String name) { return store.getProperty(name); }
+    public static PreferencesStore.Status status() { return store.status(); }
+    public static PreferencesStore.SaveResult preload() { return store.preload(); }
+
+    public static CompletionStage<PreferencesStore.SaveResult> setPropertiesAsync(String name, String value) {
+        return store.setProperties(name, value);
     }
-    public static synchronized String getProperty(String name) { return properties.getProperty(name); }
+
+    /** Await off the EDT when a caller/test needs disk durability rather than immediate memory. */
+    public static CompletionStage<PreferencesStore.SaveResult> flush() { return store.flush(); }
 }

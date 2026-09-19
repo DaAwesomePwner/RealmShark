@@ -20,6 +20,7 @@ import tomato.gui.maingui.TomatoMenuBar;
 import tomato.gui.warnings.JavaOutOfMemoryGUI;
 import tomato.realmshark.CrashLogger;
 import tomato.version.Version;
+import util.PropertiesManager;
 import util.Util;
 
 /**
@@ -44,6 +45,8 @@ public class Tomato {
 
     public static void main(String[] args) {
         AppIdentity.initialize();
+        // Load before any GUI/model presets are read; readers themselves never perform I/O.
+        PropertiesManager.preload();
         for (String arg : args) {
             if ("--preview".equals(arg)) preview = true;
         }

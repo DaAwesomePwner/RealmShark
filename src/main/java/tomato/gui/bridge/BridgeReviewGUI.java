@@ -35,6 +35,8 @@ public final class BridgeReviewGUI extends JPanel {
     private List<BridgeService.Review> rows=Collections.emptyList();
     private long revision=-1;
     private boolean rebuilding;
+    private boolean loadingFields,initialSettingsLoaded,saving;
+    private final Set<JComponent> editedFields=Collections.newSetFromMap(new IdentityHashMap<>());
 
     public BridgeReviewGUI(BridgeService bridge) {
         super(new BorderLayout(0,8));this.bridge=bridge;setName("bridge-review-panel");
@@ -82,7 +84,8 @@ public final class BridgeReviewGUI extends JPanel {
         review.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!rebuilding)showDetails();});
         logs.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!rebuilding)showLogDetails();});
         clear.addActionListener(e->{bridge.clearLogs();refresh();});export.addActionListener(e->exportReview());exportLogs.addActionListener(e->exportLogs());save.addActionListener(e->save());
-        load(bridge.config());if(bridge.isPreview()){save.setEnabled(false);save.setToolTipText("Preview never saves settings or contacts the bot.");}
+        state.setName("bridge-state");save.setName("bridge-save");
+        load(bridge.config());trackEdits();if(bridge.isPreview())save.setToolTipText("Preview never saves settings or contacts the bot.");
         timer=new javax.swing.Timer(650,e->{if(isShowing())refresh();});refresh();
     }
     @Override public void addNotify(){super.addNotify();timer.start();}
@@ -98,6 +101,7 @@ public final class BridgeReviewGUI extends JPanel {
         browse.getAccessibleContext().setAccessibleName("Browse for loot CSV");
         browse.addActionListener(e->{JFileChooser chooser=new JFileChooser();if(chooser.showOpenDialog(this)==JFileChooser.APPROVE_OPTION)csv.setText(chooser.getSelectedFile().getAbsolutePath());});
         field(form,g,3,"Loot CSV (input)",csvBox,csv);field(form,g,4,"Review log (optional)",audit);
+        enabled.setName("bridge-enabled");send.setName("bridge-send");debug.setName("bridge-debug");
         JPanel switches=ContentStyle.controls();switches.add(enabled);switches.add(send);switches.add(debug);field(form,g,5,"Operation",switches);
         JPanel categories=ContentStyle.controls();for(JCheckBox box:new JCheckBox[]{ut,st,shiny,enchanted,other})categories.add(box);field(form,g,6,"Include categories",categories);
         JTextArea help=note("Categories are additive: any selected match qualifies, and the item must also be in the CSV to send. All categories selected matches the public bridge. Unlisted items remain visible for review. Turn off Send for local review only.\n\nCSV paths such as ./rotmg_loot_drops_updated.csv resolve from the application folder. The optional review log is a local JSONL file with one 5 MB backup. Relative and absolute paths are supported.\n\nKeep one sniffer instance running. New characters are configured in Discord with /mysniffer → Configure Character. Bridge enablement is independent of the original loot-sharing menu option.");
@@ -126,15 +130,33 @@ public final class BridgeReviewGUI extends JPanel {
         table.setAutoCreateRowSorter(true);ContentStyle.table(table,density);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);table.getTableHeader().setReorderingAllowed(false);
     }
-    private void load(BridgeConfig c){endpoint.setText(c.endpoint);guild.setText(c.guildId);token.setText(c.token);csv.setText(c.csvPath);audit.setText(c.reviewLog);enabled.setSelected(c.enabled);send.setSelected(c.send);debug.setSelected(c.debug);ut.setSelected(c.ut);st.setSelected(c.st);shiny.setSelected(c.shiny);enchanted.setSelected(c.enchanted);other.setSelected(c.other);}
+    private void trackEdits(){
+        for(JTextField field:new JTextField[]{endpoint,guild,token,csv,audit})field.getDocument().addDocumentListener(new DocumentListener(){
+            private void changed(){if(!loadingFields)editedFields.add(field);}
+            public void insertUpdate(DocumentEvent e){changed();}public void removeUpdate(DocumentEvent e){changed();}public void changedUpdate(DocumentEvent e){changed();}
+        });
+        for(JCheckBox box:new JCheckBox[]{enabled,send,debug,ut,st,shiny,enchanted,other})box.addItemListener(e->{if(!loadingFields)editedFields.add(box);});
+    }
+    private void load(BridgeConfig c){
+        loadingFields=true;
+        try {
+            JTextField[] fields={endpoint,guild,token,csv,audit};String[] values={c.endpoint,c.guildId,c.token,c.csvPath,c.reviewLog};
+            for(int i=0;i<fields.length;i++)if(!editedFields.contains(fields[i]))fields[i].setText(values[i]);
+            JCheckBox[] boxes={enabled,send,debug,ut,st,shiny,enchanted,other};boolean[] selected={c.enabled,c.send,c.debug,c.ut,c.st,c.shiny,c.enchanted,c.other};
+            for(int i=0;i<boxes.length;i++)if(!editedFields.contains(boxes[i]))boxes[i].setSelected(selected[i]);
+        } finally {loadingFields=false;}
+    }
     private BridgeConfig edited(){Properties p=new Properties();String[] keys={"endpoint","guild_id","link_token","csv_path","local_review_log","enabled","send","debug","filter.ut","filter.st","filter.shiny","filter.enchanted","filter.other"};Object[] values={endpoint.getText(),guild.getText(),new String(token.getPassword()),csv.getText(),audit.getText(),enabled.isSelected(),send.isSelected(),debug.isSelected(),ut.isSelected(),st.isSelected(),shiny.isSelected(),enchanted.isSelected(),other.isSelected()};for(int i=0;i<keys.length;i++)p.setProperty(BridgeConfig.PREFIX+keys[i],String.valueOf(values[i]));return new BridgeConfig(p);}
-    private void save(){BridgeConfig next=edited();save.setEnabled(false);feedback.setText("Validating CSV and saving…");new SwingWorker<Void,Void>(){
+    private void save(){if(saving||!save.isEnabled())return;BridgeConfig next=edited();saving=true;save.setEnabled(false);feedback.setText("Validating CSV and saving…");new SwingWorker<Void,Void>(){
         protected Void doInBackground()throws Exception{bridge.configure(next,true,true);return null;}
-        protected void done(){save.setEnabled(true);try{get();feedback.setText(next.enabled&&next.send?"Saved. Check Logs for the confirmation response.":"Settings saved.");}catch(Exception ex){Throwable cause=ex.getCause()==null?ex:ex.getCause();String message=cause.getMessage();if(!next.token.isEmpty()&&message!=null)message=message.replace(next.token,"[redacted]");feedback.setText("Not saved. Check Settings / CSV.");JOptionPane.showMessageDialog(BridgeReviewGUI.this,message,"Bridge settings",JOptionPane.ERROR_MESSAGE);}refresh();}
+        protected void done(){saving=false;try{get();feedback.setText(next.enabled&&next.send?"Saved. Check Logs for the confirmation response.":"Settings saved.");}catch(Exception ex){Throwable cause=ex.getCause()==null?ex:ex.getCause();String message=cause.getMessage();if(!next.token.isEmpty()&&message!=null)message=message.replace(next.token,"[redacted]");feedback.setText("Not saved. Check Settings / CSV.");JOptionPane.showMessageDialog(BridgeReviewGUI.this,message,"Bridge settings",JOptionPane.ERROR_MESSAGE);}refresh();}
     }.execute();}
     public void refresh(){
         if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::refresh);return;}
-        snapshot=bridge.snapshot();if(snapshot.revision==revision)return;revision=snapshot.revision;
+        snapshot=bridge.snapshot();
+        if(!snapshot.loading&&!initialSettingsLoaded){load(snapshot.config);initialSettingsLoaded=true;}
+        save.setEnabled(!snapshot.loading&&!snapshot.closed&&!bridge.isPreview()&&!saving);
+        if(snapshot.revision==revision)return;revision=snapshot.revision;
         long selected=selected()==null?-1:selected().id;
         String logSelection=logs.getSelectedRow()<0?null:String.valueOf(logs.getValueAt(logs.getSelectedRow(),0))+logs.getValueAt(logs.getSelectedRow(),2);
         rebuilding=true;

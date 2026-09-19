@@ -2,7 +2,7 @@ package tomato.gui.maingui;
 
 import org.junit.Test;
 import tomato.realmshark.ParseEnchants;
-import util.PropertiesManager;
+import util.PreferencesStore;
 
 import javax.swing.*;
 import java.awt.*;
@@ -12,6 +12,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
@@ -49,13 +52,13 @@ public class RuleEditorActionsTest {
     @Test public void groupToggleRetainsControlsAndSearchRestoresExpansionWithoutLosingSelection() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Map<Short, String> old = new HashMap<>(ParseEnchants.ENCHANTS);
-            String preference = PropertiesManager.getProperty("enchantPing.selected");
             try {
                 ParseEnchants.ENCHANTS.clear();
                 ParseEnchants.ENCHANTS.put((short) 1, "Agile");
                 ParseEnchants.ENCHANTS.put((short) 2, "Brisk");
-                PropertiesManager.setProperties("enchantPing.selected", "");
-                EnchantPingGUI panel = new EnchantPingGUI(null);
+                EnchantPingGUI panel = new EnchantPingGUI(null, "", value -> {
+                    throw new AssertionError("This test must not save preferences");
+                });
                 JButton toggle = button(panel, "▶ A");
                 assertNotNull(toggle);
                 assertTrue(toggle.isFocusPainted());
@@ -77,9 +80,57 @@ public class RuleEditorActionsTest {
             } finally {
                 ParseEnchants.ENCHANTS.clear();
                 ParseEnchants.ENCHANTS.putAll(old);
-                PropertiesManager.setProperties("enchantPing.selected", preference == null ? "" : preference);
             }
         });
+    }
+
+    @Test public void enchantSaveFeedbackWaitsForSuccessAndIgnoresSupersededCompletions() throws Exception {
+        CompletableFuture<PreferencesStore.SaveResult> first = new CompletableFuture<>();
+        CompletableFuture<PreferencesStore.SaveResult> second = new CompletableFuture<>();
+        CompletableFuture<PreferencesStore.SaveResult> retry = new CompletableFuture<>();
+        java.util.List<String> selections = new ArrayList<>();
+        AtomicReference<EnchantPingGUI> panel = new AtomicReference<>();
+        Map<Short, String> old = new HashMap<>(ParseEnchants.ENCHANTS);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                ParseEnchants.ENCHANTS.clear();
+                ParseEnchants.ENCHANTS.put((short) 1, "Agile");
+                panel.set(new EnchantPingGUI(null, "1", value -> {
+                    selections.add(value);
+                    return selections.size() == 1 ? first : selections.size() == 2 ? second : retry;
+                }));
+                button(panel.get(), "Save").doClick();
+                assertEquals("Saving 1 items…", saveStatus(panel.get()).getText());
+                button(panel.get(), "Clear All").doClick();
+                button(panel.get(), "Save").doClick();
+                assertEquals("Saving 0 items…", saveStatus(panel.get()).getText());
+                assertEquals(Arrays.asList("1", ""), selections);
+            });
+            // Finishing the old write must not turn the newer request into a false Saved label.
+            first.complete(PreferencesStore.SaveResult.saved(1));
+            SwingUtilities.invokeAndWait(() -> assertEquals("Saving 0 items…", saveStatus(panel.get()).getText()));
+            second.complete(PreferencesStore.SaveResult.failed(2, new IOException("move denied")));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("Save failed", saveStatus(panel.get()).getText());
+                assertTrue(saveStatus(panel.get()).getToolTipText().contains("move denied"));
+                button(panel.get(), "Save").doClick();
+                assertEquals("Saving 0 items…", saveStatus(panel.get()).getText());
+            });
+            retry.complete(PreferencesStore.SaveResult.saved(3));
+            SwingUtilities.invokeAndWait(() -> assertEquals("Saved 0 items.", saveStatus(panel.get()).getText()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                ParseEnchants.ENCHANTS.clear(); ParseEnchants.ENCHANTS.putAll(old);
+            });
+        }
+    }
+
+    private static JLabel saveStatus(Container root) {
+        for (Component c : root.getComponents()) {
+            if (c instanceof JLabel && "enchant-save-status".equals(c.getName())) return (JLabel) c;
+            if (c instanceof Container) { JLabel found = saveStatus((Container) c); if (found != null) return found; }
+        }
+        return null;
     }
 
     private static void pressSpace(JButton button) {

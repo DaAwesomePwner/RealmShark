@@ -4,6 +4,8 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import util.PreferencesStore;
+import util.PropertiesManager;
 
 /** Responsive navigation around the original feature panels; no data is duplicated. */
 public final class WorkspaceShell extends JPanel {
@@ -43,6 +45,8 @@ public final class WorkspaceShell extends JPanel {
     private final JLabel mark = new JLabel(new LineIcon(8, 22));
     private final JLabel brand = new JLabel("RealmShark"), eyebrow = new JLabel("WORKSPACE");
     private final JLabel status = new JLabel("Capture is off"), hint = new JLabel("Start capture, then enter the Realm to see activity.");
+    private final JLabel preferencesStatus = new JLabel();
+    private final Timer preferencesTimer = new Timer(250, e -> refreshPreferencesStatus());
     private final JLabel sideFooter = new JLabel("Powered by RealmShark");
     private final JButton capture = new JButton("Start capture");
     private final JLabel previewLabel = new JLabel("PREVIEW");
@@ -131,6 +135,9 @@ public final class WorkspaceShell extends JPanel {
         status.setFont(ContentStyle.metadata(ContentStyle.body()));
         hint.setFont(ContentStyle.metadata(ContentStyle.body()));
         footer.add(status, BorderLayout.WEST); footer.add(hint, BorderLayout.CENTER);
+        preferencesStatus.setName("preferences-status");
+        preferencesStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
+        footer.add(preferencesStatus, BorderLayout.EAST);
         captureFailure.setName("capture-failure");
         captureFailure.setEditable(false); captureFailure.setLineWrap(true); captureFailure.setWrapStyleWord(true);
         captureFailure.setOpaque(false);
@@ -155,6 +162,29 @@ public final class WorkspaceShell extends JPanel {
         if (sidebar != null) refreshTheme();
     }
 
+    @Override public void addNotify() {
+        super.addNotify();
+        refreshPreferencesStatus();
+        preferencesTimer.start();
+    }
+
+    @Override public void removeNotify() {
+        preferencesTimer.stop();
+        super.removeNotify();
+    }
+
+    private void refreshPreferencesStatus() {
+        PreferencesStore.Status saving = PropertiesManager.status();
+        switch (saving.state) {
+            case LOADING: preferencesStatus.setText("Preferences loading…"); break;
+            case SAVING: preferencesStatus.setText("Preferences saving…"); break;
+            case FAILED: preferencesStatus.setText("Preferences not saved"); break;
+            default: preferencesStatus.setText("Preferences saved");
+        }
+        preferencesStatus.setToolTipText(saving.detail);
+        preferencesStatus.setForeground(ContentStyle.color(saving.state == PreferencesStore.State.FAILED ? "rose" : "muted"));
+    }
+
     /** Refreshes explicit shell colors from the active LAF rather than retaining a dark sidebar. */
     public void refreshTheme() {
         Color background = ContentStyle.color("navigation");
@@ -168,6 +198,7 @@ public final class WorkspaceShell extends JPanel {
         mark.setForeground(ContentStyle.color("violet")); previewLabel.setForeground(ContentStyle.color("violet"));
         for (JLabel label : new JLabel[] {eyebrow, sideFooter, description, hint}) label.setForeground(ContentStyle.color("muted"));
         status.setForeground(ContentStyle.color("text")); captureFailure.setForeground(ContentStyle.color("rose"));
+        refreshPreferencesStatus();
         capture.setBackground(VioletTheme.CAPTURE_BACKGROUND); capture.setForeground(Color.WHITE);
         capture.putClientProperty("FlatLaf.style", "background: #7041BD; foreground: #FFFFFF; focusedBackground: #8052CD; hoverBackground: #8052CD; pressedBackground: #6036A5; hoverForeground: #FFFFFF; pressedForeground: #FFFFFF");
         for (int i = 0; i < navigation.length; i++) if (navigation[i] != null) styleNavigation(i);

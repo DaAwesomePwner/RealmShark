@@ -10,6 +10,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -17,6 +19,7 @@ import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.Sound;
 import util.PropertiesManager;
+import util.PreferencesStore;
 
 public class EnchantPingGUI extends JPanel {
 
@@ -29,13 +32,20 @@ public class EnchantPingGUI extends JPanel {
     // persisted selection (ids)
     private final Set<Short> savedSelected = new HashSet<>();
     private final List<Group> groups = new ArrayList<>();
+    private final JLabel saveStatus = new JLabel(" ");
+    private long saveRequest;
 
     public EnchantPingGUI(List<String> items) {
+        this(items, PropertiesManager.getProperty("enchantPing.selected"),
+            value -> PropertiesManager.setPropertiesAsync("enchantPing.selected", value));
+    }
+
+    EnchantPingGUI(List<String> items, String saved,
+                   Function<String, CompletionStage<PreferencesStore.SaveResult>> saveSelection) {
         super(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         // Load saved selection (comma separated short ids)
-        String saved = PropertiesManager.getProperty("enchantPing.selected");
         if (saved != null && !saved.trim().isEmpty()) {
             String[] parts = saved.split(",");
             for (String p : parts) {
@@ -71,6 +81,8 @@ public class EnchantPingGUI extends JPanel {
         bottomPanel.add(selectAllBtn);
         bottomPanel.add(clearAllBtn);
         bottomPanel.add(saveButton);
+        saveStatus.setName("enchant-save-status");
+        bottomPanel.add(saveStatus);
         this.add(bottomPanel, BorderLayout.SOUTH);
 
         // Populate grouped checkboxes from ParseEnchants
@@ -106,16 +118,17 @@ public class EnchantPingGUI extends JPanel {
                     Short.toString(en.getKey())
                 );
             }
-            PropertiesManager.setProperties(
-                "enchantPing.selected",
-                String.join(",", ids)
-            );
-            JOptionPane.showMessageDialog(
-                EnchantPingGUI.this,
-                "Saved " + ids.size() + " items.",
-                "Save",
-                JOptionPane.INFORMATION_MESSAGE
-            );
+            long request = ++saveRequest;
+            saveStatus.setText("Saving " + ids.size() + " items…");
+            saveStatus.setToolTipText("Changes are active now; waiting for the preferences file to be saved.");
+            saveSelection.apply(String.join(",", ids)).whenComplete((result, failure) ->
+                SwingUtilities.invokeLater(() -> {
+                    if (request != saveRequest) return;
+                    boolean savedSuccessfully = failure == null && result.isSuccess();
+                    saveStatus.setText(savedSuccessfully ? "Saved " + ids.size() + " items." : "Save failed");
+                    saveStatus.setToolTipText(failure == null ? result.detail()
+                        : "Preferences not saved: " + failure.getMessage());
+                }));
         });
 
         // Global select/clear
@@ -346,6 +359,7 @@ public class EnchantPingGUI extends JPanel {
 
     // Simple test harness
     public static void main(String[] args) {
+        PropertiesManager.preload();
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("Enchant Ping GUI");
             realmshark.branding.AppIdentity.apply(frame);
