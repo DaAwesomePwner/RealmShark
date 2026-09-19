@@ -1,0 +1,51 @@
+name: Validate RealmShark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows tests, scaled UI, and JAR
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Test and build
+        shell: pwsh
+        run: .\gradlew.bat --no-daemon -I scripts/typography-validation.gradle -PrealmSharkBuildDir=build/ci test testUi150 testUi200 shadowJar
+      - name: Check runnable JAR
+        shell: pwsh
+        run: java -jar build/ci/libs/RealmShark-v1.2.3.jar --help
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-reports
+          path: |
+            build/ci/reports/tests/
+            build/ci/test-results/
+          retention-days: 14
+      - name: Upload runnable JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: RealmShark-JAR
+          path: build/ci/libs/RealmShark-v1.2.3.jar
+          if-no-files-found: error
+          retention-days: 14

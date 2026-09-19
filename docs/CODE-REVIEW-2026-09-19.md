@@ -1,5 +1,7 @@
 # RealmShark code review — 2026-09-19
 
+Implementation follow-up: [Step 1 — saved-data integrity and correctness](STEP-1-DATA-INTEGRITY.md). The findings below retain the reviewed baseline behavior.
+
 ## Assessment
 
 RealmShark has a useful shared presentation layer, substantial feature coverage, and a passing regression suite. The highest-value next work is to protect exports, eliminate remaining blocking work in capture/UI paths, make historical and partial data trustworthy, and finish compact/large-font accessibility. These improvements can build on the existing Swing architecture.

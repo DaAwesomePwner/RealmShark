@@ -17,7 +17,14 @@ DPS is recorded outgoing damage divided by the first-to-last selected enemy hit 
 
 Incoming damage uses the same retained player damage events as the original hover tooltip, including events recorded for other players. **All enemies** shows full dungeon incoming totals, including events outside the outgoing DPS window. Selecting an enemy limits incoming totals to that fight's inclusive time window; the detail pane also shows the full dungeon total. Bosses-only overview uses the first-to-last boss hit window. Incoming totals include every source in the chosen interval, not just attacks from the selected enemy, and overlapping windows do not double-count events. Incoming values can include existing local AoE/ground estimates; counts describe recorded events. An em dash means no incoming records are available for that remote player, not confirmed zero damage. Missing capture cannot be reconstructed.
 
-No packet decoding, damage reconstruction, or saved serialization formats were changed.
+Packet decoding and damage reconstruction retain their existing behavior. Step 1 adds an optional historical local-player context to saved encounters while preserving the previous Java serialization identifier; existing recordings remain readable.
+
+## Saved context and safe exports
+
+- **My Class / My Guild** use the selected encounter's recorded local context consistently in Meters and Legacy text/icon views. Switching the live character does not change those historical matches.
+- Older files infer context only from consistent, recorded local-player markers. If a relative predicate cannot be evaluated, a visible notice explains why. Explicit names/classes/guilds still apply; a relative-only preset with no usable context leaves all players visible.
+- Dungeon List exports preserve existing files and use numbered suffixes for collisions, including repeated exports. Turning **Save Debug Data** off creates a separate recording rather than replacing a richer file.
+- Serialization completes in a temporary file before a destination is exclusively created. Normal write failures remove the new partial file; an abrupt process termination can leave a new partial export, but cannot overwrite an existing recording.
 
 If capture misses the local player's spawn data, outgoing hit packets alone cannot supply the player's missing damage inputs. Live meters display a warning while the local character is unresolved. Saved encounters with retained combat diagnostics display an incomplete-personal-damage warning when local shots precede the captured spawn record. Recordings without those diagnostics cannot be checked for this particular gap. Changing areas or reconnecting provides a new opportunity to capture full character data; it does not repair an incomplete earlier encounter. The warning update passed all 44 Java tests.
 
