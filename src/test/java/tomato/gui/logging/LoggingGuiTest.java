@@ -14,6 +14,7 @@ import java.util.*;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import static org.junit.Assert.*;
+import static tomato.gui.activity.SnapshotTestSupport.await;
 
 public class LoggingGuiTest {
     @Test public void searchFilteringSelectionRefreshAndResponsiveScreens() throws Exception {
@@ -31,6 +32,7 @@ public class LoggingGuiTest {
                 JTabbedPane tabs=find(panel,JTabbedPane.class); assertEquals(6,tabs.getTabCount());
                 assertEquals("Re-entry trace",tabs.getTitleAt(1));
                 tabs.setSelectedIndex(1); JTable trace=find((Container)tabs.getSelectedComponent(),JTable.class);
+                await(()->trace.getRowCount()==1);
                 assertEquals(1,trace.getRowCount()); trace.setRowSelectionInterval(0,0);
                 JTextArea detail=named(panel,"logging-details",JTextArea.class);
                 assertTrue(detail.getText().contains("serverNameCount")); assertFalse(detail.getText().contains("USSouth"));
@@ -55,6 +57,32 @@ public class LoggingGuiTest {
                 }
             } finally { frame.dispose(); log.close(); }
         });
+    }
+    @Test public void currentExportAndRefreshBlockedOnObserverDoNotBlockEdtAndFreezeStaysStable() throws Exception {
+        DiscoveryLog log=new DiscoveryLog(null);LoggingGUI[] panel=new LoggingGUI[1];
+        java.nio.file.Path directory=java.nio.file.Files.createTempDirectory("logging-worker-export");
+        java.util.concurrent.atomic.AtomicReference<SwingWorker<java.nio.file.Path,Void>> export=new java.util.concurrent.atomic.AtomicReference<>();
+        try {
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";emit(log,map);
+            SwingUtilities.invokeAndWait(()->{panel[0]=new LoggingGUI(log);find(panel[0],JTabbedPane.class).setSelectedIndex(4);panel[0].refresh();});
+            await(()->find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount()==1);
+            SwingUtilities.invokeAndWait(()->{checkbox(panel[0],"Freeze").setSelected(true);checkbox(panel[0],"Freeze").setSelected(true);});
+            map.name="Ocean Trench";emit(log,map);
+            synchronized(log){
+                SwingUtilities.invokeAndWait(()->{
+                    panel[0].refresh();assertEquals(1,find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount());
+                    export.set(panel[0].exportTo(directory));assertNull(panel[0].exportTo(directory));
+                    checkbox(panel[0],"Freeze").setSelected(false); // Also queue a blocked diagnostic refresh.
+                });
+                java.util.concurrent.CountDownLatch heartbeat=new java.util.concurrent.CountDownLatch(1);SwingUtilities.invokeLater(heartbeat::countDown);
+                assertTrue("export snapshot acquisition must be off EDT",heartbeat.await(2,java.util.concurrent.TimeUnit.SECONDS));
+                assertFalse(export.get().isDone());
+            }
+            java.nio.file.Path file=export.get().get(5,java.util.concurrent.TimeUnit.SECONDS);
+            com.google.gson.JsonObject document=new com.google.gson.Gson().fromJson(new String(java.nio.file.Files.readAllBytes(file),java.nio.charset.StandardCharsets.UTF_8),com.google.gson.JsonObject.class);
+            assertEquals(2,document.getAsJsonObject("observations").getAsJsonObject("activity").getAsJsonArray("visits").size());
+            await(()->find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount()==2);
+        } finally {log.close();}
     }
     private static void emit(DiscoveryLog log,packets.Packet p) {
         log.observe(PacketType.byClass(p).getIndex(),30,p,"decoded",0);

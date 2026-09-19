@@ -17,6 +17,7 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.activity.SnapshotRefresh;
 
 /** A searchable, bounded view over sanitized discovery data, refreshed only on the EDT. */
 public final class LoggingGUI extends JPanel {
@@ -42,6 +43,9 @@ public final class LoggingGUI extends JPanel {
     private final javax.swing.Timer timer;
     private DiscoveryLog.Snapshot snapshot;
     private boolean refreshing;
+    private boolean exporting;
+    private volatile DiscoveryLog.DiagnosticsRevision revision;
+    private final SnapshotRefresh<DiscoveryLog.DiagnosticsSnapshot> snapshots=new SnapshotRefresh<>();
 
     public LoggingGUI(DiscoveryLog log) {
         super(new BorderLayout(0, 8)); this.log = log;
@@ -61,6 +65,7 @@ public final class LoggingGUI extends JPanel {
         JPanel actions = ContentStyle.controls();
         actions.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));
         JButton export = new JButton("Export report"); export.addActionListener(e -> export());
+        export.setToolTipText("Export current capture diagnostics and full activity history, even while this display is frozen.");
         JButton clear = new JButton("Clear data");
         clear.setToolTipText("Clear diagnostic counters and samples. Runs, Timeline and resource history remain available.");
         clear.addActionListener(e -> { log.clearDiagnostics(); freeze.setSelected(false); refresh(); });
@@ -109,18 +114,21 @@ public final class LoggingGUI extends JPanel {
         observedOnly.addActionListener(e -> { refreshTables(); }); issuesOnly.addActionListener(e -> refreshTables());
         tabs.addChangeListener(e -> refreshTables());
         for (DataTable table : allTables()) table.table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) showDetails(); });
-        freeze.addActionListener(e -> { if (!freeze.isSelected()) refresh(); });
+        freeze.addItemListener(e -> { snapshots.invalidate(); if (!freeze.isSelected()) refresh(); });
         timer = new javax.swing.Timer(1000, e -> { if (isShowing() && !freeze.isSelected()) refresh(); });
-        refresh();
-        addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing() && !freeze.isSelected()) refresh(); });
+        addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0) visibilityChanged(); });
     }
-    @Override public void addNotify() { super.addNotify(); timer.start(); }
-    @Override public void removeNotify() { timer.stop(); super.removeNotify(); }
+    @Override public void addNotify() { super.addNotify(); visibilityChanged(); }
+    @Override public void removeNotify() { timer.stop(); snapshots.invalidate(); super.removeNotify(); }
+    private void visibilityChanged() { if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); snapshots.invalidate(); } }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
-        snapshot = log.snapshot(); refreshing = true;
-        enabled.setSelected(snapshot.enabled); save.setSelected(snapshot.saving); sampling.setSelectedIndex(snapshot.sampleMillis == 0 ? 1 : 0);
-        refreshing = false; refreshTables();
+        if (freeze.isSelected() || (isDisplayable()&&!isShowing())) return;
+        snapshots.request("diagnostics",()->log.diagnosticsSnapshot(revision),next->{
+            revision=next.revision; snapshot=next.data; refreshing=true;
+            enabled.setSelected(snapshot.enabled); save.setSelected(snapshot.saving); sampling.setSelectedIndex(snapshot.sampleMillis==0 ? 1 : 0);
+            refreshing=false; refreshTables();
+        },error->exportStatus.setText("Could not refresh diagnostics; retrying on the next refresh."));
     }
     private void refreshTables() {
         if (snapshot == null) return;
@@ -191,11 +199,17 @@ public final class LoggingGUI extends JPanel {
     }
     private DataTable[] allTables() { return new DataTable[] {packets,stats,events,fields,discoveries,reentry}; }
     private void export() {
-        final DiscoveryLog.Snapshot report = log.snapshot();
+        exportTo(Paths.get("logs", "discovery", "reports"));
+    }
+    SwingWorker<Path,Void> exportTo(Path directory) {
+        if (exporting) return null;
+        exporting=true;
         exportStatus.setText("Exporting local report…");
-        new SwingWorker<Path,Void>() {
+        SwingWorker<Path,Void> worker=new SwingWorker<Path,Void>() {
             protected Path doInBackground() throws Exception {
-                Path directory=Paths.get("logs", "discovery", "reports"); Files.createDirectories(directory);
+                // Logging exports have always represented current capture, independently of Freeze.
+                DiscoveryLog.Snapshot report=log.snapshot();
+                Files.createDirectories(directory);
                 Path file=Files.createTempFile(directory, "discovery-report-", ".json");
                 Map<String,Object> document=new LinkedHashMap<>(); document.put("observations",report);
                 document.put("reentryTrace", traceRows(report.events));
@@ -206,8 +220,9 @@ public final class LoggingGUI extends JPanel {
             protected void done() {
                 try { Path path=get(); exportStatus.setText("Saved " + path.getFileName() + " in logs/discovery/reports"); exportStatus.setToolTipText(path.toString()); }
                 catch (Exception e) { exportStatus.setText("Export failed. Check folder permissions and free disk space."); }
+                finally { exporting=false; }
             }
-        }.execute();
+        };worker.execute();return worker;
     }
     private static List<TraceRow> traceRows(List<DiscoveryLog.Event> events) {
         List<TraceRow> result = new ArrayList<>();

@@ -16,6 +16,7 @@ import java.nio.file.*;
 import java.util.*;
 import javax.imageio.ImageIO;
 import static org.junit.Assert.*;
+import static tomato.gui.activity.SnapshotTestSupport.await;
 
 public class ActivityModulesTest {
     private void feed(ActivityJournal j,Packet p,long time){j.observe(p,PacketType.byClass(p),"decoded",time,Collections.emptyMap());}
@@ -48,6 +49,7 @@ public class ActivityModulesTest {
                 ActivityPanel runs=new ActivityPanel(log,ActivityPanel.Mode.RUNS);
                 JTable table=find(runs,JTable.class,"activity-table");JTextField search=find(runs,JTextField.class,"activity-search");
                 JLabel summary=find(runs,JLabel.class,"activity-summary");
+                runs.refresh();await(()->table.getRowCount()==4);
                 assertEquals(4,table.getRowCount());assertEquals("Dungeon",table.getColumnName(1));
                 assertEquals("Lost Halls",table.getValueAt(0,1));assertEquals("Battle for the Nexus",table.getValueAt(1,1));
                 assertEquals("Ocean Trench",table.getValueAt(2,1));assertEquals("Ice Citadel",table.getValueAt(3,1));
@@ -61,8 +63,9 @@ public class ActivityModulesTest {
                 MapInfoPacket hub=new MapInfoPacket();hub.name="Nexus";log.observe(PacketType.MAPINFO.getIndex(),30,hub,"decoded",0);runs.refresh();
                 assertEquals(4,table.getRowCount());
                 MapInfoPacket dungeon=new MapInfoPacket();dungeon.name="unfamiliar internal";dungeon.displayName="Moonlight Village";
-                log.observe(PacketType.MAPINFO.getIndex(),30,dungeon,"decoded",0);runs.refresh();assertEquals(5,table.getRowCount());
+                log.observe(PacketType.MAPINFO.getIndex(),30,dungeon,"decoded",0);runs.refresh();await(()->table.getRowCount()==5);assertEquals(5,table.getRowCount());
                 ActivityPanel timeline=new ActivityPanel(log,ActivityPanel.Mode.TIMELINE);
+                timeline.refresh();await(()->find(timeline,JComboBox.class,"activity-visit").getItemCount()==maps.length+3);
                 find(timeline,JTextField.class,"activity-search").setText("Vault");assertEquals(1,find(timeline,JTable.class,null).getRowCount());
                 JComboBox<?> picker=find(timeline,JComboBox.class,"activity-visit");assertEquals(maps.length+3,picker.getItemCount());
                 ActivityJournal.State history=log.activityHistory(),report=ActivityPanel.exportHistory(history,ActivityPanel.Mode.RUNS);
@@ -79,6 +82,7 @@ public class ActivityModulesTest {
         try {
             SwingUtilities.invokeAndWait(()->{
                 ActivityPanel runs=new ActivityPanel(log,ActivityPanel.Mode.RUNS);
+                runs.refresh();await(()->find(runs,JLabel.class,"activity-summary").getText().contains("3 other area visits"));
                 assertEquals(0,find(runs,JTable.class,null).getRowCount());
                 assertTrue(find(runs,JLabel.class,"activity-summary").getText().contains("0 of 0 dungeon runs"));
                 assertTrue(find(runs,JTextArea.class,"activity-detail").getText().contains("No dungeon runs recorded"));
@@ -99,11 +103,12 @@ public class ActivityModulesTest {
                 assertEquals("Runs",WorkspaceShell.TITLES[10]);assertEquals("Timeline",WorkspaceShell.TITLES[11]);
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt R")));
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt T")));
-                shell.select(10);JTable table=find(runs,JTable.class,null);assertEquals(2,table.getRowCount());
+                shell.select(10);JTable table=find(runs,JTable.class,null);await(()->table.getRowCount()==2);assertEquals(2,table.getRowCount());
                 table.setRowSelectionInterval(1,1);runs.refresh();assertEquals(1,table.getSelectedRow());
-                shell.select(11);JTextField search=find(timeline,JTextField.class,null);search.setText("Party roster");assertEquals(1,find(timeline,JTable.class,null).getRowCount());search.setText("[");assertEquals(0,find(timeline,JTable.class,null).getRowCount());search.setText("");
+                shell.select(11);await(()->find(timeline,JComboBox.class,"activity-visit").getItemCount()==3);JTextField search=find(timeline,JTextField.class,null);search.setText("Party roster");assertEquals(1,find(timeline,JTable.class,null).getRowCount());search.setText("[");assertEquals(0,find(timeline,JTable.class,null).getRowCount());search.setText("");
                 shell.select(7);JTabbedPane tabs=find(dps,JTabbedPane.class,"dps-tabs");assertEquals("Resources & buffs",tabs.getTitleAt(1));tabs.setSelectedIndex(1);
-                ActivityPanel combat=find(dps,ActivityPanel.class,"activity-combat");combat.selectVisit(log.activityHistory().visits.get(0).id);
+                ActivityPanel combat=find(dps,ActivityPanel.class,"activity-combat");await(()->find(combat,JComboBox.class,"activity-visit").getItemCount()==2);combat.selectVisit(log.activityHistory().visits.get(0).id);
+                await(()->find(combat,JTable.class,null).getRowCount()==2);
                 assertEquals(2,find(combat,JTable.class,null).getRowCount());
                 assertTrue(find(combat,JTextArea.class,"activity-detail").getText().contains("Buff coverage"));
                 for(int width:new int[]{1240,760}){
@@ -116,6 +121,123 @@ public class ActivityModulesTest {
             }finally{frame.dispose();log.close();}
         });
     }
+    @Test public void freezeLatchesDisplayAndExportWhileCaptureContinuesAndResumeCatchesUp() throws Exception {
+        DiscoveryLog log=new DiscoveryLog(null);ActivityPanel[] panel=new ActivityPanel[1];
+        Path directory=Files.createTempDirectory("activity-frozen-export");
+        java.util.concurrent.atomic.AtomicReference<SwingWorker<Path,Void>> export=new java.util.concurrent.atomic.AtomicReference<>();
+        try {
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
+            SwingUtilities.invokeAndWait(()->{panel[0]=new ActivityPanel(log,ActivityPanel.Mode.RUNS);panel[0].refresh();});
+            await(()->find(panel[0],JTable.class,null).getRowCount()==1);
+            SwingUtilities.invokeAndWait(()->{JCheckBox freeze=checkbox(panel[0],"Freeze");freeze.setSelected(true);freeze.setSelected(true);});
+            log.clear();map.name="Ocean Trench";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
+            SwingUtilities.invokeAndWait(()->{
+                panel[0].refresh();assertEquals("Ice Citadel",find(panel[0],JTable.class,null).getValueAt(0,1));
+                export.set(panel[0].exportTo(directory));assertNull("exports are bounded",panel[0].exportTo(directory));
+            });
+            Path file=export.get().get(5,java.util.concurrent.TimeUnit.SECONDS);
+            ActivityJournal.State report=new com.google.gson.Gson().fromJson(new String(Files.readAllBytes(file),java.nio.charset.StandardCharsets.UTF_8),ActivityJournal.State.class);
+            assertEquals(1,report.visits.size());assertEquals("Ice Citadel",report.visits.get(0).map);
+            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(false));
+            await(()->"Ocean Trench".equals(find(panel[0],JTable.class,null).getValueAt(0,1)));
+        } finally {log.close();}
+    }
+    @Test public void frozenCombatCanSelectAnotherVisitWithoutReadingNewCapture() throws Exception {
+        DiscoveryLog log=fixture();ActivityPanel[] panel=new ActivityPanel[1];
+        try {
+            java.util.List<ActivityJournal.Visit> original=log.activityHistory().visits;
+            SwingUtilities.invokeAndWait(()->{panel[0]=new ActivityPanel(log,ActivityPanel.Mode.COMBAT);panel[0].refresh();});
+            await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==2);
+            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(true));
+            log.clear();
+            SwingUtilities.invokeAndWait(()->panel[0].selectVisit(original.get(0).id));
+            await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ice Citadel"));
+            SwingUtilities.invokeAndWait(()->assertEquals(2,find(panel[0],JTable.class,null).getRowCount()));
+            assertTrue(log.activityHistory().visits.isEmpty());
+            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(false));
+            await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==0);
+        } finally {log.close();}
+    }
+    @Test public void latestCombatSelectionRejectsTheOldVisitWhenItsReadCompletesLate() throws Exception {
+        DiscoveryLog log=fixture();ActivityPanel[] panel=new ActivityPanel[1];
+        java.util.concurrent.atomic.AtomicBoolean stale=new java.util.concurrent.atomic.AtomicBoolean();
+        try {
+            java.util.List<ActivityJournal.Visit> visits=log.activityHistory().visits;
+            SwingUtilities.invokeAndWait(()->{panel[0]=new ActivityPanel(log,ActivityPanel.Mode.COMBAT);panel[0].refresh();});
+            await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==2);
+            SwingUtilities.invokeAndWait(()->{
+                JTextArea details=find(panel[0],JTextArea.class,"activity-detail");
+                details.getDocument().addDocumentListener(new javax.swing.event.DocumentListener(){
+                    public void insertUpdate(javax.swing.event.DocumentEvent e){if(details.getText().startsWith("Ice Citadel"))stale.set(true);}
+                    public void removeUpdate(javax.swing.event.DocumentEvent e){}public void changedUpdate(javax.swing.event.DocumentEvent e){}
+                });
+            });
+            synchronized(log){
+                SwingUtilities.invokeAndWait(()->panel[0].selectVisit(visits.get(0).id));
+                await(()->Thread.getAllStackTraces().entrySet().stream().anyMatch(thread->thread.getKey().getState()==Thread.State.BLOCKED
+                    && Arrays.stream(thread.getValue()).anyMatch(frame->frame.getClassName().equals(DiscoveryLog.class.getName())&&frame.getMethodName().equals("activityView"))));
+                SwingUtilities.invokeAndWait(()->panel[0].selectVisit(visits.get(1).id));
+                MapInfoPacket map=new MapInfoPacket();map.name="Lost Halls";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
+            }
+            await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==3
+                && find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ocean Trench"));
+            assertFalse("an old selected-visit completion must never reach the display",stale.get());
+        } finally {log.close();}
+    }
+    @Test public void frozenVisitNavigationCannotReuseTheOriginalVisitsTokenAfterResume() throws Exception {
+        DiscoveryLog log=fixture();ActivityPanel[] panel=new ActivityPanel[1];
+        try {
+            java.util.List<ActivityJournal.Visit> visits=log.activityHistory().visits;
+            String original=new com.google.gson.Gson().toJson(visits);
+            String a=visits.get(0).id,b=visits.get(1).id;
+            SwingUtilities.invokeAndWait(()->{panel[0]=new ActivityPanel(log,ActivityPanel.Mode.COMBAT);panel[0].refresh();});
+            await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==2);
+            SwingUtilities.invokeAndWait(()->panel[0].selectVisit(a));
+            await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ice Citadel"));
+            SwingUtilities.invokeAndWait(()->{
+                checkbox(panel[0],"Freeze").setSelected(true);
+                panel[0].selectVisit(b);
+            });
+            await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ocean Trench"));
+            SwingUtilities.invokeAndWait(()->assertTrue(find(panel[0],CombatTimelineChart.class,null).getInspectionSummary().startsWith("No recorded resource samples")));
+            synchronized(log){
+                SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(false));
+                // Hold the resumed B read in the observer, then supersede it with A. No capture
+                // mutation may rescue an incorrectly reused original-A comparison token.
+                await(()->Thread.getAllStackTraces().entrySet().stream().anyMatch(thread->thread.getKey().getState()==Thread.State.BLOCKED
+                    && Arrays.stream(thread.getValue()).anyMatch(frame->frame.getClassName().equals(DiscoveryLog.class.getName())&&frame.getMethodName().equals("activityView"))));
+                SwingUtilities.invokeAndWait(()->panel[0].selectVisit(a));
+            }
+            await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ice Citadel")
+                && find(panel[0],JTable.class,null).getRowCount()==2);
+            SwingUtilities.invokeAndWait(()->{
+                CombatTimelineChart chart=find(panel[0],CombatTimelineChart.class,null);
+                chart.getActionMap().get("first-sample").actionPerformed(new ActionEvent(chart,ActionEvent.ACTION_PERFORMED,"first-sample"));
+                assertTrue("A's resource data must replace B's empty chart",chart.getInspectionSummary().contains("HP 700"));
+                assertTrue(find(panel[0],JComboBox.class,"activity-visit").getSelectedItem().toString().contains("Ice Citadel"));
+            });
+            assertEquals("selection alone must work without a model revision change",original,new com.google.gson.Gson().toJson(log.activityHistory().visits));
+        } finally {log.close();}
+    }
+    @Test public void hiddenActivityStopsReadsAndCatchesUpOnShow() throws Exception {
+        DiscoveryLog log=new DiscoveryLog(null);JFrame[] frame=new JFrame[1];ActivityPanel[] panel=new ActivityPanel[1];
+        try {
+            SwingUtilities.invokeAndWait(()->{
+                panel[0]=new ActivityPanel(log,ActivityPanel.Mode.RUNS);frame[0]=new JFrame();frame[0].setContentPane(panel[0]);frame[0].setSize(800,600);frame[0].setVisible(true);
+            });
+            await(()->log.activitySnapshotStats().views>0);
+            SwingUtilities.invokeAndWait(()->panel[0].setVisible(false));
+            long copies=log.activitySnapshotStats().views;
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
+            long until=System.nanoTime()+1_200_000_000L;await(()->System.nanoTime()>=until);
+            assertEquals(copies,log.activitySnapshotStats().views);
+            SwingUtilities.invokeAndWait(()->panel[0].setVisible(true));await(()->find(panel[0],JTable.class,null).getRowCount()==1);
+            SwingUtilities.invokeAndWait(()->frame[0].dispose());
+            copies=log.activitySnapshotStats().views;map.name="Ocean Trench";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
+            long afterExit=System.nanoTime()+1_200_000_000L;await(()->System.nanoTime()>=afterExit);assertEquals(copies,log.activitySnapshotStats().views);
+        } finally {SwingUtilities.invokeAndWait(()->{if(frame[0]!=null)frame[0].dispose();});log.close();}
+    }
+    private static JCheckBox checkbox(Container root,String text){for(Component c:root.getComponents()){if(c instanceof JCheckBox&&((JCheckBox)c).getText().equals(text))return(JCheckBox)c;if(c instanceof Container){JCheckBox found=checkbox((Container)c,text);if(found!=null)return found;}}return null;}
     private static void capture(JFrame f,String name){try{BufferedImage img=new BufferedImage(f.getWidth(),f.getHeight(),BufferedImage.TYPE_INT_RGB);Graphics2D g=img.createGraphics();f.paint(g);g.dispose();Path dir=Paths.get("screenshots");Files.createDirectories(dir);ImageIO.write(img,"png",dir.resolve(name).toFile());}catch(Exception e){throw new AssertionError(e);}}
     private static <T>T find(Container root,Class<T> type,String name){for(Component c:root.getComponents()){if(type.isInstance(c)&&(name==null||name.equals(c.getName())))return type.cast(c);if(c instanceof Container){T value=find((Container)c,type,name);if(value!=null)return value;}}return null;}
 }

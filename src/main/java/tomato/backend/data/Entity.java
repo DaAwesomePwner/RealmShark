@@ -654,26 +654,16 @@ public void genericDamageHit(
         long exp;
         try { exp = Long.parseLong(experience.stringStatValue); }
         catch (NumberFormatException e) { return; }
-        FameTracker.trackFame(charId, exp, time);
         long fame = (exp + 40071) / 2000;
-        if (tomatoData.charMap != null) {
-            RealmCharacter r = tomatoData.charMap.get(charId);
-            if (r != null) {
-                r.fame = fame;
-                // Pass character class name to fame table
-                String className =
-                    r.classString != null ? r.classString : "Char " + charId;
-                FameTableBridge.updateFame(charId, fame, time, className);
-            } else {
-                // Try to get class name from ObjectType if character not in charMap
-                String className = getClassNameFromObjectType(charId);
-                FameTableBridge.updateFame(charId, fame, time, className);
-            }
+        RealmCharacter character = tomatoData.charMap == null ? null : tomatoData.charMap.get(charId);
+        String className;
+        if (character != null) {
+            character.fame = fame;
+            className = character.classString != null ? character.classString : "Char " + charId;
         } else {
-            // Try to get class name from ObjectType if charMap is null
-            String className = getClassNameFromObjectType(charId);
-            FameTableBridge.updateFame(charId, fame, time, className);
+            className = getClassNameFromObjectType(charId);
         }
+        FameTableBridge.observeFame(charId, fame, time, className);
     }
 
     /**

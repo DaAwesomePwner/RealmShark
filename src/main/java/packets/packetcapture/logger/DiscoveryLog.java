@@ -20,7 +20,11 @@ public final class DiscoveryLog implements AutoCloseable {
     private final ActivityJournal activity;
     private long lastCheckpoint;
     private boolean activityChanged;
-    private boolean enabled = true, saveToDisk = true;
+    private long activityGeneration;
+    private volatile boolean enabled = true, saveToDisk = true;
+    private long diagnosticsRevision, collectionRevision, diagnosticsCopies;
+    private long observedDiskDropped;
+    private String observedWriterError = "", observedActivityError = "";
     private int sampleMillis = 1000;
     private String runId = UUID.randomUUID().toString();
     private long area, total, sampledOut, deltaOmitted, evictions, internalErrors;
@@ -39,29 +43,36 @@ public final class DiscoveryLog implements AutoCloseable {
         activityStore = directory == null ? null : new ActivityStore(directory);
         activity = new ActivityJournal(activityStore == null ? null : activityStore.load());
     }
-    public synchronized boolean isEnabled() { return enabled; }
-    public synchronized boolean isSaving() { return saveToDisk; }
+    public boolean isEnabled() { return enabled; }
+    public boolean isSaving() { return saveToDisk; }
     public synchronized void setEnabled(boolean value) {
-        if (enabled != value) { previous.clear(); area++; activity.boundary(System.currentTimeMillis(), "Collection paused / resumed"); checkpoint(); }
+        if (enabled != value) { previous.clear(); area++; diagnosticsRevision++; collectionRevision++; activityBoundary("Collection paused / resumed"); checkpoint(); }
         enabled = value;
     }
-    public synchronized void setSaving(boolean value) { saveToDisk = value; }
+    public synchronized void setSaving(boolean value) { if (saveToDisk != value) { saveToDisk = value; diagnosticsRevision++; } }
     public synchronized void setSampleMillis(int value) {
         if (value != 0 && value != 1000) throw new IllegalArgumentException("Unsupported sampling interval");
-        sampleMillis = value;
+        if (sampleMillis != value) { sampleMillis = value; diagnosticsRevision++; }
     }
     public synchronized void clear() {
         packets.clear(); stats.clear(); events.clear(); previous.clear();
         total = sampledOut = deltaOmitted = evictions = internalErrors = area = 0;
         runId = UUID.randomUUID().toString();
-        activity.clear(); activityChanged = true; checkpoint();
+        diagnosticsRevision++; collectionRevision++;
+        activity.clear(); markActivityChanged(); checkpoint();
     }
     public synchronized void clearDiagnostics() {
+        if (!packets.isEmpty() || !stats.isEmpty() || !events.isEmpty() || internalErrors != 0) diagnosticsRevision++;
         packets.clear(); stats.clear(); events.clear(); previous.clear();
         total = sampledOut = deltaOmitted = evictions = internalErrors = 0;
     }
     public synchronized ActivityJournal.State activityHistory() { return activitySnapshot(); }
-    public synchronized void boundary() { if (enabled) { area++; previous.clear(); activity.boundary(System.currentTimeMillis(), "Connection boundary; completion unknown"); checkpoint(); } }
+    public synchronized void boundary() { if (enabled) { area++; diagnosticsRevision++; previous.clear(); activityBoundary("Connection boundary; completion unknown"); checkpoint(); } }
+    private void activityBoundary(String reason) {
+        long before=activity.revision(); activity.boundary(System.currentTimeMillis(),reason);
+        if (before!=activity.revision()) markActivityChanged();
+    }
+    private void markActivityChanged() { activityChanged=true; activityGeneration++; }
 
     public synchronized void decodeFailure(int id, int bytes, packets.reader.BufferReader reader, Exception error) {
         if (!enabled) return;
@@ -70,16 +81,17 @@ public final class DiscoveryLog implements AutoCloseable {
         diagnostic.put("offset", reader.getIndex()); diagnostic.put("errorType", error.getClass().getSimpleName());
         if (reader.declaredLength() != null) diagnostic.put("declaredLength", reader.declaredLength());
         try { record(id, bytes, null, "decode-error", reader.getRemainingBytes(), diagnostic); }
-        catch (RuntimeException ignored) { internalErrors++; }
+        catch (RuntimeException ignored) { internalErrors++; diagnosticsRevision++; }
     }
 
     public synchronized void observe(int id, int bytes, Packet packet, String outcome, int remaining) {
         if (!enabled) return;
         try { record(id, bytes, packet, outcome, remaining, Collections.emptyMap()); }
-        catch (RuntimeException ignored) { internalErrors++; } // Optional logging must not stop capture.
+        catch (RuntimeException ignored) { internalErrors++; diagnosticsRevision++; } // Optional logging must not stop capture.
     }
     private void record(int id, int bytes, Packet packet, String outcome, int remaining, Map<String, Object> diagnostic) {
         if (id < 0 || id > 255) return; // Wire IDs are one byte; synthetic IP messages are excluded.
+        diagnosticsRevision++;
         long now = System.currentTimeMillis();
         PacketType type = PacketType.byOrdinal(id);
         PacketRow row = packets.computeIfAbsent(id, n -> new PacketRow(n, type));
@@ -93,7 +105,7 @@ public final class DiscoveryLog implements AutoCloseable {
         row.lastOutcome = outcome;
         List<Delta> deltas = new ArrayList<>();
         boolean clean = "decoded".equals(outcome);
-        activity.observe(packet, type, outcome, now, diagnostic); activityChanged = true;
+        activity.observe(packet, type, outcome, now, diagnostic); markActivityChanged();
         if (clean && packet instanceof MapInfoPacket) { area++; previous.clear(); }
         // Partial decodes are metadata only; their fields are not trusted as gameplay evidence.
         if (clean && packet instanceof UpdatePacket) {
@@ -111,7 +123,7 @@ public final class DiscoveryLog implements AutoCloseable {
         if (sample) {
             row.lastSample = now;
             Map<String, Object> values = clean && packet != null ? DiscoveryCatalog.values(packet, type) : diagnostic;
-            row.latest = new LinkedHashMap<>(values);
+            row.latest = ActivityJournal.copyValues(values);
             Event event = new Event(runId, now, area, id, row.name, row.direction, bytes, outcome, remaining, values, deltas,
                 row.count, sampleMillis, deltaOmitted);
             if (events.size() == EVENT_LIMIT) events.removeFirst();
@@ -124,7 +136,16 @@ public final class DiscoveryLog implements AutoCloseable {
         if (now - lastCheckpoint >= 10000) { checkpoint(); lastCheckpoint = now; }
     }
     private void checkpoint() {
-        if (activityChanged && saveToDisk && activityStore != null) activityStore.offer(activitySnapshot());
+        // Only a coalesced request crosses the capture lock. The store acquires/copies on its worker,
+        // then serializes and performs filesystem I/O after releasing this observer's monitor.
+        if (activityChanged && saveToDisk && activityStore != null) {
+            long generation=activityGeneration;
+            activityStore.offer(this::activityHistory,()->{
+                // Failed writes leave the generation dirty for the next checkpoint, including close.
+                // An older successful write must not acknowledge changes made after it was queued.
+                synchronized (DiscoveryLog.this) { if (activityGeneration==generation) activityChanged=false; }
+            });
+        }
     }
     private ActivityJournal.State activitySnapshot() {
         ActivityJournal.State state = activity.snapshot(); state.captureRunId = runId; state.checkpointTime = Instant.now().toString();
@@ -155,16 +176,79 @@ public final class DiscoveryLog implements AutoCloseable {
         }
     }
     public synchronized Snapshot snapshot() {
+        return snapshot(true);
+    }
+    private Snapshot snapshot(boolean includeActivity) {
         List<PacketRow> packetCopy = new ArrayList<>(); for (PacketRow row : packets.values()) packetCopy.add(new PacketRow(row));
         List<StatRow> statCopy = new ArrayList<>(); for (StatRow row : stats.values()) statCopy.add(new StatRow(row));
+        List<Event> eventCopy = new ArrayList<>(); for (Event event : events) eventCopy.add(new Event(event));
         return new Snapshot(runId, area, total, sampledOut, deltaOmitted, evictions, internalErrors,
             writer == null ? 0 : writer.dropped.get(), writer == null ? "" : writer.error(),
-            enabled, saveToDisk, sampleMillis, packetCopy, statCopy, new ArrayList<>(events), activitySnapshot(),
+            enabled, saveToDisk, sampleMillis, packetCopy, statCopy, eventCopy, includeActivity ? activitySnapshot() : null,
             activityStore == null ? "" : activityStore.error());
     }
-    @Override public synchronized void close() {
-        enabled = false; activity.boundary(System.currentTimeMillis(), "App closed; completion unknown"); checkpoint();
-        if (writer != null) writer.close(); if (activityStore != null) activityStore.close();
+    public static final class DiagnosticsRevision {
+        private final transient DiscoveryLog owner;
+        private final long revision;
+        private DiagnosticsRevision(DiscoveryLog owner,long revision) { this.owner=owner; this.revision=revision; }
+    }
+    public static final class DiagnosticsSnapshot {
+        public final DiagnosticsRevision revision;
+        /** Activity is deliberately absent; this is a detached diagnostic payload. */
+        public final Snapshot data;
+        private DiagnosticsSnapshot(DiagnosticsRevision revision,Snapshot data) { this.revision=revision; this.data=data; }
+    }
+    /** Null means unchanged: no rows, events, or activity history were copied. */
+    public synchronized DiagnosticsSnapshot diagnosticsSnapshot(DiagnosticsRevision known) {
+        long dropped=writer==null ? 0 : writer.dropped.get();
+        String error=writer==null ? "" : writer.error(), activityError=activityStore==null ? "" : activityStore.error();
+        if (dropped!=observedDiskDropped || !error.equals(observedWriterError) || !activityError.equals(observedActivityError)) {
+            observedDiskDropped=dropped; observedWriterError=error; observedActivityError=activityError; diagnosticsRevision++;
+        }
+        if (known!=null && known.owner==this && known.revision==diagnosticsRevision) return null;
+        diagnosticsCopies++;
+        return new DiagnosticsSnapshot(new DiagnosticsRevision(this,diagnosticsRevision),snapshot(false));
+    }
+    public static final class ActivityRevision {
+        private final transient DiscoveryLog owner;
+        private final long collection;
+        private final ActivityJournal.ViewRevision view;
+        private ActivityRevision(DiscoveryLog owner,long collection,ActivityJournal.ViewRevision view) { this.owner=owner; this.collection=collection; this.view=view; }
+    }
+    public static final class ActivitySnapshot {
+        public final ActivityRevision revision;
+        public final ActivityJournal.ViewSnapshot view;
+        public final boolean enabled;
+        private final ActivityJournal.State metadata;
+        private ActivitySnapshot(ActivityRevision revision,ActivityJournal.ViewSnapshot view,boolean enabled,ActivityJournal.State metadata) {
+            this.revision=revision; this.view=view; this.enabled=enabled; this.metadata=metadata;
+        }
+        /** Full export of the displayed revision, even after capture advances, clears or trims. */
+        public ActivityJournal.State fullHistory() {
+            ActivityJournal.State state=view.fullHistory(); state.captureRunId=metadata.captureRunId; state.checkpointTime=metadata.checkpointTime;
+            state.packetCounts.putAll(metadata.packetCounts); state.decodeFailures.putAll(metadata.decodeFailures); state.statObservations.putAll(metadata.statObservations);
+            return state;
+        }
+    }
+    public synchronized ActivitySnapshot activityView(ActivityJournal.View view,String visitId,ActivityRevision known) {
+        ActivityJournal.ViewRevision previous=known!=null && known.owner==this && known.collection==collectionRevision ? known.view : null;
+        ActivityJournal.ViewSnapshot next=activity.viewSnapshot(view,visitId,previous);
+        if (next==null) return null;
+        ActivityJournal.State metadata=new ActivityJournal.State(); metadata.captureRunId=runId; metadata.checkpointTime=Instant.now().toString();
+        for (PacketRow row:packets.values()) { metadata.packetCounts.put(row.name,row.count); metadata.decodeFailures.put(row.name,row.failures); }
+        for (StatRow row:stats.values()) metadata.statObservations.put(Integer.toString(row.id),row.observations);
+        return new ActivitySnapshot(new ActivityRevision(this,collectionRevision,next.revision),next,enabled,metadata);
+    }
+    public synchronized ActivityJournal.SnapshotStats activitySnapshotStats() { return activity.snapshotStats(); }
+    public synchronized long diagnosticsSnapshotCopies() { return diagnosticsCopies; }
+    @Override public void close() {
+        DiscoveryWriter closingWriter;
+        synchronized (this) {
+            if (enabled) { enabled=false; diagnosticsRevision++; collectionRevision++; }
+            activityBoundary("App closed; completion unknown"); checkpoint(); closingWriter=writer;
+        }
+        // Never join filesystem workers while holding the monitor used by capture or snapshots.
+        if (closingWriter != null) closingWriter.close(); if (activityStore != null) activityStore.close();
     }
 
     public static final class PacketRow {
@@ -179,7 +263,7 @@ public final class DiscoveryLog implements AutoCloseable {
         PacketRow(PacketRow r) {
             id=r.id; name=r.name; direction=r.direction; count=r.count; bytes=r.bytes; failures=r.failures; trailing=r.trailing;
             firstSeen=r.firstSeen; lastSeen=r.lastSeen; minBytes=r.minBytes; maxBytes=r.maxBytes; lastOutcome=r.lastOutcome;
-            latest=new LinkedHashMap<>(r.latest);
+            latest=ActivityJournal.copyValues(r.latest);
         }
     }
     public static final class StatRow {
@@ -212,7 +296,13 @@ public final class DiscoveryLog implements AutoCloseable {
             runId=run; timestamp=Instant.ofEpochMilli(now).toString(); this.area=area; this.id=id; packet=name; this.direction=direction;
             this.bytes=bytes; this.outcome=outcome; remainingBytes=remaining;
             observedPacketCount=observedCount; this.sampleMillis=sampleMillis; totalStatSamplesOmitted=omitted;
-            this.values=Collections.unmodifiableMap(new LinkedHashMap<>(values)); statChanges=Collections.unmodifiableList(new ArrayList<>(deltas));
+            this.values=Collections.unmodifiableMap(ActivityJournal.copyValues(values)); statChanges=Collections.unmodifiableList(new ArrayList<>(deltas));
+        }
+        Event(Event event) {
+            runId=event.runId; timestamp=event.timestamp; area=event.area; id=event.id; packet=event.packet; direction=event.direction;
+            bytes=event.bytes; outcome=event.outcome; remainingBytes=event.remainingBytes;
+            observedPacketCount=event.observedPacketCount; sampleMillis=event.sampleMillis; totalStatSamplesOmitted=event.totalStatSamplesOmitted;
+            values=Collections.unmodifiableMap(ActivityJournal.copyValues(event.values)); statChanges=event.statChanges; // Delta is immutable.
         }
     }
     public static final class Snapshot {

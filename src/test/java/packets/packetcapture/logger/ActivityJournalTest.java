@@ -8,6 +8,9 @@ import packets.incoming.*;
 import packets.outgoing.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.Assert.*;
 
 public class ActivityJournalTest {
@@ -187,5 +190,114 @@ public class ActivityJournalTest {
         assertEquals(ActivityJournal.EVENT_LIMIT,j.snapshot().entries.size());
         assertEquals(1200,j.snapshot().visits.get(0).useRequests);
         assertTrue(new Gson().toJson(j.snapshot()).contains("Potion storage"));
+    }
+    @Test public void revisionedViewsCopyOnlyTheirRowsAndEqualRevisionsCopyNothing() {
+        ActivityJournal j=start();feed(j,tick(42,1,600,29,0x20000),1100);feed(j,tick(42),1300);feed(j,exalt(10),1400);
+        MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";feed(j,map,2000);
+        ActivityJournal.SnapshotStats before=j.snapshotStats();
+        ActivityJournal.ViewSnapshot runs=j.viewSnapshot(ActivityJournal.View.RUNS,"",null);
+        assertEquals(2,runs.data.visits.size());assertTrue(runs.data.entries.isEmpty());
+        for(ActivityJournal.Visit v:runs.data.visits){assertTrue(v.resourceTimeline.isEmpty());assertTrue(v.conditionTimeline.isEmpty());}
+        ActivityJournal.ViewSnapshot timeline=j.viewSnapshot(ActivityJournal.View.TIMELINE,"",null);
+        assertTrue(timeline.data.visits.isEmpty());assertEquals(2,timeline.choices.size());assertFalse(timeline.data.entries.isEmpty());
+        assertEquals(before.resourcePoints,j.snapshotStats().resourcePoints);assertEquals(before.conditionSlices,j.snapshotStats().conditionSlices);
+        String first=runs.data.visits.get(0).id;
+        ActivityJournal.ViewSnapshot combat=j.viewSnapshot(ActivityJournal.View.COMBAT,first,null);
+        assertEquals(1,combat.data.visits.size());assertEquals(first,combat.selectedVisit);assertEquals(2,combat.choices.size());assertTrue(combat.data.entries.isEmpty());
+        assertEquals(1,j.snapshotStats().resourcePoints-before.resourcePoints);assertEquals(1,j.snapshotStats().conditionSlices-before.conditionSlices);
+        ActivityJournal.SnapshotStats copied=j.snapshotStats();
+        for(int i=0;i<100;i++){
+            assertNull(j.viewSnapshot(ActivityJournal.View.RUNS,"",runs.revision));
+            assertNull(j.viewSnapshot(ActivityJournal.View.TIMELINE,"",timeline.revision));
+            assertNull(j.viewSnapshot(ActivityJournal.View.COMBAT,first,combat.revision));
+        }
+        assertEquals(new Gson().toJson(copied),new Gson().toJson(j.snapshotStats()));
+        RealmScoreUpdatePacket score=new RealmScoreUpdatePacket();score.score=10;feed(j,score,2100);
+        assertNotNull(j.viewSnapshot(ActivityJournal.View.RUNS,"",runs.revision));
+        assertNull(j.viewSnapshot(ActivityJournal.View.TIMELINE,"",timeline.revision));
+        assertNull(j.viewSnapshot(ActivityJournal.View.COMBAT,first,combat.revision));
+        assertNotNull(j.viewSnapshot(ActivityJournal.View.COMBAT,runs.data.visits.get(1).id,combat.revision));
+    }
+    @Test public void viewsAndPinnedExportsAreDeeplyDetachedAndPreserveTheDisplayedRevision() {
+        ActivityJournal j=start();feed(j,tick(42,1,600,29,0x20000),1100);feed(j,tick(42),1300);feed(j,exalt(10),1400);
+        ActivityJournal.ViewSnapshot view=j.viewSnapshot(ActivityJournal.View.COMBAT,"",null);
+        assertFalse("revision tokens must not serialize the private identity baseline",new Gson().toJson(view).contains("PRIVATE_ACCOUNT"));
+        String original=new Gson().toJson(view.fullHistory());
+        view.data.visits.get(0).resourceTimeline.get(0).hp=-99;
+        view.data.visits.get(0).conditionTimeline.get(0).end=-1;
+        view.data.visits.get(0).conditions.clear();view.data.visits.clear();
+        ActivityJournal.State export=view.fullHistory();
+        ((int[])export.entries.stream().filter(e->e.values.containsKey("progress")).findFirst().get().values.get("progress"))[0]=999;
+        export.visits.get(0).equipment.put(0,123);export.entries.clear();
+        assertEquals(original,new Gson().toJson(view.fullHistory()));
+        feed(j,tick(42,1,400,29,0),2300);j.boundary(2400,"Paused");j.clear();
+        assertTrue(j.snapshot().visits.isEmpty());assertEquals(original,new Gson().toJson(view.fullHistory()));
+        ActivityJournal.Visit selected=view.combatVisit(view.selectedVisit);selected.resourceTimeline.clear();
+        assertFalse(view.combatVisit(view.selectedVisit).resourceTimeline.isEmpty());
+    }
+    @Test public void resourcesFailuresBoundariesAndClearsInvalidateTheRelevantView() {
+        ActivityJournal j=start();ActivityJournal.ViewSnapshot view=j.viewSnapshot(ActivityJournal.View.COMBAT,"",null);
+        feed(j,tick(42,1,600,29,0x20000),1100);
+        view=assertChanged(j,view);feed(j,tick(42),1300);view=assertChanged(j,view);
+        assertFalse(view.data.visits.get(0).conditionTimeline.isEmpty());
+        j.observe(null,PacketType.NEWTICK,"decode-error",1400,Collections.emptyMap());view=assertChanged(j,view);
+        assertNull(view.data.visits.get(0).resourceTimeline.get(1).hp);
+        j.boundary(1500,"Paused");view=assertChanged(j,view);assertEquals(1500,view.data.visits.get(0).ended);
+        j.boundary(1600,"Still paused");assertNull(j.viewSnapshot(ActivityJournal.View.COMBAT,view.selectedVisit,view.revision));
+        j.clear();view=assertChanged(j,view);assertTrue(view.data.visits.isEmpty());assertTrue(view.choices.isEmpty());
+    }
+    private ActivityJournal.ViewSnapshot assertChanged(ActivityJournal j,ActivityJournal.ViewSnapshot before){
+        ActivityJournal.ViewSnapshot after=j.viewSnapshot(ActivityJournal.View.COMBAT,before.selectedVisit,before.revision);assertNotNull(after);return after;
+    }
+    @Test public void retentionInvalidatesAnOldSelectedVisitWithoutMutatingItsPinnedExport() {
+        ActivityJournal j=new ActivityJournal();long now=1000;
+        for(int run=0;run<12;run++){
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";feed(j,map,now++);
+            CreateSuccessPacket create=new CreateSuccessPacket();create.objectId=42;feed(j,create,now++);
+            // Chart samples continue at constant HP, but Resources events require an actual change.
+            // Exercise the event budget as well as both global chart budgets.
+            for(int n=0;n<1001;n++){now+=1000;feed(j,tick(42,1,600-n%2,29,n%2==0?0x20000:0),now);}
+        }
+        ActivityJournal.State full=j.snapshot();
+        assertEquals(12000,full.visits.stream().mapToInt(v->v.resourceTimeline.size()).sum());
+        assertEquals(12000,full.visits.stream().mapToInt(v->v.conditionTimeline.size()).sum());
+        assertEquals(ActivityJournal.EVENT_LIMIT,full.entries.size());
+        String first=full.visits.get(0).id;
+        MapInfoPacket map=new MapInfoPacket();map.name="Ocean Trench";feed(j,map,++now);
+        CreateSuccessPacket create=new CreateSuccessPacket();create.objectId=42;feed(j,create,++now);
+        ActivityJournal.ViewSnapshot old=j.viewSnapshot(ActivityJournal.View.COMBAT,first,null);
+        long omitted=old.data.visits.get(0).timelineOmitted;
+        now+=1000;feed(j,tick(42,1,500,29,0),now);
+        ActivityJournal.ViewSnapshot trimmed=assertChanged(j,old);
+        assertEquals(999,trimmed.data.visits.get(0).resourceTimeline.size());assertEquals(omitted+1,trimmed.data.visits.get(0).timelineOmitted);
+        assertEquals(1000,old.fullHistory().visits.get(0).resourceTimeline.size());
+        for(int i=0;i<ActivityJournal.RUN_LIMIT;i++)feed(j,map,++now);
+        ActivityJournal.ViewSnapshot removed=assertChanged(j,trimmed);
+        assertEquals(ActivityJournal.RUN_LIMIT,removed.visitCount);assertNotEquals(first,removed.selectedVisit);
+        assertEquals(first,old.fullHistory().visits.get(0).id);
+    }
+    @Test public void failedCheckpointDoesNotAcknowledgeOrDiscardANewerPendingCheckpoint() throws Exception {
+        Path directory=Files.createTempDirectory("activity-pending-write-recovery");
+        Path barrier=directory.resolve("activity-history.json.tmp");Files.createDirectory(barrier);
+        ActivityStore store=new ActivityStore(directory);
+        CountDownLatch firstRead=new CountDownLatch(1),releaseFirst=new CountDownLatch(1),secondRead=new CountDownLatch(1),releaseSecond=new CountDownLatch(1);
+        AtomicBoolean oldSaved=new AtomicBoolean(),newSaved=new AtomicBoolean();
+        ActivityJournal.State oldState=new ActivityJournal.State(),newState=new ActivityJournal.State();
+        oldState.captureRunId="older";newState.captureRunId="newer";
+        try {
+            store.offer(()->{firstRead.countDown();awaitRelease(releaseFirst);return oldState;},()->oldSaved.set(true));
+            assertTrue(firstRead.await(5,TimeUnit.SECONDS));
+            store.offer(()->{secondRead.countDown();awaitRelease(releaseSecond);return newState;},()->newSaved.set(true));
+            releaseFirst.countDown();assertTrue(secondRead.await(5,TimeUnit.SECONDS));
+            assertFalse(store.error().isEmpty());assertFalse(oldSaved.get());assertFalse(newSaved.get());
+            Files.delete(barrier);releaseSecond.countDown();store.close();
+            assertFalse(oldSaved.get());assertTrue(newSaved.get());assertEquals("",store.error());
+            ActivityJournal.State saved=new Gson().fromJson(new String(Files.readAllBytes(directory.resolve("activity-history.json")),java.nio.charset.StandardCharsets.UTF_8),ActivityJournal.State.class);
+            assertEquals("newer",saved.captureRunId);
+        } finally {releaseFirst.countDown();releaseSecond.countDown();store.close();}
+    }
+    private static void awaitRelease(CountDownLatch latch) {
+        try {if(!latch.await(5,TimeUnit.SECONDS))throw new IllegalStateException("checkpoint read was not released");}
+        catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException(e);}
     }
 }

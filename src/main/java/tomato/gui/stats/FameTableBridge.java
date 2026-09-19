@@ -2,11 +2,13 @@ package tomato.gui.stats;
 
 /**
  * Bridge connecting FameTablePanel and FameTrackerGUI.
- * Provides a centralized point for fame updates and session management.
+ * Provides a centralized point for fame updates and session management. Its monitor
+ * orders model commands, boundary snapshots and async save submissions. No rendering
+ * or disk I/O runs under it; rendering takes detached model snapshots independently.
  */
 public final class FameTableBridge {
 
-    private static FameTableBridge INSTANCE;
+    private static final FameTableBridge INSTANCE = new FameTableBridge();
 
     private FameTablePanel fameTablePanel;
     private FameTrackerGUI fameTrackerGUI;
@@ -14,9 +16,6 @@ public final class FameTableBridge {
     private FameTableBridge() {}
 
     public static FameTableBridge getInstance() {
-        if (INSTANCE == null) {
-            INSTANCE = new FameTableBridge();
-        }
         return INSTANCE;
     }
 
@@ -26,16 +25,26 @@ public final class FameTableBridge {
 
     // --- Registration ---
 
-    public void setFameTablePanel(FameTablePanel panel) {
+    public synchronized void setFameTablePanel(FameTablePanel panel) {
         this.fameTablePanel = panel;
     }
 
-    public void setFameTrackerGUI(FameTrackerGUI gui) {
+    public synchronized void setFameTrackerGUI(FameTrackerGUI gui) {
         this.fameTrackerGUI = gui;
     }
 
     // --- Fame Updates ---
 
+    /** A captured observation is indivisible with respect to session saves and resets. */
+    public static void observeFame(int charId, long fame, long time, String className) {
+        FameTableBridge bridge = INSTANCE;
+        synchronized (bridge) {
+            if (bridge.fameTrackerGUI != null) bridge.fameTrackerGUI.trackCapturedFame(charId, fame, time);
+            if (bridge.fameTablePanel != null) bridge.fameTablePanel.updateFame(charId, fame, time, className);
+        }
+    }
+
+    /** Table-only compatibility entry point; captured observations use observeFame. */
     public static void updateFame(
         int charId,
         long fame,
@@ -43,38 +52,42 @@ public final class FameTableBridge {
         String className
     ) {
         FameTableBridge bridge = INSTANCE;
-        if (bridge != null && bridge.fameTablePanel != null) {
-            bridge.fameTablePanel.updateFame(charId, fame, time, className);
+        synchronized (bridge) {
+            if (bridge.fameTablePanel != null) bridge.fameTablePanel.updateFame(charId, fame, time, className);
         }
     }
 
     // --- Session Management ---
 
-    public void triggerAutoSave() {
+    synchronized void tableChanged(FameTablePanel source) {
+        if (source == fameTablePanel && fameTrackerGUI != null) fameTrackerGUI.tableChanged();
+    }
+
+    public synchronized void triggerAutoSave() {
         if (fameTrackerGUI != null) {
             fameTrackerGUI.triggerAutoSave();
         }
     }
 
-    public void triggerMapChangeAutoSave() {
+    public synchronized void triggerMapChangeAutoSave() {
         if (fameTrackerGUI != null) {
             fameTrackerGUI.triggerMapChangeAutoSave();
         }
     }
 
-    public void clearCurrentSessionFile() {
+    public synchronized void clearCurrentSessionFile() {
         if (fameTrackerGUI != null) {
             fameTrackerGUI.clearCurrentSessionFile();
         }
     }
 
-    public void startNewSessionFile() {
+    public synchronized void startNewSessionFile() {
         if (fameTrackerGUI != null) {
             fameTrackerGUI.startNewSessionFile();
         }
     }
 
-    public boolean hasFameGainedSinceLastSave() {
+    public synchronized boolean hasFameGainedSinceLastSave() {
         return (
             fameTrackerGUI != null &&
             fameTrackerGUI.hasFameGainedSinceLastSave()

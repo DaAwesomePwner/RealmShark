@@ -15,6 +15,7 @@ import java.nio.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.function.BooleanSupplier;
 import static org.junit.Assert.*;
 
 public class DiscoveryLogTest {
@@ -142,5 +143,106 @@ public class DiscoveryLogTest {
         Path file=Files.createTempFile("discovery-unwritable-directory", ".tmp");
         DiscoveryWriter writer=new DiscoveryWriter(file,200); writer.offer(Collections.singletonMap("counter",1)); writer.close();
         assertFalse(writer.error().isEmpty()); assertTrue(writer.dropped.get()>0);
+    }
+    @Test public void diagnosticsNeverCopyActivityAndNoChangeDoesNotFabricateUpdates() {
+        DiscoveryLog log=new DiscoveryLog(null);
+        try {
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";observe(log,map);
+            DiscoveryLog.DiagnosticsSnapshot view=log.diagnosticsSnapshot(null);
+            assertNull(view.data.activity);assertEquals(0,log.activitySnapshotStats().full);assertEquals(0,log.activitySnapshotStats().views);
+            long copies=log.diagnosticsSnapshotCopies();
+            for(int i=0;i<100;i++)assertNull(log.diagnosticsSnapshot(view.revision));
+            log.setEnabled(true);log.setSaving(true);log.setSampleMillis(1000);log.observe(256,1,null,"decoded",0);
+            assertNull(log.diagnosticsSnapshot(view.revision));assertEquals(copies,log.diagnosticsSnapshotCopies());
+            log.boundary();view=diagnosticsChanged(log,view);
+            log.setSampleMillis(0);view=diagnosticsChanged(log,view);
+            log.setSaving(false);view=diagnosticsChanged(log,view);
+            log.setEnabled(false);view=diagnosticsChanged(log,view);
+            observe(log,map);assertNull(log.diagnosticsSnapshot(view.revision));
+            log.setEnabled(true);view=diagnosticsChanged(log,view);
+            log.observe(PacketType.NEWTICK.getIndex(),9,null,"decode-error",4);view=diagnosticsChanged(log,view);
+            assertEquals(1,view.data.packets.stream().mapToLong(p->p.failures).sum());
+            log.clearDiagnostics();view=diagnosticsChanged(log,view);assertEquals(0,view.data.total);
+            log.clearDiagnostics();assertNull(log.diagnosticsSnapshot(view.revision));
+            log.clear();assertNotNull(log.diagnosticsSnapshot(view.revision));
+        } finally {log.close();}
+    }
+    private DiscoveryLog.DiagnosticsSnapshot diagnosticsChanged(DiscoveryLog log,DiscoveryLog.DiagnosticsSnapshot before){
+        DiscoveryLog.DiagnosticsSnapshot after=log.diagnosticsSnapshot(before.revision);assertNotNull(after);return after;
+    }
+    @SuppressWarnings("unchecked")
+    @Test public void nestedDiagnosticRowsEventsAndActivityViewsCannotCorruptTheModelOrEachOther() {
+        DiscoveryLog log=new DiscoveryLog(null);
+        try {
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";observe(log,map);
+            IncomingPartyMemberInfoPacket roster=new IncomingPartyMemberInfoPacket();roster.description="PRIVATE_DESCRIPTION";
+            PartyPlayerData member=new PartyPlayerData();member.id=12;member.name="PRIVATE_NAME";roster.partyPlayers=new PartyPlayerData[]{member};observe(log,roster);
+            DiscoveryLog.DiagnosticsSnapshot view=log.diagnosticsSnapshot(null);
+            DiscoveryLog.PacketRow row=view.data.packets.stream().filter(p->p.latest.containsKey("members")).findFirst().get();
+            ((Map<String,Object>)((List<?>)row.latest.get("members")).get(0)).put("memberId",999);
+            DiscoveryLog.Event event=view.data.events.get(1);
+            ((List<?>)event.values.get("members")).clear();
+            DiscoveryLog.Snapshot full=log.snapshot();
+            assertEquals(12,((Map<?,?>)((List<?>)full.events.get(1).values.get("members")).get(0)).get("memberId"));
+            assertFalse(new Gson().toJson(full).contains("PRIVATE_"));
+            assertNull(log.diagnosticsSnapshot(view.revision));
+            assertEquals(1,((List<?>)log.diagnosticsSnapshot(null).data.events.get(1).values.get("members")).size());
+            DiscoveryLog.ActivitySnapshot activity=log.activityView(ActivityJournal.View.TIMELINE,"",null);
+            String frozen=new Gson().toJson(activity.fullHistory());
+            activity.view.data.entries.get(1).values.clear();
+            log.clear();assertEquals(frozen,new Gson().toJson(activity.fullHistory()));
+            assertFalse(frozen.contains("PRIVATE_"));
+        } finally {log.close();}
+    }
+    @Test public void pauseRefreshesActivityMetadataAndCheckpointCopyRunsOnTheStoreWorker() throws Exception {
+        Path directory=Files.createTempDirectory("activity-checkpoint-worker");DiscoveryLog log=new DiscoveryLog(directory);
+        try {
+            synchronized(log){
+                MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";observe(log,map);
+                assertEquals("capture must enqueue a request, not copy history",0,log.activitySnapshotStats().full);
+                DiscoveryLog.ActivitySnapshot view=log.activityView(ActivityJournal.View.RUNS,"",null);
+                log.setEnabled(false);
+                DiscoveryLog.ActivitySnapshot paused=log.activityView(ActivityJournal.View.RUNS,"",view.revision);
+                assertNotNull(paused);assertFalse(paused.enabled);assertTrue(paused.view.data.visits.get(0).ended>0);
+                assertNull(log.activityView(ActivityJournal.View.RUNS,"",paused.revision));
+                assertEquals(0,log.activitySnapshotStats().full);
+            }
+        } finally {log.close();}
+        assertTrue(log.activitySnapshotStats().full>0);assertTrue(Files.exists(directory.resolve("activity-history.json")));
+    }
+    @Test public void failedPausedCheckpointIsRetriedOnCloseWithoutAnyNewFrames() throws Exception {
+        Path directory=Files.createTempDirectory("activity-pause-write-recovery");
+        Path file=directory.resolve("activity-history.json"),barrier=directory.resolve("activity-history.json.tmp");
+        DiscoveryLog log=new DiscoveryLog(directory);
+        try {
+            MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";observe(log,map);
+            awaitCheckpoint(()->Files.exists(file));
+            byte[] before=Files.readAllBytes(file);
+            ActivityJournal.State initial=new Gson().fromJson(new String(before,StandardCharsets.UTF_8),ActivityJournal.State.class);
+            assertEquals(0,initial.visits.get(0).ended);
+            // A directory at the temporary-file path deterministically rejects the real write,
+            // while leaving the previous atomic checkpoint readable on both Windows and Unix.
+            Files.createDirectory(barrier);
+            log.setEnabled(false);
+            ActivityJournal.State paused=log.activityHistory();
+            assertTrue(paused.visits.get(0).ended>0);
+            awaitCheckpoint(()->!log.diagnosticsSnapshot(null).data.activityWriterError.isEmpty());
+            assertArrayEquals("the failed final write must preserve the older checkpoint",before,Files.readAllBytes(file));
+            Files.delete(barrier);
+            log.close(); // No packets or further visit boundaries after the failed pause checkpoint.
+            ActivityJournal.State saved=new Gson().fromJson(new String(Files.readAllBytes(file),StandardCharsets.UTF_8),ActivityJournal.State.class);
+            assertEquals(new Gson().toJson(paused.visits),new Gson().toJson(saved.visits));
+            assertEquals(paused.captureRunId,saved.captureRunId);assertEquals(paused.packetCounts,saved.packetCounts);
+            assertEquals("Collection paused / resumed",saved.visits.get(0).status);
+            assertEquals("",log.diagnosticsSnapshot(null).data.activityWriterError);
+        } finally {
+            if(Files.isDirectory(barrier))Files.delete(barrier);
+            log.close();
+        }
+    }
+    private static void awaitCheckpoint(BooleanSupplier condition) throws InterruptedException {
+        long deadline=System.nanoTime()+5_000_000_000L;
+        while(!condition.getAsBoolean()&&System.nanoTime()<deadline)Thread.sleep(10);
+        assertTrue("checkpoint worker did not reach the expected state",condition.getAsBoolean());
     }
 }

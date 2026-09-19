@@ -111,6 +111,31 @@ public class FameSessionPersistenceTest {
         } finally { writer.close(); }
     }
 
+    @Test public void legacyHistoryRoundTripPreservesMetadataFlatNegativeAndDuplicateTimeSamples() throws Exception {
+        String legacy = "{\"sessionName\":\"Step1 history\",\"createdTimestamp\":123,\"lastModifiedTimestamp\":456,"
+            + "\"description\":\"Retained history\",\"readOnly\":false,\"characterClassNames\":{\"1\":\"Wizard\"},"
+            + "\"characterFameData\":{\"1\":[{\"fame\":100,\"time\":1000},{\"fame\":100,\"time\":2000},"
+            + "{\"fame\":95,\"time\":2000}]},\"characterMapFameData\":{\"1\":["
+            + "{\"mapName\":\"Nexus\",\"startTime\":1000,\"endTime\":2000,\"startFame\":100,\"endFame\":100},"
+            + "{\"mapName\":\"Realm\",\"startTime\":2000,\"endTime\":3000,\"startFame\":100,\"endFame\":95}]}}";
+        File source = temp.newFile("legacy.fame"), destination = new File(temp.getRoot(), "roundtrip.fame");
+        Files.write(source.toPath(), legacy.getBytes(StandardCharsets.UTF_8));
+        FameSession loaded = FameSessionManager.loadSession(source);
+        assertNotNull(loaded);
+        try (FameSessionManager.SessionWriter writer = new FameSessionManager.SessionWriter((file, json) ->
+                Files.write(file.toPath(), json.getBytes(StandardCharsets.UTF_8)))) {
+            assertTrue(writer.save(FameSessionManager.snapshot(loaded), destination, null).get(10, TimeUnit.SECONDS));
+        }
+        FameSession saved = FameSessionManager.loadSession(destination);
+        assertNotNull(saved); assertEquals("Step1 history", saved.getSessionName());
+        assertEquals(123, saved.getCreatedTimestamp()); assertEquals(456, saved.getLastModifiedTimestamp());
+        assertEquals("Retained history", saved.getDescription()); assertEquals("Wizard", saved.getCharacterClassNames().get(1));
+        assertEquals(Arrays.asList(new Fame(100, 1000), new Fame(100, 2000), new Fame(95, 2000)), saved.getCharacterData(1));
+        assertEquals(2, saved.getCharacterMapFameData().get(1).size());
+        assertEquals(0, saved.getCharacterMapFameData().get(1).get(0).getFameGained(), 0);
+        assertEquals(-5, saved.getCharacterMapFameData().get(1).get(1).getFameGained(), 0);
+    }
+
     private static FameSession session(String name) {
         FameSession session = new FameSession(name);
         session.addCharacterData(1, "Wizard", Arrays.asList(new Fame(100, 1000), new Fame(110, 2000)));

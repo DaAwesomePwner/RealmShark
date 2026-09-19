@@ -37,6 +37,11 @@ public final class ActivityPanel extends JPanel {
     private final javax.swing.Timer timer;
     private boolean refreshing;
     private boolean tableInitialized;
+    private final SnapshotRefresh<ViewUpdate> snapshots=new SnapshotRefresh<>();
+    private DiscoveryLog.ActivitySnapshot displayed;
+    private volatile DiscoveryLog.ActivityRevision revision;
+    private boolean displayedEnabled, exporting;
+    private int visitCount, eventCount;
 
     public ActivityPanel(DiscoveryLog log, Mode mode) {
         super(new BorderLayout(0,8)); this.log=log; this.mode=mode; setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
@@ -60,11 +65,19 @@ public final class ActivityPanel extends JPanel {
         search.putClientProperty("JTextField.placeholderText","Search this view");
         search.setToolTipText("Search this module; text is matched literally"); controls.add(labeled("Search",search));
         record.setSelected(log.isEnabled()); record.setToolTipText("Enable shared gameplay collection for Runs, Timeline, buffs and diagnostics. Capture must also be running.");
+        displayedEnabled=record.isSelected();
         record.addActionListener(e->{log.setEnabled(record.isSelected());refresh();});
         JButton export=new JButton("Export history"); export.addActionListener(e->export());
-        export.setToolTipText(mode==Mode.RUNS ? "Export all retained dungeon runs and their events; search does not limit the export" : "Export all retained activity history; filters do not limit the export");
+        export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
         controls.add(record); controls.add(freeze); controls.add(export);
-        freeze.addActionListener(e->{if(!freeze.isSelected())refresh();});
+        freeze.addItemListener(e->{
+            snapshots.invalidate();
+            if(!freeze.isSelected())refresh();
+            else if(mode==Mode.COMBAT&&!state.visits.isEmpty()){
+                // A pending selection is not yet the displayed value that Freeze latches.
+                refreshing=true;selectVisit(state.visits.get(0).id);refreshing=false;
+            }
+        });
         top.add(controls);
         if(mode!=Mode.RUNS){
             JPanel filters=ContentStyle.controls();filters.setAlignmentX(LEFT_ALIGNMENT);
@@ -100,10 +113,12 @@ public final class ActivityPanel extends JPanel {
         scope.setFont(ContentStyle.metadata(ContentStyle.body()));
         JPanel bottom=new JPanel(new BorderLayout()); bottom.add(scope); bottom.add(saved,BorderLayout.SOUTH); add(bottom,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();} public void removeUpdate(DocumentEvent e){filter();} public void changedUpdate(DocumentEvent e){filter();}});
-        kind.addActionListener(e->{if(!refreshing)fill();}); visitPicker.addActionListener(e->{if(!refreshing)fill();});
+        kind.addActionListener(e->{if(!refreshing)fill();}); visitPicker.addActionListener(e->{if(!refreshing){
+            if(mode==Mode.COMBAT){if(freeze.isSelected())refreshFrozenVisit();else refresh();}else fill();
+        }});
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!refreshing)showDetail();});
-        timer=new javax.swing.Timer(1000,e->{if(isShowing()&&!freeze.isSelected())refresh();}); refresh();
-        addHierarchyListener(e->{if((e.getChangeFlags()&java.awt.event.HierarchyEvent.SHOWING_CHANGED)!=0&&isShowing()&&!freeze.isSelected())refresh();});
+        timer=new javax.swing.Timer(1000,e->{if(isShowing()&&!freeze.isSelected())refresh();}); fill(false);
+        addHierarchyListener(e->{if((e.getChangeFlags()&java.awt.event.HierarchyEvent.SHOWING_CHANGED)!=0)visibilityChanged();});
     }
     private static JPanel labeled(String text,JComponent component){JPanel group=new JPanel(new BorderLayout(6,0));JLabel label=new JLabel(text);label.setLabelFor(component);group.add(label,BorderLayout.WEST);group.add(component);return group;}
     private static JSplitPane split(JComponent top,JComponent bottom,double ratio){
@@ -113,19 +128,53 @@ public final class ActivityPanel extends JPanel {
             @Override public void doLayout(){if(!positioned&&getHeight()>0){positioned=true;setDividerLocation(ratio);}super.doLayout();}
         }; split.setResizeWeight(ratio); split.setBorder(null); return split;
     }
-    @Override public void addNotify(){super.addNotify();timer.start();}
-    @Override public void removeNotify(){timer.stop();super.removeNotify();}
+    @Override public void addNotify(){super.addNotify();visibilityChanged();}
+    @Override public void removeNotify(){timer.stop();snapshots.invalidate();super.removeNotify();}
+    private void visibilityChanged(){
+        if(isShowing()){
+            timer.start();
+            if(freeze.isSelected()&&mode==Mode.COMBAT)refreshFrozenVisit();else refresh();
+        }else{timer.stop();snapshots.invalidate();}
+    }
     public void refresh(){
         if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::refresh);return;}
-        state=log.activityHistory(); record.setSelected(log.isEnabled()); refreshing=true;
-        String selected=choice();List<VisitChoice> choices=new ArrayList<>();
+        if(freeze.isSelected() || (isDisplayable()&&!isShowing()))return;
+        String selected=choice();
+        snapshots.request(selected,()->{
+            DiscoveryLog.ActivitySnapshot next=log.activityView(ActivityJournal.View.valueOf(mode.name()),selected,revision);
+            return next==null ? null : new ViewUpdate(next,next.view.data,next.view.selectedVisit);
+        },this::applySnapshot,error->saved.setText("Could not refresh history; retrying on the next refresh."));
+    }
+    private void refreshFrozenVisit(){
+        if(displayed==null||(isDisplayable()&&!isShowing()))return;
+        snapshots.invalidate();
+        if(!state.visits.isEmpty()&&state.visits.get(0).id.equals(choice()))return;
+        String id=choice();DiscoveryLog.ActivitySnapshot frozen=displayed;
+        snapshots.request("frozen:"+id,()->{
+            ActivityJournal.State data=new ActivityJournal.State();ActivityJournal.Visit visit=frozen.view.combatVisit(id);
+            if(visit!=null)data.visits.add(visit);return new ViewUpdate(frozen,data,id);
+        },this::applySnapshot,error->saved.setText("Could not load the frozen visit."));
+    }
+    private void applySnapshot(ViewUpdate update){
+        boolean selectionChanged=mode==Mode.COMBAT && (state.visits.isEmpty() || !state.visits.get(0).id.equals(update.selected));
+        displayed=update.snapshot;state=update.data;displayedEnabled=displayed.enabled;
+        // Frozen navigation keeps the export pin, but its token still describes the original visit.
+        // Only reuse that token when it also describes the payload actually on screen.
+        revision=mode!=Mode.COMBAT || update.selected.equals(displayed.view.selectedVisit) ? displayed.revision : null;
+        visitCount=displayed.view.visitCount;eventCount=displayed.view.eventCount;
+        record.setSelected(displayedEnabled); refreshing=true;
+        String selected=mode==Mode.COMBAT?update.selected:choice();List<VisitChoice> choices=new ArrayList<>();
         if(mode==Mode.TIMELINE)choices.add(new VisitChoice("","All visits (including unassigned events)"));
-        if(mode!=Mode.RUNS)for(int i=state.visits.size()-1;i>=0;i--){ActivityJournal.Visit v=state.visits.get(i);choices.add(new VisitChoice(v.id,time(v.started)+" · "+v.map));}
+        if(mode!=Mode.RUNS)for(int i=displayed.view.choices.size()-1;i>=0;i--){ActivityJournal.VisitChoice v=displayed.view.choices.get(i);choices.add(new VisitChoice(v.id,time(v.started)+" · "+v.map));}
         boolean same=choices.size()==visitPicker.getItemCount();
         for(int i=0;same&&i<choices.size();i++)same=choices.get(i).id.equals(visitPicker.getItemAt(i).id)&&choices.get(i).label.equals(visitPicker.getItemAt(i).label);
-        if(!same){visitPicker.removeAllItems();for(VisitChoice item:choices)visitPicker.addItem(item);
-            for(int i=0;i<visitPicker.getItemCount();i++)if(visitPicker.getItemAt(i).id.equals(selected)){visitPicker.setSelectedIndex(i);break;}}
-        refreshing=false; fill(false);
+        if(!same){visitPicker.removeAllItems();for(VisitChoice item:choices)visitPicker.addItem(item);}
+        for(int i=0;i<visitPicker.getItemCount();i++)if(visitPicker.getItemAt(i).id.equals(selected)){visitPicker.setSelectedIndex(i);break;}
+        refreshing=false; fill(selectionChanged);
+    }
+    private static final class ViewUpdate {
+        final DiscoveryLog.ActivitySnapshot snapshot;final ActivityJournal.State data;final String selected;
+        ViewUpdate(DiscoveryLog.ActivitySnapshot snapshot,ActivityJournal.State data,String selected){this.snapshot=snapshot;this.data=data;this.selected=selected;}
     }
     public void selectVisit(String id){for(int i=0;i<visitPicker.getItemCount();i++)if(visitPicker.getItemAt(i).id.equals(id)){visitPicker.setSelectedIndex(i);return;}}
     private String choice(){Object v=visitPicker.getSelectedItem();return v instanceof VisitChoice?((VisitChoice)v).id:"";}
@@ -163,9 +212,9 @@ public final class ActivityPanel extends JPanel {
     private static void add(List<Object[]> target,List<Object> objects,Object item,Object... row){objects.add(item);target.add(row);}
     private void filter(){String text=search.getText().trim();sorter.setRowFilter(text.isEmpty()?null:RowFilter.regexFilter("(?i)"+Pattern.quote(text)));chart.setFilter(text);updateSummary();if(!refreshing)showDetail();}
     private void updateSummary(){
-        String counts=mode==Mode.RUNS ? table.getRowCount()+" of "+rows.size()+" dungeon runs · "+(state.visits.size()-rows.size())+" other area visits in Timeline"
-            : state.visits.size()+" visits · "+state.entries.size()+" retained events";
-        summary.setText((log.isEnabled()?"Recording enabled":"Recording paused")+" · "+counts);
+        String counts=mode==Mode.RUNS ? table.getRowCount()+" of "+rows.size()+" dungeon runs · "+(visitCount-rows.size())+" other area visits in Timeline"
+            : visitCount+" visits · "+eventCount+" retained events";
+        summary.setText((displayedEnabled?"Recording enabled":"Recording paused")+" · "+counts);
     }
     private String selectedKey(){int row=table.getSelectedRow();return row<0?"":key(items.get(table.convertRowIndexToModel(row)));}
     private static String key(Object item){if(item instanceof ActivityJournal.Visit)return ((ActivityJournal.Visit)item).id;if(item instanceof ActivityJournal.Entry)return ((ActivityJournal.Entry)item).id;return item.toString();}
@@ -208,9 +257,17 @@ public final class ActivityPanel extends JPanel {
         for(ActivityJournal.Entry entry:state.entries)if(ids.contains(entry.visitId))report.entries.add(entry);
         return report;
     }
-    private void export(){final ActivityJournal.State report=exportHistory(state,mode);saved.setText("Saving local history…");new SwingWorker<Path,Void>(){
-        protected Path doInBackground()throws Exception{Path dir=Paths.get("logs","discovery","reports");Files.createDirectories(dir);Path path=Files.createTempFile(dir,"activity-",".json");Files.write(path,new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(report).getBytes(StandardCharsets.UTF_8));return path;}
-        protected void done(){try{Path path=get();saved.setText("Saved "+path.getFileName());saved.setToolTipText(path.toAbsolutePath().toString());}catch(Exception e){saved.setText("Could not save history. Check folder permissions and free space.");}}
-    }.execute();}
+    private void export(){exportTo(Paths.get("logs","discovery","reports"));}
+    SwingWorker<Path,Void> exportTo(Path dir){
+        if(exporting||displayed==null)return null;
+        final DiscoveryLog.ActivitySnapshot source=displayed;exporting=true;saved.setText("Saving displayed history revision…");
+        SwingWorker<Path,Void> worker=new SwingWorker<Path,Void>(){
+            protected Path doInBackground()throws Exception{
+                ActivityJournal.State report=exportHistory(source.fullHistory(),mode);
+                Files.createDirectories(dir);Path path=Files.createTempFile(dir,"activity-",".json");Files.write(path,new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(report).getBytes(StandardCharsets.UTF_8));return path;
+            }
+            protected void done(){try{Path path=get();saved.setText("Saved "+path.getFileName());saved.setToolTipText(path.toAbsolutePath().toString());}catch(Exception e){saved.setText("Could not save history. Check folder permissions and free space.");}finally{exporting=false;}}
+        };worker.execute();return worker;
+    }
     private static final class VisitChoice {final String id,label;VisitChoice(String id,String label){this.id=id;this.label=label;}public String toString(){return label;}}
 }

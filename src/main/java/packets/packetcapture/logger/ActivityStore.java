@@ -4,11 +4,12 @@ import com.google.gson.Gson;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /** Coalesced, atomic local checkpoint; capture never waits for filesystem writes. */
 final class ActivityStore implements AutoCloseable {
     private final Path file;
-    private final AtomicReference<ActivityJournal.State> pending = new AtomicReference<>();
+    private final AtomicReference<Checkpoint> pending = new AtomicReference<>();
     private final Thread worker;
     private volatile boolean closed;
     private volatile String error = "";
@@ -38,16 +39,21 @@ final class ActivityStore implements AutoCloseable {
             error = "Saved activity history could not be read; it will be preserved before writing new history."; return null;
         }
     }
-    void offer(ActivityJournal.State state) { if (!closed) pending.set(state); }
+    void offer(ActivityJournal.State state) { offer(() -> state); }
+    void offer(Supplier<ActivityJournal.State> snapshot) { offer(snapshot,()->{}); }
+    void offer(Supplier<ActivityJournal.State> snapshot,Runnable persisted) {
+        if (!closed) pending.set(new Checkpoint(snapshot,persisted));
+    }
     String error() { return error; }
     private void run() {
         while (!closed || pending.get() != null) {
-            ActivityJournal.State state = pending.getAndSet(null);
-            if (state == null) {
+            Checkpoint checkpoint = pending.getAndSet(null);
+            if (checkpoint == null) {
                 try { Thread.sleep(200); } catch (InterruptedException e) { /* Recheck shutdown. */ }
                 continue;
             }
             try {
+                ActivityJournal.State state = checkpoint.snapshot.get();
                 Files.createDirectories(file.getParent());
                 if (preserveUnreadable && Files.exists(file)) {
                     Files.move(file, file.resolveSibling("activity-history-unreadable-" + System.currentTimeMillis() + ".json"));
@@ -58,8 +64,14 @@ final class ActivityStore implements AutoCloseable {
                 try { Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
                 catch (AtomicMoveNotSupportedException e) { Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING); }
                 error = "";
+                checkpoint.persisted.run(); // All serialization and filesystem I/O has finished.
             } catch (Exception e) { error = "Activity history could not be saved. Check folder permissions and free space."; }
         }
+    }
+    private static final class Checkpoint {
+        final Supplier<ActivityJournal.State> snapshot;
+        final Runnable persisted;
+        Checkpoint(Supplier<ActivityJournal.State> snapshot,Runnable persisted) { this.snapshot=snapshot; this.persisted=persisted; }
     }
     @Override public void close() {
         closed = true;
