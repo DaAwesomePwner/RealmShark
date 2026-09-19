@@ -1,24 +1,27 @@
 package tomato.gui.keypop;
 
-import assets.IdToAsset;
 import packets.data.enums.NotificationEffectType;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.TomatoData;
-import tomato.gui.TomatoGUI;
 import tomato.realmshark.Sound;
 import tomato.realmshark.RealmCharacterStats;
 import tomato.realmshark.enums.CharacterStatistics;
+import tomato.gui.modern.ContentStyle;
 import util.PropertiesManager;
-import util.Util;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.BufferedWriter;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.Arrays;
-import java.util.Date;
+import java.util.Collections;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.HashSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,33 +31,32 @@ import java.util.regex.Pattern;
  */
 public class KeypopGUI extends JPanel {
 
-    private static JTextArea textAreaKeypop;
-    private static boolean logToFile = false;
+    private static final KeyPopHistory history = new KeyPopHistory();
+    private static KeyPopDashboard dashboard;
+    private static volatile boolean logToFile = false;
+    private static volatile String loggingError = "";
     private static final String LOG_FILE = "keypops.log";
-    private static final SimpleDateFormat logDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
-    private static final Pattern keypopParse = Pattern.compile("\"player\":\"([^\"]+)\"");
-    private static final Pattern nonkeypopParse = Pattern.compile("[^ ]*\"name\":\"([A-Za-z ]*)\",\"player\":\"([A-Za-z]*)[^ ]*");
     private static final Pattern calloutParsePlayer = Pattern.compile("([^;]+);");
-    private static final Pattern calloutParseDungeon = Pattern.compile("\"name\":\"([^\"]+)\"");
 
-    private static HashSet<String> selectedDungeons = new HashSet<>();
+    private static volatile Set<String> selectedDungeons = Collections.emptySet();
 
     public KeypopGUI() {
         loadDungeonChoices();
         loadLoggingPreference();
 
         setLayout(new BorderLayout());
-        textAreaKeypop = new tomato.gui.modern.EmptyLogArea("Be there when the next dungeon opens", "Key pops, runes and vial events will appear during capture.");
-        add(TomatoGUI.createTextArea(textAreaKeypop, false));
+        dashboard = new KeyPopDashboard(history);
+        add(dashboard);
 
-        JPanel south = new JPanel(new GridLayout(1, 3));
-        JButton clearButton = new JButton("Clear");
-        clearButton.addActionListener(e -> textAreaKeypop.setText(""));
-        south.add(clearButton);
+        JPanel south = ContentStyle.controls();
+        south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+        JButton clearButton = new JButton("Clear history");
+        clearButton.addActionListener(e -> {
+            if (JOptionPane.showConfirmDialog(this, "Clear all retained pops and statistics? The log file is kept.", "Clear key pops", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dashboard.clearHistory();
+        });
 
         JButton notificationButton = new JButton("Notifications");
-        notificationButton.addActionListener(e -> showConfigureDialog());
+        notificationButton.addActionListener(e -> tomato.gui.TomatoGUI.openNotifications("Key pops"));
         south.add(notificationButton);
 
         JCheckBox logCheckbox = new JCheckBox("Log to file");
@@ -64,6 +66,11 @@ public class KeypopGUI extends JPanel {
             saveLoggingPreference();
         });
         south.add(logCheckbox);
+
+        JButton exportButton = new JButton("Export CSV");
+        exportButton.addActionListener(e -> dashboard.exportCsv());
+        south.add(exportButton);
+        south.add(clearButton);
 
         add(south, BorderLayout.SOUTH);
     }
@@ -75,59 +82,33 @@ public class KeypopGUI extends JPanel {
      * @param packet Notification packet containing info about who pops keys, vial, runes or inc pops.
      */
     public static void packet(TomatoData data, NotificationPacket packet) {
-        if (packet.effect == NotificationEffectType.PortalOpened) {
-            String msg = packet.message;
-            Matcher m = keypopParse.matcher(msg);
-
-            if (m.find()) {
-                String playerName = m.group(1).split(",")[0];
-                String dungeonName = IdToAsset.objectName(packet.pictureType);
-
-                appendTextAreaKeypop(String.format("%s [%s]: %s\n", Util.getHourTime(), playerName, dungeonName));
-
-                playDungeonSound(data, dungeonName);
-            }
-        } else if (packet.effect == NotificationEffectType.PlayerCallout) {
+        KeyPopEvent event = KeyPopEvent.fromPacket(packet, Instant.now());
+        if (event != null) {
+            record(event);
+            if (event.kind == KeyPopEvent.Kind.KEY) playDungeonSound(data, event.item);
+        } else if (packet != null && packet.message != null && packet.effect == NotificationEffectType.PlayerCallout) {
             String msg = packet.message;
             Matcher playerMatcher = calloutParsePlayer.matcher(msg);
             String playerName = "";
             if (playerMatcher.find()) {
                 playerName = playerMatcher.group(1);
             }
-            Matcher dungeonMatcher = calloutParseDungeon.matcher(msg);
-            String dungeonName = "";
-            if (dungeonMatcher.find()) {
-                dungeonName = dungeonMatcher.group(1);
-            }
+            String dungeonName = KeyPopEvent.field(msg, "name");
 
             if (!playerName.isEmpty() && !dungeonName.isEmpty()) {
                 playDungeonSound(data, dungeonName);
             }
-        } else if (packet.effect == NotificationEffectType.ServerMessage && packet.message != null) {
-            String msg = packet.message;
-            Matcher m = nonkeypopParse.matcher(msg);
-            if (m.matches()) {
-                String type = m.group(1);
-                String playerName = m.group(2);
-                String pop = null;
-                if (type.contains("Monument has been activated")) {
-                    pop = type.split(" ")[1] + " Rune";
-                } else if (type.equals("The Void")) {
-                    pop = "Vial";
-                } else if (type.equals("Wine Cellar")) {
-                    pop = "Inc";
-                }
-                if (pop != null) {
-                    appendTextAreaKeypop(String.format("%s [%s]: %s\n", Util.getHourTime(), playerName, pop));
-                }
-            }
         }
     }
 
+    private static void record(KeyPopEvent event) {
+        history.add(event);
+        if (logToFile) logToFile(event.logLine());
+    }
+
     public static void playDungeonSound(TomatoData data, String dungeonName) {
-        if (selectedDungeons.contains(dungeonName)) {
-            Sound.keypop.play();
-        } else if (isMissingDungeonsSelected() && isMissingDungeon(data.getCurrentDungeonStats(), dungeonName)) {
+        if (Sound.keypop == null) return;
+        if (shouldNotify(dungeonName, data == null ? null : data.getCurrentDungeonStats())) {
             Sound.keypop.play();
         }
     }
@@ -147,17 +128,15 @@ public class KeypopGUI extends JPanel {
     }
 
     /**
-     * Add text to the key pop text area and optionally log to file.
+     * Accept the legacy time [player]: item format and optionally log to file.
      *
      * @param s The text to be added at the end of text area.
      */
     public static void appendTextAreaKeypop(String s) {
-        if (textAreaKeypop != null) {
-            textAreaKeypop.append(s);
-        }
-
-        if (logToFile) {
-            logToFile(s);
+        if (s == null) return;
+        for (String line : s.split("\\R")) {
+            KeyPopEvent event = KeyPopEvent.fromLegacy(line, Instant.now());
+            if (event != null) record(event);
         }
     }
 
@@ -166,13 +145,17 @@ public class KeypopGUI extends JPanel {
      *
      * @param message The message to log
      */
-    private static void logToFile(String message) {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(LOG_FILE, true))) {
-            String timestamp = logDateFormat.format(new Date());
+    private static synchronized void logToFile(String message) {
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(LOG_FILE), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+            String timestamp = KeyPopEvent.DATE_TIME.format(Instant.now());
             writer.write(timestamp + " " + message);
             writer.newLine();
+            loggingError = "";
         } catch (IOException e) {
-            System.err.println("Error writing to keypop log file: " + e.getMessage());
+            if (!e.getMessage().equals(loggingError)) {
+                loggingError = e.getMessage();
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dashboard, "Key pop logging failed: " + loggingError, "Log file unavailable", JOptionPane.ERROR_MESSAGE));
+            }
         }
     }
 
@@ -182,67 +165,89 @@ public class KeypopGUI extends JPanel {
      * @param font Font to be set.
      */
     public static void editFont(Font font) {
-        textAreaKeypop.setFont(font);
+        Runnable change = () -> { if (dashboard != null) dashboard.editFont(font); };
+        if (SwingUtilities.isEventDispatchThread()) change.run(); else SwingUtilities.invokeLater(change);
     }
 
     /**
      * Dialog window used to display notification dungeons.
      */
     private static void showConfigureDialog() {
-        JDialog configureDialog = new JDialog((JFrame) SwingUtilities.getWindowAncestor(new JPanel()), "Configure Dungeons", true);
+        createConfigureDialog().setVisible(true);
+    }
+
+    static JDialog createConfigureDialog() {
+        JDialog configureDialog = new JDialog(SwingUtilities.getWindowAncestor(dashboard), "Key pop notifications", Dialog.ModalityType.APPLICATION_MODAL);
+        realmshark.branding.AppIdentity.apply(configureDialog);
         configureDialog.setLayout(new BorderLayout());
-        configureDialog.setResizable(false);
+        configureDialog.setMinimumSize(new Dimension(600, 380));
 
         JCheckBox[] checkboxes = createDungeonCheckboxes();
+        JCheckBox missingDungeons = new JCheckBox("Missing dungeon completes on current character", isMissingDungeonsSelected());
+        missingDungeons.setToolTipText("Notifies dungeon pops for current character missing dungeon completes");
+        JTextField find = new JTextField();
+        find.putClientProperty("JTextField.placeholderText", "Find a dungeon…");
+        find.getAccessibleContext().setAccessibleName("Find notification dungeon");
 
-        JButton selectAllButton = new JButton("Select All");
+        JButton selectAllButton = new JButton("Select shown");
         selectAllButton.addActionListener(e -> {
             for (JCheckBox checkbox : checkboxes) {
-                checkbox.setSelected(true);
+                if (checkbox.getParent() != null) checkbox.setSelected(true);
             }
         });
 
-        JButton unselectAllButton = new JButton("Unselect All");
+        JButton unselectAllButton = new JButton("Unselect shown");
         unselectAllButton.addActionListener(e -> {
             for (JCheckBox checkbox : checkboxes) {
-                checkbox.setSelected(false);
+                if (checkbox.getParent() != null) checkbox.setSelected(false);
             }
         });
 
         JButton applyButton = new JButton("Apply");
         applyButton.addActionListener(e -> {
-            boolean missingDungeons = isMissingDungeonsSelected();
-            selectedDungeons.clear();
-            if (missingDungeons) {
-                selectedDungeons.add("missingDungeons");
+            Set<String> next = new TreeSet<>();
+            if (missingDungeons.isSelected()) {
+                next.add("missingDungeons");
             }
             for (JCheckBox checkbox : checkboxes) {
                 if (checkbox.isSelected()) {
-                    selectedDungeons.add(checkbox.getText());
+                    next.add(checkbox.getText());
                 }
             }
+            selectedDungeons = next;
             saveDungeonChoices();
-            Sound.keypop.play();
+            Sound.keypop.preview(null);
             configureDialog.dispose();
         });
 
-        JPanel buttonPanel = new JPanel();
+        JPanel buttonPanel = ContentStyle.controls();
         buttonPanel.add(selectAllButton);
         buttonPanel.add(unselectAllButton);
+        JButton cancel = new JButton("Cancel"); cancel.addActionListener(e -> configureDialog.dispose()); buttonPanel.add(cancel);
         buttonPanel.add(applyButton);
 
-        JPanel checkboxPanel = new JPanel(new GridLayout(0, 3));
+        JPanel checkboxPanel = new JPanel(new GridLayout(0, 2, 8, 5));
         for (JCheckBox checkbox : checkboxes) {
             checkboxPanel.add(checkbox);
         }
 
-        addMissingDungeonCheckbox(configureDialog);
-
-        configureDialog.add(checkboxPanel, BorderLayout.CENTER);
+        JPanel north = new JPanel(new BorderLayout(0, 8));
+        north.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        north.add(missingDungeons, BorderLayout.NORTH); north.add(find);
+        configureDialog.add(north, BorderLayout.NORTH);
+        JPanel list = new JPanel(new BorderLayout()); list.add(checkboxPanel, BorderLayout.NORTH);
+        list.setBorder(BorderFactory.createEmptyBorder(0, 12, 8, 12));
+        configureDialog.add(new JScrollPane(list), BorderLayout.CENTER);
+        KeyPopDashboard.onChange(find, () -> {
+            String query = find.getText().trim().toLowerCase(java.util.Locale.ROOT);
+            checkboxPanel.removeAll();
+            for (JCheckBox checkbox : checkboxes) if (checkbox.getText().toLowerCase(java.util.Locale.ROOT).contains(query)) checkboxPanel.add(checkbox);
+            checkboxPanel.revalidate(); checkboxPanel.repaint();
+        });
         configureDialog.add(buttonPanel, BorderLayout.SOUTH);
         configureDialog.setSize(700, 500);
-        configureDialog.setLocationRelativeTo(null);
-        configureDialog.setVisible(true);
+        configureDialog.setLocationRelativeTo(dashboard);
+        return configureDialog;
     }
 
     /**
@@ -251,30 +256,31 @@ public class KeypopGUI extends JPanel {
      * @return Checkbox objects from dungeon list.
      */
     private static JCheckBox[] createDungeonCheckboxes() {
-        JCheckBox[] checkboxes = new JCheckBox[CharacterStatistics.DUNGEON_NAMES.size()];
-        for (int i = 0; i < CharacterStatistics.DUNGEON_NAMES.size(); i++) {
-            String o = CharacterStatistics.DUNGEON_NAMES.get(i);
+        TreeSet<String> names = new TreeSet<>(CharacterStatistics.DUNGEON_NAMES);
+        names.addAll(selectedDungeons); names.remove("missingDungeons"); names.remove("");
+        JCheckBox[] checkboxes = new JCheckBox[names.size()];
+        int i = 0;
+        for (String o : names) {
             checkboxes[i] = new JCheckBox(o);
             checkboxes[i].setSelected(selectedDungeons.contains(o));
+            i++;
         }
         return checkboxes;
     }
 
-    /**
-     * Adds a missing dungeon checkbox at the top of the dungeon notification window.
-     */
-    private static void addMissingDungeonCheckbox(JDialog configureDialog) {
-        JCheckBox missingDungeons = new JCheckBox("Missing Dungeons");
-        missingDungeons.setToolTipText("Notifies dungeon pops for current character missing dungeon completes");
-        missingDungeons.setSelected(isMissingDungeonsSelected());
-        configureDialog.add(missingDungeons, BorderLayout.NORTH);
-        missingDungeons.addActionListener(e -> {
-            if (missingDungeons.isSelected()) {
-                selectedDungeons.add("missingDungeons");
-            } else {
-                selectedDungeons.remove("missingDungeons");
-            }
-        });
+    public static Set<String> getSelectedDungeons() { return new TreeSet<>(selectedDungeons); }
+    public static void setSelectedDungeons(Set<String> selected) {
+        selectedDungeons = Collections.unmodifiableSet(new TreeSet<>(selected));
+        saveDungeonChoices();
+    }
+    public static Set<String> getDungeonNames() {
+        TreeSet<String> names = new TreeSet<>(CharacterStatistics.DUNGEON_NAMES);
+        names.addAll(selectedDungeons); names.remove("missingDungeons"); names.remove("");
+        return names;
+    }
+    public static boolean shouldNotify(String dungeonName, RealmCharacterStats stats) {
+        return selectedDungeons.contains(dungeonName)
+                || (isMissingDungeonsSelected() && isMissingDungeon(stats, dungeonName));
     }
 
     private static boolean isMissingDungeonsSelected() {
@@ -306,7 +312,7 @@ public class KeypopGUI extends JPanel {
 
         if (keySound != null) {
             String[] list = keySound.split(",");
-            selectedDungeons.addAll(Arrays.asList(list));
+            selectedDungeons = new HashSet<>(Arrays.asList(list));
         }
     }
 

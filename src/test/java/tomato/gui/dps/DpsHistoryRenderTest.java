@@ -32,17 +32,27 @@ public class DpsHistoryRenderTest {
                     data.dpsData.add(new DpsData(map,hits,new ArrayList<>(),5000,0,null));
                 }
                 DpsGUI view=new DpsGUI(data);
+                selectLegacy(view);
                 for(int index:new int[]{0,1,2,0,2}) {
                     view.setIndex(index);
                     assertTrue("Saved damage should remain visible for "+names[index],hasDamage(view));
                     assertEquals(index,view.getIndex());
                 }
                 data.map=new MapInfoPacket();data.map.name="Current area";
+                DpsGUI.updateMapPacket(data);
                 view.setIndex(-1);
                 assertTrue(hasText(view,"Current area"));
                 assertEquals(3,data.dpsData.size());
             } finally { DpsDisplayOptions.equipmentOption=original; }
         });
+    }
+
+    private static void selectLegacy(Container parent) {
+        for (Component c : parent.getComponents()) {
+            if (c instanceof JComboBox && ((JComboBox<?>)c).getItemCount() == 2 && "Meters".equals(((JComboBox<?>)c).getItemAt(0)))
+                ((JComboBox<?>)c).setSelectedIndex(1);
+            else if (c instanceof Container) selectLegacy((Container)c);
+        }
     }
 
     private static boolean hasDamage(Container parent) {

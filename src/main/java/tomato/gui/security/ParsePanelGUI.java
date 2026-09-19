@@ -2,828 +2,559 @@ package tomato.gui.security;
 
 import assets.IdToAsset;
 import assets.ImageBuffer;
+import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
-import tomato.gui.SmartScroller;
+import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
 import util.PropertiesManager;
 
 import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.awt.datatransfer.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.InputEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.image.BufferedImage;
-import java.net.URI;
-import java.util.*;
+import java.awt.event.*;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.net.URI;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
 
 public class ParsePanelGUI extends JPanel {
-
-    private static ParsePanelGUI INSTANCE;
-
-    private final static Color seasonalColor = new Color(21, 220, 166);
-    private final static Color redColor = new Color(140, 64, 64);
-
-    private static JPanel charPanel;
-    private static HashMap<Integer, PlayerBox> playerDisplay;
-    private static Font mainFont;
-
+    private static volatile ParsePanelGUI INSTANCE;
     private static final String DISABLE_FILTER = "Default";
+    private static final TreeMap<String, SecurityFilter> filters = new TreeMap<>();
+    public static SecurityFilter currentFilter;
+
+    // Latest state only: arrivals/updates never enqueue one Swing task per packet.
+    private final Object rosterLock = new Object();
+    private final Map<Integer, Player> roster = new LinkedHashMap<>();
+    private long revision;
+    private long themeRevision;
+    private long displayedRevision = -1;
+    private final RosterModel model = new RosterModel();
+    private final JTable table = new JTable(model);
+    private final JScrollPane rosterScroll = new JScrollPane(table);
+    private final javax.swing.Timer refreshTimer;
     private final JComboBox<String> filterComboBox;
     private final JCheckBox copyOnlyUnderReqCheckbox;
-    private final JCheckBox sortCheckBox; // Declare the checkbox at the class level
-
-    private final static TreeMap<String, SecurityFilter> filters = new TreeMap<>();
-    public static SecurityFilter currentFilter = null;
-    private static boolean guiUpdateSuppression = false;
+    private final JCheckBox sortCheckBox;
+    private final List<Action> playerActions = new ArrayList<>();
+    private final List<Action> guildActions = new ArrayList<>();
+    private boolean guiUpdateSuppression;
 
     public ParsePanelGUI() {
-        INSTANCE = this;
-        setLayout(new BorderLayout());
+        setLayout(new BorderLayout(8, 8));
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        setFont(ContentStyle.body());
+        ContentStyle.table(table);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        table.setDefaultRenderer(Object.class, new RosterCell());
+        table.getAccessibleContext().setAccessibleName("Captured player roster");
+        int[] widths = {190, 185, 160, 75, 75, 75, 75, 90, 210};
+        for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        rosterScroll.setName("security-roster-scroll");
+        rosterScroll.getVerticalScrollBar().setUnitIncrement(40);
+        RosterPage page = new RosterPage();
+        page.add(rosterScroll, BorderLayout.CENTER);
+        JScrollPane pageScroll = new JScrollPane(page);
+        pageScroll.setName("security-page-scroll");
+        pageScroll.setBorder(null);
+        pageScroll.getVerticalScrollBar().setUnitIncrement(40);
+        pageScroll.getAccessibleContext().setAccessibleName("Security page; scroll for controls at large text sizes");
+        add(pageScroll, BorderLayout.CENTER);
 
-        playerDisplay = new HashMap<>();
-        charPanel = new JPanel();
-
-        charPanel.setLayout(new BoxLayout(charPanel, BoxLayout.Y_AXIS));
-        validate();
-
-        JScrollPane scroll = new JScrollPane(charPanel);
-        scroll.getVerticalScrollBar().setUnitIncrement(40);
-        new SmartScroller(scroll, 0);
-        add(scroll, BorderLayout.CENTER);
-
-        JPanel top = new JPanel();
-        JButton filterButton = new JButton("Filter");
-        filterButton.addActionListener(this::filter);
-
+        JPanel top = new JPanel(new BorderLayout(8, 4));
+        JPanel filterRow = new JPanel(new BorderLayout(8, 0));
         filterComboBox = new JComboBox<>(new String[]{DISABLE_FILTER});
-        filterComboBox.setPreferredSize(new Dimension(180, 36));
-        filterComboBox.setMinimumSize(new Dimension(80, 36));
-        filterComboBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        filterComboBox.setPrototypeDisplayValue("Select a security filter");
+        filterComboBox.getAccessibleContext().setAccessibleName("Security filter");
         filterComboBox.addActionListener(this::comboAction);
-
-        String stateCopyOnlyUnderReqCheckbox = PropertiesManager.getProperty("copyOnlyUnderReqCheckbox");
-        copyOnlyUnderReqCheckbox = new JCheckBox("Only copy under req'd");
-        copyOnlyUnderReqCheckbox.setSelected(stateCopyOnlyUnderReqCheckbox != null && stateCopyOnlyUnderReqCheckbox.equals("true")); // deselected by default with no prior setting
-
-        // Add an action listener to the checkbox to update the saved state when toggled
-        copyOnlyUnderReqCheckbox.addActionListener(e -> {
-            // Update the properties manager to reflect the new status of the option
-            PropertiesManager.setProperties("copyOnlyUnderReqCheckbox", copyOnlyUnderReqCheckbox.isSelected() ? "true" : "false");
+        JLabel filterLabel = new JLabel("Filter");
+        filterLabel.setLabelFor(filterComboBox);
+        filterRow.add(filterLabel, BorderLayout.WEST);
+        filterRow.add(filterComboBox, BorderLayout.CENTER);
+        JPanel options = ContentStyle.controls();
+        options.setVisible(false);
+        JToggleButton optionsButton = new JToggleButton("Options");
+        optionsButton.getAccessibleContext().setAccessibleDescription("Show copy and sorting options");
+        optionsButton.addActionListener(e -> {
+            options.setVisible(optionsButton.isSelected());
+            optionsButton.getAccessibleContext().setAccessibleDescription(optionsButton.isSelected()
+                    ? "Copy and sorting options expanded" : "Copy and sorting options collapsed");
+            page.revalidate();
         });
-
-        loadFilters();
-
-        top.setLayout(new BoxLayout(top, BoxLayout.X_AXIS));
-        top.add(Box.createHorizontalGlue());
-        top.add(filterButton);
-        top.add(Box.createRigidArea(new Dimension(10, 0)));
-        top.add(filterComboBox);
-        top.add(Box.createRigidArea(new Dimension(10, 0)));
-        top.add(copyOnlyUnderReqCheckbox);
-
-        add(top, BorderLayout.NORTH);
-
-        // Update buttons panel layout to FlowLayout to allow more components horizontally
-        JPanel buttons = new JPanel();
-        buttons.setLayout(new FlowLayout(FlowLayout.LEFT));  // Use FlowLayout with left alignment
-
-        JButton buttonLeft = new JButton("Copy names to Clipboard");
-        JButton buttonRight = new JButton("Copy all to Clipboard");
-        buttons.add(buttonLeft);
-        buttons.add(buttonRight);
-        buttonLeft.setToolTipText("<html>Click: Copy names to clipboard<br>Shift+Click: Export names as text file</html>");
-        buttonRight.setToolTipText("<html>Click: Copy all to clipboard<br>Shift+Click: Export as JSON file</html>");
-
-        buttonLeft.addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                if ((e.getModifiers() & InputEvent.SHIFT_MASK) != 0) {
-                    // Shift+click - save names to file
-                    saveNamesAsText();
-                } else {
-                    // Normal click - copy to clipboard
-                    clicked(false);
-                }
-            }
-        });
-
-        buttonRight.addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                if ((e.getModifiers() & InputEvent.SHIFT_MASK) != 0) {
-                    // Shift+click - save as JSON
-                    saveAsJson(getFilteredPlayers());
-                } else {
-                    // Normal click - copy to clipboard
-                    clicked(true);
-                }
-            }
-        });
-
-        // Add Sort checkbox to the buttons panel
-        String stateSortCheckBox = PropertiesManager.getProperty("sortCheckBox");
-        sortCheckBox = new JCheckBox("Sort By Guild");
-        sortCheckBox.setSelected(stateSortCheckBox == null || stateSortCheckBox.equals("true"));  // selected by default with no prior setting
-
-        // Add an action listener to the checkbox to update the player list when toggled
+        filterRow.add(optionsButton, BorderLayout.EAST);
+        copyOnlyUnderReqCheckbox = new JCheckBox("Only copy below requirements");
+        copyOnlyUnderReqCheckbox.setSelected("true".equals(PropertiesManager.getProperty("copyOnlyUnderReqCheckbox")));
+        copyOnlyUnderReqCheckbox.addActionListener(e -> PropertiesManager.setProperties(
+                "copyOnlyUnderReqCheckbox", Boolean.toString(copyOnlyUnderReqCheckbox.isSelected())));
+        options.add(copyOnlyUnderReqCheckbox);
+        sortCheckBox = new JCheckBox("Sort by guild");
+        sortCheckBox.setSelected(!"false".equals(PropertiesManager.getProperty("sortCheckBox")));
         sortCheckBox.addActionListener(e -> {
-            if (sortCheckBox.isSelected()) {
-                update();  // Sort and update the list whenever a new player is added
-            }
-
-            // Update the properties manager to reflect the new status of the option
-            PropertiesManager.setProperties("sortCheckBox", sortCheckBox.isSelected() ? "true" : "false");
+            PropertiesManager.setProperties("sortCheckBox", Boolean.toString(sortCheckBox.isSelected()));
+            requestRefresh();
         });
+        options.add(sortCheckBox);
+        top.add(filterRow, BorderLayout.NORTH);
+        top.add(options, BorderLayout.CENTER);
+        page.add(top, BorderLayout.NORTH);
 
-        // Add the Sort checkbox to the buttons panel
-        buttons.add(sortCheckBox);
+        JPopupMenu actions = new JPopupMenu("Roster actions");
+        actions.getAccessibleContext().setAccessibleName("Roster actions and keyboard shortcuts");
+        addSelectionAction(actions, "Copy player", false, false, KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK));
+        addSelectionAction(actions, "Open player on RealmEye", false, true, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+        addSelectionAction(actions, "Copy guild", true, false, KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
+        addSelectionAction(actions, "Open guild on RealmEye", true, true, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK));
+        table.getSelectionModel().addListSelectionListener(e -> updateSelectionActions());
 
-        // Add the updated buttons panel to the south of the main panel
-        add(buttons, BorderLayout.SOUTH);
+        JPanel buttons = ContentStyle.controls();
+        JButton names = new JButton(action("Copy names", e -> {
+            if (shiftDown(e)) saveNamesAsText(); else clicked(false);
+        }));
+        JButton all = new JButton(action("Copy all (JSON)", e -> {
+            if (shiftDown(e)) saveAsJson(getFilteredPlayers()); else clicked(true);
+        }));
+        names.setToolTipText("Copy names; Shift+click exports a text file.");
+        all.setToolTipText("Copy JSON; Shift+click exports a JSON file.");
+        buttons.add(names);
+        buttons.add(all);
+        actions.addSeparator();
+        addMenuAction(actions, action("Export names…", e -> saveNamesAsText()),
+                KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK));
+        addMenuAction(actions, action("Export JSON…", e -> saveAsJson(getFilteredPlayers())),
+                KeyStroke.getKeyStroke(KeyEvent.VK_J, InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK));
+        actions.addSeparator();
+        actions.add(new JMenuItem(action("Edit filters…", e -> SecurityFilterGUI.open(this))));
+        JButton actionsButton = new JButton("Actions…");
+        actionsButton.setMnemonic(KeyEvent.VK_A);
+        actionsButton.setToolTipText("Player/guild actions, exports and filters (Alt+A). Shortcuts are shown in the menu.");
+        actionsButton.setComponentPopupMenu(actions);
+        actionsButton.addActionListener(e -> {
+            SwingUtilities.updateComponentTreeUI(actions);
+            ContentStyle.refreshFonts(actions);
+            actions.show(actionsButton, 0, actionsButton.getHeight());
+            for (Component item : actions.getComponents()) if (item instanceof JMenuItem && item.isEnabled()) {
+                MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[]{actions, (JMenuItem) item});
+                break;
+            }
+        });
+        buttons.add(actionsButton);
+        page.add(buttons, BorderLayout.SOUTH);
+
+        bind("copy-player", KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), false, false);
+        bind("open-player", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), false, true);
+        bind("copy-guild", KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), true, false);
+        bind("open-guild", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK), true, true);
+        table.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e)) return;
+                int row = table.rowAtPoint(e.getPoint());
+                int column = table.columnAtPoint(e.getPoint());
+                if (row < 0 || column < 0) return;
+                column = table.convertColumnIndexToModel(column);
+                if (column == 0 || column == 1) {
+                    table.setRowSelectionInterval(row, row);
+                    selectedAction(column == 1, e.isControlDown());
+                }
+            }
+        });
+        refreshTimer = new javax.swing.Timer(100, e -> refreshRoster());
+        refreshTimer.setCoalesce(true);
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                if (isShowing()) { refreshRoster(); refreshTimer.start(); }
+                else refreshTimer.stop();
+            }
+        });
+        loadFilters();
+        updateSelectionActions();
+        ContentStyle.refreshFonts(this);
+        INSTANCE = this;
+    }
+
+    @Override public void updateUI() {
+        super.updateUI();
+        // JPanel calls updateUI before these fields are initialized. Invalidate only;
+        // the visible refresh timer (or refresh-on-show) rebuilds themed icon rows.
+        if (rosterLock != null) synchronized (rosterLock) { themeRevision++; revision++; }
+    }
+
+    private static Action action(String name, java.util.function.Consumer<ActionEvent> handler) {
+        return new AbstractAction(name) {
+            @Override public void actionPerformed(ActionEvent e) { handler.accept(e); }
+        };
+    }
+
+    private static boolean shiftDown(ActionEvent e) {
+        return (e.getModifiers() & (ActionEvent.SHIFT_MASK | InputEvent.SHIFT_DOWN_MASK)) != 0;
+    }
+
+    private void addSelectionAction(JPopupMenu menu, String name, boolean guild, boolean open, KeyStroke shortcut) {
+        Action action = action(name, e -> selectedAction(guild, open));
+        (guild ? guildActions : playerActions).add(action);
+        JMenuItem item = new JMenuItem(action);
+        item.setAccelerator(shortcut);
+        item.getAccessibleContext().setAccessibleDescription("For the selected roster row; " + shortcut);
+        menu.add(item);
+    }
+
+    private void addMenuAction(JPopupMenu menu, Action action, KeyStroke shortcut) {
+        JMenuItem item = new JMenuItem(action);
+        item.setAccelerator(shortcut);
+        menu.add(item);
+        String name = String.valueOf(action.getValue(Action.NAME));
+        getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(shortcut, name);
+        getActionMap().put(name, action);
+    }
+
+    private void bind(String name, KeyStroke key, boolean guild, boolean open) {
+        table.getInputMap().put(key, name);
+        table.getActionMap().put(name, action(name, e -> selectedAction(guild, open)));
+    }
+
+    private Row selectedRow() {
+        int row = table.getSelectedRow();
+        return row < 0 ? null : model.rows.get(table.convertRowIndexToModel(row));
+    }
+
+    private void updateSelectionActions() {
+        Row row = selectedRow();
+        playerActions.forEach(a -> a.setEnabled(row != null));
+        guildActions.forEach(a -> a.setEnabled(row != null && !row.guild.isEmpty()));
+    }
+
+    private void selectedAction(boolean guild, boolean open) {
+        Row row = selectedRow();
+        if (row == null) return;
+        String value = guild ? row.guild : row.player.playerEntity.name();
+        if (value == null || value.isEmpty()) return;
+        if (open) openWebpage("https://www.realmeye.com/" + (guild ? "guild/" : "player/") + value.replace(" ", "%20"));
+        else copyToClipboard(value);
     }
 
     private void loadFilters() {
-        String f = PropertiesManager.getProperty("securityFilters");
-        if (f != null) {
-            String[] split = f.split("§");
-            for (String s : split) {
-                SecurityFilter sf = SecurityFilter.loadJson(s);
-                if (sf == null) continue;
-                filters.put(sf.name, sf);
-                filterComboBox.addItem(sf.name);
-            }
+        filters.clear();
+        currentFilter = null;
+        guiUpdateSuppression = true;
+        String saved = PropertiesManager.getProperty("securityFilters");
+        if (saved != null && !saved.isEmpty()) for (String json : saved.split("§")) {
+            SecurityFilter filter = SecurityFilter.loadJson(json);
+            if (filter != null) filters.put(filter.name, filter);
         }
-
-        String selectedItem = PropertiesManager.getProperty("securityFilterName");
-        if (setupFilter(selectedItem)) {
-            filterComboBox.setSelectedItem(selectedItem);
-        } else {
-            // disable the only copy under reqed checkbox
-            copyOnlyUnderReqCheckbox.setEnabled(false);
-        }
-    }
-
-    private boolean setupFilter(String selectedItem) {
-        if (selectedItem == null) return false;
-        for (SecurityFilter sf : filters.values()) {
-            if (sf.name.equals(selectedItem)) {
-                currentFilter = sf;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void comboAction(ActionEvent actionEvent) {
-        if (guiUpdateSuppression) return;
-        String selectedItem = String.valueOf(filterComboBox.getSelectedItem());
-        if (setupFilter(selectedItem)) {
-            PropertiesManager.setProperties("securityFilterName", selectedItem);
-        } else {
-            currentFilter = null;
-            PropertiesManager.setProperties("securityFilterName", "");
-        }
-
-        // disable the copy under reqs checkbox according to whether this is default filter
+        for (String name : filters.keySet()) filterComboBox.addItem(name);
+        currentFilter = filters.get(Objects.toString(PropertiesManager.getProperty("securityFilterName"), ""));
+        filterComboBox.setSelectedItem(currentFilter == null ? DISABLE_FILTER : currentFilter.name);
+        guiUpdateSuppression = false;
         copyOnlyUnderReqCheckbox.setEnabled(currentFilter != null);
-
-        update();
     }
 
-    private void filter(ActionEvent actionEvent) {
-        SecurityFilterGUI.open(this);
+    private void comboAction(ActionEvent e) {
+        if (guiUpdateSuppression) return;
+        currentFilter = filters.get(String.valueOf(filterComboBox.getSelectedItem()));
+        PropertiesManager.setProperties("securityFilterName", currentFilter == null ? "" : currentFilter.name);
+        copyOnlyUnderReqCheckbox.setEnabled(currentFilter != null);
+        requestRefresh();
     }
 
-    private void clicked(boolean full) {
-        List<Player> players = getFilteredPlayers();
-        StringBuilder sb = new StringBuilder();
-
-        if (full) {
-            sb.append("[\n");
-            for (int i = 0; i < players.size(); i++) {
-                sb.append(players.get(i).toString());
-                if (i < players.size() - 1) {
-                    sb.append(",\n");
-                }
-            }
-            sb.append("\n]");
-        } else {
-            for (int i = 0; i < players.size(); i++) {
-                sb.append(players.get(i).playerEntity.name());
-                if (i < players.size() - 1) {
-                    sb.append(" ");
-                }
-            }
-        }
-
-        copyToClipboard(sb.toString());
-    }
-
-    private static void copyToClipboard(String s) {
-        StringSelection stringSelection = new StringSelection(s);
-        Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        clipboard.setContents(stringSelection, null);
-    }
-
-    private List<Player> getFilteredPlayers() {
-        List<Player> players = new ArrayList<>();
-        boolean onlyUnderReqs = copyOnlyUnderReqCheckbox.isSelected();
-
-        for (PlayerBox playerBox : playerDisplay.values()) {
-            Player player = playerBox.player;
-
-            if (currentFilter != null && onlyUnderReqs && !currentFilter.parsePlayer(player).isUnderReqs) {
-                continue;
-            }
-
-            players.add(player);
-        }
-
-        return players;
-    }
-
-    // Method to save names as text
-    private void saveNamesAsText() {
-        List<Player> players = getFilteredPlayers();
-        StringBuilder sb = new StringBuilder();
-
-        for (Player player : players) {
-            sb.append(player.playerEntity.name()).append("\n");
-        }
-
-        saveToFile(sb.toString(), "ExportNames", ".txt");
-    }
-
-    // Method to save as JSON
-    private void saveAsJson(List<Player> players) {
-        StringBuilder sb = new StringBuilder("[\n");
-
-        for (int i = 0; i < players.size(); i++) {
-            sb.append(players.get(i).toString());
-            if (i < players.size() - 1) {
-                sb.append(",\n");
-            }
-        }
-        sb.append("\n]");
-
-        saveToFile(sb.toString(), "Export", ".json");
-    }
-
-    // Common file saving method
-    private void saveToFile(String content, String prefix, String extension) {
-        try {
-            // Create exports directory if needed
-            File directory = new File("exports");
-            if (!directory.exists()) {
-                directory.mkdir();
-            }
-
-            // Generate filename with timestamp
-            SimpleDateFormat dateFormat = new SimpleDateFormat("MMddyyyy_HHmmss");
-            String dateTimeString = dateFormat.format(new Date());
-            String filename = "exports/" + prefix + dateTimeString + extension;
-            File file = new File(filename);
-
-            // Write content to file
-            try (FileWriter writer = new FileWriter(file)) {
-                writer.write(content);
-                writer.flush();
-            }
-
-            // Copy the FILE OBJECT to clipboard (not just path/contents)
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            clipboard.setContents(
-                    new Transferable() {
-                        public DataFlavor[] getTransferDataFlavors() {
-                            return new DataFlavor[]{DataFlavor.javaFileListFlavor};
-                        }
-
-                        public boolean isDataFlavorSupported(DataFlavor flavor) {
-                            return flavor.equals(DataFlavor.javaFileListFlavor);
-                        }
-
-                        public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
-                            if (!isDataFlavorSupported(flavor)) {
-                                throw new UnsupportedFlavorException(flavor);
-                            }
-                            return Collections.singletonList(file);
-                        }
-                    },
-                    null
-            );
-
-            // Show success message
-            JOptionPane.showMessageDialog(this,
-                    "Successfully exported data to:\n" + file.getAbsolutePath() +
-                            "\n\n(File object copied to clipboard - ready to paste)",
-                    "Export Successful",
-                    JOptionPane.INFORMATION_MESSAGE);
-
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this,
-                    "Failed to export data:\n" + e.getMessage(),
-                    "Export Failed",
-                    JOptionPane.ERROR_MESSAGE);
-            e.printStackTrace();
-        }
-    }
-
-    private void guiUpdate() {
-        revalidate();
-        repaint();
-    }
-
-    private static JPanel createMainBox(PlayerBox p) {
-        JPanel mainPanel = new JPanel();
-        mainPanel.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.gray), BorderFactory.createEmptyBorder(0, 20, 0, 20)));
-        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.X_AXIS));
-        BufferedImage ig = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g2d = ig.createGraphics();
-        FontMetrics fm = g2d.getFontMetrics(mainFont);
-        int y = Math.max(24, fm.getHeight());
-        int width = 70;
-
-        mainPanel.add(Box.createHorizontalGlue());
-
-        {
-            width = pointItems(p, mainPanel, fm, y, width);
-        }
-        mainPanel.add(Box.createHorizontalStrut(5));
-
-        {
-            width = itemIcons(p, mainPanel, width);
-        }
-        mainPanel.add(Box.createHorizontalStrut(5));
-
-        {
-            width = statsMaxed(p, mainPanel, fm, y, width);
-        }
-        mainPanel.add(Box.createHorizontalStrut(5));
-
-        {
-            width = seasonCrucibleIcon(p, mainPanel, width);
-        }
-        mainPanel.add(Box.createHorizontalStrut(5));
-
-        {
-            width = nameLabel(p, mainPanel, fm, y, width);
-        }
-        mainPanel.add(Box.createHorizontalStrut(5));
-
-        {
-            width = guildLabel(p, mainPanel, fm, y, width);
-        }
-
-        mainPanel.add(Box.createHorizontalGlue());
-
-        mainPanel.setMaximumSize(new Dimension(width, y));
-
-        g2d.dispose();
-
-        return mainPanel;
-    }
-
-    private static int pointItems(PlayerBox p, JPanel mainPanel, FontMetrics fm, int y, int width) {
-        if (currentFilter == null) return width;
-        int x = fm.stringWidth("-- / --") + 2;
-        width += x;
-
-        JPanel panel = new JPanel();
-        panel.setPreferredSize(new Dimension(x, y));
-        panel.setMaximumSize(new Dimension(x, y));
-        panel.setLayout(new BorderLayout());
-
-        p.pointsPanel = panel;
-        panel = p.updatePointsPanel();
-
-        mainPanel.add(panel);
-        return width;
-    }
-
-    private static int statsMaxed(PlayerBox p, JPanel mainPanel, FontMetrics fm, int y, int width) {
-        Player player = p.player;
-
-        JPanel panel = new JPanel();
-
-        int x = fm.stringWidth("8 / 8") + 2;
-        width += x;
-
-        panel.setPreferredSize(new Dimension(x, y));
-        panel.setMaximumSize(new Dimension(x, y));
-        panel.setLayout(new BorderLayout());
-
-        int stat = player.statsMaxed();
-        JLabel stats = new JLabel(stat + " / 8");
-        String toolTipStatString = p.getToolTipStatString();
-        stats.setToolTipText(toolTipStatString);
-        stats.setHorizontalAlignment(SwingConstants.RIGHT);
-        stats.setFont(mainFont);
-
-        panel.add(stats);
-        p.statsPanel = panel;
-        mainPanel.add(panel);
-        return width;
-    }
-
-    private static int itemIcons(PlayerBox p, JPanel mainPanel, int width) {
-        JPanel panel = new JPanel();
-        width += 100;
-
-        p.itemsPanel = panel;
-
-        panel.setPreferredSize(new Dimension(100, 24));
-        panel.setMaximumSize(new Dimension(100, 24));
-        panel.setLayout(new GridLayout(1, 4));
-
-        // Get enchant info for all items
-        String[] enchants = ParseEnchants.extractEnchants(p.player.playerEntity);
-
-        for (int i = 0; i < 4; i++) {
-            int eq = p.player.inv[i];
-            int enchantCount = getEnchantCount(enchants[i]);
-
-            // Use regular outline for non-enchanted items, glow for enchanted ones
-            ImageIcon icon;
-            if (enchantCount == 0) {
-                icon = ImageBuffer.getOutlinedIcon(eq, 20);
-            } else {
-                Color glowColor = getGlowColor(enchantCount);
-                int glowSize = getGlowSize(enchantCount);
-                icon = ImageBuffer.getOutlinedIconWithGlow(eq, 20, glowColor, glowSize);
-            }
-
-            p.icon[i] = new JLabel(icon);
-            p.player.itemName[i] = IdToAsset.objectName(eq);
-            panel.add(p.icon[i]);
-        }
-        p.updateToolTipText();
-        mainPanel.add(panel);
-        return width;
-    }
-
-    // Count number of enchants in the enchant string
-    private static int getEnchantCount(String enchantString) {
-        if (enchantString == null || enchantString.isEmpty()) {
-            return 0;
-        }
-        // Count the number of newlines in the parsed enchant string
-        return enchantString.split("\n").length;
-    }
-
-    // Determine glow color based on enchant count
-    private static Color getGlowColor(int enchantCount) {
-        switch (enchantCount) {
-            case 1: return new Color(0, 255, 0);
-            case 2: return new Color(0, 200, 255);
-            case 3: return new Color(200, 0, 255);
-            case 4: return new Color(255, 215, 0);
-            default: return Color.BLACK;
-        }
-    }
-
-    private static int getGlowSize(int enchantCount) {
-        return 3;
-    }
-
-    private static int guildLabel(PlayerBox playerBox, JPanel mainPanel, FontMetrics fm, int y, int width) {
-        Entity playerEntity = playerBox.player.playerEntity;
-        JPanel panel = new JPanel();
-
-        int x = fm.stringWidth("12345678901234567890123") + 2;
-        width += x;
-
-        panel.setPreferredSize(new Dimension(x, y));
-        panel.setMaximumSize(new Dimension(x, y));
-        panel.setLayout(new BorderLayout());
-
-        try {
-            String text = playerEntity.getStatGuild();
-            JLabel characterLabel = new JLabel(text, JLabel.CENTER);
-
-            characterLabel.addMouseListener(new MouseAdapter() {
-                public void mouseClicked(MouseEvent e) {
-                    if (e.isControlDown()) {
-                        openWebpage("https://www.realmeye.com/guild/" + playerEntity.getStatGuild().replace(" ", "%20"));
-                    }
-                }
-            });
-
-            characterLabel.setAlignmentX(JLabel.LEFT);
-            panel.setAlignmentX(JLabel.LEFT);
-            panel.setAlignmentX(LEFT_ALIGNMENT);
-            characterLabel.setHorizontalAlignment(SwingConstants.LEFT);
-            characterLabel.setFont(mainFont);
-            panel.add(characterLabel);
-        } catch (Exception e) {
-            System.err.println("Failed to add character label to player box for IGN " + playerEntity.name());
-        }
-        mainPanel.add(panel);
-        return width;
-    }
-
-    private static int nameLabel(PlayerBox p, JPanel mainPanel, FontMetrics fm, int y, int width) {
-        Entity playerEntity = p.player.playerEntity;
-
-        JPanel panel = new JPanel();
-        p.namePanel = panel;
-
-        int x = fm.stringWidth("12345678901234567890123") + 2;
-        width += x;
-
-        panel.setPreferredSize(new Dimension(x, y));
-        panel.setMaximumSize(new Dimension(x, y));
-        panel.setLayout(new BorderLayout());
-
-        int level = playerEntity.stat.get(StatType.LEVEL_STAT).statValue;
-        String text = playerEntity.name() + " [" + level + "]";
-        JLabel characterLabel = new JLabel(text, ImageBuffer.getOutlinedIcon(p.player.getSkinId(), 20), JLabel.CENTER);
-        characterLabel.addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                if (e.isControlDown()) {
-                    openWebpage("https://www.realmeye.com/player/" + playerEntity.name());
-                } else {
-                    copyToClipboard(playerEntity.name());
-                }
-            }
-        });
-
-        characterLabel.setAlignmentX(JLabel.LEFT);
-        panel.setAlignmentX(JLabel.LEFT);
-        panel.setAlignmentX(LEFT_ALIGNMENT);
-        characterLabel.setHorizontalAlignment(SwingConstants.LEFT);
-        characterLabel.setFont(mainFont);
-        panel.add(characterLabel);
-//            characterLabel.setToolTipText(exaltStats(c));
-        mainPanel.add(panel);
-        return width;
-    }
-
-    private static int seasonCrucibleIcon(PlayerBox p, JPanel mainPanel, int width) {
-        Entity playerEntity = p.player.playerEntity;
-
-        JPanel panel = new JPanel();
-        JPanel p1 = new JPanel();
-        p.cruciblePanel = new JPanel();
-
-        int x = 10;
-        width += x;
-
-        panel.setBorder(BorderFactory.createLineBorder(Color.BLACK));
-        Color bg = playerEntity.isSeasonal() ? seasonalColor : Color.WHITE;
-        p1.setBackground(bg);
-        p.cruciblePanel.setBackground(playerEntity.isCrucible() ? Color.RED : bg);
-        panel.add(p1);
-        panel.add(p.cruciblePanel);
-        panel.setLayout(new GridLayout(2, 1));
-
-        panel.setPreferredSize(new Dimension(10, 10));
-        panel.setMaximumSize(new Dimension(10, 10));
-
-        panel.setToolTipText(p.getToolTipSeasonCrucibleString());
-
-        mainPanel.add(panel);
-        return width;
-    }
-
-    /**
-     * Opens website with given URL.
-     *
-     * @param url Opens website with specific URL.
-     */
-    private static void openWebpage(String url) {
-        try {
-            Desktop desktop = Desktop.getDesktop();
-            URI uri = new URI(url);
-            desktop.browse(uri);
-        } catch (Exception ex) {
-            System.err.println("Failed to open webpage for URL: " + url);
-        }
-    }
-
-    public static void addPlayer(int id, Entity entity) {
-        Player player = new Player(entity);
-        PlayerBox p = new PlayerBox(id, player);
-        p.panel = createMainBox(p);
-        playerDisplay.put(id, p);
-        charPanel.add(p.panel);
-
-        // Check if the "Sort" checkbox is selected, and update the list if necessary
-        if (INSTANCE.sortCheckBox.isSelected()) {
-            update();  // Calls update() to sort and refresh the player list
-        } else {
-            INSTANCE.guiUpdate();  // Simply refresh if not sorting
-        }
-    }
-
-    public static void removePlayer(int dropId) {
-        PlayerBox p = playerDisplay.remove(dropId);
-        if (p != null) {
-            charPanel.remove(p.panel);
-            INSTANCE.guiUpdate();
-        }
-    }
-
-    public static void update(Entity playerEntity) {
-        PlayerBox p = playerDisplay.get(playerEntity.id);
-        if (p != null) {
-            p.update();
-        }
-    }
-
-    public static void update() {
-        // Sort players by guild name alphabetically, placing those without a guild name at the bottom
-        ArrayList<PlayerBox> sortedPlayers = new ArrayList<>(playerDisplay.values());
-        sortedPlayers.sort(null);
-
-        // Clear the charPanel and add players in sorted order
-        charPanel.removeAll();
-        for (PlayerBox p : sortedPlayers) {
-            p.panel = createMainBox(p);
-            charPanel.add(p.panel);
-        }
-        INSTANCE.guiUpdate();
-    }
-
-    public static void editFont(Font font) {
-        mainFont = font;
-        INSTANCE.updateFont();
-    }
-
-    public static void clear() {
-        playerDisplay.clear();
-        charPanel.removeAll();
-        INSTANCE.guiUpdate();
-    }
-
-    private void updateFont() {
-        charPanel.removeAll();
-        for (PlayerBox p : playerDisplay.values()) {
-            p.panel = createMainBox(p);
-            charPanel.add(p.panel);
-        }
-    }
-
-    TreeMap<String, SecurityFilter> getFilters() {
-        return filters;
-    }
+    TreeMap<String, SecurityFilter> getFilters() { return filters; }
 
     public void filterUpdate() {
-        if (currentFilter != null && !filters.containsKey(currentFilter.name)) {
-            currentFilter = null;
-            filterComboBox.setSelectedItem(DISABLE_FILTER);
-        }
+        String selected = currentFilter == null ? DISABLE_FILTER : currentFilter.name;
         guiUpdateSuppression = true;
         filterComboBox.removeAllItems();
         filterComboBox.addItem(DISABLE_FILTER);
+        for (String name : filters.keySet()) filterComboBox.addItem(name);
+        filterComboBox.setSelectedItem(filters.containsKey(selected) ? selected : DISABLE_FILTER);
         guiUpdateSuppression = false;
-        for (SecurityFilter sf : filters.values()) {
-            filterComboBox.addItem(sf.name);
-            if (currentFilter != null && sf.name.equals(currentFilter.name)) {
-                filterComboBox.setSelectedItem(currentFilter.name);
+        comboAction(null);
+    }
+
+    private void requestRefresh() {
+        synchronized (rosterLock) { revision++; }
+    }
+
+    /** Runs only on the EDT, at most once per timer tick, and never while hidden. */
+    private void refreshRoster() {
+        if (!isShowing()) return;
+        List<Player> players;
+        long nextRevision;
+        synchronized (rosterLock) {
+            if (displayedRevision == revision) return;
+            nextRevision = revision;
+            players = new ArrayList<>(roster.values());
+        }
+        Row selected = selectedRow();
+        Map<Integer, Row> previous = new HashMap<>();
+        for (Row row : model.rows) previous.put(row.player.playerEntity.id, row);
+        List<Row> rows = new ArrayList<>(players.size());
+        for (Player player : players) {
+            Row row = previous.get(player.playerEntity.id);
+            if (row == null || row.player != player || row.filter != currentFilter || row.themeRevision != themeRevision)
+                row = new Row(player, themeRevision);
+            rows.add(row);
+        }
+        if (sortCheckBox.isSelected()) rows.sort(Comparator.comparing((Row r) -> r.guild.isEmpty())
+                .thenComparing(r -> r.guild, String.CASE_INSENSITIVE_ORDER));
+        model.rows = rows;
+        displayedRevision = nextRevision;
+        model.fireTableDataChanged();
+        if (selected != null) for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).player.playerEntity.id == selected.player.playerEntity.id) {
+                table.setRowSelectionInterval(i, i);
+                break;
+            }
+        }
+        updateSelectionActions();
+    }
+
+    private static final StatType[] DISPLAY_STATS = {StatType.NAME_STAT, StatType.GUILD_NAME_STAT,
+            StatType.LEVEL_STAT, StatType.SKIN_ID, StatType.SEASONAL, StatType.CRUCIBLE_STAT,
+            StatType.INVENTORY_0_STAT, StatType.INVENTORY_1_STAT, StatType.INVENTORY_2_STAT,
+            StatType.INVENTORY_3_STAT, StatType.UNIQUE_DATA_STRING};
+
+    // Copy values on the producer thread, before the mutable capture entity can change again.
+    private static Player snapshot(int id, Entity source) {
+        Entity copy = new Entity(null, id, 0);
+        copy.objectType = source.objectType;
+        copy.baseStats = source.baseStats == null ? new int[]{-1, -1, -1, -1, -1, -1, -1, -1} : source.baseStats.clone();
+        for (StatType type : DISPLAY_STATS) {
+            StatData original = source.stat.get(type);
+            StatData value = new StatData();
+            value.statType = type;
+            value.statTypeNum = type.get();
+            value.statValue = original == null ? 0 : original.statValue;
+            value.statValueTwo = original == null ? 0 : original.statValueTwo;
+            value.stringStatValue = original == null || original.stringStatValue == null ? "" : original.stringStatValue;
+            if (original == null && type.get() >= StatType.INVENTORY_0_STAT.get() && type.get() <= StatType.INVENTORY_3_STAT.get()) value.statValue = -1;
+            copy.stat.set(type, value);
+        }
+        return new Player(copy);
+    }
+
+    public static void addPlayer(int id, Entity entity) {
+        ParsePanelGUI panel = INSTANCE;
+        if (panel == null || entity == null) return;
+        Player copy = snapshot(id, entity);
+        synchronized (panel.rosterLock) { panel.roster.put(id, copy); panel.revision++; }
+    }
+
+    public static void update(Entity entity) {
+        ParsePanelGUI panel = INSTANCE;
+        if (panel == null || entity == null) return;
+        synchronized (panel.rosterLock) {
+            if (!panel.roster.containsKey(entity.id)) return;
+        }
+        Player copy = snapshot(entity.id, entity);
+        synchronized (panel.rosterLock) {
+            Player previous = panel.roster.get(entity.id);
+            if (previous == null || sameDisplay(previous, copy)) return;
+            panel.roster.put(entity.id, copy);
+            panel.revision++;
+        }
+    }
+
+    private static boolean sameDisplay(Player a, Player b) {
+        if (a.playerEntity.objectType != b.playerEntity.objectType || !Arrays.equals(a.playerEntity.baseStats, b.playerEntity.baseStats)) return false;
+        for (StatType type : DISPLAY_STATS) {
+            StatData x = a.playerEntity.stat.get(type), y = b.playerEntity.stat.get(type);
+            if (x.statValue != y.statValue || !Objects.equals(x.stringStatValue, y.stringStatValue)) return false;
+        }
+        return true;
+    }
+
+    public static void removePlayer(int id) {
+        ParsePanelGUI panel = INSTANCE;
+        if (panel == null) return;
+        synchronized (panel.rosterLock) { if (panel.roster.remove(id) != null) panel.revision++; }
+    }
+
+    public static void clear() {
+        ParsePanelGUI panel = INSTANCE;
+        if (panel == null) return;
+        synchronized (panel.rosterLock) { panel.roster.clear(); panel.revision++; }
+    }
+
+    public static void update() {
+        ParsePanelGUI panel = INSTANCE;
+        if (panel != null) panel.requestRefresh();
+    }
+
+    public static void editFont(Font font) {
+        ParsePanelGUI panel = INSTANCE;
+        if (panel == null || font == null) return;
+        Runnable change = () -> { ContentStyle.tableFont(panel.table, font, 0); panel.revalidate(); panel.repaint(); };
+        if (SwingUtilities.isEventDispatchThread()) change.run(); else SwingUtilities.invokeLater(change);
+    }
+
+    private List<Player> getFilteredPlayers() {
+        List<Player> players;
+        synchronized (rosterLock) { players = new ArrayList<>(roster.values()); }
+        if (currentFilter != null && copyOnlyUnderReqCheckbox.isSelected())
+            players.removeIf(p -> !currentFilter.parsePlayer(p).isUnderReqs);
+        return players;
+    }
+
+    protected void clicked(boolean full) {
+        List<Player> players = getFilteredPlayers();
+        if (full) copyToClipboard(json(players));
+        else {
+            StringJoiner names = new StringJoiner(" ");
+            for (Player player : players) names.add(player.playerEntity.name());
+            copyToClipboard(names.toString());
+        }
+    }
+
+    private static String json(List<Player> players) {
+        StringJoiner result = new StringJoiner(",\n", "[\n", "\n]");
+        for (Player player : players) result.add(player.toString());
+        return result.toString();
+    }
+
+    protected void saveNamesAsText() {
+        StringBuilder names = new StringBuilder();
+        for (Player player : getFilteredPlayers()) names.append(player.playerEntity.name()).append('\n');
+        saveToFile(names.toString(), "ExportNames", ".txt");
+    }
+
+    protected void saveAsJson(List<Player> players) { saveToFile(json(players), "Export", ".json"); }
+
+    private static void copyToClipboard(String text) {
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+    }
+
+    private void saveToFile(String content, String prefix, String extension) {
+        try {
+            File directory = new File("exports");
+            if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("Cannot create exports directory");
+            File file = new File(directory, prefix + new SimpleDateFormat("MMddyyyy_HHmmss").format(new Date()) + extension);
+            try (FileWriter writer = new FileWriter(file)) { writer.write(content); }
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new Transferable() {
+                public DataFlavor[] getTransferDataFlavors() { return new DataFlavor[]{DataFlavor.javaFileListFlavor}; }
+                public boolean isDataFlavorSupported(DataFlavor flavor) { return DataFlavor.javaFileListFlavor.equals(flavor); }
+                public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
+                    if (!isDataFlavorSupported(flavor)) throw new UnsupportedFlavorException(flavor);
+                    return Collections.singletonList(file);
+                }
+            }, null);
+            JOptionPane.showMessageDialog(this, "Successfully exported data to:\n" + file.getAbsolutePath()
+                    + "\n\n(File object copied to clipboard - ready to paste)", "Export successful", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Failed to export data:\n" + e.getMessage(), "Export failed", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private static void openWebpage(String url) {
+        try { Desktop.getDesktop().browse(new URI(url)); }
+        catch (Exception e) { System.err.println("Failed to open webpage for URL: " + url); }
+    }
+
+    private static String html(String value) {
+        return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>");
+    }
+
+    private static class Row {
+        final long themeRevision;
+        final Player player;
+        final SecurityFilter filter = currentFilter;
+        final SecurityFilter.ParsedPlayerObject requirements;
+        final String guild;
+        final String[] enchants;
+        final ImageIcon[] icons = new ImageIcon[4];
+        final ImageIcon skin;
+        Row(Player player, long themeRevision) {
+            this.player = player;
+            this.themeRevision = themeRevision;
+            guild = Objects.toString(player.playerEntity.getStatGuild(), "");
+            requirements = filter == null ? null : filter.parsePlayer(player);
+            enchants = ParseEnchants.extractEnchants(player.playerEntity);
+            skin = ImageBuffer.getOutlinedIcon(player.getSkinId(), 20);
+            for (int i = 0; i < 4; i++) {
+                player.itemName[i] = IdToAsset.objectName(player.inv[i]);
+                int count = enchants[i] == null || enchants[i].isEmpty() ? 0 : enchants[i].split("\n").length;
+                String role = count == 1 ? "mint" : count == 2 ? "blue" : count == 3 ? "violet" : "amber";
+                icons[i] = count == 0 ? ImageBuffer.getOutlinedIcon(player.inv[i], 20)
+                        : ImageBuffer.getOutlinedIconWithGlow(player.inv[i], 20, ContentStyle.color(role), 3);
             }
         }
     }
 
-    private static class PlayerBox implements Comparable<PlayerBox> {
-        int id;
-        Player player;
-        JLabel[] icon = new JLabel[4];
-        JPanel panel;
-        JPanel pointsPanel;
-        JPanel itemsPanel;
-        JPanel cruciblePanel;
-        JPanel statsPanel;
-        JPanel namePanel;
-
-        public PlayerBox(int id, Player player) {
-            this.id = id;
-            this.player = player;
+    /** The whole page scrolls only when controls plus three roster rows cannot fit. */
+    private class RosterPage extends JPanel implements Scrollable {
+        RosterPage() { super(new BorderLayout(0, 8)); }
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            int chrome = size.height - rosterScroll.getPreferredSize().height;
+            Insets border = rosterScroll.getInsets();
+            Insets viewportBorder = rosterScroll.getViewportBorder() == null ? new Insets(0, 0, 0, 0)
+                    : rosterScroll.getViewportBorder().getBorderInsets(rosterScroll);
+            int rosterHeight = table.getRowHeight() * 3 + table.getTableHeader().getPreferredSize().height
+                    + rosterScroll.getHorizontalScrollBar().getPreferredSize().height
+                    + border.top + border.bottom + viewportBorder.top + viewportBorder.bottom;
+            return new Dimension(size.width, chrome + rosterHeight);
         }
-
-        public void update() {
-            Entity playerEntity = this.player.playerEntity;
-            boolean hasEquipmentChanged = player.updateInv();
-            if (!hasEquipmentChanged) return;
-
-            // Get the raw enchant strings first
-            String[] enchantStrings = ParseEnchants.getEnchantStrings(playerEntity);
-
-            // Keep original stat access pattern but pass raw enchant strings
-            setIcon(0, playerEntity.stat.get(StatType.INVENTORY_0_STAT).statValue, enchantStrings[0]);
-            setIcon(1, playerEntity.stat.get(StatType.INVENTORY_1_STAT).statValue, enchantStrings[1]);
-            setIcon(2, playerEntity.stat.get(StatType.INVENTORY_2_STAT).statValue, enchantStrings[2]);
-            setIcon(3, playerEntity.stat.get(StatType.INVENTORY_3_STAT).statValue, enchantStrings[3]);
-
-            cruciblePanel.setBackground(playerEntity.isCrucible() ? Color.RED : playerEntity.isSeasonal() ? seasonalColor : Color.WHITE);
-            updateToolTipText();
-            updatePointsPanel();
+        public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return table.getRowHeight(); }
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return Math.max(table.getRowHeight(), visible.height - table.getRowHeight());
         }
-
-        private JPanel updatePointsPanel() {
-			if (pointsPanel == null) {
-				return null;
-			}
-			
-            pointsPanel.removeAll();
-
-            // Parse the player
-            SecurityFilter.ParsedPlayerObject parsedPlayer = currentFilter.parsePlayer(player);
-
-            // Set up a new label
-            JLabel pointsLabel = new JLabel(parsedPlayer.points + " / " + parsedPlayer.classPoints);
-            pointsLabel.setHorizontalAlignment(SwingConstants.CENTER);
-            pointsLabel.setFont(mainFont);
-
-            // Update the background
-            if (parsedPlayer.isUnderReqs) pointsPanel.setBackground(redColor);
-            else pointsPanel.setBackground(null);
-
-            // Update hover text
-            if (!parsedPlayer.missing.isEmpty()) {
-                String missingText = String.join("<br/>", parsedPlayer.missing);
-                pointsLabel.setToolTipText("<html>" + missingText + "</html>");
-            }
-
-            pointsPanel.add(pointsLabel);
-            INSTANCE.updateUI();
-
-            return pointsPanel;
+        public boolean getScrollableTracksViewportWidth() { return true; }
+        public boolean getScrollableTracksViewportHeight() {
+            return getParent() instanceof JViewport && getParent().getHeight() >= getPreferredSize().height;
         }
+    }
 
-        private void setIcon(int i, int eq, String enchant) {
-            try {
-                String parsedEnchant = ParseEnchants.parse(enchant);
-                int enchantCount = getEnchantCount(parsedEnchant);
-
-                if (enchantCount == 0) {
-                    // Use original outline for non-enchanted items
-                    icon[i].setIcon(ImageBuffer.getOutlinedIcon(eq, 20));
-                } else {
-                    // Enhanced glow for enchanted items
-                    Color glowColor = getGlowColor(enchantCount);
-                    int glowSize = getGlowSize(enchantCount);
-                    icon[i].setIcon(ImageBuffer.getOutlinedIconWithGlow(eq, 20, glowColor, glowSize));
-                }
-                player.itemName[i] = IdToAsset.objectName(eq);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            INSTANCE.updateUI();
-        }
-
-        public void updateToolTipText() {
-            String[] enchant = ParseEnchants.extractEnchants(player.playerEntity);
-
-            for (int i = 0; i < 4; i++) {
-                icon[i].setToolTipText(String.format("<html>%s<br>%s</html>", player.itemName[i], enchant[i]));
+    private static class RosterModel extends AbstractTableModel {
+        private final String[] columns = {"Player / level", "Guild", "Requirements", "Weapon", "Ability", "Armor", "Ring", "Maxed", "Character mode"};
+        private List<Row> rows = new ArrayList<>();
+        public int getRowCount() { return rows.size(); }
+        public int getColumnCount() { return columns.length; }
+        public String getColumnName(int column) { return columns[column]; }
+        public Object getValueAt(int index, int column) {
+            Row row = rows.get(index);
+            Entity entity = row.player.playerEntity;
+            switch (column) {
+                case 0: return entity.name() + " [" + entity.stat.get(StatType.LEVEL_STAT).statValue + "]";
+                case 1: return row.guild;
+                case 2: return row.requirements == null ? "No filter" : (row.requirements.isUnderReqs ? "Below: " : "Meets: ")
+                        + row.requirements.points + " / " + row.requirements.classPoints;
+                case 7: return row.player.statsMaxed() + " / 8";
+                case 8: return (entity.isSeasonal() ? "Seasonal" : "Non-seasonal") + (entity.isCrucible() ? " · Crucible" : "");
+                default: return row.player.itemName[column - 3];
             }
         }
+    }
 
-        /**
-         * Gets the tool tip seasonCrucible string from the entity.
-         *
-         * @return seasonCrucible as tooltip string.
-         */
-        public String getToolTipSeasonCrucibleString() {
-            Entity playerEntity = this.player.playerEntity;
-            String seasonalStr = playerEntity.isSeasonal() ? "Seasonal" : "Non-Seasonal";
-
-            if (playerEntity.isCrucible()) {
-                return String.format("<html>%s/Crucible</html>", seasonalStr);
-            } else {
-                return String.format("<html>%s</html>", seasonalStr);
+    private class RosterCell extends ContentStyle.Cell {
+        @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int rowIndex, int columnIndex) {
+            super.getTableCellRendererComponent(table, value, selected, focus, rowIndex, columnIndex);
+            Row row = model.rows.get(table.convertRowIndexToModel(rowIndex));
+            int column = table.convertColumnIndexToModel(columnIndex);
+            setToolTipText(null);
+            if (focus) setBorder(UIManager.getBorder("Table.focusCellHighlightBorder"));
+            if (column == 0) {
+                setIcon(row.skin);
+                setToolTipText("Click to copy player; Ctrl+click or Enter to open RealmEye. Ctrl+C copies the selected player.");
+            } else if (column == 1) {
+                setToolTipText(row.guild + " — click to copy; Ctrl+click or Ctrl+Enter opens RealmEye.");
+            } else if (column == 2 && row.requirements != null) {
+                if (!selected) setForeground(ContentStyle.color(row.requirements.isUnderReqs ? "rose" : "mint"));
+                setToolTipText("<html>" + html(String.join("\n", row.requirements.missing)) + "</html>");
+            } else if (column >= 3 && column <= 6) {
+                int slot = column - 3;
+                setText(""); setIcon(row.icons[slot]); setHorizontalAlignment(CENTER);
+                setToolTipText("<html>" + html(row.player.itemName[slot]) + "<br>" + html(row.enchants[slot]) + "</html>");
+            } else if (column == 7) {
+                int[] s = row.player.statMissing();
+                setToolTipText(String.format("<html>Missing<br>%d :Life<br>%d :Mana<br>%d :Atk<br>%d :Def<br>%d :Spd<br>%d :Dex<br>%d :Vit<br>%d :Wis</html>", s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]));
+            } else if (column == 8 && !selected) {
+                setForeground(ContentStyle.color(row.player.playerEntity.isCrucible() ? "rose" : row.player.playerEntity.isSeasonal() ? "mint" : "muted"));
             }
-        }
-
-        /**
-         * Gets the tool tip stats string from array of stats.
-         *
-         * @return Stats as tooltip string.
-         */
-        public String getToolTipStatString() {
-            int[] stats = this.player.statMissing();
-            return String.format("<html>Missing<br>%d :Life<br>%d :Mana<br>%d :Atk<br>%d :Def<br>%d :Spd<br>%d :Dex<br>%d :Vit<br>%d :Wis</html>", stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6], stats[7]);
-        }
-
-        @Override
-        public int compareTo(PlayerBox p) {
-            String guild1 = this.player.playerEntity.getStatGuild();
-            String guild2 = p.player.playerEntity.getStatGuild();
-
-            // Handle null or empty guild names by placing them at the bottom
-            if (guild1 == null || guild1.isEmpty()) {
-                if (guild2 == null || guild2.isEmpty()) return 0;
-                else return 1;
-            } else if (guild2 == null || guild2.isEmpty()) return -1;
-
-            return guild1.compareToIgnoreCase(guild2); // Compare guild names ignoring case
+            return this;
         }
     }
 }

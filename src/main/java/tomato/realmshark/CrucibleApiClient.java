@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 /**
  * HTTP client for fetching crucible data from the RealmShark API
@@ -25,13 +26,14 @@ public class CrucibleApiClient {
     public static String fetchCrucibleData() {
         System.out.println("[Crucible] Fetching data from API...");
 
+        HttpURLConnection conn = null;
         try {
             URL url = new URL(CRUCIBLE_API_URL);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty(
                 "User-Agent",
-                "RealmShark/" + tomato.version.Version.VERSION
+                "RealmShark/" + realmshark.version.Version.VERSION
             );
             conn.setRequestProperty("Accept", "application/json");
             conn.setConnectTimeout(10000); // 10 seconds
@@ -40,16 +42,11 @@ public class CrucibleApiClient {
             int responseCode = conn.getResponseCode();
 
             if (responseCode == HttpURLConnection.HTTP_OK) {
-                BufferedReader in = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream())
-                );
-                String inputLine;
                 StringBuilder response = new StringBuilder();
-
-                while ((inputLine = in.readLine()) != null) {
-                    response.append(inputLine);
+                try (BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                    String inputLine;
+                    while ((inputLine = in.readLine()) != null) response.append(inputLine);
                 }
-                in.close();
 
                 String jsonResponse = response.toString();
 
@@ -75,7 +72,7 @@ public class CrucibleApiClient {
                 "[Crucible] Error fetching data: " + e.getMessage()
             );
             return null;
-        }
+        } finally { if (conn != null) conn.disconnect(); }
     }
 
     /**

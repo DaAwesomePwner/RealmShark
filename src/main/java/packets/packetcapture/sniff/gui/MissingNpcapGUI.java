@@ -23,6 +23,7 @@ public class MissingNpcapGUI extends JFrame {
 
     public MissingNpcapGUI() throws HeadlessException {
         super();
+        realmshark.branding.AppIdentity.apply(this);
         setTitle("Missing Npcap");
 
         link.setForeground(Color.BLUE.darker());
@@ -49,7 +50,7 @@ public class MissingNpcapGUI extends JFrame {
             }
         });
 
-        close.addActionListener(e -> System.exit(0));
+        close.addActionListener(e -> realmshark.branding.AppIdentity.exit(0));
         BoxLayout box = new BoxLayout(getContentPane(), BoxLayout.Y_AXIS);
 
         setLayout(box);

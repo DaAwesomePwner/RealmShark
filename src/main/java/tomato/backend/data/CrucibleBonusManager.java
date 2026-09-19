@@ -7,6 +7,8 @@ import com.google.gson.JsonObject;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Collections;
+import java.util.function.Supplier;
 import packets.Packet;
 import packets.data.StatData;
 import tomato.realmshark.CrucibleApiClient;
@@ -19,12 +21,14 @@ import tomato.realmshark.CrucibleApiClient;
  */
 public class CrucibleBonusManager {
 
-    private static final Map<String, Double> crucibleDamageMultipliers =
-        new HashMap<>();
+    // Published as a complete immutable configuration under the class monitor.
+    private static Map<String, Double> crucibleDamageMultipliers = Collections.emptyMap();
     private static final Gson gson = new Gson();
     private static String currentPlayerCrucibleId128 = null;
     private static String currentPlayerCrucibleId155 = null;
     private static boolean apiDataLoaded = false;
+    private static boolean packetDataLoaded, apiRequestInFlight;
+    private static long configurationGeneration, apiRequestGeneration;
 
     /**
      * Processes a CrucibleResponsePacket to extract and store damage multipliers.
@@ -41,8 +45,7 @@ public class CrucibleBonusManager {
                 return;
             }
 
-            apiDataLoaded = false;
-            processJsonData(jsonData, "packet");
+            applyPacketJson(jsonData);
         } catch (Exception e) {
             System.err.println(
                 "Error processing crucible response: " + e.getMessage()
@@ -54,18 +57,31 @@ public class CrucibleBonusManager {
      * Fetches crucible data from the RealmShark API.
      */
     public static void fetchCrucibleDataFromApi() {
+        fetchCrucibleDataFromApi(CrucibleApiClient::fetchCrucibleData);
+    }
+
+    static void fetchCrucibleDataFromApi(Supplier<String> fetch) {
+        final long generation, request;
+        synchronized (CrucibleBonusManager.class) {
+            if (apiDataLoaded || packetDataLoaded || apiRequestInFlight) return;
+            generation = configurationGeneration;
+            request = ++apiRequestGeneration;
+            apiRequestInFlight = true;
+        }
         System.out.println("[Crucible] Fetching data from API...");
 
         try {
-            if (apiDataLoaded) return;
-
-            String jsonData = CrucibleApiClient.fetchCrucibleData();
+            String jsonData = fetch.get();
             if (
                 jsonData != null &&
                 CrucibleApiClient.validateCrucibleData(jsonData)
             ) {
-                processJsonData(jsonData, "API");
-                apiDataLoaded = true;
+                Map<String, Double> parsed = parseJsonData(jsonData);
+                synchronized (CrucibleBonusManager.class) {
+                    if (configurationGeneration != generation || apiRequestGeneration != request || packetDataLoaded) return;
+                    crucibleDamageMultipliers = parsed;
+                    apiDataLoaded = true;
+                }
             } else {
                 System.err.println(
                     "[Crucible] API data not available or invalid"
@@ -75,14 +91,27 @@ public class CrucibleBonusManager {
             System.err.println(
                 "[Crucible] Error fetching data: " + e.getMessage()
             );
+        } finally {
+            synchronized (CrucibleBonusManager.class) {
+                if (apiRequestGeneration == request) apiRequestInFlight = false;
+            }
         }
     }
 
-    private static void processJsonData(String jsonData, String source) {
-        JsonArray crucibleJsonsArray = gson.fromJson(jsonData, JsonArray.class);
-        if (crucibleJsonsArray == null) return;
+    static void applyPacketJson(String jsonData) {
+        Map<String, Double> parsed = parseJsonData(jsonData);
+        synchronized (CrucibleBonusManager.class) {
+            configurationGeneration++;
+            crucibleDamageMultipliers = parsed;
+            packetDataLoaded = true;
+            apiDataLoaded = false;
+        }
+    }
 
-        crucibleDamageMultipliers.clear();
+    private static Map<String, Double> parseJsonData(String jsonData) {
+        JsonArray crucibleJsonsArray = gson.fromJson(jsonData, JsonArray.class);
+        if (crucibleJsonsArray == null) throw new IllegalArgumentException("Missing crucible configuration");
+        Map<String, Double> multipliers = new HashMap<>();
 
         for (JsonElement crucibleJsonElement : crucibleJsonsArray) {
             JsonObject crucibleJsonObj = crucibleJsonElement.getAsJsonObject();
@@ -99,24 +128,19 @@ public class CrucibleBonusManager {
                     JsonObject crucibleObj = element.getAsJsonObject();
                     if (crucibleObj.has("id")) {
                         String crucibleId = crucibleObj.get("id").getAsString();
-                        findAndStoreType5Bonuses(crucibleObj, crucibleId);
+                        findAndStoreType5Bonuses(crucibleObj, crucibleId, multipliers);
                     }
                 }
             }
         }
 
-        System.out.println(
-            "[Crucible] Loaded " +
-                crucibleDamageMultipliers.size() +
-                " damage multipliers from " +
-                source
-        );
+        return Collections.unmodifiableMap(multipliers);
     }
 
     /**
      * Updates the current player's crucible IDs from stats 128 and 155.
      */
-    public static void updatePlayerCrucibleBonus(Entity playerEntity) {
+    public static synchronized void updatePlayerCrucibleBonus(Entity playerEntity) {
         if (playerEntity == null || playerEntity.stat == null) return;
 
         currentPlayerCrucibleId128 = updateCrucibleStat(
@@ -166,7 +190,7 @@ public class CrucibleBonusManager {
      * Gets the current damage multiplier for the player based on their crucible bonuses.
      * Applies bonuses multiplicatively from both stat 128 and stat 155.
      */
-    public static double getPlayerDamageMultiplier() {
+    public static synchronized double getPlayerDamageMultiplier() {
         return (
             getMultiplierForId(currentPlayerCrucibleId128) *
             getMultiplierForId(currentPlayerCrucibleId155)
@@ -182,7 +206,7 @@ public class CrucibleBonusManager {
     /**
      * Gets the current crucible IDs for display purposes.
      */
-    public static String[] getCurrentCrucibleIds() {
+    public static synchronized String[] getCurrentCrucibleIds() {
         return new String[] {
             currentPlayerCrucibleId128,
             currentPlayerCrucibleId155,
@@ -192,7 +216,7 @@ public class CrucibleBonusManager {
     /**
      * Gets the current damage multiplier values for display purposes.
      */
-    public static Double[] getCurrentDamageMultiplierValues() {
+    public static synchronized Double[] getCurrentDamageMultiplierValues() {
         Double multiplier128 = (currentPlayerCrucibleId128 != null)
             ? crucibleDamageMultipliers.get(currentPlayerCrucibleId128)
             : null;
@@ -210,15 +234,18 @@ public class CrucibleBonusManager {
         return (multiplier != 1.0) ? multiplier : null;
     }
 
-    public static boolean isApiDataLoaded() {
+    public static synchronized boolean isApiDataLoaded() {
         return apiDataLoaded;
     }
 
     /**
      * Clears all stored crucible data.
      */
-    public static void clear() {
-        crucibleDamageMultipliers.clear();
+    public static synchronized void clear() {
+        configurationGeneration++;
+        apiRequestGeneration++;
+        apiRequestInFlight = packetDataLoaded = false;
+        crucibleDamageMultipliers = Collections.emptyMap();
         currentPlayerCrucibleId128 = null;
         currentPlayerCrucibleId155 = null;
         apiDataLoaded = false;
@@ -291,10 +318,11 @@ public class CrucibleBonusManager {
 
     private static void findAndStoreType5Bonuses(
         JsonElement element,
-        String crucibleId
+        String crucibleId,
+        Map<String, Double> multipliers
     ) {
         if (element == null || crucibleId == null) return;
-        if (crucibleDamageMultipliers.containsKey(crucibleId)) return;
+        if (multipliers.containsKey(crucibleId)) return;
 
         if (element.isJsonObject()) {
             JsonObject obj = element.getAsJsonObject();
@@ -313,7 +341,7 @@ public class CrucibleBonusManager {
                             double multiplier = bonus
                                 .get("amount")
                                 .getAsDouble();
-                            crucibleDamageMultipliers.put(
+                            multipliers.put(
                                 crucibleId,
                                 multiplier
                             );
@@ -325,13 +353,13 @@ public class CrucibleBonusManager {
 
             // Recursively search all properties
             for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-                findAndStoreType5Bonuses(entry.getValue(), crucibleId);
-                if (crucibleDamageMultipliers.containsKey(crucibleId)) return;
+                findAndStoreType5Bonuses(entry.getValue(), crucibleId, multipliers);
+                if (multipliers.containsKey(crucibleId)) return;
             }
         } else if (element.isJsonArray()) {
             for (JsonElement arrayElement : element.getAsJsonArray()) {
-                findAndStoreType5Bonuses(arrayElement, crucibleId);
-                if (crucibleDamageMultipliers.containsKey(crucibleId)) return;
+                findAndStoreType5Bonuses(arrayElement, crucibleId, multipliers);
+                if (multipliers.containsKey(crucibleId)) return;
             }
         }
     }

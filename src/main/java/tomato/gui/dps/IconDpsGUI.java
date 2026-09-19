@@ -23,6 +23,7 @@ import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.*;
 import tomato.gui.SmartScroller;
+import tomato.gui.modern.ContentStyle;
 import tomato.gui.dps.shared.DeathParser;
 import tomato.gui.dps.shared.DpsTextFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
@@ -56,9 +57,8 @@ public class IconDpsGUI extends DisplayDpsGUI {
     }
 
     private static int largeIconSize() {
-        int fs = (mainFont != null) ? mainFont.getSize() : 12;
-        // Base 40px at 12pt font, clamp to at least 24px
-        return Math.max(24, Math.round((40f * fs) / 12f));
+        int fs = (mainFont != null) ? mainFont.getSize() : ContentStyle.FONT_SIZE;
+        return Math.max(20, Math.round((28f * fs) / ContentStyle.FONT_SIZE));
     }
 
     public IconDpsGUI(TomatoData data) {
@@ -71,14 +71,15 @@ public class IconDpsGUI extends DisplayDpsGUI {
         charPanel.setLayout(new BoxLayout(charPanel, BoxLayout.Y_AXIS));
 
         scrollPane = new JScrollPane(charPanel);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(40);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(28);
         new SmartScroller(scrollPane);
         add(scrollPane, BorderLayout.CENTER);
 
         // Add screenshot button
         JButton screenshotButton = new JButton("Copy Screenshot to Clipboard");
         screenshotButton.addActionListener(e -> takeScreenshot());
-        add(screenshotButton, BorderLayout.SOUTH);
+        JPanel actions = ContentStyle.controls(); actions.add(screenshotButton);
+        add(actions, BorderLayout.SOUTH);
     }
 
     //    private void clicked() {
@@ -169,11 +170,11 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
         int firstHP = getHighestHP(entity);
         l.setToolTipText("Fight start HP: " + firstHP);
-        int mobNameStringSize = getStringSize(mobName) + 48;
-        mobPanel.setPreferredSize(new Dimension(mobNameStringSize, 48));
-        mobPanel.setMaximumSize(new Dimension(mobNameStringSize, 48));
-
-        l.setFont(mainFont);
+        l.setFont(mainFont != null ? mainFont : ContentStyle.body());
+        int mobNameStringSize = getStringSize(mobName) + iconLarge + 8;
+        int headerHeight = Math.max(iconLarge + 4, l.getFontMetrics(l.getFont()).getHeight() + 8);
+        mobPanel.setPreferredSize(new Dimension(mobNameStringSize, headerHeight));
+        mobPanel.setMaximumSize(new Dimension(mobNameStringSize, headerHeight));
         mobPanel.add(l);
         panel.add(mobPanel);
 
@@ -520,7 +521,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
                 "yyyy-MM-dd_HH-mm-ss"
             );
             String timestamp = dateFormat.format(new Date());
-            String filename = "DamageLog_Realmshark_" + timestamp + ".png";
+            String filename = "DamageLog_RealmShark_" + timestamp + ".png";
 
             // Copy image to clipboard
             Clipboard clipboard =

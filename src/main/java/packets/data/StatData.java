@@ -34,14 +34,18 @@ public class StatData implements Serializable {
      * @return Returns this object after deserializing.
      */
     public StatData deserialize(BufferReader buffer) {
+        String path = buffer.field();
+        buffer.field(path + ".type");
         statTypeNum = buffer.readUnsignedByte();
         statType = StatType.byOrdinal(statTypeNum);
 
+        buffer.field(path + ".type" + statTypeNum + ".value");
         if (isStringStat()) {
             stringStatValue = buffer.readString();
         } else {
             statValue = buffer.readCompressedInt();
         }
+        buffer.field(path + ".type" + statTypeNum + ".secondary");
         statValueTwo = buffer.readCompressedInt();
 
         return this;

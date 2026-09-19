@@ -62,13 +62,12 @@ public class SecurityFilter {
             int equipmentId = player.inv[slot];
             ParseEquipment.Equipment equipment = ParseEquipment.getEquipmentById(equipmentId);
             Integer minimumTier = this.minTier.get(slot);
-            boolean isSTUT = equipment.labels.contains("ST") || equipment.labels.contains("UT");
-
             // handle empty gear slots
             if (equipment == null) {
                 missing.add("Gear missing: " + Player.equipmentNames[slot]);
                 continue;
             }
+            boolean isSTUT = equipment.labels.contains("ST") || equipment.labels.contains("UT");
 
             // some ST/UT items have the "TIERED" label also - these SHOULD be mutually exclusive
             if (equipment.labels.contains("TIERED") && equipment.tier < minimumTier && !isSTUT) {
@@ -84,7 +83,7 @@ public class SecurityFilter {
             }
         }
 
-        int classPoint = this.classPoint.get(player.playerEntity.objectType);
+        int classPoint = this.classPoint.getOrDefault(player.playerEntity.objectType, 0);
         for (int i = 0; i < 4; i++) {
             int item = player.inv[i];
             // skip empty item slots

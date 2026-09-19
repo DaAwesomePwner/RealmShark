@@ -1,5 +1,7 @@
 # RealmShark desktop refresh
 
+For the current typography, layout, controls and performance improvements, see [UI consistency and responsiveness](UI-CONSISTENCY.md). The notes below retain the original refresh and subsequent capture-fix history.
+
 This folder now builds a complete Swing desktop application. The supplied download contained the RealmShark library branch, without the Tomato application described in its README. The Tomato GUI and its backend/resources were imported from `X-com/RealmShark`, branch `tomato`, commit `257a1c5` (2026-02-28). The supplied library sources remain in place. The upstream MIT license and credits are preserved.
 
 The imported Tomato baseline is v1.9.2. Its checked-in version constant still said v1.9.1 because upstream generated it during builds; this combined build generates the separate RealmShark artifact version. The Tomato constant now reflects v1.9.2, avoiding a false update popup. The asset-cache revision stays v1.9.1 because this metadata correction does not change asset extraction. Future upstream release notices explain that changes must be merged and rebuilt to preserve the customizations, rather than instructing users to replace the application with the stock JAR.

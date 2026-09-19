@@ -2,6 +2,7 @@ package tomato.gui.security;
 
 import assets.ImageBuffer;
 import com.google.gson.Gson;
+import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEquipment;
 import tomato.realmshark.enums.CharacterClass;
 import tomato.realmshark.enums.StatPotion;
@@ -50,7 +51,9 @@ public class SecurityFilterGUI extends JPanel {
 
     public SecurityFilterGUI(ParsePanelGUI parentPanel) {
         this.parentPanel = parentPanel;
-        setLayout(new BorderLayout());
+        setLayout(new BorderLayout(8, 8));
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        setFont(ContentStyle.body());
 
         filterComboBox = new JComboBox<>();
         for (SecurityFilter sf : parentPanel.getFilters().values()) {
@@ -61,11 +64,12 @@ public class SecurityFilterGUI extends JPanel {
         add(topPanel, BorderLayout.NORTH);
         top(topPanel);
 
-        JPanel bot = new JPanel(new BorderLayout());
-        JLabel json = new JLabel("Json:");
+        JPanel bot = new JPanel(new BorderLayout(8, 0));
+        JLabel json = new JLabel("JSON:");
         jsonField = new JTextField();
+        json.setLabelFor(jsonField);
         jsonField.setEditable(false);
-        JButton copy = new JButton("Copy Json");
+        JButton copy = new JButton("Copy JSON");
         copy.addActionListener(this::copy);
         bot.add(json, BorderLayout.WEST);
         bot.add(jsonField, BorderLayout.CENTER);
@@ -73,11 +77,14 @@ public class SecurityFilterGUI extends JPanel {
         add(bot, BorderLayout.SOUTH);
 
 
-        JPanel leftBox = getScrollPanel(this, BorderLayout.WEST, 160, 400);
+        JPanel sections = ContentStyle.responsiveGrid(2, 300, 8);
+        add(sections, BorderLayout.CENTER);
+        JPanel leftBox = getScrollPanel(sections, 300, 440);
         leftColumn(leftBox);
 
-        JPanel itemsBox = getScrollPanel(this, BorderLayout.CENTER, 320, 400);
+        JPanel itemsBox = getScrollPanel(sections, 360, 440);
         rightArea(itemsBox);
+        ContentStyle.refreshFonts(this);
     }
 
     private void rightArea(JPanel panel) {
@@ -86,37 +93,35 @@ public class SecurityFilterGUI extends JPanel {
         textFieldOptions(panel);
     }
 
-    private static JPanel getScrollPanel(JPanel panel, String placement, int w, int h) {
+    private static JPanel getScrollPanel(JPanel panel, int w, int h) {
         JPanel boxScroll = new JPanel();
         JScrollPane scrollPane = new JScrollPane(boxScroll);
         scrollPane.getVerticalScrollBar().setUnitIncrement(40);
         JPanel contentPane = new JPanel(new BorderLayout());
         contentPane.setPreferredSize(new Dimension(w, h));
         contentPane.add(scrollPane);
-        panel.add(contentPane, placement);
-        scrollPane.setBounds(0, 0, w + 15, h);
+        contentPane.setMinimumSize(new Dimension(0, 120));
+        panel.add(contentPane);
         return boxScroll;
     }
 
     private void top(JPanel topPanel) {
-        filterComboBox.setPreferredSize(new Dimension(230, 0));
+        filterComboBox.setPrototypeDisplayValue("Select a saved filter");
+        filterComboBox.getAccessibleContext().setAccessibleName("Saved security filter");
 
-        JPanel panel1 = new JPanel();
+        JPanel panel1 = ContentStyle.controls();
         topPanel.add(panel1, BorderLayout.NORTH);
 
-        panel1.setLayout(new BoxLayout(panel1, BoxLayout.X_AXIS));
         JLabel name = new JLabel("Name:");
         nameField = new JTextField(15);
-        panel1.add(Box.createHorizontalGlue());
+        name.setLabelFor(nameField);
         panel1.add(filterComboBox);
 
         panel1.add(name);
         panel1.add(nameField);
-        panel1.add(Box.createHorizontalGlue());
 
-        JPanel panel2 = new JPanel();
+        JPanel panel2 = ContentStyle.controls();
         topPanel.add(panel2, BorderLayout.SOUTH);
-        panel2.setLayout(new BoxLayout(panel2, BoxLayout.X_AXIS));
         JButton save = new JButton("Save");
         save.addActionListener(this::save);
         JButton load = new JButton("Load");
@@ -125,16 +130,13 @@ public class SecurityFilterGUI extends JPanel {
         delete.addActionListener(this::deleteButton);
         JButton clear = new JButton("Clear");
         clear.addActionListener(this::clear);
-        JButton paste = new JButton("Paste Json");
+        JButton paste = new JButton("Paste JSON");
         paste.addActionListener(this::paste);
-        panel2.add(Box.createHorizontalGlue());
         panel2.add(save);
         panel2.add(load);
         panel2.add(delete);
         panel2.add(clear);
         panel2.add(paste);
-        panel2.add(Box.createRigidArea(new Dimension(10, 0)));
-        panel2.add(Box.createHorizontalGlue());
     }
 
     private void search(ActionEvent actionEvent) {
@@ -435,6 +437,7 @@ public class SecurityFilterGUI extends JPanel {
             minTier.id = i;
             minTier.checkBox = new JCheckBox(equipment.get(i));
             minTier.field = addTextField(0, minTier);
+            minTier.field.getAccessibleContext().setAccessibleName(equipment.get(i) + " minimum tier");
             body.add(minTier.checkBox);
             body.add(minTier.field);
 
@@ -459,6 +462,7 @@ public class SecurityFilterGUI extends JPanel {
         panel.add(body, BorderLayout.CENTER);
 
         exaltSkinPointsField = addTextField(1, exaltSkin);
+        exaltSkinPointsField.getAccessibleContext().setAccessibleName("Exalted skin points");
         body.add(new JLabel("Exalted"));
         body.add(exaltSkinPointsField);
 
@@ -482,6 +486,7 @@ public class SecurityFilterGUI extends JPanel {
             JLabel label = new JLabel(CharacterClass.getName(s.getId()));
             classPoint.id = s.getId();
             classPoint.field = addTextField(1, classPoint);
+            label.setLabelFor(classPoint.field);
             body.add(label);
             body.add(classPoint.field);
 //    classPoint.field.setText("0");
@@ -498,7 +503,7 @@ public class SecurityFilterGUI extends JPanel {
         GridBagConstraints c = new GridBagConstraints();
 
         // add toggles
-        JPanel togglePanel = new JPanel();
+        JPanel togglePanel = ContentStyle.controls();
         toggleWhiteList = new JToggleButton("Whitelist Mode");
         toggleWhiteList.addActionListener(this::onClickWhitelist);
         toggleBlackList = new JToggleButton("Blacklist Mode");
@@ -516,6 +521,7 @@ public class SecurityFilterGUI extends JPanel {
 
         // add search bar
         searchField = new JTextField();
+        searchField.getAccessibleContext().setAccessibleName("Search item names or labels");
         searchField.addActionListener(this::search);
         c.anchor = GridBagConstraints.LINE_END;
         c.fill = GridBagConstraints.HORIZONTAL;
@@ -525,7 +531,7 @@ public class SecurityFilterGUI extends JPanel {
         c.gridy = 1;
         searchSelectPanel.add(searchField, c);
 
-        JButton searchButton = new JButton("->");
+        JButton searchButton = new JButton("Search");
         searchButton.addActionListener(this::search);
         c.anchor = GridBagConstraints.LINE_START;
         c.fill = GridBagConstraints.VERTICAL;
@@ -535,10 +541,10 @@ public class SecurityFilterGUI extends JPanel {
         c.gridy = 1;
         searchSelectPanel.add(searchButton, c);
 
-        panel.add(searchSelectPanel, BorderLayout.PAGE_START);
-
-        JLabel n = new JLabel("Item Points");
-        panel.add(n, BorderLayout.NORTH);
+        JPanel heading = new JPanel(new BorderLayout(0, 8));
+        heading.add(new JLabel("Item points"), BorderLayout.NORTH);
+        heading.add(searchSelectPanel, BorderLayout.CENTER);
+        panel.add(heading, BorderLayout.NORTH);
 
         itemsPanel = new JPanel();
         itemsPanel.setLayout(new GridBagLayout());
@@ -568,6 +574,8 @@ public class SecurityFilterGUI extends JPanel {
             item.id = e.id;
             item.field = addTextField(3, item);
             item.checkBox = new JCheckBox();
+            item.field.getAccessibleContext().setAccessibleName(e.name() + " points");
+            item.checkBox.getAccessibleContext().setAccessibleName("Include " + e.name());
 
             item.checkBox.addActionListener(event -> toggleItem(item));
         }
@@ -620,13 +628,15 @@ public class SecurityFilterGUI extends JPanel {
             c.fill = GridBagConstraints.HORIZONTAL;
             c.gridx = 2;
             c.weightx = 1.0;
-            c.insets = new Insets(0,10,0,0);
+            c.insets = new Insets(0,6,0,0);
             itemsPanel.add(icon, c);
 
             count++;
         }
 
-        this.updateUI();
+        itemsPanel.revalidate();
+        itemsPanel.repaint();
+        ContentStyle.refreshFonts(itemsPanel);
     }
 
     private static JTextField addTextField(int withNumbers, FilterEntity entity) {
@@ -667,9 +677,13 @@ public class SecurityFilterGUI extends JPanel {
             Window w = SwingUtilities.getWindowAncestor(close);
             pane.setValue(-1);
             w.dispose();
-            parsePanelGUI.filterUpdate();
         });
-        JDialog dialog = pane.createDialog(null, "Security Filter");
+        JDialog dialog = pane.createDialog(SwingUtilities.getWindowAncestor(parsePanelGUI), "Security Filter");
+        realmshark.branding.AppIdentity.apply(dialog);
+        dialog.setResizable(true);
+        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        dialog.setSize(Math.min(840, screen.width), Math.min(760, screen.height));
+        dialog.setLocationRelativeTo(parsePanelGUI);
 //        dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
 
         // Load the currently-active filter (if there is one)
@@ -678,6 +692,7 @@ public class SecurityFilterGUI extends JPanel {
         }
 
         dialog.setVisible(true);
+        parsePanelGUI.filterUpdate();
     }
 
     private static class FilterEntity {

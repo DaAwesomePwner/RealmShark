@@ -49,6 +49,7 @@ public class UpdatePacket extends Packet {
 
         newObjects = new ObjectData[buffer.readCompressedInt()];
         for (int i = 0; i < newObjects.length; i++) {
+            buffer.field("newObjects[" + i + "]");
             newObjects[i] = new ObjectData().deserialize(buffer);
         }
 

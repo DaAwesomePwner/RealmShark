@@ -1,0 +1,2 @@
+// Build away from running application JARs.
+allprojects { buildDir = file("build/logging-validation") }

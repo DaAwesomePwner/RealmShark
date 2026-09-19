@@ -4,8 +4,9 @@ import com.github.weisj.darklaf.LafManager;
 import com.github.weisj.darklaf.theme.*;
 import java.awt.*;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
+import java.lang.reflect.InvocationTargetException;
 import packets.data.QuestData;
+import realmshark.branding.AppIdentity;
 import tomato.Tomato;
 import tomato.backend.data.TomatoData;
 import tomato.gui.character.CharacterPanelGUI;
@@ -19,12 +20,11 @@ import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.quest.QuestGUI;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.security.SecurityGUI;
-import tomato.gui.stats.DungeonStats;
 import tomato.gui.stats.StatisticsGUI;
-import tomato.version.Version;
 import util.PropertiesManager;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
+import tomato.gui.modern.ContentStyle;
 
 /**
  * Example GUI for Tomato mod.
@@ -33,9 +33,9 @@ public class TomatoGUI {
 
     private static final int windowWidth = 1240;
     private static final int windowHeight = 800;
-    private static int fontSize = 12;
+    private static int fontSize = ContentStyle.FONT_SIZE;
     private static int fontStyle = 0;
-    private static String fontName = "Monospaced";
+    private static String fontName = ContentStyle.FONT_FAMILY;
     private static JFrame frame;
     private static ChatGUI chatPanel;
     private static SecurityGUI securityPanel;
@@ -46,9 +46,9 @@ public class TomatoGUI {
     private JMenuBar jMenuBar;
     private JPanel mainPanel, dpsPanel;
     private TomatoMenuBar menuBar;
-    private Image icon;
     private static TomatoData data;
     private static WorkspaceShell shell;
+    private static tomato.gui.notifications.NotificationsGUI notifications;
 
     public TomatoGUI(TomatoData data) {
         this.data = data;
@@ -58,6 +58,9 @@ public class TomatoGUI {
      * Create main panel and initializes the GUI for the example Tomato.
      */
     public void create() {
+        if (!SwingUtilities.isEventDispatchThread()) { onEdt(this::create); return; }
+        loadFontPreset();
+        ContentStyle.applyFontDefaults();
         chatPanel = new ChatGUI(data);
         KeypopGUI keypopPanel = new KeypopGUI();
         securityPanel = new SecurityGUI();
@@ -68,18 +71,24 @@ public class TomatoGUI {
         dpsPanel = new DpsGUI(data);
 
         menuBar = new TomatoMenuBar();
+        notifications = new tomato.gui.notifications.NotificationsGUI();
 
         shell = new WorkspaceShell(new JComponent[] {chatPanel, keypopPanel, securityPanel,
-            characterPanel, statistics, questPanel, myDmg, dpsPanel},
+            characterPanel, statistics, questPanel, myDmg, dpsPanel, statistics.getLootDashboard(),
+            new tomato.gui.logging.LoggingGUI(packets.packetcapture.logger.DiscoveryLog.INSTANCE),
+            new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS),
+            new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.TIMELINE),
+            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview());
         mainPanel = shell;
 
-        icon = Toolkit.getDefaultToolkit().getImage(Tomato.imagePath);
-        loadFontSizePreset();
-        loadFontNamePreset();
+        // Capture explicit heading/report roles before legacy views update their cached fonts.
+        ContentStyle.refreshFonts(shell);
         DpsGUI.loadFilterPreset();
         DpsDisplayOptions.loadProfileFilter();
         jMenuBar = menuBar.make();
+        ContentStyle.refreshFonts(jMenuBar);
+        refreshContentFonts();
         makeFrame();
 
         frame.setVisible(true);
@@ -99,8 +108,8 @@ public class TomatoGUI {
         textArea.setEditable(false);
         textArea.setLineWrap(true);
         textArea.setWrapStyleWord(true);
-        textArea.setMargin(new Insets(16, 16, 16, 16));
-        textArea.setFont(new Font(fontName, fontStyle, fontSize));
+        textArea.setMargin(new Insets(6, 8, 6, 8));
+        textArea.setFont(ContentStyle.body());
         JScrollPane scrollChat = new JScrollPane(textArea);
         scrollChat.setVerticalScrollBarPolicy(
             ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
@@ -120,11 +129,10 @@ public class TomatoGUI {
      * Loads the theme preset chosen by the user.
      */
     public static void loadThemePreset() {
+        if (!SwingUtilities.isEventDispatchThread()) { onEdt(TomatoGUI::loadThemePreset); return; }
+        loadFontPreset();
         String theme = PropertiesManager.getProperty("theme");
-        if (theme == null) {
-            VioletTheme.install();
-            return;
-        }
+        if (theme == null) theme = "violet";
 
         switch (theme) {
             case "violet":
@@ -150,49 +158,33 @@ public class TomatoGUI {
                 LafManager.install(new DarculaTheme());
                 break;
         }
+        refreshContentFonts();
     }
 
     /**
      * Loads the font size preset chosen by the user.
      */
-    private void loadFontSizePreset() {
-        String fontSize = PropertiesManager.getProperty("fontSize");
-        int fs = TomatoGUI.fontSize;
-        if (fontSize != null) {
-            try {
-                fs = Integer.parseInt(fontSize);
-            } catch (Exception ignored) {}
-        }
-
-        fontSizeTextAreas(fs);
+    private static void loadFontPreset() {
+        fontSize = presetNumber("fontSize", ContentStyle.FONT_SIZE, 1, 1000);
+        fontStyle = presetNumber("fontStyle", Font.PLAIN, Font.PLAIN, Font.BOLD | Font.ITALIC);
+        fontName = PropertiesManager.getProperty("fontName");
+        if (fontName == null || fontName.trim().isEmpty() || "Segoe".equals(fontName)) fontName = ContentStyle.FONT_FAMILY;
+        ContentStyle.setBodyFont(new Font(fontName, fontStyle, fontSize));
     }
 
-    /**
-     * Loads the font size preset chosen by the user.
-     */
-    private void loadFontNamePreset() {
-        String fontName = PropertiesManager.getProperty("fontName");
-        if (fontName == null) {
-            fontName = TomatoGUI.fontName;
-        } else {
-            TomatoGUI.fontName = fontName;
-        }
-        String fontStyle = PropertiesManager.getProperty("fontStyle");
-        int fontStyleNum = TomatoGUI.fontStyle;
-        if (fontStyle != null) {
-            try {
-                fontStyleNum = Integer.parseInt(fontStyle);
-            } catch (Exception ignored) {}
-        }
-        fontNameTextAreas(fontName, fontStyleNum);
+    private static int presetNumber(String key, int fallback, int minimum, int maximum) {
+        try {
+            int value = Integer.parseInt(PropertiesManager.getProperty(key));
+            return value >= minimum && value <= maximum ? value : fallback;
+        } catch (NumberFormatException ignored) { return fallback; }
     }
 
     /**
      * Creates the frame with icon.
      */
     public void makeFrame() {
-        frame = new JFrame("RealmShark  |  Tomato " + Version.VERSION + (Tomato.isPreview() ? "  |  Preview" : ""));
-        frame.setIconImage(icon);
+        frame = new JFrame(AppIdentity.title() + (Tomato.isPreview() ? "  |  Preview" : ""));
+        AppIdentity.apply(frame);
         Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         frame.setMinimumSize(new Dimension(Math.min(680, screen.width), Math.min(520, screen.height)));
         frame.setSize(Math.min(windowWidth, screen.width), Math.min(windowHeight, screen.height));
@@ -208,27 +200,52 @@ public class TomatoGUI {
      * Set font size of text area.
      */
     public static void fontSizeTextAreas(int size) {
-        fontSize = size;
-        Font font = new Font(fontName, fontStyle, size);
-        ChatGUI.editFont(font);
-        KeypopGUI.editFont(font);
-        DpsGUI.editFont(font);
-        ParsePanelGUI.editFont(font);
-        DungeonStats.editFont(font);
+        if (size < 1 || size > 1000) throw new IllegalArgumentException("Font size must be between 1 and 1000");
+        onEdt(() -> {
+            fontSize = size;
+            ContentStyle.setBodyFont(new Font(fontName, fontStyle, size));
+            refreshContentFonts();
+        });
     }
 
     /**
      * Set font size of text area.
      */
     public static void fontNameTextAreas(String name, int style) {
-        fontName = name;
-        fontStyle = style;
-        Font font = new Font(name, style, fontSize);
-        ChatGUI.editFont(font);
-        KeypopGUI.editFont(font);
-        DpsGUI.editFont(font);
-        ParsePanelGUI.editFont(font);
-        DungeonStats.editFont(font);
+        final String family = name == null || name.trim().isEmpty() || "Segoe".equals(name) ? ContentStyle.FONT_FAMILY : name;
+        onEdt(() -> {
+            fontName = family;
+            fontStyle = style & (Font.BOLD | Font.ITALIC);
+            ContentStyle.setBodyFont(new Font(fontName, fontStyle, fontSize));
+            refreshContentFonts();
+        });
+    }
+
+    /** Reapplies font roles and metric sizing after a font or look-and-feel change. */
+    public static void refreshContentFonts() {
+        onEdt(() -> {
+            ContentStyle.applyFontDefaults();
+            if (shell != null) {
+                // These views also cache fonts for custom-painted or subsequently rebuilt content.
+                DpsGUI.editFont(ContentStyle.body());
+                ParsePanelGUI.editFont(ContentStyle.body());
+                shell.refreshTheme();
+                if (!shell.isDisplayable()) ContentStyle.refreshFonts(shell);
+            }
+            for (Window window : Window.getWindows()) if (window.isDisplayable()) ContentStyle.refreshFonts(window);
+        });
+    }
+
+    private static void onEdt(Runnable action) {
+        if (SwingUtilities.isEventDispatchThread()) { action.run(); return; }
+        try {
+            SwingUtilities.invokeAndWait(action);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while updating the interface", e);
+        } catch (InvocationTargetException e) {
+            throw new IllegalStateException("Could not update the interface", e.getCause());
+        }
     }
 
     /**
@@ -271,6 +288,12 @@ public class TomatoGUI {
     /**
      * Opens chat message ping window.
      */
+    public static void openNotifications() { openNotifications(null); }
+    public static void openNotifications(String section) {
+        if (shell != null) shell.select(13);
+        if (notifications != null) notifications.selectSection(section);
+    }
+
     public static void openChatPingMessage() {
         new ChatPingGUI(data, chatPanel).open();
     }

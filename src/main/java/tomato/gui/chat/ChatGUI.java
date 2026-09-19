@@ -3,7 +3,6 @@ package tomato.gui.chat;
 import com.google.gson.Gson;
 import packets.incoming.TextPacket;
 import tomato.backend.data.TomatoData;
-import tomato.gui.TomatoGUI;
 import tomato.realmshark.Sound;
 import util.Util;
 
@@ -17,73 +16,61 @@ import java.util.ArrayList;
 import java.lang.reflect.Type;
 
 import com.google.gson.reflect.TypeToken;
-import tomato.gui.modern.EmptyLogArea;
-import tomato.gui.modern.TextSearchBar;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.nio.charset.StandardCharsets;
 
 public class ChatGUI extends JPanel {
 
-    private static JTextArea textAreaChatAll;
-    private static JTextArea textAreaChatPm;
-    private static JTextArea textAreaChatParty;
-    private static JTextArea textAreaChatGuild;
-    public static boolean save;
+    private static volatile ChatGUI instance;
+    private final ChatExplorer explorer;
+    private final ChatFilters filters;
+    private final ObservedIgnores observedIgnores = new ObservedIgnores();
+    public static volatile boolean save;
     private static TomatoData data;
 
-    private static final ArrayList<String> blockedSpam = new ArrayList<>();
+    private final List<String> blockedSpam = new CopyOnWriteArrayList<>();
     private static final String API_URL = "https://api.realmshark.cc/blocked-keywords";
     private static final String BLOCK_FILE = "block.txt";
 
     public ChatGUI(TomatoData data) {
+        this(data, ChatFilters.load(), true);
+    }
+
+    ChatGUI(TomatoData data, ChatFilters filters, boolean loadExternalRules) {
         ChatGUI.data = data;
         setLayout(new BorderLayout());
 
-        textAreaChatAll = new EmptyLogArea("Your next conversation starts here", "Start capture and join the game. Messages will appear automatically.");
-        textAreaChatPm = new EmptyLogArea("No private messages yet", "Private conversations will appear here as they arrive.");
-        textAreaChatParty = new EmptyLogArea("Waiting for your party", "Party messages will appear here as they arrive.");
-        textAreaChatGuild = new EmptyLogArea("Keep up with your guild", "Guild messages will appear here as they arrive.");
-
-        JPanel all = new JPanel(new BorderLayout());
-        JPanel pm = new JPanel(new BorderLayout());
-        JPanel party = new JPanel(new BorderLayout());
-        JPanel guild = new JPanel(new BorderLayout());
-
-        all.add(TomatoGUI.createTextArea(textAreaChatAll, false));
-        pm.add(TomatoGUI.createTextArea(textAreaChatPm, false));
-        party.add(TomatoGUI.createTextArea(textAreaChatParty, false));
-        guild.add(TomatoGUI.createTextArea(textAreaChatGuild, false));
-
-        JTabbedPane tabbedPane = new JTabbedPane();
-        tabbedPane.addTab("All", all);
-        tabbedPane.addTab("PM", pm);
-        tabbedPane.addTab("Party", party);
-        tabbedPane.addTab("Guild", guild);
-        add(tabbedPane);
-        JTextArea[] channels = {textAreaChatAll, textAreaChatPm, textAreaChatParty, textAreaChatGuild};
-        TextSearchBar search = new TextSearchBar(() -> channels[tabbedPane.getSelectedIndex()], channels);
-        tabbedPane.addChangeListener(e -> search.refresh());
-        add(search, BorderLayout.NORTH);
-        getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke("control F"), "find");
-        getActionMap().put("find", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { search.focusSearch(); }});
-
-        loadBlockedChatMessageSpamFromFile();
-        if (!tomato.Tomato.isPreview()) new Thread(this::loadBlockedSpam).start();
+        this.filters = filters;
+        explorer = new ChatExplorer(() -> new ChatPingGUI(data, this).open(), filters, observedIgnores::status);
+        add(explorer, BorderLayout.CENTER);
+        instance = this;
+        // Local rules are immediately available; optional remote rules never delay the UI.
+        if (loadExternalRules) {
+            loadBlockedChatMessageSpamFromFile();
+            filters.inherited(blockedSpam);
+        }
+        if (loadExternalRules && !tomato.Tomato.isPreview()) {
+            Thread loader = new Thread(this::loadBlockedSpam, "chat-spam-rules");
+            loader.setDaemon(true);
+            loader.start();
+        }
     }
 
     private void loadBlockedChatMessageSpamFromFile() {
-        try {
-            File f = new File(BLOCK_FILE);
-            if (f.exists()) {
-                FileInputStream file = new FileInputStream(BLOCK_FILE);
-                BufferedReader in = new BufferedReader(new InputStreamReader(file));
-                String inputLine;
-
-                while ((inputLine = in.readLine()) != null) {
-                    blockedSpam.add(inputLine);
-                }
-                in.close();
-            }
+        File file = new File(BLOCK_FILE);
+        if (!file.isFile()) return;
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = in.readLine()) != null) addBlockedRule(line);
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Could not read local chat spam rules.");
+        }
+    }
+
+    private void addBlockedRule(String rule) {
+        if (rule != null && !ChatFilters.normalize(rule).isEmpty() && !blockedSpam.contains(rule)) {
+            blockedSpam.add(rule);
         }
     }
 
@@ -91,72 +78,43 @@ public class ChatGUI extends JPanel {
      * Creates a server request worker to request from server phrases to be blocked by chat. Phrases used by bots.
      */
     private void loadBlockedSpam() {
+        HttpURLConnection conn = null;
         try {
-            // Create a URL object
-            URL url = new URL(API_URL);
-
-            // Open connection
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-
-            // Check response code and follow redirect if necessary
-            int responseCode = conn.getResponseCode();
-            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM || responseCode == HttpURLConnection.HTTP_MOVED_TEMP) {
-                String newUrl = conn.getHeaderField("Location");
-                URL redirectedUrl = new URL(newUrl);
-                conn = (HttpURLConnection) redirectedUrl.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+            conn = (HttpURLConnection) new URL(API_URL).openConnection();
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setRequestProperty("User-Agent", "RealmShark");
+            try (Reader in = new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)) {
+                Type listType = new TypeToken<ArrayList<String>>() {}.getType();
+                List<String> blocked = new Gson().fromJson(in, listType);
+                if (blocked != null) for (String rule : blocked) addBlockedRule(rule);
             }
-
-            // Read the response
-            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-            String inputLine;
-            StringBuilder response = new StringBuilder();
-
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
-            }
-            in.close();
-
-            // Process the response (assuming it's a JSON array of keywords)
-            Type listType = new TypeToken<ArrayList<String>>() {
-            }.getType();
-            ArrayList<String> blocked = new Gson().fromJson(response.toString(), listType);
-            blockedSpam.addAll(blocked);
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.err.println("Error during HTTP request: " + e.getMessage());
+        } catch (IOException | com.google.gson.JsonParseException e) {
+            System.err.println("Remote chat spam rules unavailable; keeping local rules.");
+        } finally {
+            if (conn != null) conn.disconnect();
+            filters.inherited(blockedSpam);
+            SwingUtilities.invokeLater(() -> explorer.refresh(false));
         }
     }
 
-    /**
-     * Add text to the chat text area.
-     *
-     * @param s The text to be added at the end of text area.
-     */
-    public static void appendTextAreaChat(String s) {
-        if (textAreaChatAll != null) textAreaChatAll.append(s);
+    /** Compatibility entry point for application notices. Notices appear in All and System. */
+    public static void appendTextAreaChat(String text) {
+        ChatGUI current = instance;
+        if (current != null && text != null && !text.isEmpty()) current.explorer.accept(ChatMessage.notice(text));
     }
 
-    /**
-     * Clears the chat text area.
-     */
+    /** Clear all channel views consistently; saved log files are untouched. */
     public static void clearTextAreaChat() {
-        textAreaChatAll.setText("");
+        ChatGUI current = instance;
+        if (current != null) current.explorer.clear();
     }
 
-    /**
-     * Sets the font of the text area.
-     *
-     * @param font Font to be set.
-     */
     public static void editFont(Font font) {
-        textAreaChatAll.setFont(font);
-        textAreaChatPm.setFont(font);
-        textAreaChatParty.setFont(font);
-        textAreaChatGuild.setFont(font);
+        ChatGUI current = instance;
+        if (current == null) return;
+        if (SwingUtilities.isEventDispatchThread()) current.explorer.editFont(font);
+        else SwingUtilities.invokeLater(() -> current.explorer.editFont(font));
     }
 
     /**
@@ -165,98 +123,76 @@ public class ChatGUI extends JPanel {
      * @param p Text packet with chat data.
      */
     public static void updateChat(TextPacket p) {
-        if (!blockedSpam.isEmpty() && blockedSpam.stream().anyMatch(p.text::contains)) return;
+        if (p == null || p.text == null || p.name == null || p.recipient == null) return;
+        ChatGUI current = instance;
+        if (current == null) return;
+        String localName = data == null || data.player == null ? null : data.player.name();
+        ChatMessage message = ChatMessage.from(p, localName).withGameIgnored(current.observedIgnores.matches(p, data));
+        current.deliver(p, message);
+    }
 
-        String a = "";
-        int type = 0;
-        boolean isPlayer = false;
-        if (data.player != null) {
-            isPlayer = p.name.equals(data.player.name());
+    /** Filtering is the single gate before every chat-triggered alert. Also used by offline replay tests. */
+    void deliver(TextPacket p, ChatMessage message) {
+        String ignored = filters.reason(message);
+        explorer.accept(message);
+        if (!ignored.isEmpty()) {
+            if (save) Util.print("chat/chat", message.transcript() + " [Ignored: " + ignored + "]");
+            return;
         }
-        String name = p.name.split(",")[0];
+        alert(p, message);
+        String response = getString(p);
+        if (response != null) explorer.accept(message.hint(response));
+        if (save) Util.print("chat/chat", message.transcript());
+    }
+
+    void alert(TextPacket p, ChatMessage message) {
+        tomato.realmshark.RealmEventAlerts.INSTANCE.accept(p, data == null || data.map == null ? null : data.map.name);
+        boolean isPlayer = message.ownMessage;
         boolean pinged = false;
         if (p.recipient.contains("*Guild*")) {
-            type = 1;
-            a = "[Guild]";
-            if (!isPlayer && Sound.playGuildSound) {
+            if (!isPlayer && Sound.guild.isEnabled()) {
                 Sound.guild.play();
                 pinged = true;
             }
         } else if (p.recipient.contains("*Party*")) {
-            type = 2;
-            a = "[Party]";
-            if (!isPlayer && Sound.playPartySound) {
+            if (!isPlayer && Sound.party.isEnabled()) {
                 Sound.party.play();
                 pinged = true;
             }
         } else if (!p.recipient.trim().isEmpty()) {
-            type = 3;
-            a = "[PM]";
-            if (!isPlayer && Sound.playPmSound) {
+            if (message.isIncomingWhisper() && Sound.pm.isEnabled()) {
                 Sound.pm.play();
                 pinged = true;
             }
 
-            if (data.player != null) {
-                if (p.recipient.equals(data.player.name())) {
-                    a += " From: ";
-                } else if (name.equals(data.player.name())) {
-                    name = p.recipient.split(",")[0];
-                    a += " To: ";
-                }
-            }
         }
-        if (!pinged) {
+        if (data != null && !pinged && !isPlayer && (message.channel != ChatMessage.Channel.PM || message.isIncomingWhisper())) {
             for (String s : data.getChatMessagePings()) {
-                if (s.startsWith("\"") && s.endsWith("\"")) {
+                if (s == null || s.trim().isEmpty()) continue;
+                if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
                     String exactMatch = s.substring(1, s.length() - 1).toLowerCase();
                     for (String m : p.text.toLowerCase().split(" ")) {
                         if (exactMatch.equals(m)) {
-                            Sound.pm.play();
+                            Sound.keywords.play();
                             break;
                         }
                     }
                 } else if (p.text.toLowerCase().contains(s.toLowerCase())) {
-                    Sound.pm.play();
+                    Sound.keywords.play();
                     break;
                 }
             }
         }
-        String s = String.format("%s %s[%s]: %s", Util.getHourTime(), a, name, p.text);
-        switch (type) {
-            case 1:
-                if (textAreaChatGuild != null) textAreaChatGuild.append(s + "\n");
-                break;
-            case 2:
-                if (textAreaChatParty != null) textAreaChatParty.append(s + "\n");
-                break;
-            case 3:
-                if (textAreaChatPm != null) textAreaChatPm.append(s + "\n");
-                break;
-        }
-        if (textAreaChatAll != null) textAreaChatAll.append(s + "\n");
+    }
 
-        String response = getString(p);
+    public static void observeAccountList(packets.incoming.AccountListPacket packet) {
+        ChatGUI current = instance;
+        if (current != null) current.observedIgnores.accept(packet);
+    }
 
-        if (response != null) {
-            String responseFormatted = String.format("%s %s[Umi Response]: %s", Util.getHourTime(), a, response);
-            switch (type) {
-                case 1:
-                    if (textAreaChatGuild != null) textAreaChatGuild.append(responseFormatted + "\n");
-                    break;
-                case 2:
-                    if (textAreaChatParty != null) textAreaChatParty.append(responseFormatted + "\n");
-                    break;
-                case 3:
-                    if (textAreaChatPm != null) textAreaChatPm.append(responseFormatted + "\n");
-                    break;
-            }
-            if (textAreaChatAll != null) textAreaChatAll.append(responseFormatted + "\n");
-        }
-
-        if (save) {
-            Util.print("chat/chat", s);
-        }
+    public static void resetObservedIgnores() {
+        ChatGUI current = instance;
+        if (current != null) current.observedIgnores.reset();
     }
 
     private static String getString(TextPacket p) {

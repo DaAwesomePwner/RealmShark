@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
@@ -183,6 +184,82 @@ public class ParseEnchants {
             // If the asset is missing at runtime we still want the app to work; maps will be partially populated.
             // You can log this if desired.
         }
+    }
+
+    /**
+     * Immutable slot counts, independent of enchantment definitions.
+     * Both counts are -1 when the encoded data is unknown or invalid.
+     */
+    public static final class Summary {
+
+        private static final Summary UNKNOWN = new Summary(-1, -1);
+
+        /** Unlocked slots, including empty slots; excludes locked/unused slots. */
+        public final int slots;
+
+        /** Slots containing an applied enchantment, including unknown IDs. */
+        public final int applied;
+
+        private Summary(int slots, int applied) {
+            this.slots = slots;
+            this.applied = applied;
+        }
+
+        public String rarity() {
+            switch (slots) {
+                case 0:
+                    return "Common";
+                case 1:
+                    return "Uncommon";
+                case 2:
+                    return "Rare";
+                case 3:
+                    return "Legendary";
+                case 4:
+                    return "Divine";
+                default:
+                    return "Unknown";
+            }
+        }
+    }
+
+    /**
+     * Summarize one per-slot URL Base64 UNIQUE_DATA_STRING value.
+     * Null or malformed data returns unknown counts; an empty string or a valid
+     * header with no entries returns zero counts. Only the first 11 decoded bytes
+     * are parsed, and any partial short within that window is invalid, even after
+     * a terminator. The first -3 ends the entries; -2 is locked, -1 is unlocked
+     * empty, and every nonnegative ID is applied without a definition lookup.
+     */
+    public static Summary summarize(String code) {
+        if (code == null) return Summary.UNKNOWN;
+        if (code.isEmpty()) return new Summary(0, 0);
+
+        byte[] rawBytes;
+        try {
+            rawBytes = Base64.getUrlDecoder().decode(code);
+        } catch (IllegalArgumentException e) {
+            return Summary.UNKNOWN;
+        }
+
+        if (!isEnchantmentByteArray(rawBytes)) return Summary.UNKNOWN;
+        final int size = Math.min(rawBytes.length, 1 + 2 + 8);
+        if ((size - 3) % 2 != 0) return Summary.UNKNOWN;
+
+        ByteBuffer buffer = ByteBuffer.wrap(rawBytes, 3, size - 3).order(
+            ByteOrder.LITTLE_ENDIAN
+        );
+        int slots = 0;
+        int applied = 0;
+        while (buffer.hasRemaining()) {
+            short enchantId = buffer.getShort();
+            if (enchantId == -3) break;
+            if (enchantId == -2) continue;
+            if (enchantId < -3) return Summary.UNKNOWN;
+            slots++;
+            if (enchantId >= 0) applied++;
+        }
+        return new Summary(slots, applied);
     }
 
     /**

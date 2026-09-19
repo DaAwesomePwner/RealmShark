@@ -37,6 +37,8 @@ public class ShowEffectPacket extends Packet {
      */
     public byte unknownByte;
 
+    public int presenceMask;
+
     private static final int EFFECT_BIT_COLOR = 1;
     private static final int EFFECT_BIT_POS1X = 2;
     private static final int EFFECT_BIT_POS1Y = 4;
@@ -51,7 +53,8 @@ public class ShowEffectPacket extends Packet {
         pos1 = new WorldPosData();
         pos2 = new WorldPosData();
         effectType = buffer.readByte();
-        byte bitmask = buffer.readByte();
+        int bitmask = buffer.readUnsignedByte();
+        presenceMask = bitmask;
 
         if ((bitmask & EFFECT_BIT_ID) != 0) {
             targetObjectId = buffer.readCompressedInt();

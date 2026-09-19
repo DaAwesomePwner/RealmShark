@@ -11,7 +11,7 @@ public class ChatPingGUI extends CustomListGUI {
     }
 
     public void open() {
-        Sound.pm.play();
+        Sound.keywords.preview(null);
         super.open();
     }
 

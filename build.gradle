@@ -9,6 +9,10 @@ targetCompatibility = 1.8
 project.version = 'v1.2.3'
 applicationName = 'RealmShark'
 
+if (project.hasProperty('realmSharkBuildDir')) {
+    buildDir = file(project.property('realmSharkBuildDir'))
+}
+
 project.ext.lwjglVersion = "3.3.1"
 project.ext.jomlVersion = "1.10.5"
 
@@ -30,6 +34,7 @@ dependencies {
     implementation 'com.ardikars.pcap:pcap-spi:1.4.2'
     implementation 'com.ardikars.pcap:pcap-jdk7:1.4.2'
     implementation 'com.google.code.gson:gson:2.9.1'
+    implementation 'net.java.dev.jna:jna:5.12.1'
     implementation 'com.google.flatbuffers:flatbuffers-java:23.5.26'
     implementation 'com.github.weisj:darklaf-core:3.0.2'
     implementation 'com.formdev:flatlaf:3.5.4'
@@ -38,7 +43,33 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
 }
 
-mainClassName = 'tomato.Tomato'
+mainClassName = 'realmshark.RealmShark'
+
+def brandingResources = layout.buildDirectory.dir('generated/branding')
+def brandingGeneratorClasses = layout.buildDirectory.dir('classes/brandingGenerator')
+
+// Isolated from application compilation: processResources must not depend on compileJava.
+tasks.register('compileBrandingGenerator', JavaCompile) {
+    source = files('src/main/java/realmshark/branding/FinIcon.java', 'scripts/packaging/GenerateBranding.java')
+    classpath = files()
+    destinationDirectory = brandingGeneratorClasses
+}
+
+tasks.register('generateBranding', JavaExec) {
+    dependsOn tasks.named('compileBrandingGenerator')
+    classpath = files(brandingGeneratorClasses)
+    mainClass = 'GenerateBranding'
+    jvmArgs '-Djava.awt.headless=true'
+    args brandingResources.get().asFile.absolutePath
+    inputs.files(tasks.named('compileBrandingGenerator'))
+    outputs.dir(brandingResources)
+}
+
+sourceSets.main.resources.srcDir(brandingResources)
+processResources {
+    dependsOn tasks.named('generateBranding')
+    exclude 'icon/tomatoIcon.png'
+}
 
 
 jar {
@@ -49,10 +80,10 @@ jar {
     }
 }
 
-// Ugly solution to get version into source.
+// Keep the product version consistent even when validation uses a separate build directory.
 task generateSources {
     doFirst {
-        def srcFile = new File(file("$buildDir/../src/main/java/" + applicationName.toLowerCase() + "/version"), "Version.java")
+        def srcFile = new File(file("src/main/java/" + applicationName.toLowerCase() + "/version"), "Version.java")
         srcFile.parentFile.mkdirs()
         srcFile.write("""package """ + applicationName.toLowerCase() + """.version;
 /**

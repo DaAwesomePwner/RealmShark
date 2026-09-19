@@ -3,9 +3,11 @@ package tomato.gui.dps;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.DpsData;
+import tomato.backend.data.DpsSnapshot;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import util.PropertiesManager;
+import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
 import java.awt.*;
@@ -17,13 +19,19 @@ import java.util.stream.Collectors;
 public class DpsGUI extends JPanel {
 
     private static final String DISABLE_FILTER = "Default";
-    private static DpsGUI INSTANCE;
+    private static volatile DpsGUI INSTANCE;
+    private volatile DpsSnapshot latest;
+    private DpsSnapshot rendered;
+    private long lastSnapshotNanos;
+    private final javax.swing.Timer refreshTimer;
 
     private TomatoData data;
     private JButton next, prev, live, dList;
     private StringDpsGUI displayString;
     private IconDpsGUI displayIcon;
     private DisplayDpsGUI centerDisplay;
+    private MeterDpsGUI displayMeter;
+    private JComboBox<String> viewMode;
     private JPanel dpsTopPanel;
     private JPanel center;
     private boolean liveUpdates = true;
@@ -32,9 +40,11 @@ public class DpsGUI extends JPanel {
     private HashMap<String, String> filterList = new HashMap<>();
 
     public DpsGUI(TomatoData data) {
-        INSTANCE = this;
-
+        this(data, packets.packetcapture.logger.DiscoveryLog.INSTANCE);
+    }
+    public DpsGUI(TomatoData data, packets.packetcapture.logger.DiscoveryLog history) {
         this.data = data;
+        latest = DpsSnapshot.capture(data);
 
         next = new JButton("Next");
         prev = new JButton("Previous");
@@ -73,36 +83,53 @@ public class DpsGUI extends JPanel {
         addFilter.getAccessibleContext().setAccessibleName("Edit DPS filters");
         addFilter.addActionListener(e -> openFilter());
         filterComboBox = new JComboBox<>(new String[]{DISABLE_FILTER});
-        filterComboBox.setPreferredSize(new Dimension(180, 36));
-        filterComboBox.setMinimumSize(new Dimension(85, 36));
-        filterComboBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        filterComboBox.setPrototypeDisplayValue("Filter preset name");
         filterComboBox.getAccessibleContext().setAccessibleName("DPS filter preset");
         filterComboBox.addActionListener(this::comboAction);
 
-        dpsTopPanel = new JPanel();
-        dpsTopPanel.setLayout(new BoxLayout(dpsTopPanel, BoxLayout.X_AXIS));
-        dpsTopPanel.add(Box.createHorizontalGlue());
-        dpsTopPanel.add(addFilter);
-        dpsTopPanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        dpsTopPanel = ContentStyle.controls();
+        viewMode = new JComboBox<>(new String[]{"Meters", "Legacy"});
+        viewMode.getAccessibleContext().setAccessibleName("Damage display mode");
+        viewMode.addActionListener(e -> updateGui());
+        dpsTopPanel.add(new JLabel("View"));
+        dpsTopPanel.add(viewMode);
+        dpsTopPanel.add(new JLabel("Filter"));
         dpsTopPanel.add(filterComboBox);
-        dpsTopPanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        dpsTopPanel.add(addFilter);
         dpsTopPanel.add(prev);
         dpsTopPanel.add(dList);
         dpsTopPanel.add(next);
         dpsTopPanel.add(live);
-        dpsTopPanel.add(Box.createHorizontalGlue());
 
         setLayout(new BorderLayout());
-        add(dpsTopPanel, BorderLayout.NORTH);
+        JPanel damagePage = new JPanel(new BorderLayout());
+        damagePage.add(dpsTopPanel, BorderLayout.NORTH);
 
         center = new JPanel();
         center.setLayout(new BorderLayout());
-        add(center, BorderLayout.CENTER);
+        damagePage.add(center, BorderLayout.CENTER);
+        JTabbedPane combatTabs = new JTabbedPane(); combatTabs.setName("dps-tabs");
+        combatTabs.addTab("Damage meters", damagePage);
+        combatTabs.addTab("Resources & buffs", new tomato.gui.activity.ActivityPanel(history, tomato.gui.activity.ActivityPanel.Mode.COMBAT));
+        add(combatTabs, BorderLayout.CENTER);
 
         displayString = new StringDpsGUI(data);
         displayIcon = new IconDpsGUI(data);
-        centerDisplay = displayIcon;
+        displayMeter = new MeterDpsGUI();
         setCenterDisplay();
+        refreshTimer = new javax.swing.Timer(250, e -> refreshLiveView());
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshLiveView();
+        });
+        combatTabs.addChangeListener(e -> refreshLiveView());
+        INSTANCE = this;
+    }
+
+    @Override public void addNotify() { super.addNotify(); refreshTimer.start(); }
+    @Override public void removeNotify() { refreshTimer.stop(); super.removeNotify(); }
+
+    private void refreshLiveView() {
+        if (liveUpdates && centerDisplay.isShowing() && latest != rendered) updateGui();
     }
 
     private void dListButton(JButton dpsLabel) {
@@ -144,7 +171,9 @@ public class DpsGUI extends JPanel {
 
     private void setCenterDisplay() {
         DisplayDpsGUI display;
-        if (liveUpdates || DpsDisplayOptions.equipmentOption < 3) {
+        if (viewMode.getSelectedIndex() == 0) {
+            display = displayMeter;
+        } else if (liveUpdates || DpsDisplayOptions.equipmentOption < 3) {
             display = displayString;
         } else if (DpsDisplayOptions.equipmentOption == 3) {
             display = displayIcon;
@@ -152,7 +181,7 @@ public class DpsGUI extends JPanel {
             return;
         }
 
-        if (display.getClass() == centerDisplay.getClass()) return;
+        if (display == centerDisplay) return;
 
         centerDisplay = display;
         center.removeAll();
@@ -162,13 +191,27 @@ public class DpsGUI extends JPanel {
     }
 
     public static void updateNewTickPacket(TomatoData data) {
-        if (!INSTANCE.liveUpdates) return;
-        INSTANCE.renderData(data.map, data.getEntityHitList(), data.getDeathNotifications(), data.dungeonTime(), true);
+        publish(data, false);
+    }
+
+    /** Map transitions must replace the live snapshot even when the next tick never arrives. */
+    public static void updateMapPacket(TomatoData data) { publish(data, true); }
+
+    private static void publish(TomatoData data, boolean force) {
+        DpsGUI view=INSTANCE;
+        if(view==null || view.data!=data) return;
+        long now=System.nanoTime();
+        if(!force && now-view.lastSnapshotNanos<1_000_000_000L && view.latest.map==data.map) return;
+        view.latest=DpsSnapshot.capture(data);
+        view.lastSnapshotNanos=now;
     }
 
     private void renderData(MapInfoPacket map, Entity[] entityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean b) {
         setCenterDisplay();
-        List<Entity> sortedEntityHitList = getSortedEntityList(entityHitList);
+        Entity player = b ? rendered.player : null;
+        displayMeter.setContext(b ? map : data.dpsData.get(index), player);
+        displayString.setPlayerContext(latest.player);
+        List<Entity> sortedEntityHitList = centerDisplay == displayMeter ? Arrays.asList(entityHitList) : getSortedEntityList(entityHitList);
         centerDisplay.renderData(map, sortedEntityHitList, notifications, totalDungeonPcTime, b);
     }
 
@@ -189,6 +232,7 @@ public class DpsGUI extends JPanel {
     public static void editFont(Font font) {
         INSTANCE.displayString.editFont(font);
         INSTANCE.displayIcon.editFont(font);
+        INSTANCE.displayMeter.editFont(font);
         update();
     }
 
@@ -249,9 +293,11 @@ public class DpsGUI extends JPanel {
      * Updates the display label tracking dungeon index.
      */
     public static void updateLabel() {
-        if (INSTANCE.liveUpdates) return;
-        int size = INSTANCE.data.dpsData.size();
-        INSTANCE.dList.setText((INSTANCE.index + 1) + "/" + size);
+        DpsGUI view=INSTANCE;
+        if(view==null) return;
+        SwingUtilities.invokeLater(() -> {
+            if (!view.liveUpdates) view.dList.setText((view.index + 1) + "/" + view.data.dpsData.size());
+        });
     }
 
     /**
@@ -301,7 +347,8 @@ public class DpsGUI extends JPanel {
 
     private void updateGui() {
         if (liveUpdates) {
-            renderData(data.map, data.getEntityHitList(), data.getDeathNotifications(), data.dungeonTime(), true);
+            rendered=latest;
+            renderData(rendered.map, rendered.targets, rendered.notifications, rendered.elapsed, true);
         } else {
             DpsData dpsData = data.dpsData.get(index);
             Entity[] entityHitList = dpsData.hitList.values().toArray(new Entity[0]);

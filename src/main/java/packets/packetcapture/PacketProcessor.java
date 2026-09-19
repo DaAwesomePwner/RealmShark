@@ -6,16 +6,15 @@ import packets.incoming.ip.IpAddress;
 import packets.packetcapture.encryption.RC4;
 import packets.packetcapture.encryption.RotMGRC4Keys;
 import packets.packetcapture.logger.PacketLogger;
+import packets.packetcapture.logger.DiscoveryLog;
 import packets.packetcapture.pconstructor.PacketConstructor;
 import packets.packetcapture.register.Register;
 import packets.packetcapture.sniff.PProcessor;
 import packets.packetcapture.sniff.Sniffer;
 import packets.reader.BufferReader;
 import packets.packetcapture.sniff.gui.MissingNpcapGUI;
-import util.Util;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 
 /**
  * The core class to process packets. First the network tap is sniffed to receive all packets. The packets
@@ -215,7 +214,7 @@ public class PacketProcessor extends Thread implements PProcessor {
     public void processPackets(int type, int size, ByteBuffer data) {
         if (stopRequested) return;
         if (!PacketType.containsKey(type)) {
-            System.err.println("Unknown packet type:" + type + " Data:" + Arrays.toString(data.array()));
+            DiscoveryLog.INSTANCE.observe(type, size, null, "unknown-id", 0);
             return;
         }
         logger.addPacket(type, size);
@@ -225,26 +224,15 @@ public class PacketProcessor extends Thread implements PProcessor {
 
         try {
             packetType.deserialize(pData);
-            if (!pData.isBufferFullyParsed()) {
-                pData.printError(packetType);
-            }
         } catch (Exception e) {
-            Util.printLogs("Buffer exploded: " + pData.getIndex() + "/" + pData.size());
-            debugPackets(type, data.array());
+            DiscoveryLog.INSTANCE.decodeFailure(type, size, pData, e);
             return;
         }
+        DiscoveryLog.INSTANCE.observe(type, size, packetType,
+            pData.isBufferFullyParsed() ? "decoded" : "trailing-bytes", pData.getRemainingBytes());
         decodedPackets++;
         if (type == PacketType.NEWTICK.getIndex()) decodedTicks++;
         Register.INSTANCE.emitPacketLogs(packetType);
-    }
-
-    /**
-     * Helper for debugging packets
-     */
-    private void debugPackets(int type, byte[] data) {
-        Packet packetType = PacketType.getPacket(type).factory();
-        Util.printLogs(PacketType.byOrdinal(type) + " " + packetType);
-        Util.printLogs(Arrays.toString(data));
     }
 
     /**
@@ -256,6 +244,7 @@ public class PacketProcessor extends Thread implements PProcessor {
 
     @Override
     public void resetIncoming() {
+        DiscoveryLog.INSTANCE.boundary();
         incomingPacketConstructor.reset();
     }
 

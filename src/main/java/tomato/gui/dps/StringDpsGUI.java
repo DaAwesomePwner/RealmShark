@@ -5,6 +5,7 @@ import packets.incoming.NotificationPacket;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.gui.TomatoGUI;
+import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,7 +17,10 @@ public class StringDpsGUI extends DisplayDpsGUI {
     private static JTextArea textAreaDPS;
     private final TomatoData data;
     private final JButton button;
+    private final JPanel actions = ContentStyle.controls();
     private boolean freeze;
+    private Entity playerContext;
+    void setPlayerContext(Entity player) { playerContext=player; }
 
     public StringDpsGUI(TomatoData data) {
         this.data = data;
@@ -24,21 +28,22 @@ public class StringDpsGUI extends DisplayDpsGUI {
         setLayout(new BorderLayout());
         textAreaDPS = new tomato.gui.modern.EmptyLogArea("Every encounter tells a story", "Start capture and enter combat to see damage here.");
         add(TomatoGUI.createTextArea(textAreaDPS, true), BorderLayout.CENTER);
-        textAreaDPS.setEnabled(false);
+        textAreaDPS.setEditable(false);
+        textAreaDPS.setMargin(new Insets(6, 8, 6, 8));
+        ContentStyle.font(textAreaDPS, ContentStyle.report(ContentStyle.body()));
 
         button = new JButton("Freeze");
         button.addActionListener(e -> clicked());
-        add(button, BorderLayout.SOUTH);
+        actions.add(button);
+        add(actions, BorderLayout.SOUTH);
     }
 
     private void clicked() {
         if (freeze) {
             button.setText("Freeze");
-            if (textAreaDPS != null) textAreaDPS.setEnabled(false);
             freeze = false;
         } else {
             button.setText("Unfreeze");
-            if (textAreaDPS != null) textAreaDPS.setEnabled(true);
             freeze = true;
         }
     }
@@ -47,11 +52,9 @@ public class StringDpsGUI extends DisplayDpsGUI {
      * Sets the text of DPS logger text area.
      *
      * @param text       Sets the text of text area.
-     * @param selectable Sets if the text area should be selectable.
      */
-    private void setTextAreaAndLabelDPS(String text, boolean selectable) {
+    private void setTextAreaAndLabelDPS(String text) {
         if (textAreaDPS != null && text != null) textAreaDPS.setText(text);
-        if (textAreaDPS != null) textAreaDPS.setEnabled(selectable);
     }
 
     @Override
@@ -60,7 +63,8 @@ public class StringDpsGUI extends DisplayDpsGUI {
             return;
         }
         button.setVisible(isLive);
-        setTextAreaAndLabelDPS(DpsToString.stringDmgRealtime(map, sortedEntityHitList, notifications, data.player, totalDungeonPcTime), !isLive || freeze);
+        actions.setVisible(isLive);
+        setTextAreaAndLabelDPS(DpsToString.stringDmgRealtime(map, sortedEntityHitList, notifications, playerContext, totalDungeonPcTime));
     }
 
     /**
@@ -68,6 +72,7 @@ public class StringDpsGUI extends DisplayDpsGUI {
      */
     @Override
     protected void editFont(Font font) {
-        textAreaDPS.setFont(font);
+        ContentStyle.font(textAreaDPS, ContentStyle.FONT_FAMILY.equals(font.getName())
+            ? ContentStyle.report(font) : font);
     }
 }

@@ -2,7 +2,15 @@ package tomato.backend.data;
 
 import assets.IdToAsset;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.*;
+import java.util.concurrent.*;
+import javax.swing.SwingUtilities;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.xml.sax.InputSource;
 import packets.Packet;
 import packets.data.ObjectData;
 import packets.data.StatData;
@@ -36,7 +44,7 @@ public class TomatoData {
 
     private String token;
     public MapInfoPacket map;
-    protected int worldPlayerId;
+    protected int worldPlayerId = -1;
     protected int charId;
     public long time;
     public long timePc;
@@ -59,6 +67,54 @@ public class TomatoData {
     public boolean vaultDataRecievedSeasonal, vaultDataRecievedRegular, characterDataRecieved;
     public ArrayList<RealmCharacter> chars;
     public HashMap<Integer, RealmCharacter> charMap;
+    private CharacterJournal characterJournal;
+    private String journalAccount;
+    private ArrayList<RealmCharacter> journalPendingRoster;
+    // These generations and all model application are capture-thread owned. Only the
+    // bounded mailbox below crosses into the HTTP worker.
+    private long metadataConnection, metadataAccount, metadataSequence, rosterRequest, exaltRequest;
+    private boolean metadataAwaitingCreate;
+    private volatile long metadataUiGeneration;
+    private final MetadataWorker metadataWorker;
+
+    public TomatoData() { this(HttpCharListRequest::webRequest); }
+
+    @FunctionalInterface
+    interface MetadataClient { String request(String token, String endpoint) throws IOException; }
+
+    TomatoData(MetadataClient client) { metadataWorker = new MetadataWorker(client); }
+
+    public synchronized CharacterJournal characterJournal() {
+        if (characterJournal == null) {
+            characterJournal = new CharacterJournal(java.nio.file.Paths.get("Characters", "journal.json"));
+            if (!tomato.Tomato.isPreview()) characterJournal.startSaving();
+        }
+        return characterJournal;
+    }
+
+    /** Called only for the authenticated local player, never nearby players. */
+    public void rememberCharacter() {
+        if (player == null || metadataAwaitingCreate || (metadataConnection > 0 && player.id != worldPlayerId)) return;
+        StatData identity = player.stat.get(StatType.ACCOUNT_ID_STAT);
+        if (identity == null || identity.stringStatValue == null || identity.stringStatValue.trim().isEmpty()) return;
+        String observedAccount = CharacterJournal.accountKey(identity.stringStatValue);
+        if (journalAccount != null && !journalAccount.equals(observedAccount)) {
+            // Capture changed accounts without a HELLO: the retained credential still
+            // belongs to the previous account. Only a new HELLO may supply a credential.
+            token = null;
+            resetAccountMetadata();
+            journalAccount = observedAccount;
+        }
+        String account = characterJournal().observe(player, charId);
+        if (account == null) return;
+        journalAccount = account;
+        applyMetadataResponses();
+        if (journalPendingRoster != null) {
+            characterJournal().mergeRoster(account, journalPendingRoster);
+            journalPendingRoster = null;
+        }
+        characterJournal().exalts(account, RealmCharacter.exalts);
+    }
     public ArrayList<DpsData> dpsData = new ArrayList<>();
     protected ArrayList<NotificationPacket> deathNotifications =
         new ArrayList<>();
@@ -93,6 +149,7 @@ public class TomatoData {
      * @param map New realm to be set.
      */
     public void setNewRealm(MapInfoPacket map) {
+        tomato.realmshark.RealmEventAlerts.INSTANCE.resetCooldowns();
         clear();
         ParsePanelGUI.clear();
         petYardCheck(map.displayName);
@@ -108,6 +165,8 @@ public class TomatoData {
      * @param str
      */
     public void setUserId(int objectId, int charId, String str) {
+        metadataAwaitingCreate = false;
+        invalidateRosterRequest();
         this.worldPlayerId = objectId;
         this.charId = charId;
         updateDungeonStats(charId, str);
@@ -121,6 +180,7 @@ public class TomatoData {
     }
 
     public void webRequest() {
+        if (map == null) return;
         if (map.displayName.equals("Pet Yard")) {
             petyard = true;
             CharacterPetsGUI.clearPets();
@@ -237,6 +297,7 @@ public class TomatoData {
      */
     private void entityUpdate(ObjectData object) {
         int id = object.status.objectId;
+        boolean localPlayer = worldPlayerId >= 0 && id == worldPlayerId;
         boolean newObject = !entityList.containsKey(id);
         Entity entity = entityList.computeIfAbsent(id, idd ->
             new Entity(this, idd, timePc)
@@ -251,15 +312,16 @@ public class TomatoData {
         }
         if (petyard) {
             addPet(object);
-        } else if (isCrystal(idType)) {
+        }
+        if (!petyard && isCrystal(idType)) {
             crystalTracker.add(id);
-        } else if (isLootBag(idType) && !lootBags.contains(id)) {
+        } else if (!petyard && isLootBag(idType) && !lootBags.contains(id)) {
             lootBags.add(id);
             lootTickContainer[lootTickToggle].add(entity);
-        } else if (isPlayerEntity(idType)) {
+        } else if (localPlayer || isPlayerEntity(idType)) {
             playerList.put(id, entity);
             playerListUpdated.put(id, entity);
-            if (id == worldPlayerId) {
+            if (localPlayer) {
                 player = entity;
                 entity.setUser(charId);
                 MyInfoGUI.updatePlayer(player);
@@ -333,6 +395,7 @@ public class TomatoData {
                         dungeonStatData.updateItems(map.name, mob, bag);
                     }
 
+                    tomato.bridge.BridgeService.getInstance().receive(this, map, bag, player, timePc);
                     LootGUI.update(map, bag, mob, player, timePc);
                 }
 
@@ -627,7 +690,7 @@ public class TomatoData {
                 projectile = projectiles[wrappedIndex];
                 if (projectile != null) {
                     /*System.out.println(
-                        "[TomatoData] enemtyHit: resolved projectile via wrapped array index=" +
+                        "[RealmShark capture] enemtyHit: resolved projectile via wrapped array index=" +
                             wrappedIndex +
                             " for bulletId=" +
                             p.bulletId +
@@ -643,7 +706,7 @@ public class TomatoData {
                 projectile = projectiles[p.bulletId];
                 if (projectile != null) {
                     /*System.out.println(
-                        "[TomatoData] enemtyHit: resolved projectile via direct array index=" +
+                        "[RealmShark capture] enemtyHit: resolved projectile via direct array index=" +
                             p.bulletId +
                             " owner=" +
                             p.shooterID
@@ -655,7 +718,7 @@ public class TomatoData {
         // If still not found, we log for debugging.
         if (projectile == null) {
             /*System.out.println(
-                "[TomatoData] enemtyHit: projectile not resolved for bulletId=" +
+                "[RealmShark capture] enemtyHit: projectile not resolved for bulletId=" +
                     p.bulletId +
                     " owner=" +
                     p.shooterID
@@ -834,6 +897,8 @@ public class TomatoData {
      * Clears all data as instance is changing.
      */
     public void clear() {
+        invalidateRosterRequest();
+        metadataAwaitingCreate = true;
         worldPlayerId = -1;
         charId = -1;
         time = -1;
@@ -890,7 +955,6 @@ public class TomatoData {
 
     public void exaltUpdate(ExaltationUpdatePacket p) {
         int[] exalts = RealmCharacter.exalts.get((int) p.objType);
-        if (exalts == null) return;
         int[] update = new int[] {
             p.dexterityProgress,
             p.speedProgress,
@@ -902,8 +966,11 @@ public class TomatoData {
             p.healthProgress,
         };
         if (!Arrays.equals(exalts, update)) {
-            RealmCharacter.exalts.put((int) p.objType, update);
-            CharacterExaltGUI.updateExalts();
+            TreeMap<Integer, int[]> next = new TreeMap<>(RealmCharacter.exalts);
+            next.put((int) p.objType, update);
+            RealmCharacter.exalts = next;
+            SwingUtilities.invokeLater(CharacterExaltGUI::updateExalts);
+            characterJournal().exalts(journalAccount, RealmCharacter.exalts);
         }
     }
 
@@ -921,6 +988,13 @@ public class TomatoData {
     }
 
     public void characterListUpdate(ArrayList<RealmCharacter> chars) {
+        if (chars == null) return;
+        // A delayed roster must not roll the active character back to older API stats.
+        for (RealmCharacter character : chars) {
+            if (player != null && character.charId == charId) player.overlayCapturedCharacter(character);
+        }
+        if (journalAccount == null) journalPendingRoster = chars;
+        else characterJournal().mergeRoster(journalAccount, chars);
         characterDataRecieved = true;
         this.chars = chars;
         charMap = new HashMap<>();
@@ -937,11 +1011,15 @@ public class TomatoData {
             }
         }
         RealmCharacter currentChar = charMap.get(charId);
-        if (charId != -1 && currentChar != null) {
+        if (charId != -1 && currentChar != null && currentChar.petAbilitys != null && currentChar.petAbilitys.length >= 9) {
             makePet(currentChar);
-            MyInfoGUI.updatePet(pet);
+            Entity loadedPet = pet;
+            long generation = metadataUiGeneration;
+            SwingUtilities.invokeLater(() -> {
+                if (generation == metadataUiGeneration) MyInfoGUI.updatePet(loadedPet);
+            });
         }
-        CharacterPanelGUI.updateRealmChars();
+        SwingUtilities.invokeLater(CharacterPanelGUI::updateRealmChars);
     }
 
     private void makePet(RealmCharacter currentChar) {
@@ -1002,15 +1080,7 @@ public class TomatoData {
      * token Current client token string used in http request packet.
      */
     public void charListHttpRequest() {
-        try {
-            String httpString = HttpCharListRequest.getChartList(token);
-            ArrayList<RealmCharacter> charList = RealmCharacter.getCharList(
-                httpString
-            );
-            if (charList != null) characterListUpdate(charList);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        requestMetadata(true);
     }
 
     /**
@@ -1019,23 +1089,315 @@ public class TomatoData {
      * @param token Current client token.
      */
     public void updateToken(String token) {
+        // HELLO is a new connection even when its access token was reused.
+        metadataConnection++;
+        metadataUiGeneration++;
+        metadataAwaitingCreate = true;
+        metadataWorker.invalidate(false);
+        if (!Objects.equals(this.token, token)) {
+            resetAccountMetadata();
+        }
         this.token = token;
 
         updateExalts(token);
     }
 
     private void updateExalts(String token) {
-        if (updatedExaltStats) return;
-        updatedExaltStats = true;
-        try {
-            String s = HttpCharListRequest.getPowerUpStats(token);
-            if (RealmCharacter.checkExaltNew(s)) {
-                LootGUI.updateExaltStats();
-                CharacterExaltGUI.updateExalts();
+        if (updatedExaltStats || token == null || token.isEmpty()) return;
+        requestMetadata(false);
+    }
+
+    private void invalidateRosterRequest() {
+        metadataUiGeneration++;
+        rosterRequest = ++metadataSequence;
+        metadataWorker.invalidate(true);
+        journalPendingRoster = null;
+    }
+
+    private void resetAccountMetadata() {
+        metadataAccount++;
+        metadataUiGeneration++;
+        metadataWorker.invalidate(false);
+        journalAccount = null; journalPendingRoster = null;
+        updatedExaltStats = false; characterDataRecieved = false;
+        chars = null; charMap = null;
+        RealmCharacter.exalts = new TreeMap<>();
+        regularVault.clearChar(); seasonalVault.clearChar();
+        SwingUtilities.invokeLater(() -> { LootGUI.updateExaltStats(); CharacterExaltGUI.updateExalts(); });
+    }
+
+    private void requestMetadata(boolean roster) {
+        if (token == null || token.isEmpty()) return;
+        long sequence = ++metadataSequence;
+        if (roster) rosterRequest = sequence; else exaltRequest = sequence;
+        metadataWorker.submit(new MetadataRequest(roster, sequence, metadataConnection, metadataAccount,
+            journalAccount, token, charId));
+    }
+
+    /** Drained after UPDATE/NEWTICK established the authenticated local player. No I/O here. */
+    void applyMetadataResponses() {
+        if (metadataAwaitingCreate || player == null || journalAccount == null) return;
+        for (MetadataResponse response : metadataWorker.poll()) {
+            if (response == null) continue;
+            MetadataRequest request = response.request;
+            if (request.connection != metadataConnection || request.accountGeneration != metadataAccount
+                || request.sequence != (request.roster ? rosterRequest : exaltRequest)
+                || (request.account != null && !request.account.equals(journalAccount))
+                || (response.account != null && !response.account.equals(journalAccount))
+                || (request.roster && request.characterId != charId)) continue;
+            if (request.roster) {
+                ArrayList<RealmCharacter> characters = new ArrayList<>();
+                for (CharacterMetadata character : response.characters) characters.add(character.copy());
+                characterListUpdate(characters);
+            } else updatedExaltStats = true;
+            if (!response.exalts.isEmpty()) {
+                TreeMap<Integer, int[]> next = new TreeMap<>(RealmCharacter.exalts);
+                response.exalts.forEach((clazz, counts) -> {
+                    int[] values = new int[8], observed = next.get(clazz);
+                    // Exalts are cumulative; late account/roster responses cannot undo a packet update.
+                    for (int i = 0; i < 8; i++) values[i] = Math.max(counts.get(i), observed == null ? 0 : observed[i]);
+                    next.put(clazz, values);
+                });
+                RealmCharacter.exalts = next;
+                characterJournal().exalts(journalAccount, next);
+                SwingUtilities.invokeLater(() -> { LootGUI.updateExaltStats(); CharacterExaltGUI.updateExalts(); });
             }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
+    }
+
+    private static final class MetadataRequest {
+        final boolean roster;
+        final long sequence, connection, accountGeneration;
+        final String account, token;
+        final int characterId;
+        MetadataRequest(boolean roster, long sequence, long connection, long accountGeneration,
+                        String account, String token, int characterId) {
+            this.roster = roster; this.sequence = sequence; this.connection = connection;
+            this.accountGeneration = accountGeneration; this.account = account;
+            this.token = token; this.characterId = characterId;
+        }
+        int slot() { return roster ? 0 : 1; }
+    }
+
+    /** At most one HTTP operation, two pending requests and two completed responses. */
+    private static final class MetadataWorker {
+        private final MetadataClient client;
+        private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "account-metadata"); thread.setDaemon(true); return thread;
+        });
+        private final MetadataRequest[] pending = new MetadataRequest[2], latest = new MetadataRequest[2];
+        private final MetadataResponse[] completed = new MetadataResponse[2];
+        private boolean running;
+        MetadataWorker(MetadataClient client) { this.client = client; }
+        synchronized void submit(MetadataRequest request) {
+            int slot = request.slot();
+            pending[slot] = latest[slot] = request; completed[slot] = null;
+            if (!running) { running = true; executor.execute(this::drain); }
+        }
+        synchronized void invalidate(boolean rosterOnly) {
+            for (int i = 0; i < (rosterOnly ? 1 : 2); i++) {
+                pending[i] = latest[i] = null; completed[i] = null;
+            }
+        }
+        synchronized MetadataResponse[] poll() {
+            MetadataResponse[] result = completed.clone();
+            Arrays.fill(completed, null);
+            return result;
+        }
+        private void drain() {
+            while (true) {
+                MetadataRequest request;
+                synchronized (this) {
+                    if (pending[0] == null && pending[1] == null) {
+                        running = false; notifyAll(); return;
+                    }
+                    int slot = pending[0] == null ? 1 : pending[1] == null ? 0
+                        : pending[0].sequence < pending[1].sequence ? 0 : 1;
+                    request = pending[slot]; pending[slot] = null;
+                }
+                try {
+                    String xml = client.request(request.token, request.roster ? "char/list" : "account/listPowerUpStats");
+                    synchronized (this) { if (latest[request.slot()] != request) continue; }
+                    MetadataResponse response = parseMetadata(request, xml);
+                    synchronized (this) {
+                        if (latest[request.slot()] == request) completed[request.slot()] = response;
+                    }
+                } catch (Exception e) {
+                    // Never log tokens, response bodies, or URL-containing exception messages.
+                    System.err.println("Optional account metadata unavailable: " + e.getClass().getSimpleName());
+                }
+            }
+        }
+        synchronized boolean awaitIdle(long millis) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis);
+            while (running) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) return false;
+                TimeUnit.NANOSECONDS.timedWait(this, remaining);
+            }
+            return true;
+        }
+    }
+
+    boolean awaitMetadataIdle(long millis) throws InterruptedException { return metadataWorker.awaitIdle(millis); }
+
+    private static final class MetadataResponse {
+        final MetadataRequest request;
+        final String account;
+        final List<CharacterMetadata> characters;
+        final Map<Integer, List<Integer>> exalts;
+        MetadataResponse(MetadataRequest request, String account, List<CharacterMetadata> characters,
+                         Map<Integer, List<Integer>> exalts) {
+            this.request = request; this.account = account;
+            this.characters = Collections.unmodifiableList(new ArrayList<>(characters));
+            this.exalts = Collections.unmodifiableMap(new TreeMap<>(exalts));
+        }
+    }
+
+    /** No mutable legacy bean or array is exposed from a response to the live model. */
+    private static final class CharacterMetadata {
+        private final RealmCharacter value;
+        CharacterMetadata(RealmCharacter value) { this.value = copyCharacter(value); }
+        RealmCharacter copy() { return copyCharacter(value); }
+    }
+
+    private static RealmCharacter copyCharacter(RealmCharacter s) {
+        RealmCharacter c = new RealmCharacter();
+        c.charId=s.charId; c.classNum=s.classNum; c.classString=s.classString; c.level=s.level; c.skin=s.skin;
+        c.exp=s.exp; c.fame=s.fame; c.seasonal=s.seasonal; c.backpack=s.backpack; c.qs3=s.qs3;
+        c.equipment=s.equipment==null?null:s.equipment.clone(); c.equipQS=s.equipQS==null?null:s.equipQS.clone(); c.date=s.date;
+        c.capturedStatMask=s.capturedStatMask; c.hp=s.hp; c.mp=s.mp; c.atk=s.atk; c.def=s.def;
+        c.spd=s.spd; c.dex=s.dex; c.vit=s.vit; c.wis=s.wis; c.pcStats=s.pcStats;
+        if (s.charStats != null) {
+            // RealmCharacterStats is a large flat legacy value bean (ints, String, int[]).
+            c.charStats = new RealmCharacterStats();
+            try {
+                for (java.lang.reflect.Field field : RealmCharacterStats.class.getFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                    Object value = field.get(s.charStats);
+                    field.set(c.charStats, value instanceof int[] ? ((int[]) value).clone() : value);
+                }
+            } catch (IllegalAccessException e) { throw new IllegalStateException(e); }
+        }
+        c.petName=s.petName; c.petCreatedOn=s.petCreatedOn; c.petSkin=s.petSkin; c.petType=s.petType;
+        c.petInstanceId=s.petInstanceId; c.petMaxAbilityPower=s.petMaxAbilityPower; c.petRarity=s.petRarity;
+        c.petAbilitys=s.petAbilitys==null?null:s.petAbilitys.clone();
+        return c;
+    }
+
+    /** Unlike the legacy RealmCharacter parsers, this decoder never writes global exalts. */
+    private static MetadataResponse parseMetadata(MetadataRequest request, String xml) throws Exception {
+        if (xml == null || xml.trim().isEmpty()) throw new IOException("Missing metadata");
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        Element root = factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml))).getDocumentElement();
+        if (!(request.roster ? "Chars" : "AccountPowerups").equals(root.getTagName()))
+            throw new IOException("Rejected metadata response");
+        Element accountNode = child(root, "Account");
+        String accountId = text(accountNode == null ? root : accountNode, "AccountId");
+        if (accountId == null && accountNode != null && accountNode.hasAttribute("id")) accountId = accountNode.getAttribute("id");
+        String account = accountId == null || accountId.isEmpty() ? null : CharacterJournal.accountKey(accountId);
+        List<CharacterMetadata> characters = new ArrayList<>();
+        Map<Integer, List<Integer>> exalts = new TreeMap<>();
+        if (request.roster) {
+            for (Element node : children(root)) if ("Char".equals(node.getTagName()))
+                characters.add(new CharacterMetadata(parseCharacter(node)));
+            org.w3c.dom.NodeList stats = root.getElementsByTagName("ClassStats");
+            for (int i = 0; i < stats.getLength(); i++) {
+                Element stat = (Element) stats.item(i);
+                if (stat.getParentNode() instanceof Element && "PowerUpStats".equals(((Element) stat.getParentNode()).getTagName()))
+                    exalts.put(Integer.parseInt(stat.getAttribute("class")), exaltCounts(stat.getTextContent().trim().split(",")));
+            }
+        } else {
+            String[] names = {"Dex", "Spd", "Vit", "Wis", "Def", "Att", "Mana", "Life"};
+            for (Element row : children(root)) if ("ClassPowerup".equals(row.getTagName())) {
+                String[] values = new String[8];
+                for (int i = 0; i < 8; i++) { String value = text(row, names[i]); values[i] = value == null ? "0" : value; }
+                exalts.put(Integer.parseInt(text(row, "Class")), exaltCounts(values));
+            }
+        }
+        return new MetadataResponse(request, account, characters, exalts);
+    }
+
+    private static List<Integer> exaltCounts(String[] values) throws IOException {
+        if (values.length != 8) throw new IOException("Invalid exalt counts");
+        List<Integer> result = new ArrayList<>();
+        for (String value : values) {
+            int count = Integer.parseInt(value.trim());
+            if (count < 0) throw new IOException("Invalid exalt count");
+            result.add(count);
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    private static RealmCharacter parseCharacter(Element node) {
+        RealmCharacter c = new RealmCharacter();
+        c.charId = Integer.parseInt(node.getAttribute("id"));
+        String[] statNames = {"MaxHitPoints", "MaxMagicPoints", "Attack", "Defense", "Speed", "Dexterity", "HpRegen", "MpRegen"};
+        int[] stats = new int[8];
+        for (int i = 0; i < 8; i++) {
+            String value = text(node, statNames[i]);
+            if (value != null) { stats[i] = Integer.parseInt(value); c.capturedStatMask |= 1 << i; }
+        }
+        c.hp=stats[0]; c.mp=stats[1]; c.atk=stats[2]; c.def=stats[3]; c.spd=stats[4]; c.dex=stats[5]; c.vit=stats[6]; c.wis=stats[7];
+        for (Element field : children(node)) {
+            String value = field.getTextContent().trim();
+            switch (field.getTagName()) {
+                case "ObjectType": c.classNum=Short.parseShort(value); c.setClassString(); break;
+                case "Equipment": c.equipment=Arrays.stream(value.split(",")).mapToInt(s -> Integer.parseInt(s.split("#")[0])).toArray(); break;
+                case "EquipQS": c.equipQS=value.split(","); break;
+                case "Level": c.level=Integer.parseInt(value); break;
+                case "Texture": c.skin=Integer.parseInt(value); break;
+                case "CreationDate": c.date=value; break;
+                case "HasBackpack": c.backpack="1".equals(value); break;
+                case "Has3Quickslots": c.qs3="1".equals(value); break;
+                case "Seasonal": c.seasonal="True".equals(value); break;
+                case "Exp": c.exp=Long.parseLong(value); break;
+                case "CurrentFame": c.fame=Long.parseLong(value); break;
+                case "PCStats":
+                    c.pcStats=value;
+                    try { c.charStats=new RealmCharacterStats(); c.charStats.decode(value); }
+                    catch (RuntimeException e) { c.charStats=null; }
+                    break;
+                case "Pet":
+                    c.petCreatedOn=field.getAttribute("createdOn"); c.petName=field.getAttribute("name");
+                    c.petInstanceId=attributeInt(field,"instanceId"); c.petMaxAbilityPower=attributeInt(field,"maxAbilityPower");
+                    c.petRarity=attributeInt(field,"rarity"); c.petSkin=attributeInt(field,"skin"); c.petType=attributeInt(field,"type");
+                    Element abilities=child(field,"Abilities");
+                    if (abilities != null) {
+                        c.petAbilitys=new int[9]; int i=0;
+                        for (Element ability : children(abilities)) {
+                            if (i == 9) break;
+                            c.petAbilitys[i++]=attributeInt(ability,"points");
+                            c.petAbilitys[i++]=attributeInt(ability,"power");
+                            c.petAbilitys[i++]=attributeInt(ability,"type");
+                        }
+                    }
+                    break;
+                default: break;
+            }
+        }
+        return c;
+    }
+
+    private static int attributeInt(Element node, String name) {
+        return node.hasAttribute(name) ? Integer.parseInt(node.getAttribute(name)) : 0;
+    }
+    private static List<Element> children(Element node) {
+        List<Element> result = new ArrayList<>();
+        for (Node c = node.getFirstChild(); c != null; c = c.getNextSibling()) if (c instanceof Element) result.add((Element)c);
+        return result;
+    }
+    private static Element child(Element node, String name) {
+        for (Element c : children(node)) if (name.equals(c.getTagName())) return c;
+        return null;
+    }
+    private static String text(Element node, String name) {
+        Element c = child(node, name);
+        return c == null ? null : c.getTextContent().trim();
     }
 
     /**
@@ -1089,6 +1451,11 @@ public class TomatoData {
 
     public void bootload() {
         dungeonStatData.load();
+    }
+
+    /** Bind the initialized history after the view exists, without reading the file again. */
+    public void publishDungeonStats() {
+        tomato.gui.stats.DungeonStats.update(dungeonStatData, null);
     }
 
     /**

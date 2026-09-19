@@ -14,6 +14,20 @@ public class ParseDungeon {
     public static int getPortalId(String name) {
         return CATALOG.getPortalId(name);
     }
+    /** Return only an exact locally catalogued map label, never arbitrary server text. */
+    public static String canonicalName(String name) {
+        return CATALOG.canonicalName(name);
+    }
+
+    /** Affirmative content classification; a portal ID alone does not identify a dungeon. */
+    public static boolean isDungeon(String name) {
+        return CATALOG.isDungeon(name);
+    }
+
+    /** Exact map name wins (including hubs); only a locally known display label is a fallback. */
+    public static String canonicalMapName(MapInfoPacket map) {
+        return CATALOG.canonicalMapName(map);
+    }
     /**
      * Build the canonical modifiers string from a MapInfoPacket by combining up to four modifier fields
      * and the optional dungeon grade. Example output: "BONUSCONSUMABLES;ENERGIZEDMINIONS_1;|D".

@@ -3,223 +3,163 @@ package tomato.gui.stats;
 import assets.IdToAsset;
 import assets.ImageBuffer;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
+import java.util.List;
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
+import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.DungeonStatData;
-import tomato.backend.data.DungeonStatData.DungeonInfo;
-import tomato.backend.data.DungeonStatData.Loot;
-import tomato.gui.SmartScroller;
-import tomato.gui.dps.DpsGUI;
+import tomato.backend.data.DungeonStatData.Snapshot;
+import tomato.gui.modern.ContentStyle;
 
+/** Cumulative dungeon counters, with a selected-dungeon enemy and loot breakdown. */
 public class DungeonStats extends JPanel {
-
     private static DungeonStats INSTANCE;
-
-    private static JPanel dungeonStatPanel;
-    private static JPanel radioPanel;
-    private static Font mainFont;
-    private DungeonStatData dungeonStatData;
-    private int dungeonSize;
-    private String selectionName;
+    private volatile DungeonStatData source;
+    private volatile boolean dirty;
+    private List<Snapshot> snapshots = Collections.emptyList();
+    private final JTextField search = StatsUi.search("dungeon-search", "Search dungeons", 22);
+    private final JTextField detailSearch = StatsUi.search("dungeon-detail-search", "Search enemies or items", 20);
+    private final JComboBox<String> activity = new JComboBox<>(new String[]{"All activity", "With loot", "With recorded visits"});
+    private final JComboBox<String> enemy = new JComboBox<>();
+    private final Map<String, Integer> enemyIds = new LinkedHashMap<>();
+    private final JLabel[] metrics = new JLabel[4];
+    private final JLabel detailTitle = new JLabel("Select a dungeon to explore its enemies and loot");
+    private final JLabel status = new JLabel("No dungeon history yet. Start capture and change instance.");
+    private final DefaultTableModel dungeons = StatsUi.model(
+        new String[]{"Dungeon", "Recorded visits", "Time", "Avg / visit", "Hit events", "Items"},
+        String.class, Integer.class, Long.class, Long.class, Long.class, Long.class);
+    private final DefaultTableModel enemies = StatsUi.model(new String[]{"Icon", "Enemy", "Hit events", "Items"},
+        Icon.class, String.class, Integer.class, Long.class);
+    private final DefaultTableModel items = StatsUi.model(new String[]{"Icon", "Item", "Count", "Dropper"},
+        Icon.class, String.class, Integer.class, String.class);
+    private final JTable dungeonTable = StatsUi.table(dungeons, "dungeon-table");
+    private final JTable enemyTable = StatsUi.table(enemies, "dungeon-enemies");
+    private final JTable itemTable = StatsUi.table(items, "dungeon-items");
+    private final javax.swing.Timer refreshTimer = new javax.swing.Timer(750, e -> { if (isShowing() && dirty) refreshData(); });
+    private boolean rebuilding;
 
     public DungeonStats() {
-        this.INSTANCE = this;
-        setLayout(new BorderLayout());
-
-        dungeonStatPanel = new JPanel();
-        dungeonStatPanel.setLayout(
-            new BoxLayout(dungeonStatPanel, BoxLayout.Y_AXIS)
-        );
-        radioPanel = new JPanel();
-        radioPanel.setLayout(new BoxLayout(radioPanel, BoxLayout.Y_AXIS));
-        radioPanel.setBorder(
-            BorderFactory.createMatteBorder(0, 1, 0, 0, Color.GRAY)
-        );
-
-        validate();
-
-        JScrollPane scrollMid = new JScrollPane(dungeonStatPanel);
-        scrollMid.getVerticalScrollBar().setUnitIncrement(40);
-        new SmartScroller(scrollMid, 0);
-        add(scrollMid, BorderLayout.CENTER);
-
-        JScrollPane scrollRight = new JScrollPane(radioPanel);
-        scrollRight.getVerticalScrollBar().setUnitIncrement(40);
-        new SmartScroller(scrollRight, 0);
-        add(scrollRight, BorderLayout.EAST);
-    }
-
-    private void updateGUI() {
-        if (
-            dungeonStatData == null ||
-            dungeonStatData.data == null ||
-            selectionName == null
-        ) return;
-
-        dungeonStatPanel.removeAll();
-
-        DungeonInfo info = dungeonStatData.data.get(selectionName);
-        if (info != null) {
-            displayDungeon(info);
-        }
-        dungeonStatPanel.add(Box.createVerticalGlue());
-
-        revalidate();
-    }
-
-    private void radioAction(ActionEvent actionEvent) {
-        JRadioButton button = (JRadioButton) actionEvent.getSource();
-        selectionName = button.getText();
-        updateGUI();
-    }
-
-    private void updateRadioButtons() {
-        if (dungeonStatData == null || dungeonStatData.data == null) return;
-        String[] list = dungeonStatData.data
-            .keySet()
-            .stream()
-            .sorted()
-            .toArray(String[]::new);
-        if (list.length == dungeonSize) return;
-        dungeonSize = list.length;
-        radioPanel.removeAll();
-        ButtonGroup radioSelections = new ButtonGroup();
-
-        for (String s : list) {
-            JRadioButton b = new JRadioButton(s, s.equals(selectionName));
-            b.addActionListener(this::radioAction);
-            radioSelections.add(b);
-            radioPanel.add(b);
-        }
-
-        revalidate();
-    }
-
-    private void displayDungeon(DungeonInfo info) {
-        JPanel titlePanel = new JPanel();
-        titlePanel.setBorder(
-            BorderFactory.createTitledBorder(
-                null,
-                info.getName() +
-                " [" +
-                info.getEnteredDungeon() +
-                "] " +
-                DpsGUI.systemTimeToString(info.getTotalTime()),
-                TitledBorder.CENTER,
-                TitledBorder.CENTER,
-                mainFont
-            )
-        );
-        dungeonStatPanel.add(titlePanel);
-
-        TreeMap<String, JPanel> list = new TreeMap<>();
-        for (Map.Entry<Integer, Integer> e : info
-            .getEntityDamaged()
-            .entrySet()) {
-            Integer id = e.getKey();
-            if (id == null || id == 0) continue;
-
-            String str = IdToAsset.objectName(id);
-            JPanel p = addMobTitle(id, e.getValue(), info);
-            if (p == null) continue;
-            list.put(str, p);
-        }
-
-        list.keySet().forEach(s -> dungeonStatPanel.add(list.get(s)));
-
-        JPanel unknownItems = addMobTitle(0, 0, info);
-        if (unknownItems != null) {
-            dungeonStatPanel.add(unknownItems);
-        }
-    }
-
-    private JPanel addMobTitle(int id, int num, DungeonInfo di) {
-        StringBuilder sb = new StringBuilder();
-        JPanel mobPanel = new JPanel();
-        mobPanel.setBorder(
-            BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, Color.GRAY),
-                BorderFactory.createEmptyBorder(0, 0, 0, 0)
-            )
-        );
-        mobPanel.setLayout(new BoxLayout(mobPanel, BoxLayout.Y_AXIS));
-
-        if (id == 0) {
-            Loot loot = di.getLoot(id);
-            if (loot == null) return null;
-            sb.append("Unknown");
-        } else {
-            String str = IdToAsset.objectName(id);
-            if (str == null) return null;
-            sb.append(str).append(" : ").append(num);
-        }
-        try {
-            String mobName = sb.toString();
-            JLabel l;
-            if (id != 0) {
-                ImageIcon outlinedIcon = ImageBuffer.getOutlinedIcon(id, 40);
-                l = new JLabel(mobName, outlinedIcon, JLabel.LEFT);
-            } else {
-                l = new JLabel(mobName, JLabel.LEFT);
+        INSTANCE = this; setLayout(new BorderLayout(0, 8));
+        JPanel filters = StatsUi.controls(); filters.add(search); filters.add(activity);
+        activity.getAccessibleContext().setAccessibleName("Dungeon activity filter");
+        JButton reset = new JButton("Reset filters"); filters.add(reset);
+        add(StatsUi.stack(StatsUi.heading("Dungeon history", "Cumulative history saved on this device. Select a row for enemy and item details."),
+            StatsUi.metrics(metrics, "Dungeons shown", "Recorded visits", "Recorded time", "Observed items"), filters), BorderLayout.NORTH);
+        StatsUi.durationColumn(dungeonTable, 2); StatsUi.durationColumn(dungeonTable, 3);
+        dungeonTable.getColumnModel().getColumn(0).setPreferredWidth(260);
+        dungeonTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.DESCENDING)));
+        enemyTable.getColumnModel().getColumn(0).setMaxWidth(40); itemTable.getColumnModel().getColumn(0).setMaxWidth(40);
+        JPanel detailFilters = StatsUi.controls(); detailFilters.add(detailSearch);
+        JPanel dropper = new JPanel(new BorderLayout(6, 0)); JLabel dropperLabel = new JLabel("Dropper"); dropperLabel.setLabelFor(enemy);
+        dropper.add(dropperLabel, BorderLayout.WEST); dropper.add(enemy); detailFilters.add(dropper);
+        enemy.getAccessibleContext().setAccessibleName("Dungeon dropper filter");
+        enemy.setPrototypeDisplayValue("All enemies / unknown"); enemy.setName("dungeon-enemy-filter");
+        detailTitle.setFont(ContentStyle.emphasis(ContentStyle.body())); detailTitle.putClientProperty("html.disable", true);
+        JPanel detailToolbar = StatsUi.stack(detailTitle, detailFilters); detailToolbar.setVisible(false);
+        JTabbedPane tabs = new JTabbedPane(); tabs.setName("dungeon-views");
+        tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        tabs.addTab("Dungeons", StatsUi.tableScroll(dungeonTable));
+        tabs.addTab("Enemies", StatsUi.tableScroll(enemyTable)); tabs.addTab("Loot by source", StatsUi.tableScroll(itemTable));
+        tabs.addChangeListener(e -> { detailToolbar.setVisible(tabs.getSelectedIndex() > 0); revalidate(); });
+        dungeonTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && selected() != null) tabs.setSelectedIndex(1);
             }
-
-            l.setFont(mainFont);
-            l.setToolTipText(
-                "Total number of hits on mob type (not confirmed killed or soulbound)"
-            );
-            mobPanel.add(l);
-        } catch (Exception e) {
-            System.out.println(
-                "Entity id: " + id + " " + IdToAsset.tileName(id)
-            );
-            e.printStackTrace();
-        }
-
-        Loot loot = di.getLoot(id);
-        if (loot == null) return mobPanel;
-
-        ArrayList<JLabel> list = new ArrayList<>();
-        for (Map.Entry<Integer, Integer> e : loot.getItems().entrySet()) {
-            StringBuilder sb2 = new StringBuilder();
-            Integer idItem = e.getKey();
-            sb2
-                .append(IdToAsset.objectName(idItem))
-                .append(" : ")
-                .append(e.getValue())
-                .append("\n");
-            JLabel itemLabel = new JLabel(
-                sb2.toString(),
-                ImageBuffer.getOutlinedIcon(idItem, 16),
-                JLabel.LEFT
-            );
-            itemLabel.setFont(mainFont);
-            list.add(itemLabel);
-        }
-
-        list.sort(Comparator.comparing(JLabel::getText));
-        for (JLabel i : list) {
-            mobPanel.add(i);
-        }
-
-        return mobPanel;
+        });
+        JPanel content = new JPanel(new BorderLayout(0, 6));
+        content.add(detailToolbar, BorderLayout.NORTH); content.add(tabs, BorderLayout.CENTER); add(content, BorderLayout.CENTER);
+        JTextArea note = StatsUi.note("Select a dungeon, then open Enemies or Loot by source. Hit events are not kills. Items are observed drops. Visits/time finalize on exit.");
+        note.setToolTipText("Maps with no tracked activity may be absent. Hit events do not confirm soulbound credit. Historical dates and drop rates are not recorded.");
+        status.setFont(ContentStyle.metadata(ContentStyle.body()));
+        add(StatsUi.stack(status, note), BorderLayout.SOUTH);
+        StatsUi.onSearch(search, this::refreshRows); activity.addActionListener(e -> refreshRows());
+        StatsUi.onSearch(detailSearch, this::refreshDetails); enemy.addActionListener(e -> { if (!rebuilding) refreshDetails(); });
+        dungeonTable.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !rebuilding) selectDungeon(); });
+        reset.addActionListener(e -> { search.setText(""); activity.setSelectedIndex(0); detailSearch.setText(""); if (enemy.getItemCount() > 0) enemy.setSelectedIndex(0); });
+        refreshRows();
     }
+
+    @Override public void addNotify() { super.addNotify(); refreshTimer.start(); if (dirty) refreshData(); }
+    @Override public void removeNotify() { refreshTimer.stop(); super.removeNotify(); }
+
+    void refreshData() {
+        dirty = false;
+        if (source != null) snapshots = source.snapshot();
+        refreshRows();
+    }
+
+    private String selectedName() {
+        int row = dungeonTable.getSelectedRow(); return row < 0 ? null : (String)dungeonTable.getValueAt(row, 0);
+    }
+    private Snapshot selected() {
+        String name = selectedName();
+        for (Snapshot row : snapshots) if (Objects.equals(row.name, name)) return row;
+        return null;
+    }
+
+    private void refreshRows() {
+        String selection = selectedName(); rebuilding = true; dungeons.setRowCount(0);
+        long visits = 0, time = 0, loot = 0;
+        for (Snapshot row : snapshots) {
+            if (!StatsUi.matches(row.name, search.getText())) continue;
+            if (activity.getSelectedIndex() == 1 && row.itemCount() == 0) continue;
+            if (activity.getSelectedIndex() == 2 && row.visits == 0) continue;
+            dungeons.addRow(new Object[]{row.name, row.visits, row.time, row.visits == 0 ? null : row.time / row.visits, row.hitCount(), row.itemCount()});
+            visits += row.visits; time += row.time; loot += row.itemCount();
+        }
+        metrics[0].setText(Integer.toString(dungeons.getRowCount())); metrics[1].setText(Long.toString(visits));
+        metrics[2].setText(Formatters.formatDurationHMS(time)); metrics[3].setText(Long.toString(loot));
+        int choose = dungeonTable.getRowCount() > 0 ? 0 : -1;
+        for (int r = 0; r < dungeonTable.getRowCount(); r++) if (Objects.equals(selection, dungeonTable.getValueAt(r, 0))) choose = r;
+        if (choose >= 0) dungeonTable.setRowSelectionInterval(choose, choose);
+        rebuilding = false; selectDungeon();
+        status.setText(snapshots.isEmpty() ? "No dungeon history yet. Start capture and change instance."
+            : dungeons.getRowCount() + " of " + snapshots.size() + " dungeons shown · Click column headings to sort");
+    }
+
+    private void selectDungeon() {
+        Object previous = enemy.getSelectedItem(); rebuilding = true;
+        enemy.removeAllItems(); enemyIds.clear(); enemy.addItem("All enemies");
+        Snapshot row = selected();
+        if (row != null) {
+            Set<Integer> ids = new TreeSet<>(row.hits.keySet()); ids.addAll(row.loot.keySet());
+            for (int id : ids) { String label = name(id) + " (#" + id + ")"; enemyIds.put(label, id); enemy.addItem(label); }
+        }
+        if (enemyIds.containsKey(previous)) enemy.setSelectedItem(previous);
+        rebuilding = false; refreshDetails();
+    }
+
+    private void refreshDetails() {
+        enemies.setRowCount(0); items.setRowCount(0); Snapshot row = selected();
+        detailTitle.setText(row == null ? "No matching dungeon selected" : row.name + " · Enemy and loot breakdown");
+        if (row == null) return;
+        Integer selectedEnemy = enemyIds.get(enemy.getSelectedItem());
+        Set<Integer> ids = new TreeSet<>(row.hits.keySet()); ids.addAll(row.loot.keySet());
+        for (int id : ids) {
+            if (selectedEnemy != null && selectedEnemy != id) continue;
+            Map<Integer, Integer> drops = row.loot.getOrDefault(id, Collections.emptyMap());
+            String mob = name(id); boolean mobMatch = StatsUi.matches(mob, detailSearch.getText());
+            if (mobMatch) enemies.addRow(new Object[]{icon(id), mob, row.hits.getOrDefault(id, 0), drops.values().stream().mapToLong(Integer::longValue).sum()});
+            for (Map.Entry<Integer, Integer> item : drops.entrySet()) {
+                if (mobMatch || StatsUi.matches(name(item.getKey()), detailSearch.getText()))
+                    items.addRow(new Object[]{icon(item.getKey()), name(item.getKey()), item.getValue(), mob});
+            }
+        }
+    }
+
+    private static String name(int id) {
+        if (id == 0) return "Unknown source";
+        String name = IdToAsset.objectName(id); return name == null || name.isEmpty() ? "Object #" + id : name;
+    }
+    private static Icon icon(int id) { return id == 0 ? null : ImageBuffer.getOutlinedIcon(id, 24); }
 
     public static void update(DungeonStatData data, String dungeon) {
-        if (INSTANCE == null) return;
-        INSTANCE.dungeonStatData = data;
-        INSTANCE.updateRadioButtons();
-        if (
-            dungeon == null || dungeon.equals(INSTANCE.selectionName)
-        ) INSTANCE.updateGUI();
+        DungeonStats panel = INSTANCE;
+        if (panel != null) { panel.source = data; panel.dirty = true; }
     }
-
     public static void editFont(Font font) {
-        mainFont = font;
-        INSTANCE.updateGUI();
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> editFont(font)); return; }
+        if (INSTANCE != null) for (JTable table : new JTable[]{INSTANCE.dungeonTable, INSTANCE.enemyTable, INSTANCE.itemTable})
+            ContentStyle.tableFont(table, font, 0);
     }
 }

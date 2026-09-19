@@ -1,6 +1,7 @@
 package assets.resextractor;
 
 import assets.AssetExtractor;
+import realmshark.branding.AppIdentity;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -46,8 +47,11 @@ public class UnityExtractor {
             } catch (IOException e) {
                 String s = e.getMessage();
                 if (s.equals("The system cannot find the path specified")) {
-                    JOptionPane.showMessageDialog(null, "<html>Extraction access denied, failed to extract!<br/>Please move Tomato to a different folder,<br/>Windows is blocking access in current folder.</html>\"");
-                    System.exit(0);
+                    JOptionPane.showMessageDialog(null,
+                        "<html>Asset extraction access denied.<br/>Please move " + AppIdentity.NAME
+                            + " to a different folder.<br/>Windows is blocking access to the current folder.</html>",
+                        AppIdentity.NAME + " Asset Extraction", JOptionPane.ERROR_MESSAGE);
+                    AppIdentity.exit(0);
                 }
             }
         }

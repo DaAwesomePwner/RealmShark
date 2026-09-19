@@ -67,6 +67,12 @@ public class Register {
         packetListeners.computeIfAbsent(Packet.class, (a) -> new ArrayList<>()).add(processor);
     }
 
+    /** Number of explicitly registered consumers; all-packet subscribers are not included. */
+    public int directListenerCount(PacketType type) {
+        List<IPacketListener<Packet>> listeners = packetListeners.get(type.getPacketClass());
+        return listeners == null ? 0 : listeners.size();
+    }
+
     /**
      * Removes a registered method and stops the method receiving network packets.
      *

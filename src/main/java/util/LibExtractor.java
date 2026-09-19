@@ -25,8 +25,10 @@ public class LibExtractor {
             extract("jpcap-x64.jar");
         }
         if (extracted) {
-            JOptionPane.showMessageDialog(new JFrame(""), "Library files was extracted, RESTART.");
-            System.exit(0);
+            JFrame frame = new JFrame("");
+            realmshark.branding.AppIdentity.apply(frame);
+            JOptionPane.showMessageDialog(frame, "Library files was extracted, RESTART.");
+            realmshark.branding.AppIdentity.exit(0);
         }
     }
 

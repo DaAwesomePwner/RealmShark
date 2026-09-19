@@ -29,6 +29,7 @@ public class FameSessionViewer extends JFrame {
     private GraphPanel graphPanel;
 
     public FameSessionViewer(FameSession session) {
+        realmshark.branding.AppIdentity.apply(this);
         this.session = session;
         initializeUI();
         populateData();
@@ -383,11 +384,6 @@ public class FameSessionViewer extends JFrame {
      * Opens a file chooser to select and view a saved session.
      */
     public static void openSessionViewer() {
-        FameSession session = FameSessionManager.loadSession();
-        if (session != null) {
-            SwingUtilities.invokeLater(() -> {
-                new FameSessionViewer(session);
-            });
-        }
+        FameSessionManager.loadSessionAsync(null, FameSessionViewer::new);
     }
 }

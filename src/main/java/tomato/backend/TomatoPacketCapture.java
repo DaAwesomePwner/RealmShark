@@ -35,6 +35,7 @@ public class TomatoPacketCapture implements Controller {
         } else if (packet instanceof NewTickPacket) {
             NewTickPacket p = (NewTickPacket) packet;
             data.updateNewTick(p);
+            data.rememberCharacter();
             DpsGUI.updateNewTickPacket(data);
             data.logPacket(packet);
 
@@ -45,6 +46,7 @@ public class TomatoPacketCapture implements Controller {
         } else if (packet instanceof UpdatePacket) {
             UpdatePacket p = (UpdatePacket) packet;
             data.update(p);
+            data.rememberCharacter();
             data.logPacket(packet);
 
             // Update player crucible bonus from stat 155
@@ -84,6 +86,8 @@ public class TomatoPacketCapture implements Controller {
         } else if (packet instanceof GroundDamagePacket) {
             GroundDamagePacket p = (GroundDamagePacket) packet;
             data.groundDamage(p);
+        } else if (packet instanceof AccountListPacket) {
+            tomato.gui.chat.ChatGUI.observeAccountList((AccountListPacket) packet);
         } else if (packet instanceof TextPacket) {
             TextPacket p = (TextPacket) packet;
             data.text(p);
@@ -94,6 +98,7 @@ public class TomatoPacketCapture implements Controller {
         } else if (packet instanceof MapInfoPacket) {
             MapInfoPacket p = (MapInfoPacket) packet;
             data.setNewRealm(p);
+            DpsGUI.updateMapPacket(data);
             data.logPacket(packet);
             // Notify fame table panel about map change
             FameTablePanel.handleMapChange(p.displayName);
@@ -112,6 +117,7 @@ public class TomatoPacketCapture implements Controller {
             VaultContentPacket p = (VaultContentPacket) packet;
             data.vaultPacketUpdate(p);
         } else if (packet instanceof HelloPacket) {
+            tomato.gui.chat.ChatGUI.resetObservedIgnores();
             HelloPacket p = (HelloPacket) packet;
             data.updateToken(p.accessToken);
         } else if (packet instanceof QuestFetchResponsePacket) {
@@ -121,7 +127,7 @@ public class TomatoPacketCapture implements Controller {
             );
             TomatoGUI.updateQuests(list.toArray(QuestData[]::new));
         } else if (packet instanceof TradeRequestedPacket) {
-            if (Sound.playTradeSound) {
+            if (Sound.trade.isEnabled()) {
                 Sound.trade.play();
             }
         } else if (isCrucibleResponsePacket(packet)) {

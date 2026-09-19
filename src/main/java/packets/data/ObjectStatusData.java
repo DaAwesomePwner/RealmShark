@@ -26,14 +26,20 @@ public class ObjectStatusData implements Serializable {
      * @return Returns this object after deserializing.
      */
     public ObjectStatusData deserialize(BufferReader buffer) {
+        String path = buffer.field();
+        buffer.field(path + ".objectId");
         objectId = buffer.readCompressedInt();
+        buffer.field(path + ".position");
         pos = new WorldPosData().deserialize(buffer);
 
-        stats = new StatData[buffer.readCompressedInt()];
+        buffer.field(path + ".stats.length");
+        stats = new StatData[buffer.checkedCount(buffer.readCompressedInt(), 3)];
         for (int i = 0; i < stats.length; i++) {
+            buffer.field(path + ".stats[" + i + "]");
             stats[i] = new StatData().deserialize(buffer);
         }
 
+        buffer.field(path);
         return this;
     }
 

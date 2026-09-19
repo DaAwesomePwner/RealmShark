@@ -10,60 +10,19 @@ import tomato.backend.data.TomatoData;
  */
 public class CharacterPanelGUI extends JPanel {
 
-    // Flag to enable/disable the Characters tab functionality
-    private static final boolean ENABLED = false; // Set to true to re-enable
-
     static final int CHAR_PANEL_SIZE = 120;
 
     public CharacterPanelGUI(TomatoData data) {
         setLayout(new BorderLayout());
 
-        JPanel charListPanel = new CharacterListGUI(data);
-
-        JPanel mainMaxingPanel = new CharacterStatMaxingGUI(data);
-
-        CharacterExaltGUI exalts = new CharacterExaltGUI(data);
-
-        CharacterStatsGUI characterStatsGUI = new CharacterStatsGUI(data);
-
-        CharacterCollectionGUI characterCollectionGUI =
-            new CharacterCollectionGUI(data);
-
-        CharacterPetsGUI characterPetsGUI = new CharacterPetsGUI(data);
-
-        JTabbedPane tabbedPane = new JTabbedPane();
-        add(tabbedPane);
-        // tabbedPane.addTab("Characters", charListPanel);
-        // tabbedPane.addTab("Statistics", characterStatsGUI);
-        // tabbedPane.addTab("Collections", characterCollectionGUI);
-        tabbedPane.addTab("Exalts", exalts);
-        // tabbedPane.addTab("Stat Maxing", mainMaxingPanel);
-        tabbedPane.addTab("Pets", characterPetsGUI);
-
-        //        JButton button = new JButton("Test");
-        //        button.addActionListener(e -> {
-        //            try {
-        //                mainMaxingPanel.removeAll();
-        //                mainMaxingPanel.add(scrollPaneMaxing, BorderLayout.CENTER);
-        //                mainMaxingPanel.add(missingPotsPanel(), BorderLayout.NORTH);
-        //                mainMaxingPanel.revalidate();
-        //                java.io.InputStream is = Util.resourceFilePath("char");
-
-        //                java.io.InputStream is = CharacterStatsGUI.class.getClassLoader().getResourceAsStream("f");
-        //                String result = new java.io.BufferedReader(new java.io.InputStreamReader(is)).lines().collect(java.util.stream.Collectors.joining("\n"));
-        //                java.util.ArrayList<tomato.realmshark.RealmCharacter> l = tomato.realmshark.HttpCharListRequest.getCharList(result);
-        //                data.characterListUpdate(l);
-
-        //                chars = l;
-        //                updateCharPanel(chars);
-        //                updateMaxingPanel(l);
-        //            } catch (Exception ex) {
-        //                ex.printStackTrace();
-        //            }
-        //        });
-        //        add(button, BorderLayout.SOUTH);
+        CharacterJournalGUI journal = new CharacterJournalGUI(data.characterJournal());
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Roster", journal);
+        tabs.addTab("Exalts", journal.exaltPanel());
+        tabs.addTab("Pets", new CharacterPetsGUI(data));
+        tabs.addChangeListener(e -> journal.refresh());
+        add(tabs, BorderLayout.CENTER);
     }
-
     /**
      * Right mid larger box to fill with components.
      *
@@ -122,7 +81,6 @@ public class CharacterPanelGUI extends JPanel {
      * Vault update method called when receiving vault packets.
      */
     public static void vaultDataUpdate() {
-        if (!ENABLED) return; // Tab is disabled
         CharacterStatMaxingGUI.vaultDataUpdate();
     }
 
@@ -130,7 +88,6 @@ public class CharacterPanelGUI extends JPanel {
      * Method for receiving realm character list info.
      */
     public static void updateRealmChars() {
-        if (!ENABLED) return; // Tab is disabled
         CharacterListGUI.updateRealmChars();
         CharacterStatsGUI.updateRealmChars();
         CharacterExaltGUI.updateRealmChars();

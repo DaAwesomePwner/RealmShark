@@ -49,6 +49,8 @@ public class RealmCharacter {
     public String[] equipQS;
     public String date;
 
+    /** Bits for base stats actually present in a character-list response. */
+    public int capturedStatMask;
     public int hp;
     public int mp;
     public int atk;
@@ -151,6 +153,7 @@ public class RealmCharacter {
      * @return List of Character data parsed from the XML string.
      */
     public static ArrayList<RealmCharacter> getCharList(String r) {
+        if (r == null || r.trim().isEmpty()) return null;
 //        prettyXML(r);
 
         StringXML base;
@@ -200,27 +203,35 @@ public class RealmCharacter {
                                 break;
                             case "MaxHitPoints":
                                 character.hp = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 1;
                                 break;
                             case "MaxMagicPoints":
                                 character.mp = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 2;
                                 break;
                             case "Attack":
                                 character.atk = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 4;
                                 break;
                             case "Defense":
                                 character.def = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 8;
                                 break;
                             case "Speed":
                                 character.spd = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 16;
                                 break;
                             case "Dexterity":
                                 character.dex = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 32;
                                 break;
                             case "HpRegen":
                                 character.vit = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 64;
                                 break;
                             case "MpRegen":
                                 character.wis = Integer.parseInt(v.value);
+                                character.capturedStatMask |= 128;
                                 break;
                             case "Seasonal":
                                 character.seasonal = v.value.equals("True");
@@ -326,6 +337,7 @@ public class RealmCharacter {
     }
 
     public static boolean checkExaltNew(String r) {
+        if (r == null || r.trim().isEmpty()) return false;
         StringXML base;
 
         try {
@@ -334,6 +346,7 @@ public class RealmCharacter {
             e.printStackTrace();
             return false;
         }
+        if (!Objects.equals(base.name, "AccountPowerups")) return false;
         if (Objects.equals(base.name, "AccountPowerups")) {
             for (StringXML info : base) {
                 if (Objects.equals(info.name, "ClassPowerup")) {

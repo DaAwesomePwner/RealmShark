@@ -1,0 +1,2 @@
+// Isolate validation output from older or running Windows build artifacts.
+allprojects { buildDir = file("build/statistics-validation") }

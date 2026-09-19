@@ -1,0 +1,2 @@
+// Keep chat validation and packaging independent of running builds.
+allprojects { buildDir = file("build/chat-validation") }

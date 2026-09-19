@@ -1,7 +1,7 @@
 package packets.incoming;
 
 import packets.Packet;
-import packets.data.enums.PartyActionType;
+import packets.data.enums.PartyActionResultType;
 import packets.reader.BufferReader;
 
 /**
@@ -10,12 +10,12 @@ import packets.reader.BufferReader;
 public class PartyActionResultPacket extends Packet {
 
     public int playerId;
-    public PartyActionType actionId;
+    public PartyActionResultType actionId;
 
     @Override
     public void deserialize(BufferReader buffer) throws Exception {
         playerId = buffer.readShort();
-        actionId = PartyActionType.byOrdinal(buffer.readByte());
+        actionId = PartyActionResultType.byOrdinal(buffer.readByte());
     }
 
     @Override

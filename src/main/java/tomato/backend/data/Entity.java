@@ -20,6 +20,44 @@ import tomato.realmshark.RealmCharacter;
 import tomato.realmshark.enums.CharacterClass;
 
 public class Entity implements Serializable {
+    // Preserve existing .dps recordings when adding display snapshot helpers.
+    private static final long serialVersionUID = -4686692941424283051L;
+
+    Entity copyForDisplay(IdentityHashMap<Entity, Entity> copies) {
+        Entity existing = copies.get(this);
+        if (existing != null) return existing;
+        Entity copy = new Entity(null, id, creationTime);
+        copies.put(this, copy);
+        copy.objectType=objectType; copy.name=name; copy.isUser=isUser; copy.isPlayer=isPlayer;
+        copy.firstDamageTaken=firstDamageTaken; copy.lastDamageTaken=lastDamageTaken;
+        copy.charId=charId; copy.stasisCounter=stasisCounter; copy.dammahCountered=dammahCountered;
+        copy.baseStats=baseStats==null?null:baseStats.clone();
+        for (int i=0;i<stat.stats.length;i++) {
+            StatData value=stat.stats[i]; if(value==null) continue;
+            StatData detached=new StatData(); detached.statTypeNum=value.statTypeNum; detached.statType=value.statType;
+            detached.statValue=value.statValue; detached.statValueTwo=value.statValueTwo; detached.stringStatValue=value.stringStatValue;
+            copy.stat.stats[i]=detached;
+        }
+        // Decoded status records are append-only; the containing lists must be detached.
+        copy.statUpdates.addAll(statUpdates);
+        playerDropped.forEach((id,p)->copy.playerDropped.put(id,new PlayerRemoved(p.dropId,p.hp,p.max,p.name,p.time)));
+        for(Damage hit:damageList) copy.damageList.add(copyDamage(hit,copies));
+        damagePlayer.forEach((id,hit)->copy.damagePlayer.put(id,copyDamage(hit,copies)));
+        return copy;
+    }
+
+    private static Damage copyDamage(Damage source, IdentityHashMap<Entity,Entity> copies) {
+        Damage hit=new Damage(null,source.time,source.damage);
+        hit.owner=source.owner==null?null:source.owner.copyForDisplay(copies);
+        hit.ownerObjectType=source.ownerObjectType; hit.ownerObjectName=source.ownerObjectName;
+        hit.ownerInvntory=source.ownerInvntory==null?null:source.ownerInvntory.clone();
+        hit.ownerEnchants=source.ownerEnchants==null?null:source.ownerEnchants.clone();
+        hit.ownerScalingStatType=source.ownerScalingStatType; hit.ownerScalingStatValue=source.ownerScalingStatValue;
+        hit.projectile=source.projectile==null?null:new Projectile(source.projectile);
+        hit.counterDmg=source.counterDmg; hit.counterHits=source.counterHits;
+        hit.oryx3GuardDmg=source.oryx3GuardDmg; hit.chancellorDammahDmg=source.chancellorDammahDmg; hit.walledGardenReflectors=source.walledGardenReflectors;
+        return hit;
+    }
 
     // Track players with SlotType 18 abilities for DamagePacket invulnerability bypass
     private static final HashMap<Integer, Long> slotType18AbilityUsers =
@@ -593,33 +631,15 @@ public void genericDamageHit(
     }
 
     private int[] calculateBaseStats() {
+        StatType[] values = {StatType.MAX_HP_STAT, StatType.MAX_MP_STAT, StatType.ATTACK_STAT,
+            StatType.DEFENSE_STAT, StatType.SPEED_STAT, StatType.DEXTERITY_STAT, StatType.VITALITY_STAT, StatType.WISDOM_STAT};
+        StatType[] boosts = {StatType.MAX_HP_BOOST_STAT, StatType.MAX_MP_BOOST_STAT, StatType.ATTACK_BOOST_STAT,
+            StatType.DEFENSE_BOOST_STAT, StatType.SPEED_BOOST_STAT, StatType.DEXTERITY_BOOST_STAT, StatType.VITALITY_BOOST_STAT, StatType.WISDOM_BOOST_STAT};
         int[] base = new int[8];
-
-        base[0] =
-            stat.get(StatType.MAX_HP_STAT).statValue -
-            stat.get(StatType.MAX_HP_BOOST_STAT).statValue;
-        base[1] =
-            stat.get(StatType.MAX_MP_STAT).statValue -
-            stat.get(StatType.MAX_MP_BOOST_STAT).statValue;
-        base[2] =
-            stat.get(StatType.ATTACK_STAT).statValue -
-            stat.get(StatType.ATTACK_BOOST_STAT).statValue;
-        base[3] =
-            stat.get(StatType.DEFENSE_STAT).statValue -
-            stat.get(StatType.DEFENSE_BOOST_STAT).statValue;
-        base[4] =
-            stat.get(StatType.SPEED_STAT).statValue -
-            stat.get(StatType.SPEED_BOOST_STAT).statValue;
-        base[5] =
-            stat.get(StatType.DEXTERITY_STAT).statValue -
-            stat.get(StatType.DEXTERITY_BOOST_STAT).statValue;
-        base[6] =
-            stat.get(StatType.VITALITY_STAT).statValue -
-            stat.get(StatType.VITALITY_BOOST_STAT).statValue;
-        base[7] =
-            stat.get(StatType.WISDOM_STAT).statValue -
-            stat.get(StatType.WISDOM_BOOST_STAT).statValue;
-
+        for (int i = 0; i < 8; i++) {
+            StatData value = stat.get(values[i]), boost = stat.get(boosts[i]);
+            base[i] = value == null || boost == null ? -1 : value.statValue - boost.statValue;
+        }
         return base;
     }
 
@@ -629,7 +649,11 @@ public void genericDamageHit(
      * @param time
      */
     private void fame(long time) {
-        long exp = Long.parseLong(stat.get(StatType.EXP_STAT).stringStatValue);
+        StatData experience = stat.get(StatType.EXP_STAT);
+        if (experience == null || experience.stringStatValue == null) return;
+        long exp;
+        try { exp = Long.parseLong(experience.stringStatValue); }
+        catch (NumberFormatException e) { return; }
         FameTracker.trackFame(charId, exp, time);
         long fame = (exp + 40071) / 2000;
         if (tomatoData.charMap != null) {
@@ -664,33 +688,47 @@ public void genericDamageHit(
 
         if (r == null) return;
 
-        if (r.hp != stats[0]) {
-            r.hp = stats[0];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.mp != stats[1]) {
-            r.mp = stats[1];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.atk != stats[2]) {
-            r.atk = stats[2];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.def != stats[3]) {
-            r.def = stats[3];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.spd != stats[4]) {
-            r.spd = stats[4];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.dex != stats[5]) {
-            r.dex = stats[5];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.vit != stats[6]) {
-            r.vit = stats[6];
-            CharacterStatMaxingGUI.updateRealmChars();
-        } else if (r.wis != stats[7]) {
-            r.wis = stats[7];
-            CharacterStatMaxingGUI.updateRealmChars();
-        }
+        if (stats[0] >= 0) r.hp = stats[0];
+        if (stats[1] >= 0) r.mp = stats[1];
+        if (stats[2] >= 0) r.atk = stats[2];
+        if (stats[3] >= 0) r.def = stats[3];
+        if (stats[4] >= 0) r.spd = stats[4];
+        if (stats[5] >= 0) r.dex = stats[5];
+        if (stats[6] >= 0) r.vit = stats[6];
+        if (stats[7] >= 0) r.wis = stats[7];
     }
 
+    /** Apply only actually captured values over a delayed HTTP roster, on the capture thread. */
+    void overlayCapturedCharacter(RealmCharacter character) {
+        int[] values = calculateBaseStats();
+        if (values[0] >= 0) character.hp = values[0];
+        if (values[1] >= 0) character.mp = values[1];
+        if (values[2] >= 0) character.atk = values[2];
+        if (values[3] >= 0) character.def = values[3];
+        if (values[4] >= 0) character.spd = values[4];
+        if (values[5] >= 0) character.dex = values[5];
+        if (values[6] >= 0) character.vit = values[6];
+        if (values[7] >= 0) character.wis = values[7];
+        for (int i = 0; i < 8; i++) if (values[i] >= 0) character.capturedStatMask |= 1 << i;
+        StatData fame = stat.get(StatType.CURR_FAME_STAT), level = stat.get(StatType.LEVEL_STAT);
+        if (fame != null) character.fame = fame.statValue;
+        StatData experience = stat.get(StatType.EXP_STAT);
+        if (experience != null && experience.stringStatValue != null) {
+            try {
+                character.exp = Long.parseLong(experience.stringStatValue);
+                character.fame = (character.exp + 40071) / 2000;
+            } catch (NumberFormatException ignored) { }
+        }
+        if (level != null) character.level = level.statValue;
+        if (character.equipment != null) {
+            for (int i = 0; i < Math.min(28, character.equipment.length); i++) {
+                StatData item = stat.get(i < 12 ? 8 + i : 131 + i - 12);
+                if (item != null) character.equipment[i] = item.statValue;
+            }
+        }
+        if (tomatoData != null && tomatoData.getCurrentDungeonStats() != null)
+            character.updateCharStats(tomatoData.getCurrentDungeonStats());
+    }
     public void addPlayerDrop(int dropId, long time) {
         int hp = hp();
         int max = maxHp();

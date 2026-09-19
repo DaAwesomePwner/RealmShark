@@ -29,6 +29,7 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.ErrorHandler;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
+import realmshark.branding.AppIdentity;
 import realmshark.version.Version;
 import util.PropertiesManager;
 import util.Util;
@@ -79,6 +80,7 @@ public class AssetExtractor {
     }
 
     public static void main(String[] args) throws Throwable {
+        AppIdentity.initialize();
         //        checkForExtraction(Version.VERSION);
         pane = new JOptionPane();
         extractAssetsFromXML();
@@ -116,14 +118,15 @@ public class AssetExtractor {
      */
     private static void assetExtractionWindow(String lastModifiedTime)
         throws Throwable {
-        JFrame frame = new JFrame("Realm Shark Asset Extractor");
+        JFrame frame = new JFrame(AppIdentity.NAME + " Asset Extractor");
+        AppIdentity.apply(frame);
         frame.setResizable(false);
         frame.setVisible(true);
         Object[] options = { "Extract", "Ignore" };
         int n = JOptionPane.showOptionDialog(
             frame,
-            "New update available\n" + "Assets are needed for some features?",
-            "Asset Extractor",
+            "Game assets need to be extracted for some " + AppIdentity.NAME + " features.\nExtract them now?",
+            AppIdentity.NAME + " Asset Extractor",
             JOptionPane.YES_NO_CANCEL_OPTION,
             JOptionPane.QUESTION_MESSAGE,
             null, //do not use a custom Icon
@@ -247,7 +250,8 @@ public class AssetExtractor {
             new JButton[] { ok },
             ok
         );
-        JDialog dialog = pane.createDialog(frame, "Extracting");
+        JDialog dialog = pane.createDialog(frame, AppIdentity.NAME + " Asset Extraction");
+        AppIdentity.apply(dialog);
         dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
 
         Thread extractThread = new Thread(() -> {
@@ -277,9 +281,12 @@ public class AssetExtractor {
         if (throwable instanceof AccessDeniedException) {
             JOptionPane.showMessageDialog(
                 pane,
-                "<html>Extraction access denied, failed to extract!<br/>Please move Tomato to a different folder,<br/>Windows is blocking access in current folder.</html>\""
+                "<html>Asset extraction access denied.<br/>Please move " + AppIdentity.NAME
+                    + " to a different folder.<br/>Windows is blocking access to the current folder.</html>",
+                AppIdentity.NAME + " Asset Extraction",
+                JOptionPane.ERROR_MESSAGE
             );
-            System.exit(0);
+            AppIdentity.exit(0);
         }
         throw throwable;
     }

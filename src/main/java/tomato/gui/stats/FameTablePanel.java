@@ -1,945 +1,234 @@
 package tomato.gui.stats;
 
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
 import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.TomatoData;
+import tomato.gui.modern.ContentStyle;
 import tomato.gui.stats.data.MapFameData;
 import tomato.gui.stats.session.FameSessionViewer;
 import tomato.realmshark.RealmCharacter;
 
-/**
- * Panel displaying fame tracking data for all characters in a table format.
- * Tracks fame per character, session gains, and map-specific fame data.
- */
+/** Session fame and map visits. All mutable tracking state belongs to the EDT. */
 public class FameTablePanel extends JPanel {
-
     private static FameTablePanel INSTANCE;
-
-    // Table components
-    private final JTable fameTable;
-    private final DefaultTableModel tableModel;
-    private final JLabel infoLabel;
-
-    // Data storage
+    private final TomatoData tomatoData;
     private final HashMap<Integer, ArrayList<Fame>> fameData = new HashMap<>();
     private final HashMap<Integer, Fame> lastFameEntries = new HashMap<>();
     private final HashMap<Integer, Double> sessionStartFame = new HashMap<>();
-    private final HashMap<Integer, Long> sessionStartTime = new HashMap<>();
-    private final HashMap<Integer, String> characterClassNames =
-        new HashMap<>();
-
-    // Map fame tracking
-    private final HashMap<Integer, ArrayList<MapFameData>> mapFameData =
-        new HashMap<>();
-    private final HashMap<Integer, MapFameData> currentMapData =
-        new HashMap<>();
-    private final HashMap<String, Boolean> dungeonFilterState = new HashMap<>();
-    private String currentMapName = "";
-
-    // Active map fame dialog for real-time updates
-    private JDialog activeMapFameDialog = null;
-    private DefaultTableModel activeMapFameModel = null;
-    private int activeMapFameCharId = -1;
-    private Timer mapFameRefreshTimer = null;
-
-    // Character tracking
-    private final TomatoData tomatoData;
+    private final HashMap<Integer, Long> observedTime = new HashMap<>();
+    private final HashMap<Integer, String> characterClassNames = new HashMap<>();
+    private final HashMap<Integer, ArrayList<MapFameData>> mapFameData = new HashMap<>();
+    private final HashMap<Integer, MapFameData> currentMapData = new HashMap<>();
     private int currentCharacterId = -1;
-
-    private static final String[] COLUMN_NAMES = {
-        "Character",
-        "Initial Fame",
-        "Current Fame",
-        "Fame/Hour",
-        "Session Gain",
-    };
+    private String currentMapName = "";
+    private int transitionCharacterId = -1;
+    private long transitionTime;
+    private double transitionFame;
+    private final JTextField search = StatsUi.search("fame-search", "Search class or character ID", 22);
+    private final JComboBox<String> activity = new JComboBox<>(new String[]{"All characters", "Current character", "With session gain"});
+    private final JTextField mapSearch = StatsUi.search("fame-map-search", "Search maps", 19);
+    private final JComboBox<String> mapView = new JComboBox<>(new String[]{"Group by map", "Individual visits"});
+    private final JCheckBox gainedOnly = new JCheckBox("With fame gain");
+    private final JLabel[] metrics = new JLabel[4];
+    private final JLabel status = new JLabel();
+    private final JLabel mapStatus = new JLabel();
+    private final JLabel saveStatus = new JLabel("Sessions save automatically on map changes.");
+    private final DefaultTableModel tableModel = StatsUi.model(
+        new String[]{"Character", "Status", "Initial fame", "Current fame", "Session gain", "Observed time", "Fame / hour"},
+        String.class, String.class, Double.class, Double.class, Double.class, Long.class, Double.class);
+    private final DefaultTableModel mapModel = StatsUi.model(
+        new String[]{"Map", "Character / scope", "Visits", "Observed time", "Fame gained", "Fame / hour", "State", "Entered"},
+        String.class, String.class, Integer.class, Long.class, Double.class, Double.class, String.class, String.class);
+    private final JTable fameTable = StatsUi.table(tableModel, "fame-characters");
+    private final JTable mapTable = StatsUi.table(mapModel, "fame-maps");
+    private final JTabbedPane views = new JTabbedPane();
 
     public FameTablePanel(TomatoData tomatoData) {
-        INSTANCE = this;
-        this.tomatoData = tomatoData;
-        setLayout(new BorderLayout());
-
-        tableModel = createTableModel();
-        fameTable = createTable();
-        infoLabel = new JLabel(
-            "Enter Daily Quest Room to load char data | Fame tracking active"
-        );
-        infoLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        add(new JScrollPane(fameTable), BorderLayout.CENTER);
-        add(createBottomPanel(), BorderLayout.SOUTH);
+        INSTANCE = this; this.tomatoData = tomatoData;
+        setLayout(new BorderLayout(0, 8));
+        JPanel filters = StatsUi.controls(); filters.add(search); filters.add(activity);
+        JButton reset = new JButton("Reset filters"); filters.add(reset);
+        JPanel heading = new JPanel(new BorderLayout(8, 0));
+        heading.add(StatsUi.heading("Fame explorer", "Compare characters and inspect where their session fame was earned."), BorderLayout.CENTER);
+        JButton sessions = new JButton("Sessions"); JPanel sessionControls = StatsUi.controls(); sessionControls.add(sessions);
+        heading.add(sessionControls, BorderLayout.EAST);
+        add(StatsUi.stack(heading,
+            StatsUi.metrics(metrics, "Characters shown", "Session fame gained", "Observed time", "Fame / hour"), filters), BorderLayout.NORTH);
+        StatsUi.durationColumn(fameTable, 5); StatsUi.durationColumn(mapTable, 3);
+        fameTable.getColumnModel().getColumn(0).setPreferredWidth(220);
+        mapTable.getColumnModel().getColumn(0).setPreferredWidth(200);
+        fameTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING)));
+        mapTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING)));
+        views.addTab("Characters", StatsUi.tableScroll(fameTable));
+        JPanel maps = new JPanel(new BorderLayout(0, 8));
+        JPanel mapFilters = StatsUi.controls(); mapFilters.add(mapSearch); mapFilters.add(mapView); mapFilters.add(gainedOnly);
+        maps.add(StatsUi.stack(mapFilters), BorderLayout.NORTH); maps.add(StatsUi.tableScroll(mapTable), BorderLayout.CENTER); maps.add(mapStatus, BorderLayout.SOUTH);
+        views.addTab("Map breakdown", maps); add(views, BorderLayout.CENTER);
+        JPopupMenu actions = new JPopupMenu();
+        JMenuItem newSession = new JMenuItem("New Session"); newSession.setToolTipText("Start fresh tracking. Shift+click deletes the current session file.");
+        newSession.addActionListener(e -> resetSessions((e.getModifiers() & java.awt.event.ActionEvent.SHIFT_MASK) != 0));
+        JMenuItem saved = new JMenuItem("View Saved Sessions"); saved.addActionListener(e -> FameSessionViewer.openSessionViewer());
+        JMenuItem mapButton = new JMenuItem("Show Map Fame"); mapButton.addActionListener(e -> views.setSelectedIndex(1));
+        actions.add(newSession); actions.add(saved); actions.add(mapButton);
+        sessions.addActionListener(e -> actions.show(sessions, 0, sessions.getHeight()));
+        views.addChangeListener(e -> status.setVisible(views.getSelectedIndex() == 0));
+        saveStatus.setName("fame-table-save-status");
+        for (JLabel label : new JLabel[]{status, mapStatus, saveStatus}) label.setFont(ContentStyle.metadata(ContentStyle.body()));
+        add(StatsUi.stack(status, saveStatus, StatsUi.note("Session scope · Rates use observed sample time, excluding other characters. Map filters affect the breakdown only. Open visits stop at the latest sample.")), BorderLayout.SOUTH);
+        StatsUi.onSearch(search, this::refresh); StatsUi.onSearch(mapSearch, this::refreshMaps);
+        activity.addActionListener(e -> refresh()); mapView.addActionListener(e -> refreshMaps()); gainedOnly.addActionListener(e -> refreshMaps());
+        reset.addActionListener(e -> { search.setText(""); activity.setSelectedIndex(0); resetDungeonFilters(); });
+        refresh();
     }
 
-    // --- Factory Methods ---
-
-    private DefaultTableModel createTableModel() {
-        return new DefaultTableModel(COLUMN_NAMES, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-    }
-
-    private JTable createTable() {
-        JTable table = new JTable(tableModel);
-        table.setAutoCreateRowSorter(false);
-        table.getTableHeader().setReorderingAllowed(false);
-        table.getTableHeader().addMouseListener(new TableSortHandler());
-
-        // Column widths
-        int[] widths = { 80, 100, 100, 80, 100 };
-        for (int i = 0; i < widths.length; i++) {
-            table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
-        }
-
-        // Fame/Hour tooltip renderer
-        table
-            .getColumnModel()
-            .getColumn(3)
-            .setCellRenderer(new FamePerHourRenderer());
-        return table;
-    }
-
-    private JPanel createBottomPanel() {
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
-        buttonPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        JButton newSessionBtn = new JButton("New Session");
-        newSessionBtn.setToolTipText(
-            "Start fresh session. Shift+Click to delete current file."
-        );
-        newSessionBtn.addMouseListener(
-            new java.awt.event.MouseAdapter() {
-                @Override
-                public void mouseClicked(java.awt.event.MouseEvent e) {
-                    handleNewSession(e.isShiftDown());
-                }
-            }
-        );
-
-        JButton mapFameBtn = new JButton("Show Map Fame");
-        mapFameBtn.addActionListener(e -> showMapFameTable());
-
-        JButton viewSessionsBtn = new JButton("View Saved Sessions");
-        viewSessionsBtn.addActionListener(e ->
-            FameSessionViewer.openSessionViewer()
-        );
-
-        buttonPanel.add(newSessionBtn);
-        buttonPanel.add(mapFameBtn);
-        buttonPanel.add(viewSessionsBtn);
-
-        JPanel southPanel = new JPanel(new BorderLayout());
-        southPanel.add(buttonPanel, BorderLayout.NORTH);
-        southPanel.add(infoLabel, BorderLayout.SOUTH);
-        return southPanel;
-    }
-
-    // --- Public API ---
-
-    public static FameTablePanel getInstance() {
-        return INSTANCE;
-    }
-
-    public static void updateRealmChars() {
-        if (INSTANCE != null) {
-            INSTANCE.populateFromCharacterData();
-        }
-    }
-
-    public static void handleMapChange(String newMapName) {
-        if (INSTANCE != null) {
-            INSTANCE.onMapChange(newMapName);
-        }
-    }
+    public static FameTablePanel getInstance() { return INSTANCE; }
+    void setSessionSaveStatus(String text) { saveStatus.setText(text); }
+    private static void onEdt(Runnable action) { if (SwingUtilities.isEventDispatchThread()) action.run(); else SwingUtilities.invokeLater(action); }
+    public static void updateRealmChars() { if (INSTANCE != null) onEdt(INSTANCE::populateFromCharacterData); }
+    public static void handleMapChange(String name) { if (INSTANCE != null) INSTANCE.onMapChange(name); }
 
     public void updateFame(int charId, long fame, long time, String className) {
-        SwingUtilities.invokeLater(() -> {
-            handleCharacterChange(charId);
-
-            if (!className.isEmpty()) {
-                characterClassNames.put(charId, className);
+        onEdt(() -> {
+            if (className != null && !className.isEmpty()) characterClassNames.put(charId, className);
+            Fame previous = lastFameEntries.get(charId);
+            if (previous != null && time < previous.getTime()) return;
+            boolean sameCharacter = currentCharacterId == charId;
+            if (!sameCharacter) {
+                // A previous character's last sample is the last point we can attribute to it.
+                finishMap(currentCharacterId);
+                currentCharacterId = charId;
             }
-
-            fameData
-                .computeIfAbsent(charId, id -> new ArrayList<>())
-                .add(new Fame(fame, time));
-
-            Fame lastEntry = lastFameEntries.get(charId);
-            if (lastEntry == null) {
-                addCharacterRow(charId, fame, time, className);
-            } else {
-                updateCharacterRow(charId, fame, time, lastEntry, className);
-            }
+            if (!sessionStartFame.containsKey(charId)) sessionStartFame.put(charId, (double)fame);
+            if (sameCharacter && previous != null) observedTime.merge(charId, Math.max(0, time - previous.getTime()), Long::sum);
+            ArrayList<Fame> samples = fameData.computeIfAbsent(charId, id -> new ArrayList<>());
+            if (previous == null || fame != previous.getFame() || time != previous.getTime()) samples.add(new Fame(fame, time));
             lastFameEntries.put(charId, new Fame(fame, time));
-
-            ensureCurrentCharacterAtTop();
+            MapFameData map = currentMapData.get(charId);
+            if (map == null && !currentMapName.isEmpty()) {
+                boolean knownBaseline = transitionCharacterId == charId && transitionTime <= time;
+                map = new MapFameData(currentMapName, knownBaseline ? transitionTime : time, knownBaseline ? transitionFame : fame);
+                currentMapData.put(charId, map); transitionCharacterId = -1;
+            }
+            if (map != null) { map.endTime = Math.max(map.startTime, time); map.endFame = fame; }
+            refresh();
         });
     }
 
-    public void onMapChange(String newMapName) {
-        if (newMapName == null || newMapName.equals(currentMapName)) return;
-
-        currentMapName = newMapName;
-        long now = System.currentTimeMillis();
-
-        for (Integer charId : lastFameEntries.keySet()) {
-            Fame lastFame = lastFameEntries.get(charId);
-            if (lastFame != null) {
-                updateMapFameTracking(
-                    charId,
-                    newMapName,
-                    lastFame.getFame(),
-                    now
-                );
-            }
-        }
-        triggerMapChangeAutoSave();
+    public void onMapChange(String name) { onMapChange(name, System.currentTimeMillis()); }
+    void onMapChange(String name, long time) {
+        if (name == null) return;
+        onEdt(() -> {
+            MapFameData current = currentMapData.get(currentCharacterId);
+            if (current != null) current.endTime = Math.max(current.endTime, time);
+            finishMap(currentCharacterId);
+            currentMapName = name;
+            Fame baseline = lastFameEntries.get(currentCharacterId);
+            transitionCharacterId = baseline == null ? -1 : currentCharacterId;
+            transitionTime = time; transitionFame = baseline == null ? 0 : baseline.getFame();
+            // Wait for the first character sample; a map change can accompany a character switch.
+            refreshMaps();
+            FameTableBridge.getInstance().triggerMapChangeAutoSave();
+        });
     }
-
+    private void finishMap(int id) {
+        MapFameData previous = currentMapData.remove(id);
+        if (previous != null) mapFameData.computeIfAbsent(id, key -> new ArrayList<>()).add(previous);
+    }
     public void checkForCharacterChange() {
-        SwingUtilities.invokeLater(() -> {
-            if (tomatoData != null && tomatoData.getCharId() != -1) {
-                handleCharacterChange(tomatoData.getCharId());
-                ensureCurrentCharacterAtTop();
+        onEdt(() -> {
+            if (tomatoData != null && tomatoData.getCharId() != -1 && currentCharacterId != tomatoData.getCharId()) {
+                finishMap(currentCharacterId); currentCharacterId = -1; refresh();
             }
         });
-    }
-
-    // --- Getters ---
-
-    public ArrayList<Fame> getFameData(int charId) {
-        return fameData.get(charId);
-    }
-
-    public Double getCurrentFame(int charId) {
-        Fame lastEntry = lastFameEntries.get(charId);
-        return lastEntry != null ? lastEntry.getFame() : null;
-    }
-
-    public String getClassNameForCharacterId(int charId) {
-        return characterClassNames.getOrDefault(charId, "Char " + charId);
-    }
-
-    public HashMap<Integer, ArrayList<MapFameData>> getMapFameData() {
-        return mapFameData;
-    }
-
-    public void setMapFameData(HashMap<Integer, ArrayList<MapFameData>> data) {
-        mapFameData.clear();
-        mapFameData.putAll(data);
-    }
-
-    public HashMap<Integer, MapFameData> getCurrentMapData() {
-        return currentMapData;
-    }
-
-    public void setCurrentMapData(HashMap<Integer, MapFameData> data) {
-        currentMapData.clear();
-        currentMapData.putAll(data);
-    }
-
-    public void resetDungeonFilters() {
-        dungeonFilterState.clear();
-    }
-
-    // --- Character Management ---
-
-    private void handleCharacterChange(int newCharId) {
-        if (newCharId != currentCharacterId && currentCharacterId != -1) {
-            resetFamePerHourForInactiveCharacters();
-        }
-        currentCharacterId = newCharId;
     }
 
     private void populateFromCharacterData() {
-        if (
-            tomatoData == null ||
-            tomatoData.chars == null ||
-            tomatoData.chars.isEmpty()
-        ) {
-            return;
+        if (tomatoData == null || tomatoData.chars == null) return;
+        for (RealmCharacter character : tomatoData.chars) {
+            if (character.charId == 0 || character.classString == null) continue;
+            characterClassNames.put(character.charId, character.classString);
+            // Account inventory is a display baseline, not an observed live sample.
+            sessionStartFame.putIfAbsent(character.charId, (double)character.fame);
         }
-
-        SwingUtilities.invokeLater(() -> {
-            infoLabel.setText(
-                "Fame tracking - updates automatically when fame changes"
-            );
-
-            for (RealmCharacter character : tomatoData.chars) {
-                if (
-                    character.charId == 0 || character.classString == null
-                ) continue;
-                // Check if this specific charId already has a row (not just class name)
-                if (findRowByCharId(character.charId) >= 0) continue;
-
-                // Store class name first so getDisplayName can use it
-                characterClassNames.put(
-                    character.charId,
-                    character.classString
-                );
-
-                String displayName = getDisplayName(character.charId);
-                Object[] rowData = {
-                    displayName,
-                    Formatters.formatNumberExact(character.fame),
-                    Formatters.formatNumberExact(character.fame),
-                    Formatters.formatFamePerHour(0),
-                    "0.00",
-                };
-                tableModel.addRow(rowData);
-
-                sessionStartFame.put(character.charId, (double) character.fame);
-                sessionStartTime.put(
-                    character.charId,
-                    System.currentTimeMillis()
-                );
-                lastFameEntries.put(
-                    character.charId,
-                    new Fame(character.fame, System.currentTimeMillis())
-                );
-            }
-
-            if (tomatoData.getCharId() != -1) {
-                handleCharacterChange(tomatoData.getCharId());
-                ensureCurrentCharacterAtTop();
-            }
-        });
+        refresh();
     }
-
-    private void addCharacterRow(
-        int charId,
-        long fame,
-        long time,
-        String className
-    ) {
-        // Store class name first so getDisplayName can use it
-        if (!className.isEmpty()) {
-            characterClassNames.put(charId, className);
-        }
-        String displayName = getDisplayName(charId);
-
-        tableModel.addRow(
-            new Object[] {
-                displayName,
-                Formatters.formatNumberExact(fame),
-                Formatters.formatNumberExact(fame),
-                Formatters.formatFamePerHour(0),
-                "0.00",
-            }
-        );
-
-        sessionStartFame.put(charId, (double) fame);
-        sessionStartTime.put(charId, time);
+    private String displayName(int id) { return getClassNameForCharacterId(id) + " (#" + id + ")"; }
+    private double gain(int id) {
+        Fame last = lastFameEntries.get(id);
+        return last == null ? 0 : last.getFame() - sessionStartFame.getOrDefault(id, last.getFame());
     }
-
-    private void updateCharacterRow(
-        int charId,
-        long fame,
-        long time,
-        Fame lastEntry,
-        String className
-    ) {
-        int row = findRowByCharId(charId);
-        if (row < 0) return;
-
-        // Calculate session-based fame per hour
-        Long sessionStart = sessionStartTime.get(charId);
-        double sessionFamePerHour = 0;
-        if (sessionStart != null && time > sessionStart) {
-            double hours = (time - sessionStart) / 3600000.0;
-            double gain = fame - getSessionStartFame(charId);
-            sessionFamePerHour = hours > 0 ? gain / hours : 0;
-        }
-
-        double sessionGain = fame - getSessionStartFame(charId);
-
-        tableModel.setValueAt(Formatters.formatNumberExact(fame), row, 2);
-        tableModel.setValueAt(
-            Formatters.formatFamePerHour(sessionFamePerHour),
-            row,
-            3
-        );
-        tableModel.setValueAt(Formatters.formatFame(sessionGain, 2), row, 4);
+    private boolean include(int id) {
+        return StatsUi.matches(displayName(id), search.getText())
+            && (activity.getSelectedIndex() != 1 || id == currentCharacterId)
+            && (activity.getSelectedIndex() != 2 || gain(id) > 0);
     }
-
-    private int findRowByName(String name) {
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            if (name.equals(tableModel.getValueAt(i, 0))) {
-                return i;
-            }
+    private void refresh() {
+        tableModel.setRowCount(0); double totalGain = 0; long totalTime = 0;
+        for (int id : new TreeSet<>(sessionStartFame.keySet())) {
+            if (!include(id)) continue;
+            Fame last = lastFameEntries.get(id); double initial = sessionStartFame.get(id);
+            long elapsed = observedTime.getOrDefault(id, 0L); double gained = gain(id);
+            tableModel.addRow(new Object[]{displayName(id), id == currentCharacterId ? "Current" : last == null ? "Not observed" : "Inactive",
+                initial, last == null ? initial : last.getFame(), gained, elapsed, elapsed > 0 ? gained * 3600000.0 / elapsed : null});
+            totalGain += gained; totalTime += elapsed;
         }
-        return -1;
+        metrics[0].setText(Integer.toString(tableModel.getRowCount())); metrics[1].setText(Formatters.formatNumber(totalGain, 0));
+        metrics[2].setText(Formatters.formatDurationHMS(totalTime)); metrics[3].setText(totalTime > 0 ? Formatters.formatNumber(totalGain * 3600000.0 / totalTime, 1) : "—");
+        status.setText(sessionStartFame.isEmpty() ? "Waiting for character samples. Enter the Realm with capture running."
+            : tableModel.getRowCount() + " of " + sessionStartFame.size() + " characters shown · Click column headings to sort");
+        refreshMaps();
     }
-
-    private int findRowByCharId(int charId) {
-        String displayName = getDisplayName(charId);
-        return findRowByName(displayName);
-    }
-
-    /**
-     * Creates a unique display name for a character using class name and charId.
-     * Format: "ClassName (cID: charId)" (e.g., "Wizard (cID: 12345)")
-     */
-    private String getDisplayName(int charId) {
-        String className = characterClassNames.get(charId);
-        if (className == null || className.isEmpty()) {
-            return "Char (cID: " + charId + ")";
-        }
-        return className + " (cID: " + charId + ")";
-    }
-
-    private int getCharacterIdFromRowName(String rowName) {
-        // Parse charId from display name format "ClassName (cID: charId)" or "Char (cID: charId)"
-        int cidIndex = rowName.lastIndexOf("(cID: ");
-        if (cidIndex >= 0) {
-            int endIndex = rowName.indexOf(")", cidIndex);
-            if (endIndex > cidIndex) {
-                try {
-                    return Integer.parseInt(
-                        rowName.substring(cidIndex + 6, endIndex)
-                    );
-                } catch (NumberFormatException e) {
-                    // Fall through to legacy parsing
-                }
-            }
-        }
-        // Legacy format: "ClassName #charId"
-        int hashIndex = rowName.lastIndexOf(" #");
-        if (hashIndex >= 0) {
-            try {
-                return Integer.parseInt(rowName.substring(hashIndex + 2));
-            } catch (NumberFormatException e) {
-                // Fall through to legacy parsing
-            }
-        }
-        // Legacy format: "Char 12345" (without #)
-        if (rowName.startsWith("Char ")) {
-            try {
-                return Integer.parseInt(rowName.substring(5));
-            } catch (NumberFormatException e) {
-                return -1;
-            }
-        }
-        // Fallback: search by class name (for backwards compatibility)
-        for (Integer charId : characterClassNames.keySet()) {
-            if (characterClassNames.get(charId).equals(rowName)) {
-                return charId;
-            }
-        }
-        return -1;
-    }
-
-    private double getSessionStartFame(int charId) {
-        return sessionStartFame.getOrDefault(charId, getInitialFame(charId));
-    }
-
-    private double getInitialFame(int charId) {
-        ArrayList<Fame> entries = fameData.get(charId);
-        return (entries != null && !entries.isEmpty())
-            ? entries.get(0).getFame()
-            : 0;
-    }
-
-    private void ensureCurrentCharacterAtTop() {
-        int idx = findRowByCharId(currentCharacterId);
-        if (idx > 0) {
-            Object[] rowData = new Object[tableModel.getColumnCount()];
-            for (int c = 0; c < tableModel.getColumnCount(); c++) {
-                rowData[c] = tableModel.getValueAt(idx, c);
-            }
-            tableModel.removeRow(idx);
-            tableModel.insertRow(0, rowData);
-        }
-    }
-
-    private void resetFamePerHourForInactiveCharacters() {
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            String rowName = (String) tableModel.getValueAt(i, 0);
-            int rowCharId = getCharacterIdFromRowName(rowName);
-            if (rowCharId != currentCharacterId) {
-                tableModel.setValueAt(Formatters.formatFamePerHour(0), i, 3);
-            }
-        }
-    }
-
-    // --- Session Management ---
-
-    private void handleNewSession(boolean deleteFile) {
-        resetAllSessions();
-        FameTableBridge bridge = FameTableBridge.getInstance();
-        if (bridge != null) {
-            if (deleteFile) {
-                bridge.clearCurrentSessionFile();
-            } else {
-                bridge.startNewSessionFile();
-            }
-        }
-    }
-
-    private void resetAllSessions() {
-        for (Integer charId : lastFameEntries.keySet()) {
-            Fame lastEntry = lastFameEntries.get(charId);
-            if (lastEntry != null) {
-                sessionStartFame.put(charId, lastEntry.getFame());
-                sessionStartTime.put(charId, lastEntry.getTime());
-            }
-        }
-        mapFameData.clear();
-        updateAllTableRows();
-    }
-
-    private void updateAllTableRows() {
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            String rowName = (String) tableModel.getValueAt(i, 0);
-            int charId = getCharacterIdFromRowName(rowName);
-            if (charId != -1) {
-                Fame lastEntry = lastFameEntries.get(charId);
-                if (lastEntry != null) {
-                    double newSessionStartFame = getSessionStartFame(charId);
-                    double sessionGain =
-                        lastEntry.getFame() - newSessionStartFame;
-                    // Update Initial Fame column (column 1) to reflect new session start
-                    tableModel.setValueAt(
-                        Formatters.formatNumberExact(newSessionStartFame),
-                        i,
-                        1
-                    );
-                    tableModel.setValueAt(
-                        Formatters.formatFame(sessionGain, 2),
-                        i,
-                        4
-                    );
-                }
-                tableModel.setValueAt(Formatters.formatFamePerHour(0), i, 3);
-            }
-        }
-    }
-
-    private void triggerMapChangeAutoSave() {
-        FameTableBridge bridge = FameTableBridge.getInstance();
-        if (bridge != null) {
-            bridge.triggerMapChangeAutoSave();
-        }
-    }
-
-    // --- Map Fame Tracking ---
-
-    private void updateMapFameTracking(
-        int charId,
-        String mapName,
-        double currentFame,
-        long currentTime
-    ) {
-        ArrayList<MapFameData> charMapData = mapFameData.computeIfAbsent(
-            charId,
-            k -> new ArrayList<>()
-        );
-
-        MapFameData current = currentMapData.get(charId);
-        if (current != null) {
-            current.endTime = currentTime;
-            current.endFame = currentFame;
-            if (current.getFameGained() > 0) {
-                charMapData.add(current);
-            }
-        }
-
-        if (mapName != null && !mapName.isEmpty()) {
-            currentMapData.put(
-                charId,
-                new MapFameData(mapName, currentTime, currentFame)
-            );
-        }
-    }
-
-    private void showMapFameTable() {
-        // Close existing dialog if open
-        closeMapFameDialog();
-
-        if (mapFameData.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                this,
-                "No map fame data available.",
-                "Map Fame",
-                JOptionPane.INFORMATION_MESSAGE
-            );
-            return;
-        }
-
-        List<Integer> charsWithData = new ArrayList<>();
-        for (Integer charId : mapFameData.keySet()) {
-            ArrayList<MapFameData> data = mapFameData.get(charId);
-            if (data != null && !data.isEmpty()) {
-                charsWithData.add(charId);
-            }
-        }
-
-        if (charsWithData.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                this,
-                "No map fame data available.",
-                "Map Fame",
-                JOptionPane.INFORMATION_MESSAGE
-            );
-            return;
-        }
-
-        String[] options = charsWithData
-            .stream()
-            .map(id -> getClassNameForCharacterId(id) + " (ID: " + id + ")")
-            .toArray(String[]::new);
-
-        String selected = (String) JOptionPane.showInputDialog(
-            this,
-            "Select character:",
-            "Character Selection",
-            JOptionPane.QUESTION_MESSAGE,
-            null,
-            options,
-            options[0]
-        );
-
-        if (selected == null) return;
-
-        int charId = extractCharIdFromSelection(selected);
-        if (charId != -1) {
-            showMapFameDialog(charId);
-        }
-    }
-
-    private void showMapFameDialog(int charId) {
-        // Non-modal dialog for real-time updates
-        activeMapFameDialog = new JDialog(
-            (Frame) SwingUtilities.getWindowAncestor(this),
-            "Map Fame - " + getClassNameForCharacterId(charId) + " (Live)",
-            false // Non-modal
-        );
-        activeMapFameCharId = charId;
-        activeMapFameDialog.setLayout(new BorderLayout());
-        activeMapFameDialog.setSize(800, 500);
-        activeMapFameDialog.setLocationRelativeTo(this);
-
-        String[] cols = {
-            "Map Name",
-            "Time Spent",
-            "Fame Gained",
-            "Fame/Minute",
-        };
-        activeMapFameModel = new DefaultTableModel(cols, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) {
-                return false;
-            }
-        };
-
-        refreshMapFameTableData();
-
-        JTable table = new JTable(activeMapFameModel);
-        table.setAutoCreateRowSorter(true);
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-
-        JButton refreshBtn = new JButton("Refresh");
-        refreshBtn.addActionListener(e -> refreshMapFameTableData());
-
-        JButton filterBtn = new JButton("Dungeon Filter");
-        filterBtn.addActionListener(e -> {
-            ArrayList<MapFameData> data = mapFameData.get(activeMapFameCharId);
-            if (data != null) {
-                showDungeonFilterDialog(
-                    activeMapFameDialog,
-                    activeMapFameModel,
-                    data
-                );
-            }
-        });
-
-        JButton closeBtn = new JButton("Close");
-        closeBtn.addActionListener(e -> closeMapFameDialog());
-
-        buttonPanel.add(refreshBtn);
-        buttonPanel.add(filterBtn);
-        buttonPanel.add(closeBtn);
-
-        activeMapFameDialog.add(new JScrollPane(table), BorderLayout.CENTER);
-        activeMapFameDialog.add(buttonPanel, BorderLayout.SOUTH);
-
-        // Clean up when dialog is closed
-        activeMapFameDialog.addWindowListener(
-            new java.awt.event.WindowAdapter() {
-                @Override
-                public void windowClosing(java.awt.event.WindowEvent e) {
-                    closeMapFameDialog();
-                }
-            }
-        );
-
-        // Start auto-refresh timer (updates every 2 seconds)
-        mapFameRefreshTimer = new Timer(2000, e -> {
-            if (
-                activeMapFameDialog != null && activeMapFameDialog.isVisible()
-            ) {
-                refreshMapFameTableData();
-            }
-        });
-        mapFameRefreshTimer.start();
-
-        activeMapFameDialog.setVisible(true);
-    }
-
-    private void refreshMapFameTableData() {
-        if (activeMapFameModel == null || activeMapFameCharId == -1) return;
-
-        ArrayList<MapFameData> data = mapFameData.get(activeMapFameCharId);
-        if (data == null) data = new ArrayList<>();
-
-        activeMapFameModel.setRowCount(0);
-        for (MapFameData d : data) {
-            // Apply dungeon filter if set
-            Boolean filterState = dungeonFilterState.get(d.mapName);
-            if (filterState != null && !filterState) continue;
-
-            double fameGained = d.getFameGained();
-            double minutes = d.getTimeSpent() / 60000.0;
-            double fpm = minutes > 0 ? fameGained / minutes : 0;
-            activeMapFameModel.addRow(
-                new Object[] {
-                    d.mapName,
-                    d.getTimeSpentFormatted(),
-                    String.format("%.1f", fameGained),
-                    String.format("%.1f", fpm),
-                }
-            );
-        }
-    }
-
-    private void closeMapFameDialog() {
-        if (mapFameRefreshTimer != null) {
-            mapFameRefreshTimer.stop();
-            mapFameRefreshTimer = null;
-        }
-        if (activeMapFameDialog != null) {
-            activeMapFameDialog.dispose();
-            activeMapFameDialog = null;
-        }
-        activeMapFameModel = null;
-        activeMapFameCharId = -1;
-    }
-
-    private void showDungeonFilterDialog(
-        JDialog parent,
-        DefaultTableModel model,
-        ArrayList<MapFameData> originalData
-    ) {
-        JDialog filterDialog = new JDialog(parent, "Dungeon Filter", true);
-        filterDialog.setLayout(new BorderLayout());
-        filterDialog.setSize(300, 400);
-        filterDialog.setLocationRelativeTo(parent);
-
-        java.util.Set<String> dungeonNames = new java.util.HashSet<>();
-        for (MapFameData d : originalData) {
-            dungeonNames.add(d.mapName);
-        }
-
-        JPanel checkBoxPanel = new JPanel();
-        checkBoxPanel.setLayout(new BoxLayout(checkBoxPanel, BoxLayout.Y_AXIS));
-        java.util.Map<String, JCheckBox> checkBoxMap =
-            new java.util.HashMap<>();
-
-        for (String name : dungeonNames) {
-            boolean selected = dungeonFilterState.getOrDefault(name, true);
-            JCheckBox cb = new JCheckBox(name, selected);
-            checkBoxMap.put(name, cb);
-            checkBoxPanel.add(cb);
-        }
-
-        JPanel buttonPanel = new JPanel();
-        JButton applyBtn = new JButton("Apply");
-        applyBtn.addActionListener(e -> {
-            for (String name : checkBoxMap.keySet()) {
-                dungeonFilterState.put(
-                    name,
-                    checkBoxMap.get(name).isSelected()
-                );
-            }
-            // Refresh the live table with new filter
-            refreshMapFameTableData();
-            filterDialog.dispose();
-        });
-        JButton resetBtn = new JButton("Reset");
-        resetBtn.addActionListener(e -> {
-            for (JCheckBox cb : checkBoxMap.values()) cb.setSelected(true);
-            dungeonFilterState.clear();
-        });
-        JButton closeBtn = new JButton("Close");
-        closeBtn.addActionListener(e -> filterDialog.dispose());
-
-        buttonPanel.add(applyBtn);
-        buttonPanel.add(resetBtn);
-        buttonPanel.add(closeBtn);
-
-        filterDialog.add(new JScrollPane(checkBoxPanel), BorderLayout.CENTER);
-        filterDialog.add(buttonPanel, BorderLayout.SOUTH);
-        filterDialog.setVisible(true);
-    }
-
-    private int extractCharIdFromSelection(String selection) {
-        try {
-            int start = selection.lastIndexOf("(ID: ") + 5;
-            int end = selection.lastIndexOf(")");
-            if (start > 4 && end > start) {
-                return Integer.parseInt(selection.substring(start, end).trim());
-            }
-        } catch (Exception ignored) {}
-        return -1;
-    }
-
-    // --- Inner Classes ---
-
-    private class TableSortHandler extends java.awt.event.MouseAdapter {
-
-        @Override
-        public void mouseClicked(java.awt.event.MouseEvent e) {
-            if (e.getClickCount() != 2) return;
-
-            int col = fameTable.convertColumnIndexToModel(
-                fameTable.columnAtPoint(e.getPoint())
-            );
-
-            Object lastColObj = fameTable
-                .getTableHeader()
-                .getClientProperty("lastSortedColumn");
-            Object sortAscObj = fameTable
-                .getTableHeader()
-                .getClientProperty("sortAscending");
-            int lastCol = lastColObj instanceof Integer
-                ? (Integer) lastColObj
-                : -1;
-            boolean sortAsc = sortAscObj instanceof Boolean
-                ? (Boolean) sortAscObj
-                : true;
-            sortAsc = (lastCol == col) ? !sortAsc : true;
-
-            fameTable
-                .getTableHeader()
-                .putClientProperty("lastSortedColumn", col);
-            fameTable
-                .getTableHeader()
-                .putClientProperty("sortAscending", sortAsc);
-
-            String pinnedName = getClassNameForCharacterId(currentCharacterId);
-            List<Object[]> rows = new ArrayList<>();
-            Object[] pinnedRow = null;
-
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                Object[] row = new Object[tableModel.getColumnCount()];
-                for (int c = 0; c < tableModel.getColumnCount(); c++) {
-                    row[c] = tableModel.getValueAt(i, c);
-                }
-                if (pinnedName.equals(row[0])) {
-                    pinnedRow = row;
+    private void refreshMaps() {
+        mapModel.setRowCount(0);
+        Map<String, double[]> grouped = new TreeMap<>();
+        int count = 0; double gain = 0; long duration = 0;
+        HashMap<Integer, ArrayList<MapFameData>> all = getMapFameData();
+        for (int id : new TreeSet<>(all.keySet())) {
+            if (!include(id)) continue;
+            for (MapFameData map : all.get(id)) {
+                if (!StatsUi.matches(map.mapName, mapSearch.getText()) || (gainedOnly.isSelected() && map.getFameGained() <= 0)) continue;
+                long elapsed = Math.max(0, map.getTimeSpent()); double gained = map.getFameGained();
+                boolean open = currentMapData.containsKey(id) && map == currentMapData.get(id);
+                count++; gain += gained; duration += elapsed;
+                if (mapView.getSelectedIndex() == 1) {
+                    mapModel.addRow(new Object[]{map.mapName, displayName(id), 1, elapsed, gained,
+                        elapsed > 0 ? gained * 3600000.0 / elapsed : null, open ? "Open · latest sample" : "Closed", Formatters.formatTimestamp(map.startTime)});
                 } else {
-                    rows.add(row);
+                    double[] sum = grouped.computeIfAbsent(map.mapName, key -> new double[4]);
+                    sum[0]++; sum[1] += elapsed; sum[2] += gained; if (open) sum[3]++;
                 }
             }
-
-            final boolean ascending = sortAsc;
-            final int sortCol = col;
-            rows.sort((a, b) -> {
-                Object va = a[sortCol],
-                    vb = b[sortCol];
-                Double da = parseDouble(va),
-                    db = parseDouble(vb);
-                int result;
-                if (da != null && db != null) {
-                    result = Double.compare(da, db);
-                } else {
-                    result = String.valueOf(va).compareToIgnoreCase(
-                        String.valueOf(vb)
-                    );
-                }
-                return ascending ? result : -result;
-            });
-
-            tableModel.setRowCount(0);
-            if (pinnedRow != null) tableModel.addRow(pinnedRow);
-            for (Object[] r : rows) tableModel.addRow(r);
         }
-
-        private Double parseDouble(Object val) {
-            if (val == null) return null;
-            try {
-                return Double.parseDouble(val.toString());
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
+        grouped.forEach((name, sum) -> mapModel.addRow(new Object[]{name, "Matching characters", (int)sum[0], (long)sum[1], sum[2],
+            sum[1] > 0 ? sum[2] * 3600000.0 / sum[1] : null, sum[3] > 0 ? (int)sum[3] + " open" : "Closed", "—"}));
+        mapStatus.setText(count == 0 ? "No matching map visits. Map tracking begins with the first fame sample in an instance."
+            : count + " visits · " + Formatters.formatNumber(gain, 1) + " fame · " + Formatters.formatDurationHMS(duration) + " observed");
     }
 
-    private class FamePerHourRenderer extends DefaultTableCellRenderer {
-
-        @Override
-        public Component getTableCellRendererComponent(
-            JTable table,
-            Object value,
-            boolean isSelected,
-            boolean hasFocus,
-            int row,
-            int column
-        ) {
-            Component c = super.getTableCellRendererComponent(
-                table,
-                value,
-                isSelected,
-                hasFocus,
-                row,
-                column
-            );
-
-            String tooltip = "Fame per minute: 0.00 | Session start: N/A";
-            if (value != null) {
-                try {
-                    double fph = Double.parseDouble(value.toString());
-                    double fpm = fph / 60.0;
-
-                    String charName = (String) tableModel.getValueAt(row, 0);
-                    int charId = getCharacterIdFromRowName(charName);
-
-                    if (charId != -1) {
-                        Long sessionStart = sessionStartTime.get(charId);
-                        if (sessionStart != null) {
-                            String timeStr = Formatters.formatTimestamp(
-                                sessionStart
-                            );
-                            tooltip = String.format(
-                                "Fame per minute: %.2f | Session started: %s",
-                                fpm,
-                                timeStr
-                            );
-                        } else {
-                            tooltip = String.format(
-                                "Fame per minute: %.2f | Session start: N/A",
-                                fpm
-                            );
-                        }
-                    } else {
-                        tooltip = String.format(
-                            "Fame per minute: %.2f | Session start: Unknown",
-                            fpm
-                        );
-                    }
-                } catch (NumberFormatException ignored) {}
-            }
-            setToolTipText(tooltip);
-            return c;
-        }
+    private void resetSessions(boolean deleteFile) {
+        if (!deleteFile) FameTableBridge.getInstance().triggerMapChangeAutoSave();
+        lastFameEntries.forEach((id, last) -> sessionStartFame.put(id, last.getFame()));
+        observedTime.clear(); fameData.clear(); mapFameData.clear(); currentMapData.clear();
+        // The first sample in the new session establishes the time baseline.
+        lastFameEntries.clear(); currentCharacterId = -1; transitionCharacterId = -1; refresh();
+        if (deleteFile) FameTableBridge.getInstance().clearCurrentSessionFile();
+        else FameTableBridge.getInstance().startNewSessionFile();
     }
+    public ArrayList<Fame> getFameData(int id) { return fameData.get(id); }
+    public Double getCurrentFame(int id) { Fame last = lastFameEntries.get(id); return last == null ? null : last.getFame(); }
+    public String getClassNameForCharacterId(int id) { return characterClassNames.getOrDefault(id, "Char"); }
+    /** Includes each current visit exactly once, so autosave and the explorer agree. */
+    public HashMap<Integer, ArrayList<MapFameData>> getMapFameData() {
+        HashMap<Integer, ArrayList<MapFameData>> result = new HashMap<>();
+        mapFameData.forEach((id, rows) -> result.put(id, new ArrayList<>(rows)));
+        currentMapData.forEach((id, row) -> result.computeIfAbsent(id, key -> new ArrayList<>()).add(row));
+        return result;
+    }
+    public void setMapFameData(HashMap<Integer, ArrayList<MapFameData>> data) { mapFameData.clear(); mapFameData.putAll(data); refreshMaps(); }
+    public HashMap<Integer, MapFameData> getCurrentMapData() { return currentMapData; }
+    public void setCurrentMapData(HashMap<Integer, MapFameData> data) { currentMapData.clear(); currentMapData.putAll(data); refreshMaps(); }
+    public void resetDungeonFilters() { mapSearch.setText(""); gainedOnly.setSelected(false); mapView.setSelectedIndex(0); refreshMaps(); }
 }

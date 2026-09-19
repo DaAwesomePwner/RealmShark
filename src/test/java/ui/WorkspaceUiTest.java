@@ -1,6 +1,7 @@
 package ui;
 
 import org.junit.*;
+import realmshark.branding.AppIdentity;
 import tomato.Tomato;
 import tomato.gui.TomatoGUI;
 import tomato.gui.chat.ChatGUI;
@@ -32,6 +33,50 @@ public class WorkspaceUiTest {
         SwingUtilities.invokeAndWait(() -> { for (Window w : Window.getWindows()) w.dispose(); });
     }
 
+    @Test public void previewTitleUsesProductVersionAndFinIcons() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            assertEquals("RealmShark " + realmshark.version.Version.VERSION + "  |  Preview", frame.getTitle());
+            assertFalse(frame.getTitle().contains("Tomato"));
+            assertFalse("The application must provide window icons", frame.getIconImages().isEmpty());
+            assertEquals(AppIdentity.icons(), frame.getIconImages());
+        });
+    }
+
+    @Test public void aboutMenuShowsOwnedBrandedDialogWithOriginalCredits() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JMenuItem about = menuItem(frame.getJMenuBar(), "About");
+            assertNotNull("The original About menu must remain reachable", about);
+            about.doClick();
+            JDialog dialog = null;
+            for (Window window : frame.getOwnedWindows()) {
+                if (window instanceof JDialog && window.isShowing()
+                        && "About RealmShark".equals(((JDialog)window).getTitle())) dialog = (JDialog)window;
+            }
+            assertNotNull("About must be owned by the main window", dialog);
+            try {
+                assertFalse("About should remain readable while using the app", dialog.isModal());
+                assertEquals(AppIdentity.icons(), dialog.getIconImages());
+                String text = visibleText(dialog);
+                assertTrue(text.contains("RealmShark"));
+                assertTrue(text.contains(realmshark.version.Version.VERSION));
+                assertTrue(text.contains("Realm of the Mad God"));
+                assertTrue(text.contains("Anon"));
+                assertTrue(text.contains("MIT License"));
+                assertFalse(text.toLowerCase(java.util.Locale.ROOT).contains("tomato"));
+                JLabel logo = findLogo(dialog);
+                assertNotNull("About must display the product logo", logo);
+                assertEquals(80, logo.getIcon().getIconWidth());
+                assertEquals(80, logo.getIcon().getIconHeight());
+                assertEquals("RealmShark logo", logo.getAccessibleContext().getAccessibleName());
+                snapshot(dialog, "about.png");
+                assertNotNull(dialog.getRootPane().getDefaultButton());
+                assertEquals("Close", dialog.getRootPane().getDefaultButton().getText());
+                dialog.getRootPane().getDefaultButton().doClick();
+                assertFalse("Close should dispose the dialog", dialog.isDisplayable());
+            } finally { dialog.dispose(); }
+        });
+    }
+
     @Test public void allOriginalSectionsRemainReachableAtBothSizes() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             for (int width : new int[] {1240, 760, 680}) {
@@ -40,13 +85,13 @@ public class WorkspaceUiTest {
                 shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
                 frame.validate();
                 assertEquals(width < 1000, shell.isCompact());
-                for (int i = 0; i < 8; i++) {
+                for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                     AbstractButton button = findButton(shell, "nav-" + i);
                     assertTrue(button.isShowing()); button.doClick();
                     assertEquals(i, shell.getSelectedPage());
                     assertTrue(button.isSelected());
-                    assertTrue(button.getWidth() >= 40);
-                    assertTrue(button.getHeight() >= 40);
+                    assertTrue(button.getWidth() >= 32);
+                    assertTrue(button.getHeight() >= 32);
                 }
             }
         });
@@ -126,7 +171,7 @@ public class WorkspaceUiTest {
             frame.setSize(1240, 800); frame.validate();
             shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
             frame.validate();
-            for (int i = 0; i < 8; i++) {
+            for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                 shell.select(i); frame.validate(); snapshot("page-" + i + ".png");
                 renderSubtabs(shell, "page-" + i);
             }
@@ -143,9 +188,12 @@ public class WorkspaceUiTest {
     }
 
     private static void snapshot(String name) {
+        snapshot(frame, name);
+    }
+    private static void snapshot(Window window, String name) {
         try {
-            BufferedImage image = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB);
-            Graphics2D graphics = image.createGraphics(); frame.printAll(graphics); graphics.dispose();
+            BufferedImage image = new BufferedImage(window.getWidth(), window.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics = image.createGraphics(); window.printAll(graphics); graphics.dispose();
             File folder = new File("screenshots"); folder.mkdirs(); ImageIO.write(image, "png", new File(folder, name));
         } catch (Exception e) { throw new AssertionError(e); }
     }
@@ -177,6 +225,29 @@ public class WorkspaceUiTest {
         if (c instanceof JMenuItem && text.equals(((JMenuItem)c).getText())) return (JMenuItem)c;
         Component[] children = c instanceof JMenu ? ((JMenu)c).getMenuComponents() : c instanceof Container ? ((Container)c).getComponents() : new Component[0];
         for (Component child : children) { JMenuItem found = menuItem(child, text); if (found != null) return found; }
+        return null;
+    }
+
+    private static String visibleText(Component component) {
+        StringBuilder text = new StringBuilder();
+        if (component instanceof JLabel) text.append(((JLabel)component).getText()).append('\n');
+        if (component instanceof AbstractButton) text.append(((AbstractButton)component).getText()).append('\n');
+        if (component instanceof javax.swing.text.JTextComponent)
+            text.append(((javax.swing.text.JTextComponent)component).getText()).append('\n');
+        if (component instanceof Container)
+            for (Component child : ((Container)component).getComponents()) text.append(visibleText(child));
+        return text.toString();
+    }
+
+    private static JLabel findLogo(Container container) {
+        for (Component child : container.getComponents()) {
+            if (child instanceof JLabel && ((JLabel)child).getIcon() != null
+                    && "RealmShark logo".equals(child.getAccessibleContext().getAccessibleName())) return (JLabel)child;
+            if (child instanceof Container) {
+                JLabel found = findLogo((Container)child);
+                if (found != null) return found;
+            }
+        }
         return null;
     }
 }

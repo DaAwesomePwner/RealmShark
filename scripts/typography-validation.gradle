@@ -1,0 +1,27 @@
+// Keep visual validation and packaging separate from other local builds.
+allprojects {
+    buildDir = file("build/typography-validation")
+    afterEvaluate {
+        [Ui150: '1.5', Ui200: '2'].each { suffix, scale ->
+            tasks.register("test${suffix}", Test) {
+                description = "Validate populated Swing layouts at ${scale}x display scaling."
+                group = 'verification'
+                testClassesDirs = sourceSets.test.output.classesDirs
+                classpath = sourceSets.test.runtimeClasspath
+                workingDir = file("$buildDir/ui-${suffix}")
+                doFirst { workingDir.mkdirs() }
+                jvmArgs "-Dsun.java2d.uiScale=${scale}"
+                filter {
+                    includeTestsMatching 'ui.WorkspaceUiTest'
+                    includeTestsMatching 'ui.ContentStyleTest'
+                    includeTestsMatching 'ui.WorkspaceShellNavigationTest'
+                    includeTestsMatching 'tomato.gui.security.ParsePanelRefreshTest'
+                    includeTestsMatching 'tomato.gui.chat.ChatExplorerTest.renderDesktopCompactFilteredAndEmptyStates'
+                    includeTestsMatching 'tomato.gui.keypop.KeyPopTest.rendersAllViewsAtNormalAndCompactSizes'
+                    includeTestsMatching 'tomato.gui.myinfo.MyInfoGuiTest'
+                }
+                testLogging { events 'failed'; exceptionFormat 'full' }
+            }
+        }
+    }
+}

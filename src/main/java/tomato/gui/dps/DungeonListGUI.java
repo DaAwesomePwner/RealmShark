@@ -2,310 +2,225 @@ package tomato.gui.dps;
 
 import tomato.backend.data.DpsData;
 import tomato.backend.data.TomatoData;
+import tomato.gui.modern.ContentStyle;
 
-import javax.swing.filechooser.FileFilter;
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.table.AbstractTableModel;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.ActionEvent;
 import java.io.*;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
+import java.util.*;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 
+/** Keyboard-navigable encounter history. Export checks are independent of the viewed encounter. */
 public class DungeonListGUI extends JPanel {
-
-    private DpsGUI dps;
-    private TomatoData data;
-    private int index;
-    private JPanel livePanel;
-    private ArrayList<JPanel> pList = new ArrayList<>();
-    private static ArrayList<DpsDungeon> selectionList = new ArrayList<>();
-    private JPanel boxScroll;
+    private final DpsGUI dps;
+    private final TomatoData data;
+    private final List<DpsData> encounters = new ArrayList<>();
+    private final Set<DpsData> checked = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final EncounterModel model = new EncounterModel();
+    private final JTable table = new JTable(model);
+    private final JButton load = new JButton("Load"), save = new JButton("Save checked");
+    private final JLabel status = new JLabel("Select an encounter to view it; check saved encounters to export.");
+    private boolean rebuilding, busy;
 
     public DungeonListGUI(DpsGUI dps, TomatoData data) {
+        super(new BorderLayout(0, 8));
         this.dps = dps;
         this.data = data;
-        setLayout(new BorderLayout());
-
-        JPanel buttons = new JPanel();
-        JButton load = new JButton("Load");
-        JButton save = new JButton("Save");
-        buttons.add(load);
-        buttons.add(save);
+        JPanel buttons = ContentStyle.controls();
+        buttons.add(load); buttons.add(save);
         load.addActionListener(e -> loadButton());
         save.addActionListener(e -> saveButton());
         add(buttons, BorderLayout.NORTH);
-
-        selectionList.clear();
-        boxScroll = new JPanel();
-        JScrollPane scrollPane = new JScrollPane(boxScroll);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(40);
-        JPanel contentPane = new JPanel(new BorderLayout());
-        contentPane.setPreferredSize(new Dimension(300, 200));
-        contentPane.add(scrollPane);
-        add(contentPane, BorderLayout.CENTER);
-
-        boxScroll.setLayout(new BoxLayout(boxScroll, BoxLayout.Y_AXIS));
-
-        index = dps.getIndex();
-        createDungeonList();
-    }
-
-    private void reCreateDungeonList() {
-        pList.clear();
-        selectionList.clear();
-        boxScroll.removeAll();
-        createDungeonList();
-        revalidate();
-    }
-
-    private void createDungeonList() {
-        int dataSize = data.dpsData.size();
-        livePanel = dungeonSelection(dps, null, -1, "", "Live");
-        boxScroll.add(livePanel);
-        for (int i = dataSize - 1; i >= 0; i--) {
-            DpsData d = data.dpsData.get(i);
-            addDungeonToList(d, i, dataSize);
-        }
-    }
-
-    private void addDungeonToList(DpsData d, int i, int dataSize) {
-        String name;
-        if (d.map.name.equals("Realm of the Mad God")) {
-            name = String.format("Realm - %s", d.map.realmName.substring(12));
-        } else {
-            name = d.map.name;
-        }
-        JPanel p1 = dungeonSelection(dps, d, i, String.format(" %d / %d", i + 1, dataSize), name);
-        pList.add(p1);
-        boxScroll.add(p1);
-    }
-
-    private JPanel dungeonSelection(DpsGUI dps, DpsData data, int i, String s, String name) {
-        JPanel p = new JPanel();
-        p.setLayout(new BoxLayout(p, BoxLayout.X_AXIS));
-        p.setMaximumSize(new Dimension(300, 20));
-
-        DpsDungeon d = DpsDungeon.add(i, data, name);
-
-        p.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                select(dps, i);
+        ContentStyle.table(table);
+        table.setName("saved-encounters");
+        table.getAccessibleContext().setAccessibleName("Saved encounters and export selection");
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.getColumnModel().getColumn(0).setPreferredWidth(75);
+        table.getColumnModel().getColumn(1).setPreferredWidth(90);
+        table.getColumnModel().getColumn(2).setPreferredWidth(300);
+        table.addPropertyChangeListener("font", e -> ContentStyle.tableDensity(table, ContentStyle.Density.COMFORTABLE));
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting() && !rebuilding && table.getSelectedRow() >= 0) select(table.getSelectedRow());
+        });
+        table.getInputMap().put(KeyStroke.getKeyStroke("SPACE"), "toggle-export");
+        table.getActionMap().put("toggle-export", new AbstractAction() {
+            public void actionPerformed(ActionEvent e) {
+                int row = table.getSelectedRow();
+                if (row > 0) model.setValueAt(!checked.contains(encounters.get(row)), row, 0);
             }
         });
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setPreferredSize(new Dimension(520, 300));
+        add(scroll, BorderLayout.CENTER);
+        ContentStyle.font(status, ContentStyle.metadata(ContentStyle.body()));
+        add(status, BorderLayout.SOUTH);
+        refreshEncounters();
+    }
 
-        JPanel p1 = new JPanel();
-        JPanel p2 = new JPanel();
-        JPanel p3 = new JPanel();
+    void refreshEncounters() {
+        DpsData selected = table.getSelectedRow() < 0 ? currentEncounter() : encounters.get(table.getSelectedRow());
+        DpsData[] saved = data.dpsData.toArray(new DpsData[0]);
+        rebuilding = true;
+        encounters.clear(); encounters.add(null); // Live always remains the first row.
+        for (int i = saved.length - 1; i >= 0; i--) encounters.add(saved[i]);
+        checked.retainAll(encounters);
+        model.fireTableDataChanged();
+        int row = Math.max(0, encounters.indexOf(selected));
+        table.setRowSelectionInterval(row, row);
+        rebuilding = false;
+        updateButtons();
+    }
 
-        p1.setLayout(new BorderLayout());
-        p2.setLayout(new BorderLayout());
-        p3.setLayout(new BorderLayout());
+    private DpsData currentEncounter() {
+        int index = dps.getIndex();
+        return index < 0 || index >= data.dpsData.size() ? null : data.dpsData.get(index);
+    }
 
-        if (i >= 0) {
-            JCheckBox checkBox = new JCheckBox();
-            p1.add(checkBox);
-            d.checkBox = checkBox;
-        }
-        p1.setPreferredSize(new Dimension(0, 0));
-        p2.setPreferredSize(new Dimension(20, 0));
-        p2.add(new JLabel(s));
-        p3.setPreferredSize(new Dimension(150, 20));
-        p3.add(new JLabel(name));
+    private void select(int row) {
+        DpsData encounter = encounters.get(row);
+        int index = encounter == null ? -1 : data.dpsData.indexOf(encounter);
+        if (encounter == null || index >= 0) dps.setIndex(index);
+    }
 
-        Color c = UIManager.getColor("selectionBackground");
-        p1.setBackground(c);
-        p2.setBackground(c);
-        p3.setBackground(c);
-
-        p.add(Box.createHorizontalGlue());
-        p.add(p1);
-        p.add(p2);
-        p.add(p3);
-        p.add(Box.createHorizontalGlue());
-
-        d.setPanels(p1, p2, p3);
-        DpsDungeon.select(index);
-
-        return p;
+    private static String name(DpsData encounter) {
+        if (encounter == null) return "Live";
+        if (encounter.map == null || encounter.map.name == null) return "Unknown encounter";
+        String name = encounter.map.name, realm = encounter.map.realmName;
+        return "Realm of the Mad God".equals(name) && realm != null && realm.length() > 12
+            ? "Realm - " + realm.substring(12) : name;
     }
 
     private void loadButton() {
-        JFileChooser fc = new JFileChooser();
-        fc.setAcceptAllFileFilterUsed(false);
-        try {
-            fc.setCurrentDirectory(new File(new File(".").getCanonicalPath()));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        FileFilter fileFilter = new FileFilter() {
-            @Override
-            public boolean accept(File f) {
-                if (f.isDirectory()) return true;
-                return f.getName().endsWith(".dps");
-            }
+        JFileChooser chooser = new JFileChooser(new File("."));
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("DPS encounters (*.dps)", "dps"));
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) importFile(chooser.getSelectedFile());
+    }
 
-            @Override
-            public String getDescription() {
-                return ".dps";
+    SwingWorker<DpsData, Void> importFile(File file) {
+        requireIdleEdt();
+        setBusy(true, "Loading " + file.getName() + "…");
+        SwingWorker<DpsData, Void> worker = new SwingWorker<DpsData, Void>() {
+            protected DpsData doInBackground() throws IOException, ClassNotFoundException {
+                try (ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)))) {
+                    Object value = input.readObject();
+                    if (!(value instanceof DpsData)) throw new IOException("This file is not a DPS encounter.");
+                    DpsData saved = (DpsData)value;
+                    if (saved.hitList == null || saved.deathNotifications == null) throw new IOException("The encounter is incomplete.");
+                    return saved;
+                }
+            }
+            protected void done() {
+                try {
+                    data.dpsData.add(get());
+                    refreshEncounters(); DpsGUI.updateLabel();
+                    setBusy(false, "Loaded " + file.getName());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); failed(e);
+                } catch (ExecutionException e) { failed(e.getCause()); }
             }
         };
-        fc.setFileFilter(fileFilter);
-        int returnVal = fc.showDialog(this, "Load Dps File");
-        if (returnVal == JFileChooser.APPROVE_OPTION) {
-            File f = fc.getSelectedFile();
-            try {
-                FileInputStream fi = new FileInputStream(f);
-                ObjectInputStream o = new ObjectInputStream(fi);
-                DpsData d = (DpsData) o.readObject();
-                data.dpsData.add(d);
-                fi.close();
-                o.close();
-            } catch (IOException | ClassNotFoundException e) {
-                throw new RuntimeException(e);
-            }
-            reCreateDungeonList();
-        }
+        worker.execute();
+        return worker;
     }
 
     private void saveButton() {
-        JFileChooser fc = new JFileChooser();
-        fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        try {
-            fc.setCurrentDirectory(new File(new File(".").getCanonicalPath()));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        JFileChooser chooser = new JFileChooser(new File("."));
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        CheckBoxAccessory accessory = new CheckBoxAccessory();
+        chooser.setAccessory(accessory);
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION)
+            exportFiles(chooser.getSelectedFile(), accessory.isBoxSelected());
+    }
+
+    SwingWorker<Integer, Void> exportFiles(File folder, boolean debug) {
+        requireIdleEdt();
+        // Snapshot UI selection/options before leaving the EDT. Archived entity/packet graphs are
+        // no longer written by capture; detach their containers so clears/imports cannot change the job.
+        List<DpsData> exports = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (DpsData saved : encounters) if (saved != null && checked.contains(saved)) {
+            exports.add(new DpsData(saved.map, new HashMap<>(saved.hitList), new ArrayList<>(saved.deathNotifications),
+                saved.totalDungeonPcTime, saved.dungeonStartTime,
+                debug && saved.debugPackets != null ? new ArrayList<>(saved.debugPackets) : null));
+            names.add(name(saved));
         }
-        fc.setAccessory(new CheckBoxAccessory());
-
-        int returnVal = fc.showSaveDialog(this);
-        if (returnVal == JFileChooser.APPROVE_OPTION) {
-            CheckBoxAccessory cba = (CheckBoxAccessory)fc.getAccessory();
-            boolean saveDebugData = cba.isBoxSelected();
-
-            File folder = fc.getSelectedFile();
-            for (DpsDungeon d : selectionList) {
-                if (d.checkBox != null && d.checkBox.isSelected()) {
-                    d.save(folder, saveDebugData);
+        setBusy(true, "Saving " + exports.size() + " encounters…");
+        SwingWorker<Integer, Void> worker = new SwingWorker<Integer, Void>() {
+            protected Integer doInBackground() throws IOException {
+                SimpleDateFormat date = new SimpleDateFormat("yyyy-MM-dd-HH.mm.ss");
+                Set<String> used = new HashSet<>();
+                for (int i = 0; i < exports.size(); i++) {
+                    DpsData saved = exports.get(i);
+                    String base = names.get(i).replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]", "_") + " " + date.format(new Date(saved.dungeonStartTime));
+                    String filename = base + ".dps";
+                    for (int suffix = 2; !used.add(filename); suffix++) filename = base + " (" + suffix + ").dps";
+                    try (ObjectOutputStream output = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(new File(folder, filename))))) {
+                        output.writeObject(saved);
+                    }
                 }
+                return exports.size();
             }
-        }
+            protected void done() {
+                try { setBusy(false, "Saved " + get() + " encounters."); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); failed(e); }
+                catch (ExecutionException e) { failed(e.getCause()); }
+            }
+        };
+        worker.execute();
+        return worker;
     }
 
-    private void select(DpsGUI dps, int next) {
-        if (next == index) return;
-        DpsDungeon.select(next);
-        index = next;
-        dps.setIndex(next);
+    private void requireIdleEdt() {
+        if (!SwingUtilities.isEventDispatchThread() || busy) throw new IllegalStateException("Start one file operation at a time on the EDT");
     }
+    private void setBusy(boolean value, String message) { busy = value; status.setText(message); updateButtons(); }
+    private void updateButtons() { load.setEnabled(!busy); save.setEnabled(!busy && !checked.isEmpty()); }
+    private void failed(Throwable error) { setBusy(false, "File operation failed: " + error.getMessage()); }
 
     public static void open(DpsGUI dps, TomatoData data) {
-        DungeonListGUI dList = new DungeonListGUI(dps, data);
+        DungeonListGUI list = new DungeonListGUI(dps, data);
         JButton close = new JButton("Close");
-        JOptionPane pane = new JOptionPane(dList, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new JButton[]{close}, close);
-        close.addActionListener(e -> {
-            Window w = SwingUtilities.getWindowAncestor(close);
-            pane.setValue(-1);
-            w.dispose();
-        });
+        JOptionPane pane = new JOptionPane(list, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new JButton[]{close}, close);
+        close.addActionListener(e -> { pane.setValue(-1); SwingUtilities.getWindowAncestor(close).dispose(); });
         JDialog dialog = pane.createDialog(dps, "Dungeon List");
-        dialog.pack();
-        dialog.setResizable(true);
-        dialog.setVisible(true);
+        realmshark.branding.AppIdentity.apply(dialog);
+        dialog.setResizable(true); dialog.setVisible(true);
     }
 
-    public static class DpsDungeon {
-        private static DpsDungeon lastSelection = null;
-        private final String name;
-        private final DpsData data;
-        private final int i;
-        private JCheckBox checkBox;
-        private JPanel p1;
-        private JPanel p2;
-        private JPanel p3;
-
-        public DpsDungeon(int i, DpsData data, String name) {
-            this.i = i;
-            this.data = data;
-            this.name = name;
+    private final class EncounterModel extends AbstractTableModel {
+        private final String[] columns = {"Export", "Encounter", "Dungeon"};
+        public int getRowCount() { return encounters.size(); }
+        public int getColumnCount() { return columns.length; }
+        public String getColumnName(int column) { return columns[column]; }
+        public Class<?> getColumnClass(int column) { return column == 0 ? Boolean.class : String.class; }
+        public boolean isCellEditable(int row, int column) { return row > 0 && column == 0; }
+        public Object getValueAt(int row, int column) {
+            DpsData saved = encounters.get(row);
+            if (column == 0) return saved == null ? null : checked.contains(saved);
+            if (column == 1) return row == 0 ? "" : (encounters.size() - row) + " / " + (encounters.size() - 1);
+            return name(saved);
         }
-
-        public void save(File folder, boolean saveDebugData) {
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd-HH.mm.ss");
-            Date date = new Date(data.dungeonStartTime);
-            String fileName = folder + "\\" + name + " " + simpleDateFormat.format(date) + ".dps ";
-
-            try {
-                FileOutputStream f = new FileOutputStream(fileName);
-                ObjectOutputStream o = new ObjectOutputStream(f);
-                DpsData saveData = data.getSaveFile(saveDebugData);
-                o.writeObject(saveData);
-                o.close();
-                f.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        public void setPanels(JPanel p1, JPanel p2, JPanel p3) {
-            this.p1 = p1;
-            this.p2 = p2;
-            this.p3 = p3;
-        }
-
-        public static DpsDungeon add(int i, DpsData data, String name) {
-            DpsDungeon d = new DpsDungeon(i, data, name);
-            selectionList.add(d);
-            return d;
-        }
-
-        public static void select(int i) {
-            if (lastSelection != null) lastSelection.selected(false);
-            for (DpsDungeon d : selectionList) {
-                if (d.i == i) {
-                    lastSelection = d;
-                    d.selected(true);
-                    return;
-                }
-            }
-        }
-
-        public void selected(boolean isSelected) {
-            if (isSelected) {
-                p1.setBackground(Color.GRAY);
-                p2.setBackground(Color.GRAY);
-                p3.setBackground(Color.GRAY);
-            } else {
-                Color c = UIManager.getColor("selectionBackground");
-                p1.setBackground(c);
-                p2.setBackground(c);
-                p3.setBackground(c);
-            }
+        public void setValueAt(Object value, int row, int column) {
+            if (!isCellEditable(row, column)) return;
+            if (Boolean.TRUE.equals(value)) checked.add(encounters.get(row)); else checked.remove(encounters.get(row));
+            fireTableCellUpdated(row, column); updateButtons();
         }
     }
 
-    public class CheckBoxAccessory extends JComponent {
-        JCheckBox checkBox;
-        boolean checkBoxInit = false;
-
-        int preferredWidth = 150;
-        int preferredHeight = 100;
-        int checkBoxPosX = 5;
-        int checkBoxPosY = 20;
-        int checkBoxWidth = preferredWidth;
-        int checkBoxHeight = 20;
-
+    public class CheckBoxAccessory extends JPanel {
+        private final JCheckBox checkBox = new JCheckBox("Save Debug Data");
         public CheckBoxAccessory() {
-            setPreferredSize(new Dimension(preferredWidth, preferredHeight));
-            checkBox = new JCheckBox("Save Debug Data", checkBoxInit);
-            checkBox.setBounds(checkBoxPosX, checkBoxPosY, checkBoxWidth, checkBoxHeight);
-            add(checkBox);
+            super(new BorderLayout());
+            setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+            add(checkBox, BorderLayout.NORTH);
         }
-
-        public boolean isBoxSelected() {
-            return checkBox.isSelected();
-        }
+        public boolean isBoxSelected() { return checkBox.isSelected(); }
     }
 }

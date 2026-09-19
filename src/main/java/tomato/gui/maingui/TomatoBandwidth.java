@@ -15,6 +15,10 @@ public class TomatoBandwidth extends JFrame {
     private static JTextArea infoArea;
     private static boolean exists = false;
 
+    public TomatoBandwidth() {
+        realmshark.branding.AppIdentity.apply(this);
+    }
+
     /**
      * Bandwidth window to show data.
      *

@@ -5,6 +5,7 @@ import packets.PacketType;
 import util.Util;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -12,6 +13,21 @@ import java.util.Arrays;
  */
 public class BufferReader {
     protected ByteBuffer buffer;
+    private String field = "packet";
+    private int fieldStart;
+    private Integer declaredLength;
+
+    /** Only decoder-authored field paths belong here, never values from the wire. */
+    public void field(String name) { field = name; fieldStart = buffer.position(); declaredLength = null; }
+    public String field() { return field; }
+    public int fieldStart() { return fieldStart; }
+    public Integer declaredLength() { return declaredLength; }
+    public int checkedCount(int count, int minimumBytes) {
+        declaredLength = count;
+        if (count < 0 || minimumBytes < 1 || count > buffer.remaining() / minimumBytes)
+            throw new IllegalArgumentException("Invalid collection length");
+        return count;
+    }
 
     public BufferReader(ByteBuffer data) {
         buffer = data;
@@ -41,7 +57,7 @@ public class BufferReader {
      * @return number of bytes remaining from current index.
      */
     public int getRemainingBytes() {
-        return buffer.capacity() - buffer.position();
+        return buffer.remaining();
     }
 
     /**
@@ -125,10 +141,10 @@ public class BufferReader {
      * @return Returns the string that have been deserialized.
      */
     public String readString() {
-        short len = readShort();
+        int len = checkedCount(readUnsignedShort(), 1);
         byte[] str = new byte[len];
         buffer.get(str);
-        return new String(str);
+        return new String(str, StandardCharsets.UTF_8);
     }
 
     /**
@@ -138,17 +154,17 @@ public class BufferReader {
      * @return Returns the string that have been deserialized.
      */
     public String readStringUTF32() {
-        int len = readInt();
+        int len = checkedCount(readInt(), 1);
         byte[] str = new byte[len];
         buffer.get(str);
-        return new String(str);
+        return new String(str, StandardCharsets.UTF_8);
     }
 
     /**
      * Deserialize a byte array
      */
     public byte[] readByteArray() {
-        byte[] out = new byte[readShort()];
+        byte[] out = new byte[checkedCount(readUnsignedShort(), 1)];
         buffer.get(out);
         return out;
     }
@@ -160,7 +176,7 @@ public class BufferReader {
      * @return Returns a byte array that have been deserialized.
      */
     public byte[] readBytes(int bytes) {
-        byte[] out = new byte[bytes];
+        byte[] out = new byte[checkedCount(bytes, 1)];
         buffer.get(out);
         return out;
     }
@@ -174,18 +190,18 @@ public class BufferReader {
         int uByte = readUnsignedByte();
         boolean isNegative = (uByte & 64) != 0;
         int shift = 6;
-        int value = uByte & 63;
+        long value = uByte & 63;
 
         while ((uByte & 128) != 0) {
+            if (shift > 27) throw new IllegalArgumentException("Compressed integer too long");
             uByte = readUnsignedByte();
-            value |= (uByte & 127) << shift;
+            value |= (long)(uByte & 127) << shift;
             shift += 7;
         }
 
-        if (isNegative) {
-            value = -value;
-        }
-        return value;
+        if (value > (isNegative ? 2147483648L : Integer.MAX_VALUE))
+            throw new IllegalArgumentException("Compressed integer overflow");
+        return (int)(isNegative ? -value : value);
     }
 
     /**
@@ -219,7 +235,7 @@ public class BufferReader {
      * Checks if the buffer have finished reading all bytes.
      */
     public boolean isBufferFullyParsed() {
-        if (buffer.capacity() != buffer.position()) {
+        if (buffer.hasRemaining()) {
             return false;
         }
         return true;

@@ -34,12 +34,18 @@ public class NewTickPacket extends Packet {
 
     @Override
     public void deserialize(BufferReader buffer) throws Exception {
+        buffer.field("tickId");
         tickId = buffer.readInt();
+        buffer.field("tickTime");
         tickTime = buffer.readInt();
+        buffer.field("serverRealTimeMS");
         serverRealTimeMS = buffer.readUnsignedInt();
+        buffer.field("serverLastTimeRTTMS");
         serverLastTimeRTTMS = buffer.readUnsignedShort();
-        status = new ObjectStatusData[buffer.readShort()];
+        buffer.field("status.length");
+        status = new ObjectStatusData[buffer.checkedCount(buffer.readUnsignedShort(), 10)];
         for (int i = 0; i < status.length; i++) {
+            buffer.field("status[" + i + "]");
             status[i] = new ObjectStatusData().deserialize(buffer);
         }
     }

@@ -1,0 +1,2 @@
+// Isolate compilation and UI test artifacts from other ongoing work.
+allprojects { buildDir = file("build/keypop-validation") }

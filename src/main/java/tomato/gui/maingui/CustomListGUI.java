@@ -1,6 +1,7 @@
 package tomato.gui.maingui;
 
 import tomato.backend.data.TomatoData;
+import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -9,6 +10,7 @@ import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 
 public abstract class CustomListGUI extends JPanel {
@@ -30,7 +32,8 @@ public abstract class CustomListGUI extends JPanel {
         CustomListGUI gui = this;
         this.propName = propName;
 
-        setLayout(new BorderLayout());
+        setLayout(new BorderLayout(8, 8));
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         // Model with two columns: Item, Remove
         model = new DefaultTableModel(new Object[]{tableHeader, ""}, 0) {
@@ -48,8 +51,11 @@ public abstract class CustomListGUI extends JPanel {
         };
 
         table = new JTable(model);
-        table.setRowHeight(28);
-        table.getColumnModel().getColumn(1).setMaxWidth(60);
+        ContentStyle.table(table);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.getAccessibleContext().setAccessibleName(title + " rules");
+        table.getColumnModel().getColumn(1).setPreferredWidth(84);
+        table.getColumnModel().getColumn(1).setMaxWidth(140);
 
         // Button renderer and editor for the remove column
         table.getColumnModel().getColumn(1).setCellRenderer(new ButtonRenderer());
@@ -61,31 +67,61 @@ public abstract class CustomListGUI extends JPanel {
         // Populate initial rows
         if (items != null && !items.isEmpty()) {
             for (String s : items) {
-                model.addRow(new Object[]{s, "-"});
+                model.addRow(new Object[]{s, "Remove"});
             }
         } else {
-            model.addRow(new Object[]{"", "-"});
+            model.addRow(new Object[]{"", "Remove"});
         }
 
-        JScrollPane scrollPane = new JScrollPane(table);
+        JScrollPane scrollPane = ContentStyle.tableScroll(table, 3);
         scrollPane.getVerticalScrollBar().setUnitIncrement(20);
         add(scrollPane, BorderLayout.CENTER);
 
         // Bottom panel with Add button
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton addButton = new JButton("+");
-        addButton.addActionListener(e -> {
-            model.addRow(new Object[]{"", "-"});
-            // scroll to bottom
-            Rectangle rect = table.getCellRect(model.getRowCount() - 1, 0, true);
-            table.scrollRectToVisible(rect);
-        });
-        bottom.add(addButton);
+        JPanel bottom = ContentStyle.controls();
+        Action addRule = new AbstractAction("Add rule") {
+            public void actionPerformed(ActionEvent e) {
+                if (table.isEditing() && !table.getCellEditor().stopCellEditing()) return;
+                model.addRow(new Object[]{"", "Remove"});
+                int row = table.convertRowIndexToView(model.getRowCount() - 1);
+                table.setRowSelectionInterval(row, row);
+                table.scrollRectToVisible(table.getCellRect(row, 0, true));
+                table.editCellAt(row, 0);
+                if (table.getEditorComponent() != null) table.getEditorComponent().requestFocusInWindow();
+            }
+        };
+        Action removeRule = new AbstractAction("Remove selected rule") {
+            public void actionPerformed(ActionEvent e) {
+                int row = table.getSelectedRow();
+                if (row < 0) return;
+                int modelRow = table.convertRowIndexToModel(row);
+                if (table.isEditing()) table.getCellEditor().cancelCellEditing();
+                removeRow(modelRow);
+            }
+        };
+        bottom.add(new JButton(addRule));
+        bottom.add(new JButton(removeRule));
+        table.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, 0), "add-rule");
+        table.getActionMap().put("add-rule", addRule);
+        table.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "remove-rule");
+        table.getActionMap().put("remove-rule", removeRule);
         add(bottom, BorderLayout.SOUTH);
 
         JOptionPane pane = getPane(data, gui);
+        ContentStyle.refreshFonts(pane);
 
         this.dialog = pane.createDialog(null, title);
+        realmshark.branding.AppIdentity.apply(dialog);
+        dialog.setResizable(true);
+    }
+
+    private void removeRow(int row) {
+        if (row < 0 || row >= model.getRowCount()) return;
+        model.removeRow(row);
+        if (model.getRowCount() == 0) model.addRow(new Object[]{"", "Remove"});
+        int selected = table.convertRowIndexToView(Math.min(row, model.getRowCount() - 1));
+        table.setRowSelectionInterval(selected, selected);
+        table.requestFocusInWindow();
     }
 
     private static JOptionPane getPane(TomatoData data, CustomListGUI gui) {
@@ -135,11 +171,16 @@ public abstract class CustomListGUI extends JPanel {
     private static class ButtonRenderer extends JButton implements TableCellRenderer {
         public ButtonRenderer() {
             setOpaque(true);
+            setMargin(new Insets(1, 8, 1, 8));
         }
 
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             setText(value == null ? "" : value.toString());
+            setFont(table.getFont());
+            setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            getAccessibleContext().setAccessibleName("Remove rule " + (row + 1));
             return this;
         }
     }
@@ -150,6 +191,7 @@ public abstract class CustomListGUI extends JPanel {
         private Object currentValue;
 
         public ButtonEditor() {
+            button.setMargin(new Insets(1, 8, 1, 8));
             button.addActionListener(this);
         }
 
@@ -157,6 +199,8 @@ public abstract class CustomListGUI extends JPanel {
         public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
             this.currentValue = value;
             button.setText(value == null ? "" : value.toString());
+            button.setFont(table.getFont());
+            button.getAccessibleContext().setAccessibleName("Remove rule " + (row + 1));
             return button;
         }
 
@@ -178,13 +222,7 @@ public abstract class CustomListGUI extends JPanel {
 
             if (modelRow >= 0) {
                 SwingUtilities.invokeLater(() -> {
-                    if (modelRow < model.getRowCount()) {
-                        model.removeRow(modelRow);
-                        // Ensure there's always at least one empty row for convenience
-                        if (model.getRowCount() == 0) {
-                            model.addRow(new Object[]{"", "-"});
-                        }
-                    }
+                    removeRow(modelRow);
                 });
             }
         }

@@ -4,15 +4,20 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.nio.charset.Charset;
+import java.nio.file.*;
+import java.awt.Component;
+import java.awt.GraphicsEnvironment;
+import java.util.ArrayDeque;
+import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.swing.JFileChooser;
-import javax.swing.JOptionPane;
+import java.util.concurrent.*;
+import java.util.function.Consumer;
+import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import tomato.gui.stats.Fame;
 import tomato.gui.stats.data.MapFameData;
@@ -29,16 +34,9 @@ public class FameSessionManager {
         .setPrettyPrinting()
         .create();
 
-    static {
-        ensureDirectoryExists();
-    }
+    private static final SessionWriter WRITER = new SessionWriter(FameSessionManager::writeFile);
 
-    private static void ensureDirectoryExists() {
-        File dir = new File(SESSIONS_DIRECTORY);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-    }
+    static { Runtime.getRuntime().addShutdownHook(new Thread(WRITER::close, "fame-session-exit")); }
 
     // --- Save Operations ---
 
@@ -46,14 +44,24 @@ public class FameSessionManager {
      * Save a fame session to its default file location.
      */
     public static boolean saveSession(FameSession session) {
-        String filename =
-            sanitizeFilename(session.getSessionName()) + FILE_EXTENSION;
-        File file = new File(SESSIONS_DIRECTORY, filename);
-        return writeSession(session, file);
+        return writeSession(snapshot(session), sessionFile(session.getSessionName()));
+    }
+
+    public static File sessionFile(String name) {
+        return new File(SESSIONS_DIRECTORY, sanitizeFilename(name) + FILE_EXTENSION);
+    }
+
+    /** Call on the model's owning thread. Only the detached snapshot reaches the writer. */
+    public static void saveSessionAsync(FameSession session, Consumer<Boolean> completion) {
+        WRITER.save(snapshot(session), sessionFile(session.getSessionName()), completion);
+    }
+
+    public static void deleteSessionAsync(String name, Consumer<Boolean> completion) {
+        WRITER.delete(sessionFile(name), completion);
     }
 
     /**
-     * Save a fame session with a file chooser dialog.
+     * Choose a destination and schedule a save. Returns whether a save was requested.
      */
     public static boolean saveSessionAs(FameSession session) {
         JFileChooser fileChooser = createFileChooser("Save Fame Session");
@@ -63,17 +71,28 @@ public class FameSessionManager {
             if (!file.getName().endsWith(FILE_EXTENSION)) {
                 file = new File(file.getAbsolutePath() + FILE_EXTENSION);
             }
-            return writeSession(session, file);
+            SessionSnapshot snapshot = snapshot(session);
+            File destination = file;
+            JDialog progress = progress(null, "Saving fame session…");
+            WRITER.save(snapshot, destination, success -> {
+                progress.dispose();
+                if (!success) showError("Could not save the fame session. Check the destination and try again.", "Save Error");
+            });
+            return true;
         }
         return false;
     }
 
-    private static boolean writeSession(FameSession session, File file) {
-        try (FileWriter writer = new FileWriter(file)) {
-            GSON.toJson(session, writer);
-            return true;
-        } catch (IOException e) {
-            showError("Error saving session: " + e.getMessage(), "Save Error");
+    private static boolean writeSession(SessionSnapshot session, File file) {
+        try {
+            boolean success = WRITER.save(session, file, null).get();
+            if (!success) showError("Could not save the fame session. Check the destination and try again.", "Save Error");
+            return success;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            showError("Could not save the fame session.", "Save Error");
             return false;
         }
     }
@@ -102,9 +121,9 @@ public class FameSessionManager {
      * Load a session from a specific file.
      */
     public static FameSession loadSession(File file) {
-        try (FileReader reader = new FileReader(file)) {
-            return GSON.fromJson(reader, FameSession.class);
-        } catch (IOException e) {
+        try {
+            return readSession(file);
+        } catch (IOException | com.google.gson.JsonParseException e) {
             showError("Error loading session: " + e.getMessage(), "Load Error");
             return null;
         }
@@ -135,6 +154,48 @@ public class FameSessionManager {
      */
     public static boolean deleteSession(File sessionFile) {
         return sessionFile.exists() && sessionFile.delete();
+    }
+
+    /** Chooser stays on the EDT; file reading and parsing run on a worker. */
+    public static void loadSessionAsync(Component parent, Consumer<FameSession> completion) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> loadSessionAsync(parent, completion));
+            return;
+        }
+        JFileChooser chooser = createFileChooser("Load Fame Session (Read-Only)");
+        if (chooser.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) return;
+        File file = chooser.getSelectedFile();
+        JDialog progress = progress(parent, "Loading fame session…");
+        new SwingWorker<FameSession, Void>() {
+            @Override protected FameSession doInBackground() throws IOException {
+                FameSession session = readSession(file);
+                session.setReadOnly(true);
+                return session;
+            }
+            @Override protected void done() {
+                progress.dispose();
+                try { completion.accept(get()); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                catch (ExecutionException e) { showError("Could not load this fame session. Check that it is a valid .fame file.", "Load Error"); }
+            }
+        }.execute();
+    }
+
+    private static FameSession readSession(File file) throws IOException {
+        try (FileReader reader = new FileReader(file)) {
+            FameSession session = GSON.fromJson(reader, FameSession.class);
+            if (session == null || session.getCharacterFameData() == null
+                || session.getCharacterMapFameData() == null || session.getCharacterClassNames() == null)
+                throw new IOException("Invalid session data");
+            for (List<Fame> rows : session.getCharacterFameData().values())
+                if (rows == null || rows.contains(null)) throw new IOException("Invalid fame samples");
+            for (List<MapFameData> rows : session.getCharacterMapFameData().values()) {
+                if (rows == null) throw new IOException("Invalid map visits");
+                for (MapFameData row : rows)
+                    if (row == null || row.mapName == null) throw new IOException("Invalid map visit");
+            }
+            return session;
+        }
     }
 
     // --- Session Creation ---
@@ -207,7 +268,9 @@ public class FameSessionManager {
     > convertMapDataToSessionFormat(
         HashMap<Integer, ArrayList<MapFameData>> mapFameData
     ) {
-        return convertMapToList(mapFameData);
+        HashMap<Integer, List<MapFameData>> result = new HashMap<>();
+        if (mapFameData != null) mapFameData.forEach((id, rows) -> result.put(id, copyMaps(rows)));
+        return result;
     }
 
     /**
@@ -286,11 +349,148 @@ public class FameSessionManager {
     }
 
     private static void showError(String message, String title) {
-        JOptionPane.showMessageDialog(
-            null,
-            message,
-            title,
-            JOptionPane.ERROR_MESSAGE
-        );
+        System.err.println(title + ": " + message);
+        if (GraphicsEnvironment.isHeadless()) return;
+        SwingUtilities.invokeLater(() -> {
+            JDialog dialog = new JOptionPane(message, JOptionPane.ERROR_MESSAGE).createDialog(title);
+            realmshark.branding.AppIdentity.apply(dialog);
+            dialog.setModal(false);
+            dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            dialog.setVisible(true);
+        });
+    }
+
+    private static JDialog progress(Component parent, String message) {
+        JDialog dialog = new JDialog();
+        realmshark.branding.AppIdentity.apply(dialog);
+        dialog.setTitle(message); dialog.setModal(false);
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        JProgressBar bar = new JProgressBar(); bar.setIndeterminate(true);
+        JPanel panel = new JPanel(new java.awt.BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        panel.add(new JLabel(message), java.awt.BorderLayout.NORTH); panel.add(bar, java.awt.BorderLayout.CENTER);
+        dialog.setContentPane(panel); dialog.pack(); dialog.setLocationRelativeTo(parent);
+        // Quick operations should not flash a progress window.
+        Timer timer = new Timer(250, e -> { if (dialog.isDisplayable()) dialog.setVisible(true); });
+        timer.setRepeats(false); timer.start();
+        return dialog;
+    }
+
+    private static List<MapFameData> copyMaps(List<MapFameData> source) {
+        List<MapFameData> rows = new ArrayList<>();
+        for (MapFameData map : source) {
+            MapFameData copy = new MapFameData(map.mapName, map.startTime, map.startFame);
+            copy.endTime = map.endTime; copy.endFame = map.endFame; rows.add(copy);
+        }
+        return rows;
+    }
+
+    /** Field names deliberately match the existing .fame schema, including timestamps. */
+    static final class SessionSnapshot {
+        String sessionName, description;
+        long createdTimestamp, lastModifiedTimestamp;
+        boolean readOnly;
+        HashMap<Integer, List<Fame>> characterFameData = new HashMap<>();
+        HashMap<Integer, List<MapFameData>> characterMapFameData = new HashMap<>();
+        HashMap<Integer, String> characterClassNames;
+    }
+
+    static SessionSnapshot snapshot(FameSession session) {
+        SessionSnapshot copy = new SessionSnapshot();
+        copy.sessionName = session.getSessionName(); copy.description = session.getDescription();
+        copy.createdTimestamp = session.getCreatedTimestamp(); copy.lastModifiedTimestamp = session.getLastModifiedTimestamp();
+        copy.readOnly = session.isReadOnly();
+        session.getCharacterFameData().forEach((id, rows) -> copy.characterFameData.put(id, new ArrayList<>(rows)));
+        session.getCharacterMapFameData().forEach((id, rows) -> copy.characterMapFameData.put(id, copyMaps(rows)));
+        copy.characterClassNames = new HashMap<>(session.getCharacterClassNames());
+        return copy;
+    }
+
+    private static void writeFile(File file, String json) throws IOException {
+        Path path = file.toPath().toAbsolutePath();
+        Files.createDirectories(path.getParent());
+        Path temporary = Files.createTempFile(path.getParent(), ".fame-", ".tmp");
+        try {
+            Files.write(temporary, json.getBytes(Charset.defaultCharset()));
+            try { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
+            catch (AtomicMoveNotSupportedException e) { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING); }
+        } finally { Files.deleteIfExists(temporary); }
+    }
+
+    @FunctionalInterface
+    interface Store { void write(File file, String json) throws IOException; }
+
+    /** One ordered writer; only pending saves to the same file coalesce. Deletes are barriers. */
+    static final class SessionWriter implements AutoCloseable {
+        private final Store store;
+        private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "fame-session-save"); t.setDaemon(true); return t;
+        });
+        private final ArrayDeque<Job> queue = new ArrayDeque<>();
+        private final Map<File, Job> pending = new LinkedHashMap<>();
+        private boolean running;
+
+        SessionWriter(Store store) { this.store = store; }
+
+        synchronized CompletableFuture<Boolean> save(SessionSnapshot snapshot, File file, Consumer<Boolean> completion) {
+            file = file.getAbsoluteFile();
+            Job job = pending.get(file);
+            if (job == null) {
+                job = new Job(file); pending.put(file, job); queue.add(job);
+            }
+            job.snapshot = snapshot;
+            if (completion != null) job.completions.add(completion);
+            start();
+            return job.result;
+        }
+
+        synchronized void delete(File file, Consumer<Boolean> completion) {
+            file = file.getAbsoluteFile();
+            pending.remove(file);
+            Job job = new Job(file);
+            if (completion != null) job.completions.add(completion);
+            queue.add(job); start();
+        }
+
+        private void start() {
+            if (!running) { running = true; executor.execute(this::drain); }
+        }
+
+        private void drain() {
+            while (true) {
+                Job job;
+                synchronized (this) {
+                    job = queue.poll();
+                    if (job == null) { running = false; return; }
+                    pending.remove(job.file, job);
+                }
+                boolean success;
+                try {
+                    if (job.snapshot == null) Files.deleteIfExists(job.file.toPath());
+                    else store.write(job.file, GSON.toJson(job.snapshot));
+                    success = true;
+                } catch (IOException | RuntimeException e) {
+                    System.err.println("Fame session persistence failed: " + e.getClass().getSimpleName());
+                    success = false;
+                }
+                final boolean result = success;
+                job.result.complete(result);
+                SwingUtilities.invokeLater(() -> job.completions.forEach(callback -> callback.accept(result)));
+            }
+        }
+
+        @Override public void close() {
+            executor.shutdown();
+            try { executor.awaitTermination(10, TimeUnit.SECONDS); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+
+        private static final class Job {
+            final File file;
+            SessionSnapshot snapshot;
+            final List<Consumer<Boolean>> completions = new ArrayList<>();
+            final CompletableFuture<Boolean> result = new CompletableFuture<>();
+            Job(File file) { this.file = file; }
+        }
     }
 }

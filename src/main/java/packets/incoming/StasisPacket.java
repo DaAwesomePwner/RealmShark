@@ -24,8 +24,11 @@ public class StasisPacket extends Packet {
 
     @Override
     public void deserialize(BufferReader buffer) throws Exception {
+        buffer.field("entityId");
         entityId = buffer.readInt();
+        buffer.field("unknownByteArray");
         unknownByteArray = buffer.readBytes(12);
+        buffer.field("stasisDuration");
         stasisDuration = buffer.readFloat();
 
     }

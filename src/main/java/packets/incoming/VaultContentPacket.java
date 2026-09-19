@@ -88,43 +88,52 @@ public class VaultContentPacket extends Packet {
 
     @Override
     public void deserialize(BufferReader buffer) throws Exception {
+        buffer.field("lastVaultPacket");
         lastVaultPacket = buffer.readBoolean();
+        buffer.field("vaultChestObjectId");
         vaultChestObjectId = buffer.readCompressedInt();
+        buffer.field("materialChestObjectId");
         materialChestObjectId = buffer.readCompressedInt();
+        buffer.field("giftChestObjectId");
         giftChestObjectId = buffer.readCompressedInt();
+        buffer.field("potionStorageObjectId");
         potionStorageObjectId = buffer.readCompressedInt();
+        buffer.field("seasonalSpoilChestObjectId");
         seasonalSpoilChestObjectId = buffer.readCompressedInt();
 
-        vaultContents = new int[buffer.readCompressedInt()];
-        for (int i = 0; i < vaultContents.length; i++) {
-            vaultContents[i] = buffer.readCompressedInt();
-        }
-        materialContents = new int[buffer.readCompressedInt()];
-        for (int i = 0; i < materialContents.length; i++) {
-            materialContents[i] = buffer.readCompressedInt();
-        }
-        giftContents = new int[buffer.readCompressedInt()];
-        for (int i = 0; i < giftContents.length; i++) {
-            giftContents[i] = buffer.readCompressedInt();
-        }
-        potionContents = new int[buffer.readCompressedInt()];
-        for (int i = 0; i < potionContents.length; i++) {
-            potionContents[i] = buffer.readCompressedInt();
-        }
-        seasonalSpoilContent = new int[buffer.readCompressedInt()];
-        for (int i = 0; i < seasonalSpoilContent.length; i++) {
-            seasonalSpoilContent[i] = buffer.readCompressedInt();
-        }
+        vaultContents = readItems(buffer, "vaultContents");
+        materialContents = readItems(buffer, "materialContents");
+        giftContents = readItems(buffer, "giftContents");
+        potionContents = readItems(buffer, "potionContents");
+        seasonalSpoilContent = readItems(buffer, "seasonalSpoilContent");
 
+        buffer.field("vaultUpgradeCost");
         vaultUpgradeCost = buffer.readShort();
+        buffer.field("materialUpgradeCost");
         materialUpgradeCost = buffer.readShort();
+        buffer.field("potionUpgradeCost");
         potionUpgradeCost = buffer.readShort();
+        buffer.field("currentPotionMax");
         currentPotionMax = buffer.readShort();
+        buffer.field("nextPotionMax");
         nextPotionMax = buffer.readShort();
 
+        buffer.field("vaultChestEnchants");
         vaultChestEnchants = buffer.readString();
+        buffer.field("giftChestEnchants");
         giftChestEnchants = buffer.readString();
+        buffer.field("spoilsChestEnchants");
         spoilsChestEnchants = buffer.readString();
+    }
+
+    private static int[] readItems(BufferReader buffer, String name) {
+        buffer.field(name + ".length");
+        int[] items = new int[buffer.checkedCount(buffer.readCompressedInt(), 1)];
+        for (int i = 0; i < items.length; i++) {
+            buffer.field(name + "[" + i + "]");
+            items[i] = buffer.readCompressedInt();
+        }
+        return items;
     }
 
     @Override

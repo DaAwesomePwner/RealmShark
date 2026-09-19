@@ -7,23 +7,40 @@ import javax.swing.border.EmptyBorder;
 
 /** Responsive navigation around the original feature panels; no data is duplicated. */
 public final class WorkspaceShell extends JPanel {
-    public static final String[] TITLES = {"Chat", "Key-pops", "Security", "Characters", "Statistics", "Daily Quests", "My Info", "DPS Logger"};
+    public static final String[] TITLES = {"Chat", "Key-pops", "Security", "Characters", "Statistics", "Daily Quests", "My Info", "DPS Logger", "Loot", "Logging", "Runs", "Timeline", "Bridge Review", "Notifications"};
     private static final String[] DESCRIPTIONS = {
         "Your conversations across the Realm, in one place.",
         "Follow dungeon openings and configure your notifications.",
         "Inspect players, equipment and ability activity.",
-        "Explore your character's exaltations and pets.",
+        "Keep a character roster, track maxing and equipment, and follow exalts.",
         "Track fame, loot and dungeon progress over time.",
         "Review quests collected from the Daily Quest Room.",
         "Inspect your current character, equipment and damage.",
-        "Review encounters, compare damage and fine-tune your filters."
+        "Review encounters, compare damage and fine-tune your filters.",
+        "Explore live loot by item, stat potion and bag type.",
+        "Discover available fields, inspect stat changes and diagnose capture gaps.",
+        "Review area visits, progression and party activity.",
+        "Follow party, equipment and progression events across your sessions.",
+        "Review detected loot, configure guild exports and troubleshoot delivery.",
+        "Choose sounds for messages, dungeon openings, realm events and loot."
     };
-    private static final Color BG = new Color(0x111118), BORDER = new Color(0x2D2B3D);
-    private static final Color TEXT = new Color(0xEEEDF7), MUTED = new Color(0xACA8BF), VIOLET = new Color(0xB99AFF);
     private final JPanel sidebar = new JPanel(new BorderLayout());
+    private final JPanel workspace = new JPanel(new BorderLayout(0, 8));
+    private final JPanel branding = new JPanel(new CardLayout());
+    private final JPanel nav = new JPanel(new GridBagLayout());
     private final JPanel cards = new JPanel(new CardLayout());
     private final JToggleButton[] navigation = new JToggleButton[TITLES.length];
+    private final JRadioButtonMenuItem[] destinations = new JRadioButtonMenuItem[TITLES.length];
+    private final JButton compactNavigation = new JButton(new NavigationMenuIcon()) {
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            size.height = Math.max(32, size.height);
+            return size;
+        }
+    };
+    private final JPopupMenu navigationPopup = new JPopupMenu("Workspace navigation");
     private final JLabel title = new JLabel(), description = new JLabel();
+    private final JLabel mark = new JLabel(new LineIcon(8, 22));
     private final JLabel brand = new JLabel("RealmShark"), eyebrow = new JLabel("WORKSPACE");
     private final JLabel status = new JLabel("Capture is off"), hint = new JLabel("Start capture, then enter the Realm to see activity.");
     private final JLabel sideFooter = new JLabel("Powered by RealmShark");
@@ -32,71 +49,91 @@ public final class WorkspaceShell extends JPanel {
     private boolean compact;
     private final JTextArea captureFailure = new JTextArea();
     private int selected;
+    private boolean scrollPending;
 
     public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview) {
         super(new BorderLayout());
-        if (panels.length != TITLES.length) throw new IllegalArgumentException("All eight feature panels are required");
-        setBackground(BG);
-        sidebar.setBackground(BG);
-        sidebar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, BORDER), new EmptyBorder(22, 12, 16, 12)));
-        sidebar.setPreferredSize(new Dimension(210, 0));
-        JPanel branding = darkPanel(new BorderLayout(12, 0));
-        JLabel mark = new JLabel(new LineIcon(8)); mark.setForeground(VIOLET);
-        brand.setFont(new Font("Segoe UI", Font.BOLD, 20)); brand.setForeground(TEXT);
-        branding.add(mark, BorderLayout.WEST); branding.add(brand, BorderLayout.CENTER);
-        branding.setBorder(new EmptyBorder(0, 8, 26, 0));
+        if (panels.length != TITLES.length) throw new IllegalArgumentException("All feature panels are required");
+        sidebar.setPreferredSize(new Dimension(188, 0));
+        JPanel brandRow = new JPanel(new BorderLayout(8, 0)); brandRow.setOpaque(false);
+        brand.setFont(ContentStyle.emphasis(ContentStyle.body().deriveFont(ContentStyle.body().getSize2D() * 17f / ContentStyle.FONT_SIZE)));
+        brandRow.add(mark, BorderLayout.WEST); brandRow.add(brand, BorderLayout.CENTER);
+        branding.setOpaque(false); branding.add(brandRow, "brand");
+        compactNavigation.setName("compact-navigation");
+        compactNavigation.setMargin(new Insets(3, 4, 3, 4));
+        compactNavigation.setToolTipText("Choose workspace (Alt+M)");
+        compactNavigation.getAccessibleContext().setAccessibleName("Choose workspace");
+        navigationPopup.setName("compact-navigation-popup");
+        navigationPopup.getAccessibleContext().setAccessibleName("Workspace navigation");
+        compactNavigation.setComponentPopupMenu(navigationPopup);
+        compactNavigation.addActionListener(e -> showNavigation());
+        compactNavigation.getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "open-navigation");
+        compactNavigation.getActionMap().put("open-navigation", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { showNavigation(); }
+        });
+        branding.add(compactNavigation, "menu");
+        branding.setBorder(new EmptyBorder(0, 4, 10, 4));
         sidebar.add(branding, BorderLayout.NORTH);
-        JPanel nav = darkPanel(new GridBagLayout());
         GridBagConstraints gc = new GridBagConstraints(); gc.gridx = 0; gc.weightx = 1; gc.fill = GridBagConstraints.HORIZONTAL;
-        eyebrow.setForeground(MUTED); eyebrow.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        eyebrow.setBorder(new EmptyBorder(0, 14, 12, 0)); gc.gridy = 0; nav.add(eyebrow, gc);
-        ButtonGroup group = new ButtonGroup();
+        eyebrow.setFont(ContentStyle.metadata(ContentStyle.body()));
+        eyebrow.setBorder(new EmptyBorder(0, 10, 6, 0)); gc.gridy = 0; nav.add(eyebrow, gc);
+        ButtonGroup group = new ButtonGroup(), menuGroup = new ButtonGroup();
         for (int i = 0; i < panels.length; i++) {
             final int index = i;
-            JToggleButton button = new JToggleButton(TITLES[i], new LineIcon(i));
-            button.setName("nav-" + i); button.setToolTipText(TITLES[i] + "  (Alt+" + (i + 1) + ")");
+            JToggleButton button = new JToggleButton(TITLES[i], new LineIcon(i >= 8 ? i + 1 : i)) {
+                @Override public Dimension getPreferredSize() {
+                    Dimension size = super.getPreferredSize();
+                    size.height = Math.max(32, size.height);
+                    return size;
+                }
+            };
+            button.setFont(ContentStyle.body());
+            button.setName("nav-" + i); button.setToolTipText(TITLES[i] + "  (Alt+" + (i == 13 ? "N" : i == 12 ? "B" : i == 10 ? "R" : i == 11 ? "T" : Integer.toString((i + 1) % 10)) + ")");
             button.getAccessibleContext().setAccessibleName(TITLES[i]);
-            button.setHorizontalAlignment(SwingConstants.LEFT); button.setIconTextGap(13);
-            button.setBorder(new EmptyBorder(12, 14, 12, 10)); button.setFocusPainted(true);
-            button.putClientProperty("JButton.buttonType", "roundRect");
+            button.setHorizontalAlignment(SwingConstants.LEFT); button.setIconTextGap(8);
+            button.setBorder(new EmptyBorder(4, 8, 4, 8)); button.setFocusPainted(true);
             button.addActionListener(e -> select(index));
-            navigation[i] = button; group.add(button); gc.gridy = i + 1; gc.insets = new Insets(2, 0, 2, 0); nav.add(button, gc);
+            navigation[i] = button; group.add(button); gc.gridy = i + 1; gc.insets = new Insets(1, 0, 1, 0); nav.add(button, gc);
             cards.add(panels[i], Integer.toString(i));
-            getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_1 + i, InputEvent.ALT_DOWN_MASK), "page-" + i);
+            KeyStroke shortcut = KeyStroke.getKeyStroke(i == 13 ? KeyEvent.VK_N : i == 12 ? KeyEvent.VK_B : i == 10 ? KeyEvent.VK_R : i == 11 ? KeyEvent.VK_T : i == 9 ? KeyEvent.VK_0 : KeyEvent.VK_1 + i, InputEvent.ALT_DOWN_MASK);
+            getInputMap(WHEN_IN_FOCUSED_WINDOW).put(shortcut, "page-" + i);
             getActionMap().put("page-" + i, new AbstractAction() { public void actionPerformed(ActionEvent e) { select(index); navigation[index].requestFocusInWindow(); }});
+            JRadioButtonMenuItem destination = new JRadioButtonMenuItem(TITLES[i], button.getIcon());
+            destination.setName("compact-nav-" + i); destination.setAccelerator(shortcut);
+            destination.addActionListener(e -> { select(index); navigation[index].requestFocusInWindow(); });
+            destinations[i] = destination; menuGroup.add(destination); navigationPopup.add(destination);
         }
         gc.gridy++; gc.weighty = 1; nav.add(Box.createVerticalGlue(), gc);
         JScrollPane navScroll = new JScrollPane(nav); navScroll.setBorder(null); navScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        navScroll.getVerticalScrollBar().setUnitIncrement(34);
         sidebar.add(navScroll, BorderLayout.CENTER);
-        sideFooter.setForeground(MUTED); sideFooter.setFont(new Font("Segoe UI", Font.PLAIN, 11)); sideFooter.setBorder(new EmptyBorder(20, 8, 0, 0));
+        sideFooter.setFont(ContentStyle.metadata(ContentStyle.body())); sideFooter.setBorder(new EmptyBorder(8, 4, 0, 0));
         sidebar.add(sideFooter, BorderLayout.SOUTH);
         add(sidebar, BorderLayout.WEST);
 
-        JPanel workspace = new JPanel(new BorderLayout(0, 20)); workspace.setBorder(new EmptyBorder(24, 24, 16, 24));
-        JPanel header = new JPanel(new BorderLayout(16, 0));
-        JPanel heading = new JPanel(new BorderLayout(0, 7));
-        title.setFont(new Font("Segoe UI", Font.BOLD, 28));
-        description.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        workspace.setName("workspace-content"); workspace.setBorder(new EmptyBorder(12, 12, 10, 12));
+        JPanel header = new JPanel(new BorderLayout(12, 0));
+        JPanel heading = new JPanel(new BorderLayout(0, 2));
+        title.setFont(ContentStyle.emphasis(ContentStyle.body().deriveFont(ContentStyle.body().getSize2D() * 20f / ContentStyle.FONT_SIZE)));
+        description.setFont(ContentStyle.metadata(ContentStyle.body()));
         heading.add(title, BorderLayout.NORTH); heading.add(description, BorderLayout.CENTER);
         header.add(heading, BorderLayout.CENTER);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 6));
-        capture.setName("capture-toggle"); capture.putClientProperty("JButton.buttonType", "roundRect");
-        capture.putClientProperty("FlatLaf.style", "background: #9063ED; foreground: #FFFFFF; focusedBackground: #A077EF; hoverBackground: #A077EF");
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        capture.setName("capture-toggle");
         capture.setToolTipText("Start or stop the network sniffer (Ctrl+Shift+S)");
         capture.addActionListener(e -> toggleCapture.run());
-        previewLabel.setForeground(VIOLET); previewLabel.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        previewLabel.setFont(ContentStyle.metadata(ContentStyle.body()));
         previewLabel.setVisible(preview); actions.add(previewLabel); actions.add(capture);
         capture.setEnabled(!preview);
         header.add(actions, BorderLayout.EAST); workspace.add(header, BorderLayout.NORTH);
-        cards.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER), new EmptyBorder(12, 12, 12, 12)));
         cards.setMinimumSize(new Dimension(0, 0)); workspace.add(cards, BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout(16, 0));
-        status.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        hint.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        status.setFont(ContentStyle.metadata(ContentStyle.body()));
+        hint.setFont(ContentStyle.metadata(ContentStyle.body()));
         footer.add(status, BorderLayout.WEST); footer.add(hint, BorderLayout.CENTER);
         captureFailure.setName("capture-failure");
         captureFailure.setEditable(false); captureFailure.setLineWrap(true); captureFailure.setWrapStyleWord(true);
-        captureFailure.setOpaque(false); captureFailure.setForeground(new Color(0xF4B4C0));
+        captureFailure.setOpaque(false);
         captureFailure.setFont(status.getFont()); captureFailure.setRows(3); captureFailure.setVisible(false);
         JPanel captureInfo = new JPanel(new BorderLayout(0, 8));
         captureInfo.add(footer, BorderLayout.NORTH); captureInfo.add(captureFailure, BorderLayout.CENTER);
@@ -105,19 +142,74 @@ public final class WorkspaceShell extends JPanel {
         addComponentListener(new ComponentAdapter() { @Override public void componentResized(ComponentEvent e) { adapt(); }});
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "capture");
         getActionMap().put("capture", new AbstractAction() { public void actionPerformed(ActionEvent e) { if (capture.isEnabled()) capture.doClick(); }});
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK), "open-navigation");
+        getActionMap().put("open-navigation", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { showNavigation(); }
+        });
+        refreshTheme();
         select(0);
     }
 
-    private static JPanel darkPanel(LayoutManager layout) { JPanel panel = new JPanel(layout); panel.setBackground(BG); return panel; }
+    @Override public void updateUI() {
+        super.updateUI();
+        if (sidebar != null) refreshTheme();
+    }
+
+    /** Refreshes explicit shell colors from the active LAF rather than retaining a dark sidebar. */
+    public void refreshTheme() {
+        Color background = ContentStyle.color("navigation");
+        setBackground(ContentStyle.color("background"));
+        sidebar.setBackground(background); nav.setBackground(background);
+        sidebar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, ContentStyle.color("border")),
+            new EmptyBorder(12, compact ? 6 : 8, 10, compact ? 6 : 8)));
+        cards.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(ContentStyle.color("border")),
+            new EmptyBorder(6, 6, 6, 6)));
+        brand.setForeground(ContentStyle.color("text")); title.setForeground(ContentStyle.color("text"));
+        mark.setForeground(ContentStyle.color("violet")); previewLabel.setForeground(ContentStyle.color("violet"));
+        for (JLabel label : new JLabel[] {eyebrow, sideFooter, description, hint}) label.setForeground(ContentStyle.color("muted"));
+        status.setForeground(ContentStyle.color("text")); captureFailure.setForeground(ContentStyle.color("rose"));
+        capture.setBackground(VioletTheme.CAPTURE_BACKGROUND); capture.setForeground(Color.WHITE);
+        capture.putClientProperty("FlatLaf.style", "background: #7041BD; foreground: #FFFFFF; focusedBackground: #8052CD; hoverBackground: #8052CD; pressedBackground: #6036A5; hoverForeground: #FFFFFF; pressedForeground: #FFFFFF");
+        for (int i = 0; i < navigation.length; i++) if (navigation[i] != null) styleNavigation(i);
+    }
+
+    private void styleNavigation(int index) {
+        navigation[index].setForeground(ContentStyle.color(index == selected ? "selectionText" : "text"));
+        navigation[index].setBackground(ContentStyle.color(index == selected ? "selection" : "navigation"));
+    }
+
+    private void showNavigation() {
+        Component anchor = compact ? compactNavigation : navigation[selected];
+        navigationPopup.show(anchor, 0, anchor.getHeight());
+        MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, destinations[selected]});
+    }
+
+    private static final class NavigationMenuIcon implements Icon {
+        @Override public int getIconWidth() { return 18; }
+        @Override public int getIconHeight() { return 18; }
+        @Override public void paintIcon(Component component, Graphics graphics, int x, int y) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.translate(x, y);
+            g.scale(18.0 / 22, 18.0 / 22);
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.setColor(component.getForeground());
+            for (int line = 5; line <= 17; line += 6) g.drawLine(3, line, 19, line);
+            g.dispose();
+        }
+    }
+
     public void select(int index) {
         if (index < 0 || index >= navigation.length) throw new IllegalArgumentException("Invalid page");
         selected = index; ((CardLayout) cards.getLayout()).show(cards, Integer.toString(index));
-        title.setText(TITLES[index]); description.setText(DESCRIPTIONS[index]);
+        title.setText(TITLES[index]); description.setText(DESCRIPTIONS[index]); description.setToolTipText(DESCRIPTIONS[index]);
+        title.setToolTipText(DESCRIPTIONS[index]);
         for (int i = 0; i < navigation.length; i++) {
             navigation[i].setSelected(i == index);
-            navigation[i].setForeground(i == index ? VIOLET : MUTED);
-            navigation[i].setBackground(i == index ? new Color(0x30243F) : BG);
+            destinations[i].setSelected(i == index);
+            styleNavigation(i);
         }
+        scrollSelected(); scrollSelectedLater();
     }
     public int getSelectedPage() { return selected; }
     public boolean isCompact() { return compact; }
@@ -141,15 +233,34 @@ public final class WorkspaceShell extends JPanel {
         revalidate(); repaint();
     }
     private void adapt() {
-        boolean nextCompact = getWidth() < 1000;
-        compact = nextCompact;
-        sidebar.setPreferredSize(new Dimension(compact ? 76 : 210, 0));
-        brand.setVisible(!compact); eyebrow.setVisible(!compact); sideFooter.setVisible(!compact);
+        boolean changed = compact != (getWidth() < 1000);
+        compact = getWidth() < 1000;
+        sidebar.setPreferredSize(new Dimension(compact ? 60 : 188, 0));
+        ((CardLayout) branding.getLayout()).show(branding, compact ? "menu" : "brand");
+        eyebrow.setVisible(!compact); sideFooter.setVisible(!compact);
+        workspace.setBorder(compact ? new EmptyBorder(8, 8, 8, 8) : new EmptyBorder(12, 12, 10, 12));
         description.setVisible(getWidth() >= 850); hint.setVisible(getWidth() >= 820);
         for (int i = 0; i < navigation.length; i++) {
             navigation[i].setText(compact ? "" : TITLES[i]);
             navigation[i].setHorizontalAlignment(compact ? SwingConstants.CENTER : SwingConstants.LEFT);
         }
-        revalidate();
+        if (changed) refreshTheme();
+        revalidate(); scrollSelectedLater();
+    }
+
+    @Override public void doLayout() {
+        super.doLayout();
+        scrollSelectedLater();
+    }
+
+    private void scrollSelected() {
+        JToggleButton button = navigation[selected];
+        button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
+    }
+
+    private void scrollSelectedLater() {
+        if (scrollPending) return;
+        scrollPending = true;
+        SwingUtilities.invokeLater(() -> { scrollPending = false; scrollSelected(); });
     }
 }

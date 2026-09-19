@@ -48,46 +48,31 @@ public class HttpCharListRequest {
 
         URL obj = new URL(s1 + s2);
         HttpURLConnection con = (HttpURLConnection) obj.openConnection();
-        con.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
-        con.setDoOutput(true);
-        con.setRequestMethod("POST");
-
-        try (OutputStream os = con.getOutputStream()) {
-            byte[] input = s2.getBytes(StandardCharsets.UTF_8);
-            os.write(input, 0, input.length);
-        }
-
-        int responseCode = con.getResponseCode();
-        if (responseCode == HttpURLConnection.HTTP_OK) {
-            // success
-            BufferedReader in = new BufferedReader(
-                new InputStreamReader(con.getInputStream())
-            );
-            String inputLine;
-            StringBuffer response = new StringBuffer();
-
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine);
+        try {
+            con.setConnectTimeout(5000);
+            con.setReadTimeout(10000);
+            con.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
+            con.setDoOutput(true);
+            con.setRequestMethod("POST");
+            try (OutputStream os = con.getOutputStream()) {
+                byte[] input = s2.getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
             }
-            in.close();
-
-            // print result
-            //System.out.println(response);
-            //System.out.println(accessToken);
-            return response.toString();
-        } else {
-            BufferedReader in = new BufferedReader(
-                new InputStreamReader(con.getErrorStream())
-            );
-            String inputLine;
-            StringBuffer response = new StringBuffer();
-
-            while ((inputLine = in.readLine()) != null) {
-                response.append(inputLine).append("\n");
+            int responseCode = con.getResponseCode();
+            boolean success = responseCode == HttpURLConnection.HTTP_OK;
+            InputStream input = success ? con.getInputStream() : con.getErrorStream();
+            if (input == null) return null;
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = in.readLine()) != null) {
+                    response.append(line);
+                    if (!success) response.append('\n');
+                }
+                if (success) return response.toString();
+                System.err.println("Account metadata request failed: HTTP " + responseCode);
             }
-            in.close();
-            System.out.println(response);
-        }
-        return null;
+            return null;
+        } finally { con.disconnect(); }
     }
 }

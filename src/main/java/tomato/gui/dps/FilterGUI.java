@@ -6,6 +6,7 @@ import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import javax.swing.*;
 import tomato.gui.dps.shared.FilterPresetSerializer;
+import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.enums.CharacterClass;
 
 public class FilterGUI extends JPanel {
@@ -38,7 +39,7 @@ public class FilterGUI extends JPanel {
         JButton deleteButton = new JButton("Delete");
         JLabel nameLabel = new JLabel("Name: ");
 
-        JPanel radio = new JPanel();
+        JPanel radio = ContentStyle.controls();
         ButtonGroup group = new ButtonGroup();
         filter = new JRadioButton("Filter");
         highlight = new JRadioButton("Highlight");
@@ -86,20 +87,15 @@ public class FilterGUI extends JPanel {
 
         add(top, BorderLayout.NORTH);
 
-        // Main content scroll area (increased width/height)
-        JPanel boxScroll = new JPanel();
+        JPanel boxScroll = new JPanel(new BorderLayout());
+        JPanel fields = new JPanel();
+        boxScroll.add(fields, BorderLayout.NORTH);
         JScrollPane scrollPane = new JScrollPane(boxScroll);
-        int w = 360; // increased width
-        int h = 360; // increased height
-        scrollPane.setBounds(0, 0, w + 20, h);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(40);
+        scrollPane.setPreferredSize(new Dimension(420, 360));
+        scrollPane.getVerticalScrollBar().setUnitIncrement(Math.max(28, nameText.getPreferredSize().height));
+        add(scrollPane, BorderLayout.CENTER);
 
-        JPanel contentPane = new JPanel(null);
-        contentPane.setPreferredSize(new Dimension(w, h));
-        contentPane.add(scrollPane);
-        add(contentPane, BorderLayout.CENTER);
-
-        largeMethod(boxScroll);
+        largeMethod(fields);
 
         // Actions
         loadButton.addActionListener(e -> loadButton());
@@ -123,8 +119,11 @@ public class FilterGUI extends JPanel {
         if (serialized == null || serialized.isEmpty()) return;
 
         newButton(); // reset fields
+        textFieldNames.clear();
+        textFieldGuild.clear();
         if (namePanelBody != null) namePanelBody.removeAll();
         if (guildPanelBody != null) guildPanelBody.removeAll();
+        guildPanelBody.add(classCheckBoxes.get(0));
 
         FilterPresetSerializer.FilterPreset preset =
             FilterPresetSerializer.deserialize(serialized);
@@ -273,7 +272,7 @@ public class FilterGUI extends JPanel {
         classCheckBoxes.add(myClass);
         body.add(myClass, BorderLayout.NORTH);
 
-        JPanel grid = new JPanel(new GridLayout(0, 2, 10, 5)); // 2 columns, dynamic rows
+        JPanel grid = ContentStyle.responsiveGrid(2, 160, 6);
 
         // Build checkboxes in CHAR_CLASS_LIST order for consistent serialization,
         // but display them alphabetically by class name.
@@ -339,10 +338,9 @@ public class FilterGUI extends JPanel {
             namePanelBody = body;
         }
 
-        // Bottom tools
-        JPanel bot = new JPanel(new GridBagLayout());
+        // Keep the add action beside the section title.
         JButton addButton = new JButton("+");
-        bot.add(addButton);
+        top.add(addButton);
 
         // One initial field
         JTextField comp1 = addTextField(isGuild, false);
@@ -356,8 +354,6 @@ public class FilterGUI extends JPanel {
             revalidate();
             repaint();
         });
-        topPanel.add(bot, BorderLayout.SOUTH);
-
         mainPanel.add(topPanel);
     }
 
@@ -402,6 +398,8 @@ public class FilterGUI extends JPanel {
             w.dispose();
         });
         JDialog dialog = pane.createDialog(dpsGui, "Filter Options");
+        realmshark.branding.AppIdentity.apply(dialog);
+        dialog.setResizable(true);
         dialog.setVisible(true);
     }
 }

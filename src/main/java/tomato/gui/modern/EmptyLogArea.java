@@ -15,11 +15,11 @@ public final class EmptyLogArea extends JTextArea {
         Rectangle visible = getVisibleRect();
         int mid = visible.x + visible.width / 2, top = visible.y + Math.max(65, visible.height / 2 - 36);
         g.setColor(UIManager.getColor("Label.disabledForeground"));
-        g.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        g.setFont(ContentStyle.emphasis(ContentStyle.body()));
         g.drawString(heading, mid - g.getFontMetrics().stringWidth(heading) / 2, top);
-        g.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        g.setFont(ContentStyle.metadata(ContentStyle.body()));
         if (g.getFontMetrics().stringWidth(detail) < visible.width - 24)
-            g.drawString(detail, mid - g.getFontMetrics().stringWidth(detail) / 2, top + 28);
+            g.drawString(detail, mid - g.getFontMetrics().stringWidth(detail) / 2, top + g.getFontMetrics().getHeight() + 6);
         g.dispose();
     }
 }

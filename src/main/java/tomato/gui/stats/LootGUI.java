@@ -5,6 +5,10 @@ import assets.ImageBuffer;
 import java.awt.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
 import javax.swing.*;
 import packets.data.StatData;
 import packets.data.enums.StatType;
@@ -12,27 +16,35 @@ import packets.incoming.MapInfoPacket;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.gui.SmartScroller;
-import tomato.gui.dps.IconDpsGUI;
+import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.*;
 import tomato.realmshark.enums.CharacterStatistics;
+import tomato.realmshark.enums.CharacterClass;
 import tomato.realmshark.enums.LootBags;
 
 public class LootGUI extends JPanel {
 
-    private static LootGUI INSTANCE;
+    private static volatile LootGUI INSTANCE;
+    private final LootDashboard dashboard = new LootDashboard();
+    private final Deque<LootEntry> pending = new ArrayDeque<>();
+    private boolean renderQueued, clearRequested;
+    static final int LOG_LIMIT = LootDashboard.RECENT_LIMIT;
+    private static final int RENDER_BATCH = 64;
+
+    public LootDashboard getDashboard() { return dashboard; }
 
     private static TomatoData data;
 
-    private static boolean cleared = false;
+    private boolean cleared;
 
-    private static boolean update = false;
+    private volatile boolean update;
 
-    private static JPanel lootPanel;
+    private final JPanel lootPanel;
 
     private static Font mainFont;
 
-    private static int lootDrops;
-    private boolean disableLootSharing = false;
+    private int lootDrops;
+    private volatile boolean disableLootSharing;
     public static boolean filterWhiteBag = false;
     public static boolean filterOrangeBag = false;
     public static boolean filterRedBag = false;
@@ -62,7 +74,13 @@ public class LootGUI extends JPanel {
             JScrollPane.VERTICAL_SCROLLBAR_ALWAYS
         );
         new SmartScroller(scroll, 0);
-        add(scroll, BorderLayout.CENTER);
+        JTabbedPane views = new JTabbedPane();
+        views.addTab("Explore loot", new LootDashboard(dashboard));
+        JPanel log = new JPanel(new BorderLayout(0, 8));
+        log.add(StatsUi.heading("Live loot log", "Original drop details, enchants and sharing information. Bag visibility follows Filter Loot in the menu."), BorderLayout.NORTH);
+        log.add(scroll, BorderLayout.CENTER);
+        views.addTab("Live log", log);
+        add(views, BorderLayout.CENTER);
     }
 
     public static void update(
@@ -76,11 +94,15 @@ public class LootGUI extends JPanel {
     }
 
     public static void updateExaltStats() {
-        update = true;
-        if (!cleared) {
-            cleared = true;
-            lootPanel.removeAll();
-            INSTANCE.safeRefreshPanel();
+        LootGUI view = INSTANCE;
+        if (view == null) return;
+        synchronized (view.pending) {
+            view.update = true;
+            if (!view.cleared) {
+                view.cleared = true;
+                view.clearRequested = true;
+                view.queueRender();
+            }
         }
     }
 
@@ -93,25 +115,66 @@ public class LootGUI extends JPanel {
     ) {
         if (player == null || !update) return;
 
-        JPanel panel = createMainBox(map, bag, dropper, player, time);
-        lootPanel.add(panel, 0);
+        dashboard.receive(map, bag, dropper, time);
+        LootEntry entry = new LootEntry(map, bag, dropper, player, time);
+        synchronized (pending) {
+            entry.number = ++lootDrops;
+            pending.addLast(entry);
+            if (pending.size() > LOG_LIMIT) pending.removeFirst();
+            queueRender();
+        }
 
-        panel.setVisible(isBagVisible(bag));
-
-        if (Sound.playWhiteBagSound && isWhiteBag(bag)) Sound.whitebag.play();
+        if (Sound.whitebag.isEnabled() && isWhiteBag(bag)) Sound.whitebag.play();
         if (
-            Sound.playOrangeBagSound && isOrangeBag(bag)
+            Sound.orangebag.isEnabled() && isOrangeBag(bag)
         ) Sound.orangebag.play();
-        if (Sound.playRedBagSound && isRedBag(bag)) Sound.redbag.play();
-        if (Sound.playGoldBagSound && isGoldBag(bag)) Sound.goldbag.play();
-        if (Sound.playEggBagSound && isEggBag(bag)) Sound.eggbag.play();
-        if (Sound.playBlueBagSound && isBlueBag(bag)) Sound.bluebag.play();
+        if (Sound.redbag.isEnabled() && isRedBag(bag)) Sound.redbag.play();
+        if (Sound.goldbag.isEnabled() && isGoldBag(bag)) Sound.goldbag.play();
+        if (Sound.eggbag.isEnabled() && isEggBag(bag)) Sound.eggbag.play();
+        if (Sound.bluebag.isEnabled() && isBlueBag(bag)) Sound.bluebag.play();
+        notifyItems(bag);
 
         if (!disableLootSharing) {
             SendLoot.sendLoot(data, map, bag, dropper, player, time);
         }
 
+    }
+
+    /** Called with pending locked. Capture never constructs Swing components or waits for Swing. */
+    private void queueRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        SwingUtilities.invokeLater(this::drainRows);
+    }
+
+    private void drainRows() {
+        List<LootEntry> batch = new ArrayList<>();
+        boolean clear;
+        synchronized (pending) {
+            clear = clearRequested; clearRequested = false;
+            for (int i = 0; i < RENDER_BATCH && !pending.isEmpty(); i++) batch.add(pending.removeFirst());
+        }
+        if (clear) lootPanel.removeAll();
+        for (LootEntry entry : batch) {
+            JPanel panel = createMainBox(entry);
+            panel.setVisible(isBagVisible(entry.bag));
+            lootPanel.add(panel, 0);
+            if (lootPanel.getComponentCount() > LOG_LIMIT) lootPanel.remove(lootPanel.getComponentCount() - 1);
+        }
         safeRefreshPanel();
+        synchronized (pending) {
+            renderQueued = false;
+            if (!pending.isEmpty() || clearRequested) queueRender();
+        }
+    }
+
+    private static void notifyItems(Entity bag) {
+        for (int slot = 0; slot < 8; slot++) {
+            StatData item = bag.stat.get(StatType.INVENTORY_0_STAT.get() + slot);
+            if (item == null || item.statValue < 1) continue;
+            if (data.isItemPing(String.valueOf(item.statValue)) || data.isItemPing(IdToAsset.objectName(item.statValue))) Sound.custom.play();
+            if (data.isEnchantPing("")) Sound.custom.play();
+        }
     }
 
     private boolean isBagVisible(Entity bag) {
@@ -129,13 +192,18 @@ public class LootGUI extends JPanel {
     }
 
     public static void applyFilters() {
+        LootGUI view = INSTANCE;
+        if (view != null) onEdt(view::applyBagFilters);
+    }
+
+    private void applyBagFilters() {
         Component[] components = lootPanel.getComponents();
         for (Component component : components) {
             if (component instanceof JPanel) {
                 JPanel lootEntry = (JPanel) component;
                 Entity bag = (Entity) lootEntry.getClientProperty("bagEntity");
                 if (bag != null) {
-                    lootEntry.setVisible(INSTANCE.isBagVisible(bag));
+                    lootEntry.setVisible(isBagVisible(bag));
                 }
             }
         }
@@ -211,140 +279,58 @@ public class LootGUI extends JPanel {
         return id == LootBags.EGG.getId() || id == LootBags.BOOSTED_EGG.getId();
     }
 
-    private void guiUpdate() {
-        safeRefreshPanel();
-    }
-
-    private static JPanel createMainBox(
-        MapInfoPacket map,
-        Entity bag,
-        Entity dropper,
-        Entity player,
-        long time
-    ) {
-        JPanel mainPanel = new JPanel();
-        mainPanel.setBorder(
-            BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, Color.gray),
-                BorderFactory.createEmptyBorder(0, 20, 0, 20)
-            )
-        );
+    private static JPanel createMainBox(LootEntry entry) {
+        JPanel mainPanel = new JPanel() {
+            @Override public Dimension getMaximumSize() { return getPreferredSize(); }
+            @Override public void updateUI() {
+                super.updateUI();
+                setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, ContentStyle.color("border")),
+                    BorderFactory.createEmptyBorder(0, 8, 0, 8)));
+            }
+        };
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.X_AXIS));
 
-        mainPanel.putClientProperty("bagEntity", bag); // Store the bag entity for filtering
-        int y = 24;
-        int width = 30;
-
-        int exaltBonus = -1;
-        long lootTime = 0;
-        if (player != null) {
-            exaltBonus = RealmCharacter.exaltLootBonus(player.objectType);
-            lootTime = player.lootDropTime(time);
-        }
-
+        mainPanel.putClientProperty("bagEntity", entry.bag);
+        mainPanel.putClientProperty("dropNumber", entry.number);
         mainPanel.add(Box.createHorizontalGlue());
 
-        width = displayCount(mainPanel, width);
-        mainPanel.add(Box.createHorizontalStrut(10));
-        width = displayTime(mainPanel, width);
-        mainPanel.add(Box.createHorizontalStrut(10));
-        width = displayBagDungMob(
-            map,
-            bag,
-            player,
-            dropper,
-            mainPanel,
-            width,
-            exaltBonus,
-            lootTime
-        );
-        mainPanel.add(Box.createHorizontalStrut(30));
-        width = displayBagLootIcons(bag, mainPanel, width);
+        displayText(mainPanel, "#" + entry.number);
+        mainPanel.add(Box.createHorizontalStrut(8));
+        displayText(mainPanel, entry.timestamp);
+        mainPanel.add(Box.createHorizontalStrut(8));
+        displayBagDungMob(entry, mainPanel);
+        mainPanel.add(Box.createHorizontalStrut(12));
+        displayBagLootIcons(entry.bag, mainPanel);
 
         mainPanel.add(Box.createHorizontalGlue());
-
-        mainPanel.setMaximumSize(new Dimension(width, y));
 
         return mainPanel;
     }
 
-    private static int displayBagDungMob(
-        MapInfoPacket map,
-        Entity entity,
-        Entity player,
-        Entity dropper,
-        JPanel mainPanel,
-        int width,
-        int exaltBonus,
-        long lootTime
+    private static void displayBagDungMob(
+        LootEntry entry,
+        JPanel mainPanel
     ) {
         JPanel panel = new JPanel();
-        width += 100;
 
         panel.setPreferredSize(new Dimension(100, 24));
         panel.setMaximumSize(new Dimension(100, 24));
         panel.setLayout(new GridLayout(1, 4));
 
-        displayBagIcon(entity, lootTime, panel);
-        displayPlayerIcon(map, player, exaltBonus, panel);
-        displayDungeonIcon(map, panel);
-        displayMobIcon(dropper, panel);
+        displayBagIcon(entry.bag, entry.lootTime, entry.timestamp, panel);
+        displayPlayerIcon(entry.map, entry.player, entry.exaltBonus, panel);
+        displayDungeonIcon(entry.map, panel, entry.flames);
+        displayMobIcon(entry.mob, entry.sharedLoot, panel);
 
         mainPanel.add(panel);
-        return width;
     }
 
-    private static int displayCount(JPanel mainPanel, int width) {
-        JPanel o = new JPanel();
-        int pannelSize = IconDpsGUI.getStringSize("#1234");
-        width += pannelSize;
-
-        o.setPreferredSize(new Dimension(pannelSize, 24));
-        o.setMaximumSize(new Dimension(pannelSize, 24));
-        o.setLayout(new BorderLayout());
-        lootDrops++;
-
-        try {
-            String text = "#" + lootDrops;
-            JLabel timeLabel = new JLabel(text, JLabel.CENTER);
-
-            timeLabel.setAlignmentX(JLabel.LEFT);
-            o.setAlignmentX(JLabel.LEFT);
-            o.setAlignmentX(LEFT_ALIGNMENT);
-            timeLabel.setHorizontalAlignment(SwingConstants.LEFT);
-            timeLabel.setFont(getMainFont());
-            o.add(timeLabel);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        mainPanel.add(o);
-        return width;
-    }
-
-    private static int displayTime(JPanel mainPanel, int width) {
-        JPanel o = new JPanel();
-        int pannelSize = IconDpsGUI.getStringSize("HH:mm:ss");
-        width += pannelSize;
-
-        o.setPreferredSize(new Dimension(pannelSize, 24));
-        o.setMaximumSize(new Dimension(pannelSize, 24));
-        o.setLayout(new BorderLayout());
-
-        try {
-            String text = time();
-            JLabel timeLabel = new JLabel(text, JLabel.CENTER);
-
-            timeLabel.setAlignmentX(JLabel.LEFT);
-            o.setAlignmentX(JLabel.LEFT);
-            o.setAlignmentX(LEFT_ALIGNMENT);
-            timeLabel.setHorizontalAlignment(SwingConstants.LEFT);
-            timeLabel.setFont(getMainFont());
-            o.add(timeLabel);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        mainPanel.add(o);
-        return width;
+    private static void displayText(JPanel mainPanel, String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(getMainFont());
+        label.setBorder(BorderFactory.createEmptyBorder(3, 0, 3, 0));
+        mainPanel.add(label);
     }
 
     private static void displayPlayerIcon(
@@ -382,22 +368,21 @@ public class LootGUI extends JPanel {
         panel.add(icon);
     }
 
-    private static int displayBagLootIcons(
+    private static void displayBagLootIcons(
         Entity entity,
-        JPanel mainPanel,
-        int width
+        JPanel mainPanel
     ) {
         JPanel panel = new JPanel();
-        width += 200;
 
-        panel.setPreferredSize(new Dimension(200, 24));
-        panel.setMaximumSize(new Dimension(200, 24));
+        // A 20px item plus its enchant glow occupies 26px.
+        panel.setPreferredSize(new Dimension(224, 28));
+        panel.setMaximumSize(new Dimension(224, 28));
         panel.setLayout(new GridLayout(1, 8));
 
         String[] enchants = null;
         StatData udata = entity.stat.get(StatType.UNIQUE_DATA_STRING);
         if (udata != null && udata.stringStatValue != null) {
-            enchants = udata.stringStatValue.split(",");
+            enchants = udata.stringStatValue.split(",", -1);
         }
 
         for (int i = 0; i < 8; i++) {
@@ -410,41 +395,26 @@ public class LootGUI extends JPanel {
             }
             int statValue = sd.statValue;
             String itemName = IdToAsset.objectName(statValue);
+            if (itemName == null) itemName = "Item #" + statValue;
             String enchantText = "";
-            int enchantCount = 0;
-
-            // Check for ping items and ping if found
-            if (
-                data.isItemPing(String.valueOf(statValue)) ||
-                data.isItemPing(itemName)
-            ) {
-                Sound.custom.play();
-            }
-
-            // Check for enchant pings
-            if (data.isEnchantPing(enchantText)) {
-                Sound.custom.play();
-            }
-
-            if (
-                enchants != null &&
-                i < enchants.length &&
-                !enchants[i].isEmpty() &&
-                !enchants[i].equals("AAIE_f_9__3__f8=")
-            ) {
-                enchantText = ParseEnchants.parse(enchants[i]);
-                if (!enchantText.isEmpty()) {
-                    String[] enchantNames = enchantText.split("\n");
-                    enchantCount = enchantNames.length;
+            String encoded = enchants != null && i < enchants.length ? enchants[i] : null;
+            ParseEnchants.Summary summary = ParseEnchants.summarize(encoded);
+            if (summary.slots < 0) itemName += "<br>Unknown enchant data";
+            else {
+                itemName += "<br>" + (summary.slots == 0 ? "Common / Unenchanted" : summary.rarity())
+                    + " · " + summary.slots + " unlocked slots · " + summary.applied + " applied enchants";
+                if (summary.slots > 0) {
+                    try { enchantText = ParseEnchants.parse(encoded); }
+                    catch (RuntimeException e) { enchantText = "Enchant descriptions unavailable"; }
                 }
             }
 
             JLabel icon;
-            if (enchantCount == 0) {
+            if (summary.slots <= 0) {
                 icon = new JLabel(ImageBuffer.getOutlinedIcon(statValue, 20));
             } else {
                 Color glowColor;
-                switch (enchantCount) {
+                switch (summary.slots) {
                     case 1:
                         glowColor = new Color(0, 255, 0); // Green
                         break;
@@ -472,24 +442,24 @@ public class LootGUI extends JPanel {
             }
 
             if (!enchantText.isEmpty()) {
-                itemName += "<br>" + enchantText;
+                itemName += "<br>" + enchantText.replace("\n", "<br>");
             }
             icon.setToolTipText("<html>" + itemName + "</html>");
             panel.add(icon);
         }
 
         mainPanel.add(panel);
-        return width;
     }
 
     private static void displayBagIcon(
         Entity entity,
         long lootTime,
+        String timestamp,
         JPanel panel
     ) {
         int bag = entity.objectType;
         JLabel icon = new JLabel(ImageBuffer.getOutlinedIcon(bag, 20));
-        String name = time();
+        String name = timestamp;
         name += "<br>" + IdToAsset.objectName(bag);
         if (lootTime > 0) {
             name += "<br>Loot drop bonus 50%";
@@ -499,13 +469,7 @@ public class LootGUI extends JPanel {
         panel.add(icon);
     }
 
-    private static void displayMobIcon(Entity dropper, JPanel panel) {
-        int mob = 100;
-        int sharedLoot = 0;
-        if (dropper != null) {
-            mob = dropper.objectType;
-            sharedLoot = dropper.playersRemainAtKill();
-        }
+    private static void displayMobIcon(int mob, int sharedLoot, JPanel panel) {
         JLabel icon = new JLabel(ImageBuffer.getOutlinedIcon(mob, 20));
         String name = "Unknown";
         if (mob != 100) {
@@ -519,6 +483,10 @@ public class LootGUI extends JPanel {
     }
 
     private static void displayDungeonIcon(MapInfoPacket map, JPanel panel) {
+        displayDungeonIcon(map, panel, map != null && "Moonlight Village".equals(map.name) && data != null ? data.getMoonlightFlameCount() : 0);
+    }
+
+    private static void displayDungeonIcon(MapInfoPacket map, JPanel panel, int flames) {
         int dungeon = 100;
         String dungeonName = "Unknown";
         String dungeonModifiers = "";
@@ -545,23 +513,7 @@ public class LootGUI extends JPanel {
             dungeonName += "<br>" + dungeonModifiers;
         }
 
-        if (dungeonName.equals("Moonlight Village")) {
-            int flames = data.getMoonlightFlameCount();
-            if (flames > 0) {
-                dungeonName += "<br>Flames: " + flames;
-
-                // Reset the flames for loot tracking here after 5 seconds
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(5000);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                    data.resetMoonlightFlames();
-                })
-                    .start();
-            }
-        }
+        if (flames > 0) dungeonName += "<br>Flames: " + flames;
 
         icon.setToolTipText("<html>" + dungeonName + "</html>");
         panel.add(icon);
@@ -589,9 +541,8 @@ public class LootGUI extends JPanel {
     }
 
     public static void editFont(Font font) {
-        if (INSTANCE != null) {
-            INSTANCE.handleFontUpdate(font);
-        }
+        LootGUI view = INSTANCE;
+        if (view != null) onEdt(() -> view.handleFontUpdate(font));
     }
 
     public static void lootSharing(boolean b) {
@@ -606,22 +557,82 @@ public class LootGUI extends JPanel {
 
     private static Font getMainFont() {
         if (mainFont == null) {
-            mainFont = new Font("Arial", Font.PLAIN, 12);
+            mainFont = ContentStyle.body();
         }
         return mainFont;
     }
 
     private void handleFontUpdate(Font font) {
         mainFont = font;
-        guiUpdate();
+        updateFonts(lootPanel, font);
+        safeRefreshPanel();
     }
 
     private void safeRefreshPanel() {
-        try {
-            lootPanel.revalidate();
-            lootPanel.repaint();
-        } catch (Exception e) {
-            // Ignore
+        lootPanel.revalidate();
+        lootPanel.repaint();
+    }
+
+    private static void updateFonts(Container root, Font font) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JLabel) child.setFont(font);
+            if (child instanceof Container) updateFonts((Container)child, font);
+        }
+    }
+
+    private static void onEdt(Runnable action) {
+        if (SwingUtilities.isEventDispatchThread()) action.run(); else SwingUtilities.invokeLater(action);
+    }
+
+    /** Only the stats used by the legacy row cross the capture/EDT boundary, never combat graphs. */
+    private static final class LootEntry {
+        final MapInfoPacket map;
+        final Entity bag, player;
+        final int mob, sharedLoot, exaltBonus, flames;
+        final long lootTime;
+        final String timestamp = time();
+        int number;
+
+        LootEntry(MapInfoPacket source, Entity bag, Entity dropper, Entity player, long time) {
+            this.bag = copyStats(bag);
+            this.player = copyStats(player);
+            mob = dropper == null ? 100 : dropper.objectType;
+            sharedLoot = dropper == null ? 0 : dropper.playersRemainAtKill();
+            exaltBonus = CharacterClass.weaponClasses(player.objectType) == null ? -1 : RealmCharacter.exaltLootBonus(player.objectType);
+            lootTime = player.lootDropTime(time);
+            if (source == null) map = null;
+            else {
+                map = new MapInfoPacket(); map.name = source.name;
+                map.dungeonModifiers = source.dungeonModifiers; map.dungeonModifiers2 = source.dungeonModifiers2;
+                map.dungeonModifiers3 = source.dungeonModifiers3; map.dungeonModifiers4 = source.dungeonModifiers4;
+                map.dungeonGrade = source.dungeonGrade;
+            }
+            flames = source != null && "Moonlight Village".equals(source.name) ? data.getMoonlightFlameCount() : 0;
+            if (flames > 0) {
+                TomatoData capturedData = data;
+                onEdt(() -> {
+                    Timer reset = new Timer(5000, e -> capturedData.resetMoonlightFlames());
+                    reset.setRepeats(false); reset.start();
+                });
+            }
+        }
+
+        private static Entity copyStats(Entity source) {
+            Entity copy = new Entity(null, source.id, 0); copy.objectType = source.objectType;
+            for (int slot = 0; slot < 8; slot++) copyStat(source, copy, StatType.byOrdinal(StatType.INVENTORY_0_STAT.get() + slot));
+            copyStat(source, copy, StatType.UNIQUE_DATA_STRING);
+            copyStat(source, copy, StatType.SKIN_ID);
+            copyStat(source, copy, StatType.SEASONAL);
+            return copy;
+        }
+
+        private static void copyStat(Entity source, Entity copy, StatType type) {
+            StatData stat = source.stat.get(type);
+            if (stat == null) return;
+            StatData value = new StatData();
+            value.statType = type; value.statTypeNum = type.get();
+            value.statValue = stat.statValue; value.statValueTwo = stat.statValueTwo; value.stringStatValue = stat.stringStatValue;
+            copy.stat.set(type, value);
         }
     }
 }

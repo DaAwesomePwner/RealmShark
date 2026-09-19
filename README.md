@@ -1,102 +1,82 @@
-# RealmShark  
-> **Desktop UI refresh:** This checkout includes the full Tomato GUI with a dark violet theme, responsive sidebar and chat search. Double-click `Launch-RealmShark.cmd` to run it, or `Preview-RealmShark.cmd` to inspect it without capture. See [UI refresh, feature map and build instructions](docs/UI-REDESIGN.md). The original upstream README is preserved below.
+# RealmShark
 
-### A library/GUI packet sniffer for Realm of the Mad God built with Java.
+A desktop companion for **Realm of the Mad God**, with read-only packet capture, chat, combat meters, loot tracking, character history and session statistics.
 
-Discord link: https://discord.gg/uDK2EhJUtv
+The application, launchers and Windows package use the **RealmShark fin logo** and the same product version. See [branding and desktop integration](docs/BRANDING.md).
 
-RealmShark is a Java library/program created to read network packets at the kernel level without the the ability to modify, block or send packets. The library is EULA/copyright compliant because it does not use any game code or assets.  
+## Run on Windows
 
-Given RealmShark reads packets directly from the network adapter it can even be used to listen on a PC that is not running the game. It is an independent program from the game and is completely extendable/customizable.  
+### Portable package
 
-Multiple instances of Realm of the Mad God are not supported using this sniffer.  
-As of now the sniffer cannot filter packets from multiple instances of the game running at the same time.   
-The sniffer crashes if it cannot distinguish the packets from different instances at the network layer.  
-In the future, OS specific functionality will be added to support multiple instances of clients.
+1. Install [Npcap](https://npcap.com/#download), enabling **WinPcap API-compatible Mode**.
+2. Extract the **entire** `RealmShark-Windows-x64.zip` into a writable folder.
+3. Open **RealmShark.exe**. Java is included; keep the `app` and `runtime` directories beside the EXE.
+4. Start capture and reconnect to the game so RealmShark sees a fresh connection.
 
-#### Credits:
+Use **Preview-RealmShark.cmd** to inspect the UI without capture, startup API requests or game-asset extraction. See [Windows setup, updates and packaging](docs/WINDOWS-BUNDLE.md).
 
-- Most backed code was written by [Cortex](https://github.com/MCRcortex). Huge thanks to him.
-- Inspired by work done by [abrn](https://github.com/abrn/realmlib) and [thomas-crane](https://github.com/thomas-crane/realmlib-net).
-- [ardikars](https://github.com/ardikars/pcap) library for packet processing.
-- [libpcap or winpcap](https://npcap.com/) is used by the ardikars library to make the packet sniffing possible.
+### Source checkout
 
-## Install guide
+- **Launch-RealmShark.cmd** starts the current built application through protected, immutable runtime-JAR staging.
+- **Preview-RealmShark.cmd** opens preview mode.
+- These launchers prefer the project-local JDK and otherwise use Java from PATH.
 
-MAC support is not available right now. It will be added in a future version.
+The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 17** for development and the included Gradle **7.6.4** wrapper.
 
-For Windows:
+## Workspaces
 
-1. Java and Npcap is required for running the program. Java can be downloaded from [here](https://www.java.com/en/download/) and Npcap from [here](https://npcap.com/#download). Open the files one at a time and follow the install instructions for both.
+| Feature | Guide |
+| --- | --- |
+| Shared typography, themes, compact navigation and keyboard controls | [UI consistency](docs/UI-CONSISTENCY.md) |
+| Searchable chat, channels, player filters, stars and exports | [Chat](docs/CHAT.md) |
+| Key, rune, vial and inc openings | [Key-pops](docs/KEY-POPS.md) |
+| Saved roster, death marks, equipment, stat maxing and exalts | [Characters](docs/CHARACTERS.md) |
+| Combat meters, encounter history and damage details | [DPS meters](docs/DPS-METERS.md) |
+| Fame, map breakdowns, loot and dungeon history | [Statistics](docs/STATISTICS.md) |
+| Area visits, timelines and resource history | [Activity](docs/ACTIVITY.md) |
+| Quest requirements, rewards and completion filters | [Daily Quests](docs/DAILY-QUESTS.md) |
+| Sound choices and alert rules | [Notifications](docs/NOTIFICATIONS.md) |
+| Guild exports, loot review and delivery diagnostics | [Bridge Review](docs/BRIDGE.md) |
+| Packet coverage, stat changes and diagnostic exports | [Logging](docs/LOGGING.md) |
 
-2. Download the latest `Tomato-v*.jar` file from [Releases](https://github.com/X-com/RealmShark/releases). Only need the *.jar file.
+**Security** provides player/equipment inspection and ability activity. **My Info** shows the current character's captured stats, equipment and explicitly labeled local estimates. **Alt+M** opens labeled workspace navigation; **Ctrl+Shift+S** starts or stops capture.
 
-- Java download [image](https://user-images.githubusercontent.com/5974568/183230180-f9a66d31-2ed4-4073-8af2-cda12f271d01.png).
-- Npcap download [image](https://user-images.githubusercontent.com/5974568/183230181-b8eacef2-71f3-47f5-8d46-959eb1bb82bf.png).
-- Jar download [image](https://user-images.githubusercontent.com/5974568/183230231-b47f588a-08be-42f1-942f-8f0facf41aa0.png).  
+## Build and validate
 
-3. Run the program by simply opening the downloaded Tomato-v*.jar file.  
+```powershell
+.\gradlew.bat test shadowJar
+```
 
-4. The RealmShark GUI should open. Start it by clicking File -> Start Sniffer. All chat in the game should appear in the Chat tab.
+The build generates multi-resolution fin PNGs and the Windows ICO from one vector source. The runnable JAR uses the `realmshark.RealmShark` entry point.
 
-If there are errors running the program described above, please look under Trouble shooting guide or [open an issue here,](https://github.com/X-com/RealmShark/issues) so it can be resolved.
+For compact-layout and display-scaling checks:
 
-## Troubleshooting guide
+```powershell
+.\gradlew.bat -I scripts/typography-validation.gradle test testUi150 testUi200
+```
 
-Join discord for live tech support: https://discord.gg/uDK2EhJUtv
+To build the complete Windows package, including its Java runtime:
 
-Windows troubleshooting guide:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-WindowsBundle.ps1
+```
 
-Some Windows 11 users have issues with Npcap 1.70. Try and uninstall 1.70 and install the 1.60 version. Link found here, [Npcap 1.60](https://www.mediafire.com/file/xkjmfz1v1b47e0a/npcap-1.60.exe/file).
+The latest verified download is published to `build/share/RealmShark-Windows-x64.zip`, with a SHA-256 sidecar. A timestamped archive is also retained. The bundle includes the public loot catalog and licenses, not personal settings, capture logs or saved sessions.
 
-If the Tomato-v*.jar file does nothing double clicking it after following the installation guide above. Open powershell or CMD in the folder where the Tomato-v*.jar file is located.
+## Troubleshooting
 
-1. Open File Explorer and navigate to the folder where the *.jar is located.
-2. Right click in the empty space inside the folder, while holding shift. Then select Powershell or CMD. [Example image](https://user-images.githubusercontent.com/5974568/183230822-a35e2c52-8235-4efa-8543-9219b4611adc.png)
-3. If PowerShell is opened. type "cmd" and press Enter. If CMD is opened, skip to step 4.
-4. Type "java -jar ". Make sure to add space after "-jar ".
-5. Press tab several times until the Tomato-v*.jar name appears. Then press Enter. [Example image](https://user-images.githubusercontent.com/5974568/183231024-a1e006b7-7dd0-43f3-8a99-4fdee3827f94.png)
+- If the app opens without game data, check Npcap's compatibility-mode installation, start capture, and reconnect to the game.
+- For a first-launch asset prompt, select `resources.assets` from your installed game, or pass `--path "full path to resources.assets"`.
+- Check the capture status/footer and `logs/capture-health.log` for capture failures. The Logging workspace can export a diagnostic report.
+- Rebuild and restart through the launcher after source updates. Avoid replacing an application's active JAR or runtime folder.
+- Use one game connection at a time; multiple simultaneous game clients are not supported.
 
-If the program starts without problems it means you have issues with your register keys. To fix your register to not need command prompt to start the program a simple jarfix is needed. If the program still doesn't start, report the bug in the [issues here](https://github.com/X-com/RealmShark/issues). Try to include as much information as possible in the report.
+## Credits and license
 
-1. Download the jarfix from [here](https://johann.loefflmann.net/en/software/jarfix/index.html). Image of file [here](https://user-images.githubusercontent.com/5974568/183231327-ac0a33c7-edb4-41bb-897f-bb86fa9ab939.png).
-2. Run it as Administrator. Example of running the jarfix [here](https://user-images.githubusercontent.com/5974568/183231330-9d53b0b9-8288-4cab-a726-4095f3e3f479.png).
-3. Start the program by double clicking Tomato-v*.jar.
+Based on [X-com/RealmShark](https://github.com/X-com/RealmShark), with original work by Anon, [Cortex](https://github.com/MCRcortex), and upstream contributors. Inspired by [abrn/realmlib](https://github.com/abrn/realmlib) and [thomas-crane/realmlib-net](https://github.com/thomas-crane/realmlib-net).
 
-If you can start the program, but you can not see any chat messages from ingame chat after starting the sniffer.
+Packet capture uses [ardikars/pcap](https://github.com/ardikars/pcap) and the native pcap/Npcap interface. Historical import and compatibility details are recorded in [UI refresh history](docs/UI-REDESIGN.md).
 
-1. Open the program in console prompt described above.
-2. Start the sniffer and check console for error messages.
-3. If you get an error stating "The pcap_t has not been activated" similar to this [image](https://user-images.githubusercontent.com/5974568/183231488-c79f0189-4513-4b06-85d7-17deb610a340.png) your network interface is faulty or you are missing a Loopback Adapter. 
-4. Follow this guide, link [here](https://tencomputer.com/npcap-loopback-adapter-no-internet/), for repairing your network interface (recommending to do the steps in inverted order starting with step 5). Do one step at a time and check if it fixes the problem before trying the next.
-5. If it still doesn't fix the problem follow a youtube guide to install a Loopback Adapter [here](https://www.youtube.com/watch?v=N3Ido5VEkNE).
+Distributed under the [MIT License](LICENSE.md). Runtime and dependency notices, and the separate [loot-catalog license](docs/LOOT-CATALOG-LICENSE.txt), remain included.
 
-If any other problem shows up. Please report them in the issues tracker found [here](https://github.com/X-com/RealmShark/issues) to have it resolved. Make sure to include any console outputs, version of java installed (type "java -v" in console to get the version), windows version and other reproduction steps.
-
-## Building from source!
-
-This is written for use with IntelliJ IDEA only. Other IDEs can also  be used in a similar manner.
-
-You will need an OpenJDK 8 SDK install from [here.](https://jdk.java.net/18/) If you are using IntelliJ IDEA, IntelliJ can install the JDK automatically.
-
-IntelliJ IDEA can be found [here](https://www.jetbrains.com/idea/download/#section=windows). Download the free community edition.
-
-Download the .zip or clone the repo via CLI:
-`git clone https://github.com/X-com/RealmShark && cd RealmShark`
-
-Open IntelliJ and click **File > New > Project from Existing Sources...**
-Navigate to the realm shark source folder and open build.gradle. Alternatively drag and drop the build.gradle into the IntelliJ window and then double click on it. IntelliJ will automatically install gradle and setup the project.
-
-The application can now be built, ran and debugged from IntelliJ.
-
-To build a runnable jar. Use the gradle tool named shadowJar. The [shadowJar](https://user-images.githubusercontent.com/5974568/185830689-3031bb23-7d6c-416f-984d-4d460f15140c.png) will build a runnable jar and place it in the build/libs folder. The shadowJar build tool builds a fat jar including all the resources. Note! This includes any files that can't be red from within the jar, i.e. dll files.
- - If resources have to be extracted out of the jar during runtime. An example class called LibExtractor.java is found in the project to help extract resources out of the jar during runtime in case it is needed.
- - Both application name and the version can be modified in the build.gradle folder. Simply modify the applicationName to change the release name or project.version to change the release version.
-
-Setting up Tomato or Potato requires RealmShark-vXX.jar to be built as explained above and placed in the /libs folder.
-1. Swap to the "realmshark" branch on github.
-2. Follow the guide above to build the RealmShark-vXX.jar build using shadow jar builder.
-3. Move the RealmShark-vXX.jar file from "./build/libs" into to "./libs".
-4. Swap branch to "tomato" or "potato".
-5. Run either app with the corresponding class "Tomato.java" or "Potato.java"
-6. When ready to build the edited tomato/potato, follow the guide above using the shadow jar again.
+The Java resource extractor includes code adapted from [UnityPy](https://github.com/K0lb3/UnityPy); its [MIT notice](docs/UNITYPY-LICENSE.txt) is retained. The original imported revision was not recorded.

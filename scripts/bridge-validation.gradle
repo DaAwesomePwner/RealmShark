@@ -1,0 +1,2 @@
+// Keep validation artifacts separate from any running build.
+allprojects { buildDir = file("build/bridge-validation") }

@@ -13,6 +13,7 @@ import tomato.realmshark.Sound;
 import tomato.realmshark.enums.LootBags;
 import util.PropertiesManager;
 import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -24,7 +25,7 @@ import java.awt.event.ActionListener;
  */
 public class TomatoMenuBar implements ActionListener {
     private JMenuItem about, borders, clearChat, bandwidth, javav, clearDpsLogs, theme, fontMenu, dpsOptions, chat, sound, chatPingMessage, entityIdPingMessage, itemPingMessage, enchantPingMessage;
-    private JRadioButtonMenuItem fontSize8, fontSize12, fontSize16, fontSize24, fontSize48, fontSizeCustom;
+    private JRadioButtonMenuItem fontSize8, fontSize12, fontSize13, fontSize14, fontSize16, fontSize24, fontSize48, fontSizeCustom;
     private JRadioButtonMenuItem themeDarcula, themeighContrastDark, themeHighContrastLight, themeIntelliJ, themeSolarizedDark, themeSolarizedLight;
     private JRadioButtonMenuItem fontNameMonospaced, fontNameDialog, fontNameDialogInput, fontNameSerif, fontNameSansSerif, fontNameSegoe;
     private JRadioButtonMenuItem dpsEquipmentNone, dpsEquipmentSimple, dpsEquipmentFull, dpsIcon;
@@ -32,6 +33,7 @@ public class TomatoMenuBar implements ActionListener {
     private JCheckBoxMenuItem fontStyleBold, fontStyleItalic, dpsShowMe, saveChat, chatPing, chatPingGuild, whiteBagSound, chatPingParty, orangeBagSound, redBagSound, goldBagSound, eggBagSound, blueBagSound, tradePing, disableDataSending;
     private JCheckBoxMenuItem filterWhiteBag, filterOrangeBag, filterRedBag, filterGoldBag, filterEggBag, filterBlueBag, filterTealBag, filterPurpleBag, filterPinkBag, filterBrownBag;
     private JSlider soundSlider;
+    private boolean syncingSound;
     private JMenu file, edit, info;
     private JMenuBar jMenuBar;
     private JFrame frame;
@@ -76,7 +78,7 @@ public class TomatoMenuBar implements ActionListener {
         file.add(sniffer);
         file.add(new JSeparator(SwingConstants.HORIZONTAL));
         disableDataSending = new JCheckBoxMenuItem("Opt-out Loot Sharing");
-        disableDataSending.setToolTipText("Disables sending loot to server");
+        disableDataSending.setToolTipText("Disables original RealmShark loot sharing. Guild exports are controlled separately in Bridge Review.");
         disableDataSending.addActionListener(this);
         file.add(disableDataSending);
         setFileCheckbox();
@@ -127,6 +129,9 @@ public class TomatoMenuBar implements ActionListener {
         enchantPingMessage = new JMenuItem("Enchant Pings");
         enchantPingMessage.addActionListener(this);
 
+        JMenuItem notifications = new JMenuItem("Sound & Notifications...");
+        notifications.addActionListener(e -> TomatoGUI.openNotifications());
+        sound.add(notifications);
         sound.add(new JLabel("Volume:"));
         sound.add(soundSlider);
         sound.add(new JSeparator(SwingConstants.HORIZONTAL));
@@ -145,6 +150,7 @@ public class TomatoMenuBar implements ActionListener {
         sound.add(blueBagSound);
         sound.add(tradePing);
         setSoundCheckbox();
+        Sound.addListener(() -> SwingUtilities.invokeLater(this::setSoundCheckbox));
 
         filterWhiteBag = new JCheckBoxMenuItem("Show White Bags");
         filterWhiteBag.addActionListener(e -> {
@@ -237,8 +243,21 @@ public class TomatoMenuBar implements ActionListener {
         setThemeRadioButton();
 
         ButtonGroup groupFontSize = new ButtonGroup();
+        JMenuItem modernFont = new JMenuItem("Compact default (Segoe UI, " + ContentStyle.FONT_SIZE + ")");
+        modernFont.addActionListener(e -> {
+            TomatoGUI.fontNameTextAreas(ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN);
+            TomatoGUI.fontSizeTextAreas(ContentStyle.FONT_SIZE);
+            PropertiesManager.setProperties("fontName", ContentStyle.FONT_FAMILY);
+            PropertiesManager.setProperties("fontStyle", "0");
+            PropertiesManager.setProperties("fontSize", Integer.toString(ContentStyle.FONT_SIZE));
+            fontNameSegoe.setSelected(true); fontSize13.setSelected(true);
+            fontStyleBold.setSelected(false); fontStyleItalic.setSelected(false);
+        });
+        fontMenu.add(modernFont); fontMenu.add(new JSeparator(SwingConstants.HORIZONTAL));
         fontSize8 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 8");
         fontSize12 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 12");
+        fontSize13 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 13");
+        fontSize14 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 14");
         fontSize16 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 16");
         fontSize24 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 24");
         fontSize48 = addRadioButtonMenuItem(groupFontSize, fontMenu, "Size 48");
@@ -248,7 +267,7 @@ public class TomatoMenuBar implements ActionListener {
 
         ButtonGroup groupFontName = new ButtonGroup();
         fontNameMonospaced = addRadioButtonMenuItem(groupFontName, fontMenu, "Monospaced");
-        fontNameSegoe = addRadioButtonMenuItem(groupFontName, fontMenu, "Segoe");
+        fontNameSegoe = addRadioButtonMenuItem(groupFontName, fontMenu, "Segoe UI");
         fontNameDialog = addRadioButtonMenuItem(groupFontName, fontMenu, "Dialog");
         fontNameDialogInput = addRadioButtonMenuItem(groupFontName, fontMenu, "DialogInput");
         fontNameSerif = addRadioButtonMenuItem(groupFontName, fontMenu, "Serif");
@@ -312,11 +331,11 @@ public class TomatoMenuBar implements ActionListener {
     private void sliderChange(ChangeEvent changeEvent) {
         JSlider source = (JSlider) changeEvent.getSource();
         if (!source.getValueIsAdjusting()) {
-            if (soundSlider == source) {
+            if (soundSlider == source && !syncingSound) {
                 int v = source.getValue();
                 Sound.setVolume(v);
-                PropertiesManager.setProperties("soundVolume", String.valueOf(v));
-                Sound.pm.play();
+
+                Sound.pm.preview(null);
             }
         }
     }
@@ -378,7 +397,7 @@ public class TomatoMenuBar implements ActionListener {
         String fontSize = PropertiesManager.getProperty("fontSize");
 
         if (fontSize == null) {
-            fontSize12.setSelected(true);
+            fontSize13.setSelected(true);
             return;
         }
 
@@ -394,6 +413,12 @@ public class TomatoMenuBar implements ActionListener {
                     break;
                 case 12:
                     fontSize12.setSelected(true);
+                    break;
+                case 13:
+                    fontSize13.setSelected(true);
+                    break;
+                case 14:
+                    fontSize14.setSelected(true);
                     break;
                 case 16:
                     fontSize16.setSelected(true);
@@ -419,8 +444,7 @@ public class TomatoMenuBar implements ActionListener {
         int fs = 0;
 
         if (fontText == null) {
-            fontNameMonospaced.setSelected(true);
-            return;
+            fontText = ContentStyle.FONT_FAMILY;
         }
 
         if (fontStyle != null) {
@@ -451,6 +475,7 @@ public class TomatoMenuBar implements ActionListener {
                 fontNameSansSerif.setSelected(true);
                 break;
             case "Segoe":
+            case "Segoe UI":
                 fontNameSegoe.setSelected(true);
                 break;
             default:
@@ -478,99 +503,20 @@ public class TomatoMenuBar implements ActionListener {
     }
 
     private void setSoundCheckbox() {
-        String volume = PropertiesManager.getProperty("soundVolume");
-        if (volume != null) {
-            try {
-                int v = Integer.parseInt(volume);
-                soundSlider.setValue(v);
-                Sound.setVolume(v);
-            } catch (NumberFormatException ignore) {
-            }
-        }
-
-        String pm = PropertiesManager.getProperty("chatPing");
-        if (pm != null) {
-            chatPing.setSelected(pm.equals("true"));
-            Sound.playPmSound = pm.equals("true");
-        } else {
-            Sound.playPmSound = false;
-        }
-
-        String guild = PropertiesManager.getProperty("chatPingGuild");
-        if (guild != null) {
-            chatPingGuild.setSelected(guild.equals("true"));
-            Sound.playGuildSound = guild.equals("true");
-        } else {
-            Sound.playGuildSound = false;
-        }
-
-        String party = PropertiesManager.getProperty("chatPingParty");
-        if (party != null) {
-            chatPingParty.setSelected(party.equals("true"));
-            Sound.playPartySound = party.equals("true");
-        } else {
-            Sound.playPartySound = false;
-        }
-
-        String white = PropertiesManager.getProperty("whiteBagSound");
-        if (white != null) {
-            whiteBagSound.setSelected(white.equals("true"));
-            Sound.playWhiteBagSound = white.equals("true");
-        } else {
-            whiteBagSound.setSelected(true);
-            Sound.playWhiteBagSound = true;
-            PropertiesManager.setProperties("whiteBagSound", "true");
-        }
-
-        String orange = PropertiesManager.getProperty("orangeBagSound");
-        if (orange != null) {
-            orangeBagSound.setSelected(orange.equals("true"));
-            Sound.playOrangeBagSound = orange.equals("true");
-        } else {
-            Sound.playOrangeBagSound = false;
-        }
-
-        String red = PropertiesManager.getProperty("redBagSound");
-        if (red != null) {
-            redBagSound.setSelected(red.equals("true"));
-            Sound.playRedBagSound = red.equals("true");
-        } else {
-            Sound.playRedBagSound = false;
-        }
-
-        String gold = PropertiesManager.getProperty("goldBagSound");
-        if (gold != null) {
-            goldBagSound.setSelected(gold.equals("true"));
-            Sound.playGoldBagSound = gold.equals("true");
-        } else {
-            Sound.playGoldBagSound = false;
-        }
-
-        String egg = PropertiesManager.getProperty("eggBagSound");
-        if (egg != null) {
-            eggBagSound.setSelected(egg.equals("true"));
-            Sound.playEggBagSound = egg.equals("true");
-        } else {
-            Sound.playEggBagSound = false;
-        }
-
-        String blue = PropertiesManager.getProperty("blueBagSound");
-        if (blue != null) {
-            blueBagSound.setSelected(blue.equals("true"));
-            Sound.playBlueBagSound = blue.equals("true");
-        } else {
-            Sound.playBlueBagSound = false;
-        }
-
-        String trade = PropertiesManager.getProperty("tradePing");
-        if (trade != null) {
-            tradePing.setSelected(trade.equals("true"));
-            Sound.playTradeSound = trade.equals("true");
-        } else {
-            Sound.playTradeSound = false;
-        }
+        syncingSound = true;
+        soundSlider.setValue(Sound.getMasterVolume());
+        chatPing.setSelected(Sound.pm.isEnabled());
+        chatPingGuild.setSelected(Sound.guild.isEnabled());
+        chatPingParty.setSelected(Sound.party.isEnabled());
+        whiteBagSound.setSelected(Sound.whitebag.isEnabled());
+        orangeBagSound.setSelected(Sound.orangebag.isEnabled());
+        redBagSound.setSelected(Sound.redbag.isEnabled());
+        goldBagSound.setSelected(Sound.goldbag.isEnabled());
+        eggBagSound.setSelected(Sound.eggbag.isEnabled());
+        blueBagSound.setSelected(Sound.bluebag.isEnabled());
+        tradePing.setSelected(Sound.trade.isEnabled());
+        syncingSound = false;
     }
-
     private void setShowMeCheckbox() {
         String showMe = PropertiesManager.getProperty("showMe");
         if (showMe != null) {
@@ -705,7 +651,8 @@ public class TomatoMenuBar implements ActionListener {
      * @return Value of font name.
      */
     private String getFontName() {
-        return PropertiesManager.getProperty("fontName");
+        String name = PropertiesManager.getProperty("fontName");
+        return name == null || "Segoe".equals(name) ? ContentStyle.FONT_FAMILY : name;
     }
 
     /**
@@ -766,52 +713,52 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == chatPing) { // sound chat ping pm
             boolean b = chatPing.isSelected();
             PropertiesManager.setProperties("chatPing", b ? "true" : "false");
-            Sound.playPmSound = b;
-            if (b) Sound.pm.play();
+            Sound.pm.setEnabled(b);
+            if (b) Sound.pm.preview(null);
         } else if (e.getSource() == chatPingGuild) { // sound chat ping guild
             boolean b = chatPingGuild.isSelected();
             PropertiesManager.setProperties("chatPingGuild", b ? "true" : "false");
-            Sound.playGuildSound = b;
+            Sound.guild.setEnabled(b);
             if (b) Sound.guild.play();
         } else if (e.getSource() == whiteBagSound) { // white bag sound
             boolean b = whiteBagSound.isSelected();
             PropertiesManager.setProperties("whiteBagSound", b ? "true" : "false");
-            Sound.playWhiteBagSound = b;
+            Sound.whitebag.setEnabled(b);
             if (b) Sound.whitebag.play();
         } else if (e.getSource() == chatPingParty) { // sound chat ping party
             boolean b = chatPingParty.isSelected();
             PropertiesManager.setProperties("chatPingParty", b ? "true" : "false");
-            Sound.playPartySound = b;
+            Sound.party.setEnabled(b);
             if (b) Sound.party.play();
         } else if (e.getSource() == orangeBagSound) { // orange bag sound
             boolean b = orangeBagSound.isSelected();
             PropertiesManager.setProperties("orangeBagSound", b ? "true" : "false");
-            Sound.playOrangeBagSound = b;
+            Sound.orangebag.setEnabled(b);
             if (b) Sound.orangebag.play();
         } else if (e.getSource() == redBagSound) { // red bag sound
             boolean b = redBagSound.isSelected();
             PropertiesManager.setProperties("redBagSound", b ? "true" : "false");
-            Sound.playRedBagSound = b;
+            Sound.redbag.setEnabled(b);
             if (b) Sound.redbag.play();
         } else if (e.getSource() == goldBagSound) { // gold bag sound
             boolean b = goldBagSound.isSelected();
             PropertiesManager.setProperties("goldBagSound", b ? "true" : "false");
-            Sound.playGoldBagSound = b;
+            Sound.goldbag.setEnabled(b);
             if (b) Sound.goldbag.play();
         } else if (e.getSource() == eggBagSound) { // egg bag sound
             boolean b = eggBagSound.isSelected();
             PropertiesManager.setProperties("eggBagSound", b ? "true" : "false");
-            Sound.playEggBagSound = b;
+            Sound.eggbag.setEnabled(b);
             if (b) Sound.eggbag.play();
         } else if (e.getSource() == blueBagSound) { // blue bag sound
             boolean b = blueBagSound.isSelected();
             PropertiesManager.setProperties("blueBagSound", b ? "true" : "false");
-            Sound.playBlueBagSound = b;
+            Sound.bluebag.setEnabled(b);
             if (b) Sound.bluebag.play();
         } else if (e.getSource() == tradePing) { // trade sound
             boolean b = tradePing.isSelected();
             PropertiesManager.setProperties("tradePing", b ? "true" : "false");
-            Sound.playTradeSound = b;
+            Sound.trade.setEnabled(b);
             if (b) Sound.trade.play();
         } else if (e.getSource() == clearChat) { // clears the text chat
             ChatGUI.clearTextAreaChat();
@@ -821,24 +768,31 @@ public class TomatoMenuBar implements ActionListener {
             frame.setVisible(true);
         } else if (e.getSource() == themeViolet) {
             VioletTheme.install();
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "violet");
         } else if (e.getSource() == themeDarcula) { // theme
             LafManager.install(new DarculaTheme());
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "darcula");
         } else if (e.getSource() == themeighContrastDark) { // theme
             LafManager.install(new HighContrastDarkTheme());
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "contrastDark");
         } else if (e.getSource() == themeHighContrastLight) { // theme
             LafManager.install(new HighContrastLightTheme());
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "contrastLight");
         } else if (e.getSource() == themeIntelliJ) { // theme
             LafManager.install(new IntelliJTheme());
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "intelliJ");
         } else if (e.getSource() == themeSolarizedDark) { // theme
             LafManager.install(new SolarizedDarkTheme());
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "solarizedDark");
         } else if (e.getSource() == themeSolarizedLight) { // theme
             LafManager.install(new SolarizedLightTheme());
+            TomatoGUI.refreshContentFonts();
             PropertiesManager.setProperties("theme", "solarizedLight");
         } else if (e.getSource() == fontSize8) { // font size
             TomatoGUI.fontSizeTextAreas(8);
@@ -846,6 +800,12 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == fontSize12) { // font size
             TomatoGUI.fontSizeTextAreas(12);
             PropertiesManager.setProperties("fontSize", Integer.toString(12));
+        } else if (e.getSource() == fontSize13) {
+            TomatoGUI.fontSizeTextAreas(13);
+            PropertiesManager.setProperties("fontSize", "13");
+        } else if (e.getSource() == fontSize14) {
+            TomatoGUI.fontSizeTextAreas(14);
+            PropertiesManager.setProperties("fontSize", "14");
         } else if (e.getSource() == fontSize16) { // font size
             TomatoGUI.fontSizeTextAreas(16);
             PropertiesManager.setProperties("fontSize", Integer.toString(16));
@@ -860,18 +820,19 @@ public class TomatoMenuBar implements ActionListener {
             int size = 0;
             try {
                 size = Integer.parseInt(sizeText);
-                PropertiesManager.setProperties("fontSize", Integer.toString(size));
             } catch (Exception ignored) {
             }
             if (size > 0 && size <= 1000) {
                 TomatoGUI.fontSizeTextAreas(size);
+                PropertiesManager.setProperties("fontSize", Integer.toString(size));
             }
+            setFontSizeRadioButton();
         } else if (e.getSource() == fontNameMonospaced) { // font text
             TomatoGUI.fontNameTextAreas("Monospaced", getFontStyle());
             PropertiesManager.setProperties("fontName", "Monospaced");
         } else if (e.getSource() == fontNameSegoe) { // font text
-            TomatoGUI.fontNameTextAreas("Segoe", getFontStyle());
-            PropertiesManager.setProperties("fontName", "Segoe");
+            TomatoGUI.fontNameTextAreas(ContentStyle.FONT_FAMILY, getFontStyle());
+            PropertiesManager.setProperties("fontName", ContentStyle.FONT_FAMILY);
         } else if (e.getSource() == fontNameDialog) { // font text
             TomatoGUI.fontNameTextAreas("Dialog", getFontStyle());
             PropertiesManager.setProperties("fontName", "Dialog");
@@ -941,6 +902,7 @@ public class TomatoMenuBar implements ActionListener {
             String version = System.getProperty("java.version");
             String bit = System.getProperty("sun.arch.data.model");
             JFrame frame = new JFrame("Java version");
+            realmshark.branding.AppIdentity.apply(frame);
             JOptionPane.showMessageDialog(frame, String.format("Java version: %s (%s-bit)", version, bit));
         }
     }

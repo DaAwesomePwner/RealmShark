@@ -1,0 +1,2 @@
+// Isolate chat-filter builds from running applications and previous validation outputs.
+allprojects { buildDir = file("build/chat-filters-validation") }

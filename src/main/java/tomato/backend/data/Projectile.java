@@ -6,6 +6,12 @@ import packets.data.enums.StatType;
 import util.RNG;
 
 public class Projectile implements Serializable {
+    private static final long serialVersionUID = 5852326746681358741L;
+
+    Projectile(Projectile source) {
+        damage=source.damage; summonerId=source.summonerId; armorPiercing=source.armorPiercing;
+        containerType=source.containerType; originAbilityItem=source.originAbilityItem; originScalingStat=source.originScalingStat;
+    }
 
     private int damage;
     private int summonerId;
