@@ -13,6 +13,8 @@ The roster supports literal-text search (class, account, character ID, item name
 
 The **Exalts** tab shows saved progress for observed classes across accounts. **Pets** retains the existing pet view.
 
+At compact sizes or enlarged fonts, scroll the page to move between the roster and details. Their minimum sizes reserve usable data rows; detail tabs wrap instead of hiding part of the selected label. Keyboard focus reveals controls through nested scroll panes. Draft notes survive background roster refreshes and are saved against the selected character identity when selection changes. Fame uses the display locale, while IDs stay ungrouped and dates use the shared full timestamp format.
+
 ## Data and accuracy
 
 Records save automatically to `Characters/journal.json` in the application's working directory, normally within two seconds and on normal shutdown. Copy this folder to back up or move the roster. Account identities are hashed to prevent character-ID collisions between accounts; display names remain local. Tokens, credentials and raw packets are not written to the journal. The folder is excluded from Git and portable release staging.

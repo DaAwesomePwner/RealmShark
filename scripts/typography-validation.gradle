@@ -17,6 +17,10 @@ allprojects {
                     includeTestsMatching 'ui.WorkspaceShellNavigationTest'
                     includeTestsMatching 'tomato.gui.security.ParsePanelRefreshTest'
                     includeTestsMatching 'tomato.gui.chat.ChatExplorerTest.renderDesktopCompactFilteredAndEmptyStates'
+                    includeTestsMatching 'tomato.gui.chat.ChatConsistencyTest'
+                    includeTestsMatching 'tomato.gui.notifications.NotificationsConsistencyTest'
+                    includeTestsMatching 'tomato.gui.character.CharacterJournalGuiTest'
+                    includeTestsMatching 'tomato.gui.character.CharacterJournalLayoutTest'
                     includeTestsMatching 'tomato.gui.keypop.KeyPopTest.rendersAllViewsAtNormalAndCompactSizes'
                     includeTestsMatching 'tomato.gui.myinfo.MyInfoGuiTest'
                 }
