@@ -10,6 +10,7 @@ import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.DungeonStatData;
 import tomato.backend.data.DungeonStatData.Snapshot;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** Cumulative dungeon counters, with a selected-dungeon enemy and loot breakdown. */
 public class DungeonStats extends JPanel {
@@ -46,6 +47,8 @@ public class DungeonStats extends JPanel {
         add(StatsUi.stack(StatsUi.heading("Dungeon history", "Cumulative history saved on this device. Select a row for enemy and item details."),
             StatsUi.metrics(metrics, "Dungeons shown", "Recorded visits", "Recorded time", "Observed items"), filters), BorderLayout.NORTH);
         StatsUi.durationColumn(dungeonTable, 2); StatsUi.durationColumn(dungeonTable, 3);
+        StatsUi.countColumns(dungeonTable, 1, 4, 5);
+        StatsUi.countColumns(enemyTable, 2, 3); StatsUi.countColumns(itemTable, 2);
         dungeonTable.getColumnModel().getColumn(0).setPreferredWidth(260);
         dungeonTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.DESCENDING)));
         enemyTable.getColumnModel().getColumn(0).setMaxWidth(40); itemTable.getColumnModel().getColumn(0).setMaxWidth(40);
@@ -107,14 +110,14 @@ public class DungeonStats extends JPanel {
             dungeons.addRow(new Object[]{row.name, row.visits, row.time, row.visits == 0 ? null : row.time / row.visits, row.hitCount(), row.itemCount()});
             visits += row.visits; time += row.time; loot += row.itemCount();
         }
-        metrics[0].setText(Integer.toString(dungeons.getRowCount())); metrics[1].setText(Long.toString(visits));
-        metrics[2].setText(Formatters.formatDurationHMS(time)); metrics[3].setText(Long.toString(loot));
+        metrics[0].setText(DisplayFormat.formatInteger(dungeons.getRowCount())); metrics[1].setText(DisplayFormat.formatInteger(visits));
+        metrics[2].setText(Formatters.formatDurationHMS(time)); metrics[3].setText(DisplayFormat.formatInteger(loot));
         int choose = dungeonTable.getRowCount() > 0 ? 0 : -1;
         for (int r = 0; r < dungeonTable.getRowCount(); r++) if (Objects.equals(selection, dungeonTable.getValueAt(r, 0))) choose = r;
         if (choose >= 0) dungeonTable.setRowSelectionInterval(choose, choose);
         rebuilding = false; selectDungeon();
         status.setText(snapshots.isEmpty() ? "No dungeon history yet. Start capture and change instance."
-            : dungeons.getRowCount() + " of " + snapshots.size() + " dungeons shown · Click column headings to sort");
+            : DisplayFormat.formatInteger(dungeons.getRowCount()) + " of " + DisplayFormat.formatInteger(snapshots.size()) + " dungeons shown · Click column headings to sort");
     }
 
     private void selectDungeon() {

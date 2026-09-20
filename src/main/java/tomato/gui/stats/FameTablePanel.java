@@ -6,6 +6,7 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.TomatoData;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.gui.stats.data.MapFameData;
 import tomato.gui.stats.session.FameSessionViewer;
 import tomato.realmshark.RealmCharacter;
@@ -31,7 +32,7 @@ public class FameTablePanel extends JPanel {
         String.class, String.class, Double.class, Double.class, Double.class, Long.class, Double.class);
     private final DefaultTableModel mapModel = StatsUi.model(
         new String[]{"Map", "Character / scope", "Visits", "Observed time", "Fame gained", "Fame / hour", "State", "Entered"},
-        String.class, String.class, Integer.class, Long.class, Double.class, Double.class, String.class, String.class);
+        String.class, String.class, Integer.class, Long.class, Double.class, Double.class, String.class, Long.class);
     private final JTable fameTable = StatsUi.table(tableModel, "fame-characters");
     private final JTable mapTable = StatsUi.table(mapModel, "fame-maps");
     private final JTabbedPane views = new JTabbedPane();
@@ -48,6 +49,8 @@ public class FameTablePanel extends JPanel {
         add(StatsUi.stack(heading,
             StatsUi.metrics(metrics, "Characters shown", "Session fame gained", "Observed time", "Fame / hour"), filters), BorderLayout.NORTH);
         StatsUi.durationColumn(fameTable, 5); StatsUi.durationColumn(mapTable, 3);
+        StatsUi.exactColumns(fameTable, 2, 3);
+        StatsUi.countColumns(mapTable, 2); StatsUi.timestampColumn(mapTable, 7);
         fameTable.getColumnModel().getColumn(0).setPreferredWidth(220);
         mapTable.getColumnModel().getColumn(0).setPreferredWidth(200);
         fameTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING)));
@@ -151,10 +154,10 @@ public class FameTablePanel extends JPanel {
                 initial, last == null ? initial : last.getFame(), gained, elapsed, elapsed > 0 ? gained * 3600000.0 / elapsed : null});
             shown++; totalGain += gained; totalTime += elapsed;
         }
-        metrics[0].setText(Integer.toString(shown)); metrics[1].setText(Formatters.formatNumber(totalGain, 0));
-        metrics[2].setText(Formatters.formatDurationHMS(totalTime)); metrics[3].setText(totalTime > 0 ? Formatters.formatNumber(totalGain * 3600000.0 / totalTime, 1) : "—");
+        metrics[0].setText(DisplayFormat.formatInteger(shown)); metrics[1].setText(Formatters.formatNumber(totalGain, 0));
+        metrics[2].setText(Formatters.formatDurationHMS(totalTime)); metrics[3].setText(totalTime > 0 ? DisplayFormat.formatRate(totalGain * 3600000.0 / totalTime, 1) : "—");
         status.setText(data.initial.isEmpty() ? "Waiting for character samples. Enter the Realm with capture running."
-            : shown + " of " + data.initial.size() + " characters shown · Click column headings to sort");
+            : DisplayFormat.formatInteger(shown) + " of " + DisplayFormat.formatInteger(data.initial.size()) + " characters shown · Click column headings to sort");
         if (maps) renderMaps(data);
     }
     private void renderMaps(FameTrackingModel.TableSnapshot data) {
@@ -171,7 +174,7 @@ public class FameTablePanel extends JPanel {
                 count++; gain += gained; duration += elapsed;
                 if (mapView.getSelectedIndex() == 1) {
                     mapModel.addRow(new Object[]{map.mapName, data.displayName(id), 1, elapsed, gained,
-                        elapsed > 0 ? gained * 3600000.0 / elapsed : null, open ? "Open · latest sample" : "Closed", Formatters.formatTimestamp(map.startTime)});
+                        elapsed > 0 ? gained * 3600000.0 / elapsed : null, open ? "Open · latest sample" : "Closed", map.startTime});
                 } else {
                     double[] sum = grouped.computeIfAbsent(map.mapName, key -> new double[4]);
                     sum[0]++; sum[1] += elapsed; sum[2] += gained; if (open) sum[3]++;
@@ -179,9 +182,9 @@ public class FameTablePanel extends JPanel {
             }
         }
         grouped.forEach((name, sum) -> mapModel.addRow(new Object[]{name, "Matching characters", (int)sum[0], (long)sum[1], sum[2],
-            sum[1] > 0 ? sum[2] * 3600000.0 / sum[1] : null, sum[3] > 0 ? (int)sum[3] + " open" : "Closed", "—"}));
+            sum[1] > 0 ? sum[2] * 3600000.0 / sum[1] : null, sum[3] > 0 ? DisplayFormat.formatInteger((int)sum[3]) + " open" : "Closed", null}));
         mapStatus.setText(count == 0 ? "No matching map visits. Map tracking begins with the first fame sample in an instance."
-            : count + " visits · " + Formatters.formatNumber(gain, 1) + " fame · " + Formatters.formatDurationHMS(duration) + " observed");
+            : DisplayFormat.formatInteger(count) + " visits · " + Formatters.formatNumber(gain, 1) + " fame · " + Formatters.formatDurationHMS(duration) + " observed");
     }
 
     void resetSessions(boolean deleteFile) {

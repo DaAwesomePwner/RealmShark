@@ -90,9 +90,9 @@ public class FameSessionViewerTest {
     }
 
     @Test public void visitFiltersKeepSelectionsAndTypedNumbersWhileSessionAndGraphScopesStayExplicit() throws Exception {
-        Locale previous = Locale.getDefault();
+        Locale previous = Locale.getDefault(Locale.Category.FORMAT);
         try {
-            Locale.setDefault(Locale.GERMANY);
+            Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY);
             withViewer(reload(mixedSession()), view -> {
                 JTable characters = named(view, "saved-fame-characters", JTable.class);
                 JTable maps = named(view, "saved-fame-maps", JTable.class);
@@ -109,7 +109,7 @@ public class FameSessionViewerTest {
                 assertEquals(Double.class, maps.getColumnClass(2));
                 assertEquals(Long.class, maps.getColumnClass(3));
                 assertEquals(Double.class, maps.getColumnClass(4));
-                assertEquals("15.0", ((JLabel)characters.prepareRenderer(characters.getCellRenderer(2, 5), 2, 5)).getText());
+                assertEquals("15,0", ((JLabel)characters.prepareRenderer(characters.getCellRenderer(2, 5), 2, 5)).getText());
                 gain.doClick();
                 assertEquals(1, maps.getRowCount()); assertEquals(15.0, maps.getValueAt(0, 2));
                 assertEquals(15.0, maps.getValueAt(0, 4)); assertSame(selected, choices.getSelectedItem());
@@ -134,7 +134,7 @@ public class FameSessionViewerTest {
                 int positiveRow = characters.convertRowIndexToView(2);
                 assertTrue(negativeRow < zeroRow); assertTrue(zeroRow < positiveRow);
             });
-        } finally { Locale.setDefault(previous); }
+        } finally { Locale.setDefault(Locale.Category.FORMAT, previous); }
     }
 
     @Test public void reloadedEmptySessionShowsEmptyModelsAndZeroCounts() throws Exception {

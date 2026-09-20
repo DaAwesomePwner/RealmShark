@@ -8,10 +8,13 @@ import javax.swing.event.*;
 import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.realmshark.ParseDungeon;
 
 /** Product-facing history modules sharing the capture journal, independent of diagnostic tables. */
@@ -42,6 +45,8 @@ public final class ActivityPanel extends JPanel {
     private volatile DiscoveryLog.ActivityRevision revision;
     private boolean displayedEnabled, exporting;
     private int visitCount, eventCount;
+    private Locale presentationLocale;
+    private ZoneId presentationZone;
 
     public ActivityPanel(DiscoveryLog log, Mode mode) {
         super(new BorderLayout(0,8)); this.log=log; this.mode=mode; setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
@@ -55,8 +60,30 @@ public final class ActivityPanel extends JPanel {
         };
         table=new JTable(model); table.setName("activity-table");
         ContentStyle.table(table,ContentStyle.Density.DENSE);table.getTableHeader().setReorderingAllowed(false);
+        DefaultTableCellRenderer numbers=new ContentStyle.Cell(){
+            {setHorizontalAlignment(SwingConstants.RIGHT);}
+            protected void setValue(Object value){setText(DisplayFormat.formatExact((Number)value));}
+        };
+        table.setDefaultRenderer(Number.class,numbers);table.setDefaultRenderer(Double.class,numbers);
+        if(mode==Mode.COMBAT)table.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell(){
+            {setHorizontalAlignment(SwingConstants.RIGHT);}
+            protected void setValue(Object value){setText(displayValue(value,3));}
+        });
+        else table.getColumnModel().getColumn(0).setCellRenderer(new ContentStyle.Cell(){
+            protected void setValue(Object value){
+                setText(displayValue(value,0));
+                setToolTipText(value==null?null:getText()+" ("+DisplayFormat.timestampZoneLabel()+")");
+            }
+        });
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         sorter=new TableRowSorter<>(model); table.setRowSorter(sorter);
+        sorter.setStringConverter(new TableStringConverter(){
+            public String toString(TableModel model,int row,int column){
+                Object value=model.getValueAt(row,column);
+                String shown=displayValue(value,column),raw=value==null?"":value.toString();
+                return shown.equals(raw)?shown:shown+"\n"+raw;
+            }
+        });
         for(int c=0;c<columns.length;c++)table.getColumnModel().getColumn(c).setPreferredWidth(c==1?190:c==0?150:160);
         if(mode==Mode.TIMELINE){table.getColumnModel().getColumn(3).setPreferredWidth(320);table.getColumnModel().getColumn(4).setPreferredWidth(370);}
         JPanel top=new JPanel(); top.setLayout(new BoxLayout(top,BoxLayout.Y_AXIS));
@@ -72,11 +99,11 @@ public final class ActivityPanel extends JPanel {
         controls.add(record); controls.add(freeze); controls.add(export);
         freeze.addItemListener(e->{
             snapshots.invalidate();
-            if(!freeze.isSelected())refresh();
-            else if(mode==Mode.COMBAT&&!state.visits.isEmpty()){
+            if(freeze.isSelected()&&mode==Mode.COMBAT&&!state.visits.isEmpty()){
                 // A pending selection is not yet the displayed value that Freeze latches.
                 refreshing=true;selectVisit(state.visits.get(0).id);refreshing=false;
             }
+            refresh();
         });
         top.add(controls);
         if(mode!=Mode.RUNS){
@@ -117,7 +144,7 @@ public final class ActivityPanel extends JPanel {
             if(mode==Mode.COMBAT){if(freeze.isSelected())refreshFrozenVisit();else refresh();}else fill();
         }});
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!refreshing)showDetail();});
-        timer=new javax.swing.Timer(1000,e->{if(isShowing()&&!freeze.isSelected())refresh();}); fill(false);
+        timer=new javax.swing.Timer(1000,e->{if(isShowing())refresh();}); fill(false);
         addHierarchyListener(e->{if((e.getChangeFlags()&java.awt.event.HierarchyEvent.SHOWING_CHANGED)!=0)visibilityChanged();});
     }
     private static JPanel labeled(String text,JComponent component){JPanel group=new JPanel(new BorderLayout(6,0));JLabel label=new JLabel(text);label.setLabelFor(component);group.add(label,BorderLayout.WEST);group.add(component);return group;}
@@ -138,6 +165,7 @@ public final class ActivityPanel extends JPanel {
     }
     public void refresh(){
         if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::refresh);return;}
+        refreshPresentation();
         if(freeze.isSelected() || (isDisplayable()&&!isShowing()))return;
         String selected=choice();
         snapshots.request(selected,()->{
@@ -146,6 +174,7 @@ public final class ActivityPanel extends JPanel {
         },this::applySnapshot,error->saved.setText("Could not refresh history; retrying on the next refresh."));
     }
     private void refreshFrozenVisit(){
+        refreshPresentation();
         if(displayed==null||(isDisplayable()&&!isShowing()))return;
         snapshots.invalidate();
         if(!state.visits.isEmpty()&&state.visits.get(0).id.equals(choice()))return;
@@ -156,6 +185,7 @@ public final class ActivityPanel extends JPanel {
         },this::applySnapshot,error->saved.setText("Could not load the frozen visit."));
     }
     private void applySnapshot(ViewUpdate update){
+        refreshPresentation();
         boolean selectionChanged=mode==Mode.COMBAT && (state.visits.isEmpty() || !state.visits.get(0).id.equals(update.selected));
         displayed=update.snapshot;state=update.data;displayedEnabled=displayed.enabled;
         // Frozen navigation keeps the export pin, but its token still describes the original visit.
@@ -163,14 +193,41 @@ public final class ActivityPanel extends JPanel {
         revision=mode!=Mode.COMBAT || update.selected.equals(displayed.view.selectedVisit) ? displayed.revision : null;
         visitCount=displayed.view.visitCount;eventCount=displayed.view.eventCount;
         record.setSelected(displayedEnabled); refreshing=true;
-        String selected=mode==Mode.COMBAT?update.selected:choice();List<VisitChoice> choices=new ArrayList<>();
+        updateChoices(mode==Mode.COMBAT?update.selected:choice());
+        refreshing=false; fill(selectionChanged); rememberPresentation();
+    }
+    private void updateChoices(String selected){
+        List<VisitChoice> choices=new ArrayList<>();
         if(mode==Mode.TIMELINE)choices.add(new VisitChoice("","All visits (including unassigned events)"));
         if(mode!=Mode.RUNS)for(int i=displayed.view.choices.size()-1;i>=0;i--){ActivityJournal.VisitChoice v=displayed.view.choices.get(i);choices.add(new VisitChoice(v.id,time(v.started)+" · "+v.map));}
         boolean same=choices.size()==visitPicker.getItemCount();
         for(int i=0;same&&i<choices.size();i++)same=choices.get(i).id.equals(visitPicker.getItemAt(i).id)&&choices.get(i).label.equals(visitPicker.getItemAt(i).label);
         if(!same){visitPicker.removeAllItems();for(VisitChoice item:choices)visitPicker.addItem(item);}
         for(int i=0;i<visitPicker.getItemCount();i++)if(visitPicker.getItemAt(i).id.equals(selected)){visitPicker.setSelectedIndex(i);break;}
-        refreshing=false; fill(selectionChanged);
+    }
+    private void rememberPresentation(){
+        presentationLocale=Locale.getDefault(Locale.Category.FORMAT);presentationZone=ZoneId.systemDefault();
+    }
+    /** Reformat the retained view, including while frozen, without asking the observer to copy history. */
+    private void refreshPresentation(){
+        if(displayed==null || (Locale.getDefault(Locale.Category.FORMAT).equals(presentationLocale)
+            && ZoneId.systemDefault().equals(presentationZone)))return;
+        String selected=selectedKey();refreshing=true;
+        try{
+            updateChoices(choice());
+            boolean changed=false;
+            if(mode==Mode.TIMELINE)for(int row=0;row<rows.size();row++){
+                String text=eventText((ActivityJournal.Entry)items.get(row));
+                if(!Objects.equals(rows.get(row)[3],text)){rows.get(row)[3]=text;changed=true;}
+            }
+            table.clearSelection();
+            if(changed)model.fireTableDataChanged();
+            filter();restoreSelection(selected);
+            if(mode==Mode.COMBAT)chart.refreshPresentation();
+            rememberPresentation();table.repaint();
+        }finally{refreshing=false;}
+        // During an in-flight combat selection the chart still owns the previously displayed visit.
+        showDetail(mode==Mode.COMBAT&&!state.visits.isEmpty()?state.visits.get(0):null);
     }
     private static final class ViewUpdate {
         final DiscoveryLog.ActivitySnapshot snapshot;final ActivityJournal.State data;final String selected;
@@ -186,11 +243,11 @@ public final class ActivityPanel extends JPanel {
         boolean updateTable=mode!=Mode.COMBAT||explicit||!tableInitialized||combatViews.getSelectedIndex()==1;
         if(mode==Mode.RUNS){for(int i=state.visits.size()-1;i>=0;i--){ActivityJournal.Visit v=state.visits.get(i);
             if(!ParseDungeon.isDungeon(v.map))continue;
-            add(nextRows,nextItems,v,time(v.started),v.map,Math.max(0,v.lastSeen-v.started)/1000,v.exaltIncrease,v.useRequests,v.issues,v.status);}}
+            add(nextRows,nextItems,v,Instant.ofEpochMilli(v.started),v.map,Math.max(0,v.lastSeen-v.started)/1000,v.exaltIncrease,v.useRequests,v.issues,v.status);}}
         else if(mode==Mode.TIMELINE){for(int i=state.entries.size()-1;i>=0;i--){ActivityJournal.Entry e=state.entries.get(i);
             if(!choice().isEmpty()&&!choice().equals(e.visitId))continue;
             if(kind.getSelectedIndex()>0&&!e.kind.startsWith((String)kind.getSelectedItem()))continue;
-            add(nextRows,nextItems,e,time(e.time),e.map,e.kind,eventText(e),e.detail);}}
+            add(nextRows,nextItems,e,Instant.ofEpochMilli(e.time),e.map,e.kind,eventText(e),e.detail);}}
         else {
             ActivityJournal.Visit v=selectedVisit();
             if(explicit||combatViews.getSelectedIndex()==0)chart.setVisit(v);
@@ -210,39 +267,54 @@ public final class ActivityPanel extends JPanel {
     }
     private void uptimes(List<Object[]> target,List<Object> objects,Map<String,Long> values,long coverage,String suffix){values.forEach((name,ms)->add(target,objects,name+suffix,name+suffix,ms/1000.0,coverage/1000.0,coverage==0?null:Math.round(ms*1000.0/coverage)/10.0));}
     private static void add(List<Object[]> target,List<Object> objects,Object item,Object... row){objects.add(item);target.add(row);}
+    private String displayValue(Object value,int column){
+        if(mode!=Mode.COMBAT&&column==0)return DisplayFormat.formatTimestamp((Instant)value);
+        if(mode==Mode.COMBAT&&column==3)return value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatPercentage(((Number)value).doubleValue(),1);
+        if((mode==Mode.RUNS&&column>=2&&column<=5)||(mode==Mode.COMBAT&&(column==1||column==2)))return number(value);
+        return value==null?"":value.toString();
+    }
     private void filter(){String text=search.getText().trim();sorter.setRowFilter(text.isEmpty()?null:RowFilter.regexFilter("(?i)"+Pattern.quote(text)));chart.setFilter(text);updateSummary();if(!refreshing)showDetail();}
     private void updateSummary(){
-        String counts=mode==Mode.RUNS ? table.getRowCount()+" of "+rows.size()+" dungeon runs · "+(visitCount-rows.size())+" other area visits in Timeline"
-            : visitCount+" visits · "+eventCount+" retained events";
+        String counts=mode==Mode.RUNS ? number(table.getRowCount())+" of "+number(rows.size())+" dungeon runs · "+number(visitCount-rows.size())+" other area visits in Timeline"
+            : number(visitCount)+" visits · "+number(eventCount)+" retained events";
         summary.setText((displayedEnabled?"Recording enabled":"Recording paused")+" · "+counts);
     }
     private String selectedKey(){int row=table.getSelectedRow();return row<0?"":key(items.get(table.convertRowIndexToModel(row)));}
+    private void restoreSelection(String selected){
+        for(int i=0;i<items.size();i++)if(key(items.get(i)).equals(selected)){
+            int row=table.convertRowIndexToView(i);if(row>=0)table.setRowSelectionInterval(row,row);break;
+        }
+    }
     private static String key(Object item){if(item instanceof ActivityJournal.Visit)return ((ActivityJournal.Visit)item).id;if(item instanceof ActivityJournal.Entry)return ((ActivityJournal.Entry)item).id;return item.toString();}
     private void showDetail(){
+        showDetail(mode==Mode.COMBAT?selectedVisit():null);
+    }
+    private void showDetail(ActivityJournal.Visit combatVisit){
         int row=table.getSelectedRow(); Object item=row<0?null:items.get(table.convertRowIndexToModel(row));
-        ActivityJournal.Visit v=mode==Mode.COMBAT?selectedVisit():item instanceof ActivityJournal.Visit?(ActivityJournal.Visit)item:null;
+        ActivityJournal.Visit v=mode==Mode.COMBAT?combatVisit:item instanceof ActivityJournal.Visit?(ActivityJournal.Visit)item:null;
         String text;
-        if(v!=null)text=v.map+" · "+time(v.started)+"\n"+v.status+" · Capture issues: "+v.issues+" · Timing gaps: "+v.timingGaps
-            +"\nHP: "+range(v.hpMin,v.hpMax)+" · MP: "+range(v.mpMin,v.mpMax)+" · Use requests: "+v.useRequests
+        if(v!=null)text=v.map+" · "+time(v.started)+" ("+DisplayFormat.timestampZoneLabel()+")\n"+v.status+" · Capture issues: "+number(v.issues)+" · Timing gaps: "+number(v.timingGaps)
+            +"\nHP: "+range(v.hpMin,v.hpMax)+" · MP: "+range(v.mpMin,v.mpMax)+" · Use requests: "+number(v.useRequests)
             +"\nBuff coverage: "+seconds(v.conditionObservedMillis)+" s; additional conditions: "+seconds(v.extraConditionObservedMillis)+" s. Uptime uses observed coverage, not the entire visit."
-            +"\nParty roster: "+(v.partyId==null?"not observed":"party "+v.partyId+", "+v.rosterSize+" observed members; identity links unverified")
-            +"\nProgress increase within this visit: "+v.exaltIncrease+" · Realm score: "+number(v.realmStart)+" → "+number(v.realmLatest)
-            +"\nTimeline records omitted by retention limits: "+v.timelineOmitted+". Old visits without time samples retain their aggregate summaries.";
-        else if(item instanceof ActivityJournal.Entry){ActivityJournal.Entry e=(ActivityJournal.Entry)item;text=time(e.time)+" · "+e.map+"\n"+e.kind+" · "+eventText(e)+"\n"+e.detail+"\n\n"+new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(e.values);}
+            +"\nParty roster: "+(v.partyId==null?"not observed":"party "+v.partyId+", "+number(v.rosterSize)+" observed members; identity links unverified")
+            +"\nProgress increase within this visit: "+number(v.exaltIncrease)+" · Realm score: "+number(v.realmStart)+" → "+number(v.realmLatest)
+            +"\nTimeline records omitted by retention limits: "+number(v.timelineOmitted)+". Old visits without time samples retain their aggregate summaries.";
+        else if(item instanceof ActivityJournal.Entry){ActivityJournal.Entry e=(ActivityJournal.Entry)item;text=time(e.time)+" ("+DisplayFormat.timestampZoneLabel()+") · "+e.map+"\n"+e.kind+" · "+eventText(e)+"\n"+e.detail+"\n\n"+new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(e.values);}
         else text=mode==Mode.COMBAT?"Select a recorded visit to see local HP/MP and buff lanes. New captures supply time samples; existing aggregate-only records cannot be reconstructed into a timeline. Blank intervals mean unknown coverage."
             : mode==Mode.RUNS ? (rows.isEmpty()?"No dungeon runs recorded. Enable Record, start capture and enter a dungeon such as Ice Citadel or Ocean Trench."
                 : table.getRowCount()==0?"No dungeon runs match your search.":"Select a dungeon run for progression, party and capture details.")+" Hub, overworld and unresolved area visits are available in Timeline."
             : "Start capture and enter a fresh area to record activity. Search or select a row for details. Saved history is shared across Runs, Timeline and DPS Logger.";
         if(!text.equals(detail.getText())){detail.setText(text);detail.setCaretPosition(0);}
     }
-    public static String time(long millis){return java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss"));}
-    private static String range(Integer a,Integer b){return a==null?"not observed":a+"–"+b;}
-    private static String seconds(long millis){return String.format(Locale.ROOT,"%.1f",millis/1000.0);}
-    private static String number(Object value){return value instanceof Number?Long.toString(((Number)value).longValue()):"not updated";}
+    public static String time(long millis){return DisplayFormat.formatTimestamp(millis);}
+    private static String range(Integer a,Integer b){return a==null&&b==null?DisplayFormat.UNAVAILABLE:number(a)+"–"+number(b);}
+    private static String seconds(long millis){return DisplayFormat.formatDurationSeconds(millis,1);}
+    private static String number(Object value){return value instanceof Number?DisplayFormat.formatExact((Number)value):DisplayFormat.UNAVAILABLE;}
+    private static String identifier(Object value){return value instanceof Number?Long.toString(((Number)value).longValue()):DisplayFormat.UNAVAILABLE;}
     private static String item(Object value){if(!(value instanceof Number))return "Unknown item";int id=((Number)value).intValue();if(id==-1)return "Empty";String name=assets.IdToAsset.objectName(id);return name==null||name.isEmpty()?"Item "+id:name;}
     private static String eventText(ActivityJournal.Entry e){Map<String,Object> v=e.values;
-        if(e.kind.equals("Party roster"))return "Party "+number(v.get("partyId"))+" · "+number(v.get("memberCount"))+" observed members";
-        if(e.kind.equals("Exalt change"))return "Class "+number(v.get("classId"))+" · "+v.get("stat")+": "+number(v.get("before"))+" → "+number(v.get("after"));
+        if(e.kind.equals("Party roster"))return "Party "+identifier(v.get("partyId"))+" · "+number(v.get("memberCount"))+" observed members";
+        if(e.kind.equals("Exalt change"))return "Class "+identifier(v.get("classId"))+" · "+v.get("stat")+": "+number(v.get("before"))+" → "+number(v.get("after"));
         if(e.kind.equals("Resources"))return "HP "+number(v.get("hp"))+" · MP "+number(v.get("mp"));
         if(e.kind.equals("Item / ability request"))return item(v.get("slotObject.objectType"))+" · "+v.getOrDefault("slotLabel","Unknown slot");
         if(e.kind.equals("Equipment changed"))return item(v.get("before"))+" → "+item(v.get("after"));

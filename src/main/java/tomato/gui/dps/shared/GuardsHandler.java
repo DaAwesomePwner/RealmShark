@@ -2,6 +2,7 @@ package tomato.gui.dps.shared;
 
 import tomato.backend.data.Damage;
 import tomato.backend.data.Entity;
+import tomato.gui.modern.DisplayFormat;
 
 /**
  * Centralized helpers for building "extra" damage notes and computing guarded damage stats.
@@ -38,10 +39,12 @@ public final class GuardsHandler {
 
     /**
      * Builds the "extra" tag string that appears at the end of a DPS row, e.g.:
-     * - "[Guarded Hits:12 Dmg:3456]"
-     * - "[Dammah Hits:8 Dmg:2100]"
-     * - "[Garden Hits:3 Dmg:420]"
+     * - "[Guarded Hits:12 Dmg:3,456]" (US formatting)
+     * - "[Dammah Hits:8 Dmg:2,100]"
+     * - "[Reflector Hits:3 Dmg:420]"
      *
+     * Human-readable text for the DPS text/icon views, not a persisted or parsed protocol value.
+     * Counts follow the FORMAT locale; phase selection and recorded values are unchanged.
      * If no special condition applies, returns an empty string.
      */
     public static String buildExtraTag(Entity entity, Damage dmg) {
@@ -49,9 +52,9 @@ public final class GuardsHandler {
         if (dmg.oryx3GuardDmg) {
             return (
                 "[Guarded Hits:" +
-                safeInt(dmg.counterHits) +
+                DisplayFormat.formatInteger(dmg.counterHits) +
                 " Dmg:" +
-                safeInt(dmg.counterDmg) +
+                DisplayFormat.formatInteger(dmg.counterDmg) +
                 "]"
             );
         } else if (
@@ -59,17 +62,17 @@ public final class GuardsHandler {
         ) {
             return (
                 "[Dammah Hits:" +
-                safeInt(dmg.counterHits) +
+                DisplayFormat.formatInteger(dmg.counterHits) +
                 " Dmg:" +
-                safeInt(dmg.counterDmg) +
+                DisplayFormat.formatInteger(dmg.counterDmg) +
                 "]"
             );
         } else if (dmg.walledGardenReflectors) {
             return (
                 "[Reflector Hits:" +
-                safeInt(dmg.counterHits) +
+                DisplayFormat.formatInteger(dmg.counterHits) +
                 " Dmg:" +
-                safeInt(dmg.counterDmg) +
+                DisplayFormat.formatInteger(dmg.counterDmg) +
                 "]"
             );
         }
@@ -89,7 +92,4 @@ public final class GuardsHandler {
         return (dmg.counterDmg * 100.0) / total;
     }
 
-    private static int safeInt(Integer v) {
-        return v == null ? 0 : v;
-    }
 }

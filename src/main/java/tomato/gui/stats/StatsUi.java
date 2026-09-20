@@ -8,6 +8,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** Shared presentation for the statistics workspace. */
 final class StatsUi {
@@ -58,11 +59,7 @@ final class StatsUi {
     }
 
     static JTextArea note(String text) {
-        JTextArea area = new JTextArea(text);
-        area.setEditable(false); area.setOpaque(false);
-        area.setLineWrap(true); area.setWrapStyleWord(true);
-        area.setFont(ContentStyle.metadata(ContentStyle.body()));
-        return area;
+        return ContentStyle.wrappingText(text, 1);
     }
 
     static JPanel metrics(JLabel[] values, String... names) {
@@ -160,9 +157,13 @@ final class StatsUi {
             @Override public String getToolTipText(java.awt.event.MouseEvent e) {
                 int row = rowAtPoint(e.getPoint()), column = columnAtPoint(e.getPoint());
                 if (row < 0 || column < 0) return null;
-                Object value = getValueAt(row, column);
-                if (value == null || value instanceof Icon) return null;
-                return "<html>" + value.toString().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</html>";
+                if (getValueAt(row, column) instanceof Icon) return null;
+                Component cell = prepareRenderer(getCellRenderer(row, column), row, column);
+                if (!(cell instanceof JLabel)) return null;
+                JLabel label = (JLabel)cell;
+                String value = label.getToolTipText() == null ? label.getText() : label.getToolTipText();
+                if (value == null) return null;
+                return "<html>" + value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</html>";
             }
         }; table.setName(name);
         ContentStyle.table(table, ContentStyle.Density.COMFORTABLE);
@@ -176,6 +177,14 @@ final class StatsUi {
         }
         DefaultTableCellRenderer text = new ContentStyle.Cell();
         text.putClientProperty("html.disable", true); table.setDefaultRenderer(String.class, text);
+        // Integer values can be identifiers. Counts opt in to grouping at their call sites.
+        DefaultTableCellRenderer integers = new ContentStyle.Cell() {
+            protected void setValue(Object value) {
+                setText(value == null ? DisplayFormat.UNAVAILABLE : value.toString());
+            }
+        };
+        integers.setHorizontalAlignment(SwingConstants.RIGHT);
+        table.setDefaultRenderer(Integer.class, integers); table.setDefaultRenderer(Long.class, integers);
         DefaultTableCellRenderer decimals = new ContentStyle.Cell() {
             protected void setValue(Object value) {
                 setText(value == null ? "—" : Formatters.formatNumber(((Number)value).doubleValue(), 1));
@@ -184,6 +193,30 @@ final class StatsUi {
         decimals.setHorizontalAlignment(SwingConstants.RIGHT); table.setDefaultRenderer(Double.class, decimals);
         table.setMinimumSize(new Dimension(0, 0));
         return table;
+    }
+
+    static void countColumns(JTable table, int... columns) {
+        for (int column : columns) table.getColumnModel().getColumn(column).setCellRenderer(new ContentStyle.Cell() {
+            protected void setValue(Object value) {
+                setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatInteger(((Number)value).longValue()));
+            }
+        });
+    }
+
+    static void exactColumns(JTable table, int... columns) {
+        for (int column : columns) table.getColumnModel().getColumn(column).setCellRenderer(new ContentStyle.Cell() {
+            protected void setValue(Object value) { setText(DisplayFormat.formatExact((Number)value)); }
+        });
+    }
+
+    /** Timestamp models retain epoch millis; text and zone labels are always rendered together. */
+    static void timestampColumn(JTable table, int column) {
+        table.getColumnModel().getColumn(column).setCellRenderer(new ContentStyle.Cell() {
+            protected void setValue(Object value) {
+                setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatTimestamp(((Number)value).longValue()));
+                setToolTipText(DisplayFormat.UNAVAILABLE.equals(getText()) ? null : getText() + " (" + DisplayFormat.timestampZoneLabel() + ")");
+            }
+        });
     }
 
     static void durationColumn(JTable table, int column) {

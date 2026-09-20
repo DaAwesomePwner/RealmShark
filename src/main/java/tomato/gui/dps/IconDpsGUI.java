@@ -24,8 +24,8 @@ import packets.incoming.NotificationPacket;
 import tomato.backend.data.*;
 import tomato.gui.SmartScroller;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.gui.dps.shared.DeathParser;
-import tomato.gui.dps.shared.DpsTextFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
 import tomato.gui.dps.shared.GuardsHandler;
 import tomato.realmshark.ParseEnchants;
@@ -101,7 +101,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             dungeon.setBorder(
                 BorderFactory.createTitledBorder(
                     null,
-                    map.name + DpsGUI.systemTimeToString(totalDungeonPcTime),
+                    map.name + " [" + DisplayFormat.formatDurationMillis(totalDungeonPcTime) + "]",
                     TitledBorder.CENTER,
                     TitledBorder.CENTER,
                     mainFont
@@ -156,9 +156,9 @@ public class IconDpsGUI extends DisplayDpsGUI {
         sb
             .append(entity.name())
             .append(" HP: ")
-            .append(entity.maxHp())
+            .append(DisplayFormat.formatInteger(entity.maxHp()))
             .append("\n");
-        sb.append(entity.getFightTimerString());
+        sb.append(" [").append(DisplayFormat.formatDurationMillis(entity.getFightTimer())).append("]");
         String mobName = sb.toString();
 
         int iconLarge = largeIconSize();
@@ -169,7 +169,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
         );
 
         int firstHP = getHighestHP(entity);
-        l.setToolTipText("Fight start HP: " + firstHP);
+        l.setToolTipText("Fight start HP: " + (firstHP < 0 ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatInteger(firstHP)));
         l.setFont(mainFont != null ? mainFont : ContentStyle.body());
         int mobNameStringSize = getStringSize(mobName) + iconLarge + 8;
         int headerHeight = Math.max(iconLarge + 4, l.getFontMetrics(l.getFont()).getHeight() + 8);
@@ -217,12 +217,8 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
             float pers = (((float) dmg.damage * 100) / (float) entity.maxHp());
 
-            String userIndicator = String.format(
-                "%s%d",
-                user ? " ->" : (highlight ? ">>" : "  "),
-                counter
-            );
-            String s2 = String.format("DMG: %7d %6.3f%%", dmg.damage, pers);
+            String userIndicator = (user ? " ->" : (highlight ? ">>" : "  ")) + DisplayFormat.formatInteger(counter);
+            String s2 = String.format(Locale.ROOT, "DMG: %7s %7s", DisplayFormat.formatInteger(dmg.damage), DisplayFormat.formatPercentage(pers, 3));
             int icon = 0;
             if (
                 dmg.owner != null &&
@@ -267,12 +263,8 @@ public class IconDpsGUI extends DisplayDpsGUI {
                     }
 
                     deathNexusLabel.setToolTipText(
-                        String.format(
-                            "%.2f%% [%s / %s]",
-                            ((float) pr.hp / pr.max) * 100,
-                            DpsTextFormat.grouped(pr.hp),
-                            DpsTextFormat.grouped(pr.max)
-                        )
+                        DisplayFormat.formatPercentage(pr.max <= 0 ? Double.NaN : ((float) pr.hp / pr.max) * 100, 2)
+                            + " [" + DisplayFormat.formatInteger(pr.hp) + " / " + DisplayFormat.formatInteger(pr.max) + "]"
                     );
                 }
             }
@@ -329,27 +321,26 @@ public class IconDpsGUI extends DisplayDpsGUI {
             if (damageFight[1] > 0) {
                 tooltipText = String.format(
                     "Damage taken: %s (hits: %s)\n",
-                    damageFight[0],
-                    damageFight[1]
+                    DisplayFormat.formatInteger(damageFight[0]),
+                    DisplayFormat.formatInteger(damageFight[1])
                 );
             }
             if (damageTotal[1] > 0) {
                 tooltipText += String.format(
                     "Total damage taken: %s (hits: %s)\n\n",
-                    damageTotal[0],
-                    damageTotal[1]
+                    DisplayFormat.formatInteger(damageTotal[0]),
+                    DisplayFormat.formatInteger(damageTotal[1])
                 );
             }
 
             tooltipText +=
                 "Damage per Minute: " +
-                DpsTextFormat.fixed2GroupedComma(damagePerMinute);
+                DisplayFormat.formatRate(damagePerMinute, 2);
 
             if (hasGuardedDamage) {
                 tooltipText +=
                     "\nGuarded Damage: " +
-                    DpsTextFormat.percent2(guardedDamagePercentage) +
-                    "%";
+                    DisplayFormat.formatPercentage(guardedDamagePercentage, 2);
             }
 
             pp.setToolTipText(

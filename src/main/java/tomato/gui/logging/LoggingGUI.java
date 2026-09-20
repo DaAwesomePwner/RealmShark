@@ -13,10 +13,12 @@ import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.gui.activity.SnapshotRefresh;
 
 /** A searchable, bounded view over sanitized discovery data, refreshed only on the EDT. */
@@ -35,15 +37,17 @@ public final class LoggingGUI extends JPanel {
     private final JTabbedPane tabs = new JTabbedPane();
     private final DataTable packets = new DataTable("ID", "Packet", "Direction", "Evidence", "Count", "Bytes", "Decode errors", "Trailing", "Type listeners");
     private final DataTable stats = new DataTable("ID", "Stat", "Observations", "Changes", "Latest", "Secondary", "Min", "Max", "Withheld");
-    private final DataTable events = new DataTable("Time (UTC)", "Area", "Packet", "Outcome", "Bytes", "Selected values / stat samples");
+    private final DataTable events = new DataTable("Time", "Area", "Packet", "Outcome", "Bytes", "Selected values / stat samples");
     private final DataTable fields = new DataTable("Packet", "Field path", "Java type", "Retention");
     private final DataTable discoveries = new DataTable("Area", "Evidence", "Fields to explore", "Sources");
-    private final DataTable reentry = new DataTable("Time (UTC)", "Area", "Step", "Direction", "Since prior", "Retained evidence");
+    private final DataTable reentry = new DataTable("Time", "Area", "Step", "Direction", "Since prior", "Retained evidence");
     private final JTextArea details = new JTextArea();
     private final javax.swing.Timer timer;
     private DiscoveryLog.Snapshot snapshot;
     private boolean refreshing;
     private boolean exporting;
+    private Locale presentationLocale;
+    private ZoneId presentationZone;
     private volatile DiscoveryLog.DiagnosticsRevision revision;
     private final SnapshotRefresh<DiscoveryLog.DiagnosticsSnapshot> snapshots=new SnapshotRefresh<>();
 
@@ -114,8 +118,8 @@ public final class LoggingGUI extends JPanel {
         observedOnly.addActionListener(e -> { refreshTables(); }); issuesOnly.addActionListener(e -> refreshTables());
         tabs.addChangeListener(e -> refreshTables());
         for (DataTable table : allTables()) table.table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) showDetails(); });
-        freeze.addItemListener(e -> { snapshots.invalidate(); if (!freeze.isSelected()) refresh(); });
-        timer = new javax.swing.Timer(1000, e -> { if (isShowing() && !freeze.isSelected()) refresh(); });
+        freeze.addItemListener(e -> { snapshots.invalidate(); refresh(); });
+        timer = new javax.swing.Timer(1000, e -> { if (isShowing()) refresh(); });
         addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0) visibilityChanged(); });
     }
     @Override public void addNotify() { super.addNotify(); visibilityChanged(); }
@@ -123,6 +127,7 @@ public final class LoggingGUI extends JPanel {
     private void visibilityChanged() { if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); snapshots.invalidate(); } }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
+        if (snapshot != null && presentationChanged()) refreshTables();
         if (freeze.isSelected() || (isDisplayable()&&!isShowing())) return;
         snapshots.request("diagnostics",()->log.diagnosticsSnapshot(revision),next->{
             revision=next.revision; snapshot=next.data; refreshing=true;
@@ -132,9 +137,14 @@ public final class LoggingGUI extends JPanel {
     }
     private void refreshTables() {
         if (snapshot == null) return;
-        summary.setText(String.format("%,d frames · %d types · %d stats · %d events · %s", snapshot.total, snapshot.packets.size(), snapshot.stats.size(), snapshot.events.size(), snapshot.enabled ? "Collect on" : "Paused"));
-        losses.setText(String.format("Omitted: %,d events / %,d stats · Disk drops: %,d · Errors: %,d", snapshot.sampledOut, snapshot.deltaOmitted, snapshot.diskDropped, snapshot.observerErrors));
-        losses.setToolTipText(snapshot.writerError.isEmpty() ? "Cache evictions: " + snapshot.cacheEvictions + ". Sampling and limits affect event history, not packet counts. Export includes all counters." : snapshot.writerError);
+        boolean reformat = presentationChanged();
+        if (reformat) for (DataTable table : allTables()) table.query = null;
+        summary.setText(DisplayFormat.formatInteger(snapshot.total) + " frames · " + DisplayFormat.formatInteger(snapshot.packets.size())
+            + " types · " + DisplayFormat.formatInteger(snapshot.stats.size()) + " stats · " + DisplayFormat.formatInteger(snapshot.events.size())
+            + " events · " + (snapshot.enabled ? "Collect on" : "Paused"));
+        losses.setText("Omitted: " + DisplayFormat.formatInteger(snapshot.sampledOut) + " events / " + DisplayFormat.formatInteger(snapshot.deltaOmitted)
+            + " stats · Disk drops: " + DisplayFormat.formatInteger(snapshot.diskDropped) + " · Errors: " + DisplayFormat.formatInteger(snapshot.observerErrors));
+        losses.setToolTipText(snapshot.writerError.isEmpty() ? "Cache evictions: " + DisplayFormat.formatInteger(snapshot.cacheEvictions) + ". Sampling and limits affect event history, not packet counts. Export includes all counters." : snapshot.writerError);
         if (!snapshot.writerError.isEmpty()) exportStatus.setText(snapshot.writerError);
         if (!snapshot.activityWriterError.isEmpty()) exportStatus.setText(snapshot.activityWriterError);
         DataTable active = activeTable(); refreshing = true;
@@ -157,30 +167,40 @@ public final class LoggingGUI extends JPanel {
         } else if (active == events) {
             for (int i = snapshot.events.size()-1; i >= 0; i--) {
                 DiscoveryLog.Event event = snapshot.events.get(i);
-                events.add(new Object[] {event.timestamp,event.area,event.packet,event.outcome,event.bytes,event.values + " / " + event.statChanges.size() + " stat samples"}, event);
+                events.add(new Object[] {displayInstant(event.timestamp),event.area,event.packet,event.outcome,event.bytes,event.values + " / " + DisplayFormat.formatInteger(event.statChanges.size()) + " stat samples"}, event);
             }
         } else if (active == reentry) {
             List<TraceRow> traceRows = traceRows(snapshot.events);
             for (int i = traceRows.size()-1; i >= 0; i--) {
                 TraceRow row = traceRows.get(i);
-                reentry.add(new Object[] {row.timestamp,row.area,row.step,row.direction,elapsed(row.elapsedMillis),row.evidence()}, row);
+                reentry.add(new Object[] {displayInstant(row.timestamp),row.area,row.step,row.direction,row.elapsedMillis,row.evidence()}, row);
             }
         } else if (active == discoveries) {
             for (String[] opportunity : DiscoveryCatalog.OPPORTUNITIES) {
                 long count = 0;
                 for (DiscoveryLog.PacketRow row : snapshot.packets) if (Arrays.asList(opportunity[1].split(", ")).contains(row.name)) count += row.count - row.failures - row.trailing;
-                discoveries.add(new Object[] {opportunity[0],count == 0 ? "Awaiting clean sample" : count + " clean frames",opportunity[2],opportunity[1]}, opportunity);
+                discoveries.add(new Object[] {opportunity[0],count == 0 ? "Awaiting clean sample" : DisplayFormat.formatInteger(count) + " clean frames",opportunity[2],opportunity[1]}, opportunity);
             }
         }
         if (active != fields) active.changed();
         filter(); refreshing = false;
         showDetails();
+        presentationLocale=Locale.getDefault(Locale.Category.FORMAT);presentationZone=ZoneId.systemDefault();
+        if (reformat) active.table.repaint();
+    }
+    private boolean presentationChanged() {
+        return !Locale.getDefault(Locale.Category.FORMAT).equals(presentationLocale) || !ZoneId.systemDefault().equals(presentationZone);
     }
     private void filter() {
         String query=search.getText().trim();
         DataTable table = activeTable();
         if (!query.equals(table.query)) {
-            table.query = query; table.sorter.setRowFilter(query.isEmpty() ? null : RowFilter.regexFilter("(?i)" + Pattern.quote(query)));
+            boolean wasRefreshing=refreshing;refreshing=true;
+            try {
+                Object selection=table.selectedKey();table.table.clearSelection();
+                table.query = query; table.sorter.setRowFilter(query.isEmpty() ? null : RowFilter.regexFilter("(?i)" + Pattern.quote(query)));
+                table.restore(selection);
+            } finally { refreshing=wasRefreshing; }
         }
         if (!refreshing) showDetails();
     }
@@ -194,6 +214,8 @@ public final class LoggingGUI extends JPanel {
             text = opportunity[0] + "\n\nAvailable in the decoder: " + opportunity[2] + "\nSources: " + opportunity[1] + "\n\nValidation needed: " + opportunity[3];
         } else if (selected != null) {
             text = new GsonBuilder().setPrettyPrinting().create().toJson(selected);
+            if (selected instanceof DiscoveryLog.Event || selected instanceof TraceRow)
+                text = "Display time zone: " + DisplayFormat.timestampZoneLabel() + " · Raw evidence below uses UTC.\n\n" + text;
         } else text = "Select a row to inspect captured packet fields and decoder diagnostics.\n\nRe-entry trace orders passive party, reconnect, queue, and admission evidence. It does not send packets or prove a queue bypass.\n\nRuns and Timeline are available in the sidebar. Resources and buff timelines are in DPS Logger.\n\nStat ranges here combine visible objects. Field definitions and clean decoding do not establish protocol meaning. Export includes the current diagnostics and activity history.";
         if (!text.equals(details.getText())) { details.setText(text); details.setCaretPosition(0); }
     }
@@ -242,8 +264,12 @@ public final class LoggingGUI extends JPanel {
     }
     private static String elapsed(Long millis) {
         if (millis == null) return "—";
-        if (millis < 1000) return "+" + millis + " ms";
-        return String.format(Locale.ROOT, "+%.1f s", millis / 1000d);
+        if (millis < 1000) return "+" + DisplayFormat.formatInteger(millis) + " ms";
+        return "+" + DisplayFormat.formatDurationSeconds(millis, 1) + " s";
+    }
+    private static Instant displayInstant(String value) {
+        try { return Instant.parse(value); }
+        catch (RuntimeException invalid) { return null; }
     }
     private static String step(DiscoveryLog.Event event) {
         switch (event.packet) {
@@ -293,11 +319,42 @@ public final class LoggingGUI extends JPanel {
                 public Class<?> getColumnClass(int column) { for(Object[] row:rows) if(row[column]!=null) return row[column].getClass(); return Object.class; }
             };
             table=new JTable(model); ContentStyle.table(table,ContentStyle.Density.DENSE);
+            for(int i=0;i<columns.length;i++) {
+                String column=columns[i];
+                table.getColumnModel().getColumn(i).setCellRenderer(new ContentStyle.Cell() {
+                    protected void setValue(Object value) {
+                        setToolTipText(null);
+                        setHorizontalAlignment(value instanceof Number ? SwingConstants.RIGHT : SwingConstants.LEFT);
+                        setText(displayValue(column,value));
+                        if ("Time".equals(column)) {
+                            setToolTipText(value==null?null:getText()+" ("+DisplayFormat.timestampZoneLabel()+")");
+                        }
+                    }
+                });
+            }
             table.getTableHeader().setReorderingAllowed(false);
             table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF); table.setFillsViewportHeight(true);
             sorter=new TableRowSorter<>(model); table.setRowSorter(sorter);
+            sorter.setStringConverter(new TableStringConverter() {
+                public String toString(TableModel model,int row,int column) {
+                    Object value=model.getValueAt(row,column);
+                    String shown=displayValue(columns[column],value),raw=value==null?"":value.toString();
+                    return shown.equals(raw)?shown:shown+"\n"+raw;
+                }
+            });
             for(int i=0;i<columns.length;i++) table.getColumnModel().getColumn(i).setPreferredWidth(i==1?230:i==0?110:170);
+        }
+        private static String displayValue(String column,Object value) {
+            if ("Time".equals(column)) return DisplayFormat.formatTimestamp((Instant)value);
+            if ("Since prior".equals(column)) return elapsed((Long)value);
+            // Stat values can be IDs/bitmasks: keep the decoder's evidence raw, including searches.
+            switch (column) {
+                case "ID": case "Area": case "Latest": case "Secondary": case "Min": case "Max":
+                    return value==null?DisplayFormat.UNAVAILABLE:value.toString();
+                default: return value instanceof Number ? DisplayFormat.formatExact((Number)value)
+                    : value==null?DisplayFormat.UNAVAILABLE:value.toString();
+            }
         }
         JScrollPane scroll(){return ContentStyle.tableScroll(table,3);}
         void add(Object[] row,Object object){if(pendingRows==null){rows.add(row);objects.add(object);}else{pendingRows.add(row);pendingObjects.add(object);}}
