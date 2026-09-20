@@ -1,17 +1,12 @@
 package tomato.gui.quest;
-import ui.UiTestLayout;
 
 import org.junit.Test;
 import static org.junit.Assert.*;
 import packets.data.QuestData;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.image.BufferedImage;
-import javax.imageio.ImageIO;
-import java.io.File;
 import java.util.*;
 import java.util.prefs.AbstractPreferences;
-import tomato.gui.modern.VioletTheme;
 
 public class QuestGuiTest {
     private static final Map<Integer, String> NAMES = new HashMap<>();
@@ -102,29 +97,58 @@ public class QuestGuiTest {
         });
     }
 
-    @Test public void renderDesktopAndCompact() throws Exception {
+    @Test public void packetRefreshKeepsSortedSelectionAndPinsByStableId() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            VioletTheme.install();
-            QuestGUI ui = panel();
-            QuestData a = quest("Royal tribute", 5, new int[] {1,1,1},12);
-            QuestData b = quest("Cultist tribute",5,new int[]{2,2},13);
-            QuestData c = quest("Festival exchange",8,new int[]{3,3,3,3,3},10,12,13);
-            c.itemOfChoice = true; c.repeatable = true; c.expiration = "2026-09-15 12:00 UTC (sample)";
-            ui.update(new QuestData[]{a,b,c});
-            combo(ui,"Quest type").setSelectedItem("Event");
-            JFrame frame = new JFrame("Daily Quests — sample data");
-            frame.setContentPane(ui);
-            try {
-                for (int width : new int[]{1100,560}) {
-                    frame.setSize(width,820); frame.setVisible(true); frame.validate();
-                    UiTestLayout.settle(frame);
-                    BufferedImage image = new BufferedImage(width,820,BufferedImage.TYPE_INT_RGB);
-                    Graphics2D graphics = image.createGraphics(); frame.paint(graphics); graphics.dispose();
-                    try { ImageIO.write(image,"png",new File("quests-" + width + ".png")); }
-                    catch(Exception e) { throw new RuntimeException(e); }
-                    assertTrue(combo(ui,"Reward").getWidth() > 100);
-                }
-            } finally { frame.dispose(); }
+            MemoryPreferences prefs = new MemoryPreferences();
+            QuestGUI ui = new QuestGUI(NAMES::get, id -> null, prefs);
+            QuestData a = quest("Alpha", 5, new int[]{1}, 10);
+            QuestData b = quest("Beta", 5, new int[]{2,2}, 13);
+            QuestData c = quest("Gamma", 8, new int[]{3,3,3}, 12);
+            ui.update(new QuestData[]{c,a,b});
+            JTable table = find(ui, JTable.class);
+            table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING)));
+            table.setRowSelectionInterval(1,1);
+            assertEquals("Beta", table.getValueAt(table.getSelectedRow(),1));
+            b.name = "Renamed Beta"; b.description = "Updated selected quest"; b.requirements = new int[]{2,2,2,2};
+            ui.update(new QuestData[]{b,c,a});
+            assertEquals("Renamed Beta", table.getValueAt(table.getSelectedRow(),1));
+            assertEquals(0, table.getSelectedRow());
+            assertTrue(allText(ui).contains("Updated selected quest"));
+            button(ui,"Pin quest").doClick();
+            checkbox(ui,"Pinned only").doClick();
+            assertEquals(1, table.getRowCount()); assertEquals("Renamed Beta",table.getValueAt(0,1));
+            QuestGUI reopened = new QuestGUI(NAMES::get, id -> null, prefs);
+            reopened.update(new QuestData[]{a,b,c}); checkbox(reopened,"Pinned only").doClick();
+            assertEquals(1,find(reopened,JTable.class).getRowCount());
+            assertEquals("Renamed Beta",find(reopened,JTable.class).getValueAt(0,1));
+            button(ui,"Unpin quest").doClick();
+            assertEquals(0,table.getRowCount()); assertFalse(button(ui,"Pin quest").isEnabled());
+            assertFalse(allText(ui).contains("Updated selected quest"));
+            button(ui,"Reset filters").doClick();
+            assertEquals(3,table.getRowCount()); assertTrue(button(ui,"Pin quest").isEnabled());
+        });
+    }
+
+    @Test public void emptyUpdatesAndFilterResetClearObsoleteDetailsAndPinState() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            QuestGUI ui = panel(); JTable table = find(ui,JTable.class);
+            assertTrue(allText(ui).contains("Plan your next turn-in"));
+            assertFalse(button(ui,"Pin quest").isEnabled());
+            ui.update(new QuestData[0]);
+            assertEquals(0,table.getRowCount()); assertTrue(allText(ui).contains("0 quests captured"));
+            QuestData q = quest("Prior selected title",5,new int[]{1},10);
+            q.description = "Obsolete detail sentinel";
+            ui.update(new QuestData[]{q}); button(ui,"Pin quest").doClick();
+            find(ui,JTextField.class).setText("no matching quest");
+            assertEquals(0,table.getRowCount()); assertFalse(button(ui,"Pin quest").isEnabled());
+            assertFalse(allText(ui).contains("Obsolete detail sentinel"));
+            assertTrue(allText(ui).contains("No matching quests"));
+            button(ui,"Reset filters").doClick();
+            assertEquals(1,table.getRowCount()); assertTrue(button(ui,"Unpin quest").isEnabled());
+            assertTrue(allText(ui).contains("Obsolete detail sentinel"));
+            ui.update((QuestData[])null);
+            assertEquals(0,table.getRowCount()); assertFalse(button(ui,"Pin quest").isEnabled());
+            assertFalse(allText(ui).contains("Obsolete detail sentinel"));
         });
     }
 
@@ -159,7 +183,7 @@ public class QuestGuiTest {
         }
         return null;
     }
-    private static final class MemoryPreferences extends AbstractPreferences {
+    static final class MemoryPreferences extends AbstractPreferences {
         private final Map<String,String> values=new HashMap<>();
         MemoryPreferences(){super(null,"");}
         protected void putSpi(String k,String v){values.put(k,v);}
