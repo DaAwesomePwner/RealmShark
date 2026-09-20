@@ -46,7 +46,6 @@ public final class NotificationsGUI extends JPanel {
         master.setName("sound-master"); master.getAccessibleContext().setAccessibleName("Master volume");
         mute.setName("sound-mute"); masterControls.add(volume); masterControls.add(mute); top.add(masterControls);
         top.add(note("Settings save automatically. Test plays the chosen sound, including disabled alerts; Mute all and volume still apply."), BorderLayout.SOUTH);
-        add(top, BorderLayout.NORTH);
         master.addChangeListener(e -> { if (!syncing && !master.getValueIsAdjusting()) Sound.setVolume(master.getValue()); masterValue.setText(master.getValue() + "%"); });
         mute.addActionListener(e -> Sound.setMuted(mute.isSelected()));
         for (String group : new String[]{"Messages", "Bags", "Key pops", "Realm events", "Other alerts"}) {
@@ -74,7 +73,20 @@ public final class NotificationsGUI extends JPanel {
             tabs.addTab(group, scroll);
         }
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        add(tabs); status.setRows(2); status.setName("sound-status"); add(status, BorderLayout.SOUTH);
+        status.setRows(2); status.setName("sound-status");
+        JPanel sections = new JPanel(new BorderLayout()) {
+            @Override public Dimension getMinimumSize() {
+                // Keep a tab strip and a useful slice of its scrollable controls below a long status/header.
+                int line = tabs.getFontMetrics(tabs.getFont()).getHeight();
+                Rectangle tab = tabs.getBoundsAt(tabs.getSelectedIndex());
+                Insets insets = tabs.getInsets();
+                int strip = tab == null ? line * 2 : tab.y + tab.height;
+                return new Dimension(0, Math.max(line * 2, strip) + line * 6 + insets.top + insets.bottom);
+            }
+        };
+        sections.add(tabs);
+        JScrollPane page = ContentStyle.page(top, sections, status);
+        page.setName("notifications-page"); add(page, BorderLayout.CENTER);
         addComponentListener(new ComponentAdapter() { @Override public void componentShown(ComponentEvent e) { refreshDungeons(); refresh(); } });
         refresh();
     }
@@ -242,11 +254,6 @@ public final class NotificationsGUI extends JPanel {
     }
     private static JPanel stack() {
         JPanel panel = new JPanel() {
-            @Override public Dimension getPreferredSize() {
-                // Wrapping children change height during width layout; discard BoxLayout's old row heights.
-                ((BoxLayout)getLayout()).invalidateLayout(this);
-                return super.getPreferredSize();
-            }
             @Override protected void addImpl(Component component, Object constraints, int index) {
                 if (component instanceof JComponent) ((JComponent)component).setAlignmentX(Component.LEFT_ALIGNMENT);
                 super.addImpl(component, constraints, index);
@@ -256,24 +263,8 @@ public final class NotificationsGUI extends JPanel {
     }
     private static JPanel left(Component c) { JPanel panel = ContentStyle.controls(); panel.add(c); return panel; }
     private static JTextArea note(String text) {
-        JTextArea area = new JTextArea(text) {
-            @Override public Dimension getPreferredSize() {
-                // Wrapped text has no useful preferred height before its first layout.
-                int available = getParent() != null && getParent().getWidth() > 0 ? getParent().getWidth() : 500;
-                Insets insets = getInsets(); available = Math.max(100, available - insets.left - insets.right - 20);
-                FontMetrics metrics = getFontMetrics(getFont()); int lines = 0;
-                for (String paragraph : getText().split("\n", -1)) {
-                    int used = 0; lines++;
-                    for (String word : paragraph.split(" ")) {
-                        int length = metrics.stringWidth(word + " ");
-                        if (used > 0 && used + length > available) { lines++; used = 0; }
-                        used += length;
-                    }
-                }
-                return new Dimension(100, metrics.getHeight() * Math.max(getRows(), lines) + insets.top + insets.bottom);
-            }
-        }; area.setEditable(false); area.setFocusable(false); area.setLineWrap(true); area.setWrapStyleWord(true); area.setOpaque(false);
-        area.setFont(ContentStyle.metadata(ContentStyle.body())); area.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4)); return area;
+        JTextArea area = ContentStyle.wrappingText(text);
+        area.setFocusable(false); area.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4)); return area;
     }
     private static final class WidthTrackingPanel extends JPanel implements Scrollable {
         WidthTrackingPanel() { super(new BorderLayout()); }

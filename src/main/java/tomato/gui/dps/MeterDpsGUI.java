@@ -13,6 +13,7 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** Interactive encounter overview with a stable selection during live updates. */
 public class MeterDpsGUI extends DisplayDpsGUI {
@@ -85,7 +86,8 @@ public class MeterDpsGUI extends DisplayDpsGUI {
                 row.setBorder(BorderFactory.createCompoundBorder(getBorder(), BorderFactory.createEmptyBorder(4, 8, 4, 8)));
                 Entity e = (Entity)v;
                 title.setText(e == null ? "All enemies" : e.name() == null ? "Unknown enemy" : e.name());
-                subtitle.setText(e == null ? "Encounter totals" : number(e.maxHp()) + " HP  ·  #" + e.id);
+                subtitle.setText(e == null ? "Encounter totals" : (e.stat.get(packets.data.enums.StatType.MAX_HP_STAT) == null
+                    ? DisplayFormat.UNAVAILABLE : number(e.maxHp())) + " HP  ·  #" + e.id);
                 title.setFont(ContentStyle.emphasis(l.getFont())); subtitle.setFont(ContentStyle.metadata(l.getFont()));
                 row.setBackground(getBackground()); title.setForeground(getForeground());
                 subtitle.setForeground(s ? getForeground() : ContentStyle.color("muted"));
@@ -111,13 +113,14 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
                 super.getTableCellRendererComponent(t, value, selected, focus, row, column);
                 int c = t.convertColumnIndexToModel(column);
+                if (c == 4) setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatPercentage(((Number)value).doubleValue(), 1));
                 setHorizontalAlignment(RIGHT);
                 if (c == 2 || c == 3) setFont(ContentStyle.emphasis(t.getFont()));
                 if (!selected && (value == null || c >= 8 || c == 3)) setForeground(ContentStyle.color(value == null ? "muted" : c >= 8 ? "rose" : "violet"));
                 return this;
             }
             protected void setValue(Object value) {
-                setText(value == null ? "—" : value instanceof Double ? String.format(Locale.ROOT, "%,.1f", value) : number(((Number)value).longValue()));
+                setText(value == null ? "—" : value instanceof Double ? DisplayFormat.formatRate(((Number)value).doubleValue(), 1) : number(((Number)value).longValue()));
                 setHorizontalAlignment(RIGHT);
             }
         };
@@ -232,10 +235,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             int view = table.convertRowIndexToView(i); table.setRowSelectionInterval(view, view); break;
         }
         updating = false;
-        summary.setText(mapName + "  ·  " + (live ? "LIVE" : "SAVED") + "  ·  " + scopedEnemies + " enemies  ·  " + visible.size() + "/" + snapshot.rows.size() + " players  ·  DMG: " + number(snapshot.total));
+        summary.setText(mapName + "  ·  " + (live ? "LIVE" : "SAVED") + "  ·  " + number(scopedEnemies) + " enemies  ·  " + number(visible.size()) + "/" + number(snapshot.rows.size()) + " players  ·  DMG: " + number(snapshot.total));
         summary.setToolTipText(summary.getText().startsWith("<html>") ? " " + summary.getText() : summary.getText());
-        scope.setText(String.format(Locale.ROOT, "%.1fs DPS window · Taken: %s · — = no recorded data", snapshot.seconds,
-            wholeEncounter ? "full dungeon" : "fight window, all sources"));
+        scope.setText(DisplayFormat.formatNumber(snapshot.seconds, 1) + "s DPS window · Taken: "
+            + (wholeEncounter ? "full dungeon" : "fight window, all sources") + " · — = no recorded data");
         showDetails();
     }
     private int metricColumn() { return METRIC_COLUMNS[metric.getSelectedIndex()]; }
@@ -260,12 +263,12 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         CombatMeterData.Row row = visible.get(table.convertRowIndexToModel(index));
         boolean incoming = metric.getSelectedIndex() >= 3;
         StringBuilder text = new StringBuilder(String.valueOf(row.player.name())).append(" · ").append(row.className()).append("\n");
-        text.append("Damage: ").append(number(row.damage)).append(" · Hits: ").append(row.hits)
+        text.append("Damage: ").append(number(row.damage)).append(" · Hits: ").append(number(row.hits))
             .append(" · Max hit: ").append(number(row.biggest)).append("\n");
         if (row.incomingAvailable) text.append("Taken (recorded/estimated): ").append(number(row.taken))
-            .append(" · Incoming events: ").append(row.incomingHits).append("\n");
+            .append(" · Incoming events: ").append(number(row.incomingHits)).append("\n");
         if (row.incomingAvailable && !wholeEncounter) text.append("Full dungeon taken: ").append(number(row.totalTaken))
-            .append(" · Incoming events: ").append(row.totalIncomingHits).append("\n");
+            .append(" · Incoming events: ").append(number(row.totalIncomingHits)).append("\n");
         if (incoming && !row.incomingAvailable) text.append("Incoming damage is unavailable: no incoming events were recorded for this player.");
         else {
             List<Damage> hits = incoming ? row.incoming : row.outgoing;
@@ -273,12 +276,13 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             text.append("  Time        Damage    Source\n");
             // Keep live detail rendering bounded; totals always include every hit.
             int start = Math.max(0, hits.size() - 500);
-            if (start > 0) text.append("Showing latest 500 of ").append(hits.size()).append(" hits\n");
+            if (start > 0) text.append("Showing latest 500 of ").append(number(hits.size())).append(" hits\n");
             for (int i = start; i < hits.size(); i++) {
                 Damage hit = hits.get(i);
                 String source = incoming ? (hit.owner == null ? "AoE / ground / unknown" : String.valueOf(hit.owner.name())) :
                     (hit.projectile == null || hit.projectile.getContainerType() <= 0 ? "Unknown item / generic" : "Item #" + hit.projectile.getContainerType());
-                text.append(String.format(Locale.ROOT, "%7.2fs  %,10d    %s%n", (hit.time - snapshot.first) / 1000.0, hit.damage, source));
+                text.append(String.format(Locale.ROOT, "%7ss  %10s    %s%n",
+                    DisplayFormat.formatDurationSeconds(hit.time - snapshot.first, 2), number(hit.damage), source));
             }
         }
         int caret = details.getCaretPosition(); details.setText(text.toString()); details.setCaretPosition(Math.min(caret, details.getDocument().getLength()));
@@ -294,7 +298,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         boolean dark = surface == null || surface.getRed() < 128;
         return Color.getHSBColor((type * .618034f) % 1f, dark ? .36f : .72f, dark ? .94f : .48f);
     }
-    private static String number(long value) { return String.format(Locale.ROOT, "%,d", value); }
+    private static String number(long value) { return DisplayFormat.formatInteger(value); }
     private final class MeterModel extends AbstractTableModel {
         private final String[] names = {"Player / meter", "Class", "Damage", "DPS", "Share %", "Hits dealt", "Avg hit", "Max hit", "Taken (est.)", "Hits taken"};
         public int getRowCount() { return visible.size(); }
@@ -323,13 +327,13 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             fraction = meterMaximum <= 0 || !(n instanceof Number) ? 0 : ((Number)n).doubleValue() / meterMaximum;
             CombatMeterData.Row entry = visible.get(m);
             color = colors.isSelected() ? classColor(entry.player.objectType) : ContentStyle.color("violet");
-            String amount = n instanceof Double ? String.format(Locale.ROOT, "%,.1f", n) : n instanceof Number ? number(((Number)n).longValue()) : "—";
+            String amount = n instanceof Double ? DisplayFormat.formatRate(((Number)n).doubleValue(), 1) : n instanceof Number ? number(((Number)n).longValue()) : "—";
             amountLabel.setText(amount); amountLabel.setFont(ContentStyle.metadata(t.getFont()));
             amountLabel.setForeground(getForeground());
             setBorder(BorderFactory.createCompoundBorder(getBorder(),
                 BorderFactory.createEmptyBorder(0, 0, 0, amountLabel.getPreferredSize().width + 8)));
             setFont(ContentStyle.emphasis(t.getFont()));
-            setText((row + 1) + "   " + String.valueOf(value) + (entry.player.isUser() ? " (you)" : "") + (Filter.filter(entry.player, playerContext) == 2 ? " ★" : ""));
+            setText(number(row + 1) + "   " + String.valueOf(value) + (entry.player.isUser() ? " (you)" : "") + (Filter.filter(entry.player, playerContext) == 2 ? " ★" : ""));
             setToolTipText(String.valueOf(value) + " · " + entry.className() + " · " + metric.getSelectedItem() + ": " + amount);
             setOpaque(false); return this;
         }

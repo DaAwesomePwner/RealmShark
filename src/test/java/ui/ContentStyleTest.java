@@ -5,6 +5,13 @@ import java.awt.*;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.PlainDocument;
+import java.awt.event.ActionEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.*;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
@@ -272,6 +279,187 @@ public class ContentStyleTest {
             assertTrue(contrast(Color.WHITE, VioletTheme.CAPTURE_BACKGROUND) >= 4.5);
             assertTrue(contrast(Color.WHITE, VioletTheme.CAPTURE_HOVER) >= 4.5);
         });
+    }
+
+    @Test public void wrappingTextMeasuresLongTokensNewlinesAndUnicodeAtTheAllocatedWidth() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTextArea area = ContentStyle.wrappingText("", 2);
+            JPanel parent = new JPanel(new BorderLayout()); parent.setSize(900, 600); parent.add(area);
+            area.setBorder(BorderFactory.createEmptyBorder(4, 7, 6, 11));
+            String filename = String.join("", java.util.Collections.nCopies(180, "W")) + ".wav";
+            for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf()}) {
+                setLaf(laf); SwingUtilities.updateComponentTreeUI(parent);
+                for (int size : new int[] {13, 16, 24, 13}) {
+                    ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, size));
+                    ContentStyle.refreshFonts(parent);
+                    assertEquals(size * 12f / 13, area.getFont().getSize2D(), .01f);
+                    for (String text : new String[] {"Saved short.wav", "Saved " + filename,
+                            "Partial: identity unavailable.\n\nCould not open " + filename + "\nこんにちは e\u0301 ★ 😀\n"}) {
+                        area.setText(text);
+                        for (int width : new int[] {590, 230, 460, 590}) {
+                            // The parent is deliberately wider: only the text's actual allocation is relevant.
+                            area.setSize(width, 1);
+                            Dimension preferred = area.getPreferredSize();
+                            // Swing retains the document's bidi/complex-text mode after Unicode is removed.
+                            // Compare independent views in the same mode, not a new plain-only document.
+                            PlainDocument document = new PlainDocument();
+                            document.putProperty("i18n", area.getDocument().getProperty("i18n"));
+                            JTextArea reference = new JTextArea(document, text, 0, 0);
+                            reference.setFont(area.getFont()); reference.setBorder(area.getBorder());
+                            reference.setLineWrap(true); reference.setWrapStyleWord(true);
+                            reference.setSize(width, 100000);
+                            assertEquals("Equivalent Swing text-view modes", area.getUI().getRootView(area).getView(0).getClass(),
+                                reference.getUI().getRootView(reference).getView(0).getClass());
+                            int required = textViewHeight(reference);
+                            int floor = area.getFontMetrics(area.getFont()).getHeight() * 2 + area.getInsets().top + area.getInsets().bottom;
+                            assertEquals("Actual Swing view: font=" + size + ", width=" + width, Math.max(floor, required), preferred.height);
+                            area.setSize(width, preferred.height);
+                            try {
+                                Rectangle end = area.modelToView(area.getDocument().getLength());
+                                assertNotNull(end);
+                                assertTrue("Final text line must fit", end.y + end.height <= area.getHeight() - area.getInsets().bottom);
+                            } catch (BadLocationException e) { throw new AssertionError(e); }
+                        }
+                    }
+                }
+            }
+            assertFalse(area.isEditable()); assertFalse(area.isOpaque());
+            assertTrue(area.getLineWrap()); assertTrue(area.getWrapStyleWord());
+        });
+    }
+
+    @Test public void wrappingTextRelayoutSettlesAfterWidthFontAndDocumentChanges() throws Exception {
+        JTextArea[] text = new JTextArea[1]; JPanel[] header = new JPanel[1]; int[] layouts = {0};
+        SwingUtilities.invokeAndWait(() -> {
+            JPanel root = new JPanel(new BorderLayout()) {
+                @Override public void doLayout() { layouts[0]++; super.doLayout(); }
+            };
+            header[0] = new JPanel(new BorderLayout());
+            header[0].setBorder(BorderFactory.createEmptyBorder(7, 23, 11, 31));
+            text[0] = ContentStyle.wrappingText("Saved " + String.join("", java.util.Collections.nCopies(184, "W")) + ".wav", 2);
+            header[0].add(text[0]); root.add(header[0], BorderLayout.NORTH); root.add(new JPanel());
+            layoutFrame = new JFrame(); layoutFrame.setContentPane(root); layoutFrame.setSize(820, 600); layoutFrame.setVisible(true);
+        });
+        for (int width : new int[] {820, 460, 660, 460, 820}) {
+            SwingUtilities.invokeAndWait(() -> {
+                layoutFrame.setSize(width, 600);
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, width == 460 ? 24 : 13));
+                ContentStyle.refreshFonts(layoutFrame);
+                text[0].append("\nPartial: unavailable identity. 東京");
+                layoutFrame.validate();
+            });
+            for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> {});
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals(text[0].getPreferredSize().height, text[0].getHeight());
+                assertEquals(header[0].getPreferredSize().height, header[0].getHeight());
+                assertTrue(text[0].getHeight() >= textViewHeight(text[0]));
+            });
+        }
+        int[] settled = {0}; SwingUtilities.invokeAndWait(() -> settled[0] = layouts[0]);
+        for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> {});
+        SwingUtilities.invokeAndWait(() -> assertEquals("No feedback loop after the width settles", settled[0], layouts[0]));
+    }
+
+    @Test public void wrappingTextReservesTheUiCaretMarginAtExactWrapBoundaries() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            String[] texts = {"Detect advertisements with links in PM and World messages.",
+                "Partial: no full ignore list captured. Remote whisper identities may be unavailable.\nFailed to read "
+                    + String.join("", java.util.Collections.nCopies(184, "W")) + ".txt\n0 existing spam rules loaded. Lists below use one entry per line."};
+            for (int font : new int[] {16, 24}) {
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font)); ContentStyle.applyFontDefaults();
+                for (int width : new int[] {414, 422}) for (int caret : new int[] {1, 4}) for (String text : texts) {
+                    JTextArea area = ContentStyle.wrappingText(text);
+                    area.putClientProperty("caretWidth", caret); area.setSize(width, 1);
+                    Dimension preferred = area.getPreferredSize();
+                    JTextArea reference = new JTextArea(text);
+                    reference.setFont(area.getFont()); reference.setBorder(area.getBorder());
+                    reference.putClientProperty("caretWidth", caret);
+                    reference.setLineWrap(true); reference.setWrapStyleWord(true); reference.setSize(width, 100000);
+                    assertEquals("Actual TextUI caret allocation: font=" + font + ", width=" + width + ", caret=" + caret,
+                        reference.getUI().getPreferredSize(reference).height, preferred.height);
+                    area.setSize(width, preferred.height);
+                    try {
+                        Rectangle endpoint = area.modelToView(area.getDocument().getLength()); assertNotNull(endpoint);
+                        assertTrue("Complete endpoint fits the measured allocation", new Rectangle(0, 0, width, preferred.height).contains(endpoint));
+                    } catch (BadLocationException e) { throw new AssertionError(e); }
+                }
+            }
+        });
+    }
+
+    @Test public void unfocusedMetadataUpdatesPreserveViewportButKeyboardCaretNavigationStillScrolls() throws Exception {
+        JTextArea[] footer = new JTextArea[1]; JScrollPane[] page = new JScrollPane[1]; JButton[] header = new JButton[1];
+        SwingUtilities.invokeAndWait(() -> {
+            header[0] = new JButton("Keep reading these controls");
+            JPanel body = new JPanel(); body.setMinimumSize(new Dimension(0, 650));
+            footer[0] = ContentStyle.wrappingText("Initial metadata\nSecond line", 2);
+            page[0] = ContentStyle.page(header[0], body, footer[0]);
+            layoutFrame = new JFrame(); layoutFrame.setContentPane(page[0]); layoutFrame.setSize(520, 420); layoutFrame.setVisible(true);
+        });
+        for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf(), new VioletTheme()}) {
+            SwingUtilities.invokeAndWait(() -> {
+                setLaf(laf); ContentStyle.applyFontDefaults(); SwingUtilities.updateComponentTreeUI(layoutFrame); ContentStyle.refreshFonts(layoutFrame);
+            });
+            focus(header[0]);
+            settleMetadataLayout();
+            for (int position : new int[] {0, 90}) {
+                SwingUtilities.invokeAndWait(() -> {
+                    page[0].getViewport().setViewPosition(new Point(0, position));
+                    assertFalse("Metadata must not own focus", footer[0].isFocusOwner());
+                    footer[0].setText("Updated metadata\nAnother line");
+                    footer[0].append("\nUnavailable identity: 東京 ★\nBackground capture update");
+                });
+                settleMetadataLayout();
+                SwingUtilities.invokeAndWait(() -> assertEquals("Background document edits must preserve the reading position after " + laf.getName(),
+                    new Point(0, position), page[0].getViewport().getViewPosition()));
+            }
+            focus(footer[0]);
+            SwingUtilities.invokeAndWait(() -> {
+                // Put the focused text offscreen again to distinguish explicit navigation from focus acquisition.
+                footer[0].setCaretPosition(0);
+            });
+            settleMetadataLayout();
+            SwingUtilities.invokeAndWait(() -> {
+                page[0].getViewport().setViewPosition(new Point());
+                Object key = footer[0].getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke("ctrl END"));
+                assertNotNull("Ctrl+End remains bound", key);
+                Action action = footer[0].getActionMap().get(key); assertNotNull(action);
+                action.actionPerformed(new ActionEvent(footer[0], ActionEvent.ACTION_PERFORMED, key.toString()));
+            });
+            settleMetadataLayout();
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals(footer[0].getDocument().getLength(), footer[0].getCaretPosition());
+                assertTrue("Explicit keyboard caret movement still reveals metadata", page[0].getViewport().getViewPosition().y > 0);
+                try {
+                    Rectangle endpoint = footer[0].modelToView(footer[0].getDocument().getLength()); assertNotNull(endpoint);
+                    assertTrue("The complete keyboard endpoint is visible", footer[0].getVisibleRect().contains(endpoint));
+                } catch (BadLocationException e) { throw new AssertionError(e); }
+            });
+        }
+    }
+
+    private void settleMetadataLayout() throws Exception {
+        for (int turn = 0; turn < 12; turn++) SwingUtilities.invokeAndWait(() -> layoutFrame.validate());
+    }
+
+    private static void focus(JComponent component) throws Exception {
+        CountDownLatch focused = new CountDownLatch(1);
+        FocusAdapter listener = new FocusAdapter() {
+            @Override public void focusGained(FocusEvent e) { focused.countDown(); }
+        };
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                component.addFocusListener(listener); component.requestFocusInWindow();
+                if (component.isFocusOwner()) focused.countDown();
+            });
+            assertTrue("Native component must receive keyboard focus", focused.await(5, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> assertTrue(component.isFocusOwner()));
+        } finally { SwingUtilities.invokeAndWait(() -> component.removeFocusListener(listener)); }
+    }
+
+    private static int textViewHeight(JTextArea area) {
+        // The UI reserves caret space in addition to component insets.
+        return area.getUI().getPreferredSize(area).height;
     }
 
     private static double contrast(Color a, Color b) {

@@ -7,6 +7,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.gui.stats.session.FameSession;
 import tomato.gui.stats.session.FameSessionManager;
 
@@ -178,8 +179,8 @@ public class FameTrackerGUI extends JPanel {
         long duration = samples.size() < 2 ? 0 : samples.get(samples.size() - 1).getTime() - samples.get(0).getTime();
         metrics[0].setText(samples.isEmpty() ? "—" : Formatters.formatNumber(gain, 0));
         metrics[1].setText(Formatters.formatDurationHMS(duration));
-        metrics[2].setText(duration > 0 ? Formatters.formatNumber(gain * 3600000.0 / duration, 1) : "—");
-        metrics[3].setText(Integer.toString(samples.size()));
+        metrics[2].setText(duration > 0 ? DisplayFormat.formatRate(gain * 3600000.0 / duration, 1) : "—");
+        metrics[3].setText(DisplayFormat.formatInteger(samples.size()));
         sampleStatus.setText(samples.isEmpty() ? "No samples in this range. Choose another character or a wider range."
             : "Character #" + id + " · Latest sample " + Formatters.formatTimestamp(samples.get(samples.size() - 1).getTime()));
         if (measure.getSelectedIndex() == 1 && !samples.isEmpty()) {

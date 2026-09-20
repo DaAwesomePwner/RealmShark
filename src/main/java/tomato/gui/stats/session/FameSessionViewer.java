@@ -14,6 +14,7 @@ import tomato.gui.stats.FameTablePanel;
 import tomato.gui.stats.Formatters;
 import tomato.gui.stats.GraphPanel;
 import tomato.gui.stats.data.MapFameData;
+import tomato.gui.modern.DisplayFormat;
 
 /**
  * Viewer for saved fame session files.
@@ -101,8 +102,9 @@ public class FameSessionViewer extends JFrame {
         characterFameTable = new JTable(model);
         characterFameTable.setName("saved-fame-characters");
         characterFameTable.setAutoCreateRowSorter(true);
-        numberColumn(characterFameTable, 3, 0);
-        numberColumn(characterFameTable, 4, 0);
+        numberColumn(characterFameTable, 2, -1);
+        numberColumn(characterFameTable, 3, -1);
+        numberColumn(characterFameTable, 4, -1);
         numberColumn(characterFameTable, 5, 1);
 
         panel.add(new JScrollPane(characterFameTable), BorderLayout.CENTER);
@@ -196,7 +198,7 @@ public class FameSessionViewer extends JFrame {
             updatingFilters = false;
         }
         characterStatus.setText(model.getRowCount() == 0 ? "No saved character or map records."
-            : model.getRowCount() + " saved characters · All session records · — means no saved fame samples");
+            : DisplayFormat.formatInteger(model.getRowCount()) + " saved characters · All session records · — means no saved fame samples");
     }
 
     private void populateDungeonFilter() {
@@ -231,7 +233,7 @@ public class FameSessionViewer extends JFrame {
                 visit.getFameGained(), timeSpent,
                 timeSpent > 0 ? visit.getFameGained() * 60000.0 / timeSpent : null});
         }
-        mapStatus.setText(model.getRowCount() + " of " + visits.size()
+        mapStatus.setText(DisplayFormat.formatInteger(model.getRowCount()) + " of " + DisplayFormat.formatInteger(visits.size())
             + " saved visits shown · Selected character · Dungeon and gain filters affect visits only");
         populateSessionInfo();
     }
@@ -242,6 +244,7 @@ public class FameSessionViewer extends JFrame {
             .append("Session Name: ")
             .append(session.getSessionName())
             .append("\n\n");
+        info.append("Time zone: ").append(DisplayFormat.timestampZoneLabel()).append("\n");
         info
             .append("Created: ")
             .append(formatTimestamp(session.getCreatedTimestamp()))
@@ -253,23 +256,23 @@ public class FameSessionViewer extends JFrame {
         info
             .append("Entire saved session (unfiltered)\n")
             .append("Characters Tracked: ")
-            .append(characterIds().size())
+            .append(DisplayFormat.formatInteger(characterIds().size()))
             .append("\n");
         info
             .append("Total Fame Entries: ")
-            .append(getTotalFameEntries())
+            .append(DisplayFormat.formatInteger(getTotalFameEntries()))
             .append("\n");
         info
             .append("Total Map Fame Entries: ")
-            .append(getTotalMapFameEntries())
+            .append(DisplayFormat.formatInteger(getTotalMapFameEntries()))
             .append("\n\n");
         info.append("Current view\n")
-            .append("Character Rows: ").append(characterFameTable.getRowCount()).append("\n")
+            .append("Character Rows: ").append(DisplayFormat.formatInteger(characterFameTable.getRowCount())).append("\n")
             .append("Selected Character: ").append(characterSelector.getSelectedItem() == null
                 ? "None" : characterSelector.getSelectedItem()).append("\n")
-            .append("Graph Samples (all for selected character): ").append(graphPanel.getScores().size()).append("\n")
-            .append("Map Visits Shown: ").append(mapFameTable.getRowCount()).append(" of ")
-            .append(mapVisits(getSelectedCharacterId()).size()).append(" for selected character\n")
+            .append("Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
+            .append("Map Visits Shown: ").append(DisplayFormat.formatInteger(mapFameTable.getRowCount())).append(" of ")
+            .append(DisplayFormat.formatInteger(mapVisits(getSelectedCharacterId()).size())).append(" for selected character\n")
             .append("Dungeon: ").append(dungeonFilter.getSelectedItem()).append("\n")
             .append("With fame gain (map visits only): ").append(gainedOnly.isSelected()).append("\n\n");
         info
@@ -288,7 +291,7 @@ public class FameSessionViewer extends JFrame {
         graphStatus.setText(selectedCharId == null ? "No saved character selected."
             : samples.isEmpty() ? "No saved fame samples for this character. Map visits are available separately."
             : samples.size() == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
-            : samples.size() + " saved samples · Selected character, entire session · Map filters do not affect the graph");
+            : DisplayFormat.formatInteger(samples.size()) + " saved samples · Selected character, entire session · Map filters do not affect the graph");
         populateDungeonFilter();
         updateMapFameData();
     }
@@ -334,16 +337,16 @@ public class FameSessionViewer extends JFrame {
             : "Char " + charId;
     }
 
-    private int getTotalFameEntries() {
-        int total = 0;
+    private long getTotalFameEntries() {
+        long total = 0;
         for (List<Fame> entries : session.getCharacterFameData().values()) {
             total += entries.size();
         }
         return total;
     }
 
-    private int getTotalMapFameEntries() {
-        int total = 0;
+    private long getTotalMapFameEntries() {
+        long total = 0;
         for (List<MapFameData> entries : session
             .getCharacterMapFameData()
             .values()) {
@@ -366,7 +369,8 @@ public class FameSessionViewer extends JFrame {
     private static void numberColumn(JTable table, int column, int decimals) {
         DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
             @Override protected void setValue(Object value) {
-                setText(value == null ? "—" : Formatters.formatNumber(((Number)value).doubleValue(), decimals));
+                setText(value == null ? DisplayFormat.UNAVAILABLE : decimals < 0
+                    ? DisplayFormat.formatExact((Number)value) : Formatters.formatNumber(((Number)value).doubleValue(), decimals));
             }
         };
         renderer.setHorizontalAlignment(SwingConstants.RIGHT);

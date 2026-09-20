@@ -14,11 +14,13 @@ The Chat workspace groups captured conversations into All, PM, Party, Guild, Wor
 
 The workspace retains the latest **10,000 messages** per application session. Older messages, including starred messages, roll off; the footer reports removals. Pending incoming batches are bounded to the same limit to protect the UI during bursts. History and stars are not restored after restarting the app. **Edit → Save Chat** keeps the existing ongoing chat-file logging behavior, independently of view filters and retention.
 
+Time and Channel columns resize from their renderer/header metrics when fonts change. You can widen them further; narrow windows scroll horizontally instead of imposing a timestamp-clipping maximum. Selected-message headings and ignore reasons wrap while full messages remain in the detail pane.
+
 Existing PM, party and guild sound settings, custom phrase alerts, fonts, and Umi response hints remain available. **Actions → Chat alert rules** opens the existing phrase editor. Local spam rules load from `block.txt`; empty rules are ignored. The existing remote spam-rule request has timeouts and falls back to local rules on failure. New search, starring and export functions make no network requests.
 
 ## Spam filters and ignored players
 
-Open **Chat -> Filters...** to edit saved rules:
+Open **Chat → Actions → Chat filters** to edit saved rules. Short checkbox captions are followed by wrapping explanations. Settings and list editors scroll in short/enlarged-font dialogs, while Save filters and Cancel remain accessible:
 
 - **Detect advertisements with links** is enabled by default for whispers and World chat. A message needs both a link/domain and sales wording (such as buy, cheap, delivery, or coupon). Matching ignores case, zero-width formatting characters and common domain obfuscation such as `shop [dot] com`. This is a heuristic, not a guarantee that every advertisement is detected.
 - **Ignore every whisper containing a link** is optional and off by default. Enable it for stricter filtering; it also catches ordinary guide and Discord links.

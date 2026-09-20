@@ -35,7 +35,7 @@ final class ChatExplorer extends JPanel {
     private final java.util.function.Supplier<String> ignoreStatus;
     private final Map<ChatMessage, String> reasons = new IdentityHashMap<>();
     private long filterRevision = -1;
-    private final JLabel filterStatus = new JLabel(), ignoreReason = new JLabel();
+    private final JTextArea filterStatus = ContentStyle.wrappingText(""), ignoreReason = ContentStyle.wrappingText("");
     private final JButton ignorePlayer = new JButton("Ignore player");
     private final List<ChatMessage> history = new ArrayList<>();
     private final Set<ChatMessage> starred = new HashSet<>();
@@ -50,7 +50,8 @@ final class ChatExplorer extends JPanel {
     private ChatMessage.Channel channel = ChatMessage.Channel.ALL;
     private final JTextField search = new JTextField(), player = new JTextField();
     private final JCheckBox starredOnly = new JCheckBox("Starred"), follow = new JCheckBox("Follow latest", true);
-    private final JLabel summary = new JLabel(), detailHeader = new JLabel("Select a message"), emptyTitle = new JLabel(), emptyHint = new JLabel();
+    private final JTextArea summary = ContentStyle.wrappingText(""), detailHeader = ContentStyle.wrappingText("Select a message");
+    private final JLabel emptyTitle = new JLabel(), emptyHint = new JLabel();
     private final JTextArea detail = new JTextArea();
     private final JButton star = new JButton("Star"), copy = new JButton("Copy"), filterPlayer = new JButton("This player");
     private final JToggleButton[] channels = new JToggleButton[ChatMessage.Channel.values().length];
@@ -62,10 +63,15 @@ final class ChatExplorer extends JPanel {
     };
     private final JPanel details = new JPanel(new BorderLayout(0, 7));
     private final MessageTable model = new MessageTable();
-    private final JTable table = new JTable(model);
+    private final JTable table = new JTable(model) {
+        @Override public boolean getScrollableTracksViewportWidth() {
+            return getParent() instanceof JViewport && getParent().getWidth() >= getMinimumSize().width;
+        }
+    };
     private final JScrollPane scroll = ContentStyle.tableScroll(table, 3);
     private final javax.swing.Timer debounce;
     private final JMenuItem copyView = new JMenuItem("Copy filtered messages"), exportView = new JMenuItem("Export filtered messages…");
+    private boolean columnSizingPending;
 
     ChatExplorer(Runnable editAlerts) {
         this(editAlerts, new ChatFilters(), () -> "In-game ignore status is unavailable in this preview.");
@@ -149,21 +155,28 @@ final class ChatExplorer extends JPanel {
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.getTableHeader().setReorderingAllowed(false);
         table.getAccessibleContext().setAccessibleName("Filtered chat messages");
-        int[] widths = {32, 82, 86, 170, 480};
-        for (int i = 0; i < widths.length; i++) {
-            table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
-            table.getColumnModel().getColumn(i).setMinWidth(i < 3 ? widths[i] : i == 3 ? 90 : 60);
-            if (i < 3) table.getColumnModel().getColumn(i).setMaxWidth(widths[i] + 10);
-        }
-        DefaultTableCellRenderer starHeader = new DefaultTableCellRenderer();
+        DefaultTableCellRenderer starHeader = new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected,
+                                                                      boolean focus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, selected, focus, row, column);
+                setFont(table.getTableHeader().getFont());
+                setBackground(table.getTableHeader().getBackground()); setForeground(table.getTableHeader().getForeground());
+                return this;
+            }
+        };
         starHeader.setHorizontalAlignment(SwingConstants.CENTER); starHeader.setIcon(STAR_ICON);
-        starHeader.setBackground(table.getTableHeader().getBackground());
-        starHeader.setForeground(table.getTableHeader().getForeground());
         starHeader.setToolTipText("Starred messages");
         table.getColumnModel().getColumn(0).setHeaderRenderer(starHeader);
         table.setDefaultRenderer(Object.class, new MessageRenderer());
         table.getColumnModel().getColumn(2).setCellRenderer(new ContentStyle.Badge() {
             protected Color badgeColor(Object value) { return channelColor(String.valueOf(value)); }
+        });
+        sizeColumns();
+        table.addPropertyChangeListener(e -> {
+            if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
+        });
+        table.getTableHeader().addPropertyChangeListener(e -> {
+            if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
         });
         table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) showDetail(); });
         table.addMouseListener(new MouseAdapter() { public void mousePressed(MouseEvent e) { follow.setSelected(false); } });
@@ -191,7 +204,7 @@ final class ChatExplorer extends JPanel {
         details.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor("Separator.foreground")),
                 BorderFactory.createEmptyBorder(6, 0, 0, 0)));
         JPanel detailTop = new JPanel(); detailTop.setLayout(new BoxLayout(detailTop, BoxLayout.Y_AXIS));
-        detailHeader.putClientProperty("html.disable", true);
+        detailHeader.setName("chat-detail-header"); ignoreReason.setName("chat-ignore-reason");
         ContentStyle.font(detailHeader, ContentStyle.emphasis(ContentStyle.body()));
         ContentStyle.font(ignoreReason, ContentStyle.metadata(ContentStyle.body()));
         ignoreReason.setForeground(ContentStyle.color("amber"));
@@ -203,6 +216,7 @@ final class ChatExplorer extends JPanel {
             detailActions.add(button);
         }
         detailActions.setAlignmentX(Component.LEFT_ALIGNMENT); detailTop.add(detailActions); details.add(detailTop, BorderLayout.NORTH);
+        detail.setName("chat-detail-message");
         detail.setEditable(false); detail.setLineWrap(true); detail.setWrapStyleWord(true);
         detail.setRows(2); detail.setMargin(new Insets(4, 8, 4, 8));
         ContentStyle.font(detail, ContentStyle.body());
@@ -293,6 +307,50 @@ final class ChatExplorer extends JPanel {
         ContentStyle.tableFont(table, font, 0); ContentStyle.font(detail, font);
         ContentStyle.font(detailHeader, ContentStyle.emphasis(font));
         scroll.getVerticalScrollBar().setUnitIncrement(table.getRowHeight());
+    }
+
+    private void sizeColumnsLater() {
+        if (columnSizingPending) return;
+        columnSizingPending = true;
+        SwingUtilities.invokeLater(() -> { columnSizingPending = false; sizeColumns(); });
+    }
+
+    private void sizeColumns() {
+        for (int index = 0; index < table.getColumnCount(); index++) {
+            TableColumn column = table.getColumnModel().getColumn(index);
+            TableCellRenderer header = column.getHeaderRenderer();
+            if (header == null) header = table.getTableHeader().getDefaultRenderer();
+            Component heading = header.getTableCellRendererComponent(table, column.getHeaderValue(), false, false, -1, index);
+            int minimum = heading.getPreferredSize().width;
+            if (index == 0) minimum = Math.max(minimum, STAR_ICON.getIconWidth() + cellWidth(index, ""));
+            if (index == 1) {
+                // Include the widest digit in proportional fonts, as well as the end-of-day clock.
+                minimum = Math.max(minimum, cellWidth(index, "23:59:59"));
+                for (char digit = '0'; digit <= '9'; digit++)
+                    minimum = Math.max(minimum, cellWidth(index, "" + digit + digit + ':' + digit + digit + ':' + digit + digit));
+            }
+            if (index == 2) for (ChatMessage.Channel value : ChatMessage.Channel.values())
+                minimum = Math.max(minimum, cellWidth(index, value.label));
+            if (index == 3) minimum = Math.max(minimum, cellWidth(index, "From: Wren"));
+            if (index == 4) minimum = Math.max(minimum, cellWidth(index, "Message text"));
+            // Start semantic columns at their measured size; users may still widen them.
+            column.setMaxWidth(Integer.MAX_VALUE);
+            column.setMinWidth(minimum);
+            column.setMaxWidth(index == 0 ? minimum : Integer.MAX_VALUE);
+            column.setPreferredWidth(index == 3 ? Math.max(minimum, cellWidth(index, "From: LongPlayerName"))
+                : index == 4 ? Math.max(minimum, cellWidth(index, "Meet at the portal when everyone is ready.")) : minimum);
+        }
+        table.revalidate();
+    }
+
+    private int cellWidth(int column, String text) {
+        TableCellRenderer renderer = table.getCellRenderer(0, column);
+        int width = 0;
+        for (boolean focus : new boolean[] {false, true}) {
+            Component cell = renderer.getTableCellRendererComponent(table, text, false, focus, -1, column);
+            width = Math.max(width, cell.getPreferredSize().width);
+        }
+        return width + table.getIntercellSpacing().width;
     }
 
     void refresh(boolean arriving) {
@@ -432,14 +490,26 @@ final class ChatExplorer extends JPanel {
     }
 
     private void openFilters() {
+        JDialog dialog = createFiltersDialog();
+        dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+
+    JDialog createFiltersDialog() {
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Chat filters", Dialog.ModalityType.APPLICATION_MODAL);
         realmshark.branding.AppIdentity.apply(dialog);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         dialog.setContentPane(new ChatFilterPanel(spamFilters, ignoreStatus.get(), () -> {
             refresh(false); dialog.dispose();
         }, dialog::dispose));
-        dialog.setSize(660, 600); dialog.setMinimumSize(new Dimension(460, 540));
-        dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+        int line = getFontMetrics(ContentStyle.body()).getHeight();
+        GraphicsConfiguration configuration = dialog.getGraphicsConfiguration();
+        Rectangle screen = configuration.getBounds();
+        Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(configuration);
+        int availableWidth = screen.width - screenInsets.left - screenInsets.right;
+        int availableHeight = screen.height - screenInsets.top - screenInsets.bottom;
+        dialog.setMinimumSize(new Dimension(Math.min(460, availableWidth), Math.min(360, availableHeight)));
+        dialog.setSize(Math.min(Math.max(660, line * 26), availableWidth), Math.min(Math.max(600, line * 24), availableHeight));
+        return dialog;
     }
 
     private static String plainTooltip(String value) {
@@ -506,12 +576,13 @@ final class ChatExplorer extends JPanel {
     private final class MessageRenderer extends ContentStyle.Cell {
         @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int row, int column) {
             super.getTableCellRendererComponent(table, value, selected, focus, row, column);
-            setIcon(column == 0 && starred.contains(visible.get(row)) ? STAR_ICON : null);
+            boolean hasRow = row >= 0 && row < visible.size();
+            setIcon(column == 0 && hasRow && starred.contains(visible.get(row)) ? STAR_ICON : null);
             if (column == 0) setText("");
             if (!selected) {
                 if (column == 0) setForeground(ContentStyle.color("amber"));
                 else if (column == 1) setForeground(ContentStyle.color("muted"));
-                else if (column == 3 && visible.get(row).ownMessage) setForeground(ContentStyle.color("violet"));
+                else if (column == 3 && hasRow && visible.get(row).ownMessage) setForeground(ContentStyle.color("violet"));
             }
             setFont(column == 3 ? ContentStyle.emphasis(table.getFont()) : column == 1 ? ContentStyle.metadata(table.getFont()) : table.getFont());
             setToolTipText(null); // Packet text is rendered literally, never as Swing HTML.

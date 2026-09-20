@@ -1,10 +1,10 @@
 package tomato.gui.stats;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import tomato.gui.modern.DisplayFormat;
 
 /**
  * Shared formatting helpers for stats views.
@@ -15,9 +15,9 @@ import java.util.Locale;
 public final class Formatters {
 
     // Common date/time patterns used across the UI
-    public static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    public static final DateTimeFormatter TIME_SHORT = DateTimeFormatter.ofPattern("HH:mm:ss");
-    public static final DateTimeFormatter DATE_TIME_COMPACT = DateTimeFormatter.ofPattern("yyyy/MM/dd-HH:mm:ss");
+    public static final DateTimeFormatter DATE_TIME = DisplayFormat.DATE_TIME;
+    public static final DateTimeFormatter TIME_SHORT = DisplayFormat.TIME;
+    public static final DateTimeFormatter DATE_TIME_COMPACT = DateTimeFormatter.ofPattern("yyyy/MM/dd-HH:mm:ss", Locale.ROOT);
 
     private Formatters() {
         // no instances
@@ -29,41 +29,31 @@ public final class Formatters {
 
     /**
      * If the value is an integer, render without decimals.
-     * Otherwise, render with the raw double representation (no rounding).
-     * Mirrors legacy behavior used in FameTablePanel.
+     * Otherwise, preserve its decimal representation (no rounding), with locale punctuation.
      */
     public static String formatNumberExact(double number) {
-        if (!Double.isFinite(number)) {
-            return String.valueOf(number);
-        }
-        return number == (long) number
-            ? String.format(Locale.ROOT, "%d", (long) number)
-            : String.valueOf(number);
+        return DisplayFormat.formatExact(number);
     }
 
     /**
      * Render a double with a fixed number of decimal places.
      */
     public static String formatNumber(double number, int decimals) {
-        if (!Double.isFinite(number)) {
-            return String.valueOf(number);
-        }
-        if (decimals < 0) decimals = 0;
-        return String.format(Locale.ROOT, "%." + decimals + "f", number);
+        return DisplayFormat.formatNumber(number, decimals);
     }
 
     /**
      * Render Fame per hour with 2 decimals by default.
      */
     public static String formatFamePerHour(double famePerHour) {
-        return formatNumber(famePerHour, 2);
+        return DisplayFormat.formatRate(famePerHour, 2);
     }
 
     /**
      * Render Fame per minute with 2 decimals by default.
      */
     public static String formatFamePerMinute(double famePerMinute) {
-        return formatNumber(famePerMinute, 2);
+        return DisplayFormat.formatRate(famePerMinute, 2);
     }
 
     /**
@@ -81,14 +71,14 @@ public final class Formatters {
      * Format an epoch millis timestamp using the local system zone and "yyyy-MM-dd HH:mm:ss".
      */
     public static String formatTimestamp(long epochMillis) {
-        return DATE_TIME.format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()));
+        return DisplayFormat.formatTimestamp(epochMillis);
     }
 
     /**
      * Format current local time as "HH:mm:ss".
      */
     public static String formatNowShort() {
-        return TIME_SHORT.format(Instant.now().atZone(ZoneId.systemDefault()));
+        return DisplayFormat.formatTimestamp(Instant.now(), DisplayFormat.TimestampMode.TIME);
     }
 
     /**
@@ -103,12 +93,7 @@ public final class Formatters {
      * Negative values are clamped to 0 for display.
      */
     public static String formatDurationHMS(long durationMillis) {
-        if (durationMillis < 0) durationMillis = 0;
-        Duration d = Duration.ofMillis(durationMillis);
-        long hours = d.toHours();
-        long minutes = d.minusHours(hours).toMinutes();
-        long seconds = d.minusHours(hours).minusMinutes(minutes).getSeconds();
-        return String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds);
+        return DisplayFormat.formatDurationHMS(durationMillis);
     }
 
     /**

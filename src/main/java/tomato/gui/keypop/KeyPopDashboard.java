@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** All three views and their metrics are derived from the same filtered history. */
 final class KeyPopDashboard extends JPanel {
@@ -155,8 +156,8 @@ final class KeyPopDashboard extends JPanel {
             if (event.kind == KeyPopEvent.Kind.KEY) keys++;
         }
         replaceRows(events, eventRows);
-        metrics[0].setText(Integer.toString(filtered.size())); metrics[1].setText(Integer.toString(keys));
-        metrics[2].setText(Integer.toString(byPlayer.size())); metrics[3].setText(Integer.toString(byItem.size()));
+        metrics[0].setText(DisplayFormat.formatInteger(filtered.size())); metrics[1].setText(DisplayFormat.formatInteger(keys));
+        metrics[2].setText(DisplayFormat.formatInteger(byPlayer.size())); metrics[3].setText(DisplayFormat.formatInteger(byItem.size()));
         List<Object[]> playerRows = new ArrayList<>(), itemRows = new ArrayList<>();
         byPlayer.forEach((name, pops) -> {
             int[] counts = new int[KeyPopEvent.Kind.values().length]; Instant last = Instant.MIN;
@@ -172,9 +173,9 @@ final class KeyPopDashboard extends JPanel {
         empty.setVisible(filtered.isEmpty());
         empty.setText(snapshot.events.isEmpty() ? "Waiting for pops · Start capture and join a fresh game connection." : "No pops match these filters. Try Reset filters.");
         empty.setToolTipText(empty.getText());
-        status.setText(filtered.size() + " shown / " + snapshot.events.size() + " retained · This app session"
-            + (snapshot.discarded > 0 ? " · " + snapshot.discarded + " older pops dropped" : ""));
-        status.setToolTipText("Retains the latest 10,000 events until cleared or the app closes. CSV exports filtered events. Double-click a summary to filter events.");
+        status.setText(DisplayFormat.formatInteger(filtered.size()) + " shown / " + DisplayFormat.formatInteger(snapshot.events.size()) + " retained · This app session"
+            + (snapshot.discarded > 0 ? " · " + DisplayFormat.formatInteger(snapshot.discarded) + " older pops dropped" : ""));
+        status.setToolTipText("Retains the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " events until cleared or the app closes. CSV exports filtered events. Double-click a summary to filter events.");
     }
 
     private void installDrilldown(JTable table, boolean player) {
@@ -212,11 +213,11 @@ final class KeyPopDashboard extends JPanel {
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         Path path = chooser.getSelectedFile().toPath();
         if (Files.exists(path) && JOptionPane.showConfirmDialog(this, "Replace " + path.getFileName() + "?", "Export CSV", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        status.setText("Exporting " + export.size() + " events…");
+        status.setText("Exporting " + DisplayFormat.formatInteger(export.size()) + " events…");
         new SwingWorker<Void, Void>() {
             protected Void doInBackground() throws IOException { writeCsv(path, export); return null; }
             protected void done() {
-                try { get(); status.setText("Exported " + export.size() + " events to " + path.getFileName()); }
+                try { get(); status.setText("Exported " + DisplayFormat.formatInteger(export.size()) + " events to " + path.getFileName()); }
                 catch (Exception error) {
                     Throwable cause = error.getCause() == null ? error : error.getCause();
                     JOptionPane.showMessageDialog(KeyPopDashboard.this, "Could not export: " + cause.getMessage(), "Export failed", JOptionPane.ERROR_MESSAGE);
@@ -313,14 +314,24 @@ final class KeyPopDashboard extends JPanel {
                 if (!selected) setForeground(ContentStyle.color("muted"));
                 return this;
             }
-            @Override protected void setValue(Object value) { setText(value == null ? "—" : KeyPopEvent.DATE_TIME.format((Instant)value)); }
+            @Override protected void setValue(Object value) {
+                setText(DisplayFormat.formatTimestamp((Instant)value));
+                setToolTipText(value == null ? null : getText() + " (" + DisplayFormat.timestampZoneLabel() + ")");
+            }
+        });
+        table.setDefaultRenderer(Integer.class, new ContentStyle.Cell() {
+            { setHorizontalAlignment(SwingConstants.RIGHT); }
+            @Override protected void setValue(Object value) {
+                setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatInteger(((Number)value).longValue()));
+            }
         });
         table.setDefaultRenderer(Double.class, new ContentStyle.Cell() {
             private double percent;
             { setHorizontalAlignment(SwingConstants.RIGHT); setOpaque(false); }
             @Override protected void setValue(Object value) {
                 percent = value == null ? 0 : ((Number)value).doubleValue();
-                setText(value == null ? "—" : String.format(Locale.getDefault(), "%.1f%%", value));
+                setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatPercentage(percent, 1));
+                if (!Double.isFinite(percent)) percent = 0;
             }
             @Override protected void paintComponent(Graphics g) {
                 g.setColor(getBackground()); g.fillRect(0, 0, getWidth(), getHeight());

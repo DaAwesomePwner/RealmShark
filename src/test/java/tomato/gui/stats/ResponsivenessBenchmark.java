@@ -10,6 +10,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Locale;
@@ -48,6 +49,7 @@ import tomato.gui.activity.ActivityPanel;
 import tomato.gui.activity.CombatTimelineChart;
 import tomato.gui.logging.LoggingGUI;
 import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.DisplayFormat;
 import tomato.realmshark.Sound;
 import util.PropertiesManager;
 
@@ -336,7 +338,7 @@ public final class ResponsivenessBenchmark {
             await(() -> onEdt(() -> timelineMatch(last, history)), "Timeline selected final visit and terminal event content");
             verifyCombat(latest, 0);
             await(() -> onEdt(() -> diagnostics.isShowing()
-                && labelStarts(diagnostics, String.format(Locale.ROOT, "%,d frames", expected.total))), "Diagnostics final frame total");
+                && labelStarts(diagnostics, DisplayFormat.formatInteger(expected.total) + " frames")), "Diagnostics final frame total");
 
             // Combat intentionally pins a selection; it must not be required to follow the latest visit.
             int retainedIndex = history.visits.size() / 2;
@@ -352,7 +354,7 @@ public final class ResponsivenessBenchmark {
             if (!runs.isShowing() || table.getRowCount() != history.visits.size()) return false;
             for (int row = 0; row < table.getRowCount(); row++) {
                 ActivityJournal.Visit visit = history.visits.get(history.visits.size() - 1 - row);
-                Object[] expected = {ActivityPanel.time(visit.started), visit.map, Math.max(0, visit.lastSeen - visit.started) / 1000,
+                Object[] expected = {Instant.ofEpochMilli(visit.started), visit.map, Math.max(0, visit.lastSeen - visit.started) / 1000,
                     visit.exaltIncrease, visit.useRequests, visit.issues, visit.status};
                 for (int column = 0; column < expected.length; column++) {
                     if (!Objects.equals(expected[column], table.getModel().getValueAt(row, column))) return false;
@@ -385,8 +387,8 @@ public final class ResponsivenessBenchmark {
             if (picker.getSelectedIndex() != 1 || !visitLabel(latest).equals(String.valueOf(picker.getSelectedItem()))) return false;
             long rows = history.entries.stream().filter(e -> marker.visitId.equals(e.visitId)).count();
             if (table.getRowCount() != rows || rows == 0) return false;
-            Object[] expected = {ActivityPanel.time(marker.time), marker.map, marker.kind,
-                "Party " + marker.values.get("partyId") + " · " + marker.values.get("memberCount") + " observed members", marker.detail};
+            Object[] expected = {Instant.ofEpochMilli(marker.time), marker.map, marker.kind,
+                "Party " + marker.values.get("partyId") + " · " + DisplayFormat.formatExact((Number)marker.values.get("memberCount")) + " observed members", marker.detail};
             for (int column = 0; column < expected.length; column++) {
                 if (!Objects.equals(expected[column], table.getModel().getValueAt(0, column))) return false;
             }
@@ -413,8 +415,8 @@ public final class ResponsivenessBenchmark {
         static String visitLabel(ActivityJournal.Visit visit) { return ActivityPanel.time(visit.started) + " · " + visit.map; }
         static boolean detailMatches(ActivityPanel panel, ActivityJournal.Visit visit) {
             String detail = named(panel, "activity-detail", JTextArea.class).getText();
-            String party = visit.partyId == null ? "not observed" : "party " + visit.partyId + ", " + visit.rosterSize + " observed members; identity links unverified";
-            return detail.startsWith(visit.map + " · " + ActivityPanel.time(visit.started) + "\n" + visit.status)
+            String party = visit.partyId == null ? "not observed" : "party " + visit.partyId + ", " + DisplayFormat.formatExact(visit.rosterSize) + " observed members; identity links unverified";
+            return detail.startsWith(visit.map + " · " + ActivityPanel.time(visit.started) + " (" + DisplayFormat.timestampZoneLabel() + ")\n" + visit.status)
                 && detail.contains("\nParty roster: " + party + "\nProgress increase within this visit:");
         }
         static void inspect(CombatTimelineChart chart, String action) {

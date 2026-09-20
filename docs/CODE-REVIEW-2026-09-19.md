@@ -4,6 +4,8 @@ Implementation follow-up: [Step 1 — saved-data integrity and correctness](STEP
 
 Responsiveness follow-up: [Step 2 — service boundaries and measured synthetic validation](STEP-2-RESPONSIVENESS.md).
 
+Presentation follow-up: [Step 3 — compact layouts, keyboard access, and formatting](STEP-3-UI-CONSISTENCY.md).
+
 ## Assessment
 
 RealmShark has a useful shared presentation layer, substantial feature coverage, and a passing regression suite. The highest-value next work is to protect exports, eliminate remaining blocking work in capture/UI paths, make historical and partial data trustworthy, and finish compact/large-font accessibility. These improvements can build on the existing Swing architecture.

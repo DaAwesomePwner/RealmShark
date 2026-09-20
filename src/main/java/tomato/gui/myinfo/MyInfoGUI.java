@@ -14,6 +14,7 @@ import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.realmshark.ParseEnchants;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** Captured character details and explicitly scoped build estimates. */
 public class MyInfoGUI extends JPanel {
@@ -413,6 +414,12 @@ public class MyInfoGUI extends JPanel {
         table.setDefaultRenderer(Double.class, new ContentStyle.Cell() {
             { setHorizontalAlignment(SwingConstants.RIGHT); }
             protected void setValue(Object value) { setText(value == null ? "—" : format((Double) value)); }
+            @Override public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
+                super.getTableCellRendererComponent(t, value, selected, focus, row, column);
+                if (value != null && "item ID".equals(rows.get(t.convertRowIndexToModel(row)).unit))
+                    setText(Long.toString(((Number)value).longValue()));
+                return this;
+            }
         });
         table.getSelectionModel().addListSelectionListener(e -> {
             int index = table.getSelectedRow();
@@ -462,7 +469,7 @@ public class MyInfoGUI extends JPanel {
             }
         });
         count.setText(player == null ? "No captured character" :
-            table.getRowCount() + " of " + rows.size() + " details • Captured values and local estimates");
+            DisplayFormat.formatInteger(table.getRowCount()) + " of " + DisplayFormat.formatInteger(rows.size()) + " details • Captured values and local estimates");
     }
 
     public static void updatePlayer(Entity value) {
@@ -605,8 +612,8 @@ public class MyInfoGUI extends JPanel {
                 double dps = (bullet.min + bullet.max) / 2d * (exalt / 1000d) * (0.5 + atk / 50d)
                     * bullet.numProj * (1.5 + 6.5 * dex / 75d) * bullet.rof;
                 add("Damage", "Projectile group " + index++, dps, "dmg/sec",
-                    bullet.numProj + " projectiles • " + bullet.min + "–" + bullet.max + " base damage • "
-                        + bullet.rof + "× rate of fire. " + assumptions);
+                    DisplayFormat.formatInteger(bullet.numProj) + " projectiles • " + DisplayFormat.formatInteger(bullet.min) + "–" + DisplayFormat.formatInteger(bullet.max) + " base damage • "
+                        + DisplayFormat.formatExact(bullet.rof) + "× rate of fire. " + assumptions);
                 total += dps;
             }
         }
@@ -623,7 +630,7 @@ public class MyInfoGUI extends JPanel {
             double interval = i == 0 ? 1.02 * Math.exp(-.0163 * level) : 5.17 * Math.exp(-.0325 * level);
             double dps = hit / interval;
             petDps += dps;
-            add("Pet", names[i], dps, "dmg/sec", "Level " + level + " • " + hit + " damage every "
+            add("Pet", names[i], dps, "dmg/sec", "Level " + DisplayFormat.formatInteger(level) + " • " + DisplayFormat.formatInteger(hit) + " damage every "
                 + format(interval) + " sec. Estimate assumes continuous hits.");
         }
         add("Damage", "Weapon + observed pet attacks", total == null ? null : total + petDps, "dmg/sec",
@@ -645,12 +652,12 @@ public class MyInfoGUI extends JPanel {
             if (maxHp != null) hpEnchant = (double) ParseEnchants.getLifeRegenPerSecondFromEnchants(raw, maxHp.intValue(), outOfCombatCheck.isSelected());
         }
         Double base = wis == null ? null : wis * .12;
-        add("Recovery", "Wisdom mana recovery", base, "mana/sec", "Existing estimate: Wisdom × 0.12.");
+        add("Recovery", "Wisdom mana recovery", base, "mana/sec", "Existing estimate: Wisdom × " + DisplayFormat.formatExact(.12) + ".");
         add("Recovery", "Enchant mana recovery", manaEnchant, "mana/sec", mode + " • Supported enchant effects; requires maximum mana. " + enchants.evidence());
         int level = getPetStat(408);
         double petMana = level < 1 ? 0 : petManaPerLevel[level - 1] / (double) petRegenTimeMpHp[level - 1];
-        if (level > 0) add("Pet", "Magic heal", petMana, "mana/sec", "Level " + level + " • "
-            + petManaPerLevel[level - 1] + " mana every " + petRegenTimeMpHp[level - 1] + " sec.");
+        if (level > 0) add("Pet", "Magic heal", petMana, "mana/sec", "Level " + DisplayFormat.formatInteger(level) + " • "
+            + DisplayFormat.formatInteger(petManaPerLevel[level - 1]) + " mana every " + DisplayFormat.formatExact(petRegenTimeMpHp[level - 1]) + " sec.");
         Double total = base == null || manaEnchant == null || petAvailability == TomatoData.PetAvailability.UNKNOWN
             ? null : base + manaEnchant + petMana;
         add("Recovery", "Estimated mana recovery", total, "mana/sec", mode + " • Wisdom + supported enchants + pet Magic Heal. Does not model pet suppression. "
@@ -665,7 +672,7 @@ public class MyInfoGUI extends JPanel {
         int[] indexes = {0, 4, 3};
         for (int i = 0; i < names.length; i++) {
             Double amount = dustValue(amounts, indexes[i]), cap = dustValue(caps, indexes[i]);
-            add("Dust", names[i], amount, "dust", "Capacity: " + (cap == null ? "not captured" : format(cap)));
+            add("Dust", names[i], amount, "dust", "Capacity: " + (cap == null ? DisplayFormat.UNAVAILABLE : format(cap)));
         }
     }
 
@@ -701,7 +708,7 @@ public class MyInfoGUI extends JPanel {
     }
 
     private static String format(double value) {
-        return java.text.NumberFormat.getNumberInstance().format(Math.round(value * 100d) / 100d);
+        return DisplayFormat.formatNumber(value, 0, 2);
     }
 
     static final class Row {

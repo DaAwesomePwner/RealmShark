@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Damage;
@@ -16,6 +17,7 @@ import tomato.gui.dps.shared.DeathParser;
 import tomato.gui.dps.shared.DpsTextFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
 import tomato.gui.dps.shared.GuardsHandler;
+import tomato.gui.modern.DisplayFormat;
 import tomato.realmshark.enums.CharacterClass;
 
 /**
@@ -58,7 +60,7 @@ public class DpsToString {
             sb
                 .append(map.name)
                 .append(" ")
-                .append(DpsGUI.systemTimeToString(totalDungeonPcTime))
+                .append(" [").append(DisplayFormat.formatDurationMillis(totalDungeonPcTime)).append("]")
                 .append("\n\n");
         }
 
@@ -133,11 +135,11 @@ public class DpsToString {
                     float hpPct = safePercent(pr.hp, pr.max);
                     extra +=
                         (dead ? "Died " : "Nexus ") +
-                        DpsTextFormat.percent2(hpPct) +
-                        "% [" +
-                        DpsTextFormat.grouped(pr.hp) +
+                        DisplayFormat.formatPercentage(hpPct, 2) +
+                        " [" +
+                        DisplayFormat.formatInteger(pr.hp) +
                         " / " +
-                        DpsTextFormat.grouped(pr.max) +
+                        DisplayFormat.formatInteger(pr.max) +
                         "]";
                 }
             }
@@ -155,15 +157,15 @@ public class DpsToString {
 
             // Row
             sb.append(prefix).append(' ');
-            DpsTextFormat.appendPaddedInt(sb, counter, 3);
+            sb.append(String.format(Locale.ROOT, "%3s", DisplayFormat.formatInteger(counter)));
             sb.append("  ");
             DpsTextFormat.appendPaddedRight(sb, name, 10);
             sb.append(" DMG: ");
-            DpsTextFormat.appendPaddedInt(sb, dmg.damage, 7);
+            sb.append(String.format(Locale.ROOT, "%7s", DisplayFormat.formatInteger(dmg.damage)));
             sb
                 .append(' ')
-                .append(DpsTextFormat.percent3(percentOfMob))
-                .append("% ")
+                .append(DisplayFormat.formatPercentage(percentOfMob, 3))
+                .append(" ")
                 .append(extra);
             if (!inv.isEmpty()) {
                 sb.append(' ').append(inv);
@@ -190,8 +192,8 @@ public class DpsToString {
         sb
             .append(entity.name())
             .append(" HP: ")
-            .append(entity.maxHp())
-            .append(entity.getFightTimerString())
+            .append(DisplayFormat.formatInteger(entity.maxHp()))
+            .append(" [").append(DisplayFormat.formatDurationMillis(entity.getFightTimer())).append("]")
             .append("\n")
             .append("    #   Player      DMG         % \n")
             .append("    -----------------------------------------------\n");
@@ -209,7 +211,7 @@ public class DpsToString {
     }
 
     private static float safePercent(int part, int total) {
-        if (total <= 0) return 0f;
+        if (total <= 0) return Float.NaN;
         return ((float) part * 100f) / (float) total;
     }
 
@@ -252,7 +254,8 @@ public class DpsToString {
                     s
                         .append(' ')
                         .append(
-                            DpsTextFormat.formatPercentWithTinyThreshold(pct)
+                            pct > 0 && pct < .1 ? "< " + DisplayFormat.formatPercentage(.1, 1)
+                                : DisplayFormat.formatPercentage(pct, 1)
                         )
                         .append(' ');
                 } else {

@@ -1,11 +1,18 @@
 package ui;
 
 import com.formdev.flatlaf.FlatLightLaf;
+import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatClientProperties;
+import com.formdev.flatlaf.ui.FlatUIUtils;
+import com.formdev.flatlaf.ui.FlatButtonUI;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.BufferedImage;
+import java.util.function.Predicate;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.swing.*;
+import javax.swing.border.Border;
 import org.junit.*;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
@@ -46,17 +53,16 @@ public class WorkspaceShellNavigationTest {
         if (previousMouse != null) robot.mouseMove(previousMouse.x, previousMouse.y);
     }
 
-    @Test public void allFourteenRowsFitAtDesktopAndSelectedRowScrollsAfterResize() throws Exception {
+    @Test public void selectedRowScrollsAfterNativeWindowResize() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             assertEquals(14, WorkspaceShell.TITLES.length);
-            assertFalse(shell.isCompact());
             for (int i = 0; i < 14; i++) {
                 AbstractButton button = button("nav-" + i);
-                assertEquals(WorkspaceShell.TITLES[i], button.getText());
+                assertEquals(WorkspaceShell.TITLES[i], button.getAccessibleContext().getAccessibleName());
                 assertTrue(button.getHeight() >= 32);
                 assertTrue("Default navigation should stay compact", button.getHeight() <= 36);
-                assertEquals("Row must be fully visible: " + i, button.getHeight(), button.getVisibleRect().height);
             }
+            System.out.println("Native navigation initial client size=" + shell.getSize());
             shell.select(13); resize(680, 520);
         });
         // Let the resize-triggered scroll run after Swing has laid out the shorter viewport.
@@ -164,6 +170,103 @@ public class WorkspaceShellNavigationTest {
                 }
             }
         });
+    }
+
+    @Test public void realFrameFocusPaintDiffersFromSelectionAndReproducesTheOldEmptyBorderDefect() throws Exception {
+        parkMouseAwayFromPopup();
+        for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf(), new FlatDarkLaf()}) {
+            for (int font : new int[] {13, 16, 24}) {
+                SwingUtilities.invokeAndWait(() -> {
+                    setLaf(laf); ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font));
+                    ContentStyle.applyFontDefaults(); SwingUtilities.updateComponentTreeUI(frame); ContentStyle.refreshFonts(frame);
+                    resize(760, 620); shell.select(0);
+                });
+                for (int index : new int[] {0, 1}) {
+                    AbstractButton target = button("nav-" + index);
+                    awaitFocus(target, () -> target.requestFocusInWindow());
+                    SwingUtilities.invokeAndWait(() -> {
+                        assertEquals(index == 0, target.isSelected());
+                        assertTrue(FlatUIUtils.isPermanentFocusOwner(target));
+                        java.util.Map<?, ?> style = (java.util.Map<?, ?>) target.getClientProperty("FlatLaf.style");
+                        assertTrue("Every navigation style key is supported by the pinned FlatLaf",
+                            ((FlatButtonUI) target.getUI()).getStyleableInfos(target).keySet().containsAll(style.keySet()));
+                        target.getModel().setRollover(false);
+                        Border border = target.getBorder();
+                        try {
+                            BufferedImage unfocused = focusImage(target, false), focused = focusImage(target, true);
+                            int changed = changedPixels(unfocused, focused);
+                            assertTrue(laf.getName() + ", " + font + "pt, selected=" + target.isSelected() + ": focus outline pixels=" + changed,
+                                changed >= target.getWidth());
+                            assertEquals(ContentStyle.color(index == 0 ? "selection" : "navigation"), target.getBackground());
+                            if (laf instanceof VioletTheme) {
+                                target.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+                                assertEquals("The original EmptyBorder must reproduce invisible focus", 0,
+                                    changedPixels(focusImage(target, false), focusImage(target, true)));
+                            }
+                        } finally {
+                            target.setBorder(border); target.putClientProperty(FlatClientProperties.COMPONENT_FOCUS_OWNER, null);
+                        }
+                        System.out.println("Native focus evidence: actual shell=" + shell.getSize() + ", theme=" + laf.getName() + ", font=" + font);
+                    });
+                }
+            }
+        }
+    }
+
+    @Test public void exactOffscreenShellGeometryKeepsNavigationLabelsIconsAndBordersInsideTheSidebar() throws Exception {
+        WorkspaceShell[] fixture = new WorkspaceShell[1];
+        SwingUtilities.invokeAndWait(() -> {
+            JComponent[] content = new JComponent[WorkspaceShell.TITLES.length];
+            for (int i = 0; i < content.length; i++) content[i] = new JPanel();
+            fixture[0] = new WorkspaceShell(content, () -> {}, true);
+        });
+        for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf(), new FlatDarkLaf()}) {
+            for (int font : new int[] {13, 16, 24, 13}) for (Dimension geometry : new Dimension[] {new Dimension(1240, 800), new Dimension(680, 520)}) {
+                SwingUtilities.invokeAndWait(() -> {
+                    setLaf(laf); ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font)); ContentStyle.applyFontDefaults();
+                    SwingUtilities.updateComponentTreeUI(fixture[0]); ContentStyle.refreshFonts(fixture[0]);
+                    fixture[0].setSize(geometry); fixture[0].dispatchEvent(new ComponentEvent(fixture[0], ComponentEvent.COMPONENT_RESIZED));
+                });
+                for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> layoutTree(fixture[0]));
+                SwingUtilities.invokeAndWait(() -> {
+                    assertEquals("Exact offscreen client geometry", geometry, fixture[0].getSize());
+                    for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
+                        AbstractButton target = (AbstractButton) find(fixture[0], "nav-" + i);
+                        Insets insets = target.getInsets();
+                        Rectangle available = new Rectangle(insets.left, insets.top,
+                            target.getWidth() - insets.left - insets.right, target.getHeight() - insets.top - insets.bottom);
+                        Rectangle icon = new Rectangle(), text = new Rectangle();
+                        String rendered = SwingUtilities.layoutCompoundLabel(target, target.getFontMetrics(target.getFont()), target.getText(), target.getIcon(),
+                            target.getVerticalAlignment(), target.getHorizontalAlignment(), target.getVerticalTextPosition(), target.getHorizontalTextPosition(),
+                            available, icon, text, target.getIconTextGap());
+                        assertEquals("No truncated navigation at " + geometry + ", " + font + "pt", target.getText(), rendered);
+                        assertTrue("Full icon and focus insets", available.contains(icon));
+                        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, target);
+                        assertTrue("No horizontal sidebar clipping", target.getWidth() <= viewport.getExtentSize().width);
+                        if (font == 13 && geometry.width == 1240)
+                            assertEquals("All fourteen default rows fit the exact desktop client", target.getHeight(), target.getVisibleRect().height);
+                    }
+                    System.out.println("Offscreen shell geometry: " + geometry + ", theme=" + laf.getName() + ", font=" + font);
+                });
+            }
+        }
+    }
+
+    private static BufferedImage focusImage(AbstractButton button, boolean focused) {
+        button.putClientProperty(FlatClientProperties.COMPONENT_FOCUS_OWNER, (Predicate<JComponent>) component -> focused);
+        assertEquals(focused, FlatUIUtils.isPermanentFocusOwner(button));
+        BufferedImage image = new BufferedImage(button.getWidth(), button.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics(); button.printAll(graphics); graphics.dispose(); return image;
+    }
+    private static int changedPixels(BufferedImage a, BufferedImage b) {
+        int changed = 0;
+        for (int y = 0; y < a.getHeight(); y++) for (int x = 0; x < a.getWidth(); x++)
+            if (a.getRGB(x, y) != b.getRGB(x, y)) changed++;
+        return changed;
+    }
+    private static void layoutTree(Container root) {
+        root.doLayout();
+        for (Component child : root.getComponents()) if (child instanceof Container && child.isVisible()) layoutTree((Container) child);
     }
 
     private void resize(int width, int height) {

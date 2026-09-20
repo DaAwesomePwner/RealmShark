@@ -14,6 +14,16 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - The DPS encounter chooser supports keyboard selection and separate export checkboxes. Live legacy reports remain selectable and read-only. Its compact toolbar wraps as the available width changes.
 - The resource chart has keyboard-accessible zoom/reset and sample inspection. Rule-editor add/remove controls have meaningful labels and keyboard focus.
 
+### Phase 3 consistency improvements
+
+- Sidebar keyboard focus now has a visible look-and-feel outline, distinct from the selected destination. Desktop label width follows font metrics; compact navigation retains its labeled popup and shortcuts.
+- Characters uses page scrolling and font-aware minimum content space. Detail tabs wrap at narrow widths; focusing a control reveals it through nested scroll panes.
+- Chat Time/Channel widths follow their actual renderers and headers instead of fixed caps. Columns remain resizable, with horizontal scrolling for narrow tables. Chat filter descriptions wrap and its actions remain reachable in the minimum dialog.
+- Notification messages use shared text-view measurement, including caret space, rather than word counting. Background changes to read-only metadata do not scroll the page away from the user's settings.
+- **Security → Actions → Equipment details…**, or **Ctrl+E** with roster focus, opens full read-only equipment details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
+
+Detailed evidence, layout limits, and commands: [Phase 3 validation](STEP-3-UI-CONSISTENCY.md).
+
 ## Shared presentation
 
 `src/main/java/tomato/gui/modern/ContentStyle.java` provides:
@@ -24,6 +34,10 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - Width-aware control rows, responsive grids, and short-window page/table scrolling helpers.
 
 Use `ContentStyle.font(component, font)` when deliberately changing a component's font role after construction. `refreshFonts` preserves that role across user font choices and theme changes. Four-card groups use balanced 4/2/1-column layouts. Width changes coalesce ancestor layout invalidation; grid minimum heights preserve controls when GridBagLayout must compress their preferred width.
+
+Use `ContentStyle.wrappingText(text[, minimumRows])` for read-only wrapping metadata. It preserves the metadata font role, measures the actual Swing text allocation, and defers measurement-induced relayout safely across theme changes. Explicit keyboard caret movement still scrolls text into view.
+
+`DisplayFormat` supplies human-readable counts, rates, percentages, durations, and timestamps. Numeric display uses the JVM's FORMAT locale (for example, US `1,234.5` and German `1.234,5`), with explicit domain precision. Missing/nonfinite values display **—**; confirmed zero remains numeric. Identifiers and machine exports retain their original representations. Full timestamps use `yyyy-MM-dd HH:mm:ss` in the current system zone; zone information is available in the relevant details/tooltips. Models retain numeric/time types for sorting, including DST transitions. Activity/Logging searches accept displayed values as well as raw values.
 
 The violet capture button's normal, hover, focused and pressed colors meet a 4.5:1 white-text contrast target. Existing semantic labels and theme-dependent roster icons refresh when the theme changes. Light themes retain the same navigation structure.
 

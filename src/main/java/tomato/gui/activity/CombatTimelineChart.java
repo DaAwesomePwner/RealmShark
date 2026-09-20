@@ -9,6 +9,7 @@ import java.awt.event.*;
 import java.util.*;
 import java.util.List;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** Time-aligned local resource samples and observed condition intervals. Gaps stay blank. */
 public final class CombatTimelineChart extends JPanel implements Scrollable {
@@ -18,6 +19,7 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
     private int zoom=1;
     private int inspected=-1;
     private String inspectionSummary="No resource sample selected. Focus the chart and use Left / Right to inspect samples; + / − to zoom; 0 to reset.";
+    private Locale inspectionLocale;
     private final List<Lane> lanes=new ArrayList<>();
     public CombatTimelineChart(){
         setName("combat-timeline-chart");setToolTipText("");setOpaque(true);setFocusable(true);setFont(ContentStyle.body());
@@ -45,6 +47,9 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
     }
     private void setZoom(int value){int next=Math.max(1,Math.min(12,value));if(next==zoom)return;zoom=next;revalidate();repaint();}
     public String getInspectionSummary(){return inspectionSummary;}
+    void refreshPresentation(){
+        if(!Locale.getDefault(Locale.Category.FORMAT).equals(inspectionLocale)){updateInspection();repaint();}
+    }
     private int sampleCount(){return visit==null?0:visit.resourceTimeline.size();}
     private void inspect(int index){
         inspected=sampleCount()==0?-1:Math.max(0,Math.min(sampleCount()-1,index));updateInspection();repaint();
@@ -53,15 +58,16 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
     private void updateInspection(){
         String text;
         if(inspected<0)text=sampleCount()==0?"No recorded resource samples. Aggregate uptime may still be available."
-            :sampleCount()+" resource samples · Focus chart: Left / Right inspect, Home / End first / last; + / − or Ctrl+wheel zoom, 0 reset.";
+            :DisplayFormat.formatInteger(sampleCount())+" resource samples · Focus chart: Left / Right inspect, Home / End first / last; + / − or Ctrl+wheel zoom, 0 reset.";
         else{
             ActivityJournal.ResourcePoint p=visit.resourceTimeline.get(inspected);
-            text=String.format(Locale.ROOT,"Sample %d of %d · %.1fs · HP %s · MP %s",inspected+1,sampleCount(),(p.time-visit.started)/1000.0,p.hp==null?"unknown":p.hp,p.mp==null?"unknown":p.mp);
+            text="Sample "+DisplayFormat.formatInteger(inspected+1)+" of "+DisplayFormat.formatInteger(sampleCount())
+                +" · "+DisplayFormat.formatDurationSeconds(p.time-visit.started,1)+"s · HP "+DisplayFormat.formatExact(p.hp)+" · MP "+DisplayFormat.formatExact(p.mp);
             ActivityJournal.ConditionSlice observed=null;
             for(ActivityJournal.ConditionSlice slice:visit.conditionTimeline)if(p.time>=slice.start&&p.time<slice.end){observed=slice;break;}
             text+=" · Conditions: "+conditionSummary(observed);
         }
-        String previous=inspectionSummary;inspectionSummary=text;getAccessibleContext().setAccessibleDescription(text);
+        String previous=inspectionSummary;inspectionSummary=text;inspectionLocale=Locale.getDefault(Locale.Category.FORMAT);getAccessibleContext().setAccessibleDescription(text);
         firePropertyChange("inspectionSummary",previous,text);
     }
     private static String conditionSummary(ActivityJournal.ConditionSlice slice){
@@ -80,7 +86,7 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
         this.visit=visit;
         if(changed){zoom=1;inspected=-1;}
         else if(inspected>=0){inspected=nearestSample(selectedTime);if(inspected>=0&&visit.resourceTimeline.get(inspected).time!=selectedTime)inspected=-1;}
-        if(same)return;
+        if(same){refreshPresentation();return;}
         rebuild();updateInspection();
     }
     private static boolean samePlot(ActivityJournal.Visit a,ActivityJournal.Visit b){
@@ -125,13 +131,13 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
         int maximum=1;for(ActivityJournal.ResourcePoint p:visit.resourceTimeline){if(p.hp!=null)maximum=Math.max(maximum,p.hp);if(p.mp!=null)maximum=Math.max(maximum,p.mp);}
         g.setColor(getForeground());g.drawString("HP",18,TOP+22);g.setColor(ContentStyle.color("mint"));g.fillRect(55,TOP+13,20,5);
         g.setColor(getForeground());g.drawString("MP",18,TOP+44);g.setColor(ContentStyle.color("blue"));g.fillRect(55,TOP+35,20,5);
-        g.setColor(getForeground());g.drawString("0 – "+maximum,18,TOP+68);
+        g.setColor(getForeground());g.drawString(DisplayFormat.formatInteger(0)+" – "+DisplayFormat.formatInteger(maximum),18,TOP+68);
         drawResources(g,maximum,true);drawResources(g,maximum,false);
         if(visit.resourceTimeline.isEmpty()){g.setColor(getForeground());g.drawString("No time samples in this recording",left+10,TOP+25);}
         if(inspected>=0){g.setColor(ContentStyle.color("amber"));int px=x(visit.resourceTimeline.get(inspected).time);g.drawLine(px,TOP,px,TOP+GRAPH);}
         g.setColor(getForeground());
         int ticks=Math.max(1,Math.min(4,width/Math.max(60,g.getFontMetrics().stringWidth("000.0s")+12)));
-        for(int i=0;i<=ticks;i++){int px=left+width*i/ticks;String t=String.format(Locale.ROOT,"%.1fs",span()*i/(1000.0*ticks));g.drawString(t,Math.min(px,getWidth()-g.getFontMetrics().stringWidth(t)-8),TOP+GRAPH+20);}
+        for(int i=0;i<=ticks;i++){int px=left+width*i/ticks;String t=DisplayFormat.formatNumber(span()*i/(1000.0*ticks),1)+"s";g.drawString(t,Math.min(px,getWidth()-g.getFontMetrics().stringWidth(t)-8),TOP+GRAPH+20);}
         int y=TOP+GRAPH+48;
         for(Lane lane:lanes){
             g.setColor(getForeground());Shape clip=g.getClip();g.clipRect(0,y,left-6,rowHeight());g.drawString(label(lane.name),8,y+g.getFontMetrics().getAscent()+2);g.setClip(clip);
@@ -161,7 +167,7 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
     @Override public String getToolTipText(MouseEvent event){
         if(visit==null||event.getX()<left()||event.getX()>getWidth()-20)return null;
         long time=timeAt(event.getX());
-        String at=String.format(Locale.ROOT,"%.1fs",(time-visit.started)/1000.0);
+        String at=DisplayFormat.formatDurationSeconds(time-visit.started,1)+"s";
         int lane=(event.getY()-(TOP+GRAPH+48))/rowHeight();
         if(event.getY()>=TOP+GRAPH+48&&lane>=0&&lane<lanes.size()){
             Lane row=lanes.get(lane);
@@ -171,7 +177,7 @@ public final class CombatTimelineChart extends JPanel implements Scrollable {
         }
         ActivityJournal.ResourcePoint nearest=null;long distance=Long.MAX_VALUE;
         for(ActivityJournal.ResourcePoint p:visit.resourceTimeline){long d=Math.abs(p.time-time);if(d<distance){distance=d;nearest=p;}}
-        return nearest==null||distance>1000?at+" · No nearby resource sample":at+" · HP "+(nearest.hp==null?"unknown":nearest.hp)+" · MP "+(nearest.mp==null?"unknown":nearest.mp)+" (nearest sample)";
+        return nearest==null||distance>1000?at+" · No nearby resource sample":at+" · HP "+DisplayFormat.formatExact(nearest.hp)+" · MP "+DisplayFormat.formatExact(nearest.mp)+" (nearest sample)";
     }
     private static String label(String text){return text.replace('_',' ');}
     public Dimension getPreferredScrollableViewportSize(){return new Dimension(700,320);}

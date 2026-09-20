@@ -13,6 +13,7 @@ import packets.data.enums.StatType;
 import packets.incoming.MapInfoPacket;
 import tomato.backend.data.Entity;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.LootBags;
 
@@ -23,6 +24,7 @@ public final class LootDashboard extends JPanel {
     private final JLabel[] metrics = new JLabel[4];
     private final JLabel results = new JLabel();
     private final JTextArea enchantTotals = StatsUi.note("");
+    private final JTextArea scopeNote = StatsUi.note(scopeDescription());
     private final JTextField search = StatsUi.search("loot-search", "Search items, bags or dungeons", 22);
     private final JComboBox<String> bagFilter = new JComboBox<>(new String[]{"All bags"});
     private final JComboBox<String> dungeonFilter = new JComboBox<>(new String[]{"All dungeons"});
@@ -69,17 +71,13 @@ public final class LootDashboard extends JPanel {
                     table.getColumnModel().getColumn(col).setMinWidth(65);
                     table.getColumnModel().getColumn(col).setPreferredWidth(75);
                 }
-                for (int col : new int[]{6, 7}) table.getColumnModel().getColumn(col).setCellRenderer(new ContentStyle.Cell() {
-                    { setHorizontalAlignment(SwingConstants.RIGHT); }
-                    protected void setValue(Object value) { setText(value == null ? "Unknown" : value.toString()); }
-                });
+                StatsUi.countColumns(table, 2, 6, 7);
                 sorter.setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.DESCENDING)));
             }
+            if (i == 3 || i == 5) StatsUi.countColumns(table, 1, 2);
             if (i == 4) {
                 table.getColumnModel().getColumn(0).setPreferredWidth(170);
-                table.getColumnModel().getColumn(0).setCellRenderer(new ContentStyle.Cell() {
-                    protected void setValue(Object value) { setText(value == null ? "—" : Formatters.formatTimestamp(((Number)value).longValue())); }
-                });
+                StatsUi.timestampColumn(table, 0);
                 JPanel recent = new JPanel(new BorderLayout(0, 6));
                 JPanel filter = StatsUi.controls(); filter.add(recentRange); filter.add(new JLabel("Relative to latest captured drop"));
                 recent.add(filter, BorderLayout.NORTH); recent.add(StatsUi.tableScroll(table), BorderLayout.CENTER); views.addTab(VIEW_NAMES[i], recent);
@@ -90,7 +88,7 @@ public final class LootDashboard extends JPanel {
         views.setToolTipTextAt(8, "Tiered weapons and armor T13+; abilities T6+");
         views.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); add(views, BorderLayout.CENTER);
         results.setFont(ContentStyle.metadata(ContentStyle.body()));
-        add(StatsUi.stack(results, enchantTotals, StatsUi.note("Observed drops, not pickups · Tiered: weapons/armor T13+, abilities T6+ · Slots = unlocked enchant slots (including empty); Enchants = applied effects. Rarity follows slot count; missing/invalid data is Unknown.\nWhites: contents of white / boosted white bags · Recent Drops retains 1,000 bags; summary totals retain the full app session.")), BorderLayout.SOUTH);
+        add(StatsUi.stack(results, enchantTotals, scopeNote), BorderLayout.SOUTH);
         StatsUi.onSearch(search, this::filter);
         bagFilter.addActionListener(e -> { if (!rebuilding) invalidateScope(); }); dungeonFilter.addActionListener(e -> { if (!rebuilding) invalidateScope(); });
         recentRange.addActionListener(e -> { dirty[4] = true; refresh(); });
@@ -122,6 +120,10 @@ public final class LootDashboard extends JPanel {
     private static String name(int id) { String value = IdToAsset.objectName(id); return value == null || value.isEmpty() ? "Item #" + id : value; }
     private static boolean white(String bag) { return bag.equals("White") || bag.equals("B.White"); }
     private static boolean itemView(int view) { return view < 3 || view >= 6; }
+    private static String scopeDescription() {
+        return "Observed drops, not pickups · Tiered: weapons/armor T13+, abilities T6+ · Slots = unlocked enchant slots (including empty); Enchants = applied effects. Rarity follows slot count; unavailable counts are — and missing/invalid rarity is Unknown.\nWhites: contents of white / boosted white bags · Recent Drops retains "
+            + DisplayFormat.formatInteger(RECENT_LIMIT) + " bags; summary totals retain the full app session.";
+    }
 
     void accept(Drop drop) {
         acceptAll(Collections.singletonList(drop));
@@ -162,6 +164,8 @@ public final class LootDashboard extends JPanel {
 
     private void refresh() {
         if (!isShowing() || models[0] == null) return;
+        String description = scopeDescription();
+        if (!description.equals(scopeNote.getText())) scopeNote.setText(description);
         List<String> dungeons = null;
         Set<String> bags = new LinkedHashSet<>();
         List<String> key = Arrays.asList((String)bagFilter.getSelectedItem(), (String)dungeonFilter.getSelectedItem());
@@ -180,8 +184,10 @@ public final class LootDashboard extends JPanel {
             for (String dungeon : dungeons) addOption(dungeonFilter, dungeon);
             for (String bag : bags) addOption(bagFilter, bag);
             rebuilding = false;
-            metrics[0].setText(Integer.toString(summary.bags)); metrics[1].setText(Integer.toString(summary.items));
-            metrics[2].setText(Integer.toString(summary.potions)); metrics[3].setText(Integer.toString(summary.whites));
+        }
+        if (summary != null) {
+            metrics[0].setText(DisplayFormat.formatInteger(summary.bags)); metrics[1].setText(DisplayFormat.formatInteger(summary.items));
+            metrics[2].setText(DisplayFormat.formatInteger(summary.potions)); metrics[3].setText(DisplayFormat.formatInteger(summary.whites));
         }
         int view = views.getSelectedIndex();
         if (view >= 0 && dirty[view]) {
@@ -264,12 +270,12 @@ public final class LootDashboard extends JPanel {
                 int count = (Integer)models[view].getValueAt(modelRow, 2);
                 counts[slots == null ? 5 : slots] += count; total += count;
             }
-            enchantTotals.setText(total + " drops shown · Unenchanted (0 slots): " + counts[0]
-                + " · Uncommon (1): " + counts[1] + " · Rare (2): " + counts[2]
-                + " · Legendary (3): " + counts[3] + " · Divine (4): " + counts[4] + " · Unknown: " + counts[5]);
+            enchantTotals.setText(DisplayFormat.formatInteger(total) + " drops shown · Unenchanted (0 slots): " + DisplayFormat.formatInteger(counts[0])
+                + " · Uncommon (1): " + DisplayFormat.formatInteger(counts[1]) + " · Rare (2): " + DisplayFormat.formatInteger(counts[2])
+                + " · Legendary (3): " + DisplayFormat.formatInteger(counts[3]) + " · Divine (4): " + DisplayFormat.formatInteger(counts[4]) + " · Unknown: " + DisplayFormat.formatInteger(counts[5]));
         }
         results.setText(summary == null || summary.bags == 0 ? "No loot in this scope. Start capture or adjust the filters."
-            : sorters.get(view).getViewRowCount() + " rows shown · " + views.getTitleAt(view) + " · Filters remain active as drops arrive");
+            : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + views.getTitleAt(view) + " · Filters remain active as drops arrive");
     }
     static final class Item {
         final int id; final String name, tier; final boolean potion, ut, st, highTier;
@@ -289,8 +295,9 @@ public final class LootDashboard extends JPanel {
             key = Collections.unmodifiableList(Arrays.asList(id, enchants.slots, enchants.applied));
         }
         String description() {
-            String detail = enchants.slots < 0 ? "Unknown enchants" : enchants.slots == 0 ? "Unenchanted, 0 slots, 0 enchants"
-                : enchants.rarity() + ", " + enchants.slots + " slots, " + enchants.applied + " enchants";
+            String detail = enchants.slots < 0 ? "Unknown enchants" : (enchants.slots == 0 ? "Unenchanted" : enchants.rarity())
+                + ", " + DisplayFormat.formatInteger(enchants.slots) + " slots, "
+                + (enchants.applied < 0 ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatInteger(enchants.applied)) + " enchants";
             return name + " [" + (tier.equals("—") ? "" : tier + " · ") + detail + "]";
         }
     }

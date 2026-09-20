@@ -30,7 +30,7 @@ public class ParsePanelGUI extends JPanel {
 
     // Latest state only: arrivals/updates never enqueue one Swing task per packet.
     private final Object rosterLock = new Object();
-    private final Map<Integer, Player> roster = new LinkedHashMap<>();
+    private final Map<Integer, CapturedPlayer> roster = new LinkedHashMap<>();
     private long revision;
     private long themeRevision;
     private long displayedRevision = -1;
@@ -110,6 +110,10 @@ public class ParsePanelGUI extends JPanel {
         addSelectionAction(actions, "Open player on RealmEye", false, true, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
         addSelectionAction(actions, "Copy guild", true, false, KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
         addSelectionAction(actions, "Open guild on RealmEye", true, true, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK));
+        Action equipment = action("Equipment details…", e -> selectedEquipmentDetails());
+        equipment.putValue(Action.SHORT_DESCRIPTION, "Read all equipment and enchant details for the selected row (Ctrl+E)");
+        playerActions.add(equipment);
+        addMenuAction(actions, equipment, KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_DOWN_MASK));
         table.getSelectionModel().addListSelectionListener(e -> updateSelectionActions());
 
         JPanel buttons = ContentStyle.controls();
@@ -132,7 +136,7 @@ public class ParsePanelGUI extends JPanel {
         actions.add(new JMenuItem(action("Edit filters…", e -> SecurityFilterGUI.open(this))));
         JButton actionsButton = new JButton("Actions…");
         actionsButton.setMnemonic(KeyEvent.VK_A);
-        actionsButton.setToolTipText("Player/guild actions, exports and filters (Alt+A). Shortcuts are shown in the menu.");
+        actionsButton.setToolTipText("Player/guild actions, equipment details (Ctrl+E), exports and filters (Alt+A).");
         actionsButton.setComponentPopupMenu(actions);
         actionsButton.addActionListener(e -> {
             SwingUtilities.updateComponentTreeUI(actions);
@@ -219,7 +223,9 @@ public class ParsePanelGUI extends JPanel {
 
     private Row selectedRow() {
         int row = table.getSelectedRow();
-        return row < 0 ? null : model.rows.get(table.convertRowIndexToModel(row));
+        if (row < 0 || row >= table.getRowCount()) return null;
+        int index = table.convertRowIndexToModel(row);
+        return index < model.rows.size() ? model.rows.get(index) : null;
     }
 
     private void updateSelectionActions() {
@@ -235,6 +241,49 @@ public class ParsePanelGUI extends JPanel {
         if (value == null || value.isEmpty()) return;
         if (open) openWebpage("https://www.realmeye.com/" + (guild ? "guild/" : "player/") + value.replace(" ", "%20"));
         else copyToClipboard(value);
+    }
+
+    private void selectedEquipmentDetails() {
+        Row row = selectedRow();
+        if (row == null) return;
+        // Use the displayed row, never the newer producer roster or the current filter.
+        String details = "Player: " + row.player.playerEntity.name() + "\nGuild: "
+                + (row.guild.isEmpty() ? "None captured" : row.guild) + "\n\n"
+                + String.join("\n\n", row.equipmentDetails);
+        showEquipmentDetails(row.player.playerEntity.name(), details);
+    }
+
+    protected void showEquipmentDetails(String playerName, String details) {
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Equipment — " + playerName,
+                Dialog.ModalityType.MODELESS);
+        dialog.setName("security-equipment-dialog");
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        JTextArea body = ContentStyle.wrappingText(details, 8);
+        body.setName("security-equipment-details");
+        body.setFocusable(true);
+        body.getAccessibleContext().setAccessibleName("Equipment and enchant details for " + playerName);
+        body.getAccessibleContext().setAccessibleDescription("Read-only snapshot of the selected roster row. Select text to copy.");
+        body.setCaretPosition(0);
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        JScrollPane scroll = new JScrollPane(body);
+        FontMetrics metrics = body.getFontMetrics(body.getFont());
+        scroll.setPreferredSize(new Dimension(Math.min(720, metrics.charWidth('m') * 60), Math.min(480, metrics.getHeight() * 16)));
+        content.add(scroll, BorderLayout.CENTER);
+        JButton close = new JButton("Close"); close.addActionListener(e -> dialog.dispose());
+        content.add(close, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
+        dialog.getRootPane().setDefaultButton(close);
+        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(), KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), WHEN_IN_FOCUSED_WINDOW);
+        ContentStyle.refreshFonts(content);
+        dialog.pack();
+        Rectangle bounds = dialog.getGraphicsConfiguration().getBounds();
+        Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(dialog.getGraphicsConfiguration());
+        dialog.setSize(Math.min(dialog.getWidth(), bounds.width - insets.left - insets.right),
+                Math.min(dialog.getHeight(), bounds.height - insets.top - insets.bottom));
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+        body.requestFocusInWindow();
     }
 
     private void loadFilters() {
@@ -281,7 +330,7 @@ public class ParsePanelGUI extends JPanel {
     /** Runs only on the EDT, at most once per timer tick, and never while hidden. */
     private void refreshRoster() {
         if (!isShowing()) return;
-        List<Player> players;
+        List<CapturedPlayer> players;
         long nextRevision;
         synchronized (rosterLock) {
             if (displayedRevision == revision) return;
@@ -292,7 +341,7 @@ public class ParsePanelGUI extends JPanel {
         Map<Integer, Row> previous = new HashMap<>();
         for (Row row : model.rows) previous.put(row.player.playerEntity.id, row);
         List<Row> rows = new ArrayList<>(players.size());
-        for (Player player : players) {
+        for (CapturedPlayer player : players) {
             Row row = previous.get(player.playerEntity.id);
             if (row == null || row.player != player || row.filter != currentFilter || row.themeRevision != themeRevision)
                 row = new Row(player, themeRevision);
@@ -305,7 +354,8 @@ public class ParsePanelGUI extends JPanel {
         model.fireTableDataChanged();
         if (selected != null) for (int i = 0; i < rows.size(); i++) {
             if (rows.get(i).player.playerEntity.id == selected.player.playerEntity.id) {
-                table.setRowSelectionInterval(i, i);
+                int view = table.convertRowIndexToView(i);
+                if (view >= 0) table.setRowSelectionInterval(view, view);
                 break;
             }
         }
@@ -318,8 +368,17 @@ public class ParsePanelGUI extends JPanel {
             StatType.INVENTORY_3_STAT, StatType.UNIQUE_DATA_STRING};
 
     // Copy values on the producer thread, before the mutable capture entity can change again.
-    private static Player snapshot(int id, Entity source) {
+    private static final class CapturedPlayer extends Player {
+        final boolean[] equipmentCaptured;
+        CapturedPlayer(Entity entity, boolean[] equipmentCaptured) {
+            super(entity);
+            this.equipmentCaptured = equipmentCaptured;
+        }
+    }
+
+    private static CapturedPlayer snapshot(int id, Entity source) {
         Entity copy = new Entity(null, id, 0);
+        boolean[] equipmentCaptured = new boolean[4];
         copy.objectType = source.objectType;
         copy.baseStats = source.baseStats == null ? new int[]{-1, -1, -1, -1, -1, -1, -1, -1} : source.baseStats.clone();
         for (StatType type : DISPLAY_STATS) {
@@ -330,16 +389,19 @@ public class ParsePanelGUI extends JPanel {
             value.statValue = original == null ? 0 : original.statValue;
             value.statValueTwo = original == null ? 0 : original.statValueTwo;
             value.stringStatValue = original == null || original.stringStatValue == null ? "" : original.stringStatValue;
+            if (type == StatType.UNIQUE_DATA_STRING) value.stringStatValue = original == null ? null : original.stringStatValue;
+            int slot = type.get() - StatType.INVENTORY_0_STAT.get();
+            if (slot >= 0 && slot < 4) equipmentCaptured[slot] = original != null;
             if (original == null && type.get() >= StatType.INVENTORY_0_STAT.get() && type.get() <= StatType.INVENTORY_3_STAT.get()) value.statValue = -1;
             copy.stat.set(type, value);
         }
-        return new Player(copy);
+        return new CapturedPlayer(copy, equipmentCaptured);
     }
 
     public static void addPlayer(int id, Entity entity) {
         ParsePanelGUI panel = INSTANCE;
         if (panel == null || entity == null) return;
-        Player copy = snapshot(id, entity);
+        CapturedPlayer copy = snapshot(id, entity);
         synchronized (panel.rosterLock) { panel.roster.put(id, copy); panel.revision++; }
     }
 
@@ -349,20 +411,21 @@ public class ParsePanelGUI extends JPanel {
         synchronized (panel.rosterLock) {
             if (!panel.roster.containsKey(entity.id)) return;
         }
-        Player copy = snapshot(entity.id, entity);
+        CapturedPlayer copy = snapshot(entity.id, entity);
         synchronized (panel.rosterLock) {
-            Player previous = panel.roster.get(entity.id);
+            CapturedPlayer previous = panel.roster.get(entity.id);
             if (previous == null || sameDisplay(previous, copy)) return;
             panel.roster.put(entity.id, copy);
             panel.revision++;
         }
     }
 
-    private static boolean sameDisplay(Player a, Player b) {
+    private static boolean sameDisplay(CapturedPlayer a, CapturedPlayer b) {
+        if (!Arrays.equals(a.equipmentCaptured, b.equipmentCaptured)) return false;
         if (a.playerEntity.objectType != b.playerEntity.objectType || !Arrays.equals(a.playerEntity.baseStats, b.playerEntity.baseStats)) return false;
         for (StatType type : DISPLAY_STATS) {
             StatData x = a.playerEntity.stat.get(type), y = b.playerEntity.stat.get(type);
-            if (x.statValue != y.statValue || !Objects.equals(x.stringStatValue, y.stringStatValue)) return false;
+            if (x.statValue != y.statValue || x.statValueTwo != y.statValueTwo || !Objects.equals(x.stringStatValue, y.stringStatValue)) return false;
         }
         return true;
     }
@@ -459,23 +522,33 @@ public class ParsePanelGUI extends JPanel {
 
     private static class Row {
         final long themeRevision;
-        final Player player;
+        final CapturedPlayer player;
         final SecurityFilter filter = currentFilter;
         final SecurityFilter.ParsedPlayerObject requirements;
         final String guild;
-        final String[] enchants;
+        final String[] equipmentLabels = new String[4], equipmentDetails = new String[4];
         final ImageIcon[] icons = new ImageIcon[4];
         final ImageIcon skin;
-        Row(Player player, long themeRevision) {
+        Row(CapturedPlayer player, long themeRevision) {
             this.player = player;
             this.themeRevision = themeRevision;
             guild = Objects.toString(player.playerEntity.getStatGuild(), "");
             requirements = filter == null ? null : filter.parsePlayer(player);
-            enchants = ParseEnchants.extractEnchants(player.playerEntity);
+            ParseEnchants.EquippedCapture capture = ParseEnchants.equippedCapture(player.playerEntity);
             skin = ImageBuffer.getOutlinedIcon(player.getSkinId(), 20);
             for (int i = 0; i < 4; i++) {
                 player.itemName[i] = IdToAsset.objectName(player.inv[i]);
-                int count = enchants[i] == null || enchants[i].isEmpty() ? 0 : enchants[i].split("\n").length;
+                String slot = Player.equipmentNames[i];
+                slot = Character.toUpperCase(slot.charAt(0)) + slot.substring(1);
+                String item = !player.equipmentCaptured[i] ? "Not captured"
+                        : player.inv[i] < 0 ? "Empty (ID " + player.inv[i] + ")"
+                        : (player.itemName[i] == null ? "Unrecognized item" : player.itemName[i]) + " (ID " + player.inv[i] + ")";
+                equipmentLabels[i] = slot + ": " + item;
+                String enchant = capture.description(i).trim();
+                boolean known = capture.state(i) == ParseEnchants.CaptureState.KNOWN;
+                equipmentDetails[i] = equipmentLabels[i] + "\nEnchants: "
+                        + (known && enchant.isEmpty() ? "None (captured)" : enchant);
+                int count = !known || enchant.isEmpty() ? 0 : enchant.split("\n").length;
                 String role = count == 1 ? "mint" : count == 2 ? "blue" : count == 3 ? "violet" : "amber";
                 icons[i] = count == 0 ? ImageBuffer.getOutlinedIcon(player.inv[i], 20)
                         : ImageBuffer.getOutlinedIconWithGlow(player.inv[i], 20, ContentStyle.color(role), 3);
@@ -524,7 +597,7 @@ public class ParsePanelGUI extends JPanel {
                         + row.requirements.points + " / " + row.requirements.classPoints;
                 case 7: return row.player.statsMaxed() + " / 8";
                 case 8: return (entity.isSeasonal() ? "Seasonal" : "Non-seasonal") + (entity.isCrucible() ? " · Crucible" : "");
-                default: return row.player.itemName[column - 3];
+                default: return row.equipmentLabels[column - 3];
             }
         }
     }
@@ -535,7 +608,11 @@ public class ParsePanelGUI extends JPanel {
             Row row = model.rows.get(table.convertRowIndexToModel(rowIndex));
             int column = table.convertColumnIndexToModel(columnIndex);
             setToolTipText(null);
-            if (focus) setBorder(UIManager.getBorder("Table.focusCellHighlightBorder"));
+            String name = model.getColumnName(column) + ": " + Objects.toString(value, "Not captured");
+            getAccessibleContext().setAccessibleName(name);
+            getAccessibleContext().setAccessibleDescription(name);
+            if (focus) setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(ContentStyle.color("violet"), 2), BorderFactory.createEmptyBorder(0, 6, 0, 6)));
             if (column == 0) {
                 setIcon(row.skin);
                 setToolTipText("Click to copy player; Ctrl+click or Enter to open RealmEye. Ctrl+C copies the selected player.");
@@ -547,7 +624,9 @@ public class ParsePanelGUI extends JPanel {
             } else if (column >= 3 && column <= 6) {
                 int slot = column - 3;
                 setText(""); setIcon(row.icons[slot]); setHorizontalAlignment(CENTER);
-                setToolTipText("<html>" + html(row.player.itemName[slot]) + "<br>" + html(row.enchants[slot]) + "</html>");
+                setToolTipText("<html>" + html(row.equipmentDetails[slot]) + "</html>");
+                getAccessibleContext().setAccessibleName(row.equipmentLabels[slot]);
+                getAccessibleContext().setAccessibleDescription(row.equipmentDetails[slot]);
             } else if (column == 7) {
                 int[] s = row.player.statMissing();
                 setToolTipText(String.format("<html>Missing<br>%d :Life<br>%d :Mana<br>%d :Atk<br>%d :Def<br>%d :Spd<br>%d :Dex<br>%d :Vit<br>%d :Wis</html>", s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]));

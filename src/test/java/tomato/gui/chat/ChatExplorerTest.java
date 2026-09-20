@@ -70,7 +70,7 @@ public class ChatExplorerTest {
             assertFalse(ui.filteredTranscript().contains("Bring your"));
             table.setRowSelectionInterval(0, 0); button(ui, "Star").doClick();
             assertEquals("★", table.getValueAt(0, 0));
-            assertEquals(1, find(ui, JTextArea.class, null).getHighlighter().getHighlights().length);
+            assertEquals(1, find(ui, JTextArea.class, "chat-detail-message").getHighlighter().getHighlights().length);
             button(ui, "Reset").doClick(); button(ui, "Starred").doClick(); assertEquals(1, table.getRowCount());
             button(ui, "Reset").doClick(); button(ui, "chat-channel-PM").doClick();
             find(ui, JTextField.class, "chat-player").setText("wren"); ui.refresh(false); assertEquals(2, table.getRowCount());
@@ -115,7 +115,7 @@ public class ChatExplorerTest {
             ui.accept(message("<html>Wren", "", content));
             JTable table = find(ui, JTable.class, "chat-messages");
             table.setRowSelectionInterval(0, 0);
-            assertEquals(content, find(ui, JTextArea.class, null).getText());
+            assertEquals(content, find(ui, JTextArea.class, "chat-detail-message").getText());
             TableCellRenderer renderer = table.getCellRenderer(0, 4);
             JComponent rendered = (JComponent)renderer.getTableCellRendererComponent(table, table.getValueAt(0, 4), false, false, 0, 4);
             assertEquals(Boolean.TRUE, rendered.getClientProperty("html.disable"));

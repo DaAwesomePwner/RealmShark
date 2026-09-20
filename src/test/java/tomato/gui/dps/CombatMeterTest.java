@@ -138,7 +138,7 @@ public class CombatMeterTest {
                 assertSame(boss, enemies.getModel().getElementAt(1));
                 assertEquals(2, table.getRowCount()); assertEquals("Bob", table.getValueAt(0, 0));
                 assertNull(table.getValueAt(0, 8));
-                table.setRowSelectionInterval(0, 0); assertTrue(details.getText().contains("1,200"));
+                table.setRowSelectionInterval(0, 0); assertTrue(details.getText().contains(tomato.gui.modern.DisplayFormat.formatInteger(1200)));
                 search.setText("alice"); assertEquals(1, table.getRowCount());
                 assertEquals(550L, table.getValueAt(0, 2));
                 // Shares do not inflate when a class/name filter hides other players.
@@ -159,7 +159,7 @@ public class CombatMeterTest {
                 assertEquals(1100L, table.getValueAt(0, 8));
                 assertEquals(1L, table.getValueAt(0, 9));
                 table.setRowSelectionInterval(0, 0);
-                assertTrue(details.getText().contains("Full dungeon taken: 1,500"));
+                assertTrue(details.getText().contains("Full dungeon taken: " + tomato.gui.modern.DisplayFormat.formatInteger(1500)));
                 enemies.setSelectedIndex(0);
                 assertEquals(1500L, table.getValueAt(0, 8));
                 assertEquals(2L, table.getValueAt(0, 9));
