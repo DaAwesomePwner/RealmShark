@@ -38,6 +38,7 @@ hs_err_pid*
 
 # Misc files
 realmShark.properties
+/.realmshark-preferences-*.tmp
 .DS_Store
 /FameSessions/
 

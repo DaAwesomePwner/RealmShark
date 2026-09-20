@@ -20,8 +20,11 @@ public class StatisticsExplorerTest {
             tomato.backend.data.FameTracker.trackFame(9101, 159929, 1000);
             tomato.backend.data.FameTracker.trackFame(9102, 159929, 2000);
             assertTrue(panel.getFameData().containsKey(9101)); assertTrue(panel.getFameData().containsKey(9102));
+            assertEquals(1000, panel.getFameData().get(9101).get(0).getTime());
+            panel.refreshNow();
             named(panel, "fame-graph-character", JComboBox.class).setSelectedItem("Character #9101");
             FameTrackerGUI.updateFame(9102, 150, System.currentTimeMillis() + 60000);
+            panel.refreshNow();
             assertEquals("Character #9101", named(panel, "fame-graph-character", JComboBox.class).getSelectedItem());
             assertEquals(100, find(panel, GraphPanel.class).getScores().get(0).getFame(), 0);
         });
@@ -60,16 +63,19 @@ public class StatisticsExplorerTest {
             panel.onMapChange("Nexus", 127000);
             assertEquals(2, panel.getMapFameData().get(2).size());
             assertEquals(0, panel.getMapFameData().get(2).get(1).getFameGained(), 0);
+            panel.refreshNow();
             JTable table = named(panel, "fame-characters", JTable.class);
             table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
             assertTrue(table.getValueAt(0, 0).toString().contains("Priest"));
             named(panel, "fame-search", JTextField.class).setText("wizard");
+            panel.refreshNow();
             assertEquals(1, table.getRowCount());
             assertEquals(25.0, (Double)table.getValueAt(0, 4), 0);
             assertEquals(2, named(panel, "fame-maps", JTable.class).getRowCount());
             named(panel, "fame-map-search", JTextField.class).setText("sprite");
+            panel.refreshNow();
             assertEquals(1, named(panel, "fame-maps", JTable.class).getRowCount());
-            named(panel, "fame-search", JTextField.class).setText("["); assertEquals(0, table.getRowCount());
+            named(panel, "fame-search", JTextField.class).setText("["); panel.refreshNow(); assertEquals(0, table.getRowCount());
         });
     }
 
@@ -209,6 +215,10 @@ public class StatisticsExplorerTest {
         JFrame frame = new JFrame("Statistics · Preview sample"); frame.setContentPane(panel);
         try {
             frame.setSize(width, height); frame.setVisible(true); frame.validate();
+            FameTablePanel fameTable = panel instanceof FameTablePanel ? (FameTablePanel)panel : find(panel, FameTablePanel.class);
+            FameTrackerGUI fameGraph = panel instanceof FameTrackerGUI ? (FameTrackerGUI)panel : find(panel, FameTrackerGUI.class);
+            if (fameTable != null) fameTable.refreshNow();
+            if (fameGraph != null) fameGraph.refreshNow();
             if (panel instanceof tomato.gui.modern.WorkspaceShell) {
                 panel.dispatchEvent(new java.awt.event.ComponentEvent(panel, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
             }

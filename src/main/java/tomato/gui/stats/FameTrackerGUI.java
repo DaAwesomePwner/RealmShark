@@ -7,7 +7,6 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.*;
 import tomato.gui.modern.ContentStyle;
-import tomato.gui.stats.data.MapFameData;
 import tomato.gui.stats.session.FameSession;
 import tomato.gui.stats.session.FameSessionManager;
 
@@ -16,14 +15,14 @@ import tomato.gui.stats.session.FameSessionManager;
  */
 public class FameTrackerGUI extends JPanel {
 
-    private static FameTrackerGUI INSTANCE;
+    private static volatile FameTrackerGUI INSTANCE;
 
-    private final HashMap<Integer, ArrayList<Fame>> fameList = new HashMap<>();
+    private final FameTrackingModel.History tracking = new FameTrackingModel.History();
+    private final FameRefresh presentation;
+    // The saver must synchronously detach and enqueue, as saveSessionAsync does; it
+    // must not perform I/O or retain the mutable transfer object after returning.
     private final BiConsumer<FameSession, Consumer<Boolean>> sessionSaver;
     private final GraphPanel graphPanel;
-    private FameSession currentLiveSession;
-    private boolean fameGainedSinceLastSave = false;
-    private long revision, lastSessionTimestamp, saveRequest;
     private final JLabel saveStatus = new JLabel("Sessions save automatically on map changes.");
     private final JComboBox<String> character = new JComboBox<>(new String[]{"Follow current character"});
     private final JComboBox<String> range = new JComboBox<>(new String[]{"All samples", "1 min", "5 min", "15 min", "30 min", "60 min"});
@@ -31,7 +30,8 @@ public class FameTrackerGUI extends JPanel {
     private final JLabel[] metrics = new JLabel[4];
     private final JLabel sampleStatus = new JLabel("Waiting for captured fame samples.");
     private final java.util.LinkedHashMap<String, Integer> characterIds = new java.util.LinkedHashMap<>();
-    private int currentCharacterId = -1;
+    private boolean updatingCharacters;
+    private long renderedGeneration = -1;
 
     public FameTrackerGUI() {
         this(FameSessionManager::saveSessionAsync);
@@ -39,7 +39,6 @@ public class FameTrackerGUI extends JPanel {
 
     FameTrackerGUI(BiConsumer<FameSession, Consumer<Boolean>> sessionSaver) {
         this.sessionSaver = sessionSaver;
-        INSTANCE = this;
         setLayout(new BorderLayout(0, 8));
 
         graphPanel = new GraphPanel(new ArrayList<>(), false);
@@ -64,95 +63,117 @@ public class FameTrackerGUI extends JPanel {
         add(StatsUi.stack(sampleStatus, saveStatus, StatsUi.note("Rates use the first and last actual samples in the selected range. Character history may include time spent elsewhere; this is not combat uptime.")), BorderLayout.SOUTH);
         character.addActionListener(e -> refreshGraph()); range.addActionListener(e -> refreshGraph()); measure.addActionListener(e -> refreshGraph());
 
-        resetSession();
+        presentation = new FameRefresh(this, this::renderGraph);
+        INSTANCE = this;
+        refreshGraph();
     }
 
     // --- Public API ---
 
     public static void updateFame(int charId, long fame, long time) {
-        if (INSTANCE != null) {
-            FameTrackerGUI panel = INSTANCE;
-            if (SwingUtilities.isEventDispatchThread()) panel.update(charId, fame, time);
-            else SwingUtilities.invokeLater(() -> panel.update(charId, fame, time));
+        FameTrackerGUI panel = INSTANCE;
+        if (panel != null) {
+            synchronized (FameTableBridge.getInstance()) { panel.tracking.sample(charId, fame, time); }
+            panel.refreshGraph();
         }
     }
 
+    /** Graph-only compatibility path; Entity observations go through FameTableBridge. */
+    public static void trackFame(int charId, long fame, long time) {
+        FameTrackerGUI panel = INSTANCE;
+        if (panel != null) panel.trackCapturedFame(charId, fame, time);
+    }
+
+    /** Retain fame changes and character switches in the bridge's registered history. */
+    void trackCapturedFame(int charId, long fame, long time) {
+        boolean changed;
+        synchronized (FameTableBridge.getInstance()) { changed = tracking.sampleIfChanged(charId, fame, time); }
+        if (changed) refreshGraph();
+    }
+
     public void triggerAutoSave() {
-        onEdt(() -> {
-            if (!fameList.isEmpty() && fameGainedSinceLastSave) saveCurrentLiveSession(null);
-        });
+        synchronized (FameTableBridge.getInstance()) {
+            if (tracking.hasSamples() && tracking.dirty()) saveCurrentLiveSession(false);
+        }
     }
 
     public void triggerMapChangeAutoSave() {
-        onEdt(() -> {
-            revision++; // A closed/zero-gain visit is also a persistence change.
-            if (!fameList.isEmpty()) { fameGainedSinceLastSave = true; saveCurrentLiveSession(null); }
-        });
+        synchronized (FameTableBridge.getInstance()) {
+            tracking.visitsChanged(); // A closed/zero-gain visit is also a persistence change.
+            if (tracking.hasSamples()) saveCurrentLiveSession(false);
+        }
     }
+
+    void tableChanged() { tracking.visitsChanged(); }
 
     public boolean hasFameGainedSinceLastSave() {
-        return fameGainedSinceLastSave;
+        return tracking.dirty();
     }
 
+    /** Detached graph/session history; callers cannot mutate live tracking through it. */
     public HashMap<Integer, ArrayList<Fame>> getFameData() {
-        return fameList;
+        return tracking.samples();
     }
 
     public void saveCurrentSession(String sessionName) {
         if (sessionName == null || sessionName.trim().isEmpty()) return;
-        onEdt(() -> {
-            currentLiveSession.setSessionName(sessionName.trim()); revision++;
-            FameSession saving = currentLiveSession; long savingRevision = revision;
-            saveCurrentLiveSession(success -> {
-                if (success && currentLiveSession == saving && revision == savingRevision) resetSession();
-            });
-        });
+        synchronized (FameTableBridge.getInstance()) {
+            tracking.rename(sessionName.trim()); saveCurrentLiveSession(true);
+        }
     }
 
     public void clearCurrentSessionFile() {
-        onEdt(() -> {
-            String name = currentLiveSession.getSessionName();
-            clearTracking(); resetSession();
-            long request = ++saveRequest;
-            setSaveStatus("Clearing previous session file…");
+        synchronized (FameTableBridge.getInstance()) {
+            String name = tracking.sessionName();
+            tracking.startNew();
+            long request = tracking.deleting();
+            publishSaveStatus();
             FameSessionManager.deleteSessionAsync(name, success -> {
-                if (saveRequest == request) setSaveStatus(success ? "Session cleared. Tracking a new session."
-                    : "Could not delete the previous session file. Check FameSessions folder access.");
+                synchronized (FameTableBridge.getInstance()) {
+                    tracking.deleted(request, success); publishSaveStatus();
+                }
             });
-        });
+        }
     }
 
     public void startNewSessionFile() {
-        onEdt(() -> { clearTracking(); resetSession(); saveCurrentLiveSession(null); });
+        synchronized (FameTableBridge.getInstance()) { tracking.startNew(); saveCurrentLiveSession(false); }
     }
 
     // --- Private Methods ---
 
-    private void update(int charId, long fame, long time) {
-        fameGainedSinceLastSave = true;
-        revision++;
-
-        fameList
-            .computeIfAbsent(charId, k -> new ArrayList<>())
-            .add(new Fame(fame, time));
-
-        currentCharacterId = charId;
-        String label = "Character #" + charId;
-        if (!characterIds.containsKey(label)) { characterIds.put(label, charId); character.addItem(label); }
-        refreshGraph();
-    }
-
-    private void clearTracking() {
-        fameList.clear(); currentCharacterId = -1; characterIds.clear();
-        character.removeAllItems(); character.addItem("Follow current character");
-        graphPanel.clearData(); refreshGraph();
-    }
-
     private void refreshGraph() {
-        if (graphPanel == null) return;
-        int id = characterIds.getOrDefault(character.getSelectedItem(), currentCharacterId);
+        if (presentation != null && (!SwingUtilities.isEventDispatchThread() || !updatingCharacters)) presentation.request();
+    }
+
+    void refreshNow() { presentation.refreshNow(this::renderGraph); }
+    FameTrackingModel.GraphSnapshot trackingSnapshot(Integer selectedId, long duration) { return tracking.graph(selectedId, duration); }
+    FameTrackingModel.HistoryCounts trackingCounts() { return tracking.counts(); }
+    FameRefresh.Counts refreshCounts() { return presentation.counts(); }
+
+    private void renderGraph() {
+        Integer selectedId = characterIds.get(character.getSelectedItem());
         long[] minutes = {0, 1, 5, 15, 30, 60};
-        ArrayList<Fame> samples = GraphPanel.window(fameList.get(id), minutes[range.getSelectedIndex()] * 60000);
+        FameTrackingModel.GraphSnapshot snapshot = tracking.graph(selectedId, minutes[range.getSelectedIndex()] * 60000);
+        boolean newHistory = renderedGeneration != snapshot.generation;
+        if (selectedId != null && (newHistory || !snapshot.characterIds.contains(selectedId))) {
+            selectedId = null; snapshot = tracking.graph(null, minutes[range.getSelectedIndex()] * 60000);
+        }
+        updatingCharacters = true;
+        try {
+            if (newHistory || !new ArrayList<>(characterIds.values()).equals(snapshot.characterIds)) {
+                characterIds.clear(); character.removeAllItems(); character.addItem("Follow current character");
+                for (int id : snapshot.characterIds) {
+                    String label = "Character #" + id; characterIds.put(label, id); character.addItem(label);
+                }
+                character.setSelectedItem(selectedId == null ? "Follow current character" : "Character #" + selectedId);
+            }
+        } finally { updatingCharacters = false; }
+        renderedGeneration = snapshot.generation;
+        int id = snapshot.selectedId;
+        ArrayList<Fame> samples = snapshot.samples;
+        samples.sort(java.util.Comparator.comparingLong(Fame::getTime));
+        saveStatus.setText(tracking.status());
         double gain = samples.size() < 2 ? 0 : samples.get(samples.size() - 1).getFame() - samples.get(0).getFame();
         long duration = samples.size() < 2 ? 0 : samples.get(samples.size() - 1).getTime() - samples.get(0).getTime();
         metrics[0].setText(samples.isEmpty() ? "—" : Formatters.formatNumber(gain, 0));
@@ -169,71 +190,21 @@ public class FameTrackerGUI extends JPanel {
         graphPanel.setScores(samples);
     }
 
-    private void updateLiveSessionData() {
-        currentLiveSession.setCharacterFameData(
-            FameSessionManager.convertToSessionFormat(fameList)
-        );
-
-        FameTablePanel tablePanel = FameTablePanel.getInstance();
-        if (tablePanel == null) return;
-
-        // Update class names
-        HashMap<Integer, String> classNames = new HashMap<>();
-        for (Integer charId : fameList.keySet()) {
-            classNames.put(
-                charId,
-                tablePanel.getClassNameForCharacterId(charId)
-            );
-        }
-        currentLiveSession.setCharacterClassNames(classNames);
-
-        // Update map fame data
-        try {
-            HashMap<Integer, ArrayList<MapFameData>> mapData =
-                tablePanel.getMapFameData();
-            currentLiveSession.setCharacterMapFameData(
-                FameSessionManager.convertMapDataToSessionFormat(mapData)
-            );
-        } catch (Exception e) {
-            System.err.println(
-                "Error updating live session map data: " + e.getMessage()
-            );
-        }
-    }
-
-    private void saveCurrentLiveSession(Consumer<Boolean> completion) {
-        updateLiveSessionData();
-        FameSession saving = currentLiveSession;
-        long savingRevision = revision, request = ++saveRequest;
-        setSaveStatus("Saving fame session…");
-        sessionSaver.accept(saving, success -> {
-            if (currentLiveSession == saving) {
-                if (success && revision == savingRevision) fameGainedSinceLastSave = false;
-                if (request == saveRequest) setSaveStatus(success
-                    ? (revision == savingRevision ? "Fame session saved locally." : "Fame session saved; newer samples await the next save.")
-                    : "Fame save failed. Check FameSessions folder access; the next autosave will retry.");
-            } else if (!success) {
-                setSaveStatus("A previous fame session could not be saved. Check FameSessions folder access.");
+    private void saveCurrentLiveSession(boolean resetOnSuccess) {
+        FameTablePanel table = FameTablePanel.getInstance();
+        FameTrackingModel.Save saving = tracking.prepareSave(table == null ? new HashMap<>() : table.getMapFameData(),
+            table == null ? new HashMap<>() : table.classNamesSnapshot());
+        publishSaveStatus();
+        sessionSaver.accept(saving.session, success -> {
+            synchronized (FameTableBridge.getInstance()) {
+                tracking.saved(saving, success, resetOnSuccess); publishSaveStatus();
             }
-            if (completion != null) completion.accept(success);
         });
     }
 
-    private void resetSession() {
-        lastSessionTimestamp = Math.max(System.currentTimeMillis(), lastSessionTimestamp + 1);
-        currentLiveSession = new FameSession("Live_" + lastSessionTimestamp);
-        revision++;
-        fameGainedSinceLastSave = false;
-    }
-
-    private static void onEdt(Runnable action) {
-        if (SwingUtilities.isEventDispatchThread()) action.run();
-        else SwingUtilities.invokeLater(action);
-    }
-
-    private void setSaveStatus(String text) {
-        saveStatus.setText(text);
+    private void publishSaveStatus() {
+        refreshGraph();
         FameTablePanel table = FameTablePanel.getInstance();
-        if (table != null) table.setSessionSaveStatus(text);
+        if (table != null) table.setSessionSaveStatus(tracking.status());
     }
 }

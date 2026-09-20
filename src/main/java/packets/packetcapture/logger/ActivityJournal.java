@@ -26,6 +26,8 @@ public final class ActivityJournal {
     private long lastTick, lastConditionTime, lastResourceEvent, lastResourceSample;
     private int nextVisit;
     private long nextEntry;
+    private long revision, summariesRevision, choicesRevision, entriesRevision;
+    private long viewCopies, fullCopies, copiedVisits, copiedEntries, copiedPoints, copiedSlices, pinnedReferences, copyOnWriteReferences;
     private final String session = UUID.randomUUID().toString();
     private static final String[] EXALTS = {"Dexterity", "Speed", "Vitality", "Wisdom", "Defense", "Attack", "Mana", "Health"};
 
@@ -33,11 +35,12 @@ public final class ActivityJournal {
     ActivityJournal(State saved) {
         if (saved == null) return;
         for (Visit v : saved.visits) {
-            if (v.ended == 0) { v.ended = v.lastSeen; v.status = "App ended; completion unknown"; }
-            visits.add(v);
+            Visit copy=new Visit(v);
+            if (copy.ended == 0) { copy.ended = copy.lastSeen; copy.status = "App ended; completion unknown"; }
+            visits.add(copy);
         }
-        entries.addAll(saved.entries);
-        trim();
+        for (Entry entry : saved.entries) entries.add(copyEntry(entry));
+        trim(); limitTimelines();
     }
 
     public void boundary(long now, String reason) {
@@ -48,11 +51,16 @@ public final class ActivityJournal {
         identityVerified = false; pendingExalts.clear(); ownerCandidates.clear(); shotOwners.clear();
     }
     public void clear() {
+        boolean hadHistory=!visits.isEmpty() || !entries.isEmpty();
         boundary(System.currentTimeMillis(), "Cleared"); visits.clear(); entries.clear();
         exaltBaseline.clear(); exaltVisit.clear(); accountScope = null;
+        if (hadHistory) summariesRevision = choicesRevision = entriesRevision = ++revision;
     }
 
     public void observe(Packet packet, PacketType type, String outcome, long now, Map<String, Object> diagnostic) {
+        // A pinned history owns the old version. Only subsequently mutated visits are copied.
+        writableCurrent();
+        if (current != null) changed(current);
         if (!"decoded".equals(outcome)) {
             if (current != null) { current.issues++; current.lastSeen = now; }
             add(now, "Capture issue", type == null ? "Unknown packet" : type.name(), diagnostic);
@@ -74,6 +82,7 @@ public final class ActivityJournal {
             current.realmStart = current.realmLatest = p.currentRealmScore < 0 ? null : p.currentRealmScore;
             current.realmMaximum = p.maxRealmScore < 0 ? null : p.maxRealmScore;
             visits.add(current); localId = condition = conditionNew = null; lastTick = 0;
+            changed(current); choicesRevision = ++revision;
             identityVerified = false; pendingExalts.clear();
             ownerCandidates.clear(); shotOwners.clear();
             add(now, "Area entered", current.map, Collections.emptyMap()); trim();
@@ -206,7 +215,11 @@ public final class ActivityJournal {
             if (elapsed > 0 && (condition != null || conditionNew != null)) {
                 List<ConditionSlice> slices = current.conditionTimeline;
                 ConditionSlice last = slices.isEmpty() ? null : slices.get(slices.size()-1);
-                if (last != null && last.end == lastConditionTime && Objects.equals(last.primary,condition) && Objects.equals(last.secondary,conditionNew)) last.end=now;
+                if (last != null && last.end == lastConditionTime && Objects.equals(last.primary,condition) && Objects.equals(last.secondary,conditionNew)) {
+                    // Timeline elements may belong to an older pinned visit: replace, never mutate.
+                    ConditionSlice extended=new ConditionSlice(); extended.start=last.start; extended.end=now;
+                    extended.primary=last.primary; extended.secondary=last.secondary; slices.set(slices.size()-1,extended); copiedSlices++;
+                }
                 else {
                     ConditionSlice slice=new ConditionSlice(); slice.start=lastConditionTime; slice.end=now;
                     slice.primary=condition; slice.secondary=conditionNew; slices.add(slice); limitTimelines();
@@ -276,32 +289,36 @@ public final class ActivityJournal {
         }
     }
     private void finish(long now, String status) {
-        if (current != null) { current.ended = now; current.status = status; current = null; }
+        if (current != null) { writableCurrent(); current.ended = now; current.status = status; changed(current); current = null; }
     }
     private void add(long now, String kind, String detail, Map<String, Object> values) {
         Entry entry = new Entry(); entry.id = session + ":event:" + (++nextEntry); entry.time = now; entry.visitId = current == null ? "" : current.id;
         entry.map = current == null ? "Outside an observed visit" : current.map;
-        entry.kind = kind; entry.detail = detail; entry.values = new LinkedHashMap<>(values);
-        entries.add(entry); trim();
+        entry.kind = kind; entry.detail = detail; entry.values = copyValues(values);
+        entries.add(entry); entriesRevision = ++revision; trim();
     }
     private void trim() {
-        while (visits.size() > RUN_LIMIT) visits.remove(0);
+        while (visits.size() > RUN_LIMIT) { visits.remove(0); summariesRevision = choicesRevision = ++revision; }
         while (entries.size() > EVENT_LIMIT) {
             int discard = 0;
             for (int i = 0; i < entries.size(); i++) {
                 if (entries.get(i).kind.equals("Resources") || entries.get(i).kind.equals("Ownership check")) { discard = i; break; }
             }
-            entries.remove(discard);
+            entries.remove(discard); entriesRevision = ++revision;
         }
     }
     private void limitTimelines() {
         int points=0, slices=0;
-        for (Visit visit : visits) {
+        for (int i=0; i<visits.size(); i++) {
+            Visit visit=visits.get(i);
+            if (visit.resourceTimeline.size()>1000 || visit.conditionTimeline.size()>1000) { visit=writable(i); changed(visit); }
             while(visit.resourceTimeline.size()>1000) { visit.resourceTimeline.remove(0); visit.timelineOmitted++; }
             while(visit.conditionTimeline.size()>1000) { visit.conditionTimeline.remove(0); visit.timelineOmitted++; }
             points+=visit.resourceTimeline.size(); slices+=visit.conditionTimeline.size();
         }
-        for (Visit visit : visits) {
+        for (int i=0; i<visits.size(); i++) {
+            Visit visit=visits.get(i);
+            if ((points>12000 && !visit.resourceTimeline.isEmpty()) || (slices>12000 && !visit.conditionTimeline.isEmpty())) { visit=writable(i); changed(visit); }
             while(points>12000 && !visit.resourceTimeline.isEmpty()) { visit.resourceTimeline.remove(0); visit.timelineOmitted++; points--; }
             while(slices>12000 && !visit.conditionTimeline.isEmpty()) { visit.conditionTimeline.remove(0); visit.timelineOmitted++; slices--; }
         }
@@ -316,13 +333,119 @@ public final class ActivityJournal {
     }
     public State snapshot() {
         // Copy all mutable rows before handing them to the UI or background writer.
+        fullCopies++;
         State state = new State();
-        for (Visit visit : visits) state.visits.add(new Visit(visit));
-        for (Entry entry : entries) {
-            Entry copy = new Entry(); copy.id=entry.id; copy.time=entry.time; copy.visitId=entry.visitId; copy.map=entry.map;
-            copy.kind=entry.kind; copy.detail=entry.detail; copy.values=copyValues(entry.values); state.entries.add(copy);
-        }
+        for (Visit visit : visits) state.visits.add(copyVisit(visit, true));
+        for (Entry entry : entries) { state.entries.add(copyEntry(entry)); copiedEntries++; }
         return state;
+    }
+    public enum View { RUNS, TIMELINE, COMBAT }
+
+    /** Opaque comparison token: valid only for this journal, view and selected visit. */
+    public static final class ViewRevision {
+        private final transient ActivityJournal owner;
+        private final View view;
+        private final String selected;
+        private final long rows, choices;
+        private final int eventCount;
+        private ViewRevision(ActivityJournal owner, View view, String selected, long rows, long choices, int eventCount) {
+            this.owner=owner; this.view=view; this.selected=selected; this.rows=rows; this.choices=choices; this.eventCount=eventCount;
+        }
+        private boolean same(ViewRevision other) {
+            return other!=null && owner==other.owner && view==other.view && selected.equals(other.selected)
+                && rows==other.rows && choices==other.choices && eventCount==other.eventCount;
+        }
+    }
+    public static final class VisitChoice {
+        public final String id, map;
+        public final long started;
+        private VisitChoice(Visit visit) { id=visit.id; map=visit.map; started=visit.started; }
+    }
+    public static final class ViewSnapshot {
+        public final ViewRevision revision;
+        public final State data;
+        public final List<VisitChoice> choices;
+        public final String selectedVisit;
+        public final int visitCount, eventCount;
+        private final transient History history;
+        private ViewSnapshot(ViewRevision revision, State data, List<VisitChoice> choices, int visitCount, int eventCount, History history) {
+            this.revision=revision; this.data=data; this.choices=Collections.unmodifiableList(choices);
+            selectedVisit=revision.selected; this.visitCount=visitCount; this.eventCount=eventCount; this.history=history;
+        }
+        /** Materialize on a worker. Never returns the mutable payload used by the view. */
+        public State fullHistory() { return history.snapshot(); }
+        /** A different Combat selection at this same pinned revision; no other charts are copied. */
+        public Visit combatVisit(String id) {
+            for (Visit visit:history.visits) if (visit.id.equals(id)) return new Visit(visit);
+            return null;
+        }
+    }
+    /** Returns null without copying rows or pinning history when the requested view is unchanged. */
+    public ViewSnapshot viewSnapshot(View view, String selectedId, ViewRevision known) {
+        Objects.requireNonNull(view);
+        Visit selected=null;
+        if (view==View.COMBAT) {
+            for (Visit visit:visits) if (visit.id.equals(selectedId)) { selected=visit; break; }
+            if (selected==null && !visits.isEmpty()) selected=visits.get(visits.size()-1);
+        }
+        String id=selected==null ? "" : selected.id;
+        long rows=view==View.RUNS ? summariesRevision : view==View.TIMELINE ? entriesRevision : selected==null ? 0 : selected.revision;
+        ViewRevision next=new ViewRevision(this,view,id,rows,view==View.RUNS ? 0 : choicesRevision,view==View.COMBAT ? entries.size() : 0);
+        if (next.same(known)) return null;
+        viewCopies++;
+        State data=new State(); List<VisitChoice> choices=new ArrayList<>();
+        if (view==View.RUNS) for (Visit visit:visits) data.visits.add(copyVisit(visit,false));
+        else for (Visit visit:visits) choices.add(new VisitChoice(visit));
+        if (view==View.TIMELINE) for (Entry entry:entries) { data.entries.add(copyEntry(entry)); copiedEntries++; }
+        if (selected!=null) data.visits.add(copyVisit(selected,true));
+        // Shallow, private pins preserve displayed-revision exports without copying all chart data.
+        // Entries are append-only; the next mutation obtains a private visit/list version.
+        for (Visit visit:visits) visit.shared=true;
+        pinnedReferences+=visits.size()+entries.size();
+        return new ViewSnapshot(next,data,choices,visits.size(),entries.size(),new History(visits,entries));
+    }
+    private static final class History {
+        private final List<Visit> visits;
+        private final List<Entry> entries;
+        private History(List<Visit> visits,List<Entry> entries) { this.visits=new ArrayList<>(visits); this.entries=new ArrayList<>(entries); }
+        private State snapshot() {
+            State state=new State();
+            for (Visit visit:visits) state.visits.add(new Visit(visit));
+            for (Entry entry:entries) state.entries.add(copyEntry(entry));
+            return state;
+        }
+    }
+    private void changed(Visit visit) { visit.revision=++revision; summariesRevision=revision; }
+    private Visit writable(int index) {
+        Visit visit=visits.get(index);
+        if (visit.shared) {
+            Visit copy=copyVisit(visit,false); copy.revision=visit.revision;
+            // Resource points and completed slices are never modified internally. A growing final
+            // condition slice is replaced in advanceConditions, so these private lists can share elements.
+            copy.resourceTimeline.addAll(visit.resourceTimeline); copy.conditionTimeline.addAll(visit.conditionTimeline);
+            copyOnWriteReferences+=visit.resourceTimeline.size()+visit.conditionTimeline.size();
+            visits.set(index,copy); if (current==visit) current=copy; visit=copy;
+        }
+        return visit;
+    }
+    private void writableCurrent() { if (current!=null && current.shared) writable(visits.size()-1); }
+    private Visit copyVisit(Visit visit,boolean charts) {
+        copiedVisits++;
+        if (charts) { copiedPoints+=visit.resourceTimeline.size(); copiedSlices+=visit.conditionTimeline.size(); }
+        return new Visit(visit,charts);
+    }
+    private static Entry copyEntry(Entry entry) {
+        Entry copy=new Entry(); copy.id=entry.id; copy.time=entry.time; copy.visitId=entry.visitId; copy.map=entry.map;
+        copy.kind=entry.kind; copy.detail=entry.detail; copy.values=copyValues(entry.values); return copy;
+    }
+    long revision() { return revision; }
+    public SnapshotStats snapshotStats() { return new SnapshotStats(viewCopies,fullCopies,copiedVisits,copiedEntries,copiedPoints,copiedSlices,pinnedReferences,copyOnWriteReferences); }
+    /** Observer-owned copy counts, including copy-on-write. Off-lock pinned export copies are excluded. */
+    public static final class SnapshotStats {
+        public final long views, full, visits, entries, resourcePoints, conditionSlices, pinnedReferences, copyOnWriteReferences;
+        private SnapshotStats(long views,long full,long visits,long entries,long points,long slices,long pins,long cowReferences) {
+            this.views=views; this.full=full; this.visits=visits; this.entries=entries; resourcePoints=points; conditionSlices=slices; pinnedReferences=pins; copyOnWriteReferences=cowReferences;
+        }
     }
     @SuppressWarnings("unchecked")
     private static Object copyValue(Object value) {
@@ -333,7 +456,7 @@ public final class ActivityJournal {
         if (value instanceof int[]) return ((int[])value).clone();
         return value; // Remaining allowlisted values are immutable numbers, booleans and strings.
     }
-    private static Map<String,Object> copyValues(Map<String,Object> values) {
+    static Map<String,Object> copyValues(Map<String,Object> values) {
         Map<String,Object> copy = new LinkedHashMap<>(); values.forEach((key,value) -> copy.put(key,copyValue(value))); return copy;
     }
     public static final class State {
@@ -345,7 +468,8 @@ public final class ActivityJournal {
     }
     public static final class Visit {
         public Visit() {}
-        Visit(Visit v) {
+        Visit(Visit v) { this(v,true); }
+        private Visit(Visit v, boolean charts) {
             id=v.id; map=v.map; status=v.status; started=v.started; ended=v.ended; lastSeen=v.lastSeen;
             frames=v.frames; issues=v.issues; ticks=v.ticks; tickMillis=v.tickMillis; timingGaps=v.timingGaps;
             difficulty=v.difficulty; maxTickMillis=v.maxTickMillis; partyId=v.partyId; rosterSize=v.rosterSize;
@@ -357,9 +481,13 @@ public final class ActivityJournal {
             conditions.putAll(v.conditions); extraConditions.putAll(v.extraConditions);
             requestedItems.putAll(v.requestedItems); effects.putAll(v.effects); equipment.putAll(v.equipment);
             timelineOmitted=v.timelineOmitted;
-            for(ResourcePoint point:v.resourceTimeline) { ResourcePoint p=new ResourcePoint(); p.time=point.time; p.hp=point.hp; p.mp=point.mp; resourceTimeline.add(p); }
-            for(ConditionSlice slice:v.conditionTimeline) { ConditionSlice s=new ConditionSlice(); s.start=slice.start; s.end=slice.end; s.primary=slice.primary; s.secondary=slice.secondary; conditionTimeline.add(s); }
+            if (charts) {
+                for(ResourcePoint point:v.resourceTimeline) { ResourcePoint p=new ResourcePoint(); p.time=point.time; p.hp=point.hp; p.mp=point.mp; resourceTimeline.add(p); }
+                for(ConditionSlice slice:v.conditionTimeline) { ConditionSlice s=new ConditionSlice(); s.start=slice.start; s.end=slice.end; s.primary=slice.primary; s.secondary=slice.secondary; conditionTimeline.add(s); }
+            }
         }
+        private transient long revision;
+        private transient boolean shared;
         public String id, map, status = "In progress; completion unknown";
         public long started, ended, lastSeen, frames, issues, ticks, tickMillis, timingGaps;
         public float difficulty;

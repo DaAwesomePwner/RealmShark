@@ -1,618 +1,190 @@
 package tomato.realmshark;
 
-import com.google.gson.*;
-import java.net.URISyntaxException;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import java.nio.charset.StandardCharsets;
-import java.util.Date;
-import java.util.Stack;
-import java.util.concurrent.Semaphore;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import packets.data.StatData;
-import packets.data.WorldPosData;
 import packets.data.enums.StatType;
 import packets.incoming.MapInfoPacket;
+import tomato.Tomato;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.realmshark.enums.CharacterClass;
 import tomato.version.Version;
+import util.PropertiesManager;
 
-public class SendLoot {
+/** Legacy wire composition and tick policy, independent of transport and local notifications. */
+public final class SendLoot {
+    private static final Set<String> SPECIAL_ATTRIBUTION_DUNGEONS = new HashSet<>(Arrays.asList(
+        "The Shatters", "Oryx's Sanctuary", "Moonlight Village"));
 
-    private static WebSocket webSocket;
+    private SendLoot() { }
 
-    private static Semaphore sem = new Semaphore(0);
-
-    private static Stack<byte[]> stack = new Stack<>();
-    private static int currentTickSeed = -1;
-
-    /**
-     * Called at the start of each loot tick (from TomatoData).
-     * Flushes any pending overflow bag from the previous tick before setting the new tick seed.
-     */
-    public static void beginLootTick(int tickSeed) {
-        flushPendingOverflow();
-        currentTickSeed = tickSeed;
-    }
-
-    /**
-     * Flush a pending full bag that never received an overflow partner.
-     */
-    public static void flushPendingOverflow() {
-        if (pendingFullBag == null) return;
-
-        PendingBag pb = pendingFullBag;
-
-        JsonObject flush = new JsonObject();
-        flush.addProperty("bag", pb.bagId);
-        flush.addProperty("pos", String.format("%f,%f", pb.x, pb.y));
-        flush.addProperty("dung", pb.dungeon);
-        if (pb.mods != null) {
-            flush.add("mods", pb.mods);
-        } else {
-            flush.add("mods", new JsonArray());
+    private static final class Holder {
+        // Match File > Disable data sending: only the literal "true" opts out; absent is enabled.
+        static final Session SESSION = new Session(new LootDelivery(
+            () -> new WebSocket("ws://38.45.66.65:3008"), LootDelivery.DEFAULT_CAPACITY,
+            defaultEnabled(PropertiesManager.getProperty("disableDataSending")), Tomato.isPreview()));
+        static {
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                SESSION.close();
+                try { SESSION.awaitStopped(3500); }
+                catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+            }, "legacy-loot-shutdown"));
         }
-        if (pb.mobOverride != null) {
-            flush.addProperty("mob", pb.mobOverride);
-        } else {
-            flush.addProperty("mob", pb.mob);
-        }
-        flush.addProperty("share", pb.sharedLoot);
-        flush.add("items", pb.items);
-        flush.addProperty("exalt", pb.exaltBonus);
-        flush.addProperty("ld", pb.lootDrop);
-        flush.addProperty("seas", pb.isSeasonal);
-        flush.addProperty("cruc", pb.crucible);
-        flush.addProperty("lben", pb.lootEnchant);
-        flush.addProperty("ver", Version.VERSION);
-
-        byte[] out = flush.toString().getBytes(StandardCharsets.UTF_8);
-        stack.push(out);
-        sem.release();
-        pendingFullBag = null;
     }
 
-    // ----------------- Overflow / Merge Configuration -----------------
-
-    // Maximum squared distance (tiles^2) to consider two bags part of one logical drop (2 tiles -> 4 distance squared)
-
-    // (Distance check removed; merging is now unconditional within the loot tick)
-
-    // Dungeons with special attribution logic where we DO NOT merge bags automatically
-
-    private static final java.util.Set<String> SPECIAL_ATTRIBUTION_DUNGEONS =
-        new java.util.HashSet<>(
-            java.util.Arrays.asList(
-                "The Shatters",
-                "Oryx's Sanctuary",
-                "Moonlight Village"
-            )
-        );
-
-    // Pending full bag waiting for potential overflow partner
-    private static PendingBag pendingFullBag;
-
-    private static class PendingBag {
-
-        int bagId;
-
-        double x;
-
-        double y;
-
-        String dungeon;
-
-        String mobOverride;
-
-        int mob;
-
-        int sharedLoot;
-
-        JsonArray items;
-
-        JsonArray mods;
-        int exaltBonus;
-
-        boolean lootDrop;
-
-        boolean isSeasonal;
-
-        int crucible;
-
-        float lootEnchant;
-
-        long created;
-
-        int tickSeed;
+    public static boolean defaultEnabled(String disableDataSending) { return !"true".equals(disableDataSending); }
+    public static Session session() { return Holder.SESSION; }
+    public static void beginLootTick(int tickSeed) { session().beginLootTick(tickSeed); }
+    public static void flushPendingOverflow() { session().flushPendingOverflow(); }
+    public static void sendLoot(TomatoData data, MapInfoPacket map, Entity bag, Entity dropper, Entity player, long time) {
+        session().sendLoot(data, map, bag, dropper, player, time);
     }
 
-    static {
-        try {
-            webSocket = new WebSocket("ws://38.45.66.65:3008");
-        } catch (URISyntaxException e) {
-            throw new RuntimeException(e);
-        }
-        sendLoop();
-    }
-
-    public static void sendLoot(
-        TomatoData data,
-        MapInfoPacket map,
-        Entity bag,
-        Entity dropper,
-        Entity player,
-        long time
-    ) {
-        webSocket.con();
-
-        int bagId = -1;
-        WorldPosData pos = bag.pos;
-        String dungeon = "";
-        JsonArray mods = new JsonArray();
-        int mob = -1;
-        int sharedLoot = -1;
+    /** Detached JSON composition. Does not initialize the production sender or open a socket. */
+    public static JsonObject compose(TomatoData data, MapInfoPacket map, Entity bag, Entity dropper, Entity player, long time) {
         JsonArray items = new JsonArray();
-        int exaltBonus = -1;
-        boolean lootDrop = false;
-        boolean isSeasonal = false;
-        int cruc = 0;
-
-        if (bag != null) {
-            bagId = bag.objectType;
-
-            String[] enchants = null;
-            StatData udata = bag.stat.get(StatType.UNIQUE_DATA_STRING);
-            if (udata != null && udata.stringStatValue != null) {
-                enchants = udata.stringStatValue.split(",", -1);
-            }
-
-            for (int i = 0; i < 8; i++) {
-                StatData sd = bag.stat.get(StatType.INVENTORY_0_STAT.get() + i);
-
-                if (sd == null || sd.statValue < 1) continue;
-
-                JsonObject item = new JsonObject();
-
-                item.addProperty("id", sd.statValue);
-
-                int sl = 0;
-
-                if (
-                    enchants != null &&
-                    i < enchants.length &&
-                    !enchants[i].isEmpty() &&
-                    !enchants[i].equals("AAIE_f_9__3__f8=") &&
-                    ParseEnchants.summarize(enchants[i]).slots >= 0
-                ) {
-                    try {
-                        String encoded = enchants[i];
-                        while (encoded.length() % 4 != 0) encoded += "=";
-                        String enchantText = ParseEnchants.parse(encoded);
-                        if (!enchantText.isEmpty()) sl = Math.min(4, enchantText.split("\n").length);
-                    } catch (RuntimeException e) {
-                        // Preserve the item and remaining bag when this slot cannot be decoded.
-                    }
-                }
-
-                item.addProperty("sl", sl);
-
-                items.add(item);
-            }
-        }
-
-        float lootEnch = 0f;
-
-        if (player != null) {
-            exaltBonus = RealmCharacter.exaltLootBonus(player.objectType);
-
-            lootDrop = player.lootDropTime(time) > 0;
-
-            cruc = player.isCrucible() ? 1 : 0;
-
-            StatData sesn = player.stat.get(StatType.SEASONAL.get());
-
-            if (sesn != null) {
-                if (sesn.statValue == 1) {
-                    isSeasonal = true;
-                }
-            }
-
-            // Aggregate total loot bonus percent from player enchantments
-            String[] playerEnchantCodes = ParseEnchants.getEnchantStrings(
-                player
-            );
-            lootEnch = ParseEnchants.getTotalLootBonusPercent(
-                playerEnchantCodes
-            );
-        }
-
-        if (map != null) {
-            dungeon = map.name;
-            int[] dungeonMods = ParseDungeon.getModIds(
-                ParseDungeon.getModifiersString(map)
-            );
-            for (int i = 0; i < dungeonMods.length; i++) {
-                mods.add(dungeonMods[i]);
-            }
-            if (dungeon.equals("Moonlight Village")) {
-                int flames = data.getMoonlightFlameCount();
-                if (flames > 0) {
-                    mods.add("Flames:" + flames);
-                }
-            }
-        }
-
-        String mobOverride = null;
-        if (dropper != null) {
-            mob = dropper.objectType;
-
-            sharedLoot = dropper.playersRemainAtKill();
-
-            if (
-                dropper.lootMobIdOverride != null &&
-                !dropper.lootMobIdOverride.isEmpty()
-            ) {
-                mobOverride = dropper.lootMobIdOverride;
-            }
-        }
-
-        // ------------------ Bag Merge (Overflow) Handling ------------------
-        // Goal: Some dungeons can drop a "second" bag very near the first because the first
-        // filled its 8 item slots. For statistics we want to treat the two physical bags
-        // as ONE logical drop if:
-
-        //  - Dungeon is not in SPECIAL_ATTRIBUTION_DUNGEONS
-
-        //  - First bag was full (8 items)
-
-        //  - Second bag (next bag in same loot tick) will always merge; distance ignored
-
-        //  - No special mob override attribution (mobOverride == null)
-
-        //
-
-        // Implementation: When we encounter a full bag, we hold it briefly (pendingFullBag)
-        // instead of sending immediately. If another bag appears meeting the criteria,
-        // we merge their item arrays and send a single combined entry (using the first bag's
-        // position / metadata). If no suitable second bag arrives before timeout, we flush
-        // the pending bag as-is.
-        long now = System.currentTimeMillis();
-
-        // Removed stale flush logic: no waiting window required
-
-        boolean specialDungeon = SPECIAL_ATTRIBUTION_DUNGEONS.contains(dungeon);
-
-        boolean canAttemptMerge = !specialDungeon && mobOverride == null;
-
-        boolean isFullBag = items.size() >= 8;
-
-        if (canAttemptMerge) {
-            if (pendingFullBag == null) {
-                // Always hold the first bag in the tick (even if not full) so that
-                // if a second bag (or this one) is/was full we can merge overflow.
-                pendingFullBag = new PendingBag();
-
-                pendingFullBag.bagId = bagId;
-
-                pendingFullBag.x = pos.x;
-
-                pendingFullBag.y = pos.y;
-
-                pendingFullBag.dungeon = dungeon;
-
-                pendingFullBag.mobOverride = mobOverride;
-
-                pendingFullBag.mob = mob;
-
-                pendingFullBag.sharedLoot = sharedLoot;
-
-                pendingFullBag.items = items.deepCopy();
-
-                pendingFullBag.mods = mods.deepCopy();
-
-                pendingFullBag.exaltBonus = exaltBonus;
-
-                pendingFullBag.lootDrop = lootDrop;
-
-                pendingFullBag.isSeasonal = isSeasonal;
-
-                pendingFullBag.crucible = cruc;
-
-                pendingFullBag.lootEnchant = lootEnch;
-
-                pendingFullBag.created = now;
-
-                pendingFullBag.tickSeed = currentTickSeed;
-
-                // Do NOT send yet — wait to see next bag in this tick
-
-                return;
-            } else if (pendingFullBag != null) {
-                // If tick changed, flush old pending before handling this bag
-
-                if (pendingFullBag.tickSeed != currentTickSeed) {
-                    flushPendingOverflow();
-
-                    // Start new pending with current (regardless of fullness)
-                    pendingFullBag = new PendingBag();
-
-                    pendingFullBag.bagId = bagId;
-
-                    pendingFullBag.x = pos.x;
-
-                    pendingFullBag.y = pos.y;
-
-                    pendingFullBag.dungeon = dungeon;
-
-                    pendingFullBag.mobOverride = mobOverride;
-
-                    pendingFullBag.mob = mob;
-
-                    pendingFullBag.sharedLoot = sharedLoot;
-
-                    pendingFullBag.items = items.deepCopy();
-
-                    pendingFullBag.mods = mods.deepCopy();
-
-                    pendingFullBag.exaltBonus = exaltBonus;
-
-                    pendingFullBag.lootDrop = lootDrop;
-
-                    pendingFullBag.isSeasonal = isSeasonal;
-
-                    pendingFullBag.crucible = cruc;
-
-                    pendingFullBag.lootEnchant = lootEnch;
-
-                    pendingFullBag.created = now;
-
-                    pendingFullBag.tickSeed = currentTickSeed;
-
-                    return;
-                }
-
-                // Merge / flush decision (same tick):
-                if (
-                    pendingFullBag != null &&
-                    pendingFullBag.tickSeed == currentTickSeed
-                ) {
-                    boolean pendingWasFull = pendingFullBag.items.size() >= 8;
-                    // Merge if either bag is full (overflow scenario)
-                    if (pendingWasFull || isFullBag) {
-                        JsonArray mergedItems = new JsonArray();
-                        for (int i = 0; i < pendingFullBag.items.size(); i++) {
-                            mergedItems.add(pendingFullBag.items.get(i));
-                        }
-                        for (int i = 0; i < items.size(); i++) {
-                            mergedItems.add(items.get(i));
-                        }
-                        JsonObject merged = new JsonObject();
-                        merged.addProperty("bag", pendingFullBag.bagId); // keep first bag id
-                        merged.addProperty(
-                            "pos",
-                            String.format(
-                                "%f,%f",
-                                pendingFullBag.x,
-                                pendingFullBag.y
-                            )
-                        );
-                        merged.addProperty("dung", pendingFullBag.dungeon);
-                        merged.add("mods", mods);
-                        if (pendingFullBag.mobOverride != null) {
-                            merged.addProperty(
-                                "mob",
-                                pendingFullBag.mobOverride
-                            );
-                        } else {
-                            merged.addProperty("mob", pendingFullBag.mob);
-                        }
-                        merged.addProperty("share", pendingFullBag.sharedLoot);
-                        merged.add("items", mergedItems);
-                        merged.addProperty("exalt", pendingFullBag.exaltBonus);
-                        merged.addProperty("ld", pendingFullBag.lootDrop);
-                        merged.addProperty("seas", pendingFullBag.isSeasonal);
-                        merged.addProperty("cruc", pendingFullBag.crucible);
-                        merged.addProperty("lben", pendingFullBag.lootEnchant);
-                        merged.addProperty("ver", Version.VERSION);
-                        byte[] mout = merged
-                            .toString()
-                            .getBytes(StandardCharsets.UTF_8);
-                        /*
-                        System.out.println(
-                            "[" +
-                                new Date() +
-                                "] Queued merged loot data: " +
-                                merged.toString()
-                                ); */
-                        stack.push(mout);
-                        sem.release();
-                        pendingFullBag = null;
-                        return;
-                    } else {
-                        // Neither bag full -> send pending as normal, hold current as new pending
-                        JsonObject flush = new JsonObject();
-                        flush.addProperty("bag", pendingFullBag.bagId);
-                        flush.addProperty(
-                            "pos",
-                            String.format(
-                                "%f,%f",
-                                pendingFullBag.x,
-                                pendingFullBag.y
-                            )
-                        );
-                        flush.addProperty("dung", pendingFullBag.dungeon);
-                        if (pendingFullBag.mods != null) {
-                            flush.add("mods", pendingFullBag.mods);
-                        } else {
-                            flush.add("mods", new JsonArray());
-                        }
-                        if (pendingFullBag.mobOverride != null) {
-                            flush.addProperty(
-                                "mob",
-                                pendingFullBag.mobOverride
-                            );
-                        } else {
-                            flush.addProperty("mob", pendingFullBag.mob);
-                        }
-                        flush.addProperty("share", pendingFullBag.sharedLoot);
-                        flush.add("items", pendingFullBag.items);
-                        flush.addProperty("exalt", pendingFullBag.exaltBonus);
-                        flush.addProperty("ld", pendingFullBag.lootDrop);
-                        flush.addProperty("seas", pendingFullBag.isSeasonal);
-                        flush.addProperty("cruc", pendingFullBag.crucible);
-                        flush.addProperty("lben", pendingFullBag.lootEnchant);
-                        flush.addProperty("ver", Version.VERSION);
-                        byte[] pout = flush
-                            .toString()
-                            .getBytes(StandardCharsets.UTF_8);
-                        /* System.out.println(
-                                "[" +
-                                    new Date() +
-                                    "] Queued merged loot data (flush): " +
-                                    flush.toString()
-                            ); */
-                        stack.push(pout);
-                        sem.release();
-                        // Start new pending with current bag
-                        pendingFullBag = new PendingBag();
-                        pendingFullBag.bagId = bagId;
-                        pendingFullBag.x = pos.x;
-                        pendingFullBag.y = pos.y;
-                        pendingFullBag.dungeon = dungeon;
-                        pendingFullBag.mobOverride = mobOverride;
-                        pendingFullBag.mob = mob;
-                        pendingFullBag.sharedLoot = sharedLoot;
-                        pendingFullBag.items = items.deepCopy();
-                        pendingFullBag.mods = mods.deepCopy();
-                        pendingFullBag.exaltBonus = exaltBonus;
-                        pendingFullBag.lootDrop = lootDrop;
-                        pendingFullBag.isSeasonal = isSeasonal;
-                        pendingFullBag.crucible = cruc;
-                        pendingFullBag.lootEnchant = lootEnch;
-                        pendingFullBag.created = now;
-                        pendingFullBag.tickSeed = currentTickSeed;
-                        return;
-                    }
-                }
-            } // end else-if (pendingFullBag != null)
-        } // end canAttemptMerge
-
-        // ------------------ Normal (non-merged) send path ------------------
-        JsonObject jsonObject = new JsonObject();
-        jsonObject.addProperty("bag", bagId);
-        jsonObject.addProperty("pos", String.format("%f,%f", pos.x, pos.y));
-        jsonObject.addProperty("dung", dungeon);
-        jsonObject.add("mods", mods);
-
-        if (mobOverride != null) {
-            jsonObject.addProperty("mob", mobOverride);
-        } else {
-            jsonObject.addProperty("mob", mob);
-        }
-
-        jsonObject.addProperty("share", sharedLoot);
-        jsonObject.add("items", items);
-        jsonObject.addProperty("exalt", exaltBonus);
-        jsonObject.addProperty("ld", lootDrop);
-        jsonObject.addProperty("seas", isSeasonal);
-        jsonObject.addProperty("cruc", cruc);
-        jsonObject.addProperty("lben", lootEnch);
-        jsonObject.addProperty("ver", Version.VERSION);
-
-        byte[] out = jsonObject.toString().getBytes(StandardCharsets.UTF_8);
-        /*
-        System.out.println(
-            "[" +
-                new Date() +
-                "] Queued loot data for WebSocket: " +
-                jsonObject.toString()
-        );
-        */
-        stack.push(out);
-        sem.release();
-    }
-
-    private static void sendLoop() {
-        new Thread(() -> {
-            while (true) {
-                try {
-                    sem.acquire();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-
-                while (stack.size() > 0) {
-                    byte[] out = stack.pop();
-
-                    // Log the exact JSON string being sent
-                    String payload = new String(out, StandardCharsets.UTF_8);
-                    /*
-                    System.out.println(
-                        "[" +
-                            new Date() +
-                            "] WebSocket Sending: " + payload
-                    );
-                    */
-                    webSocket.sendBytes(out);
-                }
-            }
-        })
-            .start();
-    }
-
-    public static void main(String[] args) {
-        webSocket.con();
-        //        String s = "{\"bagId\":1287,\"dungeon\":\"Spider Den\",\"dungeonMods\":\"BONUSCONSUMABLES;ENERGIZEDMINIONS_1;|D\",\"mob\":2358,\"sharedLoot\":1,\"items\":\"1799:2773[UT - Engraving: RELATIVE_SPEED_BONUS_1(320)]:2655:2745[UT - Engraving: RELATIVE_SPEED_BONUS_1(320)]:6141:1799:1799:1799\",\"exaltBonus\":35,\"lootDrop\":false,\"isSeasonal\":true}";
-        //        String jj = JSONParser.quote(s);
-        //
-        //        JsonObject j = new JsonObject();
-        //        System.out.println(jj);
-
-        int bagId = -1;
-        WorldPosData pos = new WorldPosData();
-        String dungeon = "Realm of the Mad God";
-        int[] dungeonMods = ParseDungeon.getModIds(
-            "BONUSCONSUMABLES;ENERGIZEDMINIONS_1;|D"
-        );
-        int mob = 17735;
-        int sharedLoot = 1;
-        int exaltBonus = 35;
-        boolean lootDrop = false;
-        boolean isSeasonal = true;
-
-        JsonObject jsonObject = new JsonObject();
-        JsonArray items = new JsonArray();
+        StatData unique = bag.stat.get(StatType.UNIQUE_DATA_STRING);
+        String[] enchants = unique == null || unique.stringStatValue == null
+            ? new String[0] : unique.stringStatValue.split(",", -1);
         for (int i = 0; i < 8; i++) {
+            StatData stat = bag.stat.get(StatType.INVENTORY_0_STAT.get() + i);
+            if (stat == null || stat.statValue < 1) continue;
             JsonObject item = new JsonObject();
-            item.addProperty("id", 1234);
+            item.addProperty("id", stat.statValue);
+            int sl = 0;
+            if (i < enchants.length && !enchants[i].isEmpty() && !enchants[i].equals("AAIE_f_9__3__f8=")
+                    && ParseEnchants.summarize(enchants[i]).slots >= 0) {
+                try {
+                    String encoded = enchants[i];
+                    while (encoded.length() % 4 != 0) encoded += "=";
+                    String text = ParseEnchants.parse(encoded);
+                    // Legacy sl counts parser lines (including empty-slot descriptions), NOT rarity.
+                    if (!text.isEmpty()) sl = Math.min(4, text.split("\n").length);
+                } catch (RuntimeException ignored) { /* A malformed enchant never loses the item. */ }
+            }
+            item.addProperty("sl", sl);
             items.add(item);
         }
-
-        jsonObject.addProperty("bag", bagId);
-        jsonObject.addProperty("pos", String.format("%s,%s", pos.x, pos.y));
-        jsonObject.addProperty("dung", dungeon);
+        String dungeon = map == null ? "" : map.name;
         JsonArray mods = new JsonArray();
-        for (int i = 0; i < dungeonMods.length; i++) {
-            mods.add(dungeonMods[i]);
+        if (map != null) {
+            for (int mod : ParseDungeon.getModIds(ParseDungeon.getModifiersString(map))) mods.add(mod);
+            if ("Moonlight Village".equals(dungeon) && data != null) {
+                int flames = data.getMoonlightFlameCount();
+                if (flames > 0) mods.add("Flames:" + flames);
+            }
         }
-        jsonObject.add("mods", mods);
+        JsonObject json = new JsonObject();
+        json.addProperty("bag", bag.objectType);
+        json.addProperty("pos", String.format(Locale.ROOT, "%f,%f", bag.pos.x, bag.pos.y));
+        json.addProperty("dung", dungeon);
+        json.add("mods", mods);
+        if (dropper != null && dropper.lootMobIdOverride != null && !dropper.lootMobIdOverride.isEmpty()) {
+            json.addProperty("mob", dropper.lootMobIdOverride);
+        } else json.addProperty("mob", dropper == null ? -1 : dropper.objectType);
+        json.addProperty("share", dropper == null ? -1 : dropper.playersRemainAtKill());
+        json.add("items", items);
+        json.addProperty("exalt", player == null || CharacterClass.weaponClasses(player.objectType) == null
+            ? -1 : RealmCharacter.exaltLootBonus(player.objectType));
+        json.addProperty("ld", player != null && player.lootDropTime(time) > 0);
+        StatData seasonal = player == null ? null : player.stat.get(StatType.SEASONAL);
+        json.addProperty("seas", seasonal != null && seasonal.statValue == 1);
+        json.addProperty("cruc", player != null && player.isCrucible() ? 1 : 0);
+        json.addProperty("lben", player == null ? 0f : ParseEnchants.getTotalLootBonusPercent(ParseEnchants.getEnchantStrings(player)));
+        json.addProperty("ver", Version.VERSION);
+        return json;
+    }
 
-        jsonObject.addProperty("mob", mob);
+    /** Injectable session: tests can exercise the real tick/merge path with a fake transport. */
+    public static final class Session implements AutoCloseable {
+        private final Object pendingLock = new Object();
+        private final LootDelivery delivery;
+        private JsonObject pending;
+        private long tickGeneration;
 
-        jsonObject.addProperty("share", sharedLoot);
+        public Session(LootDelivery delivery) { this.delivery = delivery; }
+        public boolean isEnabled() { return delivery.isEnabled(); }
+        public LootDelivery.Status snapshot() { return delivery.snapshot(); }
+        public int pendingBags() { synchronized (pendingLock) { return pending == null ? 0 : 1; } }
 
-        jsonObject.add("items", items);
+        public void setEnabled(boolean enabled) {
+            synchronized (pendingLock) {
+                delivery.setEnabled(enabled);
+                if (!delivery.isEnabled()) discardPending();
+            }
+        }
 
-        jsonObject.addProperty("exalt", exaltBonus);
-        jsonObject.addProperty("ld", lootDrop);
-        jsonObject.addProperty("seas", isSeasonal);
+        public void beginLootTick(int seed) {
+            JsonObject flush;
+            long generation;
+            synchronized (pendingLock) {
+                // TomatoData passes a map seed, which may be identical across many loot ticks.
+                tickGeneration++;
+                if (!delivery.isEnabled()) { discardPending(); return; }
+                generation = delivery.generation();
+                flush = pending; pending = null;
+            }
+            publish(flush, generation);
+        }
 
-        System.out.println(jsonObject.toString());
+        public void flushPendingOverflow() {
+            JsonObject flush;
+            long generation;
+            synchronized (pendingLock) {
+                if (!delivery.isEnabled()) { discardPending(); return; }
+                generation = delivery.generation();
+                flush = pending; pending = null;
+            }
+            publish(flush, generation);
+        }
 
-        //        String s = "{\"bagId\":1287,\"dungeon\":\"Realm of the Mad God\",\"dungeonMods\":\"\",\"mob\":17735,\"sharedLoot\":1,\"items\":\"2783[UT - Engraving: ONHIT_DAMAGING_1(49)]\",\"exaltBonus\":35,\"lootDrop\":false,\"isSeasonal\":true}";
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        String jsonOutput = gson.toJson(jsonObject);
-        System.out.println(jsonOutput);
+        public void sendLoot(TomatoData data, MapInfoPacket map, Entity bag, Entity dropper, Entity player, long time) {
+            long generation;
+            long tick;
+            synchronized (pendingLock) {
+                if (!delivery.isEnabled()) return;
+                generation = delivery.generation(); tick = tickGeneration;
+            }
+            final JsonObject json;
+            try { json = compose(data, map, bag, dropper, player, time); }
+            catch (RuntimeException ex) { delivery.recordDrop("Loot composition failed: " + ex.getClass().getSimpleName()); return; }
+            JsonObject flush;
+            synchronized (pendingLock) {
+                if (!delivery.isEnabled() || generation != delivery.generation()) {
+                    delivery.recordDrop(null); return;
+                }
+                boolean mergeable = !SPECIAL_ATTRIBUTION_DUNGEONS.contains(json.get("dung").getAsString())
+                    && !json.getAsJsonPrimitive("mob").isString();
+                if (!mergeable || tick != tickGeneration) flush = json;
+                else if (pending == null) { pending = json; return; }
+                else if (pending.getAsJsonArray("items").size() >= 8 || json.getAsJsonArray("items").size() >= 8) {
+                    flush = pending; pending = null;
+                    flush.getAsJsonArray("items").addAll(json.getAsJsonArray("items"));
+                    // Preserve legacy merged payload: first bag metadata, second bag's mods.
+                    flush.add("mods", json.get("mods"));
+                } else { flush = pending; pending = json; }
+            }
+            publish(flush, generation);
+        }
 
-        byte[] out = jsonObject.toString().getBytes(StandardCharsets.UTF_8);
+        private void publish(JsonObject json, long generation) {
+            if (json != null) delivery.offer(json.toString().getBytes(StandardCharsets.UTF_8), generation);
+        }
 
-        webSocket.sendBytes(out);
+        private void discardPending() {
+            if (pending != null) { delivery.recordDrop(null); pending = null; }
+        }
+
+        @Override public void close() {
+            synchronized (pendingLock) { discardPending(); delivery.close(); }
+        }
+
+        public boolean awaitStopped(long timeoutMillis) throws InterruptedException { return delivery.awaitStopped(timeoutMillis); }
     }
 }

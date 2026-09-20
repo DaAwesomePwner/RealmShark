@@ -3,6 +3,7 @@ package tomato.gui.stats;
 import assets.IdToAsset;
 import assets.ImageBuffer;
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
@@ -44,7 +45,10 @@ public class LootGUI extends JPanel {
     private static Font mainFont;
 
     private int lootDrops;
-    private volatile boolean disableLootSharing;
+    private final SendLoot.Session sharing;
+    private final JTextArea sharingStatus = new JTextArea(2, 0);
+    private final JTextArea sharingDetails = new JTextArea(10, 48);
+    private final Timer sharingRefresh;
     public static boolean filterWhiteBag = false;
     public static boolean filterOrangeBag = false;
     public static boolean filterRedBag = false;
@@ -57,6 +61,11 @@ public class LootGUI extends JPanel {
     public static boolean filterBrownBag = false;
 
     public LootGUI(TomatoData data) {
+        this(data, SendLoot.session());
+    }
+
+    LootGUI(TomatoData data, SendLoot.Session sharing) {
+        this.sharing = sharing;
         LootGUI.data = data;
         lootDrops = 0;
         INSTANCE = this;
@@ -81,6 +90,72 @@ public class LootGUI extends JPanel {
         log.add(scroll, BorderLayout.CENTER);
         views.addTab("Live log", log);
         add(views, BorderLayout.CENTER);
+        sharingStatus.setEditable(false);
+        sharingStatus.setLineWrap(true);
+        sharingStatus.setWrapStyleWord(true);
+        sharingStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
+        sharingStatus.getAccessibleContext().setAccessibleName("Legacy loot delivery status");
+        sharingDetails.setEditable(false);
+        sharingDetails.setLineWrap(true);
+        sharingDetails.setWrapStyleWord(true);
+        sharingDetails.setFont(sharingStatus.getFont());
+        sharingDetails.getAccessibleContext().setAccessibleName("Legacy loot delivery details");
+        JScrollPane deliveryStatus = new JScrollPane(sharingStatus) {
+            @Override public Dimension getPreferredSize() {
+                // A status update/error must not consume the loot table's compact-height budget.
+                Insets insets = getInsets();
+                return new Dimension(0, 2 * sharingStatus.getFontMetrics(sharingStatus.getFont()).getHeight()
+                    + insets.top + insets.bottom + 2);
+            }
+        };
+        deliveryStatus.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        deliveryStatus.setBorder(BorderFactory.createEmptyBorder());
+        JButton details = new JButton("Details…");
+        details.setToolTipText("Delivery counters, last error, and cancellation/confirmation semantics");
+        details.addActionListener(e -> JOptionPane.showMessageDialog(this, new JScrollPane(sharingDetails),
+            "Legacy loot delivery", JOptionPane.INFORMATION_MESSAGE));
+        JPanel deliveryBar = new JPanel(new BorderLayout(8, 0));
+        deliveryBar.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        deliveryBar.add(deliveryStatus, BorderLayout.CENTER);
+        deliveryBar.add(details, BorderLayout.EAST);
+        add(deliveryBar, BorderLayout.NORTH);
+        refreshDeliveryStatus();
+        sharingRefresh = new Timer(500, e -> refreshDeliveryStatus());
+        sharingRefresh.setCoalesce(true);
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                if (isShowing()) { refreshDeliveryStatus(); sharingRefresh.start(); }
+                else sharingRefresh.stop();
+            }
+        });
+    }
+
+    /** Poll once per visible refresh, never enqueue a Swing event per delivery/counter change. */
+    void refreshDeliveryStatus() {
+        LootDelivery.Status status = sharing.snapshot();
+        String text = "Legacy loot sharing: " + status.state
+            + "\nQueued total: " + status.queued + " · Waiting: " + status.waiting
+            + " · Pending merge: " + sharing.pendingBags() + " · Active: " + status.active
+            + "\nSent to socket: " + status.sentToSocket + " (unconfirmed) · Dropped before send: " + status.dropped
+            + " · Uncertain: " + status.uncertain
+            + "\nLast error: " + (status.lastError.isEmpty() ? "None" : status.lastError)
+            + "\nSocket writes are not application confirmation. Merged bags count as one payload. Opt-out cancels unsent bags; an in-flight send cannot be retracted and is counted as uncertain. Uncertain sends are not retried.";
+        if (!text.equals(sharingDetails.getText())) sharingDetails.setText(text);
+        String mode = status.closed ? "Stopped" : status.preview ? "Preview" : status.enabled ? "On" : "Opted out";
+        String summary = "Legacy loot: " + mode + " · Queued: " + status.queued
+            + " · Socket: " + status.sentToSocket + " (unconfirmed)"
+            + "\nDropped: " + status.dropped + " · Uncertain: " + status.uncertain
+            + " · Error: " + (status.lastError.isEmpty() ? "None" : "See Details");
+        if (!summary.equals(sharingStatus.getText())) {
+            sharingStatus.setText(summary);
+            sharingStatus.setCaretPosition(0);
+        }
+        sharingStatus.getAccessibleContext().setAccessibleDescription(text);
+    }
+
+    @Override public void removeNotify() {
+        sharingRefresh.stop();
+        super.removeNotify();
     }
 
     public static void update(
@@ -133,7 +208,7 @@ public class LootGUI extends JPanel {
         if (Sound.eggbag.isEnabled() && isEggBag(bag)) Sound.eggbag.play();
         if (Sound.bluebag.isEnabled() && isBlueBag(bag)) Sound.bluebag.play();
         notifyItems(bag, Sound.custom::play,
-            () -> SendLoot.sendLoot(data, map, bag, dropper, player, time));
+            () -> sharing.sendLoot(data, map, bag, dropper, player, time));
 
     }
 
@@ -181,7 +256,7 @@ public class LootGUI extends JPanel {
             // Several matching rules (including an item rule) still describe one dropped item.
             if (itemMatch || enchantMatch) alert.run();
         }
-        if (!disableLootSharing) share.run();
+        if (sharing.isEnabled()) share.run();
     }
 
     private static String notificationEnchants(String encoded) {
@@ -571,7 +646,9 @@ public class LootGUI extends JPanel {
     }
 
     public static void lootSharing(boolean b) {
-        INSTANCE.disableLootSharing = b;
+        LootGUI view = INSTANCE;
+        if (view == null) SendLoot.session().setEnabled(!b);
+        else view.sharing.setEnabled(!b);
     }
 
     private static String time() {
@@ -589,6 +666,8 @@ public class LootGUI extends JPanel {
 
     private void handleFontUpdate(Font font) {
         mainFont = font;
+        sharingStatus.setFont(ContentStyle.metadata(font));
+        sharingDetails.setFont(sharingStatus.getFont());
         updateFonts(lootPanel, font);
         safeRefreshPanel();
     }

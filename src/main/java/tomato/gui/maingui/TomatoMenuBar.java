@@ -247,9 +247,11 @@ public class TomatoMenuBar implements ActionListener {
         modernFont.addActionListener(e -> {
             TomatoGUI.fontNameTextAreas(ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN);
             TomatoGUI.fontSizeTextAreas(ContentStyle.FONT_SIZE);
-            PropertiesManager.setProperties("fontName", ContentStyle.FONT_FAMILY);
-            PropertiesManager.setProperties("fontStyle", "0");
-            PropertiesManager.setProperties("fontSize", Integer.toString(ContentStyle.FONT_SIZE));
+            java.util.Map<String, String> defaults = new java.util.HashMap<>();
+            defaults.put("fontName", ContentStyle.FONT_FAMILY);
+            defaults.put("fontStyle", "0");
+            defaults.put("fontSize", Integer.toString(ContentStyle.FONT_SIZE));
+            PropertiesManager.setProperties(defaults);
             fontNameSegoe.setSelected(true); fontSize13.setSelected(true);
             fontStyleBold.setSelected(false); fontStyleItalic.setSelected(false);
         });

@@ -15,6 +15,8 @@ Gameplay history now has dedicated views: **Runs** (Alt+R), **Timeline** (Alt+T)
 
 **Collect** controls the shared collector used by the gameplay modules. **Freeze** pauses the display while collection continues. Sampled mode limits routine examples; detailed mode retains more examples within the same bounds. **Clear** resets diagnostic counters and examples while preserving gameplay history. Export writes a local JSON report.
 
+Logging export acquires **current capture data**, even while its display is frozen. This differs from Activity's displayed-revision export. Snapshot acquisition and serialization run off the Swing event thread. Automatic Logging refreshes request diagnostics without copying activity timelines; unchanged revisions avoid replacement work, and hidden views catch up when shown.
+
 ## Storage and privacy
 
 The existing **Save logs** setting controls automatic persistence. Local files are under `logs/discovery/`, with manual exports in `logs/discovery/reports/`. Packet samples use a bounded asynchronous queue and rotating JSONL files. Queue drops and write failures are exposed in diagnostics. Activity history is checkpointed to `activity-history.json`; loading it restores history, not live diagnostic counts. Preview does not overwrite saved activity.

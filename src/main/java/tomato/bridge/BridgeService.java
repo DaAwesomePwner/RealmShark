@@ -2,12 +2,11 @@ package tomato.bridge;
 
 import com.google.gson.*;
 import java.io.*;
-import java.nio.channels.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
+import javax.swing.SwingUtilities;
 import tomato.Tomato;
 import tomato.backend.data.*;
 import packets.incoming.MapInfoPacket;
@@ -34,7 +33,9 @@ public final class BridgeService implements AutoCloseable {
         public final List<Review> reviews;public final List<Log> logs;
         public final int queued,catalogSize; public final long observed,accepted,skipped,failed,revision;
         public final String state;
-        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,long a,long s,long f,long revision,String state){reviews=r;logs=l;queued=q;catalogSize=c;observed=o;accepted=a;skipped=s;failed=f;this.revision=revision;this.state=state;}
+        public final boolean loading,closed;
+        public final BridgeConfig config;
+        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,long a,long s,long f,long revision,String state,boolean loading,boolean closed,BridgeConfig config){reviews=r;logs=l;queued=q;catalogSize=c;observed=o;accepted=a;skipped=s;failed=f;this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
     }
     private static final class Holder { static final BridgeService INSTANCE = create(); }
     private static BridgeService create(){return new BridgeService(Paths.get("bridge.properties"),Tomato.isPreview(),new BridgeHttp(),256);}
@@ -42,75 +43,120 @@ public final class BridgeService implements AutoCloseable {
     private final Path settings;
     private final boolean preview;
     private final Transport transport;
+    private final BridgeStorage storage;
     private final ThreadPoolExecutor worker;
+    // One FIFO configuration lane: startup, validation, persistence and lock ownership never overtake each other.
+    private final ThreadPoolExecutor configurationWorker;
+    private final CountDownLatch ready=new CountDownLatch(1);
+    private static final int CONFIGURATION_CAPACITY=8;
     private final ArrayDeque<Log> logs=new ArrayDeque<>();
     private final LinkedHashMap<Long,Review> reviews=new LinkedHashMap<>();
     private volatile BridgeConfig config=new BridgeConfig(new Properties());
     private volatile BridgeCatalog catalog=BridgeCatalog.empty();
     private volatile boolean active,closed;
+    private boolean loading=true;
     private long generation,sequence,observed,accepted,skipped,failed,revision;
-    private String state="Disabled";
-    private FileChannel lockChannel; private FileLock lock;
+    private String state="Loading bridge settings…";
+    private Closeable folderLock; // Owned exclusively by configurationWorker, including cleanup.
 
+    /** Loads settings in the background without waiting on the caller, including the EDT. Observe Snapshot.loading/state. */
     public BridgeService(Path settings,boolean preview,Transport transport,int queueCapacity) {
-        this.settings=settings;this.preview=preview;this.transport=transport;
-        worker=new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(queueCapacity),r->{Thread t=new Thread(r,"realmshark-guild-bridge");t.setDaemon(true);return t;});
+        this(settings,preview,transport,queueCapacity,new BridgeStorage());
+    }
+    BridgeService(Path settings,boolean preview,Transport transport,int queueCapacity,BridgeStorage storage) {
+        this.settings=settings;this.preview=preview;this.transport=transport;this.storage=storage;
+        worker=worker("realmshark-guild-bridge",queueCapacity);
+        configurationWorker=worker("realmshark-bridge-configuration",CONFIGURATION_CAPACITY);
+        configurationWorker.execute(this::initialize);
+    }
+    private static ThreadPoolExecutor worker(String name,int capacity) {
+        return new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(capacity),r->{Thread t=new Thread(r,name);t.setDaemon(true);return t;});
+    }
+    private void initialize() {
         try {
-            BridgeConfig loaded=BridgeConfig.load(settings);
-            config=loaded;
-            if(preview){config=loaded;state="Preview - sending and saving disabled";}
-            else configure(loaded,false,false);
-        } catch(Exception e){log("ERROR","Bridge startup needs attention: "+safeError(e));state="Settings need attention";}
+            checkOpen();
+            BridgeConfig loaded=storage.loadSettings(settings);
+            // Preserve the saved form even if its CSV is invalid, so the user can correct it.
+            synchronized(this){checkOpen();config=loaded;if(preview)state="Preview - sending and saving disabled";}
+            if(!preview)configureOnWorker(loaded,false,false);
+        } catch(Exception e){synchronized(this){if(!closed){log("ERROR","Bridge startup needs attention: "+safeError(e));state="Settings need attention";}}}
+        finally {synchronized(this){loading=false;revision++;}ready.countDown();}
     }
     public BridgeConfig config(){return config;}
     public boolean isPreview(){return preview;}
-    /** Called by SwingWorker, never on capture/EDT. Validation finishes before replacing active settings. */
-    public synchronized void configure(BridgeConfig next,boolean persist,boolean ping) throws IOException {
-        if(preview)throw new IOException("Preview cannot save settings or send events.");
-        if(closed)throw new IOException("Bridge is closed.");
-        next.validate();
-        BridgeCatalog loaded=next.enabled?BridgeCatalog.load(Paths.get(next.csvPath)):BridgeCatalog.empty();
-        boolean acquired=false;
-        if(next.enabled && lock==null){acquireLock();acquired=true;}
-        try {if(persist)next.save(settings);} catch(IOException e){if(acquired)releaseLock();throw e;}
-        generation++;config=next;catalog=loaded;active=next.enabled;
-        if(!active)releaseLock();
-        state=active?(next.send?"Ready to send detected drops":"Local review only"):"Disabled";
-        log("INFO",state+". CSV items: "+loaded.size()+". Waiting requests from previous settings will be cancelled.");
-        if(active&&next.send&&ping)enqueuePing(next,generation);
+    /** Synchronous compatibility API; callers must use a background thread (the GUI uses SwingWorker). */
+    public void configure(BridgeConfig next,boolean persist,boolean ping) throws IOException {
+        if(SwingUtilities.isEventDispatchThread())throw new IOException("Configure the bridge on a background worker.");
+        Future<?> update;
+        synchronized(this) {
+            if(preview)throw new IOException("Preview cannot save settings or send events.");
+            checkOpen();
+            try {update=configurationWorker.submit(()->{configureOnWorker(next,persist,ping);return null;});}
+            catch(RejectedExecutionException e){log("ERROR","Bridge settings queue is full; this change was not accepted.");throw new IOException("Bridge settings queue is full. Wait for the pending change to finish.",e);}
+        }
+        try {update.get();}
+        catch(InterruptedException e){Thread.currentThread().interrupt();throw new IOException("Interrupted while waiting for settings; an accepted change may still finish.",e);}
+        catch(CancellationException e){throw new IOException("Bridge closed before this settings change started.",e);}
+        catch(ExecutionException e){Throwable cause=e.getCause();if(cause instanceof IOException)throw (IOException)cause;if(cause instanceof RuntimeException)throw (RuntimeException)cause;throw new IOException("Could not configure bridge.",cause);}
     }
-    private void acquireLock() throws IOException {
-        Path path=settings.toAbsolutePath().resolveSibling(".runtime").resolve("bridge.lock");Files.createDirectories(path.getParent());
-        lockChannel=FileChannel.open(path,StandardOpenOption.CREATE,StandardOpenOption.WRITE);
-        try {lock=lockChannel.tryLock();}catch(OverlappingFileLockException e){lock=null;}catch(IOException e){lockChannel.close();lockChannel=null;throw e;}
-        if(lock==null){lockChannel.close();lockChannel=null;throw new IOException("Another instance in this folder already owns the bridge. Close it before enabling here.");}
+    private void checkOpen() throws IOException {if(closed)throw new IOException("Bridge is closed.");}
+    private void configureOnWorker(BridgeConfig next,boolean persist,boolean ping) throws IOException {
+        checkOpen();next.validate();
+        BridgeCatalog loaded=next.enabled?storage.loadCatalog(next):BridgeCatalog.empty();
+        Closeable acquired=null;
+        try {
+            checkOpen();
+            if(next.enabled&&folderLock==null)acquired=storage.acquireLock(settings);
+            checkOpen();
+            if(persist)storage.save(next,settings);
+            synchronized(this) {
+                checkOpen();
+                generation++;config=next;catalog=loaded;active=next.enabled;
+                state=active?(next.send?"Ready to send detected drops":"Local review only"):"Disabled";
+                log("INFO",state+". CSV items: "+loaded.size()+". Waiting requests from previous settings will be cancelled.");
+                if(active&&next.send&&ping)enqueuePing(next,generation);
+            }
+            if(acquired!=null){folderLock=acquired;acquired=null;}
+            if(!next.enabled)releaseLock();
+        } finally {if(acquired!=null)release(acquired);}
     }
-    private void releaseLock(){try{if(lock!=null)lock.release();}catch(IOException ignored){}finally{lock=null;}try{if(lockChannel!=null)lockChannel.close();}catch(IOException ignored){}finally{lockChannel=null;}}
+    private void releaseLock(){Closeable previous=folderLock;folderLock=null;if(previous!=null)release(previous);}
+    private void release(Closeable lock){try{lock.close();}catch(IOException|RuntimeException e){log("ERROR","Could not release the bridge folder lock ("+e.getClass().getSimpleName()+").");}}
     public void receive(TomatoData data,MapInfoPacket map,Entity bag,Entity player,long time) {
         if(!active||preview)return;
         try {receive(BridgePayload.snapshot(data,map,bag,player,time));}
         catch(RuntimeException e){log("ERROR","Could not snapshot this loot bag ("+e.getClass().getSimpleName()+"). Other capture modules remain active.");}
     }
-    public synchronized void receive(List<BridgePayload.Drop> drops) {
-        if(!active||preview||closed)return;
-        BridgeConfig target=config;long version=generation;
+    public void receive(List<BridgePayload.Drop> drops) {
         for(BridgePayload.Drop drop:drops) {
-            observed++;
-            boolean tracked=catalog.contains(drop.item), included=target.includes(drop.item);
-            String status=!tracked?"Not in CSV":!included?"Filtered":!target.send?"Local only":"Queued";
-            String detail=!tracked?"Item is absent from the CSV allowlist; nothing sent.":!included?"Excluded by category selection.":!target.send?"Sending is turned off.":"Awaiting HTTP submission.";
-            if(drop.item.enchantCount<0)detail+=" Enchant data could not be decoded; rarity may be unknown.";
-            JsonObject payload=target.send&&tracked&&included?BridgePayload.loot(target,drop):null;
-            Review entry=new Review(++sequence,Instant.now().toString(),drop,status,detail,payload==null?"":BridgePayload.redacted(payload).toString());
-            reviews.put(entry.id,entry);while(reviews.size()>1000)reviews.remove(reviews.keySet().iterator().next());revision++;
-            if(!status.equals("Queued"))skipped++;
-            try {worker.execute(()->process(entry,payload,target,version));}
-            catch(RejectedExecutionException e){finish(entry,"Queue full","Worker queue is full; this item was not sent.",target,false);failed++;log("ERROR","Bridge queue is full; an event could not be processed. Review its status.");}
+            for(;;) {
+                BridgeConfig target;BridgeCatalog items;long version;
+                synchronized(this){if(!active||preview||closed)return;target=config;items=catalog;version=generation;}
+                boolean tracked=items.contains(drop.item), included=target.includes(drop.item);
+                String status=!tracked?"Not in CSV":!included?"Filtered":!target.send?"Local only":"Queued";
+                String detail=!tracked?"Item is absent from the CSV allowlist; nothing sent.":!included?"Excluded by category selection.":!target.send?"Sending is turned off.":"Awaiting HTTP submission.";
+                if(drop.item.enchantCount<0)detail+=" Enchant data could not be decoded; rarity may be unknown.";
+                JsonObject payload=target.send&&tracked&&included?BridgePayload.loot(target,drop):null;
+                String redacted=payload==null?"":BridgePayload.redacted(payload).toString();
+                synchronized(this) {
+                    if(!active||preview||closed)return;
+                    if(version!=generation)continue;
+                    observed++;
+                    Review entry=new Review(++sequence,Instant.now().toString(),drop,status,detail,redacted);
+                    reviews.put(entry.id,entry);while(reviews.size()>1000)reviews.remove(reviews.keySet().iterator().next());revision++;
+                    if(!status.equals("Queued"))skipped++;
+                    try {worker.execute(()->process(entry,payload,target,version));}
+                    catch(RejectedExecutionException e){finish(entry,"Queue full","Worker queue is full; this item was not sent.",target,false);failed++;log("ERROR","Bridge queue is full; an event could not be processed. Review its status.");}
+                }
+                break;
+            }
         }
     }
     private void process(Review entry,JsonObject payload,BridgeConfig target,long version) {
         if(payload==null){audit(entry,target);if(target.debug)log("DEBUG",entry.status+": "+entry.drop.item.rawName);return;}
-        synchronized(this){if(!active||version!=generation||closed){skipped++;finish(entry,"Cancelled","Settings changed before this request started; nothing sent.",target,true);return;}}
+        boolean cancelled;
+        synchronized(this){cancelled=!active||version!=generation||closed;if(cancelled)skipped++;}
+        if(cancelled){finish(entry,"Cancelled","Settings changed before this request started; nothing sent.",target,true);return;}
         send(entry,payload,target);
     }
     private void enqueuePing(BridgeConfig target,long version) {
@@ -153,20 +199,33 @@ public final class BridgeService implements AutoCloseable {
     }
     private void audit(Review entry,BridgeConfig target) {
         if(target.reviewLog.isEmpty())return;
-        try {
-            Path path=Paths.get(target.reviewLog).toAbsolutePath();Files.createDirectories(path.getParent());
-            if(Files.exists(path)&&Files.size(path)>5*1024*1024)Files.move(path,path.resolveSibling(path.getFileName()+".1"),StandardCopyOption.REPLACE_EXISTING);
-            String json=new Gson().toJson(entry)+System.lineSeparator();
-            Files.write(path,json.getBytes(StandardCharsets.UTF_8),StandardOpenOption.CREATE,StandardOpenOption.APPEND);
-        }catch(IOException|RuntimeException e){log("ERROR","Could not write the local review log ("+e.getClass().getSimpleName()+"). Check its path and folder permissions.");}
+        try {storage.audit(entry,target);}
+        catch(IOException|RuntimeException e){log("ERROR","Could not write the local review log ("+e.getClass().getSimpleName()+"). Check its path and folder permissions.");}
     }
     private static String safeError(Exception e){return e instanceof IllegalArgumentException?e.getMessage():"Check settings, CSV path and whether another instance is running ("+e.getClass().getSimpleName()+").";}
     private synchronized void log(String level,String message) {
         if(!config.token.isEmpty())message=message.replace(config.token,"[redacted]");
         logs.addLast(new Log(level,message));while(logs.size()>500)logs.removeFirst();revision++;
     }
-    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,accepted,skipped,failed,revision,state);}
+    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,accepted,skipped,failed,revision,state,loading,closed,config);}
     public synchronized void clearLogs(){logs.clear();revision++;}
-    public void awaitIdle(long millis)throws Exception {worker.submit(()->{}).get(millis,TimeUnit.MILLISECONDS);}
-    @Override public synchronized void close(){active=false;closed=true;generation++;worker.shutdown();releaseLock();state="Closed";}
+    private static void requireBackgroundWait(){if(SwingUtilities.isEventDispatchThread())throw new IllegalStateException("Do not wait for bridge workers on the EDT.");}
+    /** Startup has settled (possibly with an error in snapshot().state), or close has invalidated it. */
+    public void awaitReady(long millis)throws InterruptedException,TimeoutException {requireBackgroundWait();if(!ready.await(millis,TimeUnit.MILLISECONDS))throw new TimeoutException("Bridge settings are still loading.");}
+    public void awaitIdle(long millis)throws Exception {requireBackgroundWait();worker.submit(()->{}).get(millis,TimeUnit.MILLISECONDS);}
+    /** Optional off-EDT shutdown barrier; close itself never waits for storage or an in-flight send. */
+    public void awaitClosed(long millis)throws InterruptedException,TimeoutException {
+        requireBackgroundWait();long deadline=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(millis);
+        if(!configurationWorker.awaitTermination(millis,TimeUnit.MILLISECONDS)||!worker.awaitTermination(Math.max(0,deadline-System.nanoTime()),TimeUnit.NANOSECONDS))throw new TimeoutException("Bridge workers are still closing.");
+    }
+    /** Invalidates pending work immediately; an already-started save/send may finish, but cannot reactivate the service. */
+    @Override public synchronized void close(){
+        if(closed)return;
+        active=false;closed=true;loading=false;generation++;state="Closed";revision++;ready.countDown();
+        // Admission and close share only this short model lock. Reserve cleanup space by cancelling queued configs.
+        List<Runnable> pending=new ArrayList<>();configurationWorker.getQueue().drainTo(pending);
+        for(Runnable task:pending)if(task instanceof Future<?>)((Future<?>)task).cancel(false);
+        configurationWorker.execute(this::releaseLock);configurationWorker.shutdown();
+        worker.shutdown(); // Drain reviews as cancelled; requests already in flight retain their original target.
+    }
 }

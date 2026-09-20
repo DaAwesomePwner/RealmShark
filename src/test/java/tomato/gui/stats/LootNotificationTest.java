@@ -16,6 +16,8 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.realmshark.LootDelivery;
+import tomato.realmshark.SendLoot;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
 
@@ -23,17 +25,20 @@ public class LootNotificationTest {
     private String savedEnchantRules;
     private TomatoData data;
     private LootGUI view;
+    private SendLoot.Session sharing;
 
     @Before public void setup() throws Exception {
         savedEnchantRules = PropertiesManager.getProperty("enchantPing.selected");
         PropertiesManager.setProperties("enchantPing.selected", "777,888");
         data = new TomatoData();
-        SwingUtilities.invokeAndWait(() -> view = new LootGUI(data));
+        sharing = new SendLoot.Session(new LootDelivery(() -> { throw new AssertionError("Notification tests must not connect"); }, 2, true, false));
+        SwingUtilities.invokeAndWait(() -> view = new LootGUI(data, sharing));
     }
 
     @After public void restore() {
         PropertiesManager.setProperties("enchantPing.selected", savedEnchantRules == null ? "" : savedEnchantRules);
         LootGUI.lootSharing(true);
+        sharing.close();
     }
 
     @Test public void alertsOncePerMatchingItemBeforeSharingWithEitherOptOutState() {

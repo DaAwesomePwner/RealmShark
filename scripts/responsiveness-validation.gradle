@@ -1,0 +1,30 @@
+// Opt-in standalone benchmark; never attached to test/check or the application task.
+allprojects {
+    if (!hasProperty('realmSharkBuildDir')) {
+        buildDir = file('build/responsiveness-validation')
+    }
+    afterEvaluate {
+        if (plugins.hasPlugin('java')) {
+            tasks.register('responsivenessBenchmark', JavaExec) {
+                group = 'verification'
+                description = 'Run the bounded synthetic Phase 2 benchmark (requires a desktop display).'
+                dependsOn tasks.named('testClasses')
+                classpath = sourceSets.test.runtimeClasspath
+                mainClass = 'tomato.gui.stats.ResponsivenessBenchmark'
+                jvmArgs '-Xms128m', '-Xmx768m', '-Dsun.java2d.uiScale=1', '-Drealmshark.noSound=true'
+                doFirst {
+                    // Fresh on every invocation: no application settings/history from previous runs.
+                    def runs = file("$buildDir/responsiveness-runs")
+                    runs.mkdirs()
+                    workingDir = java.nio.file.Files.createTempDirectory(runs.toPath(), 'run-').toFile()
+                    ['home', 'tmp', 'prefs-user', 'prefs-system'].each { new File(workingDir, it).mkdirs() }
+                    systemProperty 'realmshark.benchmark.workDir', workingDir.canonicalPath
+                    systemProperty 'user.home', new File(workingDir, 'home').absolutePath
+                    systemProperty 'java.io.tmpdir', new File(workingDir, 'tmp').absolutePath
+                    systemProperty 'java.util.prefs.userRoot', new File(workingDir, 'prefs-user').absolutePath
+                    systemProperty 'java.util.prefs.systemRoot', new File(workingDir, 'prefs-system').absolutePath
+                }
+            }
+        }
+    }
+}
