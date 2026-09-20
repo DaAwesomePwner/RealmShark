@@ -20,12 +20,13 @@ import packets.data.enums.StatType;
 import packets.incoming.*;
 import packets.outgoing.*;
 import tomato.backend.SecurityAbilityUseCheck;
-import tomato.gui.character.*;
+import tomato.gui.character.CharacterPetsGUI;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
+import tomato.gui.stats.FameTablePanel;
 import tomato.gui.stats.LootGUI;
 import tomato.realmshark.HttpCharListRequest;
 import tomato.realmshark.RealmCharacter;
@@ -238,6 +239,7 @@ public class TomatoData {
         this.charId = charId;
         resetMyInfo(null, charId, objectId);
         updateDungeonStats(charId, str);
+        packets.packetcapture.logger.DiscoveryLog.INSTANCE.completionStats(charId, currentCharacterStats.completionCounts());
     }
 
     public void petYardCheck(String displayName) {
@@ -275,8 +277,6 @@ public class TomatoData {
             r != null && r.charStats != null && !r.charStats.pcStats.equals(str)
         ) {
             r.updateCharStats(currentCharacterStats);
-            CharacterStatsGUI.updateRealmChars();
-            CharacterCollectionGUI.updateRealmChars();
         }
     }
 
@@ -397,6 +397,7 @@ public class TomatoData {
                 entity.isPlayer();
             }
             ParsePanelGUI.addPlayer(id, entity);
+            packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
     }
 
@@ -567,6 +568,7 @@ public class TomatoData {
                 new Entity(this, idd, timePc)
             );
             entity.updateStats(p.status[i], timePc);
+            if (playerListUpdated.containsKey(id)) packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
         SecurityAbilityUseCheck.decreaseDecoyCounter();
         lootTick();
@@ -875,6 +877,11 @@ public class TomatoData {
         target.updateDamageTaken(timePc);
     }
 
+    void recordInspectDamage(Entity target, Damage hit) {
+        if (hit.owner != null && playerList.get(hit.owner.id) == hit.owner && !playerList.containsKey(target.id))
+            packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectDamage(hit.owner, hit.damage, hit.time);
+    }
+
     /**
      * Packet indicating player taking damage by enemy.
      */
@@ -1039,7 +1046,6 @@ public class TomatoData {
             TreeMap<Integer, int[]> next = new TreeMap<>(RealmCharacter.exalts);
             next.put((int) p.objType, update);
             RealmCharacter.exalts = next;
-            SwingUtilities.invokeLater(CharacterExaltGUI::updateExalts);
             characterJournal().exalts(journalAccount, RealmCharacter.exalts);
         }
     }
@@ -1053,7 +1059,6 @@ public class TomatoData {
                 vaultDataRecievedRegular = true;
                 regularVault.vaultPacketUpdate(p);
             }
-            CharacterPanelGUI.vaultDataUpdate();
         }
     }
 
@@ -1099,7 +1104,10 @@ public class TomatoData {
             petIdentity = myInfoIdentity;
         }
         publishMyInfoPlayer(player);
-        SwingUtilities.invokeLater(CharacterPanelGUI::updateRealmChars);
+        SwingUtilities.invokeLater(() -> {
+            CharacterPetsGUI.updateEquipedPet();
+            FameTablePanel.updateRealmChars();
+        });
     }
 
     private static boolean validPetAbilities(int[] abilities) {
@@ -1211,7 +1219,7 @@ public class TomatoData {
         chars = null; charMap = null;
         RealmCharacter.exalts = new TreeMap<>();
         regularVault.clearChar(); seasonalVault.clearChar();
-        SwingUtilities.invokeLater(() -> { LootGUI.updateExaltStats(); CharacterExaltGUI.updateExalts(); });
+        SwingUtilities.invokeLater(LootGUI::updateExaltStats);
     }
 
     private void requestMetadata(boolean roster) {
@@ -1252,7 +1260,7 @@ public class TomatoData {
                 });
                 RealmCharacter.exalts = next;
                 characterJournal().exalts(journalAccount, next);
-                SwingUtilities.invokeLater(() -> { LootGUI.updateExaltStats(); CharacterExaltGUI.updateExalts(); });
+                SwingUtilities.invokeLater(LootGUI::updateExaltStats);
             }
         }
     }

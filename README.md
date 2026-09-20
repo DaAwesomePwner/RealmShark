@@ -49,6 +49,20 @@ The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 1
 
 The build generates multi-resolution fin PNGs and the Windows ICO from one vector source. The runnable JAR uses the `realmshark.RealmShark` entry point.
 
+Gradle pins a **Java 17 toolchain** for compilation, tests and Java execution. Main code uses **`--release 8`** to retain Java 8 APIs and bytecode; tests and build tools use Java 17. Development and the Windows runtime remain on Java 17; the main compilation setting alone does not establish Java 8 compatibility for every dependency. See the [Gradle 7.6.4 toolchain documentation](https://docs.gradle.org/7.6.4/userguide/toolchains.html) and [release/API targeting](https://docs.gradle.org/7.6.4/userguide/building_java_projects.html#sec:java_cross_compilation).
+
+`generateSources` writes the product version only to `<buildDir>/generated/sources/version/main/realmshark/version/Version.java`. The main source set schedules generation automatically, including with `-PrealmSharkBuildDir=...`; use Gradle compilation for IDE launches too. The default product version is `v1.2.3`. The separate `tomato.version.Version` upstream baseline (`v1.9.2`) and asset-cache token (`v1.9.1`) retain their compatibility roles. `-PrealmSharkVersion=v1.2.3-build-contract` is a filename-safe override for isolated Gradle build-contract checks and requires `-PrealmSharkBuildDir=...`; Windows packaging and launchers use the default version.
+
+For a nondefault version, the canonical output path must be a dedicated subdirectory of `build` (such as `build/contract`) or an external build directory. The normal `build` directory and its aliases, project/source locations and their ancestors, and filesystem roots are rejected during configuration. This restriction applies only to nondefault-version builds.
+
+After the ordinary build above has populated the wrapper/dependency cache, run the focused build-contract check with JDK 17 selected and no concurrent source edits:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-BuildMaintenance.ps1 -JavaHome "$env:JAVA_HOME"
+```
+
+It first checks that configuration-only `help` calls reject unsafe override outputs, including relative, absolute and dot-normalized aliases of the normal build directory, without changing normal generated/classes/resources/JAR outputs. It then performs offline builds in fresh `build/build-maintenance-<id>` directories, checks repeated generation is up to date, changes the version input in the same output/cache directory, and verifies a fresh default-version JAR. The isolated JAR probe checks the generated and inlined identity, Java 8 class headers, compatibility versions and UnityPy notice without starting the application or making application network requests. Source path/hash/write-time snapshots and Gradle logs remain in that directory. CI runs this check after its normal build.
+
 For compact-layout and display-scaling checks:
 
 ```powershell
@@ -62,6 +76,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-WindowsBundle.
 ```
 
 The latest verified download is published to `build/share/RealmShark-Windows-x64.zip`, with a SHA-256 sidecar. A timestamped archive is also retained. The bundle includes the public loot catalog and licenses, not personal settings, capture logs or saved sessions.
+
+The four-phase review implementation, retained regression evidence, and final cleanup decisions are summarized in [review closure](docs/STEP-4-CLEANUP.md).
 
 ## Troubleshooting
 
@@ -79,4 +95,4 @@ Packet capture uses [ardikars/pcap](https://github.com/ardikars/pcap) and the na
 
 Distributed under the [MIT License](LICENSE.md). Runtime and dependency notices, and the separate [loot-catalog license](docs/LOOT-CATALOG-LICENSE.txt), remain included.
 
-The Java resource extractor includes code adapted from [UnityPy](https://github.com/K0lb3/UnityPy); its [MIT notice](docs/UNITYPY-LICENSE.txt) is retained. The original imported revision was not recorded.
+The Java resource extractor includes code adapted from [UnityPy](https://github.com/K0lb3/UnityPy); its [MIT notice](docs/UNITYPY-LICENSE.txt) is included as `META-INF/licenses/UNITYPY-LICENSE.txt` in the application JAR and `UNITYPY-LICENSE.txt` in the Windows bundle root. The original imported revision was not recorded.

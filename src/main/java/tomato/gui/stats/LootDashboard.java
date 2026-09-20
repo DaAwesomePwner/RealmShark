@@ -83,7 +83,7 @@ public final class LootDashboard extends JPanel {
                 recent.add(filter, BorderLayout.NORTH); recent.add(StatsUi.tableScroll(table), BorderLayout.CENTER); views.addTab(VIEW_NAMES[i], recent);
             } else views.addTab(VIEW_NAMES[i], StatsUi.tableScroll(table));
         }
-        views.setToolTipTextAt(6, "Only items labeled UT, regardless of bag color");
+        views.setToolTipTextAt(6, "UT weapons, abilities, armor and rings; excludes potions, runes and other consumables");
         views.setToolTipTextAt(7, "Only items labeled ST, regardless of bag color");
         views.setToolTipTextAt(8, "Tiered weapons and armor T13+; abilities T6+");
         views.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); add(views, BorderLayout.CENTER);
@@ -286,10 +286,12 @@ public final class LootDashboard extends JPanel {
             this.id = id; this.name = name; this.enchants = enchants;
             List<String> tokens = Arrays.asList((labels == null ? "" : labels).toUpperCase(Locale.ROOT).split("\\s*,\\s*"));
             potion = tokens.contains("STATPOTION");
-            ut = tokens.contains("UT"); st = tokens.contains("ST");
+            boolean equipment = tokens.contains("WEAPON") || tokens.contains("ABILITY") || tokens.contains("ARMOR") || tokens.contains("RING");
+            ut = tokens.contains("UT") && equipment && !tokens.contains("CONSUMABLE") && !potion;
+            st = tokens.contains("ST");
             int level = -1;
             for (String token : tokens) if (token.matches("T[0-9]{1,2}")) { level = Integer.parseInt(token.substring(1)); break; }
-            tier = ut ? "UT" : st ? "ST" : level >= 0 ? "T" + level : "—";
+            tier = tokens.contains("UT") ? "UT" : st ? "ST" : level >= 0 ? "T" + level : "—";
             highTier = !ut && !st && !tokens.contains("CONSUMABLE")
                 && ((level >= 13 && (tokens.contains("WEAPON") || tokens.contains("ARMOR"))) || (level >= 6 && tokens.contains("ABILITY")));
             key = Collections.unmodifiableList(Arrays.asList(id, enchants.slots, enchants.applied));

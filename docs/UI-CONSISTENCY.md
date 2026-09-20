@@ -9,7 +9,7 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - The full sidebar fits all 14 destinations at the default desktop size and standard font. Compact windows have a **menu icon** above the navigation rail: click it or press **Alt+M** for labeled destinations. Existing workspace shortcuts remain available.
 - Small windows use wrapping controls, balanced summary grids and page scrolling where necessary. Tables retain usable row space instead of collapsing beneath filters and detail panels.
 - **Chat > Actions > Chat filters** opens player-ignore, blocked-phrase and advertisement settings. The selected-message panel continues to show full message text.
-- **Security > Options** exposes sorting and copy restrictions. **Actions** provides explicit exports and player/guild actions, with keyboard shortcuts shown in the menu. Copy names and Copy all remain directly available.
+- **Inspect > Current Area / Runs** provides sortable player rosters and saved run loadouts. **Options** exposes default guild ordering and copy restrictions. **Actions** provides explicit exports and player/guild actions, with keyboard shortcuts shown in the menu. Copy names and Copy all remain directly available.
 - **Characters > Pets** labels the feed-power input and provides visible positive-number validation and a **Recalculate feeding costs** action.
 - The DPS encounter chooser supports keyboard selection and separate export checkboxes. Live legacy reports remain selectable and read-only. Its compact toolbar wraps as the available width changes.
 - The resource chart has keyboard-accessible zoom/reset and sample inspection. Rule-editor add/remove controls have meaningful labels and keyboard focus.
@@ -20,7 +20,7 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - Characters uses page scrolling and font-aware minimum content space. Detail tabs wrap at narrow widths; focusing a control reveals it through nested scroll panes.
 - Chat Time/Channel widths follow their actual renderers and headers instead of fixed caps. Columns remain resizable, with horizontal scrolling for narrow tables. Chat filter descriptions wrap and its actions remain reachable in the minimum dialog.
 - Notification messages use shared text-view measurement, including caret space, rather than word counting. Background changes to read-only metadata do not scroll the page away from the user's settings.
-- **Security → Actions → Equipment details…**, or **Ctrl+E** with roster focus, opens full read-only equipment details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
+- **Inspect → Actions → Equipment details…**, or **Ctrl+E** with roster focus, opens full read-only equipment and base-stat details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
 
 Detailed evidence, layout limits, and commands: [Phase 3 validation](STEP-3-UI-CONSISTENCY.md).
 
@@ -62,6 +62,16 @@ Painting cost is unchanged: no animation, no timers and no shadows. The sidebar'
 
 Text keeps at least 4.5:1 contrast on every new surface, and the capture button keeps its 4.5:1 white-text target in all four states.
 
+### Inspect, Runs and Loot integration — 2026-09-20
+
+The integration combines the redesign on `main` (`e0349cc`, including `4ad75b1`) with the gameplay-fix branch (`4e188ad`) and its preceding Phase 4 cleanup/build work. The shared violet theme, rounded workspace card, navigation rail, hover states and accent controls come from the redesigned UI. The only shell text changes are the Inspect title and description; the shared style helper also retains Phase 4's nested-scroll reveal support.
+
+All requested gameplay changes are present in that design: Inspect's sortable Current Area and saved Runs rosters, Class column, differentiated seasonal/non-seasonal Crucible colors, last-captured equipment and stats, Damage/DPS ranking, shared evidence-based completion status, minutes/seconds controls, and equipment-only UT filtering. See [Activity modules](ACTIVITY.md) and [Statistics](STATISTICS.md) for the capture semantics.
+
+The combined Inspect regression now checks that hover paints both character-mode and DPS cells with the redesigned hover surface, preserves Crucible foreground colors, and yields to selection under both Violet and a light look-and-feel. Validation passed **485 tests**, plus **71 UI tests at 150%** and **71 at 200%** display scaling, with zero failures or ignored tests. Main-shell and populated Inspect, Runs and UT screenshots were reviewed. The Windows ZIP was rebuilt, its package checks passed, and its native launcher successfully started the bundled Java runtime.
+
+The integrated release evidence is under `build/share/20260920-124328-eb106be97d6946bc9a21740e64f555d6/build/`; scaled reports and screenshots are under `build/typography-validation/`. The shareable package is `build/share/RealmShark-Windows-x64.zip`.
+
 ## Responsiveness changes
 
 - Optional version/Crucible requests follow initial window creation and have finite HTTP timeouts. Essential local dungeon history initializes before capture autostart.
@@ -70,7 +80,7 @@ Text keeps at least 4.5:1 contrast on every new surface, and the capture button 
 - Character-journal and dungeon-history persistence perform serialization and file I/O outside their model monitors. Initial dungeon-history loading merges concurrent observations. Failed optional history reads allow the window to open while preserving the original file and suspending history writes until successful recovery.
 - Fame saves use detached, ordered background requests with coalescing and visible completion/failure status. Save/delete ordering and stale-completion guards preserve session state.
 - DPS import/export and Key-pop CSV writes use background workers. DPS player filtering reuses encounter aggregates, and meter maxima are computed outside individual cell painting.
-- Security roster updates use detached data, a renderer-based table and coalesced visible refreshes.
+- Inspect roster updates use detached data, a renderer-based table and coalesced visible refreshes.
 - The legacy Loot log retains at most 1,000 rendered entries. Shared Loot dashboards batch model updates and refresh hidden views when shown.
 - My Info batches detached player/pet updates. Chat and Key-pop hidden views avoid recurring presentation work. Logging/Activity update relevant visible views and avoid unchanged table replacement.
 

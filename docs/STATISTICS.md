@@ -33,7 +33,7 @@ The character selector controls the graph and map visits. **With fame gain** is 
 
 **Explore loot** and the separate Loot workspace share session counters while retaining independent filters. Filter by bag type and dungeon; search narrows each table. Cards follow bag/dungeon scope before text search.
 
-Views include All Items, Stat Potions, Whites, By Bag, Recent Drops, By Dungeon, **UTs**, **STs** and **Tiered**. UTs and STs include only items with the corresponding exact asset label, regardless of bag color. Tiered includes **T13+ weapons and armor** and **T6+ abilities**; UTs, STs, rings and consumables do not enter that view. Tiers come from the item's asset labels.
+Views include All Items, Stat Potions, Whites, By Bag, Recent Drops, By Dungeon, **UTs**, **STs** and **Tiered**. UTs requires the exact UT label plus a weapon, ability, armor, or ring label, excluding consumables and stat potions. Runes, tokens, skins and other non-tiered items do not enter UTs. STs uses the exact ST label, regardless of bag color. Tiered includes **T13+ weapons and armor** and **T6+ abilities**; UTs, STs, rings and consumables do not enter that view. Tiers come from the item's asset labels.
 
 Every item table separates copies by item ID, unlocked enchant slots and applied enchant count. **Count** is the number of drops of that variant; **Tier**, **Rarity**, **Slots** and **Enchants** describe the variant. For example, an unenchanted UT and a two-slot Rare copy get separate rows. The breakdown below the table totals the visible drops by rarity and follows bag/dungeon filters, the selected tab and text search. Search can match rarity or tier as well as names.
 

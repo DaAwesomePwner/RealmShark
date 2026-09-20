@@ -139,6 +139,44 @@ public class ActivityFormattingTest {
         } finally { Locale.setDefault(Locale.Category.FORMAT, previous); }
     }
 
+    @Test public void runMinutesAndSecondsKeepNumericSortingFrozenSelectionAndStoredTimestamps() throws Exception {
+        Path directory = temp.newFolder().toPath();
+        ActivityJournal.State state = new ActivityJournal.State();
+        for (int duration : new int[]{30, 90}) {
+            ActivityJournal.Visit visit = new ActivityJournal.Visit(); visit.id = "run-" + duration; visit.map = "Ice Citadel";
+            visit.started = 1000; visit.lastSeen = visit.ended = 1000 + duration * 1000L;
+            visit.completionEvidence = "Server victory notification"; visit.status = "Completed";
+            state.visits.add(visit);
+        }
+        Files.write(directory.resolve("activity-history.json"), new Gson().toJson(state).getBytes(StandardCharsets.UTF_8));
+        DiscoveryLog log = new DiscoveryLog(directory); log.setSaving(false);
+        ActivityPanel[] panel = new ActivityPanel[1]; Locale previous = Locale.getDefault(Locale.Category.FORMAT);
+        try {
+            Locale.setDefault(Locale.Category.FORMAT, Locale.US);
+            SwingUtilities.invokeAndWait(() -> { panel[0] = new ActivityPanel(log, ActivityPanel.Mode.RUNS); panel[0].refresh(); });
+            await(() -> named(panel[0], "activity-table", JTable.class).getRowCount() == 2);
+            SwingUtilities.invokeAndWait(() -> {
+                JTable table = named(panel[0], "activity-table", JTable.class);
+                assertEquals("Observed minutes", table.getColumnName(2));
+                table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.DESCENDING)));
+                assertEquals(1.5, table.getValueAt(0, 2)); assertEquals("1.5", cell(table, 0, 2));
+                assertEquals("Completed", table.getValueAt(0, 6));
+                table.setRowSelectionInterval(0, 0);
+                JCheckBox freeze = field(panel[0], "freeze", JCheckBox.class); freeze.setSelected(true);
+                JComboBox<?> units = named(panel[0], "run-duration-unit", JComboBox.class);
+                units.setSelectedItem(RunDurationUnit.SECONDS);
+                assertEquals("Observed seconds", table.getColumnName(2));
+                assertEquals(90.0, table.getValueAt(0, 2)); assertEquals("90", cell(table, 0, 2));
+                assertEquals(0, table.getSelectedRow());
+                assertTrue(named(panel[0], "activity-detail", JTextArea.class).getText().contains("Server victory notification"));
+                Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY);
+                units.setSelectedItem(RunDurationUnit.MINUTES);
+                assertEquals("1,5", cell(table, 0, 2));
+            });
+            assertEquals(91000, log.activityHistory().visits.get(1).lastSeen);
+        } finally { log.close(); Locale.setDefault(Locale.Category.FORMAT, previous); }
+    }
+
     @Test public void unchangedAndFrozenHistoriesReformatAndSearchDisplayedValuesWithoutObserverCopies() throws Exception {
         Locale previous = Locale.getDefault(Locale.Category.FORMAT);
         TimeZone zone = TimeZone.getDefault();

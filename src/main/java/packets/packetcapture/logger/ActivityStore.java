@@ -22,7 +22,8 @@ final class ActivityStore implements AutoCloseable {
     ActivityJournal.State load() {
         if (!Files.exists(file)) return null;
         try {
-            if (Files.size(file) > 16 * 1024 * 1024) throw new IllegalArgumentException();
+            // Retained dungeon rosters include equipment/enchant snapshots as well as activity charts.
+            if (Files.size(file) > 128 * 1024 * 1024) throw new IllegalArgumentException();
             ActivityJournal.State state = new Gson().fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), ActivityJournal.State.class);
             if (state == null || state.schemaVersion != 1 || state.visits == null || state.entries == null
                 || state.visits.size() > ActivityJournal.RUN_LIMIT || state.entries.size() > ActivityJournal.EVENT_LIMIT
@@ -30,7 +31,12 @@ final class ActivityStore implements AutoCloseable {
             for (ActivityJournal.Visit v : state.visits)
                 if (v.id == null || v.map == null || v.conditions == null || v.extraConditions == null
                     || v.requestedItems == null || v.effects == null || v.equipment == null || v.resourceTimeline == null
-                    || v.conditionTimeline == null || v.resourceTimeline.contains(null) || v.conditionTimeline.contains(null)) throw new IllegalArgumentException();
+                    || v.conditionTimeline == null || v.resourceTimeline.contains(null) || v.conditionTimeline.contains(null)
+                    || v.inspectedPlayers == null || v.inspectedPlayers.size() > ActivityJournal.INSPECT_PLAYER_LIMIT
+                    || v.playerDamage == null || v.playerDamage.size() > ActivityJournal.INSPECT_PLAYER_LIMIT
+                    || v.playerDamage.values().stream().anyMatch(d -> d == null || d < 0)
+                    || v.completionEvidence == null || v.endReason == null
+                    || v.inspectedPlayers.values().stream().anyMatch(p -> p == null || !p.isValid())) throw new IllegalArgumentException();
             for (ActivityJournal.Entry e : state.entries)
                 if (e.values == null || e.visitId == null || e.map == null || e.kind == null || e.detail == null) throw new IllegalArgumentException();
             return state;

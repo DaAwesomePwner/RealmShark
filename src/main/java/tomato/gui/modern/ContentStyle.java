@@ -275,6 +275,15 @@ public final class ContentStyle {
         return scroll;
     }
 
+    /** Reveal a region through every enclosing viewport, including nested page/table scrolling. */
+    public static void reveal(JComponent control, Rectangle region) {
+        for (Container parent = control.getParent(); parent != null; parent = parent.getParent()) {
+            if (!(parent instanceof JViewport)) continue;
+            JComponent view = (JComponent)((JViewport)parent).getView();
+            view.scrollRectToVisible(SwingUtilities.convertRectangle(control, region, view));
+        }
+    }
+
     public static JScrollPane tableScroll(JTable table, int minimumRows) {
         return new JScrollPane(table) {
             @Override public Dimension getMinimumSize() {

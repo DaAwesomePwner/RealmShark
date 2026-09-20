@@ -13,6 +13,8 @@ The roster supports literal-text search (class, account, character ID, item name
 
 The **Exalts** tab shows saved progress for observed classes across accounts. **Pets** retains the existing pet view.
 
+The final cleanup retires five legacy panels that were no longer constructed by the application. The mounted Roster/Exalts/Pets views and live completion, vault, equipped-pet, fame, and journal tracking remain. This does not add replacements for the old unmounted collection grid, completion matrix, aggregate exalt rows, quickslot display, or multi-character/vault potion planner. See the [retirement disposition](STEP-4-CLEANUP.md#legacy-character-retirement).
+
 At compact sizes or enlarged fonts, scroll the page to move between the roster and details. Their minimum sizes reserve usable data rows; detail tabs wrap instead of hiding part of the selected label. Keyboard focus reveals controls through nested scroll panes. Draft notes survive background roster refreshes and are saved against the selected character identity when selection changes. Fame uses the display locale, while IDs stay ungrouped and dates use the shared full timestamp format.
 
 ## Data and accuracy

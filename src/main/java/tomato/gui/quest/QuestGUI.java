@@ -30,14 +30,15 @@ public class QuestGUI extends JPanel {
     });
     private final JCheckBox completed = new JCheckBox("Show completed");
     private final JCheckBox onlyPinned = new JCheckBox("Pinned only");
-    private final JLabel summary = new JLabel("Enter the Daily Quest Room during capture to load your quests.");
-    private final JLabel count = new JLabel("No quests captured");
+    private final JTextArea summary = labelText("Enter the Daily Quest Room during capture to load your quests.");
+    private final JTextArea count = labelText("No quests captured");
     private final QuestModel model = new QuestModel();
     private final JTable table = new JTable(model);
     private final JPanel details = new DetailPanel();
     private final JButton pin = new JButton("Pin quest");
     private boolean refreshing;
     private boolean captured;
+    private boolean columnSizingPending;
 
     public QuestGUI() {
         this(id -> {
@@ -51,20 +52,34 @@ public class QuestGUI extends JPanel {
         this.names = names; this.images = images; this.preferences = preferences;
         setLayout(new BorderLayout(0, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        summary.setName("quest-summary"); count.setName("quest-count");
+        search.setName("quest-search"); type.setName("quest-type"); reward.setName("quest-reward"); sort.setName("quest-sort");
+        onlyPinned.setName("quest-pinned-only"); completed.setName("quest-completed"); pin.setName("quest-pin");
+        details.setName("quest-details"); table.setName("quest-table");
+        table.getAccessibleContext().setAccessibleName("Captured quests");
         JPanel header = new JPanel(new BorderLayout(0, 8));
         header.add(summary, BorderLayout.NORTH);
         search.putClientProperty("JTextField.placeholderText", "Search quests, rewards, marks or tokens…");
         search.getAccessibleContext().setAccessibleName("Search quests");
         header.add(search, BorderLayout.CENTER);
         JPanel filters = new JPanel(new BorderLayout(0, 6));
-        JPanel selects = ContentStyle.responsiveGrid(3, 180, 8);
+        // Wrap whole labeled fields using their font-aware preferred sizes, not 180px cells.
+        JPanel selects = ContentStyle.controls();
+        type.setPrototypeDisplayValue("Category 99999");
+        reward.setPrototypeDisplayValue("Standard quest chests");
+        reward.addPropertyChangeListener(e -> {
+            if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeRewardChoice();
+        });
+        sizeRewardChoice();
         selects.add(field("Quest type", type)); selects.add(field("Reward", reward)); selects.add(field("Sort by", sort));
         filters.add(selects, BorderLayout.NORTH);
         JPanel options = ContentStyle.controls();
         JButton labels = new JButton("Name types…");
+        labels.setName("quest-name-types");
         labels.setToolTipText("Label captured server categories Daily, Event, Utility, or your own name.");
         labels.addActionListener(e -> nameTypes());
         JButton reset = new JButton("Reset filters");
+        reset.setName("quest-reset");
         reset.addActionListener(e -> {
             refreshing = true; search.setText(""); type.setSelectedIndex(0); reward.setSelectedIndex(0);
             completed.setSelected(false); onlyPinned.setSelected(false); sort.setSelectedIndex(0);
@@ -77,9 +92,8 @@ public class QuestGUI extends JPanel {
         ContentStyle.tableFont(table, ContentStyle.body(), 32); // Room for 24px reward icons.
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.getTableHeader().setReorderingAllowed(false);
-        int[] widths = {40, 210, 105, 210, 75, 110};
-        for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         table.setDefaultRenderer(Object.class, new ContentStyle.Cell() {
             public Component getTableCellRendererComponent(JTable t, Object v, boolean selected, boolean focus, int r, int c) {
                 super.getTableCellRendererComponent(t, v, selected, focus, r, c);
@@ -92,18 +106,49 @@ public class QuestGUI extends JPanel {
                 return this;
             }
         });
-        table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) showDetails(); });
+        sizeColumns();
+        table.addPropertyChangeListener(e -> {
+            if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
+        });
+        table.getTableHeader().addPropertyChangeListener(e -> {
+            if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
+        });
+        table.getSelectionModel().addListSelectionListener(e -> { if (!refreshing && !e.getValueIsAdjusting()) showDetails(); });
         JScrollPane list = ContentStyle.tableScroll(table, 3);
-        JScrollPane detailScroll = new JScrollPane(details);
+        JScrollPane detailScroll = new JScrollPane(details) {
+            @Override public Dimension getMinimumSize() {
+                Insets insets = getInsets();
+                return new Dimension(0, Math.max(130, details.getFontMetrics(ContentStyle.body()).getHeight() * 3
+                    + insets.top + insets.bottom));
+            }
+        };
+        list.setName("quest-list-scroll"); detailScroll.setName("quest-detail-scroll");
+        detailScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         detailScroll.getVerticalScrollBar().setUnitIncrement(28);
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, list, detailScroll);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, list, detailScroll) {
+            @Override public void doLayout() {
+                super.doLayout();
+                int current = getUI().getDividerLocation(this);
+                int usable = Math.max(getMinimumDividerLocation(), Math.min(current, getMaximumDividerLocation()));
+                if (usable != current) { setDividerLocation(usable); super.doLayout(); }
+            }
+        };
+        split.setName("quest-list-detail-split");
         split.setResizeWeight(.5); split.setDividerLocation(245); split.setBorder(null);
-        detailScroll.setMinimumSize(new Dimension(0, 130));
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         count.setFont(ContentStyle.metadata(ContentStyle.body()));
         footer.add(count, BorderLayout.CENTER);
         pin.setEnabled(false); pin.addActionListener(e -> togglePin()); footer.add(pin, BorderLayout.EAST);
-        add(ContentStyle.page(header, split, footer), BorderLayout.CENTER);
+        JScrollPane page = ContentStyle.page(header, split, footer);
+        page.setName("quest-page-scroll");
+        page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
+        add(page, BorderLayout.CENTER);
+        for (JComponent control : new JComponent[]{search, type, reward, sort, onlyPinned, completed, labels, reset, pin}) revealOnFocus(control);
+        table.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                ContentStyle.reveal(table, table.getCellRect(Math.max(0, table.getSelectedRow()), 1, true));
+            }
+        });
 
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { refresh(); }
@@ -114,6 +159,42 @@ public class QuestGUI extends JPanel {
         sort.addActionListener(e -> { table.getRowSorter().setSortKeys(null); refresh(); });
         completed.addActionListener(e -> refresh()); onlyPinned.addActionListener(e -> refresh());
         rebuildFilters(); showDetails();
+    }
+
+    private void sizeRewardChoice() {
+        String widest = "";
+        FontMetrics metrics = reward.getFontMetrics(reward.getFont());
+        for (String value : new String[]{"All rewards", "Any quest chest", "Mighty quest chests", "Epic quest chests",
+                "Standard quest chests", "Beginner quest chests"})
+            if (metrics.stringWidth(value) > metrics.stringWidth(widest)) widest = value;
+        reward.setPrototypeDisplayValue(widest);
+    }
+
+    private void sizeColumnsLater() {
+        if (columnSizingPending) return;
+        columnSizingPending = true;
+        SwingUtilities.invokeLater(() -> { columnSizingPending = false; sizeColumns(); });
+    }
+
+    private void sizeColumns() {
+        String[] examples = {"Yes", "Quest name", "Category 99999", "Choose: Quest Chest", "999", "Repeatable • completed before"};
+        int[] preferred = {40, 210, 105, 210, 75, 110};
+        for (int column = 0; column < examples.length; column++) {
+            TableColumn value = table.getColumnModel().getColumn(column);
+            Component heading = table.getTableHeader().getDefaultRenderer().getTableCellRendererComponent(
+                table, value.getHeaderValue(), false, false, -1, column);
+            int minimum = Math.max(heading.getPreferredSize().width + 8, table.getFontMetrics(table.getFont()).stringWidth(examples[column]) + 16);
+            value.setMinWidth(minimum);
+            value.setPreferredWidth(Math.max(minimum, Math.round(preferred[column] * table.getFont().getSize2D() / ContentStyle.FONT_SIZE)));
+        }
+    }
+
+    private static void revealOnFocus(JComponent control) {
+        control.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight()));
+            }
+        });
     }
 
     private JPanel field(String title, JComponent component) {
@@ -198,16 +279,21 @@ public class QuestGUI extends JPanel {
         }
         visible.sort(order.thenComparing(byName));
         // Explicit sort controls and clickable column sorts work together until the user chooses a new sort.
-        table.clearSelection();
-        model.fireTableDataChanged();
-        int select = -1;
-        for (int i = 0; i < visible.size(); i++) if (key(visible.get(i)).equals(selectedKey)) select = i;
-        if (select < 0 && !visible.isEmpty()) select = 0;
-        if (select >= 0) { int view = table.convertRowIndexToView(select); table.setRowSelectionInterval(view, view); }
+        // Do not transiently disable a focused Pin button while restoring the same selected identity.
+        refreshing = true;
+        try {
+            table.clearSelection();
+            model.fireTableDataChanged();
+            int select = -1;
+            for (int i = 0; i < visible.size(); i++) if (key(visible.get(i)).equals(selectedKey)) select = i;
+            if (select < 0 && !visible.isEmpty()) select = 0;
+            if (select >= 0) { int view = table.convertRowIndexToView(select); table.setRowSelectionInterval(view, view); }
+        } finally { refreshing = false; }
         long chests = quests.stream().filter(q -> !q.completed || q.repeatable).filter(q -> matchesReward(q, "Any quest chest")).count();
         summary.setText(captured ? quests.size() + " quests captured  •  " + chests + " chest reward quests"
             : "Enter the Daily Quest Room during capture to load your quests.");
         count.setText(captured ? visible.size() + " shown • Requirements shown; owned items not checked." : "No quests captured");
+        for (JComboBox<String> combo : Arrays.asList(type, reward, sort)) combo.setToolTipText((String)combo.getSelectedItem());
         showDetails();
     }
 
@@ -237,12 +323,14 @@ public class QuestGUI extends JPanel {
         details.removeAll();
         Quest q = selected(); pin.setEnabled(q != null);
         if (q == null) {
+            pin.setText("Pin quest");
             details.add(text(captured ? "No matching quests. Change your filters or enter the Daily Quest Room to refresh."
                 : "Plan your next turn-in\nSee exactly what to bring and what each quest awards."), BorderLayout.NORTH);
         } else {
             JPanel body = new JPanel(); body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
             body.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-            JLabel title = new JLabel(q.name); title.setFont(ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 16f / ContentStyle.FONT_SIZE));
+            JTextArea title = text(q.name); title.setName("quest-detail-title");
+            ContentStyle.font(title, ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 16f / ContentStyle.FONT_SIZE));
             body.add(title); body.add(Box.createVerticalStrut(6));
             body.add(text(typeName(q) + " • " + status(q) + " • " + q.requirements.length + " required items"));
             if (!q.description.isEmpty()) body.add(text(q.description));
@@ -264,7 +352,8 @@ public class QuestGUI extends JPanel {
 
     private JPanel itemPanel(String heading, int[] items) {
         JPanel panel = new JPanel(); panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        JLabel label = new JLabel(heading); label.setFont(ContentStyle.metadata(ContentStyle.body()));
+        JTextArea label = labelText(heading);
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(label); panel.add(Box.createVerticalStrut(6));
         if (items.length == 0) panel.add(text("No items listed by the server."));
         for (Map.Entry<Integer, Integer> entry : quantities(items).entrySet()) {
@@ -280,11 +369,33 @@ public class QuestGUI extends JPanel {
         return panel;
     }
 
+    /** Wrapping replacement for a static JLabel; descriptive text and editors retain keyboard access. */
+    private static JTextArea labelText(String value) {
+        JTextArea label = ContentStyle.wrappingText(value);
+        label.setName("quest-static-label");
+        label.setFocusable(false);
+        return label;
+    }
+
     private JTextArea text(String value) {
-        JTextArea area = new JTextArea(value); area.setLineWrap(true); area.setWrapStyleWord(true);
-        area.setEditable(false); area.setOpaque(false); area.setFont(ContentStyle.body());
+        JTextArea area = ContentStyle.wrappingText(value);
+        ContentStyle.font(area, ContentStyle.body());
         area.setAlignmentX(Component.LEFT_ALIGNMENT);
+        area.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                revealCaret(area);
+            }
+        });
+        // Caret scrolling within the detail viewport must also reveal that viewport in the outer page.
+        area.addCaretListener(e -> { if (area.isFocusOwner()) SwingUtilities.invokeLater(() -> {
+            if (area.isFocusOwner()) revealCaret(area);
+        }); });
         return area;
+    }
+
+    private static void revealCaret(JTextArea area) {
+        try { ContentStyle.reveal(area, area.modelToView(area.getCaretPosition())); }
+        catch (javax.swing.text.BadLocationException e) { throw new IllegalStateException(e); }
     }
 
     private Icon icon(int id) { try { return images.apply(id); } catch (RuntimeException e) { return null; } }
@@ -327,25 +438,56 @@ public class QuestGUI extends JPanel {
     /** Category numbers are not self-describing; never guess daily/event from chest rarity or repeatability. */
     private void nameTypes() {
         if (quests.isEmpty()) { JOptionPane.showMessageDialog(this, "Enter the Daily Quest Room during capture first."); return; }
-        JPanel form = new JPanel(new GridLayout(0, 2, 8, 8));
+        createTypesDialog().setVisible(true);
+    }
+
+    private JDialog createTypesDialog() {
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Name quest types", Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setName("quest-types-dialog"); dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        JPanel form = new JPanel(); form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         Map<Integer, JComboBox<String>> fields = new TreeMap<>();
         for (Quest q : quests) if (!fields.containsKey(q.category)) {
             JComboBox<String> field = new JComboBox<>(new String[] {"", "Daily", "Event", "Utility", "Epic"});
             field.setEditable(true); field.setSelectedItem(categoryNames.get(q.category));
+            field.setPrototypeDisplayValue("Quest category");
+            field.setName("quest-category-" + q.category);
+            field.getAccessibleContext().setAccessibleName("Label for category " + q.category);
+            JComponent editor = (JComponent)field.getEditor().getEditorComponent();
+            editor.getAccessibleContext().setAccessibleName("Label for category " + q.category);
+            revealOnFocus(editor);
             fields.put(q.category, field);
-            form.add(new JLabel("Category " + q.category + " • " + q.name)); form.add(field);
+            JPanel row = new JPanel(new BorderLayout(0, 4));
+            row.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+            row.add(labelText("Category " + q.category + " • " + q.name), BorderLayout.NORTH);
+            row.add(field, BorderLayout.CENTER); form.add(row);
         }
         JPanel prompt = new JPanel(new BorderLayout(0, 8));
-        prompt.add(text("Match these groups to the tabs in your game. Labels are saved on this computer."), BorderLayout.NORTH);
-        prompt.add(form, BorderLayout.CENTER);
-        if (JOptionPane.showConfirmDialog(this, prompt, "Name quest types", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
+        prompt.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        JScrollPane page = ContentStyle.page(text("Match these groups to the tabs in your game. Labels are saved on this computer."), form, null);
+        page.setName("quest-types-scroll"); prompt.add(page, BorderLayout.CENTER);
+        JPanel actions = ContentStyle.controls();
+        JButton ok = new JButton("OK"), cancel = new JButton("Cancel");
+        ok.setName("quest-types-ok"); cancel.setName("quest-types-cancel");
+        actions.add(ok); actions.add(cancel); prompt.add(actions, BorderLayout.SOUTH);
+        cancel.addActionListener(e -> dialog.dispose());
+        ok.addActionListener(event -> {
             for (Map.Entry<Integer, JComboBox<String>> e : fields.entrySet()) {
-                String value = String.valueOf(e.getValue().getSelectedItem()).trim();
+                Object edited = e.getValue().getEditor().getItem();
+                String value = edited == null ? "" : edited.toString().trim();
                 categoryNames.put(e.getKey(), value);
                 if (preferences != null) preferences.put("category." + e.getKey(), value);
             }
             rebuildFilters(); refresh();
-        }
+            dialog.dispose();
+        });
+        dialog.setContentPane(prompt); dialog.getRootPane().setDefaultButton(ok);
+        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(), KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ContentStyle.refreshFonts(dialog);
+        Rectangle screen = getGraphicsConfiguration() == null ? GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds()
+            : getGraphicsConfiguration().getBounds();
+        dialog.setSize(Math.min(660, screen.width), Math.min(520, screen.height));
+        dialog.setLocationRelativeTo(this);
+        return dialog;
     }
 
     private static final class DetailPanel extends JPanel implements Scrollable {

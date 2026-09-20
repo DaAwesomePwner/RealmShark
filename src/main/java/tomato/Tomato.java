@@ -66,9 +66,6 @@ public class Tomato {
         );
         parseArgs(args);
 
-        parseCustomAssetPath(args);
-
-        parseCustomAssetPath(args);
         Util.setSaveLogs(false); // turns the logger to, save in to files.
         TcpStreamErrorHandler.INSTANCE.setErrorMessageHandler(
             Tomato::errorMessageHandler

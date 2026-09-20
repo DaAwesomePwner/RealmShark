@@ -106,7 +106,7 @@ try {
     $testReport = Join-Path $buildDirectory 'reports/tests/test/index.html'
     Write-Output "RealmShark isolated build: $buildDirectory"
     Write-Output "RealmShark test report: $testReport"
-    & "$GradleHome/bin/gradle.bat" "-PrealmSharkBuildDir=$buildDirectory" --project-cache-dir $projectCache test generateBranding shadowJar --no-daemon --console=plain
+    & "$GradleHome/bin/gradle.bat" "-PrealmSharkBuildDir=$buildDirectory" '-PrealmSharkVersion=v1.2.3' --project-cache-dir $projectCache test generateBranding shadowJar --no-daemon --console=plain
     if ($LASTEXITCODE) { throw "RealmShark Gradle build/tests failed. Test report (when available): $testReport" }
     $sourceJar = Join-Path $buildDirectory 'libs/RealmShark-v1.2.3.jar'
     $iconDirectory = Join-Path $buildDirectory 'generated/branding/icon'
@@ -120,7 +120,7 @@ try {
     New-Item -ItemType Directory -Path $inputDir, $classes | Out-Null
     Copy-Item -LiteralPath $sourceJar -Destination $inputDir
     Copy-Item -LiteralPath $icon -Destination (Join-Path $inputDir 'RealmShark.ico')
-    & "$JavaHome/bin/javac.exe" -d $classes "$PSScriptRoot/packaging/PortableLauncher.java"
+    & "$JavaHome/bin/javac.exe" --release 17 -d $classes "$PSScriptRoot/packaging/PortableLauncher.java"
     if ($LASTEXITCODE) { throw 'RealmShark launcher compilation failed.' }
     & "$JavaHome/bin/jar.exe" --create --file "$inputDir/portable-launcher.jar" -C $classes .
     if ($LASTEXITCODE) { throw 'RealmShark launcher JAR creation failed.' }
@@ -145,6 +145,7 @@ try {
     Copy-Item "$projectRoot/LICENSE.md" $bundle
     Copy-Item "$projectRoot/rotmg_loot_drops_updated.csv" $bundle
     Copy-Item "$projectRoot/docs/LOOT-CATALOG-LICENSE.txt" $bundle
+    Copy-Item "$projectRoot/docs/UNITYPY-LICENSE.txt" $bundle
     Copy-Item "$projectRoot/docs/BRIDGE.md" "$bundle/BRIDGE.md"
     Copy-Item "$projectRoot/docs/WINDOWS-BUNDLE.md" "$bundle/READ-ME-FIRST.md"
     Set-Content -LiteralPath "$bundle/Preview-RealmShark.cmd" -Encoding Ascii -Value "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"%~dp0RealmShark.exe`" --preview"
@@ -156,7 +157,7 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::CreateFromDirectory($bundle, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
     (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash + '  RealmShark-Windows-x64.zip' | Set-Content "$zip.sha256" -Encoding Ascii
-    & (Join-Path $PSScriptRoot 'Test-WindowsBundle.ps1') -BundlePath $bundle -ZipPath $zip -BuildDirectory $buildDirectory
+    & (Join-Path $PSScriptRoot 'Test-WindowsBundle.ps1') -BundlePath $bundle -ZipPath $zip -BuildDirectory $buildDirectory -JavaHome $JavaHome -ExpectedJarVersion 'v1.2.3'
     # Publish only desktop launch inputs after checking the package against this isolated build.
     $pngs = @(Get-ChildItem -LiteralPath $iconDirectory -File | Where-Object { $_.Name -match '^realmshark-\d+\.png$' })
     if (!$pngs.Count) { throw 'RealmShark generateBranding did not produce the desktop PNG icons.' }

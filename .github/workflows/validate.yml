@@ -33,6 +33,9 @@ jobs:
       - name: Test and build
         shell: pwsh
         run: .\gradlew.bat --no-daemon --continue -PrealmSharkBuildDir=build/ci test shadowJar
+      - name: Verify build contract
+        shell: powershell
+        run: .\scripts\Test-BuildMaintenance.ps1 -JavaHome "$env:JAVA_HOME"
       - name: Check runnable JAR
         shell: pwsh
         run: java -jar build/ci/libs/RealmShark-v1.2.3.jar --help
@@ -51,4 +54,13 @@ jobs:
           name: RealmShark-JAR
           path: build/ci/libs/RealmShark-v1.2.3.jar
           if-no-files-found: error
+          retention-days: 14
+      - name: Upload build-contract evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: build-contract-evidence
+          path: |
+            build/build-maintenance-*/logs/*.log
+            build/build-maintenance-*/src-*.json
           retention-days: 14

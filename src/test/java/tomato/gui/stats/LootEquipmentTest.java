@@ -41,6 +41,11 @@ public class LootEquipmentTest {
         assertFalse(item(1, "Token", "EQUIPMENT,CONSUMABLE,ABILITY,T6", "").highTier);
         assertFalse(item(1, "Partial tier", "EQUIPMENT,WEAPON,T13_WEAPON", "").highTier);
         assertFalse(item(1, "Unknown", null, "").highTier);
+        for (String kind : new String[]{"WEAPON", "ABILITY", "ARMOR", "RING"})
+            assertTrue(item(1, "Wearable UT", "EQUIPMENT," + kind + ",UT", "").ut);
+        for (String labels : new String[]{"EQUIPMENT,CONSUMABLE,UT", "EQUIPMENT,CONSUMABLE,STATPOTION,UT",
+                "EQUIPMENT,UT", "EQUIPMENT,TOKEN,UT", "EQUIPMENT,SKIN,UT", "EQUIPMENT,ABILITY,CONSUMABLE,UT"})
+            assertFalse("Exclude non-equipment: " + labels, item(1, "Non-tiered item", labels, "").ut);
     }
 
     @Test public void variantsAreCountedAcrossBagsWithIndependentFiltersAndRarityTotals() throws Exception {
@@ -103,6 +108,28 @@ public class LootEquipmentTest {
         } finally { SwingUtilities.invokeAndWait(() -> { for (JFrame frame : frames) if (frame != null) frame.dispose(); }); }
     }
 
+    @Test public void utViewKeepsWearableGearWhileOtherTabsRetainRunesPotionsAndTokens() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            LootDashboard panel = new LootDashboard(); JFrame frame = null;
+            try {
+                panel.accept(drop("White", "Oryx's Sanctuary", 1000,
+                    item(920001, "UT weapon", "EQUIPMENT,WEAPON,UT", ""),
+                    item(920002, "UT ability", "EQUIPMENT,ABILITY,UT", ""),
+                    item(920003, "UT armor", "EQUIPMENT,ARMOR,UT", ""),
+                    item(920004, "UT ring", "EQUIPMENT,RING,UT", ""),
+                    item(920005, "Sword Rune", "EQUIPMENT,CONSUMABLE,UT", ""),
+                    item(920006, "Stat potion", "EQUIPMENT,CONSUMABLE,STATPOTION,UT", ""),
+                    item(920007, "Token", "EQUIPMENT,UT", ""),
+                    item(920008, "Skin", "EQUIPMENT,SKIN,UT", "")));
+                frame = show(panel);
+                assertEquals(4, count(table(panel, "UTs")));
+                assertEquals(8, count(table(panel, "All Items")));
+                assertEquals(8, count(table(panel, "Whites")));
+                assertEquals(1, count(table(panel, "Stat Potions")));
+            } finally { if (frame != null) frame.dispose(); }
+        });
+    }
+
     @Test public void captureSnapshotsKeepEnchantFieldsAlignedWithInventorySlots() throws Exception {
         Field field = IdToAsset.class.getDeclaredField("objectID"); field.setAccessible(true);
         @SuppressWarnings("unchecked") Map<Integer, IdToAsset> assets = (Map<Integer, IdToAsset>)field.get(null);
@@ -138,7 +165,7 @@ public class LootEquipmentTest {
             try {
                 List<LootDashboard.Drop> drops = new ArrayList<>();
                 for (int i = 0; i < 1102; i++) drops.add(drop("White", "Lost Halls", i,
-                    item(910020, "Test UT", "EQUIPMENT,UT", i % 2 == 0 ? "" : encode(101, 102))));
+                    item(910020, "Test UT", "EQUIPMENT,WEAPON,UT", i % 2 == 0 ? "" : encode(101, 102))));
                 panel.acceptAll(drops); frame = show(panel);
                 assertEquals(1000, panel.recentDrops().size());
                 JTable table = table(panel, "UTs");

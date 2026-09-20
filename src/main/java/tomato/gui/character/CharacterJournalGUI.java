@@ -284,11 +284,7 @@ public final class CharacterJournalGUI extends JPanel {
         t.getTableHeader().setReorderingAllowed(false); return t;
     }
     private static void reveal(JComponent control, Rectangle region) {
-        for (Container parent = control.getParent(); parent != null; parent = parent.getParent()) {
-            if (!(parent instanceof JViewport)) continue;
-            JComponent view = (JComponent)((JViewport)parent).getView();
-            view.scrollRectToVisible(SwingUtilities.convertRectangle(control, region, view));
-        }
+        ContentStyle.reveal(control, region);
     }
     private static JTextArea note(String text) {
         return ContentStyle.wrappingText(text);

@@ -6,7 +6,7 @@ Activity export uses the last displayed history revision, including while frozen
 
 ## Runs
 
-Runs has its own sidebar entry and Alt+R shortcut. It lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, and status. Select a run for HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; Export history includes all retained dungeon runs and their linked events regardless of search.
+Runs has its own sidebar entry and Alt+R shortcut. It lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, status, captured damage, and DPS. Durations default to minutes (90 seconds displays as 1.5); the **Time** selector switches between minutes and seconds without changing saved timestamps or numeric sorting. Select a run for completion evidence, HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; Export history includes all retained dungeon runs and their linked events regardless of search.
 
 Nexus, Vault, Guild Halls, Pet Yard, Bazaar, daily rooms, the Realm overworld, Court of Oryx, tutorials, and known test maps are excluded from Runs. Their visits remain available in Timeline and Resources & buffs. Classification uses exact catalogued names, so content such as Battle for the Nexus still counts as a dungeon.
 
@@ -14,7 +14,17 @@ Area recognition includes a bundled catalog for startup without extracted assets
 
 Unresolved areas are excluded from Runs and remain labeled **Unrecognized area** in Timeline. Previously saved entries with that label cannot be renamed reliably: the original map name was not retained. Expanded recognition applies to new observations.
 
-An area visit is not a confirmed dungeon clear. Leaving an area does not prove completion. Progress received between visits remains unassigned instead of being credited to an arbitrary dungeon.
+Both Runs and Inspect > Runs show **Completed** when a clean server victory notification, recognized final-boss dialogue (Moonlight Village, The Void, or The Shatters), or a matching server dungeon-completion counter confirms the clear. Counter confirmation waits for the same account and character on the immediately following area entry, within 30 seconds of the last observation; pauses, missing counts, character/account changes and ambiguous multi-clear increases are excluded. The completion result survives connection boundaries and application restarts. The original exit reason remains in details (or the Inspect summary tooltip). Without completion evidence, an ended visit shows **Left · completion unconfirmed**; leaving or despawning alone does not establish a kill. Previously saved unknown results cannot be reconstructed. Exalt progress received between visits remains unassigned.
+
+## Inspect: Current Area and Runs
+
+**Inspect** (formerly Security, Alt+3) opens on **Current Area**, the live player roster. Click any roster column header to sort and click again to reverse. **Maxed** sorts numerically and starts with 8/8 at the top. Options > Sort by guild restores the default guild ordering.
+
+The **Runs** section lists the same dungeon visits as the standalone Runs module, newest first, with its own minutes/seconds selector. Search or sort the run list, then select a visit to see the players observed there and their last captured class, equipment, enchants, level, character mode, and base stats. Seasonal Crucible characters are violet; non-seasonal Crucible characters are amber, with explicit text for both modes. Hover Maxed for stats, or use **Actions > Equipment details…** / **Ctrl+E** for a read-only equipment and stats snapshot. Copy/export actions apply to the selected run; Current Area continues collecting live updates while you browse history.
+
+Run rosters add sortable **Damage** and **DPS** columns; the first click ranks highest first. Damage comes from the existing damage recorder, including resolved summon ownership, and excludes incoming player damage. DPS divides each player's captured damage by the same first-to-last attributed hit interval for the dungeon; it is not divided by minutes spent in the area or by each player's individual hit interval. Gear remains the last captured loadout, so it may differ from equipment worn earlier in the run. Older recordings without damage tracking show **—**, and a single hit timestamp has no measurable DPS. Run-list Damage/DPS columns summarize the tracked players in that visit.
+
+Snapshots update while a player is observed and remain after they leave the area. Repeat visits to the same dungeon stay separate. Record controls collection, and Save logs controls persistence across launches. Existing runs without player snapshots display an empty-state explanation; previous gear and stats cannot be reconstructed. Up to 300 player loadouts are retained per visit, within the shared 200-visit history limit. These are observed world players, not inferred party membership.
 
 ## Timeline
 

@@ -50,7 +50,6 @@ public class BrandPresentationTest {
                 assertFalse("Brand the traffic window before creating its native peer", bandwidth.isDisplayable());
                 assertEquals(AppIdentity.icons(), bandwidth.getIconImages());
                 windows.add(new tomato.gui.stats.session.FameSessionViewer(new tomato.gui.stats.session.FameSession()));
-                windows.add(new tomato.gui.warnings.MissingNpcapGUI());
                 windows.add(new packets.packetcapture.sniff.gui.MissingNpcapGUI());
                 for (Window window : windows) {
                     assertFalse(window.getIconImages().isEmpty());

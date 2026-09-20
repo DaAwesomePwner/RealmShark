@@ -9,11 +9,11 @@ import util.PropertiesManager;
 
 /** Responsive navigation around the original feature panels; no data is duplicated. */
 public final class WorkspaceShell extends JPanel {
-    public static final String[] TITLES = {"Chat", "Key-pops", "Security", "Characters", "Statistics", "Daily Quests", "My Info", "DPS Logger", "Loot", "Logging", "Runs", "Timeline", "Bridge Review", "Notifications"};
+    public static final String[] TITLES = {"Chat", "Key-pops", "Inspect", "Characters", "Statistics", "Daily Quests", "My Info", "DPS Logger", "Loot", "Logging", "Runs", "Timeline", "Bridge Review", "Notifications"};
     private static final String[] DESCRIPTIONS = {
         "Your conversations across the Realm, in one place.",
         "Follow dungeon openings and configure your notifications.",
-        "Inspect players, equipment and ability activity.",
+        "Inspect current players, saved run loadouts and ability activity.",
         "Keep a character roster, track maxing and equipment, and follow exalts.",
         "Track fame, loot and dungeon progress over time.",
         "Review quests collected from the Daily Quest Room.",

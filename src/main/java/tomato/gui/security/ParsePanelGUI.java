@@ -5,12 +5,18 @@ import assets.ImageBuffer;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
+import tomato.backend.data.InspectSnapshot;
 import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
+import tomato.realmshark.enums.CharacterClass;
 import util.PropertiesManager;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableRowSorter;
+import javax.swing.table.TableColumn;
+import packets.packetcapture.logger.ActivityJournal;
+import tomato.gui.modern.DisplayFormat;
 import java.awt.*;
 import java.awt.datatransfer.*;
 import java.awt.event.*;
@@ -44,6 +50,11 @@ public class ParsePanelGUI extends JPanel {
     private final List<Action> playerActions = new ArrayList<>();
     private final List<Action> guildActions = new ArrayList<>();
     private boolean guiUpdateSuppression;
+    private String displayedRun;
+    private List<CapturedPlayer> historicalPlayers;
+    private ActivityJournal.Visit inspectedRun;
+    private final List<TableColumn> runColumns = new ArrayList<>();
+    private boolean runColumnsVisible;
 
     public ParsePanelGUI() {
         setLayout(new BorderLayout(8, 8));
@@ -53,9 +64,25 @@ public class ParsePanelGUI extends JPanel {
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         table.setDefaultRenderer(Object.class, new RosterCell());
+        table.setDefaultRenderer(Integer.class, new RosterCell());
+        table.setDefaultRenderer(Long.class, new RosterCell());
+        table.setDefaultRenderer(Double.class, new RosterCell());
+        TableRowSorter<RosterModel> sorter = new TableRowSorter<RosterModel>(model) {
+            @Override public void toggleSortOrder(int column) {
+                if ((column == 7 || column >= 9) && (getSortKeys().isEmpty() || getSortKeys().get(0).getColumn() != column))
+                    setSortKeys(Collections.singletonList(new RowSorter.SortKey(column, SortOrder.DESCENDING)));
+                else super.toggleSortOrder(column);
+            }
+        };
+        for (int column = 0; column < model.getColumnCount(); column++)
+            if (model.getColumnClass(column) == String.class) sorter.setComparator(column, String.CASE_INSENSITIVE_ORDER);
+        table.setRowSorter(sorter);
+        table.getTableHeader().setToolTipText("Click a column to sort; click again to reverse. Maxed starts with 8/8 first.");
         table.getAccessibleContext().setAccessibleName("Captured player roster");
-        int[] widths = {190, 185, 160, 75, 75, 75, 75, 90, 210};
+        int[] widths = {190, 185, 160, 75, 75, 75, 75, 90, 210, 110, 110};
         for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        for (int i = 9; i < widths.length; i++) runColumns.add(table.getColumnModel().getColumn(i));
+        for (TableColumn column : runColumns) table.removeColumn(column);
         rosterScroll.setName("security-roster-scroll");
         rosterScroll.getVerticalScrollBar().setUnitIncrement(40);
         RosterPage page = new RosterPage();
@@ -64,14 +91,14 @@ public class ParsePanelGUI extends JPanel {
         pageScroll.setName("security-page-scroll");
         pageScroll.setBorder(null);
         pageScroll.getVerticalScrollBar().setUnitIncrement(40);
-        pageScroll.getAccessibleContext().setAccessibleName("Security page; scroll for controls at large text sizes");
+        pageScroll.getAccessibleContext().setAccessibleName("Inspect page; scroll for controls at large text sizes");
         add(pageScroll, BorderLayout.CENTER);
 
         JPanel top = new JPanel(new BorderLayout(8, 4));
         JPanel filterRow = new JPanel(new BorderLayout(8, 0));
         filterComboBox = new JComboBox<>(new String[]{DISABLE_FILTER});
-        filterComboBox.setPrototypeDisplayValue("Select a security filter");
-        filterComboBox.getAccessibleContext().setAccessibleName("Security filter");
+        filterComboBox.setPrototypeDisplayValue("Select an inspect filter");
+        filterComboBox.getAccessibleContext().setAccessibleName("Inspect filter");
         filterComboBox.addActionListener(this::comboAction);
         JLabel filterLabel = new JLabel("Filter");
         filterLabel.setLabelFor(filterComboBox);
@@ -97,6 +124,7 @@ public class ParsePanelGUI extends JPanel {
         sortCheckBox.setSelected(!"false".equals(PropertiesManager.getProperty("sortCheckBox")));
         sortCheckBox.addActionListener(e -> {
             PropertiesManager.setProperties("sortCheckBox", Boolean.toString(sortCheckBox.isSelected()));
+            table.getRowSorter().setSortKeys(Collections.emptyList());
             requestRefresh();
         });
         options.add(sortCheckBox);
@@ -248,7 +276,7 @@ public class ParsePanelGUI extends JPanel {
         if (row == null) return;
         // Use the displayed row, never the newer producer roster or the current filter.
         String details = "Player: " + row.player.playerEntity.name() + "\nGuild: "
-                + (row.guild.isEmpty() ? "None captured" : row.guild) + "\n\n"
+                + (row.guild.isEmpty() ? "None captured" : row.guild) + "\n\n" + row.player.statsDescription() + "\n\n"
                 + String.join("\n\n", row.equipmentDetails);
         showEquipmentDetails(row.player.playerEntity.name(), details);
     }
@@ -335,16 +363,16 @@ public class ParsePanelGUI extends JPanel {
         synchronized (rosterLock) {
             if (displayedRevision == revision) return;
             nextRevision = revision;
-            players = new ArrayList<>(roster.values());
+            players = historicalPlayers == null ? new ArrayList<>(roster.values()) : new ArrayList<>(historicalPlayers);
         }
         Row selected = selectedRow();
-        Map<Integer, Row> previous = new HashMap<>();
-        for (Row row : model.rows) previous.put(row.player.playerEntity.id, row);
+        Map<String, Row> previous = new HashMap<>();
+        for (Row row : model.rows) previous.put(rowKey(row.player), row);
         List<Row> rows = new ArrayList<>(players.size());
         for (CapturedPlayer player : players) {
-            Row row = previous.get(player.playerEntity.id);
-            if (row == null || row.player != player || row.filter != currentFilter || row.themeRevision != themeRevision)
-                row = new Row(player, themeRevision);
+            Row row = previous.get(rowKey(player));
+            if (row == null || row.player != player || row.themeRevision != themeRevision)
+                row = new Row(player, themeRevision, inspectedRun);
             rows.add(row);
         }
         if (sortCheckBox.isSelected()) rows.sort(Comparator.comparing((Row r) -> r.guild.isEmpty())
@@ -353,13 +381,60 @@ public class ParsePanelGUI extends JPanel {
         displayedRevision = nextRevision;
         model.fireTableDataChanged();
         if (selected != null) for (int i = 0; i < rows.size(); i++) {
-            if (rows.get(i).player.playerEntity.id == selected.player.playerEntity.id) {
+            if (rowKey(rows.get(i).player).equals(rowKey(selected.player))) {
                 int view = table.convertRowIndexToView(i);
                 if (view >= 0) table.setRowSelectionInterval(view, view);
                 break;
             }
         }
         updateSelectionActions();
+    }
+
+    void showCurrentArea() {
+        displayedRun = null;
+        inspectedRun = null;
+        showRunColumns(false);
+        synchronized (rosterLock) { historicalPlayers = null; }
+        table.clearSelection();
+        requestRefresh();
+        refreshRoster();
+    }
+
+    void showRun(String id, Collection<InspectSnapshot> players) {
+        showRun(id, players, null);
+    }
+
+    void showRun(ActivityJournal.Visit visit) { showRun(visit.id, visit.inspectedPlayers.values(), visit); }
+
+    private void showRun(String id, Collection<InspectSnapshot> players, ActivityJournal.Visit visit) {
+        if (!Objects.equals(displayedRun, id)) table.clearSelection();
+        displayedRun = id;
+        inspectedRun = visit;
+        showRunColumns(true);
+        List<CapturedPlayer> captured = new ArrayList<>();
+        for (InspectSnapshot player : players) {
+            Entity entity = player.toEntity();
+            captured.add(snapshot(entity.id, entity));
+        }
+        synchronized (rosterLock) { historicalPlayers = captured; }
+        requestRefresh();
+        refreshRoster();
+    }
+
+    private void showRunColumns(boolean visible) {
+        if (runColumnsVisible == visible) return;
+        runColumnsVisible = visible;
+        for (TableColumn column : runColumns) { if (visible) table.addColumn(column); else table.removeColumn(column); }
+        if (!visible) {
+            List<RowSorter.SortKey> keys = new ArrayList<>();
+            for (RowSorter.SortKey key : table.getRowSorter().getSortKeys()) if (key.getColumn() < 9) keys.add(key);
+            table.getRowSorter().setSortKeys(keys);
+        }
+    }
+
+    private String rowKey(CapturedPlayer player) {
+        Entity entity = player.playerEntity;
+        return historicalPlayers == null ? "object:" + entity.id : player.historyKey();
     }
 
     private static final StatType[] DISPLAY_STATS = {StatType.NAME_STAT, StatType.GUILD_NAME_STAT,
@@ -373,6 +448,10 @@ public class ParsePanelGUI extends JPanel {
         CapturedPlayer(Entity entity, boolean[] equipmentCaptured) {
             super(entity);
             this.equipmentCaptured = equipmentCaptured;
+        }
+        String historyKey() {
+            String name = playerEntity.getStatName();
+            return name == null || name.isEmpty() ? "object:" + playerEntity.id : "player:" + name.toLowerCase(Locale.ROOT) + ":" + playerEntity.objectType;
         }
     }
 
@@ -402,7 +481,7 @@ public class ParsePanelGUI extends JPanel {
         ParsePanelGUI panel = INSTANCE;
         if (panel == null || entity == null) return;
         CapturedPlayer copy = snapshot(id, entity);
-        synchronized (panel.rosterLock) { panel.roster.put(id, copy); panel.revision++; }
+        synchronized (panel.rosterLock) { panel.roster.put(id, copy); if (panel.historicalPlayers == null) panel.revision++; }
     }
 
     public static void update(Entity entity) {
@@ -416,7 +495,7 @@ public class ParsePanelGUI extends JPanel {
             CapturedPlayer previous = panel.roster.get(entity.id);
             if (previous == null || sameDisplay(previous, copy)) return;
             panel.roster.put(entity.id, copy);
-            panel.revision++;
+            if (panel.historicalPlayers == null) panel.revision++;
         }
     }
 
@@ -433,13 +512,13 @@ public class ParsePanelGUI extends JPanel {
     public static void removePlayer(int id) {
         ParsePanelGUI panel = INSTANCE;
         if (panel == null) return;
-        synchronized (panel.rosterLock) { if (panel.roster.remove(id) != null) panel.revision++; }
+        synchronized (panel.rosterLock) { if (panel.roster.remove(id) != null && panel.historicalPlayers == null) panel.revision++; }
     }
 
     public static void clear() {
         ParsePanelGUI panel = INSTANCE;
         if (panel == null) return;
-        synchronized (panel.rosterLock) { panel.roster.clear(); panel.revision++; }
+        synchronized (panel.rosterLock) { panel.roster.clear(); if (panel.historicalPlayers == null) panel.revision++; }
     }
 
     public static void update() {
@@ -456,7 +535,7 @@ public class ParsePanelGUI extends JPanel {
 
     private List<Player> getFilteredPlayers() {
         List<Player> players;
-        synchronized (rosterLock) { players = new ArrayList<>(roster.values()); }
+        synchronized (rosterLock) { players = historicalPlayers == null ? new ArrayList<>(roster.values()) : new ArrayList<>(historicalPlayers); }
         if (currentFilter != null && copyOnlyUnderReqCheckbox.isSelected())
             players.removeIf(p -> !currentFilter.parsePlayer(p).isUnderReqs);
         return players;
@@ -523,17 +602,18 @@ public class ParsePanelGUI extends JPanel {
     private static class Row {
         final long themeRevision;
         final CapturedPlayer player;
-        final SecurityFilter filter = currentFilter;
-        final SecurityFilter.ParsedPlayerObject requirements;
         final String guild;
+        final Long damage;
+        final Double dps;
         final String[] equipmentLabels = new String[4], equipmentDetails = new String[4];
         final ImageIcon[] icons = new ImageIcon[4];
         final ImageIcon skin;
-        Row(CapturedPlayer player, long themeRevision) {
+        Row(CapturedPlayer player, long themeRevision, ActivityJournal.Visit run) {
             this.player = player;
             this.themeRevision = themeRevision;
             guild = Objects.toString(player.playerEntity.getStatGuild(), "");
-            requirements = filter == null ? null : filter.parsePlayer(player);
+            damage = run == null ? null : run.damage(player.historyKey());
+            dps = run == null ? null : run.dps(damage);
             ParseEnchants.EquippedCapture capture = ParseEnchants.equippedCapture(player.playerEntity);
             skin = ImageBuffer.getOutlinedIcon(player.getSkinId(), 20);
             for (int i = 0; i < 4; i++) {
@@ -582,21 +662,23 @@ public class ParsePanelGUI extends JPanel {
     }
 
     private static class RosterModel extends AbstractTableModel {
-        private final String[] columns = {"Player / level", "Guild", "Requirements", "Weapon", "Ability", "Armor", "Ring", "Maxed", "Character mode"};
+        private final String[] columns = {"Player / level", "Guild", "Class", "Weapon", "Ability", "Armor", "Ring", "Maxed", "Character mode", "Damage", "DPS"};
         private List<Row> rows = new ArrayList<>();
         public int getRowCount() { return rows.size(); }
         public int getColumnCount() { return columns.length; }
         public String getColumnName(int column) { return columns[column]; }
+        public Class<?> getColumnClass(int column) { return column == 7 ? Integer.class : column == 9 ? Long.class : column == 10 ? Double.class : String.class; }
         public Object getValueAt(int index, int column) {
             Row row = rows.get(index);
             Entity entity = row.player.playerEntity;
             switch (column) {
                 case 0: return entity.name() + " [" + entity.stat.get(StatType.LEVEL_STAT).statValue + "]";
                 case 1: return row.guild;
-                case 2: return row.requirements == null ? "No filter" : (row.requirements.isUnderReqs ? "Below: " : "Meets: ")
-                        + row.requirements.points + " / " + row.requirements.classPoints;
-                case 7: return row.player.statsMaxed() + " / 8";
+                case 2: return Objects.toString(CharacterClass.getName(entity.objectType), "Unknown class");
+                case 7: return row.player.statsMaxed();
                 case 8: return (entity.isSeasonal() ? "Seasonal" : "Non-seasonal") + (entity.isCrucible() ? " · Crucible" : "");
+                case 9: return row.damage;
+                case 10: return row.dps;
                 default: return row.equipmentLabels[column - 3];
             }
         }
@@ -608,7 +690,10 @@ public class ParsePanelGUI extends JPanel {
             Row row = model.rows.get(table.convertRowIndexToModel(rowIndex));
             int column = table.convertColumnIndexToModel(columnIndex);
             setToolTipText(null);
-            String name = model.getColumnName(column) + ": " + Objects.toString(value, "Not captured");
+            if (column == 7) setText(value + " / 8");
+            if (column == 9) setText(DisplayFormat.formatInteger((Long)value));
+            if (column == 10) setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatNumber(((Number)value).doubleValue(), 0, 1));
+            String name = model.getColumnName(column) + ": " + getText();
             getAccessibleContext().setAccessibleName(name);
             getAccessibleContext().setAccessibleDescription(name);
             if (focus) setBorder(BorderFactory.createCompoundBorder(
@@ -618,9 +703,6 @@ public class ParsePanelGUI extends JPanel {
                 setToolTipText("Click to copy player; Ctrl+click or Enter to open RealmEye. Ctrl+C copies the selected player.");
             } else if (column == 1) {
                 setToolTipText(row.guild + " — click to copy; Ctrl+click or Ctrl+Enter opens RealmEye.");
-            } else if (column == 2 && row.requirements != null) {
-                if (!selected) setForeground(ContentStyle.color(row.requirements.isUnderReqs ? "rose" : "mint"));
-                setToolTipText("<html>" + html(String.join("\n", row.requirements.missing)) + "</html>");
             } else if (column >= 3 && column <= 6) {
                 int slot = column - 3;
                 setText(""); setIcon(row.icons[slot]); setHorizontalAlignment(CENTER);
@@ -628,10 +710,13 @@ public class ParsePanelGUI extends JPanel {
                 getAccessibleContext().setAccessibleName(row.equipmentLabels[slot]);
                 getAccessibleContext().setAccessibleDescription(row.equipmentDetails[slot]);
             } else if (column == 7) {
-                int[] s = row.player.statMissing();
-                setToolTipText(String.format("<html>Missing<br>%d :Life<br>%d :Mana<br>%d :Atk<br>%d :Def<br>%d :Spd<br>%d :Dex<br>%d :Vit<br>%d :Wis</html>", s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]));
+                setToolTipText("<html>" + html(row.player.statsDescription()) + "</html>");
             } else if (column == 8 && !selected) {
-                setForeground(ContentStyle.color(row.player.playerEntity.isCrucible() ? "rose" : row.player.playerEntity.isSeasonal() ? "mint" : "muted"));
+                boolean seasonal = row.player.playerEntity.isSeasonal(), crucible = row.player.playerEntity.isCrucible();
+                setForeground(ContentStyle.color(crucible ? (seasonal ? "violet" : "amber") : seasonal ? "mint" : "muted"));
+            } else if (column >= 9) {
+                setToolTipText(column == 9 ? "Captured outgoing damage in this dungeon; missing older recordings are shown as —."
+                        : "Damage per second over the dungeon's shared first-to-last captured hit window. A single timestamp has no measurable DPS. Gear is the last captured loadout.");
             }
             return this;
         }

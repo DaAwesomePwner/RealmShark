@@ -5,13 +5,18 @@ import packets.PacketType;
 import packets.data.*;
 import packets.data.enums.ConditionBits;
 import packets.data.enums.ConditionNewBits;
+import packets.data.enums.NotificationEffectType;
 import packets.incoming.*;
 import packets.outgoing.UseItemPacket;
+import tomato.backend.data.InspectSnapshot;
+import tomato.realmshark.ParseDungeon;
+import tomato.realmshark.enums.CharacterStatistics;
 import java.util.*;
 
-/** Consumes every clean observation before discovery sampling. Contains no account/chat/player names. */
+/** Gameplay history; Inspect adds allowlisted player loadouts, never account identifiers or chat. */
 public final class ActivityJournal {
     public static final int RUN_LIMIT = 200, EVENT_LIMIT = 1000;
+    public static final int INSPECT_PLAYER_LIMIT = 300;
     private final List<Visit> visits = new ArrayList<>();
     private final List<Entry> entries = new ArrayList<>();
     private final Map<Integer, int[]> exaltBaseline = new HashMap<>();
@@ -22,6 +27,10 @@ public final class ActivityJournal {
     private boolean identityVerified;
     private final LinkedHashMap<Integer, Integer> ownerCandidates = new LinkedHashMap<>(), shotOwners = new LinkedHashMap<>();
     private Visit current;
+    private final Map<Integer, String> inspectedIdentities = new HashMap<>();
+    private CompletionBaseline completionBaseline;
+    private int[] pendingCompletions;
+    private Integer pendingCompletionCharacter;
     private Integer localId, characterId, condition, conditionNew;
     private long lastTick, lastConditionTime, lastResourceEvent, lastResourceSample;
     private int nextVisit;
@@ -36,7 +45,7 @@ public final class ActivityJournal {
         if (saved == null) return;
         for (Visit v : saved.visits) {
             Visit copy=new Visit(v);
-            if (copy.ended == 0) { copy.ended = copy.lastSeen; copy.status = "App ended; completion unknown"; }
+            if (copy.ended == 0) { copy.ended = copy.lastSeen; copy.endReason = "App ended"; if (copy.completionEvidence.isEmpty()) copy.status = "App ended; completion unknown"; }
             visits.add(copy);
         }
         for (Entry entry : saved.entries) entries.add(copyEntry(entry));
@@ -45,6 +54,8 @@ public final class ActivityJournal {
 
     public void boundary(long now, String reason) {
         finish(now, reason);
+        inspectedIdentities.clear(); pendingCompletions = null;
+        if (!reason.startsWith("Connection boundary")) completionBaseline = null;
         localId = characterId = condition = conditionNew = null;
         lastTick = 0;
         // Preserve progress only for comparison after the same account is independently observed again.
@@ -54,6 +65,7 @@ public final class ActivityJournal {
         boolean hadHistory=!visits.isEmpty() || !entries.isEmpty();
         boundary(System.currentTimeMillis(), "Cleared"); visits.clear(); entries.clear();
         exaltBaseline.clear(); exaltVisit.clear(); accountScope = null;
+        completionBaseline = null;
         if (hadHistory) summariesRevision = choicesRevision = entriesRevision = ++revision;
     }
 
@@ -70,6 +82,7 @@ public final class ActivityJournal {
             if (type == PacketType.EXALTATION_BONUS_CHANGED || type == PacketType.CREATE_SUCCESS) {
                 exaltBaseline.clear(); pendingExalts.clear(); identityVerified = false;
             }
+            if (type == PacketType.CREATE_SUCCESS || type == PacketType.MAPINFO) { completionBaseline = null; pendingCompletions = null; }
             if (type == PacketType.MAPINFO) boundary(now, "Map transition could not be decoded");
             return;
         }
@@ -77,6 +90,8 @@ public final class ActivityJournal {
             finish(now, "Area left; completion unknown");
             MapInfoPacket p = (MapInfoPacket)packet;
             current = new Visit(); current.id = session + ":" + (++nextVisit);
+            current.damageTracked = true;
+            inspectedIdentities.clear(); pendingCompletions = null;
             current.map = tomato.realmshark.ParseDungeon.canonicalMapName(p);
             current.started = current.lastSeen = now; current.difficulty = Float.isFinite(p.difficulty) ? p.difficulty : 0;
             current.realmStart = current.realmLatest = p.currentRealmScore < 0 ? null : p.currentRealmScore;
@@ -94,6 +109,11 @@ public final class ActivityJournal {
             characterId = p.charId; localId = p.objectId; condition = conditionNew = null; lastTick = 0;
             invalidateResources(now);
             if (current != null) current.equipment.clear();
+        } else if (packet instanceof NotificationPacket && ((NotificationPacket)packet).effect == NotificationEffectType.Victory) {
+            completeCurrent(now, "Server victory notification");
+        } else if (packet instanceof TextPacket) {
+            String evidence = completionDialogue((TextPacket)packet);
+            if (evidence != null) completeCurrent(now, evidence);
         } else if (packet instanceof ExaltationUpdatePacket) {
             exalts((ExaltationUpdatePacket)packet, now);
         } else if (packet instanceof IncomingPartyMemberInfoPacket) {
@@ -159,10 +179,12 @@ public final class ActivityJournal {
             if (stat.statTypeNum == 38 && Objects.equals(localId, s.objectId) && stat.stringStatValue != null && !stat.stringStatValue.isEmpty()) {
                 if (!stat.stringStatValue.equals(accountScope)) {
                     exaltBaseline.clear(); exaltVisit.clear(); accountScope = stat.stringStatValue;
+                    completionBaseline = null;
                 }
                 identityVerified = true;
                 for (Map.Entry<Integer,int[]> pending : pendingExalts.entrySet()) compareExalts(pending.getKey(), pending.getValue(), now);
                 pendingExalts.clear();
+                compareCompletions();
             }
             if (stat.stringStatValue != null) continue;
             if (stat.statTypeNum == 114) {
@@ -289,7 +311,75 @@ public final class ActivityJournal {
         }
     }
     private void finish(long now, String status) {
-        if (current != null) { writableCurrent(); current.ended = now; current.status = status; changed(current); current = null; }
+        if (current != null) {
+            writableCurrent(); current.ended = now; current.endReason = status;
+            if (current.completionEvidence.isEmpty()) current.status = status;
+            changed(current); current = null;
+        }
+    }
+
+    private void completeCurrent(long now, String evidence) {
+        if (current != null && ParseDungeon.isDungeon(current.map)) complete(visits.size() - 1, now, evidence);
+    }
+
+    private void complete(int index, long now, String evidence) {
+        Visit visit = visits.get(index);
+        if (!visit.completionEvidence.isEmpty()) return;
+        visit = writable(index);
+        visit.completionEvidence = evidence; visit.completionObservedAt = now;
+        visit.status = "Completed"; changed(visit);
+    }
+
+    // Exact server boss dialogue already used by loot attribution; miniboss lines are deliberately absent.
+    private String completionDialogue(TextPacket p) {
+        if (current == null || p.name == null || !p.name.startsWith("#") || p.text == null) return null;
+        if ("Moonlight Village".equals(current.map) && (
+                ("#Kitsune Umi".equals(p.name) && "This fully concludes the Moonlight Festival!".equals(p.text)) ||
+                ("#Dancer Miko".equals(p.name) && "Thank you all for coming tonight.".equals(p.text)) ||
+                ("#Umi, Goddess of Revelry".equals(p.name) && "This fully concludes the Moonlight Festival.".equals(p.text))))
+            return "Final boss dialogue: " + p.name.substring(1);
+        if ("The Void".equals(current.map) && "#Void Entity".equals(p.name)
+                && "You fools... You can never truly defeat me! I am in all of you! I AM all of you!".equals(p.text))
+            return "Final boss dialogue: Void Entity";
+        if ("The Shatters".equals(current.map) && (
+                ("#The Accursed King".equals(p.name) && "...do you truly think your end will be any different?".equals(p.text)) ||
+                ("#King Azamoth".equals(p.name) && "This fate is mine to bear... not hers.".equals(p.text))))
+            return "Final boss dialogue: " + p.name.substring(1);
+        return null;
+    }
+
+    public void completionStats(int character, int[] counts) {
+        if (current == null) return;
+        if (counts == null || counts.length != CharacterStatistics.DUNGEON_NAMES.size()) {
+            pendingCompletions = null; completionBaseline = null; return;
+        }
+        pendingCompletionCharacter = character; pendingCompletions = counts.clone();
+        if (identityVerified) compareCompletions();
+    }
+
+    private void compareCompletions() {
+        if (current == null || pendingCompletions == null || !Objects.equals(characterId, pendingCompletionCharacter)) return;
+        if (completionBaseline != null && completionBaseline.character == characterId && visits.size() >= 2) {
+            Visit previous = visits.get(visits.size() - 2);
+            long gap = current.started - previous.lastSeen;
+            if (previous.id.equals(completionBaseline.visit) && gap >= 0 && gap <= 30000 && ParseDungeon.isDungeon(previous.map)) {
+                for (int i = 0; i < pendingCompletions.length; i++) {
+                    String dungeon = ParseDungeon.canonicalName(CharacterStatistics.DUNGEON_NAMES.get(i));
+                    if (previous.map.equals(dungeon) && completionBaseline.counts[i] >= 0
+                            && (long)pendingCompletions[i] - completionBaseline.counts[i] == 1) {
+                        complete(visits.size() - 2, current.lastSeen, "Server dungeon-completion counter increased on the next area entry");
+                        break;
+                    }
+                }
+            }
+        }
+        completionBaseline = new CompletionBaseline(characterId, current.id, pendingCompletions);
+        pendingCompletions = null;
+    }
+
+    private static final class CompletionBaseline {
+        final int character; final String visit; final int[] counts;
+        CompletionBaseline(int character, String visit, int[] counts) { this.character = character; this.visit = visit; this.counts = counts; }
     }
     private void add(long now, String kind, String detail, Map<String, Object> values) {
         Entry entry = new Entry(); entry.id = session + ":event:" + (++nextEntry); entry.time = now; entry.visitId = current == null ? "" : current.id;
@@ -339,7 +429,39 @@ public final class ActivityJournal {
         for (Entry entry : entries) { state.entries.add(copyEntry(entry)); copiedEntries++; }
         return state;
     }
-    public enum View { RUNS, TIMELINE, COMBAT }
+    public boolean inspectPlayer(InspectSnapshot player) {
+        if (current == null || !ParseDungeon.isDungeon(current.map)) return false;
+        String key = player.key();
+        if (player.sameDisplay(current.inspectedPlayers.get(key))) { inspectedIdentities.put(player.objectId(), key); return false; }
+        if (!current.inspectedPlayers.containsKey(key) && !current.inspectedPlayers.containsKey(player.anonymousKey())
+                && current.inspectedPlayers.size() >= INSPECT_PLAYER_LIMIT) return false;
+        writableCurrent();
+        if (!key.equals(player.anonymousKey())) {
+            current.inspectedPlayers.remove(player.anonymousKey());
+            Long anonymousDamage = current.playerDamage.remove(player.anonymousKey());
+            if (anonymousDamage != null) current.playerDamage.merge(key, anonymousDamage, Long::sum);
+        }
+        current.inspectedPlayers.put(key, player);
+        inspectedIdentities.put(player.objectId(), key);
+        current.inspectedPlayerCount = current.inspectedPlayers.size();
+        changed(current);
+        return true;
+    }
+
+    public boolean hasInspectedPlayer(int objectId) { return current != null && inspectedIdentities.containsKey(objectId); }
+
+    public boolean inspectDamage(int objectId, long amount, long time) {
+        if (current == null || amount <= 0 || time < current.started) return false;
+        String key = inspectedIdentities.get(objectId);
+        if (key == null || !current.inspectedPlayers.containsKey(key)) return false;
+        writableCurrent();
+        current.playerDamage.merge(key, amount, Long::sum); current.totalDamage += amount;
+        current.firstDamageAt = current.firstDamageAt < 0 ? time : Math.min(current.firstDamageAt, time);
+        current.lastDamageAt = Math.max(current.lastDamageAt, time);
+        changed(current); return true;
+    }
+
+    public enum View { RUNS, TIMELINE, COMBAT, INSPECT }
 
     /** Opaque comparison token: valid only for this journal, view and selected visit. */
     public static final class ViewRevision {
@@ -384,20 +506,28 @@ public final class ActivityJournal {
     public ViewSnapshot viewSnapshot(View view, String selectedId, ViewRevision known) {
         Objects.requireNonNull(view);
         Visit selected=null;
-        if (view==View.COMBAT) {
+        if (view==View.COMBAT || view==View.INSPECT) {
             for (Visit visit:visits) if (visit.id.equals(selectedId)) { selected=visit; break; }
-            if (selected==null && !visits.isEmpty()) selected=visits.get(visits.size()-1);
+            if (selected==null) for (int i=visits.size()-1;i>=0;i--) {
+                if (view==View.COMBAT || ParseDungeon.isDungeon(visits.get(i).map)) { selected=visits.get(i); break; }
+            }
         }
         String id=selected==null ? "" : selected.id;
-        long rows=view==View.RUNS ? summariesRevision : view==View.TIMELINE ? entriesRevision : selected==null ? 0 : selected.revision;
+        long rows=view==View.RUNS || view==View.INSPECT ? summariesRevision : view==View.TIMELINE ? entriesRevision : selected==null ? 0 : selected.revision;
         ViewRevision next=new ViewRevision(this,view,id,rows,view==View.RUNS ? 0 : choicesRevision,view==View.COMBAT ? entries.size() : 0);
         if (next.same(known)) return null;
         viewCopies++;
         State data=new State(); List<VisitChoice> choices=new ArrayList<>();
-        if (view==View.RUNS) for (Visit visit:visits) data.visits.add(copyVisit(visit,false));
+        if (view==View.RUNS || view==View.INSPECT) for (Visit visit:visits) {
+            Visit copy=copyVisit(visit,false);
+            if (view==View.INSPECT && visit==selected) {
+                copy.inspectedPlayers.putAll(visit.inspectedPlayers); copy.playerDamage.putAll(visit.playerDamage);
+            }
+            data.visits.add(copy);
+        }
         else for (Visit visit:visits) choices.add(new VisitChoice(visit));
         if (view==View.TIMELINE) for (Entry entry:entries) { data.entries.add(copyEntry(entry)); copiedEntries++; }
-        if (selected!=null) data.visits.add(copyVisit(selected,true));
+        if (selected!=null && view==View.COMBAT) data.visits.add(copyVisit(selected,true));
         // Shallow, private pins preserve displayed-revision exports without copying all chart data.
         // Entries are append-only; the next mutation obtains a private visit/list version.
         for (Visit visit:visits) visit.shared=true;
@@ -423,6 +553,8 @@ public final class ActivityJournal {
             // Resource points and completed slices are never modified internally. A growing final
             // condition slice is replaced in advanceConditions, so these private lists can share elements.
             copy.resourceTimeline.addAll(visit.resourceTimeline); copy.conditionTimeline.addAll(visit.conditionTimeline);
+            copy.inspectedPlayers.putAll(visit.inspectedPlayers);
+            copy.playerDamage.putAll(visit.playerDamage);
             copyOnWriteReferences+=visit.resourceTimeline.size()+visit.conditionTimeline.size();
             visits.set(index,copy); if (current==visit) current=copy; visit=copy;
         }
@@ -481,7 +613,12 @@ public final class ActivityJournal {
             conditions.putAll(v.conditions); extraConditions.putAll(v.extraConditions);
             requestedItems.putAll(v.requestedItems); effects.putAll(v.effects); equipment.putAll(v.equipment);
             timelineOmitted=v.timelineOmitted;
+            inspectedPlayerCount=v.inspectedPlayerCount;
+            completionEvidence=v.completionEvidence; completionObservedAt=v.completionObservedAt; endReason=v.endReason;
+            damageTracked=v.damageTracked; totalDamage=v.totalDamage; firstDamageAt=v.firstDamageAt; lastDamageAt=v.lastDamageAt;
             if (charts) {
+                inspectedPlayers.putAll(v.inspectedPlayers);
+                playerDamage.putAll(v.playerDamage);
                 for(ResourcePoint point:v.resourceTimeline) { ResourcePoint p=new ResourcePoint(); p.time=point.time; p.hp=point.hp; p.mp=point.mp; resourceTimeline.add(p); }
                 for(ConditionSlice slice:v.conditionTimeline) { ConditionSlice s=new ConditionSlice(); s.start=slice.start; s.end=slice.end; s.primary=slice.primary; s.secondary=slice.secondary; conditionTimeline.add(s); }
             }
@@ -500,6 +637,21 @@ public final class ActivityJournal {
         public Map<Integer, Long> requestedItems = new LinkedHashMap<>(), effects = new LinkedHashMap<>();
         public Map<Integer, Integer> equipment = new LinkedHashMap<>();
         public long timelineOmitted;
+        public int inspectedPlayerCount;
+        public Map<String, InspectSnapshot> inspectedPlayers = new LinkedHashMap<>();
+        public Map<String, Long> playerDamage = new LinkedHashMap<>();
+        public boolean damageTracked;
+        public long totalDamage, firstDamageAt = -1, lastDamageAt = -1;
+        public String completionEvidence = "", endReason = "";
+        public long completionObservedAt;
+        public String runStatus() {
+            if (!completionEvidence.isEmpty()) return "Completed";
+            if ("Completed".equals(status)) return status;
+            return ended > 0 ? "Left · completion unconfirmed" : "In progress";
+        }
+        public Long damage(String key) { return damageTracked ? playerDamage.getOrDefault(key, 0L) : null; }
+        public Double dps(Long damage) { return damage == null || lastDamageAt <= firstDamageAt ? null : damage * 1000.0 / (lastDamageAt - firstDamageAt); }
+        public long observedMillis() { return Math.max(0, lastSeen - started); }
         public List<ResourcePoint> resourceTimeline = new ArrayList<>();
         public List<ConditionSlice> conditionTimeline = new ArrayList<>();
     }
