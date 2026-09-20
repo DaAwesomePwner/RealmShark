@@ -1,7 +1,11 @@
-param([string] $ZipPath, [string] $BundlePath, [string] $BuildDirectory)
+param([string] $ZipPath, [string] $BundlePath, [string] $BuildDirectory,
+      [string] $JavaHome = $env:JAVA_HOME, [string] $ExpectedJarVersion = 'v1.2.3')
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (!$JavaHome) { $JavaHome = (Get-ChildItem "$projectRoot/.tools" -Directory -Filter 'jdk-17*' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+if (!$JavaHome -or !(Test-Path -LiteralPath "$JavaHome/bin/javac.exe") -or !(Test-Path -LiteralPath "$JavaHome/bin/java.exe")) { throw 'Package verification requires -JavaHome or JAVA_HOME pointing to JDK 17.' }
+$JavaHome = (Resolve-Path -LiteralPath $JavaHome).Path
 if (!$ZipPath) { $ZipPath = Join-Path $projectRoot 'build/share/RealmShark-Windows-x64.zip' }
 $ZipPath = (Resolve-Path -LiteralPath $ZipPath).Path
 if ($BundlePath) { $BundlePath = (Resolve-Path -LiteralPath $BundlePath).Path }
@@ -32,7 +36,7 @@ function Read-EntryText {
     finally { $reader.Dispose() }
 }
 
-# Read PE resources as data only: verification never launches RealmShark or the runtime.
+# Read PE resources as data only; the JAR probe uses the development JDK, never the bundled launcher/runtime.
 if (!('RealmSharkPackage.IconResources' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -127,7 +131,7 @@ $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
 $temporary = Join-Path $BuildDirectory ('package-verification-' + [guid]::NewGuid().ToString('N'))
 try {
     $entries = @{}
-    $rootFiles = @('RealmShark.exe', 'LICENSE.md', 'rotmg_loot_drops_updated.csv', 'LOOT-CATALOG-LICENSE.txt', 'BRIDGE.md', 'READ-ME-FIRST.md', 'Preview-RealmShark.cmd')
+    $rootFiles = @('RealmShark.exe', 'LICENSE.md', 'rotmg_loot_drops_updated.csv', 'LOOT-CATALOG-LICENSE.txt', 'UNITYPY-LICENSE.txt', 'BRIDGE.md', 'READ-ME-FIRST.md', 'Preview-RealmShark.cmd')
     $appFiles = @('app/.jpackage.xml', 'app/RealmShark.cfg', 'app/portable-launcher.jar', 'app/RealmShark-v1.2.3.jar', 'app/RealmShark.ico')
     foreach ($entry in $archive.Entries) {
         $name = $entry.FullName
@@ -161,6 +165,7 @@ try {
         'LICENSE.md' = (Join-Path $projectRoot 'LICENSE.md')
         'rotmg_loot_drops_updated.csv' = (Join-Path $projectRoot 'rotmg_loot_drops_updated.csv')
         'LOOT-CATALOG-LICENSE.txt' = (Join-Path $projectRoot 'docs/LOOT-CATALOG-LICENSE.txt')
+        'UNITYPY-LICENSE.txt' = (Join-Path $projectRoot 'docs/UNITYPY-LICENSE.txt')
         'BRIDGE.md' = (Join-Path $projectRoot 'docs/BRIDGE.md')
         'READ-ME-FIRST.md' = (Join-Path $projectRoot 'docs/WINDOWS-BUNDLE.md')
     }
@@ -174,12 +179,19 @@ try {
             $manifest = Read-EntryText $jar.GetEntry('META-INF/MANIFEST.MF')
             Assert-RealmSharkPackage ($manifest -match '(?m)^Main-Class: realmshark\.RealmShark\r?$') 'Application JAR must launch realmshark.RealmShark.'
             Assert-RealmSharkPackage ($null -ne $jar.GetEntry('realmshark/RealmShark.class')) 'RealmShark entrypoint is absent from the application JAR.'
+            $unityNotice = $jar.GetEntry('META-INF/licenses/UNITYPY-LICENSE.txt')
+            Assert-RealmSharkPackage ($null -ne $unityNotice) 'Missing UnityPy notice in the application JAR.'
+            Assert-RealmSharkPackage ((Get-EntryHash $unityNotice) -eq (Get-FileHash -LiteralPath $sources['UNITYPY-LICENSE.txt'] -Algorithm SHA256).Hash) 'Stale UnityPy notice in the application JAR.'
         } finally { $jar.Dispose() }
     } finally { $jarStream.Dispose() }
     $configuration = Read-EntryText $entries['app/RealmShark.cfg']
     Assert-RealmSharkPackage ($configuration -match '(?m)^app.mainclass=PortableLauncher\r?$' -and $configuration.Contains('portable-launcher.jar')) 'Native launcher must use the independent portable JAR wrapper.'
 
     [System.IO.Directory]::CreateDirectory($temporary) | Out-Null
+    $packagedJar = Join-Path $temporary 'RealmShark-v1.2.3.jar'
+    [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entries['app/RealmShark-v1.2.3.jar'], $packagedJar)
+    & "$JavaHome/bin/java.exe" '-Djava.awt.headless=true' '--source' '17' (Join-Path $PSScriptRoot 'validation/BuildContractProbe.java') $packagedJar $ExpectedJarVersion 'v1.9.2' 'v1.9.1' $sources['UNITYPY-LICENSE.txt']
+    Assert-RealmSharkPackage ($LASTEXITCODE -eq 0) 'Packaged JAR version, inlined identity, Java 8 classes or notice failed verification.'
     $executable = Join-Path $temporary 'RealmShark.exe'
     [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entries['RealmShark.exe'], $executable)
     $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($executable)

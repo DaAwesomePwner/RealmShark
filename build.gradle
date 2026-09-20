@@ -3,26 +3,41 @@ plugins {
     id 'application'
     id 'com.github.johnrengelman.shadow' version '7.0.0'
 }
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
-
-project.version = 'v1.2.3'
+// The override is for isolated Gradle build-contract checks; Windows launchers use the default.
+def productVersion = providers.gradleProperty('realmSharkVersion').getOrElse('v1.2.3')
+if (!(productVersion ==~ /v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?/) || productVersion.length() > 80) {
+    throw new GradleException('realmSharkVersion must be vMAJOR.MINOR.PATCH with an optional filename-safe suffix (at most 80 characters).')
+}
+project.version = productVersion
 applicationName = 'RealmShark'
 
 if (project.hasProperty('realmSharkBuildDir')) {
     buildDir = file(project.property('realmSharkBuildDir'))
 }
 
-project.ext.lwjglVersion = "3.3.1"
-project.ext.jomlVersion = "1.10.5"
+if (productVersion != 'v1.2.3') {
+    def isolationError = 'A build-contract version override requires an isolated realmSharkBuildDir.'
+    if (!project.hasProperty('realmSharkBuildDir')) {
+        throw new GradleException(isolationError)
+    }
+    // Compare canonical path components, including absolute and dot-segment aliases.
+    def projectPath = projectDir.canonicalFile.toPath()
+    def sourcePath = file('src').canonicalFile.toPath()
+    def defaultBuildPath = file('build').canonicalFile.toPath()
+    def outputPath = buildDir.canonicalFile.toPath()
+    def nestedBuild = outputPath.startsWith(defaultBuildPath) && outputPath != defaultBuildPath
+    def externalBuild = !outputPath.startsWith(projectPath)
+    if (outputPath.parent == null || projectPath.startsWith(outputPath) || defaultBuildPath.startsWith(outputPath)
+            || sourcePath.startsWith(outputPath) || outputPath.startsWith(sourcePath)
+            || (!nestedBuild && !externalBuild)) {
+        throw new GradleException("${isolationError} Use a dedicated subdirectory of ${defaultBuildPath} or an external directory, excluding project/source/default-build ancestors. Rejected: ${outputPath}")
+    }
+}
 
-switch (org.gradle.internal.os.OperatingSystem.current()) {
-    case org.gradle.internal.os.OperatingSystem.MAC_OS:
-        project.ext.lwjglNatives = "natives-macos"
-        break
-    case org.gradle.internal.os.OperatingSystem.WINDOWS:
-        project.ext.lwjglNatives = "natives-windows"
-        break
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
 }
 
 repositories {
@@ -53,6 +68,7 @@ tasks.register('compileBrandingGenerator', JavaCompile) {
     source = files('src/main/java/realmshark/branding/FinIcon.java', 'scripts/packaging/GenerateBranding.java')
     classpath = files()
     destinationDirectory = brandingGeneratorClasses
+    options.release = 17
 }
 
 tasks.register('generateBranding', JavaExec) {
@@ -69,6 +85,9 @@ sourceSets.main.resources.srcDir(brandingResources)
 processResources {
     dependsOn tasks.named('generateBranding')
     exclude 'icon/tomatoIcon.png'
+    from('docs/UNITYPY-LICENSE.txt') {
+        into 'META-INF/licenses'
+    }
 }
 
 
@@ -80,24 +99,21 @@ jar {
     }
 }
 
-// Keep the product version consistent even when validation uses a separate build directory.
-task generateSources {
-    doFirst {
-        def srcFile = new File(file("src/main/java/" + applicationName.toLowerCase() + "/version"), "Version.java")
-        srcFile.parentFile.mkdirs()
-        srcFile.write("""package """ + applicationName.toLowerCase() + """.version;
-/**
- * Don't edit this class. It's a gradle class to grab version from the build.gradle
- */
-public class Version {
-    public static final String VERSION = "$project.version";
-}
-
-""")
+def generatedVersion = layout.buildDirectory.dir('generated/sources/version/main')
+def generatedVersionTask = tasks.register('generateSources') {
+    inputs.property('productVersion', productVersion)
+    outputs.dir(generatedVersion)
+    doLast {
+        def source = new File(generatedVersion.get().asFile, 'realmshark/version/Version.java')
+        source.parentFile.mkdirs()
+        source.setText(
+                "package realmshark.version;\n" +
+                "public class Version {\n" +
+                "    public static final String VERSION = \"${productVersion}\";\n" +
+                "}\n", 'UTF-8')
     }
 }
-compileJava.dependsOn generateSources
-compileJava.source generateSources.outputs.files, sourceSets.main.java
+sourceSets.main.java.srcDir(generatedVersionTask)
 
 /**
  * add to vm optoins
@@ -110,10 +126,24 @@ shadowJar {
     archiveFileName = "${applicationName}-${project.version}.jar"
 }
 
-apply plugin: 'com.github.johnrengelman.shadow'
-
+// Gradle 7.6.4 toolchains select the tools; release separately limits main APIs/bytecode.
+def compiler17 = javaToolchains.compilerFor(java.toolchain)
+def launcher17 = javaToolchains.launcherFor(java.toolchain)
 tasks.withType(JavaCompile).configureEach {
+    javaCompiler = compiler17
     options.encoding = 'UTF-8'
+}
+tasks.withType(Test).configureEach {
+    javaLauncher = launcher17
+}
+tasks.withType(JavaExec).configureEach {
+    javaLauncher = launcher17
+}
+tasks.named('compileJava', JavaCompile) {
+    options.release = 8
+}
+tasks.named('compileTestJava', JavaCompile) {
+    options.release = 17
 }
 
 test {
