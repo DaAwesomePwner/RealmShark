@@ -239,6 +239,7 @@ public class TomatoData {
         this.charId = charId;
         resetMyInfo(null, charId, objectId);
         updateDungeonStats(charId, str);
+        packets.packetcapture.logger.DiscoveryLog.INSTANCE.completionStats(charId, currentCharacterStats.completionCounts());
     }
 
     public void petYardCheck(String displayName) {
@@ -396,6 +397,7 @@ public class TomatoData {
                 entity.isPlayer();
             }
             ParsePanelGUI.addPlayer(id, entity);
+            packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
     }
 
@@ -566,6 +568,7 @@ public class TomatoData {
                 new Entity(this, idd, timePc)
             );
             entity.updateStats(p.status[i], timePc);
+            if (playerListUpdated.containsKey(id)) packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
         SecurityAbilityUseCheck.decreaseDecoyCounter();
         lootTick();
@@ -872,6 +875,11 @@ public class TomatoData {
         }
 
         target.updateDamageTaken(timePc);
+    }
+
+    void recordInspectDamage(Entity target, Damage hit) {
+        if (hit.owner != null && playerList.get(hit.owner.id) == hit.owner && !playerList.containsKey(target.id))
+            packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectDamage(hit.owner, hit.damage, hit.time);
     }
 
     /**

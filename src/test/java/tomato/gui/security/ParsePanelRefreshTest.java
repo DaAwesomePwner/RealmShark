@@ -48,6 +48,8 @@ public class ParsePanelRefreshTest {
     private ParsePanelGUI panel;
     private String oldFilters, oldSelected, oldSort;
     private Map<Integer, CharacterClass> classes;
+    private Map<Integer, String> classNames;
+    private String oldClassName;
     private Set<Integer> characterIds;
     private CharacterClass oldClass;
     private boolean hadId;
@@ -67,6 +69,10 @@ public class ParsePanelRefreshTest {
         Field classField = CharacterClass.class.getDeclaredField("CHARACTER_CLASS");
         classField.setAccessible(true);
         classes = (Map<Integer, CharacterClass>) classField.get(null);
+        Field namesField = CharacterClass.class.getDeclaredField("CLASS_NAME");
+        namesField.setAccessible(true);
+        classNames = (Map<Integer, String>) namesField.get(null);
+        oldClassName = classNames.put(782, "Wizard");
         Field idsField = CharacterClass.class.getDeclaredField("CHARACTER_IDS");
         idsField.setAccessible(true);
         characterIds = (Set<Integer>) idsField.get(null);
@@ -95,6 +101,7 @@ public class ParsePanelRefreshTest {
         PropertiesManager.setProperties("securityFilterName", oldSelected == null ? "" : oldSelected);
         PropertiesManager.setProperties("sortCheckBox", oldSort == null ? "" : oldSort);
         if (classes != null) { if (oldClass == null) classes.remove(782); else classes.put(782, oldClass); }
+        if (classNames != null) { if (oldClassName == null) classNames.remove(782); else classNames.put(782, oldClassName); }
         if (characterIds != null && !hadId) characterIds.remove(782);
     }
 
@@ -194,6 +201,165 @@ public class ParsePanelRefreshTest {
             find(actions, JComboBox.class).setSelectedItem("Default");
             pressSpace(button(actions, "Export JSON…"));
             assertEquals(2, actions.exported.size());
+        });
+    }
+
+    @Test public void columnHeadersSortMaxedNumericallyAndPreserveSelectedPlayerThroughUpdates() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ActionPanel actions = new ActionPanel(); panel = actions;
+            Entity maxed = player(1, "Maxed", "Zulu"), fresh = player(2, "Fresh", "Alpha"), partial = player(3, "Partial", "Beta");
+            maxed.baseStats = new int[]{670, 385, 75, 25, 50, 75, 40, 60};
+            fresh.baseStats = new int[]{100, 100, 10, 10, 10, 10, 10, 10};
+            partial.baseStats = maxed.baseStats.clone(); partial.baseStats[0] = 100;
+            ParsePanelGUI.addPlayer(1, maxed); ParsePanelGUI.addPlayer(2, fresh); ParsePanelGUI.addPlayer(3, partial);
+            frame = new JFrame(); frame.setContentPane(panel); frame.setSize(1000, 600); frame.setVisible(true);
+            JTable table = find(panel, JTable.class);
+            java.awt.Rectangle header = table.getTableHeader().getHeaderRect(7);
+            java.awt.Point point = new java.awt.Point(header.x + header.width / 2, header.height / 2);
+            table.getTableHeader().dispatchEvent(new java.awt.event.MouseEvent(table.getTableHeader(), java.awt.event.MouseEvent.MOUSE_CLICKED,
+                    System.currentTimeMillis(), 0, point.x, point.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            assertEquals(8, table.getValueAt(0, 7)); assertEquals(7, table.getValueAt(1, 7)); assertEquals(0, table.getValueAt(2, 7));
+            table.setRowSelectionInterval(0, 0);
+            table.getRowSorter().toggleSortOrder(7);
+            assertEquals("Fresh [20]", table.getValueAt(0, 0));
+            assertEquals("Maxed [20]", table.getValueAt(table.getSelectedRow(), 0));
+            frame.setVisible(false);
+            maxed.baseStats[0] = 600; ParsePanelGUI.update(maxed);
+            frame.setVisible(true);
+            assertEquals(SortOrder.ASCENDING, table.getRowSorter().getSortKeys().get(0).getSortOrder());
+            invokeEquipmentShortcut(actions, table);
+            assertEquals("Maxed", actions.detailsPlayer); assertTrue(actions.details.contains("HP: 600"));
+            for (int column = 0; column < table.getColumnCount(); column++) {
+                table.getRowSorter().toggleSortOrder(column);
+                assertEquals(column, table.getRowSorter().getSortKeys().get(0).getColumn());
+            }
+        });
+    }
+
+    @Test public void historicalExportsUseSelectedRunAndSwitchingBackRestoresLatestLiveRoster() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ActionPanel actions = new ActionPanel(); panel = actions;
+            Entity old = player(1, "Old player", "Old guild");
+            old.baseStats[0] = 500;
+            tomato.backend.data.InspectSnapshot saved = new tomato.backend.data.InspectSnapshot(old);
+            ParsePanelGUI.addPlayer(1, player(1, "Live player", ""));
+            actions.showRun("old-run", java.util.Collections.singletonList(saved));
+            old.baseStats[0] = 10;
+            pressSpace(button(actions, "Export JSON…"));
+            assertEquals("Old player", actions.exported.get(0).playerEntity.name());
+            assertEquals(500, actions.exported.get(0).playerEntity.baseStats[0]);
+            actions.showCurrentArea();
+            pressSpace(button(actions, "Export JSON…"));
+            assertEquals("Live player", actions.exported.get(0).playerEntity.name());
+        });
+    }
+
+    @Test public void inspectTabsBrowseSortedRunsWithoutReplacingCurrentArea() throws Exception {
+        packets.packetcapture.logger.DiscoveryLog log = new packets.packetcapture.logger.DiscoveryLog(null);
+        try {
+            packets.incoming.MapInfoPacket map = new packets.incoming.MapInfoPacket(); map.name = "Ice Citadel";
+            log.observe(packets.PacketType.MAPINFO.getIndex(), 30, map, "decoded", 0);
+            Entity earlier = player(1, "Earlier", "Old guild"); earlier.baseStats[0] = 555;
+            stat(earlier, StatType.INVENTORY_0_STAT, 12345, ""); log.inspectPlayer(earlier);
+            map.name = "Ocean Trench"; log.observe(packets.PacketType.MAPINFO.getIndex(), 30, map, "decoded", 0);
+            log.inspectPlayer(player(1, "Later", "New guild"));
+            map.name = "Nexus"; log.observe(packets.PacketType.MAPINFO.getIndex(), 30, map, "decoded", 0);
+            SwingUtilities.invokeAndWait(() -> {
+                VioletTheme.install();
+                SecurityGUI inspect = new SecurityGUI(log);
+                panel = find(inspect, ParsePanelGUI.class);
+                JTabbedPane tabs = find(inspect, JTabbedPane.class);
+                assertEquals("Inspect", WorkspaceShell.TITLES[2]);
+                assertEquals("Current Area", tabs.getTitleAt(tabs.getSelectedIndex()));
+                ParsePanelGUI.addPlayer(1, player(1, "Here now", "Current guild"));
+                frame = new JFrame(); frame.setContentPane(inspect); frame.setSize(1000, 750); frame.setVisible(true);
+                JTable roster = find(panel, JTable.class);
+                assertEquals("Here now [20]", roster.getValueAt(0, 0));
+                assertEquals("Class", roster.getColumnName(2));
+                assertEquals("Wizard", roster.getValueAt(0, 2));
+                tabs.setSelectedIndex(1);
+                JTable runs = named(inspect, "inspect-runs-table", JTable.class);
+                tomato.gui.activity.SnapshotTestSupport.await(() -> runs.getRowCount() == 2 && roster.getRowCount() == 1);
+                assertEquals("Later [20]", roster.getValueAt(0, 0));
+                assertEquals("Observed minutes", runs.getColumnName(6));
+                runs.moveColumn(6, 0);
+                JComboBox<?> units = named(inspect, "inspect-run-duration-unit", JComboBox.class);
+                units.setSelectedItem(tomato.gui.activity.RunDurationUnit.SECONDS);
+                assertEquals("Observed seconds", runs.getColumnName(0));
+                runs.moveColumn(0, 6);
+                runs.getRowSorter().toggleSortOrder(1);
+                assertEquals("Ice Citadel", runs.getValueAt(0, 1));
+                runs.setRowSelectionInterval(0, 0);
+                tomato.gui.activity.SnapshotTestSupport.await(() -> roster.getRowCount() == 1 && "Earlier [20]".equals(roster.getValueAt(0, 0)));
+                assertEquals("Wizard", roster.getValueAt(0, 2));
+                JLabel stats = (JLabel) roster.prepareRenderer(roster.getCellRenderer(0, 7), 0, 7);
+                assertTrue(stats.getToolTipText().contains("HP: 555"));
+                assertTrue(String.valueOf(roster.getValueAt(0, 3)).contains("12345"));
+                for (int width : new int[]{1000, 680}) {
+                    frame.setSize(width, width == 1000 ? 750 : 520); frame.validate();
+                    assertTrue("Selected run roster remains visible", roster.getVisibleRect().height >= roster.getRowHeight());
+                    BufferedImage image = new BufferedImage(inspect.getWidth(), inspect.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = image.createGraphics(); inspect.printAll(graphics); graphics.dispose();
+                    try {
+                        java.nio.file.Files.createDirectories(java.nio.file.Paths.get("screenshots"));
+                        javax.imageio.ImageIO.write(image, "png", new java.io.File("screenshots/inspect-runs-" + width + ".png"));
+                    } catch (java.io.IOException e) { throw new AssertionError(e); }
+                }
+                ParsePanelGUI.addPlayer(2, player(2, "Just arrived", ""));
+                tabs.setSelectedIndex(0);
+                assertEquals(2, roster.getRowCount());
+                assertEquals("Here now [20]", roster.getValueAt(0, 0));
+                tabs.setSelectedIndex(1);
+                assertEquals("Earlier [20]", roster.getValueAt(0, 0));
+                named(inspect, "inspect-runs-search", JTextField.class).setText("No such run");
+                assertEquals(0, runs.getRowCount()); assertEquals(0, roster.getRowCount());
+            });
+        } finally { log.close(); }
+    }
+
+    @Test public void crucibleModesAreDistinctAndHistoricalDpsSortsWithTheCorrectBuild() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            VioletTheme.install();
+            ActionPanel actions = new ActionPanel(); panel = actions;
+            Entity low = player(1, "Low", ""), high = player(2, "High", "");
+            stat(low, StatType.CRUCIBLE_STAT, 0, "active");
+            stat(high, StatType.CRUCIBLE_STAT, 0, "active"); stat(high, StatType.SEASONAL, 1, "");
+            stat(high, StatType.INVENTORY_0_STAT, 12345, "");
+            tomato.backend.data.InspectSnapshot lowBuild = new tomato.backend.data.InspectSnapshot(low);
+            tomato.backend.data.InspectSnapshot highBuild = new tomato.backend.data.InspectSnapshot(high);
+            packets.packetcapture.logger.ActivityJournal.Visit run = new packets.packetcapture.logger.ActivityJournal.Visit();
+            run.id = "damage-run"; run.map = "Ice Citadel"; run.damageTracked = true;
+            run.firstDamageAt = 1000; run.lastDamageAt = 3000;
+            run.inspectedPlayers.put(lowBuild.key(), lowBuild); run.inspectedPlayers.put(highBuild.key(), highBuild);
+            run.playerDamage.put(lowBuild.key(), 400L); run.playerDamage.put(highBuild.key(), 2000L);
+            actions.showRun(run);
+            frame = new JFrame(); frame.setContentPane(actions); frame.setSize(1200, 600); frame.setVisible(true);
+            JTable table = find(actions, JTable.class);
+            assertEquals("Damage", table.getColumnName(9)); assertEquals("DPS", table.getColumnName(10));
+            assertEquals(Long.class, table.getColumnClass(9)); assertEquals(Double.class, table.getColumnClass(10));
+            assertEquals("Non-seasonal · Crucible", table.getValueAt(0, 8));
+            assertEquals("Seasonal · Crucible", table.getValueAt(1, 8));
+            for (LookAndFeel theme : new LookAndFeel[]{new VioletTheme(), new FlatLightLaf()}) {
+                setLookAndFeel(theme); SwingUtilities.updateComponentTreeUI(frame);
+                frame.setVisible(false); frame.setVisible(true);
+                Color nonSeasonal = table.prepareRenderer(table.getCellRenderer(0, 8), 0, 8).getForeground();
+                Color seasonal = table.prepareRenderer(table.getCellRenderer(1, 8), 1, 8).getForeground();
+                assertEquals(ContentStyle.color("amber"), nonSeasonal);
+                assertEquals(ContentStyle.color("violet"), seasonal);
+                assertNotEquals(nonSeasonal, seasonal);
+            }
+            table.getRowSorter().toggleSortOrder(10);
+            assertEquals("High [20]", table.getValueAt(0, 0)); assertEquals(1000.0, table.getValueAt(0, 10));
+            assertEquals(2000L, table.getValueAt(0, 9));
+            table.setRowSelectionInterval(0, 0); invokeEquipmentShortcut(actions, table);
+            assertEquals("High", actions.detailsPlayer); assertTrue(actions.details.contains("12345"));
+            run.damageTracked = false; actions.showRun(run);
+            assertNull(table.getValueAt(0, 9)); assertNull(table.getValueAt(0, 10));
+            JLabel missing = (JLabel)table.prepareRenderer(table.getCellRenderer(0, 10), 0, 10);
+            assertEquals("—", missing.getText());
+            actions.showCurrentArea();
+            assertEquals(9, table.getColumnCount());
+            assertTrue(table.getRowSorter().getSortKeys().stream().allMatch(key -> key.getColumn() < 9));
         });
     }
 

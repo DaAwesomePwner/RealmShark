@@ -144,7 +144,8 @@ public class Entity implements Serializable {
             if (isUser) {
                 fame(timePC);
 
-                tomatoData.player.charStat(charId, calculateBaseStats());
+                baseStats = calculateBaseStats();
+                tomatoData.player.charStat(charId, baseStats);
 
                 MyInfoGUI.updatePlayer(this);
             } else if (isPlayer) {
@@ -498,6 +499,7 @@ public void genericDamageHit(
             );
             dmg.add(damage);
         }
+        if (tomatoData != null) tomatoData.recordInspectDamage(this, damage);
     }
 
     public void userDamageTaken(Entity e, long timePc, Projectile p) {

@@ -176,6 +176,7 @@ public class CharacterPublicationTest {
         capture.packetCapture(create(completions(0)));
         RealmCharacterStats first = data.getCurrentDungeonStats();
         assertEquals(0, first.getDungeonInfoByName("Pirate Cave"));
+        assertNotNull("A complete server payload can establish a run-completion baseline", first.completionCounts());
         assertTrue(KeypopGUI.shouldNotify("Pirate Cave", first));
         assertFalse(KeypopGUI.shouldNotify("Not a dungeon", first));
         assertFalse(KeypopGUI.shouldNotify("Pirate Cave", null));
@@ -183,6 +184,10 @@ public class CharacterPublicationTest {
         RealmCharacterStats updated = data.getCurrentDungeonStats();
         assertNotSame(first, updated); assertSame(updated, character.charStats);
         assertEquals(1, updated.getDungeonInfoByName("Pirate Cave"));
+        int dungeon = tomato.realmshark.enums.CharacterStatistics.getDungeonIndex("Pirate Cave");
+        assertEquals(1, updated.completionCounts()[dungeon]);
+        int[] detached = updated.completionCounts(); detached[dungeon] = 999;
+        assertEquals(1, updated.completionCounts()[dungeon]);
         assertFalse(KeypopGUI.shouldNotify("Pirate Cave", updated));
         capture.packetCapture(create(completions(1)));
         assertSame("Unchanged completion payload retains the cached decode", updated, data.getCurrentDungeonStats());

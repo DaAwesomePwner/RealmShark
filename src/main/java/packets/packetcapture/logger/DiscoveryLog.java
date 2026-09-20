@@ -9,7 +9,7 @@ import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
 
-/** Independent passive observer. Never retains Packet, payload, string stats or exception messages. */
+/** Passive diagnostics and gameplay history. Raw packets and account/chat fields are not retained. */
 public final class DiscoveryLog implements AutoCloseable {
     public static final DiscoveryLog INSTANCE = new DiscoveryLog(Paths.get("logs", "discovery"));
     static { Runtime.getRuntime().addShutdownHook(new Thread(INSTANCE::close, "Discovery log shutdown")); }
@@ -67,6 +67,21 @@ public final class DiscoveryLog implements AutoCloseable {
         total = sampledOut = deltaOmitted = evictions = internalErrors = 0;
     }
     public synchronized ActivityJournal.State activityHistory() { return activitySnapshot(); }
+    public synchronized void inspectPlayer(tomato.backend.data.Entity entity) {
+        if (enabled && activity.inspectPlayer(new tomato.backend.data.InspectSnapshot(entity))) markActivityChanged();
+    }
+    public synchronized void inspectDamage(tomato.backend.data.Entity entity, long damage, long time) {
+        if (!enabled || damage <= 0) return;
+        if (!activity.hasInspectedPlayer(entity.id)) inspectPlayer(entity);
+        if (activity.inspectDamage(entity.id, damage, time)) markActivityChanged();
+    }
+    public synchronized void completionStats(int characterId, int[] counts) {
+        if (enabled) {
+            long before = activity.revision();
+            activity.completionStats(characterId, counts);
+            if (activity.revision() != before) markActivityChanged();
+        }
+    }
     public synchronized void boundary() { if (enabled) { area++; diagnosticsRevision++; previous.clear(); activityBoundary("Connection boundary; completion unknown"); checkpoint(); } }
     private void activityBoundary(String reason) {
         long before=activity.revision(); activity.boundary(System.currentTimeMillis(),reason);

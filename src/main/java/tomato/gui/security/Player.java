@@ -71,6 +71,17 @@ public class Player {
         return outOf8;
     }
 
+    public String statsDescription() {
+        StringBuilder text = new StringBuilder("Base stats · ").append(statsMaxed()).append(" / 8 maxed");
+        int[] missing = statMissing();
+        for (int i = 0; i < statNames.length; i++) {
+            text.append('\n').append(statNames[i]).append(": ");
+            if (playerEntity.baseStats[i] < 0) text.append("Not captured");
+            else text.append(playerEntity.baseStats[i]).append(" (potions to max: ").append(Math.max(0, missing[i])).append(')');
+        }
+        return text.toString();
+    }
+
     /**
      * Computes the skin ID for a player.
      */

@@ -9,7 +9,7 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - The full sidebar fits all 14 destinations at the default desktop size and standard font. Compact windows have a **menu icon** above the navigation rail: click it or press **Alt+M** for labeled destinations. Existing workspace shortcuts remain available.
 - Small windows use wrapping controls, balanced summary grids and page scrolling where necessary. Tables retain usable row space instead of collapsing beneath filters and detail panels.
 - **Chat > Actions > Chat filters** opens player-ignore, blocked-phrase and advertisement settings. The selected-message panel continues to show full message text.
-- **Security > Options** exposes sorting and copy restrictions. **Actions** provides explicit exports and player/guild actions, with keyboard shortcuts shown in the menu. Copy names and Copy all remain directly available.
+- **Inspect > Current Area / Runs** provides sortable player rosters and saved run loadouts. **Options** exposes default guild ordering and copy restrictions. **Actions** provides explicit exports and player/guild actions, with keyboard shortcuts shown in the menu. Copy names and Copy all remain directly available.
 - **Characters > Pets** labels the feed-power input and provides visible positive-number validation and a **Recalculate feeding costs** action.
 - The DPS encounter chooser supports keyboard selection and separate export checkboxes. Live legacy reports remain selectable and read-only. Its compact toolbar wraps as the available width changes.
 - The resource chart has keyboard-accessible zoom/reset and sample inspection. Rule-editor add/remove controls have meaningful labels and keyboard focus.
@@ -20,7 +20,7 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - Characters uses page scrolling and font-aware minimum content space. Detail tabs wrap at narrow widths; focusing a control reveals it through nested scroll panes.
 - Chat Time/Channel widths follow their actual renderers and headers instead of fixed caps. Columns remain resizable, with horizontal scrolling for narrow tables. Chat filter descriptions wrap and its actions remain reachable in the minimum dialog.
 - Notification messages use shared text-view measurement, including caret space, rather than word counting. Background changes to read-only metadata do not scroll the page away from the user's settings.
-- **Security → Actions → Equipment details…**, or **Ctrl+E** with roster focus, opens full read-only equipment details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
+- **Inspect → Actions → Equipment details…**, or **Ctrl+E** with roster focus, opens full read-only equipment and base-stat details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
 
 Detailed evidence, layout limits, and commands: [Phase 3 validation](STEP-3-UI-CONSISTENCY.md).
 
@@ -55,7 +55,7 @@ The compact pass passed **237 regression tests**, plus **30 UI checks at each of
 - Character-journal and dungeon-history persistence perform serialization and file I/O outside their model monitors. Initial dungeon-history loading merges concurrent observations. Failed optional history reads allow the window to open while preserving the original file and suspending history writes until successful recovery.
 - Fame saves use detached, ordered background requests with coalescing and visible completion/failure status. Save/delete ordering and stale-completion guards preserve session state.
 - DPS import/export and Key-pop CSV writes use background workers. DPS player filtering reuses encounter aggregates, and meter maxima are computed outside individual cell painting.
-- Security roster updates use detached data, a renderer-based table and coalesced visible refreshes.
+- Inspect roster updates use detached data, a renderer-based table and coalesced visible refreshes.
 - The legacy Loot log retains at most 1,000 rendered entries. Shared Loot dashboards batch model updates and refresh hidden views when shown.
 - My Info batches detached player/pet updates. Chat and Key-pop hidden views avoid recurring presentation work. Logging/Activity update relevant visible views and avoid unchanged table replacement.
 

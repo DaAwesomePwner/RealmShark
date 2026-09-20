@@ -107,7 +107,7 @@ public class SecurityFilterGUI extends JPanel {
 
     private void top(JPanel topPanel) {
         filterComboBox.setPrototypeDisplayValue("Select a saved filter");
-        filterComboBox.getAccessibleContext().setAccessibleName("Saved security filter");
+        filterComboBox.getAccessibleContext().setAccessibleName("Saved inspect filter");
 
         JPanel panel1 = ContentStyle.controls();
         topPanel.add(panel1, BorderLayout.NORTH);
@@ -678,7 +678,7 @@ public class SecurityFilterGUI extends JPanel {
             pane.setValue(-1);
             w.dispose();
         });
-        JDialog dialog = pane.createDialog(SwingUtilities.getWindowAncestor(parsePanelGUI), "Security Filter");
+        JDialog dialog = pane.createDialog(SwingUtilities.getWindowAncestor(parsePanelGUI), "Inspect Filter");
         realmshark.branding.AppIdentity.apply(dialog);
         dialog.setResizable(true);
         Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();

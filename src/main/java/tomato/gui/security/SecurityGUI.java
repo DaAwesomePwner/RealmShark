@@ -15,14 +15,29 @@ public class SecurityGUI extends JPanel {
     private boolean appendScheduled;
 
     public SecurityGUI() {
+        this(packets.packetcapture.logger.DiscoveryLog.INSTANCE);
+    }
+
+    SecurityGUI(packets.packetcapture.logger.DiscoveryLog log) {
         setLayout(new BorderLayout(8, 8));
 
         JTabbedPane tabbedPane = new JTabbedPane();
         ParsePanelGUI parsePanel = new ParsePanelGUI();
+        JPanel currentArea = new JPanel(new BorderLayout());
+        currentArea.add(parsePanel);
+        InspectRunsPanel runs = new InspectRunsPanel(log, parsePanel);
 
         JPanel abilityUse = new JPanel();
-        tabbedPane.addTab("Parse", parsePanel);
+        tabbedPane.addTab("Current Area", currentArea);
+        tabbedPane.addTab("Runs", runs);
         tabbedPane.addTab("Ability Use", abilityUse);
+        tabbedPane.addChangeListener(e -> {
+            if (tabbedPane.getSelectedComponent() == currentArea) {
+                parsePanel.showCurrentArea();
+                currentArea.add(parsePanel);
+                currentArea.revalidate();
+            } else if (tabbedPane.getSelectedComponent() == runs) runs.showRoster();
+        });
         add(tabbedPane);
 
         abilityUse.setLayout(new BorderLayout());

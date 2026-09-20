@@ -23,6 +23,8 @@ The existing **Save logs** setting controls automatic persistence. Local files a
 
 Only allowlisted decoded fields are retained. Numeric observations, canonical map names, bounded numeric party rosters, and reconnect-candidate counts are useful for analysis. Reconnect hosts/keys, chat, authentication data, raw payloads, party names/descriptions, and account identifiers are excluded from reports. Account identity is compared privately to avoid mixing progression baselines across accounts. Decode diagnostics retain structural context, such as field offsets and declared lengths, rather than arbitrary exception messages.
 
+Inspect's run history additionally retains observed player and guild names, character mode, level, base stats, and equipped items/enchant data. Those loadouts are saved with their visits in activity history and included in full history exports; diagnostic packet samples still omit player string stats.
+
 ## Accuracy
 
 A clean decode confirms the reader consumed the expected bytes; it does not independently verify the meaning of every field. Unknown and partial packets remain diagnostic evidence. They do not automatically feed gameplay statistics. Pre-decode capture faults are also recorded in the capture-health logs.

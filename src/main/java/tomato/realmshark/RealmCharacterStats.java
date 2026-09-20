@@ -145,6 +145,9 @@ public class RealmCharacterStats {
     public int[] regularStats;
     public int[] dungeonStats;
     public String pcStats;
+    private boolean completeSnapshot;
+
+    public int[] completionCounts() { return completeSnapshot ? dungeonStats.clone() : null; }
 
     private static boolean debugMessage = false;
 
@@ -155,6 +158,7 @@ public class RealmCharacterStats {
     }
 
     public void decode(String pcStats) {
+        completeSnapshot = false;
         this.pcStats = pcStats;
         byte[] data = PcStatsDecoder.sixBitStringToBytes(pcStats);
         BufferReader reader = new BufferReader(ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN));
@@ -171,10 +175,11 @@ public class RealmCharacterStats {
                     }
                 }
                 parseStats(reader, bitArray);
+                completeSnapshot = reader.isBufferFullyParsed();
             } catch (Exception e) {
                 System.out.println(pcStats);
             }
-        }
+        } else completeSnapshot = reader.isBufferFullyParsed();
         updateStats();
         if (debugMessage) {
             System.out.println(flag + " " + pcStats);

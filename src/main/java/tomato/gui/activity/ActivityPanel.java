@@ -27,6 +27,7 @@ public final class ActivityPanel extends JPanel {
     private final JComboBox<String> kind=new JComboBox<>(new String[]{"All activities","Party","Exalt","Item / ability","Inventory","Equipment","Resources","Capture","Ownership"});
     private final JCheckBox freeze=new JCheckBox("Freeze");
     private final JCheckBox record=new JCheckBox("Record");
+    private final JComboBox<RunDurationUnit> durationUnit=new JComboBox<>(RunDurationUnit.values());
     private final JLabel summary=new JLabel(" "), saved=new JLabel(" ");
     private final JTextArea detail=new JTextArea();
     private final List<Object[]> rows=new ArrayList<>();
@@ -50,12 +51,12 @@ public final class ActivityPanel extends JPanel {
 
     public ActivityPanel(DiscoveryLog log, Mode mode) {
         super(new BorderLayout(0,8)); this.log=log; this.mode=mode; setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
-        String[] columns=mode==Mode.RUNS ? new String[]{"Entered","Dungeon","Observed seconds","Progress increase","Use requests","Capture issues","Status"}
+        String[] columns=mode==Mode.RUNS ? new String[]{"Entered","Dungeon","Observed minutes","Progress increase","Use requests","Capture issues","Status","Damage","DPS"}
             : mode==Mode.TIMELINE ? new String[]{"Time","Area","Activity","Summary","Meaning"}
             : new String[]{"Condition","Active seconds","Observed seconds","Uptime %"};
         model=new AbstractTableModel() {
             public int getRowCount(){return rows.size();} public int getColumnCount(){return columns.length;}
-            public String getColumnName(int c){return columns[c];} public Object getValueAt(int r,int c){return rows.get(r)[c];}
+            public String getColumnName(int c){return mode==Mode.RUNS&&c==2 ? unit().column() : columns[c];} public Object getValueAt(int r,int c){return rows.get(r)[c];}
             public Class<?> getColumnClass(int c){for(Object[] row:rows)if(row[c]!=null)return row[c].getClass();return Object.class;}
         };
         table=new JTable(model); table.setName("activity-table");
@@ -65,6 +66,12 @@ public final class ActivityPanel extends JPanel {
             protected void setValue(Object value){setText(DisplayFormat.formatExact((Number)value));}
         };
         table.setDefaultRenderer(Number.class,numbers);table.setDefaultRenderer(Double.class,numbers);
+        if(mode==Mode.RUNS)for(int column:new int[]{2,8}){
+            final int c=column;
+            table.getColumnModel().getColumn(c).setCellRenderer(new ContentStyle.Cell(){
+                protected void setValue(Object value){setText(displayValue(value,c));}
+            });
+        }
         if(mode==Mode.COMBAT)table.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell(){
             {setHorizontalAlignment(SwingConstants.RIGHT);}
             protected void setValue(Object value){setText(displayValue(value,3));}
@@ -97,6 +104,11 @@ public final class ActivityPanel extends JPanel {
         JButton export=new JButton("Export history"); export.addActionListener(e->export());
         export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
         controls.add(record); controls.add(freeze); controls.add(export);
+        if(mode==Mode.RUNS){
+            durationUnit.setName("run-duration-unit");durationUnit.getAccessibleContext().setAccessibleName("Run duration units");
+            controls.add(labeled("Time",durationUnit));
+            durationUnit.addActionListener(e->{table.getColumnModel().getColumn(2).setHeaderValue(unit().column());table.getTableHeader().repaint();fill(false);});
+        }
         freeze.addItemListener(e->{
             snapshots.invalidate();
             if(freeze.isSelected()&&mode==Mode.COMBAT&&!state.visits.isEmpty()){
@@ -134,7 +146,7 @@ public final class ActivityPanel extends JPanel {
         }else add(split(ContentStyle.tableScroll(table,3),new JScrollPane(detail),.70),BorderLayout.CENTER);
         JTextArea scope=new JTextArea(mode==Mode.COMBAT
             ? "Local character · choose a recorded visit independently of the damage encounter. Party-wide uptime awaits verified roster matching."
-            : mode==Mode.RUNS ? "Dungeon runs only · entries are observed visits, not confirmed clears. Other areas and unresolved visits are available in Timeline."
+            : mode==Mode.RUNS ? "Dungeon runs only · Completed requires a server victory, final-boss dialogue or verified completion counter. DPS uses captured damage over the shared first-to-last hit window."
             : "Party, progression and equipment history. Requests do not prove successful actions; progress between visits remains unassigned.");
         scope.setLineWrap(true); scope.setWrapStyleWord(true); scope.setOpaque(false); scope.setEditable(false); scope.setRows(2);
         scope.setFont(ContentStyle.metadata(ContentStyle.body()));
@@ -243,7 +255,7 @@ public final class ActivityPanel extends JPanel {
         boolean updateTable=mode!=Mode.COMBAT||explicit||!tableInitialized||combatViews.getSelectedIndex()==1;
         if(mode==Mode.RUNS){for(int i=state.visits.size()-1;i>=0;i--){ActivityJournal.Visit v=state.visits.get(i);
             if(!ParseDungeon.isDungeon(v.map))continue;
-            add(nextRows,nextItems,v,Instant.ofEpochMilli(v.started),v.map,Math.max(0,v.lastSeen-v.started)/1000,v.exaltIncrease,v.useRequests,v.issues,v.status);}}
+            add(nextRows,nextItems,v,Instant.ofEpochMilli(v.started),v.map,unit().value(v.observedMillis()),v.exaltIncrease,v.useRequests,v.issues,v.runStatus(),v.damageTracked?v.totalDamage:null,v.dps(v.damageTracked?v.totalDamage:null));}}
         else if(mode==Mode.TIMELINE){for(int i=state.entries.size()-1;i>=0;i--){ActivityJournal.Entry e=state.entries.get(i);
             if(!choice().isEmpty()&&!choice().equals(e.visitId))continue;
             if(kind.getSelectedIndex()>0&&!e.kind.startsWith((String)kind.getSelectedItem()))continue;
@@ -269,8 +281,10 @@ public final class ActivityPanel extends JPanel {
     private static void add(List<Object[]> target,List<Object> objects,Object item,Object... row){objects.add(item);target.add(row);}
     private String displayValue(Object value,int column){
         if(mode!=Mode.COMBAT&&column==0)return DisplayFormat.formatTimestamp((Instant)value);
+        if(mode==Mode.RUNS&&column==2)return unit().format(((Number)value).doubleValue());
+        if(mode==Mode.RUNS&&column==8)return value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatNumber(((Number)value).doubleValue(),0,1);
         if(mode==Mode.COMBAT&&column==3)return value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatPercentage(((Number)value).doubleValue(),1);
-        if((mode==Mode.RUNS&&column>=2&&column<=5)||(mode==Mode.COMBAT&&(column==1||column==2)))return number(value);
+        if((mode==Mode.RUNS&&((column>=3&&column<=5)||column==7))||(mode==Mode.COMBAT&&(column==1||column==2)))return number(value);
         return value==null?"":value.toString();
     }
     private void filter(){String text=search.getText().trim();sorter.setRowFilter(text.isEmpty()?null:RowFilter.regexFilter("(?i)"+Pattern.quote(text)));chart.setFilter(text);updateSummary();if(!refreshing)showDetail();}
@@ -293,7 +307,9 @@ public final class ActivityPanel extends JPanel {
         int row=table.getSelectedRow(); Object item=row<0?null:items.get(table.convertRowIndexToModel(row));
         ActivityJournal.Visit v=mode==Mode.COMBAT?combatVisit:item instanceof ActivityJournal.Visit?(ActivityJournal.Visit)item:null;
         String text;
-        if(v!=null)text=v.map+" · "+time(v.started)+" ("+DisplayFormat.timestampZoneLabel()+")\n"+v.status+" · Capture issues: "+number(v.issues)+" · Timing gaps: "+number(v.timingGaps)
+        if(v!=null)text=v.map+" · "+time(v.started)+" ("+DisplayFormat.timestampZoneLabel()+")\n"+v.runStatus()+" · Capture issues: "+number(v.issues)+" · Timing gaps: "+number(v.timingGaps)
+            +"\nCompletion evidence: "+(v.completionEvidence.isEmpty()?"Not observed":v.completionEvidence)
+            +"\nVisit ended: "+(v.endReason.isEmpty()?v.status:v.endReason)
             +"\nHP: "+range(v.hpMin,v.hpMax)+" · MP: "+range(v.mpMin,v.mpMax)+" · Use requests: "+number(v.useRequests)
             +"\nBuff coverage: "+seconds(v.conditionObservedMillis)+" s; additional conditions: "+seconds(v.extraConditionObservedMillis)+" s. Uptime uses observed coverage, not the entire visit."
             +"\nParty roster: "+(v.partyId==null?"not observed":"party "+v.partyId+", "+number(v.rosterSize)+" observed members; identity links unverified")
@@ -307,6 +323,7 @@ public final class ActivityPanel extends JPanel {
         if(!text.equals(detail.getText())){detail.setText(text);detail.setCaretPosition(0);}
     }
     public static String time(long millis){return DisplayFormat.formatTimestamp(millis);}
+    private RunDurationUnit unit(){return (RunDurationUnit)durationUnit.getSelectedItem();}
     private static String range(Integer a,Integer b){return a==null&&b==null?DisplayFormat.UNAVAILABLE:number(a)+"–"+number(b);}
     private static String seconds(long millis){return DisplayFormat.formatDurationSeconds(millis,1);}
     private static String number(Object value){return value instanceof Number?DisplayFormat.formatExact((Number)value):DisplayFormat.UNAVAILABLE;}
