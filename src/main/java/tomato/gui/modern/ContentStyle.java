@@ -9,11 +9,17 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 import javax.swing.*;
 import javax.swing.border.Border;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.plaf.UIResource;
 import javax.swing.plaf.FontUIResource;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.text.Document;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultCaret;
+import javax.swing.text.View;
 import javax.swing.tree.TreeCellRenderer;
 
 /** Typography and semantic colors shared by the live content views. */
@@ -253,6 +259,89 @@ public final class ContentStyle {
         };
     }
 
+    /** Read-only metadata that wraps at its allocated width, including long tokens and explicit newlines. */
+    public static JTextArea wrappingText(String text) { return wrappingText(text, 1); }
+
+    /** minimumRows is a height floor, not a limit on the amount of visible text. Construct on the EDT. */
+    public static JTextArea wrappingText(String text, int minimumRows) {
+        if (minimumRows < 0) throw new IllegalArgumentException("minimumRows must not be negative");
+        JTextArea area = new WrappingText(text, minimumRows);
+        area.setEditable(false); area.setOpaque(false);
+        area.setLineWrap(true); area.setWrapStyleWord(true);
+        font(area, metadata(body()));
+        return area;
+    }
+
+    private static final class WrappingText extends JTextArea {
+        private boolean measuring;
+
+        WrappingText(String text, int rows) {
+            super(text, rows, 0);
+            configureCaret();
+            DocumentListener changes = new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { WidthRelayout.request(WrappingText.this, true); }
+                public void removeUpdate(DocumentEvent e) { WidthRelayout.request(WrappingText.this, true); }
+                public void changedUpdate(DocumentEvent e) { WidthRelayout.request(WrappingText.this, true); }
+            };
+            getDocument().addDocumentListener(changes);
+            addPropertyChangeListener(e -> {
+                String name = e.getPropertyName();
+                if ("caret".equals(name)) configureCaret();
+                if ("document".equals(name)) {
+                    if (e.getOldValue() instanceof Document) ((Document) e.getOldValue()).removeDocumentListener(changes);
+                    if (e.getNewValue() instanceof Document) ((Document) e.getNewValue()).addDocumentListener(changes);
+                }
+                if ("font".equals(name) || "UI".equals(name) || "border".equals(name) || "margin".equals(name)
+                        || "document".equals(name) || "rows".equals(name) || "caretWidth".equals(name)) WidthRelayout.request(this, true);
+            });
+        }
+
+        private void configureCaret() {
+            // Background metadata publications must not scroll the page to this control. Explicit
+            // keyboard caret movement still scrolls normally; theme changes may install a new caret.
+            if (getCaret() instanceof DefaultCaret) ((DefaultCaret) getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+        }
+
+        @Override public Dimension getPreferredSize() {
+            Insets padding = getInsets();
+            int height = getFontMetrics(getFont()).getHeight() * Math.max(1, getRows());
+            int width = availableWidth(this) - padding.left - padding.right;
+            if (width > 0 && getUI() != null) {
+                measuring = true;
+                try {
+                    View view = getUI().getRootView(this);
+                    if (getWidth() > 0 && getHeight() > 0) {
+                        // Let the UI allocate its view, including the reserved caret margin. Using only
+                        // component insets gives BasicTextUI one extra pixel and can hide an entire line.
+                        getUI().modelToView(this, 0);
+                    } else {
+                        Object caret = getClientProperty("caretWidth");
+                        if (!(caret instanceof Number)) caret = UIManager.get("Caret.width");
+                        int caretWidth = caret instanceof Number && ((Number) caret).intValue() >= 0 ? ((Number) caret).intValue() : 1;
+                        view.setSize(Math.max(1, width - caretWidth), Integer.MAX_VALUE);
+                    }
+                    height = Math.max(height, (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS)));
+                } catch (BadLocationException e) {
+                    throw new IllegalStateException("Cannot measure the start of the text document", e);
+                } finally { measuring = false; }
+            }
+            return new Dimension(0, height + padding.top + padding.bottom);
+        }
+        @Override public Dimension getMinimumSize() { return getPreferredSize(); }
+        @Override public Dimension getMaximumSize() { return new Dimension(Integer.MAX_VALUE, getPreferredSize().height); }
+        @Override public void revalidate() {
+            // View.setSize can report a preference change while an ancestor BoxLayout is measuring us.
+            // Its child-size arrays must survive that call; invalidate after the current layout instead.
+            if (measuring) WidthRelayout.request(this, false);
+            else super.revalidate();
+        }
+        @Override public void setBounds(int x, int y, int width, int height) {
+            boolean changed = width != getWidth();
+            super.setBounds(x, y, width, height);
+            if (changed) WidthRelayout.request(this, false);
+        }
+    }
+
     public static void table(JTable table) {
         table(table, Density.COMFORTABLE);
     }
@@ -399,32 +488,41 @@ public final class ContentStyle {
     }
 
     private static final class WidthAwarePanel extends JPanel {
-        private static final Set<WidthAwarePanel> pending = Collections.newSetFromMap(new IdentityHashMap<WidthAwarePanel, Boolean>());
-        private int validatedWidth = -1;
-
         WidthAwarePanel(LayoutManager layout) { super(layout); }
         @Override public void setBounds(int x, int y, int width, int height) {
             boolean changed = width != getWidth();
             super.setBounds(x, y, width, height);
-            if (!changed || getParent() == null) return;
+            if (changed) WidthRelayout.request(this, false);
+        }
+    }
+
+    /** One post-layout invalidation per root, shared by wrapping text, controls and grids. */
+    private static final class WidthRelayout {
+        private static final String VALIDATED_WIDTH = "ContentStyle.validatedWidth";
+        private static final java.util.Map<JComponent, Boolean> pending = new IdentityHashMap<>();
+
+        static void request(JComponent component, boolean contentChanged) {
+            if (component.getParent() == null) return;
             boolean schedule;
             synchronized (pending) {
                 schedule = pending.isEmpty();
-                pending.add(this);
+                pending.put(component, contentChanged || Boolean.TRUE.equals(pending.get(component)));
             }
-            if (schedule) SwingUtilities.invokeLater(WidthAwarePanel::validateAfterLayout);
+            if (schedule) SwingUtilities.invokeLater(WidthRelayout::validateAfterLayout);
         }
 
         private static void validateAfterLayout() {
-            List<WidthAwarePanel> changed;
+            java.util.Map<JComponent, Boolean> changed;
             synchronized (pending) {
-                changed = new ArrayList<>(pending);
+                changed = new IdentityHashMap<>(pending);
                 pending.clear();
             }
             Set<Container> roots = Collections.newSetFromMap(new IdentityHashMap<Container, Boolean>());
-            for (WidthAwarePanel panel : changed) {
-                if (panel.getParent() == null || panel.getWidth() == panel.validatedWidth) continue;
-                panel.validatedWidth = panel.getWidth();
+            for (java.util.Map.Entry<JComponent, Boolean> entry : changed.entrySet()) {
+                JComponent panel = entry.getKey();
+                if (panel.getParent() == null || (!entry.getValue()
+                        && Integer.valueOf(panel.getWidth()).equals(panel.getClientProperty(VALIDATED_WIDTH)))) continue;
+                panel.putClientProperty(VALIDATED_WIDTH, panel.getWidth());
                 // Nested BorderLayouts may have measured their header before this panel received its new width.
                 // Invalidation during that layout is lost; invalidate all ancestors after it has finished instead.
                 Container root = panel;
