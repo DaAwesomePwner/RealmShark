@@ -24,6 +24,13 @@ public class CharacterJournalGuiTest {
         for (Component c : root.getComponents()) { if (c instanceof JButton && ((JButton)c).getText().equals(text)) return (JButton)c;
             if (c instanceof Container) { JButton found = button((Container)c,text); if (found != null) return found; } } return null;
     }
+    private static JTextArea notes(Container root) {
+        for (Component c : root.getComponents()) {
+            if (c instanceof JTextArea && "character-notes".equals(c.getName())) return (JTextArea)c;
+            if (c instanceof Container) { JTextArea found = notes((Container)c); if (found != null) return found; }
+        }
+        return null;
+    }
     private static void render(JFrame frame, String filename, int width) {
         frame.setSize(width, 780); frame.setVisible(true); frame.validate();
         BufferedImage img = new BufferedImage(width, 780, BufferedImage.TYPE_INT_RGB);
@@ -54,7 +61,7 @@ public class CharacterJournalGuiTest {
             assertEquals(CharacterClass.getStats(782) == null ? "Unknown" : "6/8", roster.getValueAt(0,5));
             button(panel,"Mark dead").doClick(); assertEquals("Dead",roster.getValueAt(0,2));
             button(panel,"Restore alive").doClick(); assertEquals("Alive",roster.getValueAt(0,2));
-            JTextArea notes = find(panel,JTextArea.class); notes.setText("Finish Life and Wisdom"); button(panel,"Save notes").doClick();
+            JTextArea notes = notes(panel); notes.setText("Finish Life and Wisdom"); button(panel,"Save notes").doClick();
             assertEquals("Finish Life and Wisdom",j.characters().stream().filter(r -> r.characterId == 101).findFirst().get().notes);
             search.setText(""); roster.getRowSorter().toggleSortOrder(6);
             assertEquals(900L, roster.getValueAt(0,6));

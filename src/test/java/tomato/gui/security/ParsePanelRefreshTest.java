@@ -6,12 +6,14 @@ import org.junit.Test;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
+import assets.IdToAsset;
 import assets.ImageBuffer;
 import com.formdev.flatlaf.FlatLightLaf;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.realmshark.enums.CharacterClass;
+import tomato.realmshark.ParseEnchants;
 import util.PropertiesManager;
 
 import javax.swing.*;
@@ -19,13 +21,21 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.awt.event.AWTEventListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,7 +82,11 @@ public class ParsePanelRefreshTest {
     @After public void cleanup() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             ParsePanelGUI.clear();
-            if (frame != null) frame.dispose();
+            MenuSelectionManager.defaultManager().clearSelectedPath();
+            if (frame != null) {
+                for (Window owned : frame.getOwnedWindows()) owned.dispose();
+                frame.dispose();
+            }
             ContentStyle.setBodyFont(oldFont);
             try { UIManager.setLookAndFeel(oldLookAndFeel); }
             catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
@@ -329,6 +343,7 @@ public class ParsePanelRefreshTest {
             JTable table = find(panel, JTable.class);
             table.setRowSelectionInterval(0, 0);
             darkIcon.set(equipmentIcon(table));
+            assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
             table.getModel().addTableModelListener(e -> themed.countDown());
             setLookAndFeel(new FlatLightLaf());
             SwingUtilities.updateComponentTreeUI(frame);
@@ -340,13 +355,302 @@ public class ParsePanelRefreshTest {
             assertNotSame(darkIcon.get(), lightIcon);
             assertSame(ImageBuffer.getOutlinedIconWithGlow(-1, 20, ContentStyle.color("mint"), 3), lightIcon);
             assertEquals(0, table.getSelectedRow());
+            assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
+            assertFocusDistinctFromSelection(table, 0, 3);
             frame.setVisible(false);
             setLookAndFeel(new VioletTheme());
             SwingUtilities.updateComponentTreeUI(frame);
             assertSame("Hidden tables wait for refresh-on-show", lightIcon, equipmentIcon(table));
             frame.setVisible(true);
             assertSame(darkIcon.get(), equipmentIcon(table));
+            assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
         });
+    }
+
+    @Test @SuppressWarnings("unchecked") public void equipmentRendererResetsKnownEmptyMissingAndUnrecognizedDescriptions() throws Exception {
+        Field assets = IdToAsset.class.getDeclaredField("objectID"); assets.setAccessible(true);
+        Map<Integer, IdToAsset> objects = (Map<Integer, IdToAsset>)assets.get(null);
+        int itemId = 987654;
+        IdToAsset previous = objects.put(itemId, new IdToAsset("", itemId, "Sword of Acclaim", "Sword of Acclaim", "", null, "", "", ""));
+        String oldEnchant = ParseEnchants.ENCHANTS.put((short)1, "Test enchant");
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                setLookAndFeel(new VioletTheme());
+                panel = new ParsePanelGUI();
+                Entity source = player(1, "Selected", "Guild");
+                stat(source, StatType.INVENTORY_0_STAT, itemId, "");
+                stat(source, StatType.UNIQUE_DATA_STRING, 0, Base64.getUrlEncoder().encodeToString(new byte[]{0, 2, 4, 1, 0}) + ",,,");
+                ParsePanelGUI.addPlayer(1, source);
+                frame = new JFrame(); frame.setContentPane(panel); frame.setSize(800, 600); frame.setVisible(true);
+                JTable table = find(panel, JTable.class);
+                JLabel reused = assertEquipmentText(table, 0, 3, "Weapon: Sword of Acclaim (ID " + itemId + ")", "Test enchant(1)");
+                assertFocusDistinctFromSelection(table, 0, 3);
+
+                stat(source, StatType.INVENTORY_0_STAT, -1, "");
+                stat(source, StatType.UNIQUE_DATA_STRING, 0, "");
+                publishOnShow(source);
+                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Empty (ID -1)", "None (captured)"));
+                assertFalse(reused.getAccessibleContext().getAccessibleDescription().contains("Test enchant"));
+
+                source.stat.set(StatType.INVENTORY_0_STAT, null);
+                source.stat.set(StatType.UNIQUE_DATA_STRING, null);
+                publishOnShow(source);
+                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Not captured", "Enchant data not captured."));
+
+                stat(source, StatType.INVENTORY_0_STAT, Integer.MAX_VALUE, "");
+                stat(source, StatType.UNIQUE_DATA_STRING, 0, "!!!,,,");
+                publishOnShow(source);
+                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Unrecognized item (ID 2147483647)", "Malformed enchant data"));
+
+                // Reusing the icon renderer for text must clear its name, description, icon and alignment.
+                JLabel text = (JLabel)table.prepareRenderer(table.getCellRenderer(0, 1), 0, 1);
+                assertSame(reused, text); assertNull(text.getIcon()); assertEquals(SwingConstants.LEFT, text.getHorizontalAlignment());
+                assertEquals("Guild: Guild", text.getAccessibleContext().getAccessibleName());
+                assertEquals("Guild: Guild", text.getAccessibleContext().getAccessibleDescription());
+                assertSame(reused, assertEquipmentText(table, 0, 4, "Ability: Not captured", "None (captured)"));
+            });
+        } finally {
+            if (previous == null) objects.remove(itemId); else objects.put(itemId, previous);
+            if (oldEnchant == null) ParseEnchants.ENCHANTS.remove((short)1); else ParseEnchants.ENCHANTS.put((short)1, oldEnchant);
+        }
+    }
+
+    @Test public void equipmentShortcutUsesDisplayedSnapshotThroughSortingFilteringAndPendingUpdates() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ActionPanel actions = new ActionPanel(); panel = actions;
+            Entity alpha = player(1, "Alpha", "Zulu"), zulu = player(2, "Zulu", "Alpha");
+            stat(alpha, StatType.INVENTORY_0_STAT, Integer.MAX_VALUE, "");
+            stat(alpha, StatType.UNIQUE_DATA_STRING, 0, "");
+            ParsePanelGUI.addPlayer(1, alpha); ParsePanelGUI.addPlayer(2, zulu);
+            frame = new JFrame(); frame.setContentPane(actions); frame.setSize(800, 600); frame.setVisible(true);
+            JTable table = find(actions, JTable.class);
+            table.setAutoCreateRowSorter(true);
+            table.getRowSorter().toggleSortOrder(0);
+            table.setRowSelectionInterval(0, 0);
+            assertEquals("Alpha [20]", table.getValueAt(0, 0));
+            assertTrue("Keep user column reordering available", table.getTableHeader().getReorderingAllowed());
+            table.moveColumn(3, 1);
+            assertEquipmentText(table, 0, 1, "Weapon: Unrecognized item (ID 2147483647)", "None (captured)");
+            invokeEquipmentShortcut(actions, table);
+            String shown = actions.details;
+            assertEquals("Alpha", actions.detailsPlayer);
+            assertTrue(shown.contains("Guild: Zulu"));
+            assertTrue(shown.contains("ID 2147483647"));
+            for (String slot : new String[]{"Weapon:", "Ability:", "Armor:", "Ring:"}) assertTrue(shown.contains(slot));
+            assertEquals("copy-player", table.getInputMap().get(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK)));
+            assertEquals("open-player", table.getInputMap().get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0)));
+            assertEquals("open-guild", table.getInputMap().get(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK)));
+
+            stat(alpha, StatType.INVENTORY_0_STAT, -1, "");
+            alpha.stat.get(StatType.NAME_STAT).stringStatValue = "Renamed";
+            ParsePanelGUI.update(alpha);
+            SecurityFilter requirements = new SecurityFilter(); requirements.name = "Pending requirements";
+            requirements.classPoint.put(782, 10);
+            actions.getFilters().put(requirements.name, requirements);
+            ParsePanelGUI.currentFilter = requirements; actions.filterUpdate();
+            invokeEquipmentShortcut(actions, table);
+            assertEquals("Pending capture and filter changes cannot leak into displayed equipment", shown, actions.details);
+            alpha.stat.get(StatType.NAME_STAT).stringStatValue = "Never published";
+            frame.setVisible(false); frame.setVisible(true);
+            invokeEquipmentShortcut(actions, table);
+            assertEquals("Renamed", actions.detailsPlayer);
+            assertTrue(actions.details.contains("Weapon: Empty (ID -1)"));
+            assertFalse(actions.details.contains("2147483647"));
+            assertFalse(actions.details.contains("Never published"));
+            // Model ordering is by guild, view ordering by name; hide another row as well.
+            javax.swing.table.TableRowSorter<?> sorter = (javax.swing.table.TableRowSorter<?>)table.getRowSorter();
+            sorter.setRowFilter(RowFilter.regexFilter("Renamed", 0));
+            table.setRowSelectionInterval(0, 0);
+            invokeEquipmentShortcut(actions, table);
+            assertEquals("Renamed", actions.detailsPlayer);
+            frame.setVisible(false); ParsePanelGUI.update(); frame.setVisible(true);
+            assertEquals(0, table.getSelectedRow());
+            invokeEquipmentShortcut(actions, table);
+            assertEquals("Renamed", actions.detailsPlayer);
+            table.clearSelection();
+            assertFalse(button(actions, "Equipment details…").isEnabled());
+        });
+    }
+
+    @Test public void equipmentPostedKeyEventOpensReadOnlyWrappingSnapshotDialog() throws Exception {
+        for (LookAndFeel theme : new LookAndFeel[]{new VioletTheme(), new FlatLightLaf()}) postedKeyEquipmentDialog(theme);
+    }
+
+    private void postedKeyEquipmentDialog(LookAndFeel theme) throws Exception {
+        AtomicReference<Entity> producer = new AtomicReference<>();
+        AtomicReference<JTable> roster = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            if (frame != null) frame.dispose();
+            ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 24));
+            setLookAndFeel(theme);
+            panel = new ParsePanelGUI();
+            producer.set(player(1, "PlayerWithALongUnbrokenName_ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Guild"));
+            ParsePanelGUI.addPlayer(1, producer.get());
+            frame = new JFrame(); frame.setContentPane(panel); frame.setSize(680, 520); frame.setVisible(true);
+            JTable table = find(panel, JTable.class); table.setRowSelectionInterval(0, 0);
+            roster.set(table);
+            AbstractButton actions = button(panel, "Actions…");
+            actions.scrollRectToVisible(new Rectangle(0, 0, actions.getWidth(), actions.getHeight()));
+            pressSpace(actions);
+            assertTrue("Details must be discoverable in the default theme's Actions menu", actions.getComponentPopupMenu().isVisible());
+            JMenuItem details = (JMenuItem)button(panel, "Equipment details…");
+            assertTrue(details.isEnabled());
+            assertEquals(KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_DOWN_MASK), details.getAccelerator());
+            actions.getComponentPopupMenu().setVisible(false);
+            MenuSelectionManager.defaultManager().clearSelectedPath();
+        });
+        JDialog dialog = openEquipmentWithPostedKey(roster.get());
+        AtomicReference<String> snapshot = new AtomicReference<>();
+        CountDownLatch refreshed = new CountDownLatch(1);
+        SwingUtilities.invokeAndWait(() -> {
+            assertNotNull(dialog); assertTrue(dialog.isVisible());
+            JTextArea body = named(dialog, "security-equipment-details", JTextArea.class);
+            assertNotNull(body); assertFalse(body.isEditable()); assertTrue(body.isFocusable());
+            assertTrue(body.getLineWrap()); assertTrue(body.getWrapStyleWord());
+            assertNotNull(body.getAccessibleContext().getAccessibleName());
+            assertTrue(body.getText().contains("Weapon: Not captured"));
+            assertTrue(body.getText().contains("Ring: Not captured"));
+            snapshot.set(body.getText());
+            roster.get().getModel().addTableModelListener(e -> refreshed.countDown());
+            producer.get().stat.get(StatType.NAME_STAT).stringStatValue = "Published later";
+            stat(producer.get(), StatType.INVENTORY_0_STAT, -1, "");
+            ParsePanelGUI.update(producer.get());
+            producer.get().stat.get(StatType.NAME_STAT).stringStatValue = "Unpublished mutation";
+        });
+        assertTrue("The live table must advance while the open dialog retains its snapshot", refreshed.await(5, TimeUnit.SECONDS));
+        SwingUtilities.invokeAndWait(() -> {
+            assertEquals("Published later [20]", roster.get().getValueAt(0, 0));
+            JTextArea body = named(dialog, "security-equipment-details", JTextArea.class);
+            assertEquals("An open detail body is a stable displayed-row snapshot", snapshot.get(), body.getText());
+            body.setCaretPosition(body.getDocument().getLength());
+            dialog.validate();
+            JScrollPane scroll = (JScrollPane)SwingUtilities.getAncestorOfClass(JScrollPane.class, body);
+            assertTrue(scroll.getViewport().getExtentSize().width > 0);
+            assertTrue(scroll.getViewport().getExtentSize().height >= body.getFontMetrics(body.getFont()).getHeight() * 3);
+            AbstractButton close = button(dialog, "Close");
+            assertEquals(new Rectangle(0, 0, close.getWidth(), close.getHeight()), close.getVisibleRect());
+            pressSpace(close);
+            assertFalse(dialog.isDisplayable());
+        });
+    }
+
+    private JDialog openEquipmentWithPostedKey(JTable table) throws Exception {
+        CountDownLatch keyDelivered = new CountDownLatch(1), opened = new CountDownLatch(1);
+        AtomicReference<JDialog> result = new AtomicReference<>();
+        AtomicReference<String> wrongFocus = new AtomicReference<>();
+        KeyboardFocusManager focus = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+        KeyEventDispatcher delivery = event -> {
+            if (event.getID() == KeyEvent.KEY_PRESSED && event.getKeyCode() == KeyEvent.VK_E && event.isControlDown()) {
+                if (event.getComponent() != table || focus.getFocusOwner() != table || focus.getFocusedWindow() != frame)
+                    wrongFocus.set("Ctrl+E reached " + event.getComponent() + "; focus=" + focus.getFocusOwner());
+                keyDelivered.countDown();
+            }
+            return false; // Observe KeyboardFocusManager dispatch; never invoke or consume the action here.
+        };
+        AWTEventListener windows = event -> {
+            if (event.getID() == WindowEvent.WINDOW_OPENED && event.getSource() instanceof JDialog) {
+                JDialog dialog = (JDialog)event.getSource();
+                if (dialog.getOwner() == frame && "security-equipment-dialog".equals(dialog.getName())) {
+                    result.set(dialog); opened.countDown();
+                }
+            }
+        };
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                focus.addKeyEventDispatcher(delivery);
+                Toolkit.getDefaultToolkit().addAWTEventListener(windows, AWTEvent.WINDOW_EVENT_MASK);
+            });
+            awaitRosterFocus(table);
+            // Robot injection never reached Java on this host despite confirmed window/component focus.
+            // This is posted-AWT-key integration, not native hardware input or a direct Action invocation.
+            EventQueue queue = Toolkit.getDefaultToolkit().getSystemEventQueue();
+            long when = System.currentTimeMillis();
+            queue.postEvent(new KeyEvent(table, KeyEvent.KEY_PRESSED, when, InputEvent.CTRL_DOWN_MASK, KeyEvent.VK_E, 'e'));
+            queue.postEvent(new KeyEvent(table, KeyEvent.KEY_RELEASED, when, InputEvent.CTRL_DOWN_MASK, KeyEvent.VK_E, 'e'));
+            assertTrue("Posted Ctrl+E must reach KeyboardFocusManager dispatch", keyDelivered.await(5, TimeUnit.SECONDS));
+            assertNull("Ctrl+E must be delivered with the exact roster/frame focus", wrongFocus.get());
+            assertTrue("Ctrl+E must open the owned equipment dialog", opened.await(5, TimeUnit.SECONDS));
+            return result.get();
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                focus.removeKeyEventDispatcher(delivery);
+                Toolkit.getDefaultToolkit().removeAWTEventListener(windows);
+            });
+        }
+    }
+
+    private void awaitRosterFocus(JTable table) throws Exception {
+        CountDownLatch focused = new CountDownLatch(1);
+        FocusAdapter listener = new FocusAdapter() {
+            @Override public void focusGained(FocusEvent event) {
+                if (table.isFocusOwner() && frame.isFocused()) focused.countDown();
+            }
+        };
+        WindowAdapter activation = new WindowAdapter() {
+            @Override public void windowGainedFocus(WindowEvent event) { table.requestFocusInWindow(); }
+        };
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                table.addFocusListener(listener); frame.addWindowFocusListener(activation);
+                table.scrollRectToVisible(table.getCellRect(table.getSelectedRow(), 0, true));
+                frame.toFront(); frame.requestFocus(); table.requestFocusInWindow();
+                if (table.isFocusOwner() && frame.isFocused()) focused.countDown();
+            });
+            assertTrue("Timed out waiting for native roster focus", focused.await(5, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                assertSame(table, KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner());
+                assertSame(frame, KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow());
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                table.removeFocusListener(listener); frame.removeWindowFocusListener(activation);
+            });
+        }
+    }
+
+    private void publishOnShow(Entity player) {
+        frame.setVisible(false); ParsePanelGUI.update(player); frame.setVisible(true);
+    }
+
+    private static JLabel assertEquipmentText(JTable table, int row, int column, String name, String detail) {
+        JLabel cell = (JLabel)table.prepareRenderer(table.getCellRenderer(row, column), row, column);
+        assertEquals("", cell.getText());
+        assertEquals(name, cell.getAccessibleContext().getAccessibleName());
+        String description = cell.getAccessibleContext().getAccessibleDescription();
+        assertTrue(description, description.startsWith(name)); assertTrue(description, description.contains(detail));
+        assertFalse("Description must be plain text", description.startsWith("<html>"));
+        javax.accessibility.AccessibleContext accessible = table.getAccessibleContext().getAccessibleTable()
+                .getAccessibleAt(row, column).getAccessibleContext();
+        assertEquals(name, accessible.getAccessibleName());
+        assertEquals(description, accessible.getAccessibleDescription());
+        return cell;
+    }
+
+    private static void invokeEquipmentShortcut(ParsePanelGUI panel, JTable table) {
+        KeyStroke stroke = KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_DOWN_MASK);
+        Object key = panel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).get(stroke);
+        Action action = panel.getActionMap().get(key);
+        assertNotNull(action);
+        assertTrue("Invoke the actual key binding, not merely action presence", SwingUtilities.notifyAction(action, stroke,
+                new KeyEvent(table, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), InputEvent.CTRL_DOWN_MASK, KeyEvent.VK_E, 'e'),
+                table, InputEvent.CTRL_DOWN_MASK));
+    }
+
+    private static void assertFocusDistinctFromSelection(JTable table, int row, int column) {
+        for (boolean selected : new boolean[]{false, true}) {
+            int[] unfocused = renderCell(table, row, column, selected, false);
+            int[] focused = renderCell(table, row, column, selected, true);
+            assertFalse("Focus must be visible independently of selection=" + selected, Arrays.equals(unfocused, focused));
+        }
+    }
+
+    private static int[] renderCell(JTable table, int row, int column, boolean selected, boolean focus) {
+        Component cell = table.getCellRenderer(row, column).getTableCellRendererComponent(table, table.getValueAt(row, column), selected, focus, row, column);
+        int width = 90, height = table.getRowHeight();
+        cell.setSize(width, height);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics(); cell.paint(graphics); graphics.dispose();
+        return image.getRGB(0, 0, width, height, null, 0, width);
     }
 
     private static Icon equipmentIcon(JTable table) {
@@ -397,10 +701,12 @@ public class ParsePanelRefreshTest {
 
     private static class ActionPanel extends ParsePanelGUI {
         String last;
+        String detailsPlayer, details;
         List<Player> exported;
         @Override protected void clicked(boolean full) { last = full ? "json" : "names"; }
         @Override protected void saveNamesAsText() { last = "export-names"; }
         @Override protected void saveAsJson(List<Player> players) { last = "export-json"; exported = players; }
+        @Override protected void showEquipmentDetails(String playerName, String details) { this.detailsPlayer = playerName; this.details = details; }
     }
 
     private static void pressSpace(AbstractButton button) {

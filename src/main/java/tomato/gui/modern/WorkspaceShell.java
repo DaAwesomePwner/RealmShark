@@ -30,6 +30,7 @@ public final class WorkspaceShell extends JPanel {
     private final JPanel workspace = new JPanel(new BorderLayout(0, 8));
     private final JPanel branding = new JPanel(new CardLayout());
     private final JPanel nav = new JPanel(new GridBagLayout());
+    private final JScrollPane navScroll = new JScrollPane(nav);
     private final JPanel cards = new JPanel(new CardLayout());
     private final JToggleButton[] navigation = new JToggleButton[TITLES.length];
     private final JRadioButtonMenuItem[] destinations = new JRadioButtonMenuItem[TITLES.length];
@@ -65,6 +66,7 @@ public final class WorkspaceShell extends JPanel {
         branding.setOpaque(false); branding.add(brandRow, "brand");
         compactNavigation.setName("compact-navigation");
         compactNavigation.setMargin(new Insets(3, 4, 3, 4));
+        compactNavigation.putClientProperty("JComponent.minimumWidth", 0);
         compactNavigation.setToolTipText("Choose workspace (Alt+M)");
         compactNavigation.getAccessibleContext().setAccessibleName("Choose workspace");
         navigationPopup.setName("compact-navigation-popup");
@@ -95,7 +97,9 @@ public final class WorkspaceShell extends JPanel {
             button.setName("nav-" + i); button.setToolTipText(TITLES[i] + "  (Alt+" + (i == 13 ? "N" : i == 12 ? "B" : i == 10 ? "R" : i == 11 ? "T" : Integer.toString((i + 1) % 10)) + ")");
             button.getAccessibleContext().setAccessibleName(TITLES[i]);
             button.setHorizontalAlignment(SwingConstants.LEFT); button.setIconTextGap(8);
-            button.setBorder(new EmptyBorder(4, 8, 4, 8)); button.setFocusPainted(true);
+            // FlatLaf paints keyboard focus in its border, even with explicit navigation colors.
+            button.setMargin(new Insets(2, 6, 2, 6)); button.setFocusPainted(true);
+            button.putClientProperty("JComponent.minimumWidth", 0);
             button.addActionListener(e -> select(index));
             navigation[i] = button; group.add(button); gc.gridy = i + 1; gc.insets = new Insets(1, 0, 1, 0); nav.add(button, gc);
             cards.add(panels[i], Integer.toString(i));
@@ -108,7 +112,7 @@ public final class WorkspaceShell extends JPanel {
             destinations[i] = destination; menuGroup.add(destination); navigationPopup.add(destination);
         }
         gc.gridy++; gc.weighty = 1; nav.add(Box.createVerticalGlue(), gc);
-        JScrollPane navScroll = new JScrollPane(nav); navScroll.setBorder(null); navScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        navScroll.setBorder(null); navScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         navScroll.getVerticalScrollBar().setUnitIncrement(34);
         sidebar.add(navScroll, BorderLayout.CENTER);
         sideFooter.setFont(ContentStyle.metadata(ContentStyle.body())); sideFooter.setBorder(new EmptyBorder(8, 4, 0, 0));
@@ -207,6 +211,10 @@ public final class WorkspaceShell extends JPanel {
     private void styleNavigation(int index) {
         navigation[index].setForeground(ContentStyle.color(index == selected ? "selectionText" : "text"));
         navigation[index].setBackground(ContentStyle.color(index == selected ? "selection" : "navigation"));
+        java.util.Map<String, Object> style = new java.util.HashMap<>();
+        style.put("selectedBackground", ContentStyle.color("selection"));
+        style.put("selectedForeground", ContentStyle.color("selectionText"));
+        navigation[index].putClientProperty("FlatLaf.style", style);
     }
 
     private void showNavigation() {
@@ -266,7 +274,6 @@ public final class WorkspaceShell extends JPanel {
     private void adapt() {
         boolean changed = compact != (getWidth() < 1000);
         compact = getWidth() < 1000;
-        sidebar.setPreferredSize(new Dimension(compact ? 60 : 188, 0));
         ((CardLayout) branding.getLayout()).show(branding, compact ? "menu" : "brand");
         eyebrow.setVisible(!compact); sideFooter.setVisible(!compact);
         workspace.setBorder(compact ? new EmptyBorder(8, 8, 8, 8) : new EmptyBorder(12, 12, 10, 12));
@@ -274,12 +281,22 @@ public final class WorkspaceShell extends JPanel {
         for (int i = 0; i < navigation.length; i++) {
             navigation[i].setText(compact ? "" : TITLES[i]);
             navigation[i].setHorizontalAlignment(compact ? SwingConstants.CENTER : SwingConstants.LEFT);
+            navigation[i].setMargin(new Insets(2, compact ? 2 : 6, 2, compact ? 2 : 6));
         }
         if (changed) refreshTheme();
         revalidate(); scrollSelectedLater();
     }
 
     @Override public void doLayout() {
+        // Reserve the scrollbar as well as the complete focus border and label/icon at the current font.
+        Insets insets = sidebar.getInsets();
+        int width = nav.getPreferredSize().width + navScroll.getVerticalScrollBar().getPreferredSize().width;
+        Insets brandingInsets = branding.getInsets();
+        width = Math.max(width, compact ? compactNavigation.getPreferredSize().width + brandingInsets.left + brandingInsets.right
+            : branding.getPreferredSize().width);
+        if (!compact) width = Math.max(width, sideFooter.getPreferredSize().width);
+        Dimension size = new Dimension(Math.max(compact ? 60 : 188, width + insets.left + insets.right), 0);
+        if (!size.equals(sidebar.getPreferredSize())) sidebar.setPreferredSize(size);
         super.doLayout();
         scrollSelectedLater();
     }

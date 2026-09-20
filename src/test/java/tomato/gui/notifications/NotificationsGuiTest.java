@@ -5,6 +5,7 @@ import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.modern.VioletTheme;
 import tomato.realmshark.Sound;
 import util.PropertiesManager;
+import ui.UiTestLayout;
 import javax.swing.*;
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -41,6 +42,9 @@ public class NotificationsGuiTest {
                     frame.setSize(width, 650); frame.setVisible(true); frame.validate();
                     for (int tab = 0; tab < ui.tabs.getTabCount(); tab++) {
                         ui.tabs.setSelectedIndex(tab); frame.validate();
+                        UiTestLayout.settle(frame);
+                        assertEquals("The complete master control must be visible before capture", new Rectangle(0, 0, ui.master.getWidth(), ui.master.getHeight()),
+                            ui.master.getVisibleRect());
                         System.out.println("Notification layout " + width + " tab " + tab + ": master=" + ui.master.getWidth() + ", tabs=" + ui.tabs.getHeight());
                         BufferedImage image = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB);
                         Graphics2D g = image.createGraphics(); frame.printAll(g); g.dispose();

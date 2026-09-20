@@ -3,7 +3,6 @@ package tomato.gui.character;
 import assets.IdToAsset;
 import assets.ImageBuffer;
 import java.awt.*;
-import java.text.DateFormat;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
@@ -14,6 +13,8 @@ import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.realmshark.enums.CharacterClass;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
+import tomato.gui.stats.Formatters;
 
 /** Searchable persistent roster, with explicit unknowns and reversible life-state annotations. */
 public final class CharacterJournalGUI extends JPanel {
@@ -21,7 +22,8 @@ public final class CharacterJournalGUI extends JPanel {
     private final JTextField search = new JTextField(18);
     private final JComboBox<String> life = new JComboBox<>(new String[]{"All characters", "Alive", "Dead"});
     private final JComboBox<String> season = new JComboBox<>(new String[]{"All seasons", "Seasonal", "Regular"});
-    private final JLabel summary = new JLabel(), status = new JLabel(), heading = new JLabel("Select a character"), seen = new JLabel(" ");
+    private final JLabel heading = new JLabel("Select a character");
+    private final JTextArea summary = ContentStyle.wrappingText(""), status = ContentStyle.wrappingText(""), seen = ContentStyle.wrappingText(" ");
     private final JButton death = new JButton("Mark dead"), saveNotes = new JButton("Save notes");
     private final JTextArea notes = new JTextArea(3, 30);
     private final DefaultTableModel rosterModel = model("Character", "Account", "State", "Season", "Level", "Maxed", "Fame", "Last seen");
@@ -46,24 +48,45 @@ public final class CharacterJournalGUI extends JPanel {
         super(new BorderLayout(0, 8)); this.journal = journal;
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel top = new JPanel(new BorderLayout(0, 6));
-        summary.setFont(ContentStyle.body()); top.add(summary, BorderLayout.NORTH);
+        summary.setName("character-summary");
+        ContentStyle.font(summary, ContentStyle.body()); top.add(summary, BorderLayout.NORTH);
         seen.setFont(ContentStyle.metadata(ContentStyle.body())); status.setFont(ContentStyle.metadata(ContentStyle.body()));
         JPanel filters = ContentStyle.controls();
         search.putClientProperty("JTextField.placeholderText", "Search class, account, ID, equipment…");
         search.setToolTipText("Search class, account name, character ID, item names or notes");
         search.setName("character-search"); search.getAccessibleContext().setAccessibleName("Search saved characters");
         life.getAccessibleContext().setAccessibleName("Character life state"); season.getAccessibleContext().setAccessibleName("Character season");
-        filters.add(search); filters.add(life); filters.add(season); top.add(filters); add(top, BorderLayout.NORTH);
+        filters.add(search); filters.add(life); filters.add(season); top.add(filters);
+        roster.setName("character-roster");
         roster.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); roster.setAutoCreateRowSorter(true);
         roster.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         int[] widths = {150, 130, 65, 85, 55, 70, 80, 150};
         for (int i = 0; i < widths.length; i++) roster.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        roster.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
+            @Override protected void setValue(Object value) { super.setValue(value); setToolTipText(getText()); }
+        });
+        roster.getColumnModel().getColumn(6).setCellRenderer(new ContentStyle.Cell() {
+            @Override protected void setValue(Object value) {
+                setText(value instanceof Number ? DisplayFormat.formatInteger(((Number)value).longValue()) : "Unknown");
+            }
+        });
         roster.getColumnModel().getColumn(7).setCellRenderer(dateRenderer());
-        JPanel detail = new JPanel(new BorderLayout(0, 8));
+        JPanel detail = new JPanel(new BorderLayout(0, 8)) {
+            @Override public Dimension getMinimumSize() {
+                BorderLayout layout = (BorderLayout) getLayout();
+                Component title = layout.getLayoutComponent(BorderLayout.NORTH);
+                Component content = layout.getLayoutComponent(BorderLayout.CENTER);
+                Component hint = layout.getLayoutComponent(BorderLayout.SOUTH);
+                // Tab chrome AND usable rows must fit, including after font/width changes.
+                return new Dimension(0, title.getPreferredSize().height + content.getMinimumSize().height
+                        + hint.getPreferredSize().height + layout.getVgap() * 2);
+            }
+        };
+        detail.setName("character-detail");
         JPanel title = new JPanel(new BorderLayout(8, 3)); heading.setFont(ContentStyle.emphasis(ContentStyle.body()));
         JPanel titleActions = ContentStyle.controls(); titleActions.add(heading); titleActions.add(death);
         title.add(titleActions); title.add(seen, BorderLayout.SOUTH); detail.add(title, BorderLayout.NORTH);
-        JTabbedPane tabs = new JTabbedPane(); tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        JTabbedPane tabs = new JTabbedPane(); tabs.setName("character-detail-tabs"); tabs.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
         JTable stats = table(statModel);
         stats.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell() {
             @Override public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
@@ -90,22 +113,48 @@ public final class CharacterJournalGUI extends JPanel {
         tabs.addTab("Equipment & inventory", ContentStyle.tableScroll(gear, 3));
         tabs.addTab("Class exalts", ContentStyle.tableScroll(table(charExaltModel), 3));
         JPanel notePanel = new JPanel(new BorderLayout(8, 8)); notes.setLineWrap(true); notes.setWrapStyleWord(true);
-        notes.setFont(ContentStyle.body()); notes.getAccessibleContext().setAccessibleName("Character notes");
-        notePanel.add(new JScrollPane(notes), BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH); tabs.addTab("Notes", notePanel);
+        notes.setName("character-notes"); notes.setFont(ContentStyle.body()); notes.getAccessibleContext().setAccessibleName("Character notes");
+        JScrollPane noteScroll = new JScrollPane(notes) {
+            @Override public Dimension getMinimumSize() {
+                Insets insets = getInsets();
+                return new Dimension(0, notes.getFontMetrics(notes.getFont()).getHeight() * 3 + insets.top + insets.bottom);
+            }
+        };
+        notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH); tabs.addTab("Notes", notePanel);
         detail.add(tabs, BorderLayout.CENTER);
         JTextArea hint = note("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
         hint.setToolTipText("Potion estimates use +5 Life/Mana and +1 other stats. Exalts are account/class progress shared across characters.");
         detail.add(hint, BorderLayout.SOUTH);
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, ContentStyle.tableScroll(roster, 3), detail);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, ContentStyle.tableScroll(roster, 3), detail) {
+            @Override public void doLayout() {
+                super.doLayout();
+                // Swing permits programmatic divider positions to ignore child minimums.
+                // Reconcile the saved position after font changes or a narrower page layout.
+                int current = getUI().getDividerLocation(this);
+                int usable = Math.max(getMinimumDividerLocation(), Math.min(current, getMaximumDividerLocation()));
+                if (usable != current) { setDividerLocation(usable); super.doLayout(); }
+            }
+        };
+        split.setName("character-roster-detail-split");
         split.setResizeWeight(.48); split.setDividerLocation(235); split.setBorder(null);
-        detail.setMinimumSize(new Dimension(0, 170));
-        add(split, BorderLayout.CENTER); add(status, BorderLayout.SOUTH);
+        JScrollPane page = ContentStyle.page(top, split, status);
+        page.setName("character-page-scroll");
+        page.getAccessibleContext().setAccessibleName("Characters; scroll for roster, details and actions at large text sizes");
+        add(page, BorderLayout.CENTER);
+        for (JComponent control : new JComponent[]{search, life, season, death, saveNotes}) {
+            control.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusGained(java.awt.event.FocusEvent event) {
+                    // JTextField.scrollRectToVisible scrolls its text horizontally, not the page.
+                    reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight()));
+                }
+            });
+        }
         exalts.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JTextArea exaltHint = note("Saved account/class progress • Sort columns to review progress • Only observed classes are listed");
-        exalts.add(exaltHint, BorderLayout.NORTH); JTable exaltTable = table(exaltModel); exaltTable.setAutoCreateRowSorter(true);
+        JTable exaltTable = table(exaltModel); exaltTable.setAutoCreateRowSorter(true);
         exaltTable.getColumnModel().getColumn(6).setCellRenderer(dateRenderer());
-        exalts.add(ContentStyle.tableScroll(exaltTable, 3), BorderLayout.CENTER);
-        exalts.add(note("Tier thresholds: 5 / 15 / 30 / 50 / 75 completions. Character death does not reset exalts."), BorderLayout.SOUTH);
+        exalts.add(ContentStyle.page(exaltHint, ContentStyle.tableScroll(exaltTable, 3),
+                note("Tier thresholds: 5 / 15 / 30 / 50 / 75 completions. Character death does not reset exalts.")), BorderLayout.CENTER);
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); } public void removeUpdate(DocumentEvent e) { filter(); }
             public void changedUpdate(DocumentEvent e) { filter(); }
@@ -125,7 +174,6 @@ public final class CharacterJournalGUI extends JPanel {
     public JPanel exaltPanel() { return exalts; }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
-        status.setText(journal.storageStatus());
         synchronized (journal) {
             if (revision != journal.revision()) {
                 records = journal.characters(); accounts = journal.accounts(); revision = journal.revision();
@@ -136,8 +184,10 @@ public final class CharacterJournalGUI extends JPanel {
         boolean detached = !isDisplayable() && !exalts.isDisplayable();
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
-        if (records.isEmpty() && journal.storageStatus().startsWith("Saved"))
-            status.setText("Start capture and enter the game on a character. Account identity is required before saving.");
+        String storageStatus = journal.storageStatus();
+        if (records.isEmpty() && storageStatus.startsWith("Saved"))
+            storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
+        if (!status.getText().equals(storageStatus)) status.setText(storageStatus);
     }
     private void refreshExalts() {
         exaltsDirty = false;
@@ -171,7 +221,9 @@ public final class CharacterJournalGUI extends JPanel {
                 r.seasonal == null ? "Unknown" : r.seasonal ? "Seasonal" : "Regular", r.level,
                 count < 0 ? "Unknown" : count + "/8", r.fame, r.lastSeen});
         }
-        summary.setText(records.isEmpty() ? "Your saved characters will appear here" : alive + " alive  •  " + deadCount + " dead  •  " + maxed + " at 8/8  •  " + filtered.size() + " shown");
+        summary.setText(records.isEmpty() ? "Your saved characters will appear here" : DisplayFormat.formatInteger(alive) + " alive  •  "
+                + DisplayFormat.formatInteger(deadCount) + " dead  •  " + DisplayFormat.formatInteger(maxed) + " at 8/8  •  "
+                + DisplayFormat.formatInteger(filtered.size()) + " shown");
         if (records.isEmpty() && journal.storageStatus().startsWith("Saved")) status.setText("Start capture and enter the game on a character. Account identity is required before saving.");
         for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key.equals(oldKey)) {
             int view = roster.convertRowIndexToView(i); roster.setRowSelectionInterval(view, view); break;
@@ -214,19 +266,31 @@ public final class CharacterJournalGUI extends JPanel {
     private static Object unknown(Object value) { return value == null ? "Unknown" : value; }
     private static String className(int id) { String name = CharacterClass.getName(id); return name == null ? "Class " + id : name; }
     private static String itemName(Integer id) { if (id == null) return "Not captured"; if (id < 0) return "Empty"; String name = IdToAsset.objectName(id); return name == null ? "Item #" + id : name; }
-    private static String date(long time) { return time <= 0 ? "Unknown" : DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(time)); }
+    private static String date(long time) { return time <= 0 ? "Unknown" : Formatters.formatTimestamp(time); }
     private static DefaultTableCellRenderer dateRenderer() { return new ContentStyle.Cell() {
-        @Override protected void setValue(Object v) { setText(v instanceof Long ? date((Long)v) : "Unknown"); }
+        @Override protected void setValue(Object v) { setText(v instanceof Long ? date((Long)v) : "Unknown"); setToolTipText(getText()); }
     }; }
     private static DefaultTableModel model(String... columns) { return new DefaultTableModel(columns, 0) { @Override public boolean isCellEditable(int row, int col) { return false; }
         @Override public Class<?> getColumnClass(int col) { for (int i = 0; i < getRowCount(); i++) { Object v = getValueAt(i, col); if (v != null) return v instanceof Number ? v.getClass() : String.class; } return String.class; }
     }; }
     private static JTable table(DefaultTableModel model) {
         JTable t = new JTable(model); ContentStyle.table(t, ContentStyle.Density.DENSE);
+        t.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                int row = Math.max(0, t.getSelectedRow()), column = Math.max(0, t.getSelectedColumn());
+                reveal(t, t.getCellRect(row, column, true));
+            }
+        });
         t.getTableHeader().setReorderingAllowed(false); return t;
     }
+    private static void reveal(JComponent control, Rectangle region) {
+        for (Container parent = control.getParent(); parent != null; parent = parent.getParent()) {
+            if (!(parent instanceof JViewport)) continue;
+            JComponent view = (JComponent)((JViewport)parent).getView();
+            view.scrollRectToVisible(SwingUtilities.convertRectangle(control, region, view));
+        }
+    }
     private static JTextArea note(String text) {
-        JTextArea area = new JTextArea(text); area.setEditable(false); area.setFocusable(false); area.setOpaque(false);
-        area.setLineWrap(true); area.setWrapStyleWord(true); area.setFont(ContentStyle.metadata(ContentStyle.body())); return area;
+        return ContentStyle.wrappingText(text);
     }
 }
