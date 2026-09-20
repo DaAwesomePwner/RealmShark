@@ -10,6 +10,8 @@ import javax.swing.text.PlainDocument;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.*;
@@ -455,6 +457,124 @@ public class ContentStyleTest {
             assertTrue("Native component must receive keyboard focus", focused.await(5, TimeUnit.SECONDS));
             SwingUtilities.invokeAndWait(() -> assertTrue(component.isFocusOwner()));
         } finally { SwingUtilities.invokeAndWait(() -> component.removeFocusListener(listener)); }
+    }
+
+    @Test public void rowHoverFollowsThePointerYieldsToSelectionAndClearsOnExit() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTable table = new JTable(new Object[][] {{"a"}, {"b"}, {"c"}}, new Object[] {"Column"});
+            ContentStyle.table(table);
+            table.setSize(200, table.getRowHeight() * 3);
+            // Rows alternate, so each row is compared against its own resting color.
+            Color restingOne = renderedBackground(table, 1), restingTwo = renderedBackground(table, 2);
+            Color hovered = ContentStyle.color("hover");
+            assertNotEquals("Hover must be visible against a striped row", restingOne, hovered);
+            assertNotEquals("Hover must be visible against a plain row", restingTwo, hovered);
+
+            move(table, 1);
+            assertEquals("The row under the pointer highlights", hovered, renderedBackground(table, 1));
+            assertNotEquals("Neighbouring rows stay at rest", hovered, renderedBackground(table, 0));
+
+            move(table, 2);
+            assertEquals(hovered, renderedBackground(table, 2));
+            assertEquals("Leaving a row restores it", restingOne, renderedBackground(table, 1));
+
+            // Selection outranks hover, so the selected row keeps its own color under the pointer.
+            table.setRowSelectionInterval(2, 2);
+            assertEquals(table.getSelectionBackground(), renderedBackground(table, 2));
+            table.clearSelection();
+
+            table.dispatchEvent(new MouseEvent(table, MouseEvent.MOUSE_EXITED,
+                System.currentTimeMillis(), 0, -1, -1, 0, false));
+            assertEquals("Leaving the table clears the highlight", restingTwo, renderedBackground(table, 2));
+        });
+    }
+
+    @Test public void scrollingDropsAHoverThePointerNoLongerBacks() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTable table = new JTable(new Object[][] {{"a"}, {"b"}, {"c"}, {"d"}}, new Object[] {"Column"});
+            ContentStyle.table(table);
+            JScrollPane scroll = new JScrollPane(table);
+            scroll.setSize(200, table.getRowHeight() * 2);
+            table.setSize(200, table.getRowHeight() * 4);
+            scroll.doLayout();
+            Color resting = renderedBackground(table, 1);
+
+            // The first pointer event also subscribes to the viewport.
+            move(table, 1);
+            assertEquals(ContentStyle.color("hover"), renderedBackground(table, 1));
+
+            // Scrolling sends no mouse event. Offscreen the pointer cannot be resolved, so rather
+            // than leaving the highlight on a row the pointer has left, it is dropped.
+            scroll.getViewport().setViewPosition(new Point(0, table.getRowHeight()));
+            assertEquals("A scroll must not strand the highlight", resting, renderedBackground(table, 1));
+        });
+    }
+
+    @Test public void repeatedStylingKeepsASingleHoverTracker() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTable table = new JTable(new Object[][] {{"a"}}, new Object[] {"Column"});
+            ContentStyle.table(table);
+            int listeners = table.getMouseMotionListeners().length;
+            ContentStyle.table(table);
+            ContentStyle.rowHover(table);
+            assertEquals("Re-styling a table must not stack pointer listeners",
+                listeners, table.getMouseMotionListeners().length);
+        });
+    }
+
+    @Test public void surfaceRolesSeparateElevationFromTheRestingBackground() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf()}) {
+                setLaf(laf);
+                String name = laf.getName();
+                Color surface = ContentStyle.color("surface"), raised = ContentStyle.color("surfaceRaised");
+                Color background = ContentStyle.color("background"), hover = ContentStyle.color("hover");
+                for (String role : new String[] {"surfaceRaised", "controlBorder", "hover", "accentWash"})
+                    assertNotNull(name + ": " + role, ContentStyle.color(role));
+                assertNotEquals(name + ": a raised surface must read above the base surface", surface, raised);
+                assertNotEquals(name + ": hover must differ from the resting background", background, hover);
+                // Text stays legible on every surface the new roles introduce.
+                for (Color under : new Color[] {raised, hover, ContentStyle.color("accentWash")})
+                    assertTrue(name + ": text contrast on " + under + " was " + contrast(ContentStyle.color("text"), under),
+                        contrast(ContentStyle.color("text"), under) >= 4.5);
+            }
+        });
+    }
+
+    @Test public void themeDividersStayQuieterThanInteractiveOutlines() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            setLaf(new VioletTheme());
+            Color surface = ContentStyle.color("surface");
+            double divider = contrast(ContentStyle.color("border"), surface);
+            double control = contrast(ContentStyle.color("controlBorder"), surface);
+            assertTrue("Structural dividers " + divider + " must stay quieter than control outlines " + control,
+                divider < control);
+        });
+    }
+
+    @Test public void cardPaintsARoundedSurfaceInsteadOfASquareBorder() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JPanel card = ContentStyle.card(new BorderLayout());
+            Color fill = new Color(0x203040);
+            card.setBackground(fill);
+            card.setSize(60, 40);
+            BufferedImage image = new BufferedImage(60, 40, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = image.createGraphics();
+            card.paint(graphics);
+            graphics.dispose();
+            assertEquals("The corner is cut away, so the card reads as rounded", 0, image.getRGB(0, 0) >>> 24);
+            assertEquals("The fill reaches the middle", fill.getRGB(), image.getRGB(30, 20));
+        });
+    }
+
+    private static Color renderedBackground(JTable table, int row) {
+        return table.prepareRenderer(table.getCellRenderer(row, 0), row, 0).getBackground();
+    }
+
+    private static void move(JTable table, int row) {
+        Rectangle cell = table.getCellRect(row, 0, true);
+        table.dispatchEvent(new MouseEvent(table, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0,
+            cell.x + 2, cell.y + cell.height / 2, 0, false));
     }
 
     private static int textViewHeight(JTextArea area) {

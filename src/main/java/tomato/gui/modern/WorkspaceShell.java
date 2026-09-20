@@ -26,12 +26,12 @@ public final class WorkspaceShell extends JPanel {
         "Review detected loot, configure guild exports and troubleshoot delivery.",
         "Choose sounds for messages, dungeon openings, realm events and loot."
     };
-    private final JPanel sidebar = new JPanel(new BorderLayout());
+    private final Sidebar sidebar = new Sidebar();
     private final JPanel workspace = new JPanel(new BorderLayout(0, 8));
     private final JPanel branding = new JPanel(new CardLayout());
     private final JPanel nav = new JPanel(new GridBagLayout());
     private final JScrollPane navScroll = new JScrollPane(nav);
-    private final JPanel cards = new JPanel(new CardLayout());
+    private final JPanel cards = ContentStyle.card(new CardLayout());
     private final JToggleButton[] navigation = new JToggleButton[TITLES.length];
     private final JRadioButtonMenuItem[] destinations = new JRadioButtonMenuItem[TITLES.length];
     private final JButton compactNavigation = new JButton(new NavigationMenuIcon()) {
@@ -86,13 +86,7 @@ public final class WorkspaceShell extends JPanel {
         ButtonGroup group = new ButtonGroup(), menuGroup = new ButtonGroup();
         for (int i = 0; i < panels.length; i++) {
             final int index = i;
-            JToggleButton button = new JToggleButton(TITLES[i], new LineIcon(i >= 8 ? i + 1 : i)) {
-                @Override public Dimension getPreferredSize() {
-                    Dimension size = super.getPreferredSize();
-                    size.height = Math.max(32, size.height);
-                    return size;
-                }
-            };
+            JToggleButton button = new NavigationButton(TITLES[i], new LineIcon(i >= 8 ? i + 1 : i));
             button.setFont(ContentStyle.body());
             button.setName("nav-" + i); button.setToolTipText(TITLES[i] + "  (Alt+" + (i == 13 ? "N" : i == 12 ? "B" : i == 10 ? "R" : i == 11 ? "T" : Integer.toString((i + 1) % 10)) + ")");
             button.getAccessibleContext().setAccessibleName(TITLES[i]);
@@ -194,10 +188,12 @@ public final class WorkspaceShell extends JPanel {
         Color background = ContentStyle.color("navigation");
         setBackground(ContentStyle.color("background"));
         sidebar.setBackground(background); nav.setBackground(background);
+        // The wash ends at the branding row, so the destinations below it sit on an even backdrop.
+        sidebar.wash(blend(background, ContentStyle.color("violet"), .12f), background);
         sidebar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, ContentStyle.color("border")),
             new EmptyBorder(12, compact ? 6 : 8, 10, compact ? 6 : 8)));
-        cards.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(ContentStyle.color("border")),
-            new EmptyBorder(6, 6, 6, 6)));
+        cards.setBackground(ContentStyle.color("background"));
+        cards.setBorder(new EmptyBorder(6, 6, 6, 6));
         brand.setForeground(ContentStyle.color("text")); title.setForeground(ContentStyle.color("text"));
         mark.setForeground(ContentStyle.color("violet")); previewLabel.setForeground(ContentStyle.color("violet"));
         for (JLabel label : new JLabel[] {eyebrow, sideFooter, description, hint}) label.setForeground(ContentStyle.color("muted"));
@@ -211,16 +207,104 @@ public final class WorkspaceShell extends JPanel {
     private void styleNavigation(int index) {
         navigation[index].setForeground(ContentStyle.color(index == selected ? "selectionText" : "text"));
         navigation[index].setBackground(ContentStyle.color(index == selected ? "selection" : "navigation"));
+        // Hover and pressed live in the style map, so the background stays the destination's own color.
         java.util.Map<String, Object> style = new java.util.HashMap<>();
         style.put("selectedBackground", ContentStyle.color("selection"));
         style.put("selectedForeground", ContentStyle.color("selectionText"));
+        style.put("hoverBackground", ContentStyle.color("hover"));
+        style.put("pressedBackground", ContentStyle.color("accentWash"));
+        // Destinations are a rail, not a stack of buttons, so the resting outline matches its own
+        // fill. The real border stays in place, and keyboard focus still recolors it.
+        Color rest = ContentStyle.color(index == selected ? "selection" : "navigation");
+        style.put("borderColor", rest);
+        style.put("disabledBorderColor", rest);
         navigation[index].putClientProperty("FlatLaf.style", style);
+    }
+
+    /** Mixes two colors, for shell surfaces that sit between two semantic roles. */
+    private static Color blend(Color from, Color to, float weight) {
+        return new Color(Math.round(from.getRed() + (to.getRed() - from.getRed()) * weight),
+            Math.round(from.getGreen() + (to.getGreen() - from.getGreen()) * weight),
+            Math.round(from.getBlue() + (to.getBlue() - from.getBlue()) * weight));
     }
 
     private void showNavigation() {
         Component anchor = compact ? compactNavigation : navigation[selected];
         navigationPopup.show(anchor, 0, anchor.getHeight());
         MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, destinations[selected]});
+    }
+
+    /**
+     * A destination in the rail. The selected destination carries a violet rail on its leading
+     * edge, which survives compact mode, where the label is hidden and only the icon remains.
+     */
+    private static final class NavigationButton extends JToggleButton {
+        private static final int RAIL_WIDTH = 3;
+        /** Resolved once per look-and-feel rather than on every paint. */
+        private Color rail;
+
+        NavigationButton(String title, Icon icon) { super(title, icon); }
+
+        @Override public void updateUI() { rail = null; super.updateUI(); }
+
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            size.height = Math.max(32, size.height);
+            return size;
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            if (!isSelected()) return;
+            if (rail == null) rail = ContentStyle.color("violet");
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(rail);
+            int height = Math.max(10, getHeight() - 12);
+            g.fillRoundRect(2, (getHeight() - height) / 2, RAIL_WIDTH, height, RAIL_WIDTH, RAIL_WIDTH);
+            g.dispose();
+        }
+    }
+
+    /**
+     * The navigation rail's backdrop. Its vertical wash is rebuilt only when the height or the
+     * theme changes, so scrolling and resizing repaint with a cached paint.
+     */
+    private static final class Sidebar extends JPanel {
+        private Paint wash;
+        private Color top, bottom;
+        private int washFade = -1;
+
+        Sidebar() { super(new BorderLayout()); }
+
+        void wash(Color top, Color bottom) {
+            this.top = top; this.bottom = bottom;
+            wash = null; washFade = -1;
+        }
+
+        /**
+         * The distance over which the wash reaches the base color. The scrolling destination list
+         * below the branding row is opaque and paints the base color flat, so the wash has to
+         * arrive there exactly; a fade tied to the sidebar height would leave a step at that seam.
+         */
+        private int fade() {
+            Component branding = ((BorderLayout) getLayout()).getLayoutComponent(BorderLayout.NORTH);
+            return branding == null ? Math.max(1, getHeight() / 4)
+                : Math.max(1, branding.getY() + branding.getHeight());
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            if (top == null || bottom == null) { super.paintComponent(graphics); return; }
+            int fade = fade();
+            if (wash == null || washFade != fade) {
+                wash = new GradientPaint(0, 0, top, 0, fade, bottom);
+                washFade = fade;
+            }
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setPaint(wash);
+            g.fillRect(0, 0, getWidth(), getHeight());
+            g.dispose();
+        }
     }
 
     private static final class NavigationMenuIcon implements Icon {
