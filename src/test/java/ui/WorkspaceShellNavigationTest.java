@@ -252,6 +252,36 @@ public class WorkspaceShellNavigationTest {
         }
     }
 
+    @Test public void theSidebarWashReachesTheBaseColorBeforeTheDestinationListBegins() throws Exception {
+        WorkspaceShell[] fixture = new WorkspaceShell[1];
+        SwingUtilities.invokeAndWait(() -> {
+            JComponent[] content = new JComponent[WorkspaceShell.TITLES.length];
+            for (int i = 0; i < content.length; i++) content[i] = new JPanel();
+            fixture[0] = new WorkspaceShell(content, () -> {}, true);
+        });
+        // A taller window lengthens a height-proportional fade, so the seam would widen with height.
+        for (Dimension geometry : new Dimension[] {new Dimension(1240, 560), new Dimension(1240, 1100)}) {
+            SwingUtilities.invokeAndWait(() -> {
+                fixture[0].setSize(geometry);
+                fixture[0].dispatchEvent(new ComponentEvent(fixture[0], ComponentEvent.COMPONENT_RESIZED));
+            });
+            for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> layoutTree(fixture[0]));
+            SwingUtilities.invokeAndWait(() -> {
+                BufferedImage image = new BufferedImage(geometry.width, geometry.height, BufferedImage.TYPE_INT_RGB);
+                Graphics2D graphics = image.createGraphics();
+                fixture[0].printAll(graphics);
+                graphics.dispose();
+                Component destination = find(fixture[0], "nav-0");
+                Point origin = SwingUtilities.convertPoint(destination, 0, 0, fixture[0]);
+                int base = image.getRGB(2, geometry.height - 4);
+                // Sample the sidebar's leading edge, clear of the destinations and their scroll bar.
+                for (int y = origin.y; y < geometry.height - 4; y++)
+                    assertEquals("Banding seam at y=" + y + " for " + geometry,
+                        base, image.getRGB(2, y));
+            });
+        }
+    }
+
     private static BufferedImage focusImage(AbstractButton button, boolean focused) {
         button.putClientProperty(FlatClientProperties.COMPONENT_FOCUS_OWNER, (Predicate<JComponent>) component -> focused);
         assertEquals(focused, FlatUIUtils.isPermanentFocusOwner(button));

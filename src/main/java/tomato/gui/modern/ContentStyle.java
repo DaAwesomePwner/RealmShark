@@ -1,6 +1,8 @@
 package tomato.gui.modern;
 
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -31,6 +33,9 @@ public final class ContentStyle {
     private static final String DENSITY = "ContentStyle.density";
     private static final String ROW_MINIMUM = "ContentStyle.rowMinimum";
     private static final String ROW_HEIGHT = "ContentStyle.rowHeight";
+    private static final String HOVER_ROW = "ContentStyle.hoverRow";
+    private static final String HOVER_INSTALLED = "ContentStyle.hoverInstalled";
+    private static final String HOVER_VIEWPORT = "ContentStyle.hoverViewport";
 
     public enum Density {
         COMFORTABLE(28, 8), DENSE(24, 4);
@@ -199,13 +204,26 @@ public final class ContentStyle {
         Color surface = UIManager.getColor("Table.background");
         boolean dark = surface == null || surface.getRed() * .2126 + surface.getGreen() * .7152 + surface.getBlue() * .0722 < 128;
         switch (role) {
-            case "background": return themeColor("Panel.background", dark ? 0x15151E : 0xF5F5F8);
-            case "surface": return themeColor("Table.background", dark ? 0x191922 : 0xFFFFFF);
-            case "navigation": return themeColor("MenuBar.background", dark ? 0x111118 : 0xEEEEF3);
-            case "border": return themeColor("Separator.foreground", dark ? 0x313140 : 0xD5D3DE);
-            case "text": return themeColor("Label.foreground", dark ? 0xEEEDF7 : 0x24222E);
-            case "selection": return themeColor("Table.selectionBackground", dark ? 0x403258 : 0xE5DCF8);
+            case "background": return themeColor("Panel.background", dark ? 0x131120 : 0xF5F4F9);
+            case "surface": return themeColor("Table.background", dark ? 0x181627 : 0xFFFFFF);
+            case "navigation": return themeColor("MenuBar.background", dark ? 0x0E0C18 : 0xEEECF4);
+            case "border": return themeColor("Separator.foreground", dark ? 0x252236 : 0xE0DDE8);
+            case "text": return themeColor("Label.foreground", dark ? 0xE9E6F7 : 0x24222E);
+            case "selection": return themeColor("Table.selectionBackground", dark ? 0x3B2E5E : 0xE5DCF8);
             case "selectionText": return themeColor("Table.selectionForeground", dark ? 0xF4F0FF : 0x302048);
+            // A raised surface for cards and inputs, one elevation step above "surface".
+            case "surfaceRaised": {
+                Color raised = themeColor("TextField.background", dark ? 0x201D33 : 0xFAF9FC);
+                // Several light themes paint inputs and tables the same white. Step off the
+                // surface there so cards and inputs still read as raised.
+                return raised.equals(surface) ? elevate(raised, dark) : raised;
+            }
+            // The outline of an interactive control, deliberately stronger than "border".
+            case "controlBorder": return themeColor("Component.borderColor", dark ? 0x38334F : 0xC9C5D6);
+            // The pointer-over fill for rows and navigation items.
+            case "hover": return new Color(dark ? 0x232038 : 0xEFEBF9);
+            // A quiet violet wash for selected tabs and hovered accents.
+            case "accentWash": return new Color(dark ? 0x2A2142 : 0xF0E9FD);
             case "violet": return new Color(dark ? 0xC4ADFF : 0x6241AA);
             case "blue": return new Color(dark ? 0x90C8F8 : 0x235E92);
             case "mint": return new Color(dark ? 0x86DBBA : 0x226D52);
@@ -219,6 +237,15 @@ public final class ContentStyle {
         Color color = UIManager.getColor(key);
         return color == null ? new Color(fallback) : new Color(color.getRGB(), true);
     }
+
+    /** One elevation step away from a surface: lighter on dark themes, darker on light ones. */
+    private static Color elevate(Color surface, boolean dark) {
+        int step = dark ? 12 : -10;
+        return new Color(channel(surface.getRed() + step), channel(surface.getGreen() + step),
+            channel(surface.getBlue() + step));
+    }
+
+    private static int channel(int value) { return Math.max(0, Math.min(255, value)); }
 
     /** Short windows scroll the page instead of squeezing the data area out of view. */
     public static JScrollPane page(JComponent header, JComponent body, JComponent footer) {
@@ -354,6 +381,96 @@ public final class ContentStyle {
         table.setDefaultRenderer(Number.class, new Cell());
         table.putClientProperty(DENSITY, density);
         tableFont(table, body(), density.minimumHeight);
+        rowHover(table);
+    }
+
+    /**
+     * Highlights the row under the pointer. Only a row change repaints, and it repaints the
+     * two affected rows rather than the table, so pointer movement costs no more than a
+     * selection change already does.
+     */
+    public static void rowHover(JTable table) {
+        Objects.requireNonNull(table, "table");
+        if (Boolean.TRUE.equals(table.getClientProperty(HOVER_INSTALLED))) return;
+        table.putClientProperty(HOVER_INSTALLED, Boolean.TRUE);
+        MouseAdapter tracker = new MouseAdapter() {
+            @Override public void mouseMoved(MouseEvent e) { track(table, e); }
+            @Override public void mouseDragged(MouseEvent e) { track(table, e); }
+            @Override public void mouseExited(MouseEvent e) { hover(table, -1); }
+        };
+        table.addMouseMotionListener(tracker);
+        table.addMouseListener(tracker);
+    }
+
+    private static void track(JTable table, MouseEvent event) {
+        watchScrolling(table);
+        hover(table, table.rowAtPoint(event.getPoint()));
+    }
+
+    /**
+     * Scrolling moves rows beneath a stationary pointer without sending a mouse event, which would
+     * otherwise leave the highlight on the row the pointer has left. The viewport only exists once
+     * the table is in a scroll pane, so this attaches on first use rather than at styling time.
+     */
+    private static void watchScrolling(JTable table) {
+        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, table);
+        if (viewport == null || viewport == table.getClientProperty(HOVER_VIEWPORT)) return;
+        viewport.addChangeListener(event -> resolveHover(table));
+        table.putClientProperty(HOVER_VIEWPORT, viewport);
+    }
+
+    /** Re-reads the row under the pointer. An unresolvable pointer clears the highlight. */
+    private static void resolveHover(JTable table) {
+        if (!table.isShowing() || GraphicsEnvironment.isHeadless()) { hover(table, -1); return; }
+        PointerInfo pointer = MouseInfo.getPointerInfo();
+        if (pointer == null) { hover(table, -1); return; }
+        Point point = pointer.getLocation();
+        SwingUtilities.convertPointFromScreen(point, table);
+        hover(table, new Rectangle(table.getSize()).contains(point) ? table.rowAtPoint(point) : -1);
+    }
+
+    private static void hover(JTable table, int row) {
+        Integer previous = (Integer) table.getClientProperty(HOVER_ROW);
+        int was = previous == null ? -1 : previous;
+        if (was == row) return;
+        table.putClientProperty(HOVER_ROW, row < 0 ? null : row);
+        repaintRow(table, was);
+        repaintRow(table, row);
+    }
+
+    private static void repaintRow(JTable table, int row) {
+        if (row < 0 || row >= table.getRowCount()) return;
+        table.repaint(0, table.getCellRect(row, 0, true).y, table.getWidth(), table.getRowHeight(row));
+    }
+
+    /**
+     * A rounded container for grouping content. It fills its shape and strokes one hairline
+     * per paint, with no gradient or shadow, so it costs what the square border it replaces did.
+     */
+    public static JPanel card(LayoutManager layout) {
+        return new RoundedPanel(layout);
+    }
+
+    private static final class RoundedPanel extends JPanel {
+        private static final int ARC = 10;
+        /** Resolved once per look-and-feel rather than on every paint. */
+        private Color outline;
+
+        RoundedPanel(LayoutManager layout) { super(layout); setOpaque(false); }
+
+        @Override public void updateUI() { outline = null; super.updateUI(); }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            if (outline == null) outline = color("border");
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int width = getWidth() - 1, height = getHeight() - 1;
+            g.setColor(getBackground());
+            g.fillRoundRect(0, 0, width, height, ARC, ARC);
+            g.setColor(outline);
+            g.drawRoundRect(0, 0, width, height, ARC, ARC);
+            g.dispose();
+        }
     }
 
     public static void tableFont(JTable table, Font font, int minimumHeight) {
@@ -553,8 +670,10 @@ public final class ContentStyle {
             setHorizontalAlignment(Number.class.isAssignableFrom(table.getColumnClass(column)) ? RIGHT : LEFT);
             setIcon(null);
             if (!selected) {
+                Integer hovered = (Integer) table.getClientProperty(HOVER_ROW);
                 Color stripe = UIManager.getColor("Table.alternateRowColor");
-                setBackground(row % 2 == 1 && stripe != null ? stripe : table.getBackground());
+                if (hovered != null && hovered == row) setBackground(color("hover"));
+                else setBackground(row % 2 == 1 && stripe != null ? stripe : table.getBackground());
                 setForeground(table.getForeground());
             }
             return this;

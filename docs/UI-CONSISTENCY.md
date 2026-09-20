@@ -30,8 +30,9 @@ Detailed evidence, layout limits, and commands: [Phase 3 validation](STEP-3-UI-C
 
 - Segoe UI at 13 points by default, 12-point metadata, restrained 16–20-point headings and font-aware table/header sizing.
 - Standard 28-pixel and dense 24-pixel table rows, consistent cell padding, numeric alignment and retained focus borders. Icon-heavy rows retain a 32-pixel minimum. All grow with larger text.
-- Theme-aware surface, text, selection and status colors.
+- Theme-aware surface, text, selection and status colors, including a raised surface for cards and inputs, a pointer-over fill, a quiet violet wash, and separate weights for structural dividers and interactive outlines.
 - Width-aware control rows, responsive grids, and short-window page/table scrolling helpers.
+- `card(layout)` for a rounded grouping surface, and `rowHover(table)` for the pointer-over row highlight that `table(...)` installs automatically.
 
 Use `ContentStyle.font(component, font)` when deliberately changing a component's font role after construction. `refreshFonts` preserves that role across user font choices and theme changes. Four-card groups use balanced 4/2/1-column layouts. Width changes coalesce ancestor layout invalidation; grid minimum heights preserve controls when GridBagLayout must compress their preferred width.
 
@@ -46,6 +47,20 @@ The violet capture button's normal, hover, focused and pressed colors meet a 4.5
 The interface now uses shallow 4-pixel control arcs, slim button/input padding, 28-pixel tabs, 32-pixel navigation rows, smaller icons, and 12-pixel desktop / 8-pixel compact outer padding. Pill-shaped capture/navigation overrides have been removed. Metrics use 18-point figures and lighter captions. Chat channels are single-line tabs; on narrow layouts their counts stay available in tooltips and accessible names. The result prioritizes data space while retaining readable type and keyboard focus.
 
 The compact pass passed **237 regression tests**, plus **30 UI checks at each of 150% and 200% Java2D scaling**. Desktop and populated compact screenshots were reviewed, and both the runnable JAR and verified Windows ZIP were rebuilt. Compact-review screenshots are under `build/compact-ui/ui-test`; the latest package is `build/share/RealmShark-Windows-x64.zip`.
+
+### Violet surface and state pass — 2026-09-20
+
+`RealmShark Violet` keeps its accent and its compact metrics, and rebuilds the neutrals beneath them. Surfaces now share the accent's hue instead of a cold charcoal, so depth reads as elevation rather than as a second color, and each step keeps the luminance of the step it replaces.
+
+- **Two border weights.** Structural dividers are quiet so data reads first; the outline of an interactive control stays strong enough to find its edge. A test asserts that ordering.
+- **Every control answers the pointer.** Buttons, toggles, menus, tabs and destinations carry explicit hover and pressed colors. Table rows highlight under the pointer, and selection still outranks hover.
+- **Softer containers.** Control arcs move from 4 to 6 pixels, and the workspace sits in a rounded card instead of a square rectangle. Scroll bars lose their track and keep a rounded thumb that brightens under the pointer.
+- **A readable navigation rail.** The selected destination carries a violet rail on its leading edge and keeps it in compact, icon-only mode. Resting outlines match their own fill, so destinations read as a rail rather than a stack of buttons, and keyboard focus still recolors the real border.
+- **One accent everywhere.** The accent is declared before the defaults resolve, so sliders, progress bars, check boxes and radio buttons follow it instead of staying on the stock blue. A ticked box fills with the accent rather than showing a checkmark on a grey square.
+
+Painting cost is unchanged: no animation, no timers and no shadows. The sidebar's one gradient is rebuilt only when its height or theme changes, and it reaches the base color inside the branding row. Row hover repaints the two rows that changed rather than the table.
+
+Text keeps at least 4.5:1 contrast on every new surface, and the capture button keeps its 4.5:1 white-text target in all four states.
 
 ## Responsiveness changes
 
@@ -63,7 +78,18 @@ These changes preserve existing capture, account and saved-file behavior, with r
 
 ## Validation
 
-Validated on 2026-09-18 using the project-local JDK 17 and Gradle 7.6.4:
+The surface and state pass was validated on 2026-09-20 using the project-local JDK 17 and Gradle 7.6.4:
+
+- **452 tests passed**, with zero failures or ignored tests.
+- **60 UI tests passed at 150%** and **60 at 200% Java2D display scaling**.
+- The runnable JAR built successfully and its `--help` smoke check passed.
+- Reviewed regenerated desktop and compact screenshots across all fourteen destinations, including populated Chat and DPS meters.
+- New tests cover row hover against selection, pointer exit and scrolling, single listener installation, the raised-surface and hover roles under both a dark and a light look-and-feel, the divider-versus-outline weight ordering, the card's rounded corner, and the sidebar wash arriving at its base color before the destination list.
+- An independent review of the change reported two defects, a banding seam where the sidebar wash met the destination list and a hover highlight stranded by scrolling. Both were fixed, and each fix is pinned by a test confirmed to fail against the previous behavior.
+
+Screenshots for this pass are under `build/typography-validation/ui-test/screenshots`, with the scaled sets under `ui-Ui150` and `ui-Ui200`. The Windows package was not rebuilt in this pass.
+
+An earlier validation on 2026-09-18 covered the same suites at their then-current size:
 
 - **216 tests passed**, with zero failures or ignored tests.
 - **28 UI tests passed at 150%** and **28 at 200% Java2D display scaling**.
