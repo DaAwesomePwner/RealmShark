@@ -20,12 +20,13 @@ import packets.data.enums.StatType;
 import packets.incoming.*;
 import packets.outgoing.*;
 import tomato.backend.SecurityAbilityUseCheck;
-import tomato.gui.character.*;
+import tomato.gui.character.CharacterPetsGUI;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
+import tomato.gui.stats.FameTablePanel;
 import tomato.gui.stats.LootGUI;
 import tomato.realmshark.HttpCharListRequest;
 import tomato.realmshark.RealmCharacter;
@@ -275,8 +276,6 @@ public class TomatoData {
             r != null && r.charStats != null && !r.charStats.pcStats.equals(str)
         ) {
             r.updateCharStats(currentCharacterStats);
-            CharacterStatsGUI.updateRealmChars();
-            CharacterCollectionGUI.updateRealmChars();
         }
     }
 
@@ -1039,7 +1038,6 @@ public class TomatoData {
             TreeMap<Integer, int[]> next = new TreeMap<>(RealmCharacter.exalts);
             next.put((int) p.objType, update);
             RealmCharacter.exalts = next;
-            SwingUtilities.invokeLater(CharacterExaltGUI::updateExalts);
             characterJournal().exalts(journalAccount, RealmCharacter.exalts);
         }
     }
@@ -1053,7 +1051,6 @@ public class TomatoData {
                 vaultDataRecievedRegular = true;
                 regularVault.vaultPacketUpdate(p);
             }
-            CharacterPanelGUI.vaultDataUpdate();
         }
     }
 
@@ -1099,7 +1096,10 @@ public class TomatoData {
             petIdentity = myInfoIdentity;
         }
         publishMyInfoPlayer(player);
-        SwingUtilities.invokeLater(CharacterPanelGUI::updateRealmChars);
+        SwingUtilities.invokeLater(() -> {
+            CharacterPetsGUI.updateEquipedPet();
+            FameTablePanel.updateRealmChars();
+        });
     }
 
     private static boolean validPetAbilities(int[] abilities) {
@@ -1211,7 +1211,7 @@ public class TomatoData {
         chars = null; charMap = null;
         RealmCharacter.exalts = new TreeMap<>();
         regularVault.clearChar(); seasonalVault.clearChar();
-        SwingUtilities.invokeLater(() -> { LootGUI.updateExaltStats(); CharacterExaltGUI.updateExalts(); });
+        SwingUtilities.invokeLater(LootGUI::updateExaltStats);
     }
 
     private void requestMetadata(boolean roster) {
@@ -1252,7 +1252,7 @@ public class TomatoData {
                 });
                 RealmCharacter.exalts = next;
                 characterJournal().exalts(journalAccount, next);
-                SwingUtilities.invokeLater(() -> { LootGUI.updateExaltStats(); CharacterExaltGUI.updateExalts(); });
+                SwingUtilities.invokeLater(LootGUI::updateExaltStats);
             }
         }
     }

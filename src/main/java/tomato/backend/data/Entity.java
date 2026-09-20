@@ -11,7 +11,6 @@ import packets.data.enums.ConditionBits;
 import packets.data.enums.ConditionNewBits;
 import packets.data.enums.StatType;
 import tomato.backend.SecurityAbilityUseCheck;
-import tomato.gui.character.CharacterStatMaxingGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
