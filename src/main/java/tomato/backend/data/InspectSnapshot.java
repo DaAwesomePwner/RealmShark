@@ -13,10 +13,13 @@ public final class InspectSnapshot {
     private final int id, objectType;
     private final int[] baseStats;
     private final StatData[] stats;
+    private final long observedAt = System.currentTimeMillis();
+    private final String className;
 
     public InspectSnapshot(Entity source) {
         id = source.id;
         objectType = source.objectType;
+        className = tomato.realmshark.enums.CharacterClass.getName(objectType);
         baseStats = source.baseStats == null ? new int[]{-1, -1, -1, -1, -1, -1, -1, -1} : source.baseStats.clone();
         stats = new StatData[FIELDS.length];
         for (int i = 0; i < FIELDS.length; i++) stats[i] = copy(source.stat.get(FIELDS[i]), FIELDS[i]);
@@ -33,6 +36,7 @@ public final class InspectSnapshot {
 
     public Entity toEntity() {
         Entity entity = new Entity(null, id, 0);
+        entity.markPlayerIdentity();
         entity.objectType = objectType; entity.baseStats = baseStats.clone();
         for (int i = 0; i < FIELDS.length; i++) if (stats[i] != null) entity.stat.set(FIELDS[i], copy(stats[i], FIELDS[i]));
         return entity;
@@ -40,8 +44,15 @@ public final class InspectSnapshot {
 
     public String key() {
         String name = stats[0] == null ? null : stats[0].stringStatValue;
-        return name == null || name.isEmpty() ? "object:" + id : "player:" + name.toLowerCase(Locale.ROOT) + ":" + objectType;
+        return playerKey(id, name);
     }
+
+    public static String playerKey(int id, String name) {
+        String normalized = name == null ? "" : name.split(",", 2)[0].trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? "object:" + id : "player:" + normalized;
+    }
+    public long observedAt() { return observedAt; }
+    public String className() { return className; }
 
     public String anonymousKey() { return "object:" + id; }
     public int objectId() { return id; }

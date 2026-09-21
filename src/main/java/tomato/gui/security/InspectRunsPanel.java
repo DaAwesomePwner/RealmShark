@@ -142,6 +142,7 @@ final class InspectRunsPanel extends JPanel {
         rosterHost.revalidate();
         requestRefresh();
     }
+    void readOnly() { record.setVisible(false); }
 
     private void filter() {
         String text = search.getText().trim();

@@ -98,6 +98,8 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         left.add(new JScrollPane(enemyList), BorderLayout.CENTER);
         ContentStyle.table(table); table.setAutoCreateRowSorter(true);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setName("dps-player-table");
+        PlayerInspectMenu.install(table, row -> visible.get(row).player);
         rank();
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         for (int i = 0; i < model.getColumnCount(); i++) table.getColumnModel().getColumn(i).setPreferredWidth(i == 0 ? 230 : 110);
@@ -177,6 +179,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     protected void renderData(MapInfoPacket map, List<Entity> entities, ArrayList<NotificationPacket> notes, long elapsed, boolean isLive) {
         if (paused.isSelected()) return;
         targets = new ArrayList<>(entities); mapName = map == null ? "No encounter" : map.name; live = isLive;
+        targets.removeIf(Entity::isPlayerCharacter);
         String warning = missingLocalSpawn && !isLive
             ? "Personal damage is incomplete: shots arrived before your character data. This saved encounter cannot show your full damage."
             : isLive && map != null && localPlayer == null
@@ -259,7 +262,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     private void showDetails() {
         int index = table.getSelectedRow();
-        if (index < 0) { details.setText(visible.isEmpty() ? "No players match this view. Clear filters or choose another enemy." : "Select a player for hit details. Click column headers to sort; drag dividers to resize."); return; }
+        if (index < 0) { details.setText(visible.isEmpty() ? "No players match this view. Clear filters or choose another enemy." : "Select a player for hit details. Right-click a player and choose Inspect for their captured build. Click column headers to sort; drag dividers to resize."); return; }
         CombatMeterData.Row row = visible.get(table.convertRowIndexToModel(index));
         boolean incoming = metric.getSelectedIndex() >= 3;
         StringBuilder text = new StringBuilder(String.valueOf(row.player.name())).append(" · ").append(row.className()).append("\n");

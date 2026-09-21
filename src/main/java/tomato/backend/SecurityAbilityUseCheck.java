@@ -12,7 +12,7 @@ import util.Util;
 
 public class SecurityAbilityUseCheck {
 
-    private static int decoyCounter = 0;
+    private static int decoyCounter = -1;
     private static final int DECOY_ID = 1813;
     private static final int DECOY_FOOLSPRISM_ID = 5136;
     private static final int DECOY_COIN_ID = 28831;
@@ -33,12 +33,14 @@ public class SecurityAbilityUseCheck {
      * @param data
      */
     public static void stasis(StasisPacket p, TomatoData data) {
-        if (p.unknownByteArray[1] != 22) return;
+        if (p.unknownByteArray == null || p.unknownByteArray.length < 2 || p.unknownByteArray[1] != 22) return;
         float stasisDuration = p.stasisDuration;
 
         for (Entity player : data.playerListUpdated.values()) {
             if (player.stasisCounter == data.time) continue;
-            int item = player.stat.get(StatType.INVENTORY_1_STAT).statValue;
+            StatData ability = player.stat.get(StatType.INVENTORY_1_STAT);
+            if (ability == null) continue;
+            int item = ability.statValue;
             if (StasisOrbs.usingOrb(item, stasisDuration)) {
                 player.stasisCounter = 2;
             }
@@ -54,10 +56,13 @@ public class SecurityAbilityUseCheck {
     public static void checkManaFromStasis(Entity entity, StatData[] stats) {
         if (entity.stasisCounter > 0) {
             entity.stasisCounter--;
+            StatData previousMana = entity.stat.get(StatType.MP_STAT);
+            StatData ability = entity.stat.get(StatType.INVENTORY_1_STAT);
+            if (previousMana == null || ability == null) return;
             for (StatData sd : stats) {
                 if (sd.statType == StatType.MP_STAT) {
                     if (
-                        entity.stat.get(StatType.MP_STAT).statValue <=
+                        previousMana.statValue <=
                         sd.statValue
                     ) {
                         StringBuilder sb = new StringBuilder();
@@ -65,9 +70,7 @@ public class SecurityAbilityUseCheck {
                         sb.append(entity.name()).append(": ");
                         sb.append(
                             IdToAsset.objectName(
-                                entity.stat.get(
-                                    StatType.INVENTORY_1_STAT
-                                ).statValue
+                                ability.statValue
                             )
                         );
                         SecurityGUI.updateAbilityUsage(sb.toString());
@@ -87,13 +90,18 @@ public class SecurityAbilityUseCheck {
     }
 
     public static void checkManaFromDecoyUsed(Entity entity, StatData[] stats) {
-        if (CharacterClass.isPlayerCharacter(entity.objectType)
-                && !CharacterClass.getName(entity.objectType).equals("Trickster")) return;
+        // A first spawn has neither an assigned object type nor previous stats yet.
+        // Optional ability inference must never prevent that spawn from being applied.
+        if (!CharacterClass.isPlayerCharacter(entity.objectType)
+                || !"Trickster".equals(CharacterClass.getName(entity.objectType))) return;
         if (decoyCounter == 0) {
+            StatData previousMana = entity.stat.get(StatType.MP_STAT);
+            StatData ability = entity.stat.get(StatType.INVENTORY_1_STAT);
+            if (previousMana == null || ability == null) return;
             for (StatData sd : stats) {
                 if (sd.statType == StatType.MP_STAT) {
                     if (
-                        entity.stat.get(StatType.MP_STAT).statValue <=
+                        previousMana.statValue <=
                         sd.statValue
                     ) {
                         StringBuilder sb = new StringBuilder();
@@ -101,9 +109,7 @@ public class SecurityAbilityUseCheck {
                         sb.append(entity.name()).append(": ");
                         sb.append(
                             IdToAsset.objectName(
-                                entity.stat.get(
-                                    StatType.INVENTORY_1_STAT
-                                ).statValue
+                                ability.statValue
                             )
                         );
                         SecurityGUI.updateAbilityUsage(sb.toString());
@@ -114,6 +120,7 @@ public class SecurityAbilityUseCheck {
     }
 
     public static void decreaseDecoyCounter() {
-        decoyCounter--;
+        decoyCounter = Math.max(-1, decoyCounter - 1);
     }
+    public static void reset() { decoyCounter = -1; }
 }

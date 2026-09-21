@@ -387,6 +387,7 @@ public class TomatoData {
             lootBags.add(id);
             lootTickContainer[lootTickToggle].add(entity);
         } else if (localPlayer || isPlayerEntity(idType)) {
+            entityHitList.remove(id);
             playerList.put(id, entity);
             playerListUpdated.put(id, entity);
             if (localPlayer) {
@@ -806,7 +807,7 @@ public class TomatoData {
         }
         Entity attacker = playerList.get(shooterId);
         target.userProjectileHit(attacker, projectile, timePc);
-        if (!entityHitList.containsKey(id)) {
+        if (!target.isPlayerCharacter() && !entityHitList.containsKey(id)) {
             entityHitList.put(id, target);
             if (attacker != null && attacker.isUser() && map != null) {
                 dungeonStatData.updateEntityDamage(map.name, target);
@@ -866,7 +867,7 @@ public class TomatoData {
         if (p.damageAmount > 0) {
             Projectile projectile = new Projectile(p.damageAmount);
             target.genericDamageHit(attacker, projectile, timePc);
-            if (!entityHitList.containsKey(id)) {
+            if (!target.isPlayerCharacter() && !entityHitList.containsKey(id)) {
                 entityHitList.put(id, target);
                 if (attacker != null && attacker.isUser() && map != null) {
                     dungeonStatData.updateEntityDamage(map.name, target);
@@ -972,6 +973,7 @@ public class TomatoData {
      * Clears all data as instance is changing.
      */
     public void clear() {
+        SecurityAbilityUseCheck.reset();
         invalidateRosterRequest();
         metadataAwaitingCreate = true;
         resetMyInfo(null, -1, -1);
@@ -1027,7 +1029,7 @@ public class TomatoData {
     }
 
     public Entity[] getEntityHitList() {
-        return entityHitList.values().toArray(new Entity[0]);
+        return entityHitList.values().stream().filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
     }
 
     public void exaltUpdate(ExaltationUpdatePacket p) {

@@ -10,7 +10,7 @@
 
 The application window, About screen, executable and taskbar use the **RealmShark fin logo**. Window and package metadata identify the product as **RealmShark v1.2.3**. Create shortcuts to `RealmShark.exe`; the launcher supplies the same stable desktop identity and icon to its UI process. If an older pinned shortcut retains a previous icon, unpin that shortcut and pin the new `RealmShark.exe`.
 
-This is a portable folder with an EXE launcher, not a single-file executable or an installer. Settings, extracted assets, saved sessions and logs are created in this folder. These may contain personal game information: share the original ZIP, not your used folder. Normal startup retains the application's existing API requests and behavior.
+This is a portable folder with an EXE launcher, not a single-file executable or an installer. Settings, extracted assets, optional text logs and manual exports use the application folder. Automatic app-session history is stored in **`%LOCALAPPDATA%\RealmShark\history`**, so newer builds on the same Windows account find it automatically. Each supported module starts on Current Session and offers past-session/All Sessions views. **Import old folder…** can bring saved runs and `.fame` sessions from an older installation into the shared archive. Share the original ZIP rather than personal data folders. Normal startup retains the application's existing API requests and behavior.
 
 The build is unsigned; Windows may show an unknown-publisher/reputation warning. Only use a copy from someone you trust. Npcap is deliberately not bundled: its free edition does not permit redistribution (https://npcap.com/oem/redist).
 

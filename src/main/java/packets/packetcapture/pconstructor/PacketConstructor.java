@@ -20,6 +20,7 @@ public class PacketConstructor {
     private final ROTMGPacketConstructor rotmgConst;
     private final TickAligner tickAligner;
     private boolean firstNonLargePacket;
+    private long lastFailureLog;
 
     /**
      * Packet constructor with specific cipher.
@@ -57,9 +58,10 @@ public class PacketConstructor {
      * @param encryptedData Encrypted packets for aligning cipher and decryption.
      */
     public void packetReceived(ByteBuffer encryptedData) {
+        int type = -1;
         try {
             int size = encryptedData.getInt();
-            int type = Byte.toUnsignedInt(encryptedData.get());
+            type = Byte.toUnsignedInt(encryptedData.get());
 
             boolean sync = tickAligner.checkRC4Alignment(encryptedData, size, type);
 
@@ -68,7 +70,11 @@ public class PacketConstructor {
                 packetProcessor.processPackets(type, size, encryptedData);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            long now = System.nanoTime();
+            if (lastFailureLog == 0 || now - lastFailureLog >= java.util.concurrent.TimeUnit.SECONDS.toNanos(5)) {
+                lastFailureLog = now;
+                packets.packetcapture.CaptureDiagnostics.record("Packet processing failed (type " + type + ")", e);
+            }
         }
     }
 

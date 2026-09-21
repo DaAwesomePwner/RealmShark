@@ -32,6 +32,8 @@ final class ChatExplorer extends JPanel {
         }
     };
     private final ChatFilters spamFilters;
+    private final boolean archive;
+    private tomato.history.SessionStore bookmarkStore = tomato.history.AppHistory.store();
     private final java.util.function.Supplier<String> ignoreStatus;
     private final Map<ChatMessage, String> reasons = new IdentityHashMap<>();
     private long filterRevision = -1;
@@ -78,19 +80,24 @@ final class ChatExplorer extends JPanel {
     }
 
     ChatExplorer(Runnable editAlerts, ChatFilters spamFilters, java.util.function.Supplier<String> ignoreStatus) {
+        this(editAlerts, spamFilters, ignoreStatus, true);
+    }
+    ChatExplorer(Runnable editAlerts, ChatFilters spamFilters, java.util.function.Supplier<String> ignoreStatus, boolean archive) {
         super(new BorderLayout(0, 8));
+        this.archive = archive;
         this.spamFilters = spamFilters; this.ignoreStatus = ignoreStatus;
         setMinimumSize(new Dimension(0, 0));
         JButton actions = new JButton("Actions");
         JPopupMenu menu = new JPopupMenu();
         menu.add(copyView); menu.add(exportView); menu.addSeparator();
         JMenuItem alerts = new JMenuItem("Chat alert rules…"), clear = new JMenuItem("Clear session history…");
+        alerts.setEnabled(archive);clear.setEnabled(archive);
         menu.add(alerts); menu.addSeparator(); menu.add(clear);
         copyView.addActionListener(e -> copyText(filteredTranscript()));
         exportView.addActionListener(e -> exportFiltered());
         alerts.addActionListener(e -> editAlerts.run());
         clear.addActionListener(e -> {
-            if (JOptionPane.showConfirmDialog(this, "Clear all retained messages and stars in every channel?\nSaved chat log files will remain.",
+            if (JOptionPane.showConfirmDialog(this, "Clear the live messages and stars in every channel?\nSaved session history remains available through Browse saved.",
                     "Clear chat history", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) clear();
         });
         actions.setComponentPopupMenu(menu);
@@ -268,12 +275,18 @@ final class ChatExplorer extends JPanel {
     }
 
     void accept(ChatMessage message) {
+        if (archive) tomato.history.AppHistory.append("chat", message);
         if (SwingUtilities.isEventDispatchThread()) { append(Collections.singletonList(message), 0); return; }
         synchronized (pending) {
             if (pending.size() == HISTORY_LIMIT) { pending.removeFirst(); pendingEvicted++; }
             pending.addLast(message);
             if (!drainScheduled) { drainScheduled = true; SwingUtilities.invokeLater(this::drain); }
         }
+    }
+    void loadHistory(List<ChatMessage> messages, Set<String> stars, tomato.history.SessionStore store) {
+        bookmarkStore=store;
+        for(ChatMessage message:messages)if(stars.contains(message.id))starred.add(message);
+        append(messages,0);
     }
 
     private void drain() {
@@ -392,8 +405,8 @@ final class ChatExplorer extends JPanel {
         emptyTitle.setText(history.isEmpty() ? "Your Realm conversations, together" : "No matching messages");
         emptyHint.setText(history.isEmpty() ? "Start capture and join the game to begin." : "Try another channel or reset your filters.");
         summary.setText(visible.size() + " shown · " + history.size() + " / 10,000 retained · " + starred.size() + " starred"
-                + (evicted > 0 ? " · " + evicted + " removed" : " · Session only"));
-        summary.setToolTipText("Keeps the latest 10,000 messages, including stars. Actions exports the filtered view. Edit > Save Chat controls ongoing file logging.");
+                + (evicted > 0 ? " · " + evicted + " older messages in saved history" : archive ? " · Current session" : " · Historical page"));
+        summary.setToolTipText("Live view keeps the latest 10,000 messages. Session history retains all captured messages; use Browse saved for older pages. Actions exports the filtered view.");
         copyView.setEnabled(!visible.isEmpty()); exportView.setEnabled(!visible.isEmpty()); showDetail();
         if (arriving && follow.isSelected()) SwingUtilities.invokeLater(() -> {
             if (revision == viewRevision && follow.isSelected()) scrollToLatest();
@@ -459,9 +472,14 @@ final class ChatExplorer extends JPanel {
     private void toggleStar() {
         ChatMessage message = selected(); if (message == null) return;
         if (!starred.remove(message)) starred.add(message);
+        if(bookmarkStore!=null&&message.id!=null)bookmarkStore.put("chat-stars",message.id,new Bookmark(message.id,starred.contains(message)));
         boolean following = follow.isSelected(); follow.setSelected(false);
         refresh(true);
         follow.setSelected(following);
+    }
+    static final class Bookmark {
+        final String id;final boolean starred;final long changed=System.currentTimeMillis();
+        Bookmark(String id,boolean starred){this.id=id;this.starred=starred;}
     }
 
     private void scrollToLatest() {

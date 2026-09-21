@@ -2,6 +2,8 @@
 
 The four Statistics tabs use the existing dark violet theme, sortable tables, summary cards, explicit filter scopes and empty states. Short windows scroll vertically; wide tables scroll horizontally so names and numeric columns remain readable.
 
+Statistics and Loot default to **Current Session**, defined by the app launch. Their independent session pickers expose past launches and All Sessions, with session comparisons, historical fame graphs, and per-run/per-hour dungeon loot profiles. History survives new build folders through the shared Windows user profile. See [Session history](SESSION-HISTORY.md).
+
 ## Fame Graph
 
 - Follow the current character or pin a character using the selector.
@@ -41,7 +43,7 @@ Rarity is derived from unlocked slots: **Common / Unenchanted (0)**, **Uncommon 
 
 Recent Drops includes each item's tier, rarity, slots and applied count and offers 5-minute, 15-minute and one-hour ranges relative to the latest captured drop. Its 1,000-bag history limit does not truncate the aggregate session totals, including enchantment breakdowns. Dates sort chronologically. Whites means contents observed in white or boosted white bags, not an inferred item rarity.
 
-**Live log** shows rarity, unlocked slots and applied enchant counts in item tooltips, alongside enchant descriptions. Icon glow follows unlocked slot count. Its bag visibility still follows **Edit > Filter Loot**. Explorer filters do not change capture, sounds, or sharing settings. Counts represent observed drops, not inventory pickups. Loot explorer totals are retained for the current app session only; restart the rebuilt app to begin recording the new breakdowns.
+**Live log** shows rarity, unlocked slots and applied enchant counts in item tooltips, alongside enchant descriptions. Icon glow follows unlocked slot count. Its bag visibility still follows **Edit > Filter Loot**. Explorer filters do not change capture, sounds, or sharing settings. Counts represent observed drops, not inventory pickups. The live explorer shows current-session totals; saved views aggregate all recorded drops in their selected session scope, including drops older than the recent-bag display limit.
 
 The Statistics Loot panel includes a compact **legacy sharing** status and a Details action. Connection and delivery run on a bounded FIFO worker (256 waiting payloads and one active). **Sent to socket** is a completed local write, not server acceptance. Definite unsent failures/overflow count as dropped; a failure after enqueue is uncertain and is not retried. A definite pre-enqueue rejection permits one reconnect attempt. Opting out clears unsent queued/pending bags and prevents late connection completion from sending them. In-flight bytes cannot be recalled. Local alerts remain independent. This status is separate from Guild Bridge Review.
 
@@ -49,7 +51,7 @@ The Statistics Loot panel includes a compact **legacy sharing** status and a Det
 
 Search saved dungeon history and filter to dungeons with loot or recorded visits. Select a dungeon, then open Enemies or Loot by source (double-clicking a dungeon opens Enemies). Detail search and the dropper selector refine those views. Unknown sources and sources with loot but no hit counter remain visible.
 
-Counters come from the existing `dungeon.stats` format. Hit events are not kills or proof of soulbound credit. Recorded visits and time finalize on exit, and maps without tracked activity can be absent. Ongoing item/hit counters may therefore be ahead of visit/time totals. This cumulative file has no dates or per-run outcomes, so date filters, completion rates and drop probabilities are deliberately unavailable. The UI reads copies of the counters under the capture lock; redraws are coalesced while visible.
+The default Dungeon Stats tab shows counters recorded during this app launch, excluding the loaded `dungeon.stats` baseline. Historical scopes load saved per-session counters. Hit events are not kills or proof of soulbound credit. Recorded visits and time finalize on exit, and maps without tracked activity can be absent. Ongoing item/hit counters may therefore be ahead of visit/time totals. The legacy cumulative file remains compatible; new session/run records supply the historical comparisons and loot-rate denominators.
 
 ## Validation
 

@@ -157,6 +157,7 @@ public class CharacterClass {
     public static String getName(int id) {
         return CLASS_NAME.get(id);
     }
+    public static boolean hasStats(int id) { return CHARACTER_CLASS.containsKey(id); }
 
     /**
      * Get character max stats from class id.

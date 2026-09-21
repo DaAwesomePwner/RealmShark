@@ -5,14 +5,14 @@ The Chat workspace groups captured conversations into All, PM, Party, Guild, Wor
 - **Search:** Type a literal phrase to filter messages, players, channels or local dates. Search ignores case. Ctrl+F focuses search; Enter selects the first result; Escape clears the focused search field.
 - **Player:** Narrow results by sender or recipient. Incoming and outgoing PMs both appear when searching for the other player. Select a message and choose **This player** to fill the filter.
 - **Details:** Select a row to read the full wrapped message. Search matches are highlighted in the detail pane. Arrow keys navigate rows; long messages remain complete in details and exports.
-- **Stars:** Select a message and press **Star** or Space. Enable **Starred** to filter your saved picks. Stars last for this session and share the history retention limit.
+- **Stars:** Select a message and press **Star** or Space. Enable **Starred** to filter your saved picks. Stars are stored with message IDs and restored in saved-history views.
 - **Follow latest:** Follows new matching messages without changing the selected message. Clicking a row, scrolling up, dragging the scrollbar upward or using Up/Home/Page Up releases follow so you can read history. Enable it again to jump to the latest matching message. Capture continues either way.
 - **Copy:** Copy selected messages with Ctrl+C or **Copy**. Shift/Ctrl selection supports multiple rows. **Actions → Copy filtered messages** copies the entire current result list.
 - **Export:** **Actions → Export filtered messages** saves a snapshot of the filtered list as UTF-8 text, including dates, channel names and both sides of PMs. This is a local file export.
 - **Reset:** Clears search, player, channel and starred filters without deleting messages.
 - **Clear:** **Actions → Clear session history** clears retained messages and stars across every channel after confirmation. The original **Edit → Clear Chat** command also clears all channels. Neither deletes saved log files.
 
-The workspace retains the latest **10,000 messages** per application session. Older messages, including starred messages, roll off; the footer reports removals. Pending incoming batches are bounded to the same limit to protect the UI during bursts. History and stars are not restored after restarting the app. **Edit → Save Chat** keeps the existing ongoing chat-file logging behavior, independently of view filters and retention.
+The live workspace retains the latest **10,000 messages** per application session; pending UI batches use the same bound. Every captured message is also queued to shared session history before those limits apply. Use the session picker for past launches or All Sessions, and **Browse saved** for older pages from the current launch. Saved-history search scans the entire selected scope; channel/player filters then narrow the displayed page. **Edit → Save Chat** separately controls the existing plain-text log. See [Session history](SESSION-HISTORY.md).
 
 Time and Channel columns resize from their renderer/header metrics when fonts change. You can widen them further; narrow windows scroll horizontally instead of imposing a timestamp-clipping maximum. Selected-message headings and ignore reasons wrap while full messages remain in the detail pane.
 
@@ -31,7 +31,7 @@ Open **Chat → Actions → Chat filters** to edit saved rules. Short checkbox c
 
 Your own messages and System/NPC notices are exempt. Filters route matching messages to **Ignored before any chat alert runs**, including PM, party, guild, custom keyword and realm announcement checks. Opening Ignored, searching, starring or exporting does not play sounds. Each ignored message has a reason in its details and exported transcript. Save Chat logging includes ignored messages with that reason; changing views or clearing history does not affect saved files.
 
-Saving rules immediately re-filters retained messages and applies to future arrivals. Reset only clears search/channel/star filters; it does not disable spam protection. Rules are saved locally in `realmShark.properties`. Ignored history shares the existing 10,000-message session limit and is not persisted unless Save Chat is enabled.
+Saving rules immediately re-filters retained messages and applies to future arrivals. Reset only clears search/channel/star filters; it does not disable spam protection. Rules are saved locally in `realmShark.properties`. Ignored messages share the live buffer limit and are also retained in the structured session archive. Replaying history does not trigger chat alerts.
 
 ### In-game ignore observation
 

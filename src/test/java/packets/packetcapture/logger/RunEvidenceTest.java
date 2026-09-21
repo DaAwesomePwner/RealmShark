@@ -126,4 +126,14 @@ public class RunEvidenceTest {
         assertEquals(3000, saved.totalDamage); assertEquals(Double.valueOf(750), saved.dps(saved.damage(alice.key())));
         assertNull(new ActivityJournal.Visit().damage(alice.key()));
     }
+    @Test public void durableArchiveKeepsRunsAfterTheLiveJournalEvictsThem()throws Exception{
+        Path root=Files.createTempDirectory("all-session-runs");tomato.history.SessionStore store=new tomato.history.SessionStore(root,true,"test");
+        try{
+            ActivityJournal journal=new ActivityJournal();journal.archiveTo(visit->store.put("runs",visit.id,visit));
+            for(int i=0;i<250;i++)map(journal,"Ice Citadel",1000L+i*1000);
+            journal.boundary(252000,"Connection boundary; completion unknown");store.flush();
+            assertEquals(ActivityJournal.RUN_LIMIT,journal.snapshot().visits.size());
+            assertEquals(250,store.read(store.currentId(),"runs",ActivityJournal.Visit.class).size());
+        }finally{store.close();}
+    }
 }

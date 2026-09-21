@@ -30,11 +30,11 @@ public class StatisticsGUI extends JPanel {
 
         loot = new LootGUI(data);
         tabbedPane.addTab("Loot", StatsUi.page(loot, 570));
-        DungeonStats dungeonStats = new DungeonStats();
+        DungeonStats dungeonStats = new DungeonStats(true);
         tabbedPane.addTab("Dungeon Stats", StatsUi.page(dungeonStats, 510));
         tabbedPane.setToolTipTextAt(0, "Character and time-range filters with interval comparison");
         tabbedPane.setToolTipTextAt(1, "Session totals and map visit breakdowns");
         tabbedPane.setToolTipTextAt(2, "Shared session loot summaries and original drop log");
-        tabbedPane.setToolTipTextAt(3, "Saved cumulative dungeon, enemy and item counters");
+        tabbedPane.setToolTipTextAt(3, "Current app session's dungeon, enemy and item counters");
     }
 }

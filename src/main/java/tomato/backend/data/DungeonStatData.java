@@ -27,6 +27,7 @@ public class DungeonStatData {
     private transient boolean historyLoadFailed;
 
     public TreeMap<String, DungeonInfo> data;
+    private final transient TreeMap<String, DungeonInfo> sessionData = new TreeMap<>();
     public DungeonInfo info;
 
     public DungeonStatData() {
@@ -47,6 +48,8 @@ public class DungeonStatData {
     DungeonStatData(Path path, Store store, Loader loader) {
         this.path = path; this.store = store; this.loader = loader;
         data = new TreeMap<>();
+        tomato.history.SessionStore history = tomato.history.AppHistory.store();
+        if (history != null && history.writable()) history.collect("dungeon-totals", () -> history.put("dungeon-totals", "summary", sessionSnapshot()));
     }
 
     public synchronized void updateEntityDamage(String dungeon, Entity mob) {
@@ -59,6 +62,7 @@ public class DungeonStatData {
         }
         int entityType = mob.objectType;
         info.addMob(entityType);
+        sessionData.computeIfAbsent(dungeon, DungeonInfo::new).addMob(entityType);
 
         DungeonStats.update(this, dungeon);
     }
@@ -87,6 +91,7 @@ public class DungeonStatData {
             int itemId = sd.statValue;
 
             info.addItems(entityType, itemId);
+            sessionData.computeIfAbsent(dungeon, DungeonInfo::new).addItems(entityType, itemId);
         }
         DungeonStats.update(this, dungeon);
     }
@@ -96,6 +101,8 @@ public class DungeonStatData {
             if (info == null || !info.name.equals(dungeon)) return;
             info.totalTime += time;
             info.enteredDungeon++;
+            DungeonInfo session = sessionData.computeIfAbsent(dungeon, DungeonInfo::new);
+            session.totalTime += Math.max(0, time); session.enteredDungeon++;
             DungeonStats.update(this, dungeon);
             info = null;
         }
@@ -202,6 +209,10 @@ public class DungeonStatData {
 
     /** Copies cumulative counters under the capture lock for safe UI reads. */
     public synchronized java.util.List<Snapshot> snapshot() {
+        return snapshot(data);
+    }
+    public synchronized java.util.List<Snapshot> sessionSnapshot() { return snapshot(sessionData); }
+    private java.util.List<Snapshot> snapshot(TreeMap<String, DungeonInfo> data) {
         java.util.List<Snapshot> result = new java.util.ArrayList<>();
         if (data != null) for (DungeonInfo dungeon : data.values()) {
             Snapshot copy = new Snapshot(dungeon.name, dungeon.enteredDungeon, dungeon.totalTime);
@@ -220,7 +231,7 @@ public class DungeonStatData {
         public final long time;
         public final Map<Integer, Integer> hits = new TreeMap<>();
         public final Map<Integer, Map<Integer, Integer>> loot = new TreeMap<>();
-        Snapshot(String name, int visits, long time) { this.name = name; this.visits = visits; this.time = time; }
+        public Snapshot(String name, int visits, long time) { this.name = name; this.visits = visits; this.time = time; }
         public long hitCount() { return hits.values().stream().mapToLong(Integer::longValue).sum(); }
         public long itemCount() { return loot.values().stream().flatMap(m -> m.values().stream()).mapToLong(Integer::longValue).sum(); }
     }

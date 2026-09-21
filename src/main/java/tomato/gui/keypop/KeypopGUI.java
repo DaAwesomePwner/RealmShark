@@ -30,6 +30,14 @@ import java.util.regex.Pattern;
  * GUI class for popping dungeons.
  */
 public class KeypopGUI extends JPanel {
+    public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
+        tomato.gui.history.HistoryPage<KeyPopEvent> events = tomato.gui.history.HistoryPage.read(store, scope, "keypops", KeyPopEvent.class, page, query,
+                event -> event.time + " " + event.player + " " + event.kind + " " + event.item);
+        return new tomato.gui.history.SessionPanel.Loaded(() -> {
+            KeyPopHistory history = new KeyPopHistory();for (KeyPopEvent event : events.values) history.add(event);
+            return new KeyPopDashboard(history,true);
+        }, events.more(), events.description());
+    }
 
     private static final KeyPopHistory history = new KeyPopHistory();
     private static KeyPopDashboard dashboard;
@@ -52,7 +60,7 @@ public class KeypopGUI extends JPanel {
         south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
         JButton clearButton = new JButton("Clear history");
         clearButton.addActionListener(e -> {
-            if (JOptionPane.showConfirmDialog(this, "Clear all retained pops and statistics? The log file is kept.", "Clear key pops", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dashboard.clearHistory();
+            if (JOptionPane.showConfirmDialog(this, "Clear the live key-pop buffer and statistics? Saved session history is kept.", "Clear key pops", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dashboard.clearHistory();
         });
 
         JButton notificationButton = new JButton("Notifications");
@@ -102,6 +110,7 @@ public class KeypopGUI extends JPanel {
     }
 
     private static void record(KeyPopEvent event) {
+        tomato.history.AppHistory.append("keypops", event);
         history.add(event);
         if (logToFile) logToFile(event.logLine());
     }

@@ -73,11 +73,16 @@ public class TomatoGUI {
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
 
-        shell = new WorkspaceShell(new JComponent[] {chatPanel, keypopPanel, securityPanel,
-            characterPanel, statistics, questPanel, myDmg, dpsPanel, statistics.getLootDashboard(),
+        shell = new WorkspaceShell(new JComponent[] {
+            tomato.gui.history.SessionPanel.wrap("chat", chatPanel, ChatGUI::history),
+            tomato.gui.history.SessionPanel.wrap("keypops", keypopPanel, KeypopGUI::history),
+            tomato.gui.history.SessionPanel.wrap("inspect", securityPanel, SecurityGUI::history),
+            characterPanel, tomato.gui.history.SessionPanel.wrap("statistics", statistics, tomato.gui.stats.HistoricalStatistics::statistics),
+            questPanel, myDmg, dpsPanel,
+            tomato.gui.history.SessionPanel.wrap("loot", statistics.getLootDashboard(), tomato.gui.stats.HistoricalStatistics::loot),
             new tomato.gui.logging.LoggingGUI(packets.packetcapture.logger.DiscoveryLog.INSTANCE),
-            new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS),
-            new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.TIMELINE),
+            tomato.gui.history.SessionPanel.wrap("runs", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS), tomato.gui.activity.ActivityPanel::runsHistory),
+            tomato.gui.history.SessionPanel.wrap("timeline", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.TIMELINE), tomato.gui.activity.ActivityPanel::timelineHistory),
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview());
         mainPanel = shell;

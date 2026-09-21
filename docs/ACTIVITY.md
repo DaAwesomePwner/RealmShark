@@ -1,6 +1,6 @@
 # Runs, Timeline, and Resources & buffs
 
-Start capture and enable **Record** in any activity module. Record is the same shared collection switch as Collect in Logging. The existing Save logs setting controls automatic persistence across launches. Freeze pauses the selected view; Export history saves a local JSON snapshot.
+Start capture and enable **Record** in any activity module. Record is the same shared collection switch as Collect in Logging. Runs and timeline events now save automatically in the shared app-session archive, independently of diagnostic Save logs. Freeze pauses the selected view; Export history saves a local JSON snapshot. Session pickers expose previous launches; see [Session history](SESSION-HISTORY.md).
 
 Activity export uses the last displayed history revision, including while frozen. Changing the Resources & buffs visit while frozen reads that frozen history; unfreezing catches up with current capture. Full export materialization and file writing run on a background worker. Runs/Timeline refreshes omit chart samples, and Resources & buffs reads only the selected visit's chart data. Hidden views defer automatic refreshes.
 
@@ -24,7 +24,7 @@ The **Runs** section lists the same dungeon visits as the standalone Runs module
 
 Run rosters add sortable **Damage** and **DPS** columns; the first click ranks highest first. Damage comes from the existing damage recorder, including resolved summon ownership, and excludes incoming player damage. DPS divides each player's captured damage by the same first-to-last attributed hit interval for the dungeon; it is not divided by minutes spent in the area or by each player's individual hit interval. Gear remains the last captured loadout, so it may differ from equipment worn earlier in the run. Older recordings without damage tracking show **—**, and a single hit timestamp has no measurable DPS. Run-list Damage/DPS columns summarize the tracked players in that visit.
 
-Snapshots update while a player is observed and remain after they leave the area. Repeat visits to the same dungeon stay separate. Record controls collection, and Save logs controls persistence across launches. Existing runs without player snapshots display an empty-state explanation; previous gear and stats cannot be reconstructed. Up to 300 player loadouts are retained per visit, within the shared 200-visit history limit. These are observed world players, not inferred party membership.
+Snapshots update while a player is observed and remain after they leave the area. Repeat visits to the same dungeon stay separate. Record controls collection; the session archive automatically retains captured visits across launches and builds. Existing runs without player snapshots display an empty-state explanation; previous gear and stats cannot be reconstructed. Up to 300 player loadouts are retained per visit. The live journal shows up to 200 visits; older runs remain accessible in saved-history pages. These are observed world players, not inferred party membership. Normalized player names collapse metadata/case/class changes and returning object IDs into the last captured build.
 
 ## Timeline
 
@@ -48,8 +48,8 @@ This version charts the local character. Numeric party roster context is retaine
 
 Existing aggregate-only visits remain readable, including uptime summaries. They cannot be reconstructed into time-series charts; new captures supply those samples.
 
-History retains up to 200 visits and 1,000 timeline events. Resource points and condition intervals are each capped at 1,000 per visit and 12,000 across retained visits. Adjacent identical condition intervals are merged. The oldest plot records are removed first; the visit details disclose omissions, and aggregate statistics remain available.
+The live journal retains up to 200 visits and 1,000 timeline events. Durable session history receives closed runs and events before live-buffer eviction. Resource points and condition intervals are each capped at 1,000 per visit and 12,000 across the live journal. Adjacent identical condition intervals are merged. The oldest live plot records are removed first; visit details disclose omissions, and aggregate statistics remain available.
 
-Gameplay history is stored in `logs/discovery/activity-history.json`. Clearing Logging diagnostics preserves it. Reports remain local and follow the field restrictions described in [Discovery logging](LOGGING.md).
+Gameplay session history is stored under `%LOCALAPPDATA%\RealmShark\history`. Existing `logs/discovery/activity-history.json` files can be imported without modifying the originals. Clearing Logging diagnostics preserves saved sessions. Reports remain local and follow the field restrictions described in [Discovery logging](LOGGING.md).
 
 Checkpoint snapshots are acquired by the persistence worker. Dirty history is acknowledged only after a successful write, so a failed final checkpoint remains eligible for retry on orderly close. See [Step 2 validation](STEP-2-RESPONSIVENESS.md) for concurrency coverage and synthetic measurements.

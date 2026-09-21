@@ -19,6 +19,9 @@ public final class ActivityJournal {
     public static final int INSPECT_PLAYER_LIMIT = 300;
     private final List<Visit> visits = new ArrayList<>();
     private final List<Entry> entries = new ArrayList<>();
+    private java.util.function.Consumer<Visit> archive;
+    private java.util.function.Consumer<Entry> archiveEvents;
+    private final List<Entry> pendingArchiveEvents = new ArrayList<>();
     private final Map<Integer, int[]> exaltBaseline = new HashMap<>();
     private final Map<Integer, String> exaltVisit = new HashMap<>();
     private final Map<Integer, int[]> pendingExalts = new HashMap<>();
@@ -42,15 +45,23 @@ public final class ActivityJournal {
 
     public ActivityJournal() {}
     ActivityJournal(State saved) {
+        this(saved, true);
+    }
+    ActivityJournal(State saved, boolean bounded) {
         if (saved == null) return;
         for (Visit v : saved.visits) {
             Visit copy=new Visit(v);
-            if (copy.ended == 0) { copy.ended = copy.lastSeen; copy.endReason = "App ended"; if (copy.completionEvidence.isEmpty()) copy.status = "App ended; completion unknown"; }
+            copy.normalizePlayers();
+            if (bounded && copy.ended == 0) { copy.ended = copy.lastSeen; copy.endReason = "App ended"; if (copy.completionEvidence.isEmpty()) copy.status = "App ended; completion unknown"; }
             visits.add(copy);
         }
         for (Entry entry : saved.entries) entries.add(copyEntry(entry));
-        trim(); limitTimelines();
+        if (bounded) { trim(); limitTimelines(); }
     }
+    void archiveTo(java.util.function.Consumer<Visit> consumer) { archive = consumer; }
+    void archiveEventsTo(java.util.function.Consumer<Entry> consumer) { archiveEvents = consumer; }
+    Visit activeVisit() { return current == null ? null : new Visit(current); }
+    String currentVisitId() { return current == null ? "" : current.id; }
 
     public void boundary(long now, String reason) {
         finish(now, reason);
@@ -70,6 +81,13 @@ public final class ActivityJournal {
     }
 
     public void observe(Packet packet, PacketType type, String outcome, long now, Map<String, Object> diagnostic) {
+        try { observePacket(packet, type, outcome, now, diagnostic); }
+        finally {
+            if (archiveEvents != null) for (Entry entry : pendingArchiveEvents) archiveEvents.accept(copyEntry(entry));
+            pendingArchiveEvents.clear();
+        }
+    }
+    private void observePacket(Packet packet, PacketType type, String outcome, long now, Map<String, Object> diagnostic) {
         // A pinned history owns the old version. Only subsequently mutated visits are copied.
         writableCurrent();
         if (current != null) changed(current);
@@ -314,6 +332,7 @@ public final class ActivityJournal {
         if (current != null) {
             writableCurrent(); current.ended = now; current.endReason = status;
             if (current.completionEvidence.isEmpty()) current.status = status;
+            if (archive != null) archive.accept(new Visit(current));
             changed(current); current = null;
         }
     }
@@ -328,6 +347,7 @@ public final class ActivityJournal {
         visit = writable(index);
         visit.completionEvidence = evidence; visit.completionObservedAt = now;
         visit.status = "Completed"; changed(visit);
+        if (archive != null && visit.ended > 0) archive.accept(new Visit(visit));
     }
 
     // Exact server boss dialogue already used by loot attribution; miniboss lines are deliberately absent.
@@ -385,7 +405,7 @@ public final class ActivityJournal {
         Entry entry = new Entry(); entry.id = session + ":event:" + (++nextEntry); entry.time = now; entry.visitId = current == null ? "" : current.id;
         entry.map = current == null ? "Outside an observed visit" : current.map;
         entry.kind = kind; entry.detail = detail; entry.values = copyValues(values);
-        entries.add(entry); entriesRevision = ++revision; trim();
+        entries.add(entry); if (archiveEvents != null) pendingArchiveEvents.add(entry); entriesRevision = ++revision; trim();
     }
     private void trim() {
         while (visits.size() > RUN_LIMIT) { visits.remove(0); summariesRevision = choicesRevision = ++revision; }
@@ -600,6 +620,7 @@ public final class ActivityJournal {
     }
     public static final class Visit {
         public Visit() {}
+        public Visit summary() { return new Visit(this, false); }
         Visit(Visit v) { this(v,true); }
         private Visit(Visit v, boolean charts) {
             id=v.id; map=v.map; status=v.status; started=v.started; ended=v.ended; lastSeen=v.lastSeen;
@@ -652,6 +673,24 @@ public final class ActivityJournal {
         public Long damage(String key) { return damageTracked ? playerDamage.getOrDefault(key, 0L) : null; }
         public Double dps(Long damage) { return damage == null || lastDamageAt <= firstDamageAt ? null : damage * 1000.0 / (lastDamageAt - firstDamageAt); }
         public long observedMillis() { return Math.max(0, lastSeen - started); }
+        /** Upgrade old raw-name/class keys while retaining damage once for each original bucket. */
+        public void normalizePlayers() {
+            if (inspectedPlayers.isEmpty()) return;
+            Map<String, InspectSnapshot> players = new LinkedHashMap<>();
+            Map<String, Long> damage = new LinkedHashMap<>();
+            Map<Integer, String> named = new HashMap<>();
+            for (InspectSnapshot player : inspectedPlayers.values())
+                if (!player.key().equals(player.anonymousKey())) named.put(player.objectId(), player.key());
+            inspectedPlayers.forEach((oldKey, player) -> {
+                String key = player.key().equals(player.anonymousKey()) ? named.getOrDefault(player.objectId(), player.key()) : player.key();
+                InspectSnapshot previous = players.get(key);
+                if (previous == null || previous.key().equals(previous.anonymousKey())
+                        || (!player.key().equals(player.anonymousKey()) && player.observedAt() >= previous.observedAt())) players.put(key, player);
+                Long amount = playerDamage.get(oldKey);
+                if (amount != null) damage.merge(key, amount, Long::sum);
+            });
+            inspectedPlayers = players; playerDamage = damage; inspectedPlayerCount = players.size();
+        }
         public List<ResourcePoint> resourceTimeline = new ArrayList<>();
         public List<ConditionSlice> conditionTimeline = new ArrayList<>();
     }

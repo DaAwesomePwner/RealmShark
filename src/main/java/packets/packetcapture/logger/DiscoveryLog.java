@@ -11,7 +11,7 @@ import java.util.*;
 
 /** Passive diagnostics and gameplay history. Raw packets and account/chat fields are not retained. */
 public final class DiscoveryLog implements AutoCloseable {
-    public static final DiscoveryLog INSTANCE = new DiscoveryLog(Paths.get("logs", "discovery"));
+    public static final DiscoveryLog INSTANCE = new DiscoveryLog(Paths.get("logs", "discovery"), false);
     static { Runtime.getRuntime().addShutdownHook(new Thread(INSTANCE::close, "Discovery log shutdown")); }
     public static final int EVENT_LIMIT = 1500, CACHE_LIMIT = 20000, DELTA_LIMIT = 24;
     private final Path directory;
@@ -39,10 +39,30 @@ public final class DiscoveryLog implements AutoCloseable {
             for (int i = range[0]; i <= range[1]; i++) SAFE_STATS.add(i);
     }
     public DiscoveryLog(Path directory) {
+        this(directory, true);
+    }
+    private DiscoveryLog(Path directory, boolean restore) {
         this.directory = directory;
         activityStore = directory == null ? null : new ActivityStore(directory);
-        activity = new ActivityJournal(activityStore == null ? null : activityStore.load());
+        activity = new ActivityJournal(!restore || activityStore == null ? null : activityStore.load());
+        if (!restore) {
+            activity.archiveTo(tomato.history.AppHistory::run);
+        }
     }
+    public synchronized void attachHistory(tomato.history.SessionStore history) {
+        activity.archiveTo(visit -> history.put("runs", visit.id, visit));
+        activity.archiveEventsTo(entry -> history.append("timeline", entry));
+        history.collect("run", () -> {
+            ActivityJournal.Visit visit;
+            synchronized (DiscoveryLog.this) { visit = activity.activeVisit(); }
+            if (visit != null) history.put("runs", visit.id, visit);
+        });
+    }
+    private DiscoveryLog(ActivityJournal.State saved) {
+        directory = null; activityStore = null; enabled = false; saveToDisk = false;
+        activity = new ActivityJournal(saved, false);
+    }
+    public static DiscoveryLog historyView(ActivityJournal.State saved) { return new DiscoveryLog(saved); }
     public boolean isEnabled() { return enabled; }
     public boolean isSaving() { return saveToDisk; }
     public synchronized void setEnabled(boolean value) {
@@ -67,6 +87,7 @@ public final class DiscoveryLog implements AutoCloseable {
         total = sampledOut = deltaOmitted = evictions = internalErrors = 0;
     }
     public synchronized ActivityJournal.State activityHistory() { return activitySnapshot(); }
+    public synchronized String currentVisitId() { return activity.currentVisitId(); }
     public synchronized void inspectPlayer(tomato.backend.data.Entity entity) {
         if (enabled && activity.inspectPlayer(new tomato.backend.data.InspectSnapshot(entity))) markActivityChanged();
     }
@@ -151,6 +172,7 @@ public final class DiscoveryLog implements AutoCloseable {
         if (now - lastCheckpoint >= 10000) { checkpoint(); lastCheckpoint = now; }
     }
     private void checkpoint() {
+        if (this == INSTANCE && tomato.history.AppHistory.store() != null) return;
         // Only a coalesced request crosses the capture lock. The store acquires/copies on its worker,
         // then serializes and performs filesystem I/O after releasing this observer's monitor.
         if (activityChanged && saveToDisk && activityStore != null) {

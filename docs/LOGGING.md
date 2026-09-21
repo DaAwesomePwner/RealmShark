@@ -19,7 +19,7 @@ Logging export acquires **current capture data**, even while its display is froz
 
 ## Storage and privacy
 
-The existing **Save logs** setting controls automatic persistence. Local files are under `logs/discovery/`, with manual exports in `logs/discovery/reports/`. Packet samples use a bounded asynchronous queue and rotating JSONL files. Queue drops and write failures are exposed in diagnostics. Activity history is checkpointed to `activity-history.json`; loading it restores history, not live diagnostic counts. Preview does not overwrite saved activity.
+The existing **Save logs** setting controls diagnostic persistence under `logs/discovery/`, with manual exports in `logs/discovery/reports/`. Packet samples use a bounded asynchronous queue and rotating JSONL files. Queue drops and write failures are exposed in diagnostics. App-session runs and timeline events save automatically under `%LOCALAPPDATA%\RealmShark\history`, independently of diagnostic logging. Older `activity-history.json` files are imported into that archive; live diagnostic counts still start fresh. Preview does not overwrite saved activity. See [Session history](SESSION-HISTORY.md).
 
 Only allowlisted decoded fields are retained. Numeric observations, canonical map names, bounded numeric party rosters, and reconnect-candidate counts are useful for analysis. Reconnect hosts/keys, chat, authentication data, raw payloads, party names/descriptions, and account identifiers are excluded from reports. Account identity is compared privately to avoid mixing progression baselines across accounts. Decode diagnostics retain structural context, such as field offsets and declared lengths, rather than arbitrary exception messages.
 

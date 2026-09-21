@@ -38,13 +38,19 @@ public class DungeonStats extends JPanel {
     private final JTable itemTable = StatsUi.table(items, "dungeon-items");
     private final javax.swing.Timer refreshTimer = new javax.swing.Timer(750, e -> { if (isShowing() && dirty) refreshData(); });
     private boolean rebuilding;
+    private final boolean currentSession;
 
     public DungeonStats() {
-        INSTANCE = this; setLayout(new BorderLayout(0, 8));
+        this(false, true);
+    }
+    public DungeonStats(boolean currentSession) { this(currentSession, true); }
+    private DungeonStats(boolean currentSession, boolean owner) {
+        this.currentSession = currentSession;
+        if (owner) INSTANCE = this; setLayout(new BorderLayout(0, 8));
         JPanel filters = StatsUi.controls(); filters.add(search); filters.add(activity);
         activity.getAccessibleContext().setAccessibleName("Dungeon activity filter");
         JButton reset = new JButton("Reset filters"); filters.add(reset);
-        add(StatsUi.stack(StatsUi.heading("Dungeon history", "Cumulative history saved on this device. Select a row for enemy and item details."),
+        add(StatsUi.stack(StatsUi.heading(currentSession ? "Current session dungeons" : "Dungeon history", "Select a row for recorded enemy and item details in this scope."),
             StatsUi.metrics(metrics, "Dungeons shown", "Recorded visits", "Recorded time", "Observed items"), filters), BorderLayout.NORTH);
         StatsUi.durationColumn(dungeonTable, 2); StatsUi.durationColumn(dungeonTable, 3);
         StatsUi.countColumns(dungeonTable, 1, 4, 5);
@@ -87,8 +93,11 @@ public class DungeonStats extends JPanel {
 
     void refreshData() {
         dirty = false;
-        if (source != null) snapshots = source.snapshot();
+        if (source != null) snapshots = currentSession ? source.sessionSnapshot() : source.snapshot();
         refreshRows();
+    }
+    static JComponent history(java.util.List<Snapshot> snapshots) {
+        DungeonStats panel = new DungeonStats(false, false);panel.snapshots=snapshots;panel.refreshRows();return panel;
     }
 
     private String selectedName() {

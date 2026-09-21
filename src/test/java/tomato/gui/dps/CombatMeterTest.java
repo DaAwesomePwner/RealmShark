@@ -84,6 +84,22 @@ public class CombatMeterTest {
         assertEquals(600, fight.taken); assertEquals(1, fight.incomingHits);
         assertEquals(1500, fight.totalTaken); assertEquals(3, fight.totalIncomingHits);
     }
+    @Test public void playersAreNeverEnemyTargetsButTheirIncomingDamageRemainsAvailable() throws Exception {
+        SwingUtilities.invokeAndWait(()->{
+            try{
+                TomatoData data=new TomatoData();Entity remote=player(data,1,"Remote");remote.markPlayerIdentity();
+                Entity legacy=player(data,2,"Legacy");StatData account=new StatData();account.stringStatValue="fixture-account";legacy.stat.set(StatType.ACCOUNT_ID_STAT,account);
+                Entity boss=enemy(data,9,9000,remote,600);
+                remote.getDamageList().add(new Damage(boss,2000,50));legacy.getDamageList().add(new Damage(boss,2000,900000));
+                HashMap<Integer,Entity> raw=field(data,"entityHitList");raw.put(1,remote);raw.put(2,legacy);raw.put(9,boss);
+                assertEquals(1,data.getEntityHitList().length);assertEquals(9,DpsSnapshot.capture(data).targets[0].id);
+                CombatMeterData results=new CombatMeterData(Arrays.asList(remote,legacy,boss),null,true);
+                assertEquals(600,results.total);assertEquals(50,results.rows.get(0).taken);
+                MeterDpsGUI meter=new MeterDpsGUI();meter.renderData(null,Arrays.asList(remote,legacy,boss),new ArrayList<>(),0,false);
+                DefaultListModel<?> enemies=field(meter,"enemies");assertEquals(2,enemies.size());assertSame(boss,enemies.get(1));
+            }catch(Exception e){throw new AssertionError(e);}
+        });
+    }
     @SuppressWarnings("unchecked")
     private <T> T field(Object obj, String name) throws Exception {
         Field f = obj.getClass().getDeclaredField(name); f.setAccessible(true); return (T)f.get(obj);

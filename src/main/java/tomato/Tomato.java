@@ -51,6 +51,7 @@ public class Tomato {
             if ("--preview".equals(arg)) preview = true;
         }
         if (preview) {
+            tomato.history.AppHistory.start(true);
             SwingUtilities.invokeLater(() -> {
                 tomato.gui.modern.VioletTheme.install();
                 new TomatoGUI(new TomatoData()).create();
@@ -65,6 +66,7 @@ public class Tomato {
                 " - bit)"
         );
         parseArgs(args);
+        tomato.history.AppHistory.start(false);
 
         Util.setSaveLogs(false); // turns the logger to, save in to files.
         TcpStreamErrorHandler.INSTANCE.setErrorMessageHandler(

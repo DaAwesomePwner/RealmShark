@@ -19,6 +19,33 @@ import tomato.realmshark.ParseDungeon;
 
 /** Product-facing history modules sharing the capture journal, independent of diagnostic tables. */
 public final class ActivityPanel extends JPanel {
+    public static tomato.gui.history.SessionPanel.Loaded runsHistory(tomato.history.SessionStore store,String scope,int page,String query)throws java.io.IOException {
+        return savedHistory(store,scope,page,query,Mode.RUNS);
+    }
+    public static tomato.gui.history.SessionPanel.Loaded timelineHistory(tomato.history.SessionStore store,String scope,int page,String query)throws java.io.IOException {
+        return savedHistory(store,scope,page,query,Mode.TIMELINE);
+    }
+    public static tomato.gui.history.SessionPanel.Loaded combatHistory(tomato.history.SessionStore store,String scope,int page,String query)throws java.io.IOException {
+        return savedHistory(store,scope,page,query,Mode.COMBAT);
+    }
+    private static tomato.gui.history.SessionPanel.Loaded savedHistory(tomato.history.SessionStore store,String scope,int page,String query,Mode mode)throws java.io.IOException {
+        ActivityJournal.State saved=new ActivityJournal.State();boolean more;String description;
+        if(mode==Mode.TIMELINE){
+            tomato.gui.history.HistoryPage<ActivityJournal.Entry> entries=tomato.gui.history.HistoryPage.read(store,scope,"timeline",ActivityJournal.Entry.class,page,query,
+                    e->e.map+" "+e.kind+" "+e.detail+" "+tomato.history.SessionStore.JSON.toJson(e.values));
+            saved.entries.addAll(entries.values);saved.entries.sort(Comparator.comparingLong(e->e.time));more=entries.more();description=entries.description();
+            Set<String> visits=new HashSet<>();for(ActivityJournal.Entry entry:entries.values)visits.add(entry.visitId);
+            store.read(scope,"runs",ActivityJournal.Visit.class,(session,visit)->{if(visits.contains(visit.id))saved.visits.add(visit.summary());});
+            saved.visits.sort(Comparator.comparingLong(v->v.started));
+        }else{
+            tomato.gui.history.HistoryPage<ActivityJournal.Visit> visits=tomato.gui.history.HistoryPage.read(store,scope,"runs",ActivityJournal.Visit.class,page,100,query,
+                    v->v.map,v->mode==Mode.COMBAT||ParseDungeon.isDungeon(v.map));
+            saved.visits.addAll(visits.values);saved.visits.sort(Comparator.comparingLong(v->v.started));more=visits.more();description=visits.description();
+        }
+        return new tomato.gui.history.SessionPanel.Loaded(()->{
+            ActivityPanel view=new ActivityPanel(DiscoveryLog.historyView(saved),mode);view.record.setVisible(false);return view;
+        },more,description);
+    }
     public enum Mode { RUNS, TIMELINE, COMBAT }
     private final DiscoveryLog log;
     private final Mode mode;

@@ -568,10 +568,11 @@ public void genericDamageHit(
 
     public String name() {
         if (
-            CharacterClass.isPlayerCharacter(objectType) &&
+            isPlayerCharacter() &&
             stat.get(StatType.NAME_STAT) != null
         ) {
-            return stat.get(StatType.NAME_STAT).stringStatValue.split(",")[0];
+            String value = stat.get(StatType.NAME_STAT).stringStatValue;
+            return value == null ? name : value.split(",", 2)[0].trim();
         }
         return name;
     }
@@ -620,10 +621,17 @@ public void genericDamageHit(
         return isUser;
     }
 
+    /** Player identity survives missing assets and old recordings as well as live capture. */
+    public boolean isPlayerCharacter() {
+        return isUser || isPlayer || CharacterClass.isPlayerCharacter(objectType)
+                || stat.get(StatType.ACCOUNT_ID_STAT) != null;
+    }
+
     public void isPlayer() {
         isPlayer = true;
         baseStats = calculateBaseStats();
     }
+    public void markPlayerIdentity() { isPlayer = true; }
 
     public void setUser(int charId) {
         isUser = true;

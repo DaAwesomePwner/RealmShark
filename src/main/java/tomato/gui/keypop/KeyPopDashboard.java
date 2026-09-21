@@ -44,9 +44,13 @@ final class KeyPopDashboard extends JPanel {
     private List<KeyPopEvent> filtered = Collections.emptyList();
     private long seenRevision = -1;
     private boolean updating;
+    private final boolean historical;
 
     KeyPopDashboard(KeyPopHistory history) {
-        super(new BorderLayout(0, 8)); this.history = history;
+        this(history,false);
+    }
+    KeyPopDashboard(KeyPopHistory history, boolean historical) {
+        super(new BorderLayout(0, 8)); this.history = history;this.historical=historical;
         refreshTimer = new javax.swing.Timer(1000, e -> {
             if (isShowing() && (history.revision() != seenRevision || period.getSelectedIndex() != 0)) refresh();
         });
@@ -141,9 +145,9 @@ final class KeyPopDashboard extends JPanel {
             for (String choice : choices) item.addItem(choice);
             item.setSelectedItem(selected == null ? ALL_ITEMS : selected); updating = false;
         }
-        Instant now = Instant.now();
+        Instant now = historical ? snapshot.events.stream().map(event->event.time).max(Instant::compareTo).orElse(Instant.now()) : Instant.now();
         Instant since = period.getSelectedIndex() == 1 ? now.minusSeconds(900) : period.getSelectedIndex() == 2 ? now.minusSeconds(3600)
-            : period.getSelectedIndex() == 3 ? LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant() : null;
+            : period.getSelectedIndex() == 3 ? now.atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant() : null;
         filtered = new ArrayList<>();
         for (KeyPopEvent event : snapshot.events) if (event.matches(search.getText(), (String)type.getSelectedItem(), (String)item.getSelectedItem(), since)) filtered.add(event);
         Map<String, List<KeyPopEvent>> byPlayer = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -171,11 +175,11 @@ final class KeyPopDashboard extends JPanel {
         });
         replaceRows(players, playerRows); replaceRows(items, itemRows);
         empty.setVisible(filtered.isEmpty());
-        empty.setText(snapshot.events.isEmpty() ? "Waiting for pops · Start capture and join a fresh game connection." : "No pops match these filters. Try Reset filters.");
+        empty.setText(snapshot.events.isEmpty() ? (historical ? "No saved pops in this page." : "Waiting for pops · Start capture and join a fresh game connection.") : "No pops match these filters. Try Reset filters.");
         empty.setToolTipText(empty.getText());
-        status.setText(DisplayFormat.formatInteger(filtered.size()) + " shown / " + DisplayFormat.formatInteger(snapshot.events.size()) + " retained · This app session"
+        status.setText(DisplayFormat.formatInteger(filtered.size()) + " shown / " + DisplayFormat.formatInteger(snapshot.events.size()) + " retained · " + (historical ? "Historical page; time filters follow its latest pop" : "This app session")
             + (snapshot.discarded > 0 ? " · " + DisplayFormat.formatInteger(snapshot.discarded) + " older pops dropped" : ""));
-        status.setToolTipText("Retains the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " events until cleared or the app closes. CSV exports filtered events. Double-click a summary to filter events.");
+        status.setToolTipText("Live view retains the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " events. Saved session history retains every pop; use Browse saved for older pages. CSV exports filtered events.");
     }
 
     private void installDrilldown(JTable table, boolean player) {

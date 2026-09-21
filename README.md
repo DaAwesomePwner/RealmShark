@@ -28,6 +28,7 @@ The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 1
 | Feature | Guide |
 | --- | --- |
 | Shared typography, themes, compact navigation and keyboard controls | [UI consistency](docs/UI-CONSISTENCY.md) |
+| App-launch sessions, persistent history and dungeon loot comparisons | [Session history](docs/SESSION-HISTORY.md) |
 | Searchable chat, channels, player filters, stars and exports | [Chat](docs/CHAT.md) |
 | Key, rune, vial and inc openings | [Key-pops](docs/KEY-POPS.md) |
 | Saved roster, death marks, equipment, stat maxing and exalts | [Characters](docs/CHARACTERS.md) |
@@ -39,7 +40,7 @@ The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 1
 | Guild exports, loot review and delivery diagnostics | [Bridge Review](docs/BRIDGE.md) |
 | Packet coverage, stat changes and diagnostic exports | [Logging](docs/LOGGING.md) |
 
-**Security** provides player/equipment inspection and ability activity. **My Info** shows the current character's captured stats, equipment and explicitly labeled local estimates. **Alt+M** opens labeled workspace navigation; **Ctrl+Shift+S** starts or stops capture.
+**Inspect** provides current-area and saved-run player/build inspection, damage rankings and ability activity. Chat, Key-pops, Loot, Statistics and Inspect default to the current app session and offer independent historical views. Their history is retained under `%LOCALAPPDATA%\RealmShark\history` across app restarts and build folders. **My Info** shows the current character's captured stats, equipment and explicitly labeled local estimates. **Alt+M** opens labeled workspace navigation; **Ctrl+Shift+S** starts or stops capture.
 
 ## Build and validate
 

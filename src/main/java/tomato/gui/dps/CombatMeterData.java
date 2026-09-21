@@ -28,6 +28,7 @@ final class CombatMeterData {
     CombatMeterData(List<Entity> targets, Entity localPlayer, boolean wholeEncounter) {
         Map<Integer, Row> players = new LinkedHashMap<>();
         for (Entity target : targets) {
+            if (target.isPlayerCharacter()) continue;
             if (target.getFirstDamageTaken() >= 0) first = Math.min(first, target.getFirstDamageTaken());
             last = Math.max(last, target.getLastDamageTaken());
             for (Damage hit : new ArrayList<>(target.getDamageList())) {

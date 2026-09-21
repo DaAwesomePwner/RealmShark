@@ -7,6 +7,20 @@ import javax.swing.*;
 import java.awt.*;
 
 public class SecurityGUI extends JPanel {
+    public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws java.io.IOException {
+        packets.packetcapture.logger.ActivityJournal.State state = new packets.packetcapture.logger.ActivityJournal.State();
+        tomato.gui.history.HistoryPage<packets.packetcapture.logger.ActivityJournal.Visit> visits = tomato.gui.history.HistoryPage.read(store,scope,"runs",packets.packetcapture.logger.ActivityJournal.Visit.class,page,100,query,
+                visit -> visit.map + " " + String.join(" ",visit.inspectedPlayers.keySet()),visit -> tomato.realmshark.ParseDungeon.isDungeon(visit.map));
+        for (packets.packetcapture.logger.ActivityJournal.Visit visit : visits.values) {
+            visit.normalizePlayers(); state.visits.add(visit);
+        }
+        state.visits.sort(java.util.Comparator.comparingLong(v -> v.started));
+        return new tomato.gui.history.SessionPanel.Loaded(() -> {
+            ParsePanelGUI roster = new ParsePanelGUI(false);
+            InspectRunsPanel view = new InspectRunsPanel(packets.packetcapture.logger.DiscoveryLog.historyView(state), roster);
+            view.readOnly();view.showRoster();return view;
+        }, visits.more(), visits.description());
+    }
 
     private static volatile SecurityGUI INSTANCE;
 

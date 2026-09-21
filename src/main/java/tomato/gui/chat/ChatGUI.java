@@ -21,6 +21,20 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.nio.charset.StandardCharsets;
 
 public class ChatGUI extends JPanel {
+    public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
+        tomato.gui.history.HistoryPage<ChatMessage> messages = tomato.gui.history.HistoryPage.read(store, scope, "chat", ChatMessage.class, page, query, ChatMessage::transcript);
+        java.util.Map<String,ChatExplorer.Bookmark> bookmarks=new java.util.HashMap<>();
+        store.read(tomato.history.SessionStore.ALL,"chat-stars",ChatExplorer.Bookmark.class,(session,bookmark)->{
+            ChatExplorer.Bookmark previous=bookmarks.get(bookmark.id);
+            if(previous==null||bookmark.changed>=previous.changed)bookmarks.put(bookmark.id,bookmark);
+        });
+        java.util.Set<String> stars=new java.util.HashSet<>();bookmarks.forEach((id,bookmark)->{if(bookmark.starred)stars.add(id);});
+        return new tomato.gui.history.SessionPanel.Loaded(() -> {
+            ChatExplorer view = new ChatExplorer(() -> {}, ChatFilters.load(), () -> "Saved chat", false);
+            view.loadHistory(messages.values,stars,store);
+            return view;
+        }, messages.more(), messages.description());
+    }
 
     private static volatile ChatGUI instance;
     private final ChatExplorer explorer;

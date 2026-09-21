@@ -347,6 +347,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
                 "<html>" + tooltipText.replace("\n", "<br>") + "</html>"
             );
 
+            PlayerInspectMenu.install(pp, dmg.owner);
             panelAllPlayers.add(pp);
         }
 

@@ -40,6 +40,7 @@ public class Player {
      */
     public int[] statMissing() {
         Entity player = this.playerEntity;
+        if (!CharacterClass.hasStats(player.objectType)) return new int[]{-1,-1,-1,-1,-1,-1,-1,-1};
         int[] stats = new int[8];
         stats[0] = (int) Math.ceil((CharacterClass.getLife(player.objectType) - player.baseStats[0]) / 5.0);
         stats[1] = (int) Math.ceil((CharacterClass.getMana(player.objectType) - player.baseStats[1]) / 5.0);
@@ -58,6 +59,7 @@ public class Player {
      */
     public int statsMaxed() {
         Entity player = this.playerEntity;
+        if (!CharacterClass.hasStats(player.objectType)) return -1;
         int outOf8 = 0;
         if (CharacterClass.getLife(player.objectType) == player.baseStats[0]) outOf8++;
         if (CharacterClass.getMana(player.objectType) == player.baseStats[1]) outOf8++;
@@ -72,12 +74,12 @@ public class Player {
     }
 
     public String statsDescription() {
-        StringBuilder text = new StringBuilder("Base stats · ").append(statsMaxed()).append(" / 8 maxed");
+        StringBuilder text = new StringBuilder("Base stats · ").append(statsMaxed() < 0 ? "Max stats unavailable" : statsMaxed() + " / 8 maxed");
         int[] missing = statMissing();
         for (int i = 0; i < statNames.length; i++) {
             text.append('\n').append(statNames[i]).append(": ");
             if (playerEntity.baseStats[i] < 0) text.append("Not captured");
-            else text.append(playerEntity.baseStats[i]).append(" (potions to max: ").append(Math.max(0, missing[i])).append(')');
+            else { text.append(playerEntity.baseStats[i]);if(missing[i]>=0)text.append(" (potions to max: ").append(missing[i]).append(')'); }
         }
         return text.toString();
     }

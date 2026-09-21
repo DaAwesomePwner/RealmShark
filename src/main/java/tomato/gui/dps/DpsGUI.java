@@ -118,7 +118,8 @@ public class DpsGUI extends JPanel {
         damagePage.add(center, BorderLayout.CENTER);
         JTabbedPane combatTabs = new JTabbedPane(); combatTabs.setName("dps-tabs");
         combatTabs.addTab("Damage meters", damagePage);
-        combatTabs.addTab("Resources & buffs", new tomato.gui.activity.ActivityPanel(history, tomato.gui.activity.ActivityPanel.Mode.COMBAT));
+        combatTabs.addTab("Resources & buffs", tomato.gui.history.SessionPanel.wrap("combat",
+                new tomato.gui.activity.ActivityPanel(history, tomato.gui.activity.ActivityPanel.Mode.COMBAT), tomato.gui.activity.ActivityPanel::combatHistory));
         add(combatTabs, BorderLayout.CENTER);
 
         displayString = new StringDpsGUI(data);
@@ -215,6 +216,7 @@ public class DpsGUI extends JPanel {
     }
 
     private void renderData(MapInfoPacket map, Entity[] entityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean b) {
+        entityHitList = Arrays.stream(entityHitList).filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
         setCenterDisplay();
         DpsData saved = b ? null : data.dpsData.get(index);
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();

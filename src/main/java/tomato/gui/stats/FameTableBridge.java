@@ -39,6 +39,7 @@ public final class FameTableBridge {
     public static void observeFame(int charId, long fame, long time, String className) {
         FameTableBridge bridge = INSTANCE;
         synchronized (bridge) {
+            tomato.history.AppHistory.fame(charId, fame, time, className);
             if (bridge.fameTrackerGUI != null) bridge.fameTrackerGUI.trackCapturedFame(charId, fame, time);
             if (bridge.fameTablePanel != null) bridge.fameTablePanel.updateFame(charId, fame, time, className);
         }

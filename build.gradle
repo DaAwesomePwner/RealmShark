@@ -135,6 +135,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 tasks.withType(Test).configureEach {
     javaLauncher = launcher17
+    doFirst { systemProperty 'realmshark.historyDir', new File(workingDir, 'shared-history').absolutePath }
 }
 tasks.withType(JavaExec).configureEach {
     javaLauncher = launcher17

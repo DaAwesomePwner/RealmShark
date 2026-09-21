@@ -17,6 +17,7 @@ final class ChatMessage {
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     final LocalDateTime received;
+    final String id = java.util.UUID.randomUUID().toString();
     final Channel channel;
     final String sender, recipient, player, text, direction;
     final boolean ownMessage, gameIgnored;

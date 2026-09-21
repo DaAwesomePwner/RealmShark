@@ -67,6 +67,29 @@ public class InspectHistoryTest {
         assertEquals(20, onlyPlayer(journal.snapshot().visits.get(0)).stat.get(StatType.INVENTORY_0_STAT).statValue);
     }
 
+    @Test public void nameMetadataCaseWhitespaceAndClassChangesDoNotDuplicateRunPlayers() {
+        ActivityJournal journal=new ActivityJournal();map(journal,"Ocean Trench",1000);
+        Entity first=player(1," Alice,first-metadata",10);journal.inspectPlayer(new InspectSnapshot(first));journal.inspectDamage(1,100,1100);
+        Entity returned=player(2,"aLiCe,changed-metadata",20);returned.objectType=9999;
+        journal.inspectPlayer(new InspectSnapshot(returned));journal.inspectDamage(2,200,2100);
+        ActivityJournal.Visit run=journal.snapshot().visits.get(0);
+        assertEquals(1,run.inspectedPlayers.size());assertEquals(1,run.inspectedPlayerCount);
+        assertEquals(20,onlyPlayer(run).stat.get(StatType.INVENTORY_0_STAT).statValue);
+        assertEquals(Long.valueOf(300),run.damage("player:alice"));
+    }
+
+    @Test public void legacyDuplicateBucketsCollapseOnReloadWithoutLosingDamage() {
+        ActivityJournal.State state=new ActivityJournal.State();ActivityJournal.Visit visit=new ActivityJournal.Visit();
+        visit.id="legacy";visit.map="Ocean Trench";visit.started=1000;visit.ended=visit.lastSeen=3000;
+        InspectSnapshot old=new InspectSnapshot(player(1,"Alice,old",10)),latest=new InspectSnapshot(player(2,"ALICE,new",20));
+        visit.inspectedPlayers.put("player:alice,old:782",old);visit.playerDamage.put("player:alice,old:782",100L);
+        visit.inspectedPlayers.put("player:alice,new:782",latest);visit.playerDamage.put("player:alice,new:782",200L);
+        visit.damageTracked=true;visit.totalDamage=300;state.visits.add(visit);
+        ActivityJournal.Visit restored=new ActivityJournal(state).snapshot().visits.get(0);
+        assertEquals(1,restored.inspectedPlayers.size());assertEquals(Long.valueOf(300),restored.damage("player:alice"));
+        assertEquals(300,restored.totalDamage);assertEquals(20,onlyPlayer(restored).stat.get(StatType.INVENTORY_0_STAT).statValue);
+    }
+
     @Test public void runLoadoutsSurviveCheckpointReloadAndLegacyRunsRemainEmpty() throws Exception {
         Path dir = Files.createTempDirectory("inspect-history");
         ActivityJournal journal = new ActivityJournal(); map(journal, "Ocean Trench", 1000);

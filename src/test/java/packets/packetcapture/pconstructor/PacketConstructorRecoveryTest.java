@@ -48,4 +48,24 @@ public class PacketConstructorRecoveryTest {
         constructor.startResets(); constructor.build(frame()); constructor.build(frame());
         assertTrue(received.isEmpty());
     }
+
+    @Test public void processingFailuresAreVisibleRateLimitedAndDoNotStopLaterFrames() throws Exception {
+        java.nio.file.Path path=java.nio.file.Paths.get("logs","capture-health.log");
+        long before=java.nio.file.Files.exists(path)?java.nio.file.Files.size(path):0;
+        boolean[] fail={true};int[] received={0};
+        PacketConstructor failing=new PacketConstructor(new PacketProcessor(){
+            @Override public void processPackets(int type,int size,ByteBuffer data){
+                if(fail[0])throw new IllegalStateException("PRIVATE_PAYLOAD_MUST_NOT_BE_LOGGED");
+                received[0]++;
+            }
+        },new RC4(new byte[]{1,2,3}));
+        failing.reset();
+        byte[] frame=ByteBuffer.allocate(5).putInt(5).put((byte)PacketType.CREATE_SUCCESS.getIndex()).array();
+        for(int i=0;i<20;i++)failing.build(frame);
+        fail[0]=false;failing.build(frame);assertEquals(1,received[0]);
+        byte[] bytes=java.nio.file.Files.readAllBytes(path);
+        String logged=new String(Arrays.copyOfRange(bytes,(int)before,bytes.length),java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(1,logged.split("Packet processing failed",-1).length-1);
+        assertTrue(logged.contains("IllegalStateException"));assertFalse(logged.contains("PRIVATE_PAYLOAD"));
+    }
 }
