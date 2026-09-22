@@ -12,6 +12,7 @@ public final class EncounterQuery {
         if (source == Source.CAPTURED && entry.origin != null || source == Source.IMPORTED && entry.origin == null) return false;
         if (context != null && !context.equals(summary.localContext)) return false;
         return (summary.dungeon + " " + entry.source() + " " + Objects.toString(entry.data.getRecordingId(), "") + " " + entry.id
-            + " " + (summary.started == null ? "" : java.time.Instant.ofEpochMilli(summary.started))).toLowerCase(Locale.ROOT).contains(text);
+            + " " + (summary.started == null ? "" : java.time.Instant.ofEpochMilli(summary.started) + " "
+                + tomato.gui.modern.DisplayFormat.formatTimestamp(summary.started))).toLowerCase(Locale.ROOT).contains(text);
     }
 }

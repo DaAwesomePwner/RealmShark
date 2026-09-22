@@ -61,7 +61,11 @@ public final class RosterDefinitions {
         return new RosterDefinitions(caps, items, "Local definitions; omitted fields remain unknown");
     }
     private static Integer nonnegative(String text) {
-        try { int value = Integer.decode(text.trim()); return value < 0 ? null : value; }
+        try {
+            String number = text.trim();
+            int value = number.startsWith("0x") || number.startsWith("0X") || number.startsWith("#") ? Integer.decode(number) : Integer.parseInt(number);
+            return value < 0 ? null : value;
+        }
         catch (NumberFormatException invalid) { return null; }
     }
     private static List<Element> objects(Reader reader) throws IOException {

@@ -51,6 +51,7 @@ public class EncounterCatalogTest {
         EncounterCatalog catalog = new EncounterCatalog(); catalog.captured(new DpsData[]{encounter("[Run]")});
         EncounterCatalog.Entry entry = catalog.entries().get(0); catalog.check(entry.id, true);
         assertTrue(new EncounterQuery("[run]", EncounterQuery.Source.CAPTURED, "Unavailable").matches(entry, entry.summary()));
+        assertTrue(new EncounterQuery(tomato.gui.modern.DisplayFormat.formatTimestamp(entry.summary().started), EncounterQuery.Source.ANY, null).matches(entry, entry.summary()));
         assertFalse(new EncounterQuery("", EncounterQuery.Source.IMPORTED, null).matches(entry, entry.summary()));
         assertFalse(new EncounterQuery(".*", EncounterQuery.Source.ANY, null).matches(entry, entry.summary()));
         assertEquals(1, catalog.checkedEntries().size());
