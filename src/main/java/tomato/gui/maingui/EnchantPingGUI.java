@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import javax.swing.*;
@@ -32,12 +33,27 @@ public class EnchantPingGUI extends JPanel {
     // persisted selection (ids)
     private final Set<Short> savedSelected = new HashSet<>();
     private final List<Group> groups = new ArrayList<>();
-    private final JLabel saveStatus = new JLabel(" ");
-    private long saveRequest;
+    private final JCheckBox selectedOnly = new JCheckBox("Selected only");
+    private final JTextArea selectionCount = ContentStyle.wrappingText("");
+    private final JButton saveButton = new JButton("Save");
+    private final DraftSaveStatus saving = new DraftSaveStatus(saveButton, "enchant-save-status");
+    private final Set<String> unrecognizedSaved = new TreeSet<>();
 
     public EnchantPingGUI(List<String> items) {
         this(items, PropertiesManager.getProperty("enchantPing.selected"),
-            value -> PropertiesManager.setPropertiesAsync("enchantPing.selected", value));
+            preferenceSaver());
+    }
+
+    private static Function<String, CompletionStage<PreferencesStore.SaveResult>> preferenceSaver() {
+        String[] expected = {PropertiesManager.getProperty("enchantPing.selected")};
+        return value -> {
+            synchronized (EnchantPingGUI.class) {
+                if (!java.util.Objects.equals(expected[0], PropertiesManager.getProperty("enchantPing.selected")))
+                    throw new IllegalStateException("Enchant choices changed in another editor. Reopen to load them; this draft is retained.");
+                CompletionStage<PreferencesStore.SaveResult> result = PropertiesManager.setPropertiesAsync("enchantPing.selected", value);
+                expected[0] = value; return result;
+            }
+        };
     }
 
     EnchantPingGUI(List<String> items, String saved,
@@ -52,7 +68,7 @@ public class EnchantPingGUI extends JPanel {
                 try {
                     short v = Short.parseShort(p.trim());
                     savedSelected.add(v);
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) { unrecognizedSaved.add(p); }
             }
         }
 
@@ -61,7 +77,7 @@ public class EnchantPingGUI extends JPanel {
         JLabel searchLabel = new JLabel("Search enchants: ");
         searchLabel.setLabelFor(searchField);
         topPanel.add(searchLabel, BorderLayout.WEST);
-        topPanel.add(searchField, BorderLayout.CENTER);
+        topPanel.add(searchField, BorderLayout.CENTER); topPanel.add(selectedOnly, BorderLayout.SOUTH);
         this.add(topPanel, BorderLayout.NORTH);
 
         // Middle: scroll pane with checkbox list (grouped)
@@ -75,18 +91,24 @@ public class EnchantPingGUI extends JPanel {
 
         // Bottom: save button + global controls
         JPanel bottomPanel = ContentStyle.controls();
-        JButton selectAllBtn = new JButton("Select All");
-        JButton clearAllBtn = new JButton("Clear All");
-        JButton saveButton = new JButton("Save");
-        bottomPanel.add(selectAllBtn);
-        bottomPanel.add(clearAllBtn);
+        JButton selectShown = new JButton("Select shown"), clearShown = new JButton("Clear shown");
+        JButton selectAllBtn = new JButton("Select all catalog");
+        JButton clearAllBtn = new JButton("Clear all catalog");
+        JButton test = new JButton("Test sound"), cancel = new JButton("Cancel");
+        bottomPanel.add(selectShown); bottomPanel.add(clearShown); bottomPanel.add(selectAllBtn); bottomPanel.add(clearAllBtn);
+        bottomPanel.add(test); bottomPanel.add(cancel);
         bottomPanel.add(saveButton);
-        saveStatus.setName("enchant-save-status");
-        bottomPanel.add(saveStatus);
-        this.add(bottomPanel, BorderLayout.SOUTH);
+        JPanel notes = new JPanel(new BorderLayout()); notes.add(selectionCount); notes.add(saving.status, BorderLayout.SOUTH);
+        JPanel footer = new JPanel(new BorderLayout()); footer.add(notes); footer.add(bottomPanel, BorderLayout.SOUTH);
+        this.add(footer, BorderLayout.SOUTH);
+        selectionCount.setName("enchant-selection-count"); selectedOnly.setName("enchant-selected-only"); searchField.setName("enchant-search");
+        test.addActionListener(e -> Sound.custom.preview(null));
+        cancel.setToolTipText("Discard unsubmitted edits; already applied changes remain active even if saving failed.");
+        cancel.addActionListener(e -> { Window window = SwingUtilities.getWindowAncestor(this); if (window != null) window.dispose(); });
 
         // Populate grouped checkboxes from ParseEnchants
         buildGroupedListFromParseEnchants();
+        selectedOnly.addActionListener(e -> filterList());
 
         // Search filtering: simple filter that shows matching checkboxes (expands groups with matches)
         searchField
@@ -112,32 +134,16 @@ public class EnchantPingGUI extends JPanel {
 
         // Save action - persist IDs
         saveButton.addActionListener(e -> {
-            List<String> ids = new ArrayList<>();
-            for (Map.Entry<Short, JCheckBox> en : checkBoxMap.entrySet()) {
-                if (en.getValue().isSelected()) ids.add(
-                    Short.toString(en.getKey())
-                );
-            }
-            long request = ++saveRequest;
-            saveStatus.setText("Saving " + ids.size() + " items…");
-            saveStatus.setToolTipText("Changes are active now; waiting for the preferences file to be saved.");
-            saveSelection.apply(String.join(",", ids)).whenComplete((result, failure) ->
-                SwingUtilities.invokeLater(() -> {
-                    if (request != saveRequest) return;
-                    boolean savedSuccessfully = failure == null && result.isSuccess();
-                    saveStatus.setText(savedSuccessfully ? "Saved " + ids.size() + " items." : "Save failed");
-                    saveStatus.setToolTipText(failure == null ? result.detail()
-                        : "Preferences not saved: " + failure.getMessage());
-                }));
+            Set<String> ids = new TreeSet<>(unrecognizedSaved);
+            for (short id : selectedIds()) ids.add(Short.toString(id));
+            saving.submit(() -> saveSelection.apply(String.join(",", ids)));
         });
 
-        // Global select/clear
-        selectAllBtn.addActionListener(e ->
-            checkBoxMap.values().forEach(cb -> cb.setSelected(true))
-        );
-        clearAllBtn.addActionListener(e ->
-            checkBoxMap.values().forEach(cb -> cb.setSelected(false))
-        );
+        selectShown.addActionListener(e -> select(checkBoxMap.keySet(), true, true));
+        clearShown.addActionListener(e -> select(checkBoxMap.keySet(), false, true));
+        selectAllBtn.addActionListener(e -> select(checkBoxMap.keySet(), true, false));
+        clearAllBtn.addActionListener(e -> select(checkBoxMap.keySet(), false, false));
+        filterList();
         ContentStyle.refreshFonts(this);
     }
 
@@ -195,13 +201,13 @@ public class EnchantPingGUI extends JPanel {
                 new FlowLayout(FlowLayout.RIGHT, 5, 0)
             );
             headerRight.setOpaque(false);
-            JButton groupSelect = new JButton("All");
-            JButton groupClear = new JButton("Clear");
+            JButton groupSelect = new JButton("Select shown");
+            JButton groupClear = new JButton("Clear shown");
             groupSelect.setFont(ContentStyle.metadata(ContentStyle.body()));
             groupClear.setFont(ContentStyle.metadata(ContentStyle.body()));
             groupSelect.setMargin(new Insets(2, 8, 2, 8)); groupClear.setMargin(new Insets(2, 8, 2, 8));
-            groupSelect.getAccessibleContext().setAccessibleName("Select all enchants in group " + groupName);
-            groupClear.getAccessibleContext().setAccessibleName("Clear enchants in group " + groupName);
+            groupSelect.getAccessibleContext().setAccessibleName("Select shown enchants in group " + groupName);
+            groupClear.getAccessibleContext().setAccessibleName("Clear shown enchants in group " + groupName);
             headerRight.add(groupSelect);
             headerRight.add(groupClear);
             header.add(toggle, BorderLayout.WEST);
@@ -219,9 +225,11 @@ public class EnchantPingGUI extends JPanel {
                 String cleanedName = name.replaceAll("_", " ").trim();
                 String label = String.format("%s", cleanedName);
                 JCheckBox cb = new JCheckBox(label);
+                cb.setName("enchant-" + id);
                 cb.setAlignmentX(Component.LEFT_ALIGNMENT);
                 // pre-select if stored
                 if (savedSelected.contains(id)) cb.setSelected(true);
+                cb.addActionListener(e -> { saving.edited(); filterList(); });
                 checkBoxMap.put(id, cb);
                 content.add(cb);
             }
@@ -249,18 +257,9 @@ public class EnchantPingGUI extends JPanel {
                 toggle.setText("▼ " + groupName);
             }
             // Group select/clear actions
-            groupSelect.addActionListener(e ->
-                entries.forEach(en -> {
-                    JCheckBox cb = checkBoxMap.get(en.getKey());
-                    if (cb != null) cb.setSelected(true);
-                })
-            );
-            groupClear.addActionListener(e ->
-                entries.forEach(en -> {
-                    JCheckBox cb = checkBoxMap.get(en.getKey());
-                    if (cb != null) cb.setSelected(false);
-                })
-            );
+            List<Short> groupIds = new ArrayList<>(); for (Map.Entry<Short, String> entry : entries) groupIds.add(entry.getKey());
+            groupSelect.addActionListener(e -> select(groupIds, true, true));
+            groupClear.addActionListener(e -> select(groupIds, false, true));
         }
 
         listPanel.revalidate();
@@ -273,25 +272,45 @@ public class EnchantPingGUI extends JPanel {
             boolean groupHasMatch = false;
             for (Component item : group.content.getComponents()) {
                 JCheckBox checkBox = (JCheckBox) item;
-                boolean matches = q.isEmpty() || checkBox.getText().toLowerCase(Locale.ROOT).contains(q);
+                boolean matches = matches(checkBox, q);
                 checkBox.setVisible(matches);
                 groupHasMatch |= matches;
             }
             group.container.setVisible(groupHasMatch);
-            group.showExpanded(groupHasMatch && (!q.isEmpty() || group.expanded));
+            group.showExpanded(groupHasMatch && (!q.isEmpty() || selectedOnly.isSelected() || group.expanded));
         }
+        int shownSelected = 0;
+        for (JCheckBox box : checkBoxMap.values()) if (box.isSelected() && matches(box, q)) shownSelected++;
+        int total = selectedIds().size(), unknown = total - (int)checkBoxMap.values().stream().filter(JCheckBox::isSelected).count();
+        selectionCount.setText(total + " selected · " + shownSelected + " selected shown · " + (total - shownSelected)
+            + " selected outside filter (" + unknown + " unavailable in catalog). "
+            + (unrecognizedSaved.isEmpty() ? "" : unrecognizedSaved.size() + " unrecognized saved entries preserved. ")
+            + "Shown means filter matches, including collapsed groups. All catalog actions preserve unavailable IDs.");
         listPanel.revalidate();
         listPanel.repaint();
     }
 
+    private boolean matches(JCheckBox box, String query) {
+        return (!selectedOnly.isSelected() || box.isSelected())
+            && (box.getText().toLowerCase(Locale.ROOT).contains(query) || box.getName().substring("enchant-".length()).equals(query));
+    }
+
+    private void select(java.util.Collection<Short> ids, boolean selected, boolean shownOnly) {
+        String query = searchField.getText().trim().toLowerCase(Locale.ROOT);
+        List<JCheckBox> targets = new ArrayList<>();
+        for (short id : ids) { JCheckBox box = checkBoxMap.get(id); if (!shownOnly || matches(box, query)) targets.add(box); }
+        for (JCheckBox box : targets) box.setSelected(selected);
+        saving.edited(); filterList();
+    }
+
+    Set<Short> selectedIds() {
+        Set<Short> ids = new TreeSet<>(savedSelected); ids.removeAll(checkBoxMap.keySet());
+        checkBoxMap.forEach((id, box) -> { if (box.isSelected()) ids.add(id); }); return ids;
+    }
+
     public List<String> getSelectedItems() {
         List<String> sel = new ArrayList<>();
-        for (Map.Entry<Short, JCheckBox> e : checkBoxMap.entrySet()) {
-            if (e.getValue().isSelected()) {
-                String name = ParseEnchants.ENCHANTS.get(e.getKey());
-                sel.add(String.format("%s(%d)", name, e.getKey()));
-            }
-        }
+        for (short id : selectedIds()) sel.add(String.format("%s(%d)", ParseEnchants.ENCHANTS.getOrDefault(id, "Unavailable enchant"), id));
         return sel;
     }
 
@@ -301,8 +320,7 @@ public class EnchantPingGUI extends JPanel {
             SwingUtilities.invokeLater(() -> setItems(items));
             return;
         }
-        savedSelected.clear();
-        checkBoxMap.forEach((id, box) -> { if (box.isSelected()) savedSelected.add(id); });
+        Set<Short> retained = selectedIds(); savedSelected.clear(); savedSelected.addAll(retained);
         buildGroupedListFromParseEnchants();
         filterList();
         ContentStyle.refreshFonts(this);
@@ -343,7 +361,6 @@ public class EnchantPingGUI extends JPanel {
             SwingUtilities.invokeLater(() -> open(items));
             return;
         }
-        Sound.custom.play();
         JFrame parent = tomato.gui.TomatoGUI.getFrame();
         EnchantPingGUI panel = new EnchantPingGUI(items);
         JDialog dialog = new JDialog(parent, "Enchant Pings", true);

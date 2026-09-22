@@ -25,6 +25,8 @@ import tomato.gui.modern.DisplayFormat;
 final class KeyPopDashboard extends JPanel {
     private static final String ALL_ITEMS = "All dungeons / items";
     final JTextField search = new JTextField();
+    private String exactPlayer;
+    final JButton playerChip = new JButton();
     final JComboBox<String> type = new JComboBox<>(new String[] {"All types", "Key", "Rune", "Vial", "Inc", "Other"});
     final JComboBox<String> period = new JComboBox<>(new String[] {"All retained", "Last 15 minutes", "Last hour", "Today"});
     final JComboBox<String> item = new JComboBox<>(new String[] {ALL_ITEMS});
@@ -90,6 +92,9 @@ final class KeyPopDashboard extends JPanel {
         search.setToolTipText("Case-insensitive search; every word must match the event.");
         searchRow.add(search); searchRow.add(button("Reset filters", this::resetFilters), BorderLayout.EAST);
         constraints.gridy++; top.add(searchRow, constraints);
+        playerChip.setName("keypop-exact-player"); playerChip.setVisible(false);
+        playerChip.addActionListener(e -> selectPlayer(null));
+        constraints.gridy++; top.add(playerChip, constraints);
         JPanel filters = ContentStyle.responsiveGrid(3, 140, 8);
         filters.add(labeled("Event type", type, "keypop-type")); filters.add(labeled("Time range", period, "keypop-period"));
         item.setPrototypeDisplayValue(ALL_ITEMS); filters.add(labeled("Dungeon / item", item, "keypop-item"));
@@ -129,6 +134,7 @@ final class KeyPopDashboard extends JPanel {
     @Override public void removeNotify() { refreshTimer.stop(); super.removeNotify(); }
 
     void resetFilters() {
+        exactPlayer = null; playerChip.setVisible(false);
         updating = true; search.setText(""); type.setSelectedIndex(0); period.setSelectedIndex(0); item.setSelectedIndex(0);
         updating = false; refresh();
     }
@@ -149,7 +155,8 @@ final class KeyPopDashboard extends JPanel {
         Instant since = period.getSelectedIndex() == 1 ? now.minusSeconds(900) : period.getSelectedIndex() == 2 ? now.minusSeconds(3600)
             : period.getSelectedIndex() == 3 ? now.atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant() : null;
         filtered = new ArrayList<>();
-        for (KeyPopEvent event : snapshot.events) if (event.matches(search.getText(), (String)type.getSelectedItem(), (String)item.getSelectedItem(), since)) filtered.add(event);
+        for (KeyPopEvent event : snapshot.events) if ((exactPlayer == null || exactPlayer.equalsIgnoreCase(event.player))
+                && event.matches(search.getText(), (String)type.getSelectedItem(), (String)item.getSelectedItem(), since)) filtered.add(event);
         Map<String, List<KeyPopEvent>> byPlayer = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, List<KeyPopEvent>> byItem = new TreeMap<>();
         List<Object[]> eventRows = new ArrayList<>(); int keys = 0;
@@ -187,7 +194,7 @@ final class KeyPopDashboard extends JPanel {
         Runnable drilldown = () -> {
             int row = table.getSelectedRow(); if (row < 0) return;
             String value = (String)table.getValueAt(row, 0);
-            if (player) search.setText(value); else item.setSelectedItem(value);
+            if (player) selectPlayer(value); else item.setSelectedItem(value);
             tabs.setSelectedIndex(0);
         };
         table.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "show-events");
@@ -204,6 +211,15 @@ final class KeyPopDashboard extends JPanel {
     }
 
     void clearHistory() { history.clear(); refresh(); }
+
+    void selectPlayer(String player) {
+        exactPlayer = player;
+        playerChip.setText(player == null ? "" : "Player equals " + player + " · Clear");
+        playerChip.setToolTipText("Exact contributor name, ignoring case. Activate to remove this filter.");
+        playerChip.setVisible(player != null); refresh(); revalidate();
+    }
+
+    List<KeyPopEvent> filteredEvents() { return new ArrayList<>(filtered); }
 
     void editFont(Font font) {
         for (JTable table : new JTable[] {events, players, items}) ContentStyle.tableFont(table, font, 0);

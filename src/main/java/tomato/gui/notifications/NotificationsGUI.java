@@ -5,6 +5,9 @@ import tomato.gui.keypop.KeypopGUI;
 import tomato.realmshark.RealmEventAlerts;
 import tomato.realmshark.Sound;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.maingui.DraftSaveStatus;
+import tomato.gui.maingui.AlertRuleEditor;
+import util.PropertiesManager;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -16,12 +19,13 @@ import java.io.File;
 import java.util.*;
 import java.util.List;
 
-/** One home for sound profiles and notification rules. All edits persist immediately. */
+/** Automatic sound controls and explicitly submitted rule drafts. */
 public final class NotificationsGUI extends JPanel {
     final JTabbedPane tabs = new JTabbedPane();
     final JSlider master = new JSlider(0, 100);
     final JCheckBox mute = new JCheckBox("Mute all");
     final JTextField dungeonSearch = new JTextField();
+    final JCheckBox dungeonSelectedOnly = new JCheckBox("Selected only");
     final JCheckBox missing = new JCheckBox("Also alert for missing dungeon completes");
     final JPanel dungeonList = new JPanel();
     final JLabel dungeonCount = new JLabel();
@@ -34,6 +38,7 @@ public final class NotificationsGUI extends JPanel {
     private final Runnable update = () -> SwingUtilities.invokeLater(this::refresh);
     private final TimerHolder timer = new TimerHolder();
     private boolean syncing;
+    private long dungeonSaveRequest;
 
     public NotificationsGUI() {
         super(new BorderLayout(0, 8));
@@ -45,7 +50,7 @@ public final class NotificationsGUI extends JPanel {
         volume.add(masterLabel, BorderLayout.WEST); volume.add(master); volume.add(masterValue, BorderLayout.EAST);
         master.setName("sound-master"); master.getAccessibleContext().setAccessibleName("Master volume");
         mute.setName("sound-mute"); masterControls.add(volume); masterControls.add(mute); top.add(masterControls);
-        top.add(note("Settings save automatically. Test plays the chosen sound, including disabled alerts; Mute all and volume still apply."), BorderLayout.SOUTH);
+        top.add(note("Sound and dungeon controls apply and save automatically. Rule editors use Save; drafts stay local until submitted. Test plays the chosen sound, including disabled alerts; Mute all and volume still apply."), BorderLayout.SOUTH);
         master.addChangeListener(e -> { if (!syncing && !master.getValueIsAdjusting()) Sound.setVolume(master.getValue()); masterValue.setText(master.getValue() + "%"); });
         mute.addActionListener(e -> Sound.setMuted(mute.isSelected()));
         for (String group : new String[]{"Messages", "Bags", "Key pops", "Realm events", "Other alerts"}) {
@@ -105,7 +110,7 @@ public final class NotificationsGUI extends JPanel {
         syncing = true;
         if (!master.getValueIsAdjusting()) master.setValue(Sound.getMasterVolume());
         masterValue.setText(master.getValue() + "%"); mute.setSelected(Sound.isMuted());
-        status.setText(Sound.getLastStatus()); for (AlertRow row : rows) row.refresh();
+        status.setText(Sound.getLastStatus() + "\n" + Sound.getPreferenceStatus()); for (AlertRow row : rows) row.refresh();
         realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); syncing = false;
     }
     private final class AlertRow extends JPanel {
@@ -170,9 +175,10 @@ public final class NotificationsGUI extends JPanel {
         dungeonSearch.putClientProperty("JTextField.placeholderText", "Find a dungeon..."); dungeonSearch.setName("sound-dungeon-search");
         dungeonSearch.getAccessibleContext().setAccessibleName("Find notification dungeon"); header.add(dungeonSearch);
         JPanel buttons = ContentStyle.controls();
-        JButton select = new JButton("Select shown"), clear = new JButton("Unselect shown");
+        JButton select = new JButton("Select shown"), clear = new JButton("Clear shown");
         select.addActionListener(e -> selectShown(true)); clear.addActionListener(e -> selectShown(false));
-        buttons.add(select); buttons.add(clear); buttons.add(dungeonCount); header.add(buttons);
+        dungeonSelectedOnly.setName("sound-dungeon-selected-only"); dungeonSelectedOnly.addActionListener(e -> filterDungeons());
+        buttons.add(select); buttons.add(clear); buttons.add(dungeonSelectedOnly); buttons.add(dungeonCount); header.add(buttons);
         panel.add(header, BorderLayout.NORTH); dungeonList.setLayout(new GridLayout(0, 1, 0, 2)); panel.add(dungeonList);
         dungeonSearch.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filterDungeons(); } public void removeUpdate(DocumentEvent e) { filterDungeons(); } public void changedUpdate(DocumentEvent e) { filterDungeons(); }
@@ -191,10 +197,14 @@ public final class NotificationsGUI extends JPanel {
     }
     private void filterDungeons() {
         String query = dungeonSearch.getText().trim().toLowerCase(Locale.ROOT); dungeonList.removeAll();
-        for (Map.Entry<String, JCheckBox> item : dungeonChoices.entrySet()) if (item.getKey().toLowerCase(Locale.ROOT).contains(query)) dungeonList.add(item.getValue());
+        int shownSelected = 0;
+        for (Map.Entry<String, JCheckBox> item : dungeonChoices.entrySet()) if (item.getKey().toLowerCase(Locale.ROOT).contains(query)
+                && (!dungeonSelectedOnly.isSelected() || item.getValue().isSelected())) {
+            dungeonList.add(item.getValue()); if (item.getValue().isSelected()) shownSelected++;
+        }
         if (dungeonList.getComponentCount() == 0) dungeonList.add(new JLabel("No dungeons match this search."));
         long selected = dungeonChoices.values().stream().filter(AbstractButton::isSelected).count();
-        dungeonCount.setText(selected + " selected"); dungeonList.revalidate(); dungeonList.repaint();
+        dungeonCount.setText(selected + " selected · " + shownSelected + " selected shown · " + (selected - shownSelected) + " outside filter"); dungeonList.revalidate(); dungeonList.repaint();
     }
     private void selectShown(boolean selected) {
         for (Component c : dungeonList.getComponents()) if (c instanceof JCheckBox) ((JCheckBox)c).setSelected(selected); saveDungeons();
@@ -203,6 +213,11 @@ public final class NotificationsGUI extends JPanel {
         Set<String> selected = new TreeSet<>(); if (missing.isSelected()) selected.add("missingDungeons");
         dungeonChoices.forEach((name, box) -> { if (box.isSelected()) selected.add(name); });
         KeypopGUI.setSelectedDungeons(selected); filterDungeons();
+        long request = ++dungeonSaveRequest;
+        PropertiesManager.flush().whenComplete((result, failure) -> SwingUtilities.invokeLater(() -> {
+            if (request != dungeonSaveRequest || !KeypopGUI.getSelectedDungeons().equals(selected)) return;
+            status.setText(failure == null && result != null && result.isSuccess() ? "Dungeon choices saved." : "Dungeon choices active; disk save failed. Change a choice to retry.");
+        }));
     }
     private void rebuildRealmRules() {
         rows.removeIf(row -> row.sound.group.equals("Realm events")); realmList.removeAll();
@@ -213,27 +228,58 @@ public final class NotificationsGUI extends JPanel {
             JPanel editor = ContentStyle.controls(), phraseBox = new JPanel(new BorderLayout(6, 0));
             JLabel phraseLabel = new JLabel("Phrase"); phraseLabel.setLabelFor(phrase); phraseBox.add(phraseLabel, BorderLayout.WEST); phraseBox.add(phrase); editor.add(phraseBox);
             JButton save = new JButton("Save phrase"), remove = new JButton("Remove");
-            save.addActionListener(e -> { try { RealmEventAlerts.INSTANCE.setPhrase(rule, phrase.getText()); status.setText("Saved announcement phrase for " + rule.name + "."); } catch (IllegalArgumentException ex) { status.setText(ex.getMessage()); } });
+            DraftSaveStatus saving = new DraftSaveStatus(save, "realm-save-" + rule.id);
+            String[] expected = {rule.getPhrase()};
+            phrase.getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
+            save.addActionListener(e -> saving.submit(() -> {
+                if (!RealmEventAlerts.INSTANCE.getRules().contains(rule) || !expected[0].equals(rule.getPhrase()))
+                    throw new IllegalStateException("The active rule changed; reopen Notifications to load it.");
+                RealmEventAlerts.INSTANCE.setPhrase(rule, phrase.getText()); expected[0] = rule.getPhrase(); return PropertiesManager.flush();
+            }));
+            JButton cancel = new JButton("Cancel draft"); cancel.addActionListener(e -> phrase.setText(rule.getPhrase()));
             remove.addActionListener(e -> {
                 if (JOptionPane.showConfirmDialog(this, "Remove the alert for " + rule.name + "?", "Remove realm event", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
                     RealmEventAlerts.INSTANCE.remove(rule); rebuildRealmRules();
                 }
             });
             save.getAccessibleContext().setAccessibleName("Save phrase for " + rule.name); remove.getAccessibleContext().setAccessibleName("Remove " + rule.name + " alert");
-            editor.add(save); editor.add(remove); card.add(editor); card.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0)); card.setMinimumSize(new Dimension(0, 0)); realmList.add(card);
+            editor.add(save); editor.add(cancel); editor.add(remove); card.add(editor); card.add(saving.status, BorderLayout.SOUTH); card.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0)); card.setMinimumSize(new Dimension(0, 0)); realmList.add(card);
         }
         if (realmList.getComponentCount() == 0) realmList.add(note("No realm event rules. Add an event and the phrase used in its announcement."));
         ContentStyle.refreshFonts(realmList); realmList.revalidate(); realmList.repaint(); refresh();
     }
     private void addRealmRule() {
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Add realm event", Dialog.ModalityType.APPLICATION_MODAL);
+        realmshark.branding.AppIdentity.apply(dialog); dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.setContentPane(createRealmDraft(PropertiesManager::flush)); dialog.pack();
+        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        dialog.setSize(Math.min(640, screen.width), Math.min(450, screen.height)); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+    JPanel createRealmDraft(java.util.function.Supplier<java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult>> durability) {
         JTextField name = new JTextField(), phrase = new JTextField();
         JLabel nameLabel = new JLabel("Event name"), phraseLabel = new JLabel("Announcement contains"); nameLabel.setLabelFor(name); phraseLabel.setLabelFor(phrase);
         name.getAccessibleContext().setAccessibleName("Realm event name"); phrase.getAccessibleContext().setAccessibleName("Realm event announcement phrase");
-        Object[] fields = {nameLabel, name, phraseLabel, phrase};
-        if (JOptionPane.showConfirmDialog(this, fields, "Add realm event", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
-            try { RealmEventAlerts.INSTANCE.add(name.getText(), phrase.getText()); rebuildRealmRules(); }
-            catch (IllegalArgumentException e) { JOptionPane.showMessageDialog(this, e.getMessage()); }
-        }
+        name.setName("realm-draft-name"); phrase.setName("realm-draft-phrase");
+        JPanel panel = new JPanel(new BorderLayout(8, 8)), fields = stack(), actions = ContentStyle.controls();
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        fields.add(note("Save creates a disabled event and fixes its name. Its phrase stays editable. Changes apply immediately; saving failures retain this editor. Close discards only unsubmitted edits."));
+        fields.add(nameLabel); fields.add(name); fields.add(phraseLabel); fields.add(phrase);
+        JButton save = new JButton("Save event"), cancel = new JButton("Cancel");
+        DraftSaveStatus saving = new DraftSaveStatus(save, "realm-draft-save-status");
+        RealmEventAlerts.Rule[] applied = new RealmEventAlerts.Rule[1];
+        name.getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
+        phrase.getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
+        save.addActionListener(e -> saving.submit(() -> {
+            if (applied[0] == null) { applied[0] = RealmEventAlerts.INSTANCE.add(name.getText(), phrase.getText()); name.setEditable(false); }
+            else {
+                if (!RealmEventAlerts.INSTANCE.getRules().contains(applied[0])) throw new IllegalStateException("Event was removed; close and create a new draft.");
+                RealmEventAlerts.INSTANCE.setPhrase(applied[0], phrase.getText());
+            }
+            rebuildRealmRules(); return durability.get();
+        }));
+        cancel.addActionListener(e -> { Window window = SwingUtilities.getWindowAncestor(panel); if (window != null) window.dispose(); });
+        actions.add(cancel); actions.add(save); panel.add(ContentStyle.page(fields, saving.status, new JPanel())); panel.add(actions, BorderLayout.SOUTH);
+        ContentStyle.refreshFonts(panel); return panel;
     }
     private static String toneLabel(String tone) {
         switch (tone) {

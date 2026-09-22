@@ -22,6 +22,15 @@ import java.nio.charset.StandardCharsets;
 
 public class ChatGUI extends JPanel {
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
+        return history(store, scope, page, query, ChatFilters.load());
+    }
+
+    /** Shell integration: every loaded page shares the live policy and inherited rules. */
+    public tomato.gui.history.SessionPanel.Loaded historyWithPolicy(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
+        return history(store, scope, page, query, filters);
+    }
+
+    private static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query, ChatFilters filters) throws IOException {
         tomato.gui.history.HistoryPage<ChatMessage> messages = tomato.gui.history.HistoryPage.read(store, scope, "chat", ChatMessage.class, page, query, ChatMessage::transcript);
         java.util.Map<String,ChatExplorer.Bookmark> bookmarks=new java.util.HashMap<>();
         store.read(tomato.history.SessionStore.ALL,"chat-stars",ChatExplorer.Bookmark.class,(session,bookmark)->{
@@ -30,7 +39,7 @@ public class ChatGUI extends JPanel {
         });
         java.util.Set<String> stars=new java.util.HashSet<>();bookmarks.forEach((id,bookmark)->{if(bookmark.starred)stars.add(id);});
         return new tomato.gui.history.SessionPanel.Loaded(() -> {
-            ChatExplorer view = new ChatExplorer(() -> {}, ChatFilters.load(), () -> "Saved chat", false);
+            ChatExplorer view = new ChatExplorer(() -> {}, filters, () -> "Saved chat uses current local rules; game-ignore evidence describes receipt time.", false);
             view.loadHistory(messages.values,stars,store);
             return view;
         }, messages.more(), messages.description());
@@ -39,6 +48,8 @@ public class ChatGUI extends JPanel {
     private static volatile ChatGUI instance;
     private final ChatExplorer explorer;
     private final ChatFilters filters;
+    private final tomato.realmshark.AlertRules alertRules;
+    private final java.util.function.Consumer<Sound> playAlert;
     private final ObservedIgnores observedIgnores = new ObservedIgnores();
     public static volatile boolean save;
     private static TomatoData data;
@@ -52,6 +63,12 @@ public class ChatGUI extends JPanel {
     }
 
     ChatGUI(TomatoData data, ChatFilters filters, boolean loadExternalRules) {
+        this(data, filters, loadExternalRules, tomato.realmshark.AlertRules.application(), Sound::play);
+    }
+
+    ChatGUI(TomatoData data, ChatFilters filters, boolean loadExternalRules, tomato.realmshark.AlertRules alertRules,
+            java.util.function.Consumer<Sound> playAlert) {
+        this.alertRules = alertRules; this.playAlert = playAlert;
         ChatGUI.data = data;
         setLayout(new BorderLayout());
 
@@ -108,7 +125,6 @@ public class ChatGUI extends JPanel {
         } finally {
             if (conn != null) conn.disconnect();
             filters.inherited(blockedSpam);
-            SwingUtilities.invokeLater(() -> explorer.refresh(false));
         }
     }
 
@@ -165,37 +181,23 @@ public class ChatGUI extends JPanel {
         boolean pinged = false;
         if (p.recipient.contains("*Guild*")) {
             if (!isPlayer && Sound.guild.isEnabled()) {
-                Sound.guild.play();
+                playAlert.accept(Sound.guild);
                 pinged = true;
             }
         } else if (p.recipient.contains("*Party*")) {
             if (!isPlayer && Sound.party.isEnabled()) {
-                Sound.party.play();
+                playAlert.accept(Sound.party);
                 pinged = true;
             }
         } else if (!p.recipient.trim().isEmpty()) {
             if (message.isIncomingWhisper() && Sound.pm.isEnabled()) {
-                Sound.pm.play();
+                playAlert.accept(Sound.pm);
                 pinged = true;
             }
 
         }
         if (data != null && !pinged && !isPlayer && (message.channel != ChatMessage.Channel.PM || message.isIncomingWhisper())) {
-            for (String s : data.getChatMessagePings()) {
-                if (s == null || s.trim().isEmpty()) continue;
-                if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
-                    String exactMatch = s.substring(1, s.length() - 1).toLowerCase();
-                    for (String m : p.text.toLowerCase().split(" ")) {
-                        if (exactMatch.equals(m)) {
-                            Sound.keywords.play();
-                            break;
-                        }
-                    }
-                } else if (p.text.toLowerCase().contains(s.toLowerCase())) {
-                    Sound.keywords.play();
-                    break;
-                }
-            }
+            if (alertRules.matchChat(data.getChatMessagePings(), p.text).matched) playAlert.accept(Sound.keywords);
         }
     }
 

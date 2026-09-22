@@ -21,6 +21,10 @@ public class Sound {
     private static volatile int masterVolume = readPercent("soundVolume", 100);
     private static volatile boolean muted = Boolean.parseBoolean(PropertiesManager.getProperty("soundMuted"));
     private static volatile String lastStatus = "Ready. Test an alert to check your current system audio output.";
+    private static volatile String preferenceStatus = "";
+    private static long preferenceRequest;
+    // Package-local recording seam: tests replace submission, never open an audio device.
+    static volatile java.util.function.BiConsumer<Sound, Boolean> playbackOverride;
 
     public static final Sound pm = new Sound("pm", "Whispers / DMs", "Messages", "chatPing", false);
     public static final Sound party = new Sound("party", "Party chat", "Messages", "chatPingParty", false);
@@ -76,6 +80,7 @@ public class Sound {
     public static int getMasterVolume() { return masterVolume; }
     public static boolean isMuted() { return muted; }
     public static String getLastStatus() { return lastStatus; }
+    public static String getPreferenceStatus() { return preferenceStatus; }
     public void setEnabled(boolean value) { enabled = value; save(enabledKey, Boolean.toString(value)); }
     public void setAlertVolume(int value) { volume = percent(value); save("sound." + id + ".volume", Integer.toString(volume)); }
     public void setTone(String value) {
@@ -85,7 +90,18 @@ public class Sound {
     public static void setVolume(int value) { masterVolume = percent(value); save("soundVolume", Integer.toString(masterVolume)); }
     public static void setMuted(boolean value) { muted = value; if (value) for (Sound sound : instances) sound.stop(); save("soundMuted", Boolean.toString(value)); }
     private static int percent(int value) { return Math.max(0, Math.min(100, value)); }
-    private static void save(String key, String value) { PropertiesManager.setProperties(key, value); changed(); }
+    private static synchronized void save(String key, String value) {
+        long request = ++preferenceRequest; preferenceStatus = "Sound changes active; saving…";
+        PropertiesManager.setPropertiesAsync(key, value).whenComplete((result, failure) -> {
+            synchronized (Sound.class) {
+                if (request != preferenceRequest) return;
+                preferenceStatus = failure == null && result != null && result.isSuccess() ? "Sound settings saved."
+                    : "Sound settings active; disk save failed. Change a setting to retry.";
+            }
+            changed();
+        });
+        changed();
+    }
     public static void addListener(Runnable listener) { listeners.add(listener); }
     public static void removeListener(Runnable listener) { listeners.remove(listener); }
     private static void changed() { for (Runnable listener : listeners) listener.run(); }
@@ -96,6 +112,8 @@ public class Sound {
     /** Test ignores this alert's enable switch, but always honors master mute and volumes. */
     public void preview(Consumer<String> result) { submit(true, result); }
     private void submit(boolean test, Consumer<String> result) {
+        java.util.function.BiConsumer<Sound, Boolean> replacement = playbackOverride;
+        if (replacement != null) { replacement.accept(this, test); return; }
         try {
             audio.execute(() -> {
                 if (muted || masterVolume == 0 || volume == 0)
@@ -146,7 +164,7 @@ public class Sound {
                 try {
                     String path = file.getAbsolutePath(); Decoded validated = decode(path);
                     cachedPcm = validated.pcm; cachedFormat = validated.format; cachedTone = path; setTone(path);
-                    message = "Saved " + file.getName() + ". Use Test to hear it.";
+                    message = "Selected " + file.getName() + ". Use Test to hear it; disk status is shown separately.";
                 } catch (Exception e) { message = "Sound unchanged: " + e.getMessage(); }
                 status(message); if (result != null) result.accept(message);
             });
