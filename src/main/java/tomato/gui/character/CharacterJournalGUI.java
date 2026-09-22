@@ -20,6 +20,7 @@ import tomato.gui.stats.Formatters;
 /** Searchable persistent roster, with explicit unknowns and reversible life-state annotations. */
 public final class CharacterJournalGUI extends JPanel {
     private final CharacterJournal journal;
+    private final java.util.function.LongSupplier clock;
     private final JTextField search = new JTextField(18);
     private final JComboBox<String> life = new JComboBox<>(new String[]{"All characters", "Not marked dead", "Marked dead manually"});
     private final JComboBox<String> season = new JComboBox<>(new String[]{"All seasons", "Seasonal", "Regular"});
@@ -47,10 +48,15 @@ public final class CharacterJournalGUI extends JPanel {
     private final javax.swing.Timer timer;
 
     public CharacterJournalGUI(CharacterJournal journal) {
-        super(new BorderLayout(0, 8)); this.journal = journal;
+        this(journal, System::currentTimeMillis);
+    }
+
+    CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock) {
+        super(new BorderLayout(0, 8)); this.journal = journal; this.clock = Objects.requireNonNull(clock);
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel top = new JPanel(new BorderLayout(0, 6));
         summary.setName("character-summary");
+        seen.setName("character-snapshot-evidence");
         ContentStyle.font(summary, ContentStyle.body()); top.add(summary, BorderLayout.NORTH);
         seen.setFont(ContentStyle.metadata(ContentStyle.body())); status.setFont(ContentStyle.metadata(ContentStyle.body()));
         JPanel filters = ContentStyle.controls();
@@ -187,6 +193,7 @@ public final class CharacterJournalGUI extends JPanel {
         boolean detached = !isDisplayable() && !exalts.isDisplayable();
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
+        if (isShowing() || detached) refreshTimeEvidence(selected());
         String storageStatus = journal.storageStatus();
         if (records.isEmpty() && storageStatus.startsWith("Saved"))
             storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
@@ -249,13 +256,7 @@ public final class CharacterJournalGUI extends JPanel {
         heading.setText(className(r.classId) + " #" + r.characterId + (r.dead ? " • Marked dead manually" : ""));
         heading.setIcon(ImageBuffer.getOutlinedIcon(r.skin == null || r.skin == 0 ? r.classId : r.skin, 28));
         death.setText(r.dead ? r.observedAgainAt > 0 ? "Observed again—restore?" : "Restore alive" : "Mark dead");
-        long age = r.lastSeen <= 0 ? -1 : Math.max(0, (System.currentTimeMillis() - r.lastSeen) / 1000);
-        seen.setText("Last observed alive " + date(r.lastObservedAlive) + "  •  Roster received " + date(r.rosterReceivedAt)
-            + "\nSnapshot update age: " + (age < 0 ? "Unknown" : age + "s") + " · "
-            + Arrays.stream(r.stats).filter(Objects::nonNull).count() + "/8 known stats · "
-            + Arrays.stream(r.equipment).filter(Objects::nonNull).count() + "/28 known slots (may be retained)"
-            + (r.dead ? "\nMarked dead manually " + date(r.diedAt) + "; preserved snapshot."
-                + (r.observedAgainAt > 0 ? " Reported again " + date(r.observedAgainAt) + ". Restore explicitly to accept updates." : "") : ""));
+        refreshTimeEvidence(r);
         seen.setToolTipText(r.source);
         String[] fields = {"class", "level", "skin", "fame", "seasonal", "created"};
         Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
@@ -272,6 +273,18 @@ public final class CharacterJournalGUI extends JPanel {
             Integer count = exalt == null ? null : exalt[CharacterJournal.EXALT_ORDER[i]];
             charExaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
         }
+    }
+    /** Time advances even after capture stops; refresh just this text, not selection or editable drafts. */
+    private void refreshTimeEvidence(CharacterRecord r) {
+        if (r == null) return;
+        long age = r.lastSeen <= 0 ? -1 : Math.max(0, (clock.getAsLong() - r.lastSeen) / 1000);
+        String text = "Last observed alive " + date(r.lastObservedAlive) + "  •  Roster received " + date(r.rosterReceivedAt)
+            + "\nSnapshot update age: " + (age < 0 ? "Unknown" : age + "s") + " · "
+            + Arrays.stream(r.stats).filter(Objects::nonNull).count() + "/8 known stats · "
+            + Arrays.stream(r.equipment).filter(Objects::nonNull).count() + "/28 known slots (may be retained)"
+            + (r.dead ? "\nMarked dead manually " + date(r.diedAt) + "; preserved snapshot."
+                + (r.observedAgainAt > 0 ? " Reported again " + date(r.observedAgainAt) + ". Restore explicitly to accept updates." : "") : "");
+        if (!seen.getText().equals(text)) seen.setText(text);
     }
     private String accountName(String key) { for (AccountRecord a : accounts) if (a.key.equals(key)) return (a.name == null ? "Account" : a.name) + " · " + key.substring(0, 6); return "Account · " + key.substring(0, 6); }
     private static String lifeLabel(CharacterRecord r) {

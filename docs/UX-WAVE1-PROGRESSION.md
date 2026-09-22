@@ -163,3 +163,39 @@ and updated GUI assertions compile but were intentionally not executed in this w
 - Independent review, full suite, native/scaled UI evidence and wave packaging remain pending.
   Shared-owned sources, alert matching, execution ledger, coordinator checkpoint and remote state
   were not changed by this worker.
+
+## Independent review corrections on integrated Wave 1
+
+Applied on the primary `feat/ux-wave-1-trust` checkout starting at
+`25311fea31991f6f779640e0dbafc16f9e82416d`:
+
+- Pet promotion now merges the existing instance record, the real object's anonymous record,
+  and the incoming fields by each field's receipt timestamp. It retains the winning field's
+  provenance and removes the anonymous row only after merging. Later ID-less object deltas
+  continue to update the single identified record.
+- Negative metadata sentinels, including `-1`, cannot promote or donate anonymous fields to an
+  identified pet. Repeated unidentified metadata replaces its unverified snapshot without joining
+  it to other unidentified or identified records.
+- The journal's regular refresh now updates time-dependent evidence independently of journal
+  revisions. It updates only the evidence text, preserving tables, sorting, selection, active tab,
+  notes draft and caret. A package-private clock seam makes age checks deterministic.
+
+Before the fixes, the new regression tests reproduced both pet failures and the frozen-age
+failure (four failing assertions/tests across the three findings). After the fixes, the focused
+headless run passed **10 tests, zero failures/errors/skips**:
+
+- `tomato.backend.data.ProgressionDataTest`: 8 tests, including the exact anonymous-200/t200,
+  existing-instance-10/t100 promotion sequence, conflicting per-field provenance, and negative
+  sentinel isolation.
+- `tomato.gui.character.CharacterJournalFreshnessRefreshTest`: 2 tests, using an injected clock
+  instead of sleeps. They verify advancing age with an unchanged journal revision, zero table/
+  selection/notes-document events, unchanged draft/caret, unknown timestamps and backward clocks.
+
+Used JDK 17 / Gradle 7.6.4, `-PrealmSharkBuildDir=build/w1-progression-blockers`, and
+`--project-cache-dir build/w1-progression-blockers/project-cache`. The local init script
+`.omc/ux/progression-blockers-headless.gradle` sets every test JVM's `java.awt.headless=true`.
+Reproduce with those options, `-I .omc/ux/progression-blockers-headless.gradle`, and
+`test --tests tomato.backend.data.ProgressionDataTest
+--tests tomato.gui.character.CharacterJournalFreshnessRefreshTest`. XML results are in
+`build/w1-progression-blockers/test-results/test/`; main/test compilation also passed.
+No native windows, rendering, focus/scaling validation or packaging was run for these corrections.

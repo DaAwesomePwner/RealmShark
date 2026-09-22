@@ -89,12 +89,26 @@ public final class ProgressionData {
         if (origin != scope || !scope.accepting) return;
         StatData id = stats.get(StatType.PET_INSTANCE_ID_STAT);
         String key = id == null ? petObjects.getOrDefault(objectId, "object:" + objectId) : "pet:" + id.statValue;
-        // A supplied instance ID promotes this same observed object; unrelated unknown IDs stay separate.
-        Pet previous = pets.get(key);
-        if (previous == null) previous = pets.get("object:" + objectId);
-        if (objectId < 0 && id == null) previous = null; // No observed object/instance identity joins two metadata responses.
+        // Real object identity can join anonymous capture with existing instance metadata.
+        // Negative metadata sentinels never establish such an association.
+        Pet previous = objectId < 0 && id == null ? null : pets.get(key);
+        Pet anonymous = objectId >= 0 && id != null ? pets.get("object:" + objectId) : null;
         Stat merged = previous == null ? new Stat() : previous.stats();
         Map<Integer, FieldCapture> evidence = previous == null ? new HashMap<>() : new HashMap<>(previous.fields);
+        long capturedAt = previous == null ? at : Math.max(at, previous.capturedAt);
+        if (anonymous != null) {
+            mergePetFields(merged, evidence, anonymous.stats, anonymous.fields, anonymous.capturedAt, anonymous.source);
+            capturedAt = Math.max(capturedAt, anonymous.capturedAt);
+        }
+        mergePetFields(merged, evidence, stats, fields, at, source);
+        if (objectId >= 0) {
+            if (id != null) pets.remove("object:" + objectId);
+            petObjects.put(objectId, key);
+        }
+        pets.put(key, new Pet(origin, objectId, capturedAt, source, merged, evidence)); changed();
+    }
+    private static void mergePetFields(Stat merged, Map<Integer, FieldCapture> evidence, Stat stats,
+                                       Map<Integer, FieldCapture> fields, long at, String source) {
         for (StatType type : StatType.values()) if (stats.get(type) != null) {
             FieldCapture incoming = fields.getOrDefault(type.get(), new FieldCapture(at, source));
             FieldCapture retained = evidence.get(type.get());
@@ -102,9 +116,6 @@ public final class ProgressionData {
             merged.set(type, stats.get(type));
             evidence.put(type.get(), incoming);
         }
-        if (id != null) pets.remove("object:" + objectId);
-        if (objectId >= 0) petObjects.put(objectId, key);
-        pets.put(key, new Pet(origin, objectId, previous == null ? at : Math.max(at, previous.capturedAt), source, merged, evidence)); changed();
     }
     public synchronized void equipped(Scope origin, TomatoData.PetAvailability availability, Integer id) {
         if (origin != scope || !scope.accepting) return;
