@@ -286,8 +286,8 @@ public class CharacterJournalLayoutTest {
                     if (locale.equals(Locale.US)) assertEquals("1,234,567", fame);
                     if (locale.equals(Locale.GERMANY)) assertEquals("1.234.567", fame);
                     JTextArea summary = named(panel, "character-summary", JTextArea.class);
-                    assertEquals(DisplayFormat.formatInteger(2) + " alive  •  " + DisplayFormat.formatInteger(0)
-                            + " dead  •  " + DisplayFormat.formatInteger(0) + " at 8/8  •  " + DisplayFormat.formatInteger(2) + " shown", summary.getText());
+                    assertEquals(DisplayFormat.formatInteger(2) + " not marked dead  •  " + DisplayFormat.formatInteger(0)
+                            + " marked dead manually  •  " + DisplayFormat.formatInteger(0) + " at 8/8  •  " + DisplayFormat.formatInteger(2) + " shown", summary.getText());
                     String timestamp = ((JLabel)roster.prepareRenderer(roster.getCellRenderer(1, 7), 1, 7)).getText();
                     assertEquals(Formatters.formatTimestamp((Long)roster.getValueAt(1, 7)), timestamp);
                     assertTrue("Full, unambiguous timestamp", timestamp.matches("[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"));

@@ -152,6 +152,38 @@ public class QuestGuiTest {
         });
     }
 
+    @Test public void boundPublicationRejectsOldAccountWhileEdtIsBlockedAndShowsStoppedOrigin() throws Exception {
+        tomato.backend.data.TomatoData data = new tomato.backend.data.TomatoData();
+        tomato.backend.data.ProgressionData source = data.progression();
+        source.reset(tomato.backend.data.CharacterJournal.accountKey("A"), "identified");
+        tomato.backend.data.ProgressionData.Scope old = source.scope();
+        QuestGUI[] ui = new QuestGUI[1];
+        SwingUtilities.invokeAndWait(() -> {
+            ui[0] = new QuestGUI(data, NAMES::get, id -> null, new util.InMemoryPreferencesFactory().userRoot().node("bound-quest"));
+            Thread producer = new Thread(() -> {
+                source.quests(old, new QuestData[]{quest("Old account", 5, new int[]{1}, 10)}, 100);
+                source.reset(tomato.backend.data.CharacterJournal.accountKey("B"), "account switched");
+                assertFalse(source.quests(old, new QuestData[]{quest("Late old account", 5, new int[]{1}, 10)}, 200));
+                QuestData latest = quest("Current account", 5, new int[]{2,2}, 10);
+                source.quests(source.scope(), new QuestData[]{latest}, 300); latest.name = "Unpublished mutation";
+            });
+            producer.start();
+            try { producer.join(3000); } catch (InterruptedException e) { throw new AssertionError(e); }
+            assertFalse("Producer must not wait for EDT", producer.isAlive());
+        });
+        SwingUtilities.invokeAndWait(() -> {
+            assertEquals("Current account", find(ui[0], JTable.class).getValueAt(0,1));
+            assertTrue(button(ui[0], "Pin for account").isEnabled());
+            assertFalse(allText(ui[0]).contains("Unpublished mutation"));
+        });
+        data.captureStopped();
+        SwingUtilities.invokeAndWait(() -> {
+            assertFalse(button(ui[0], "Pin for account").isEnabled()); assertTrue(allText(ui[0]).contains("Stale / unverified"));
+            assertTrue(allText(ui[0]).contains(tomato.backend.data.CharacterJournal.accountKey("B").substring(0,6)));
+            ui[0].removeNotify();
+        });
+    }
+
     private static JComboBox<?> combo(Container c, String name) {
         for(Component child:c.getComponents()) {
             if(child instanceof JComboBox && name.equals(child.getAccessibleContext().getAccessibleName())) return (JComboBox<?>)child;

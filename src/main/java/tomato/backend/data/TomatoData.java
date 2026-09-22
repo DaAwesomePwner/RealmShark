@@ -20,7 +20,6 @@ import packets.data.enums.StatType;
 import packets.incoming.*;
 import packets.outgoing.*;
 import tomato.backend.SecurityAbilityUseCheck;
-import tomato.gui.character.CharacterPetsGUI;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.keypop.KeypopGUI;
@@ -81,6 +80,15 @@ public class TomatoData {
     private MyInfoIdentity petIdentity;
     private Entity petOwner;
     private PetAvailability petAvailability = PetAvailability.UNKNOWN;
+    private final ProgressionData progression = new ProgressionData();
+    public ProgressionData progression() { return progression; }
+    public void captureStopped() { progression.captureStopped(); }
+    public void captureStarted() { progression.captureStarted(); }
+    public void captureBoundary() { progression.reset(null, "Connection changed; waiting for verified account"); }
+    public void quests(QuestFetchResponsePacket packet) {
+        ProgressionData.Scope origin = progression.scope();
+        progression.quests(origin, packet.quests, System.currentTimeMillis());
+    }
 
     public enum PetAvailability { UNKNOWN, ABSENT, PRESENT }
 
@@ -108,6 +116,7 @@ public class TomatoData {
     }
 
     private void resetMyInfo(String account, int characterId, int objectId) {
+        progression.reset(account, "Capture identity changed; previous quest list is stale");
         myInfoOwner = null;
         pet = null; petOwner = null; petIdentity = null; petAvailability = PetAvailability.UNKNOWN;
         myInfoIdentity = new MyInfoIdentity(myInfoIdentity.generation + 1, account, characterId, objectId);
@@ -155,6 +164,7 @@ public class TomatoData {
 
     /** Called only for the authenticated local player, never nearby players. */
     public void rememberCharacter() {
+        if (!progression.scope().accepting) return;
         if (player == null || metadataAwaitingCreate || (metadataConnection > 0 && player.id != worldPlayerId)) return;
         StatData identity = player.stat.get(StatType.ACCOUNT_ID_STAT);
         if (identity == null || identity.stringStatValue == null || identity.stringStatValue.trim().isEmpty()) return;
@@ -245,7 +255,7 @@ public class TomatoData {
     public void petYardCheck(String displayName) {
         if (displayName.equals("Pet Yard")) {
             petyard = true;
-            CharacterPetsGUI.clearPets();
+            progression.clearPets();
         }
     }
 
@@ -253,7 +263,7 @@ public class TomatoData {
         if (map == null) return;
         if (map.displayName.equals("Pet Yard")) {
             petyard = true;
-            CharacterPetsGUI.clearPets();
+            progression.clearPets();
             charListHttpRequest();
         } else if (map.displayName.equals("Daily Quest Room")) {
             charListHttpRequest();
@@ -483,7 +493,17 @@ public class TomatoData {
     }
 
     private void addPet(ObjectData object) {
-        CharacterPetsGUI.addPet(object);
+        Entity value = entityList.get(object.status.objectId);
+        if (value != null) publishYardPet(value, object.status.stats);
+    }
+
+    private void publishYardPet(Entity value, StatData[] delta) {
+        boolean isPet = progression.hasPetObject(value.id);
+        for (StatData field : delta) if (field.statTypeNum >= 81 && field.statTypeNum <= 95) { isPet = true; break; }
+        if (!isPet) return;
+        Map<Integer, FieldCapture> fields = new HashMap<>();
+        for (StatData field : delta) fields.put(field.statTypeNum, value.fieldCapture(field.statTypeNum));
+        progression.pet(progression.scope(), value.id, new Stat(delta), value.observedAt(), "Pet Yard capture", fields);
     }
 
     /**
@@ -569,6 +589,7 @@ public class TomatoData {
                 new Entity(this, idd, timePc)
             );
             entity.updateStats(p.status[i], timePc);
+            if (petyard) publishYardPet(entity, p.status[i].stats);
             if (playerListUpdated.containsKey(id)) packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
         SecurityAbilityUseCheck.decreaseDecoyCounter();
@@ -1086,6 +1107,7 @@ public class TomatoData {
         regularVault.clearChar();
         for (RealmCharacter c : chars) {
             if (c.equipment == null) continue;
+            if (!c.presence.containsKey("seasonal")) continue;
             if (c.seasonal) {
                 seasonalVault.updateCharInventory(c);
             } else {
@@ -1098,7 +1120,7 @@ public class TomatoData {
         if (!metadataAwaitingCreate && player != null && player.id == worldPlayerId
             && myInfoIdentity.account != null && currentChar != null) {
             petAvailability = petStates.getOrDefault(charId, PetAvailability.UNKNOWN);
-            if (validPetAbilities(currentChar.petAbilitys)) {
+            if (validPetAbilities(currentChar)) {
                 makePet(currentChar);
                 petAvailability = PetAvailability.PRESENT;
             }
@@ -1106,68 +1128,54 @@ public class TomatoData {
             petIdentity = myInfoIdentity;
         }
         publishMyInfoPlayer(player);
+        if (currentChar != null && myInfoIdentity.account != null) {
+            Entity details = petEntity(currentChar);
+            if (!currentChar.presence.isEmpty() && hasPetFields(currentChar)) {
+                Map<Integer, FieldCapture> fields = new HashMap<>();
+                for (StatType type : StatType.values()) {
+                    FieldCapture field = currentChar.presence.get("pet." + type.get());
+                    if (field != null) fields.put(type.get(), field);
+                }
+                progression.pet(progression.scope(), -1, details.stat, currentChar.receivedAt, "Equipped character metadata", fields);
+            }
+            StatData id = details.stat.get(StatType.PET_INSTANCE_ID_STAT);
+            progression.equipped(progression.scope(), id != null ? PetAvailability.PRESENT : petAvailability, id == null ? null : id.statValue);
+        } else progression.equipped(progression.scope(), PetAvailability.UNKNOWN, null);
         SwingUtilities.invokeLater(() -> {
-            CharacterPetsGUI.updateEquipedPet();
             FameTablePanel.updateRealmChars();
         });
     }
 
-    private static boolean validPetAbilities(int[] abilities) {
+    private static boolean validPetAbilities(RealmCharacter character) {
+        int[] abilities = character.petAbilitys;
         if (abilities == null || abilities.length != 9) return false;
         for (int i = 0; i < 9; i += 3) {
-            if (abilities[i] < 0 || abilities[i + 1] < 0 || abilities[i + 1] > 100 || abilities[i + 2] <= 0) return false;
+            if (!character.presence.containsKey("pet." + (90 + i / 3)) || !character.presence.containsKey("pet." + (93 + i / 3))
+                || abilities[i + 1] < 0 || abilities[i + 1] > 100 || abilities[i + 2] <= 0) return false;
         }
         return true;
     }
 
     private void makePet(RealmCharacter currentChar) {
-        pet = new Entity(this, -1, time);
+        pet = petEntity(currentChar);
+    }
 
-        pet.stat.set(StatType.SKIN_ID, new StatData());
-        pet.stat.set(StatType.PET_TYPE_STAT, new StatData());
-        pet.stat.set(StatType.PET_NAME_STAT, new StatData());
-        pet.stat.set(StatType.PET_RARITY_STAT, new StatData());
-        pet.stat.set(StatType.PET_INSTANCE_ID_STAT, new StatData());
-        pet.stat.set(StatType.PET_MAX_ABILITY_POWER_STAT, new StatData());
-        pet.stat.set(StatType.PET_FIRST_ABILITY_POINT_STAT, new StatData());
-        pet.stat.set(StatType.PET_FIRST_ABILITY_POWER_STAT, new StatData());
-        pet.stat.set(StatType.PET_FIRST_ABILITY_TYPE_STAT, new StatData());
-        pet.stat.set(StatType.PET_SECOND_ABILITY_POINT_STAT, new StatData());
-        pet.stat.set(StatType.PET_SECOND_ABILITY_POWER_STAT, new StatData());
-        pet.stat.set(StatType.PET_SECOND_ABILITY_TYPE_STAT, new StatData());
-        pet.stat.set(StatType.PET_THIRD_ABILITY_POINT_STAT, new StatData());
-        pet.stat.set(StatType.PET_THIRD_ABILITY_POWER_STAT, new StatData());
-        pet.stat.set(StatType.PET_THIRD_ABILITY_TYPE_STAT, new StatData());
+    private static boolean hasPetFields(RealmCharacter c) {
+        for (String field : c.presence.keySet()) if (field.startsWith("pet.")) return true;
+        return false;
+    }
 
-        pet.stat.get(StatType.SKIN_ID).statValue = currentChar.petSkin;
-        pet.stat.get(StatType.PET_TYPE_STAT).statValue = currentChar.petType;
-        pet.stat.get(StatType.PET_NAME_STAT).stringStatValue =
-            currentChar.petName;
-        pet.stat.get(StatType.PET_RARITY_STAT).statValue =
-            currentChar.petRarity;
-        pet.stat.get(StatType.PET_INSTANCE_ID_STAT).statValue =
-            currentChar.petInstanceId;
-        pet.stat.get(StatType.PET_MAX_ABILITY_POWER_STAT).statValue =
-            currentChar.petMaxAbilityPower;
-
-        pet.stat.get(StatType.PET_FIRST_ABILITY_POINT_STAT).statValue =
-            currentChar.petAbilitys[0];
-        pet.stat.get(StatType.PET_FIRST_ABILITY_POWER_STAT).statValue =
-            currentChar.petAbilitys[1];
-        pet.stat.get(StatType.PET_FIRST_ABILITY_TYPE_STAT).statValue =
-            currentChar.petAbilitys[2];
-        pet.stat.get(StatType.PET_SECOND_ABILITY_POINT_STAT).statValue =
-            currentChar.petAbilitys[3];
-        pet.stat.get(StatType.PET_SECOND_ABILITY_POWER_STAT).statValue =
-            currentChar.petAbilitys[4];
-        pet.stat.get(StatType.PET_SECOND_ABILITY_TYPE_STAT).statValue =
-            currentChar.petAbilitys[5];
-        pet.stat.get(StatType.PET_THIRD_ABILITY_POINT_STAT).statValue =
-            currentChar.petAbilitys[6];
-        pet.stat.get(StatType.PET_THIRD_ABILITY_POWER_STAT).statValue =
-            currentChar.petAbilitys[7];
-        pet.stat.get(StatType.PET_THIRD_ABILITY_TYPE_STAT).statValue =
-            currentChar.petAbilitys[8];
+    private Entity petEntity(RealmCharacter c) {
+        Entity result = new Entity(this, -1, time);
+        int[] types = {StatType.SKIN_ID.get(), 83, 82, 84, 81, 85, 87, 90, 93, 88, 91, 94, 89, 92, 95};
+        int[] values = {c.petSkin, c.petType, 0, c.petRarity, c.petInstanceId, c.petMaxAbilityPower, 0,0,0,0,0,0,0,0,0};
+        if (c.petAbilitys != null) System.arraycopy(c.petAbilitys, 0, values, 6, Math.min(9, c.petAbilitys.length));
+        for (int i = 0; i < types.length; i++) if (c.presence.containsKey("pet." + types[i])) {
+            StatData stat = new StatData(); stat.statTypeNum = types[i]; stat.statValue = values[i];
+            for (StatType type : StatType.values()) if (type.get() == types[i]) { stat.statType = type; result.stat.set(type, stat); break; }
+            if (types[i] == 82) stat.stringStatValue = c.petName;
+        }
+        return result;
     }
 
     /**
@@ -1215,7 +1223,7 @@ public class TomatoData {
         metadataAccount++;
         metadataWorker.invalidate(false);
         resetMyInfo(null, charId, worldPlayerId);
-        CharacterPetsGUI.clearPets();
+        progression.clearPets();
         journalAccount = null; journalPendingRoster = null;
         updatedExaltStats = false; characterDataRecieved = false;
         chars = null; charMap = null;
@@ -1234,6 +1242,7 @@ public class TomatoData {
 
     /** Drained after UPDATE/NEWTICK established the authenticated local player. No I/O here. */
     void applyMetadataResponses() {
+        if (!progression.scope().accepting || progression.scope().account == null) return;
         if (metadataAwaitingCreate || player == null || journalAccount == null) return;
         for (MetadataResponse response : metadataWorker.poll()) {
             if (response == null) continue;
@@ -1368,6 +1377,7 @@ public class TomatoData {
 
     private static RealmCharacter copyCharacter(RealmCharacter s) {
         RealmCharacter c = new RealmCharacter();
+        c.presence.putAll(s.presence); c.receivedAt = s.receivedAt; c.rosterRevision = s.rosterRevision;
         c.charId=s.charId; c.classNum=s.classNum; c.classString=s.classString; c.level=s.level; c.skin=s.skin;
         c.exp=s.exp; c.fame=s.fame; c.seasonal=s.seasonal; c.backpack=s.backpack; c.qs3=s.qs3;
         c.equipment=s.equipment==null?null:s.equipment.clone(); c.equipQS=s.equipQS==null?null:s.equipQS.clone(); c.date=s.date;
@@ -1446,28 +1456,34 @@ public class TomatoData {
 
     private static RealmCharacter parseCharacter(Element node) {
         RealmCharacter c = new RealmCharacter();
+        c.receivedAt = System.currentTimeMillis();
         c.charId = Integer.parseInt(node.getAttribute("id"));
         String[] statNames = {"MaxHitPoints", "MaxMagicPoints", "Attack", "Defense", "Speed", "Dexterity", "HpRegen", "MpRegen"};
         int[] stats = new int[8];
         for (int i = 0; i < 8; i++) {
             String value = text(node, statNames[i]);
-            if (value != null) { stats[i] = Integer.parseInt(value); c.capturedStatMask |= 1 << i; }
+            if (value != null) { stats[i] = Integer.parseInt(value); c.capturedStatMask |= 1 << i; c.supplied("stat." + i, c.receivedAt, "Character list"); }
         }
         c.hp=stats[0]; c.mp=stats[1]; c.atk=stats[2]; c.def=stats[3]; c.spd=stats[4]; c.dex=stats[5]; c.vit=stats[6]; c.wis=stats[7];
         for (Element field : children(node)) {
             String value = field.getTextContent().trim();
             switch (field.getTagName()) {
-                case "ObjectType": c.classNum=Short.parseShort(value); c.setClassString(); break;
-                case "Equipment": c.equipment=Arrays.stream(value.split(",")).mapToInt(s -> Integer.parseInt(s.split("#")[0])).toArray(); break;
+                case "ObjectType": c.classNum=Short.parseShort(value); c.setClassString(); c.supplied("class"); break;
+                case "Equipment":
+                    c.equipment=Arrays.stream(value.split(",")).mapToInt(s -> Integer.parseInt(s.split("#")[0])).toArray();
+                    for (int i = 0; i < Math.min(28, c.equipment.length); i++) c.supplied("equipment." + i);
+                    break;
                 case "EquipQS": c.equipQS=value.split(","); break;
-                case "Level": c.level=Integer.parseInt(value); break;
-                case "Texture": c.skin=Integer.parseInt(value); break;
-                case "CreationDate": c.date=value; break;
+                case "Level": c.level=Integer.parseInt(value); c.supplied("level"); break;
+                case "Texture": c.skin=Integer.parseInt(value); c.supplied("skin"); break;
+                case "CreationDate": c.date=value; c.supplied("created"); break;
                 case "HasBackpack": c.backpack="1".equals(value); break;
                 case "Has3Quickslots": c.qs3="1".equals(value); break;
-                case "Seasonal": c.seasonal="True".equals(value); break;
+                case "Seasonal":
+                    if ("True".equalsIgnoreCase(value) || "False".equalsIgnoreCase(value)) { c.seasonal=Boolean.parseBoolean(value); c.supplied("seasonal"); }
+                    break;
                 case "Exp": c.exp=Long.parseLong(value); break;
-                case "CurrentFame": c.fame=Long.parseLong(value); break;
+                case "CurrentFame": c.fame=Long.parseLong(value); c.supplied("fame"); break;
                 case "PCStats":
                     c.pcStats=value;
                     try { c.charStats=new RealmCharacterStats(); c.charStats.decode(value); }
@@ -1477,19 +1493,22 @@ public class TomatoData {
                     c.petCreatedOn=field.getAttribute("createdOn"); c.petName=field.getAttribute("name");
                     c.petInstanceId=attributeInt(field,"instanceId"); c.petMaxAbilityPower=attributeInt(field,"maxAbilityPower");
                     c.petRarity=attributeInt(field,"rarity"); c.petSkin=attributeInt(field,"skin"); c.petType=attributeInt(field,"type");
+                    String[] attributes = {"name", "instanceId", "maxAbilityPower", "rarity", "skin", "type"};
+                    int[] types = {82, 81, 85, 84, StatType.SKIN_ID.get(), 83};
+                    for (int i = 0; i < attributes.length; i++) if (field.hasAttribute(attributes[i])) c.supplied("pet." + types[i]);
                     Element abilities=child(field,"Abilities");
                     if (abilities != null) {
-                        List<Integer> values = new ArrayList<>();
+                        int[] values = new int[9];
+                        int index = 0;
                         for (Element ability : children(abilities)) {
-                            if (!"Ability".equals(ability.getTagName()) || !ability.hasAttribute("points")
-                                || !ability.hasAttribute("power") || !ability.hasAttribute("type")) {
-                                values.clear(); break;
+                            if (!"Ability".equals(ability.getTagName()) || index >= 3) continue;
+                            String[] names = {"points", "power", "type"};
+                            for (int j = 0; j < 3; j++) if (ability.hasAttribute(names[j])) {
+                                values[index * 3 + j] = attributeInt(ability, names[j]); c.supplied("pet." + (87 + j * 3 + index));
                             }
-                            values.add(attributeInt(ability,"points"));
-                            values.add(attributeInt(ability,"power"));
-                            values.add(attributeInt(ability,"type"));
+                            index++;
                         }
-                        c.petAbilitys=values.stream().mapToInt(Integer::intValue).toArray();
+                        c.petAbilitys=values;
                     }
                     break;
                 default: break;

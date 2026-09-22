@@ -81,6 +81,21 @@ public class Entity implements Serializable {
     private int charId;
     public int[] baseStats;
     private boolean isPlayer;
+    private transient Map<Integer, Long> fieldTimes;
+    private transient long observedAt, typeObservedAt;
+    private static final java.util.concurrent.atomic.AtomicLong OBSERVATIONS = new java.util.concurrent.atomic.AtomicLong();
+    private transient long observationRevision;
+    private transient java.util.function.LongSupplier receiptClock;
+
+    public long observedAt() { return observedAt; }
+    public long observationRevision() { return observationRevision; }
+    public FieldCapture fieldCapture(StatType type) { return fieldCapture(type.get()); }
+    public FieldCapture fieldCapture(int type) {
+        return stat.get(type) == null ? null : new FieldCapture(fieldTimes == null ? 0 : fieldTimes.getOrDefault(type, 0L), "Captured");
+    }
+    public FieldCapture typeCapture() { return typeObservedAt == 0 ? null : new FieldCapture(typeObservedAt, "Captured"); }
+    private long receiptTime() { return receiptClock == null ? System.currentTimeMillis() : receiptClock.getAsLong(); }
+    public void captureObjectType(int type) { objectType = type; typeObservedAt = receiptTime(); }
     public long stasisCounter;
     public boolean dammahCountered;
 
@@ -106,6 +121,11 @@ public class Entity implements Serializable {
     private long lootTierTime;
 
     public Entity(TomatoData tomatoData, int id, long time) {
+        this(tomatoData, id, time, System::currentTimeMillis);
+    }
+
+    Entity(TomatoData tomatoData, int id, long time, java.util.function.LongSupplier receiptClock) {
+        this.receiptClock = receiptClock;
         this.tomatoData = tomatoData;
         this.id = id;
         creationTime = time;
@@ -119,7 +139,7 @@ public class Entity implements Serializable {
 
     public void entityUpdate(int type, ObjectStatusData status, long timePC) {
         updateStats(status, timePC);
-        this.objectType = type;
+        captureObjectType(type);
         try {
             if (type != -1) {
                 name = IdToAsset.objectName(type);
@@ -128,6 +148,22 @@ public class Entity implements Serializable {
     }
 
     public void updateStats(ObjectStatusData status, long timePC) {
+        // Reused object IDs must not transfer the previous account's retained fields.
+        StatData oldAccount = stat.get(StatType.ACCOUNT_ID_STAT);
+        for (StatData incoming : status.stats) {
+            if (incoming.statTypeNum == StatType.ACCOUNT_ID_STAT.get() && oldAccount != null
+                && incoming.stringStatValue != null && !incoming.stringStatValue.trim().isEmpty()
+                && !Objects.equals(oldAccount.stringStatValue, incoming.stringStatValue)) {
+                Arrays.fill(stat.stats, null);
+                fieldTimes = null;
+                typeObservedAt = 0;
+                break;
+            }
+        }
+        observedAt = receiptTime();
+        observationRevision = OBSERVATIONS.incrementAndGet();
+        if (fieldTimes == null) fieldTimes = new HashMap<>();
+        for (StatData incoming : status.stats) fieldTimes.put(incoming.statTypeNum, observedAt);
         statUpdates.add(status);
 
         SecurityAbilityUseCheck.checkManaFromStasis(this, status.stats);
@@ -709,20 +745,35 @@ public void genericDamageHit(
         if (values[6] >= 0) character.vit = values[6];
         if (values[7] >= 0) character.wis = values[7];
         for (int i = 0; i < 8; i++) if (values[i] >= 0) character.capturedStatMask |= 1 << i;
+        StatType[] totals = {StatType.MAX_HP_STAT, StatType.MAX_MP_STAT, StatType.ATTACK_STAT, StatType.DEFENSE_STAT,
+            StatType.SPEED_STAT, StatType.DEXTERITY_STAT, StatType.VITALITY_STAT, StatType.WISDOM_STAT};
+        StatType[] boosts = {StatType.MAX_HP_BOOST_STAT, StatType.MAX_MP_BOOST_STAT, StatType.ATTACK_BOOST_STAT,
+            StatType.DEFENSE_BOOST_STAT, StatType.SPEED_BOOST_STAT, StatType.DEXTERITY_BOOST_STAT, StatType.VITALITY_BOOST_STAT, StatType.WISDOM_BOOST_STAT};
+        for (int i = 0; i < 8; i++) if (values[i] >= 0) character.presence.put("stat." + i,
+            new FieldCapture(Math.min(fieldCapture(totals[i]).at, fieldCapture(boosts[i]).at), "Captured total minus boost"));
         StatData fame = stat.get(StatType.CURR_FAME_STAT), level = stat.get(StatType.LEVEL_STAT);
-        if (fame != null) character.fame = fame.statValue;
+        if (fame != null) { character.fame = fame.statValue; character.presence.put("fame", fieldCapture(StatType.CURR_FAME_STAT)); }
         StatData experience = stat.get(StatType.EXP_STAT);
         if (experience != null && experience.stringStatValue != null) {
             try {
                 character.exp = Long.parseLong(experience.stringStatValue);
                 character.fame = (character.exp + 40071) / 2000;
+                character.presence.put("fame", new FieldCapture(fieldCapture(StatType.EXP_STAT).at, "Estimated from captured experience"));
             } catch (NumberFormatException ignored) { }
         }
-        if (level != null) character.level = level.statValue;
+        if (level != null) { character.level = level.statValue; character.presence.put("level", fieldCapture(StatType.LEVEL_STAT)); }
+        StatData skin = stat.get(StatType.SKIN_ID), season = stat.get(StatType.SEASONAL);
+        if (skin != null) { character.skin = skin.statValue; character.presence.put("skin", fieldCapture(StatType.SKIN_ID)); }
+        if (season != null && (season.statValue == 0 || season.statValue == 1)) {
+            character.seasonal = season.statValue == 1; character.presence.put("seasonal", fieldCapture(StatType.SEASONAL));
+        }
         if (character.equipment != null) {
             for (int i = 0; i < Math.min(28, character.equipment.length); i++) {
                 StatData item = stat.get(i < 12 ? 8 + i : 131 + i - 12);
-                if (item != null) character.equipment[i] = item.statValue;
+                if (item != null) {
+                    character.equipment[i] = item.statValue;
+                    character.presence.put("equipment." + i, fieldCapture(i < 12 ? 8 + i : 131 + i - 12));
+                }
             }
         }
         if (tomatoData != null && tomatoData.getCurrentDungeonStats() != null)

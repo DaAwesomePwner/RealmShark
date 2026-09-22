@@ -24,6 +24,15 @@ import java.util.TreeMap;
  * Basic data class to store Character info.
  */
 public class RealmCharacter {
+    /** Explicitly supplied fields, including zero/false. Never inferred from primitive defaults. */
+    public final java.util.Map<String, tomato.backend.data.FieldCapture> presence = new java.util.HashMap<>();
+    public long receivedAt;
+    private static final java.util.concurrent.atomic.AtomicLong ROSTERS = new java.util.concurrent.atomic.AtomicLong();
+    public long rosterRevision = ROSTERS.incrementAndGet();
+    public void supplied(String field, long at, String source) {
+        presence.put(field, new tomato.backend.data.FieldCapture(at, source));
+    }
+    public void supplied(String field) { supplied(field, System.currentTimeMillis(), "Character list"); }
     // Dex 0
     // Spd 1
     // Vit 2
@@ -169,6 +178,7 @@ public class RealmCharacter {
         for (StringXML xml : base) {
             if (Objects.equals(xml.name, "Char")) {
                 RealmCharacter character = new RealmCharacter();
+                character.receivedAt = System.currentTimeMillis();
                 for (StringXML info : xml) {
                     if (Objects.equals(info.name, "id")) {
                         character.charId = Integer.parseInt(info.value);
@@ -177,22 +187,27 @@ public class RealmCharacter {
                     for (StringXML v : info) {
                         switch (info.name) {
                             case "ObjectType":
+                                character.supplied("class");
                                 character.classNum = Short.parseShort(v.value);
                                 character.setClassString();
                                 break;
                             case "Equipment":
                                 character.equipment = Arrays.stream(v.value.split(",")).mapToInt(s -> Integer.parseInt(s.split("#")[0])).toArray();
+                                for (int slot = 0; slot < Math.min(28, character.equipment.length); slot++) character.supplied("equipment." + slot);
                                 break;
                             case "EquipQS":
                                 character.equipQS = v.value.split(",");
                                 break;
                             case "Level":
+                                character.supplied("level");
                                 character.level = Integer.parseInt(v.value);
                                 break;
                             case "Texture":
+                                character.supplied("skin");
                                 character.skin = Integer.parseInt(v.value);
                                 break;
                             case "CreationDate":
+                                character.supplied("created");
                                 character.date = v.value;
                                 break;
                             case "HasBackpack":
@@ -202,44 +217,55 @@ public class RealmCharacter {
                                 character.qs3 = v.value.equals("1");
                                 break;
                             case "MaxHitPoints":
+                                character.supplied("stat.0");
                                 character.hp = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 1;
                                 break;
                             case "MaxMagicPoints":
+                                character.supplied("stat.1");
                                 character.mp = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 2;
                                 break;
                             case "Attack":
+                                character.supplied("stat.2");
                                 character.atk = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 4;
                                 break;
                             case "Defense":
+                                character.supplied("stat.3");
                                 character.def = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 8;
                                 break;
                             case "Speed":
+                                character.supplied("stat.4");
                                 character.spd = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 16;
                                 break;
                             case "Dexterity":
+                                character.supplied("stat.5");
                                 character.dex = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 32;
                                 break;
                             case "HpRegen":
+                                character.supplied("stat.6");
                                 character.vit = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 64;
                                 break;
                             case "MpRegen":
+                                character.supplied("stat.7");
                                 character.wis = Integer.parseInt(v.value);
                                 character.capturedStatMask |= 128;
                                 break;
                             case "Seasonal":
-                                character.seasonal = v.value.equals("True");
+                                if ("True".equalsIgnoreCase(v.value) || "False".equalsIgnoreCase(v.value)) {
+                                    character.supplied("seasonal"); character.seasonal = Boolean.parseBoolean(v.value);
+                                }
                                 break;
                             case "Exp":
                                 character.exp = Long.parseLong(v.value);
                                 break;
                             case "CurrentFame":
+                                character.supplied("fame");
                                 character.fame = Long.parseLong(v.value);
                                 break;
                             case "PCStats":
@@ -253,30 +279,42 @@ public class RealmCharacter {
                                             character.petCreatedOn = pet.value;
                                             break;
                                         case "instanceId":
+                                            character.supplied("pet.81");
                                             character.petInstanceId = Integer.parseInt(pet.value);
                                             break;
                                         case "maxAbilityPower":
+                                            character.supplied("pet.85");
                                             character.petMaxAbilityPower = Integer.parseInt(pet.value);
                                             break;
                                         case "name":
+                                            character.supplied("pet.82");
                                             character.petName = pet.value;
                                             break;
                                         case "rarity":
+                                            character.supplied("pet.84");
                                             character.petRarity = Integer.parseInt(pet.value);
                                             break;
                                         case "skin":
+                                            character.supplied("pet." + packets.data.enums.StatType.SKIN_ID.get());
                                             character.petSkin = Integer.parseInt(pet.value);
                                             break;
                                         case "type":
+                                            character.supplied("pet.83");
                                             character.petType = Integer.parseInt(pet.value);
                                             break;
                                         case "Abilities":
                                             int[] a = new int[9];
                                             int i = 0;
                                             for (StringXML abilitys : pet) {
+                                                if (!"Ability".equals(abilitys.name) || i >= 3) continue;
                                                 for (StringXML ability : abilitys) {
-                                                    a[i++] = Integer.parseInt(ability.value);
+                                                    int component = "points".equals(ability.name) ? 0 : "power".equals(ability.name) ? 1 : "type".equals(ability.name) ? 2 : -1;
+                                                    if (component >= 0) {
+                                                        a[i * 3 + component] = Integer.parseInt(ability.value);
+                                                        character.supplied("pet." + (87 + component * 3 + i));
+                                                    }
                                                 }
+                                                i++;
                                             }
                                             character.petAbilitys = a;
                                     }

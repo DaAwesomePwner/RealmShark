@@ -15,9 +15,12 @@ public class CharacterJournalTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     public static void put(Entity e, StatType type, int value) { StatData s = new StatData(); s.statValue = value; e.stat.set(type, s); }
     public static Entity player(String account, int clazz) {
-        Entity e = new Entity(null, 1, 0); e.objectType = clazz;
-        StatData id = new StatData(); id.stringStatValue = account; e.stat.set(StatType.ACCOUNT_ID_STAT, id);
-        StatData name = new StatData(); name.stringStatValue = "Sample"; e.stat.set(StatType.NAME_STAT, name);
+        Entity e = new Entity(null, 1, 0);
+        StatData id = new StatData(); id.stringStatValue = account; id.statType = StatType.ACCOUNT_ID_STAT; id.statTypeNum = id.statType.get();
+        StatData name = new StatData(); name.stringStatValue = "Sample"; name.statType = StatType.NAME_STAT; name.statTypeNum = name.statType.get();
+        packets.data.ObjectStatusData status = new packets.data.ObjectStatusData(); status.objectId = 1;
+        status.stats = new StatData[]{id, name}; status.pos = new packets.data.WorldPosData();
+        e.entityUpdate(clazz, status, 0);
         return e;
     }
     private Path file() { return temp.getRoot().toPath().resolve("Characters/journal.json"); }
