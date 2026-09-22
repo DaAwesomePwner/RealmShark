@@ -23,7 +23,10 @@ quantities separate from observations; versioned metadata; no guessed historical
 
 ## Current milestone
 
-Baseline validation complete; final independent review and PR gates pending. Initial main/live remote SHA:
+Wave 1 implementation, local validation and Windows package complete; PR gates pending.
+Baseline PR #10 merged as `835e178c56381a16a5414f3ca9791a9d1ea7f174`; final-head AI
+review and PR CI passed, followed by successful main CI run `35681691854`.
+Initial main/live remote SHA:
 `d57456d955f5c942ab0a2eb5d5a586752d2cff9b`.
 Pre-existing work: Chat ignored-player visibility feature, associated tests and docs,
 untracked UX roadmap, and unused Npcap duplicate. No other pre-existing source changes.
@@ -38,6 +41,25 @@ Build-contract evidence: `build/build-maintenance-c9d30bbc49d848a696c410b384fb42
 Test JVMs now use an in-memory PreferencesFactory to isolate Windows user preferences.
 Native Character/Quest windows were host-clamped; passing exact offscreen geometry
 checks are distinct from native exact-size coverage. Main protection is configured.
+
+Wave 1 package handoffs: [shared](UX-WAVE1-SHARED.md),
+[progression](UX-WAVE1-PROGRESSION.md), [social](UX-WAVE1-SOCIAL.md),
+[reporting](UX-WAVE1-REPORTING.md), [producer integration](UX-WAVE1-INTEGRATION.md).
+Their focused checks passed. Integrated validation at `ec39ac6` passed 624 tests,
+122 UI checks at 150%, and 122 at 200%, with zero failures/errors/skips; shadow JAR,
+isolated `--help`, and build-maintenance passed. Fresh synthetic views were independently
+reviewed, including typed-rule save failures, known/unknown pets and recovery states.
+Reports: `build/ux-wave1-final-pass/`; build-contract evidence:
+`build/build-maintenance-2c9de56d51c643acaa4d780d3c03e121/`.
+Review findings on pet identity/freshness, mixed-session coverage, capture preferences,
+asset generation replacement/publication, and compact layouts were fixed and rechecked.
+Final Windows package and bundled-Java help checks passed at source `ec39ac6` with
+guides `7305510`. Package evidence:
+`build/share/20260922-013854-a8a5295ea685419e9a9b1cf827291f1a/`.
+ZIP SHA-256: `AF4F8FD3D02690DB4585F8FA01AC55F5C1777EADDF43961036D2377CA42489B3`.
+The package builder's fresh 624 tests passed; packaged guides match their sources.
+Immutable-runtime staging checks also passed in
+`build/runtime-test-6c6f3b26a6bc471e83af6ac2de43c7a1/`.
 
 ## Sequence and work packages
 
@@ -107,58 +129,58 @@ An ID with multiple slices closes only when all slices meet their acceptance cri
 | --- | --- | --- |
 | UX-01 | 2A | pending |
 | UX-02 | 2A state; 3A routing | pending |
-| UX-03 | 1A; adopted throughout | pending |
+| UX-03 | 1A; adopted throughout | 1A verified; later adoption tracked |
 | UX-04 | 2A and module adapters; 3 linked extensions | pending |
 | UX-05 | 2A | pending |
-| UX-06 | 1A | pending |
+| UX-06 | 1A | verified; PR gate pending |
 | UX-07 | 2A onward; 4D audit | pending |
 | UX-08 | 4D | pending |
-| CHAT-1 | 1C | pending |
+| CHAT-1 | 1C | verified; PR gate pending |
 | CHAT-2 | 2B | pending |
 | CHAT-3 | 2B saved views; 3D drafts | pending |
-| KEY-1 | 1C | pending |
+| KEY-1 | 1C | verified; PR gate pending |
 | KEY-2 | 2B | pending |
 | KEY-3 | 3D | pending |
 | INS-1 | 2C | pending |
-| INS-2 | 1A honesty; 3B metadata | pending |
+| INS-2 | 1A honesty; 3B metadata | 1A verified; 3B pending |
 | INS-3 | 3B | pending |
 | INS-4 | 4B | pending |
-| CHAR-1 | 1B | pending |
+| CHAR-1 | 1B | verified; PR gate pending |
 | CHAR-2 | 2C | pending |
 | CHAR-3 | 4A | pending |
 | CHAR-4 | 4B | pending |
-| CHAR-5 | 1B | pending |
-| STAT-1 | 1D | pending |
+| CHAR-5 | 1B | verified; PR gate pending |
+| STAT-1 | 1D | verified; PR gate pending |
 | STAT-2 | 3C | pending |
 | STAT-3 | 3C | pending |
-| QUEST-1 | 1B | pending |
+| QUEST-1 | 1B | verified; PR gate pending |
 | QUEST-2 | 4A | pending |
 | QUEST-3 | 4A | pending |
-| INFO-1 | 1A | pending |
+| INFO-1 | 1A | verified; PR gate pending |
 | INFO-2 | 3B | pending |
-| COMBAT-1 | 1D | pending |
+| COMBAT-1 | 1D | verified; PR gate pending |
 | COMBAT-2 | 2C | pending |
 | COMBAT-3 | 3B | pending |
 | COMBAT-4 | 3B | pending |
 | COMBAT-5 | 3B | pending |
-| LOOT-1 | 1D recency; 2D deep search | pending |
+| LOOT-1 | 1D recency; 2D deep search | recency verified; deep search pending |
 | LOOT-2 | 2D | pending |
 | LOOT-3 | 3C | pending |
 | LOOT-4 | 4C | pending |
 | LOG-1 | 2B | pending |
-| LOG-2 | 1A honesty; 3A metadata | pending |
+| LOG-2 | 1A honesty; 3A metadata | 1A verified; 3A pending |
 | LOG-3 | 2B | pending |
 | RUN-1 | 2D | pending |
 | RUN-2 | 3A | pending |
 | TIME-1 | 2D | pending |
 | TIME-2 | 3A | pending |
-| BRIDGE-1 | 1D | pending |
-| BRIDGE-2 | 1D | pending |
+| BRIDGE-1 | 1D | verified; PR gate pending |
+| BRIDGE-2 | 1D | verified; PR gate pending |
 | BRIDGE-3 | 3D | pending |
 | BRIDGE-4 | 3D | pending |
-| ALERT-1 | 1C | pending |
-| ALERT-2 | 1C | pending |
-| ALERT-3 | 1C | pending |
+| ALERT-1 | 1C | verified; PR gate pending |
+| ALERT-2 | 1C | verified; PR gate pending |
+| ALERT-3 | 1C | verified; PR gate pending |
 | ALERT-4 | 3D | pending |
 
 ## Validation and merge gates
