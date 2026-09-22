@@ -41,6 +41,7 @@ public final class HistoricalStatistics {
         for(SessionStore.Session session:store.sessions())if(scope.equals(SessionStore.ALL)||scope.equals(session.id)){
             data.sessions.put(session.id,session);Profile profile=new Profile();profile.imported="Imported".equals(session.version);data.profiles.put(session.id,profile);
         }
+        Map<String,Map<String,Profile>> visitCohorts=new LinkedHashMap<>();
         store.read(scope,"runs",ActivityJournal.Visit.class,(session,visit)->{
             if(!ParseDungeon.isDungeon(visit.map))return;
             Profile sessionProfile=data.profiles.computeIfAbsent(session.id,k->new Profile());sessionProfile.runs++;
@@ -50,10 +51,11 @@ public final class HistoricalStatistics {
             String map=canonical(visit.map);
             Profile dungeon=data.dungeons.computeIfAbsent(map,k->new Profile());
             if("Imported".equals(session.version)){dungeon.excludedRuns++;return;}
-            dungeon.runs++;dungeon.millis+=visit.observedMillis();
-            dungeon.missingDuration|=visit.observedMillis()<=0;
-            if(visit.ended==0)dungeon.ongoing++;
-            if("Completed".equals(visit.runStatus()))dungeon.completed++;
+            Profile cohort=visitCohorts.computeIfAbsent(session.id,k->new TreeMap<>()).computeIfAbsent(map,k->new Profile());
+            cohort.runs++;cohort.millis+=visit.observedMillis();
+            cohort.missingDuration|=visit.observedMillis()<=0;
+            if(visit.ended==0)cohort.ongoing++;
+            if("Completed".equals(visit.runStatus()))cohort.completed++;
             data.runs.put(session.id+"/"+visit.id,map);
         });
         store.read(scope,"loot",LootDashboard.Drop.class,(session,drop)->{
@@ -64,6 +66,18 @@ public final class HistoricalStatistics {
             dungeon.add(drop,linked);sessionProfile.add(drop,linked);
             if(linked)dungeon.lootRuns.add(session.id+"/"+drop.visitId);
         });
+        // Read each loot journal once before admitting any session's visits. Older
+        // sessions have no module-availability metadata; another session's bags
+        // cannot turn their unknown coverage into recorded zero-loot visits.
+        visitCohorts.forEach((session,cohorts)->cohorts.forEach((map,cohort)->{
+            Profile dungeon=data.dungeons.get(map);
+            if(data.profiles.get(session).bags>0){
+                dungeon.lootEvidence=true;dungeon.runs+=cohort.runs;dungeon.millis+=cohort.millis;
+                dungeon.completed+=cohort.completed;dungeon.ongoing+=cohort.ongoing;dungeon.missingDuration|=cohort.missingDuration;
+            }else{
+                dungeon.unknownRuns+=cohort.runs;dungeon.unknownMillis+=cohort.millis;
+            }
+        }));
         if(withFame){
             store.read(scope,"dungeon-totals",com.google.gson.JsonArray.class,(session,array)->{
                 for(com.google.gson.JsonElement element:array)data.dungeonTotals.add(SessionStore.JSON.fromJson(element,tomato.backend.data.DungeonStatData.Snapshot.class));
@@ -108,7 +122,7 @@ public final class HistoricalStatistics {
         JTextArea details=StatsUi.note("Select a dungeon to inspect rate calculations and exclusions.");details.setName("history-loot-rate-details");
         details.getAccessibleContext().setAccessibleName("Selected dungeon loot rate evidence");
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()){int row=table.getSelectedRow();details.setText(row<0?"Select a dungeon to inspect rate calculations and exclusions.":profiles.get(table.convertRowIndexToModel(row)).explanation());details.setCaretPosition(0);}});
-        JPanel panel=new JPanel(new BorderLayout(0,6));panel.add(HistoryTables.page(table,"Observed drops, not pickups. Select a row for numerator, denominator and coverage. Rates are observed sample rates, not drop probabilities."));
+        JPanel panel=new JPanel(new BorderLayout(0,6));panel.add(HistoryTables.page(table,"Observed drops, not pickups. Rates exclude run-only imports and sessions without saved loot evidence. Select a row for eligible numerator, denominator and coverage; sample rates are not drop probabilities."));
         JScrollPane scroll=new JScrollPane(details);scroll.setPreferredSize(new Dimension(400,145));panel.add(scroll,BorderLayout.SOUTH);
         if(table.getRowCount()>0)table.setRowSelectionInterval(0,0);
         return panel;
@@ -138,28 +152,29 @@ public final class HistoricalStatistics {
                 new Class<?>[]{String.class,Integer.class,String.class,Double.class,Double.class,Double.class},rows),"Fame changes use each character's first and last captured values within its app session.");
     }
     static final class Profile {
-        static final String[] COLUMNS={"Dungeon","Observed runs","Items / run","Items / hour","UT / hour","Captured minutes","Items","White bags","UT gear","ST gear","Stat potions","Completed","Whites / run","UT / run","ST / run","Potions / run","Excluded imported runs","Loot coverage"};
-        static final Class<?>[] TYPES={String.class,Long.class,Double.class,Double.class,Double.class,Double.class,Long.class,Long.class,Long.class,Long.class,Long.class,Long.class,Double.class,Double.class,Double.class,Double.class,Long.class,String.class};
+        static final String[] COLUMNS={"Dungeon","Observed runs","Items / run","Items / hour","UT / hour","Captured minutes","Items","White bags","UT gear","ST gear","Stat potions","Completed","Whites / run","UT / run","ST / run","Potions / run","Excluded imported runs","Excluded unknown-coverage runs","Loot coverage"};
+        static final Class<?>[] TYPES={String.class,Long.class,Double.class,Double.class,Double.class,Double.class,Long.class,Long.class,Long.class,Long.class,Long.class,Long.class,Double.class,Double.class,Double.class,Double.class,Long.class,Long.class,String.class};
         long runs,completed,millis,items,whites,uts,sts,potions,damage;boolean unassigned;
-        long bags,unassignedBags,excludedRuns,ongoing;
-        boolean imported,missingDuration;
+        long bags,unassignedBags,excludedRuns,unknownRuns,unknownMillis,ongoing;
+        boolean imported,missingDuration,lootEvidence;
         final Set<String> lootRuns=new HashSet<>();
         boolean damageKnown=true;
         void add(LootDashboard.Drop drop,boolean linked){
-            bags++;if(!linked)unassignedBags++;unassigned|=!linked;items+=drop.items.size();if(drop.bag.equals("White")||drop.bag.equals("B.White"))whites++;
+            lootEvidence=true;bags++;if(!linked)unassignedBags++;unassigned|=!linked;items+=drop.items.size();if(drop.bag.equals("White")||drop.bag.equals("B.White"))whites++;
             for(LootDashboard.Item item:drop.items){if(item.ut)uts++;if(item.st)sts++;if(item.potion)potions++;}
         }
-        Long lootValue(long count){return bags==0?null:count;}
-        String coverage(){return bags>0?Evidence.Coverage.PARTIAL+" · observed bags; gaps unknown":imported||excludedRuns>0&&runs==0?Evidence.Coverage.NOT_CAPTURED+" · run-only import":"No saved loot · coverage unknown";}
-        Double perRun(long count){return bags==0||unassigned||runs==0?null:count/(double)runs;}
-        Double perHour(long count){return bags==0||unassigned||missingDuration||millis<=0?null:count*3600000.0/millis;}
-        String explanation(){return coverage()+"\nNumerators: "+(bags==0?"unavailable — no saved loot evidence.":items+" items, "+whites+" white bags, "+uts+" UT gear, "+sts+" ST gear, "+potions+" stat potions (observed, not owned).")
+        Long lootValue(long count){return lootEvidence?count:null;}
+        String coverage(){return lootEvidence?Evidence.Coverage.PARTIAL+" · session loot evidence; gaps unknown":imported||excludedRuns>0&&unknownRuns==0&&runs==0?Evidence.Coverage.NOT_CAPTURED+" · run-only import":"No saved loot · coverage unknown";}
+        Double perRun(long count){return !lootEvidence||unassigned||runs==0?null:count/(double)runs;}
+        Double perHour(long count){return !lootEvidence||unassigned||missingDuration||millis<=0?null:count*3600000.0/millis;}
+        String explanation(){return coverage()+"\nNumerators: "+(!lootEvidence?"unavailable — no saved loot evidence.":items+" items, "+whites+" white bags, "+uts+" UT gear, "+sts+" ST gear, "+potions+" stat potions (observed, not owned).")
             +"\nPer run = numerator / "+runs+" eligible observed visits; "+(runs-lootRuns.size())+" with no linked bags; "+ongoing+" ongoing visits included."
             +"\nPer hour = numerator × 3,600,000 / "+millis+" observed milliseconds (first-to-last observation for each visit; includes gaps)."
-            +"\nExcluded: "+excludedRuns+" run-only imported visits. Unassigned bags: "+unassignedBags+" (session + visit + canonical dungeon must agree)."
-            +"\n"+(bags==0?"Rates unavailable: no saved loot evidence; absence does not establish zero.":unassigned?"Rates unavailable: unassigned drops would mix numerator and denominator scopes.":runs==0?"Rates unavailable: no eligible observed visits.":"Zero-loot visits remain in the denominator; no claim of complete recording or true drop probability.")
+            +"\nExcluded: "+excludedRuns+" run-only imported visits; "+unknownRuns+" unknown-coverage visits ("+unknownMillis+" observed milliseconds) from sessions without saved loot evidence. Unassigned bags: "+unassignedBags+" (session + visit + canonical dungeon must agree)."
+            +"\nEligibility requires at least one saved bag in the same session; even an empty or unassigned bag establishes partial module evidence, not complete recording."
+            +"\n"+(!lootEvidence?"Rates unavailable: no saved loot evidence; absence does not establish zero.":unassigned?"Rates unavailable: unassigned drops would mix numerator and denominator scopes.":runs==0?"Rates unavailable: no eligible observed visits.":"Zero-loot visits within evidenced sessions remain in the denominator; unknown-coverage sessions do not. No claim of complete recording or true drop probability.")
             +(missingDuration?" Hourly rates unavailable: at least one visit has no positive observed duration.":"");}
-        Object[] row(String name){return new Object[]{name,runs,perRun(items),perHour(items),perHour(uts),millis/60000.0,lootValue(items),lootValue(whites),lootValue(uts),lootValue(sts),lootValue(potions),completed,perRun(whites),perRun(uts),perRun(sts),perRun(potions),excludedRuns,coverage()};}
+        Object[] row(String name){return new Object[]{name,runs,perRun(items),perHour(items),perHour(uts),millis/60000.0,lootValue(items),lootValue(whites),lootValue(uts),lootValue(sts),lootValue(potions),completed,perRun(whites),perRun(uts),perRun(sts),perRun(potions),excludedRuns,unknownRuns,coverage()};}
     }
     private static final class CharacterFame {
         long firstTime=Long.MAX_VALUE,lastTime=Long.MIN_VALUE;double first,last;

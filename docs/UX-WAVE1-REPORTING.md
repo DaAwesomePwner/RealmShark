@@ -30,8 +30,9 @@ All-history occurrence search beyond the retained window remains Wave 2 work.
   an observed zero. An actual saved empty bag establishes zero visible items.
 - Saved bags establish partial observation evidence, not continuous recording.
 - Selecting a dungeon shows numerator units, eligible visits, visits with no linked
-  bags, ongoing visits, observed milliseconds, imported exclusions and unassigned
-  bags. Rates retain eligible zero-loot visits. Missing positive duration on any
+  bags, ongoing visits, observed milliseconds, imported and unknown-coverage
+  exclusions, and unassigned bags. Rates retain zero-loot visits only within
+  sessions with saved loot evidence. Missing positive duration on any
   eligible visit makes hourly rates unavailable; unassigned drops make rates
   unavailable rather than mixing unmatched numerators and denominators.
 - Verified aliases are normalized before the existing session/visit/dungeon join
@@ -46,6 +47,54 @@ All-history occurrence search beyond the retained window remains Wave 2 work.
 Sources: `gui/stats/HistoricalStatistics.java`, `LootDashboard.java`,
 `DungeonStats.java`, and `backend/data/DungeonStatData.java` under
 `src/main/java/tomato/`. Shared `Evidence.Coverage` and wrapping-text helpers are reused.
+
+#### STAT-1 independent-review correction — primary checkout
+
+Starting head: `efe80ae`, branch `feat/ux-wave-1-trust`. Review found that saved
+bags from one session incorrectly made every other non-imported session eligible
+for the same dungeon's rate denominator. The reporting correction collects
+session/dungeon visit cohorts first, reads each loot journal once, then merges only
+cohorts whose **own session** has a saved bag. No per-module availability metadata
+exists in these session records; missing journals remain unknown.
+
+`Excluded unknown-coverage runs` and selected-row details disclose the excluded
+visit count and observed duration. Excluded durations, completion counts and
+ongoing counts do not enter the eligible cohort. Session comparison still retains
+all observed visits and reports unknown loot as unavailable. Empty and unassigned
+saved bags establish partial session-level module evidence; they do not establish
+continuous recording. A known session's dungeon with no bags can therefore show
+zero recorded loot, while another session without any saved bags stays unknown.
+Unassigned drops still invalidate rates for their dungeon, and run-only imported
+visits remain separately excluded.
+
+Focused correction validation: **16 tests passed, zero failures/errors/skips**,
+JDK 17.0.20.1 / Gradle 7.6.4, main `--release 8`, forced headless test JVMs with
+isolated working/history directories and the in-memory PreferencesFactory:
+
+- `tomato.gui.stats.ReportingStatisticsTest` — 14 tests, including six new cases:
+  - `ninetyNineUnknownVisitsCannotDiluteOneEvidencedVisit`: 99 one-minute visits
+    with no loot journal plus one evidenced one-minute visit / one item yields
+    **1 item/run, 60 items/hour**, and discloses 99 excluded visits / 5,940,000 ms.
+    Adding a run-only import does not change either rate.
+  - `evidencedSessionKeepsItsVisitWithoutLootInBothDenominators`: two one-minute
+    visits in one evidenced session with one item yield **0.5/run, 30/hour**.
+  - `emptyBagEvidenceIsSessionScopedAndSurvivesDungeonFiltering`: an observed empty
+    bag is evidence even with zero items; another dungeon in that session can have
+    zero recorded loot, but another session without bags remains unavailable.
+  - `onlyEligibleSessionDurationsCanInvalidateTheHourlyRate`: an excluded unknown
+    visit with zero duration cannot invalidate a known cohort; an eligible visit
+    with zero duration still invalidates hourly rates.
+  - `unassignedBagEstablishesSessionEvidenceButCannotCreateARate`: retains observed
+    items and eligible visits, but both rates remain unavailable.
+  - `unknownAndImportedOnlyCohortsDoNotBecomeRecordedZero`: neither imported nor
+    unknown coverage becomes a measured zero when combined.
+- `tomato.gui.stats.StatisticsExplorerTest.dungeonFiltersPreserveLootOnlySourcesAndNumericSorting`
+- `tomato.backend.data.DungeonSessionScopeTest`
+
+Primary-checkout outputs: `build/ux-stat1-coverage/`, project cache
+`build/ux-stat1-coverage-cache/`; XML results under
+`build/ux-stat1-coverage/test-results/test/`. No desktop/native/scaled validation
+was run for this correction; final integrated review and serialized gates remain.
 
 ### COMBAT-1: metric definitions and shared pause
 
@@ -100,9 +149,9 @@ Sources: `src/main/java/tomato/bridge/BridgeService.java` and
 `src/main/java/tomato/gui/bridge/BridgeReviewGUI.java`. No endpoint, wire payload,
 automatic retry or saved-journal reader was added.
 
-## Validation evidence
+## Original worker validation evidence
 
-Final focused run including the typed loot hook: **62 tests, 0 failures, 0 errors,
+Original worker run including the typed loot hook: **62 tests, 0 failures, 0 errors,
 0 skipped**, using JDK
 17.0.20.1 and Gradle wrapper 7.6.4. Main compilation retains `--release 8`.
 Test JVMs used `JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`, the existing in-memory

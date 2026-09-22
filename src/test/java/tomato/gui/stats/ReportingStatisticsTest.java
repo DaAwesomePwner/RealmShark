@@ -8,6 +8,7 @@ import tomato.backend.data.Entity;
 import tomato.gui.history.SessionPanel;
 import tomato.history.SessionStore;
 import javax.swing.*;
+import java.nio.file.*;
 import java.util.*;
 import static org.junit.Assert.*;
 import static tomato.gui.history.SessionPanelTest.named;
@@ -45,6 +46,133 @@ public class ReportingStatisticsTest {
         ActivityJournal.Visit v=new ActivityJournal.Visit();v.id=id;v.map=map;v.started=1000;v.lastSeen=v.ended=1000+duration;return v;
     }
     private static Object value(JTable table,String name){return table.getValueAt(0,table.getColumnModel().getColumnIndex(name));}
+    @Test public void ninetyNineUnknownVisitsCannotDiluteOneEvidencedVisit() throws Exception {
+        Path root=temp.newFolder().toPath();String unknownId;
+        try(SessionStore unknown=new SessionStore(root,true,"synthetic A")){
+            unknownId=unknown.currentId();
+            for(int i=0;i<99;i++){
+                ActivityJournal.Visit v=visit("unknown-"+i,"Ice Citadel",60000);
+                v.started+=60000L*i;v.lastSeen+=60000L*i;v.ended=v.lastSeen;
+                unknown.put("runs",v.id,v);
+            }
+            unknown.flush();assertFalse(Files.exists(root.resolve(unknownId).resolve("loot.jsonl")));
+        }
+        try(SessionStore known=new SessionStore(root,true,"synthetic B")){
+            known.put("runs","run",visit("run","Ice Citadel",60000));known.append("loot",drop(2000,"Boss"));known.flush();
+            SessionPanel.Loaded loaded=HistoricalStatistics.statistics(known,SessionStore.ALL,0,"");
+            SwingUtilities.invokeAndWait(()->{
+                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
+                assertEquals(1L,value(table,"Observed runs"));assertEquals(1.0,value(table,"Captured minutes"));
+                assertEquals(1L,value(table,"Items"));assertEquals(1.0,value(table,"Items / run"));assertEquals(60.0,value(table,"Items / hour"));
+                assertEquals(99L,value(table,"Excluded unknown-coverage runs"));assertEquals(0L,value(table,"Excluded imported runs"));
+                String details=named(panel,"history-loot-rate-details",JTextArea.class).getText();
+                assertTrue(details.contains("0 with no linked bags"));assertTrue(details.contains("99 unknown-coverage visits (5940000 observed milliseconds)"));
+                JTable sessions=named(panel,"history-session-comparison",JTable.class);assertEquals(2,sessions.getRowCount());
+                for(int row=0;row<sessions.getRowCount();row++){
+                    boolean unknownSession=Long.valueOf(99).equals(sessions.getValueAt(row,2));
+                    Object items=sessions.getValueAt(row,sessions.getColumnModel().getColumnIndex("Items"));
+                    if(unknownSession){assertNull(items);assertTrue(sessions.getValueAt(row,sessions.getColumnModel().getColumnIndex("Loot coverage")).toString().contains("coverage unknown"));}
+                    else assertEquals(1L,items);
+                }
+            });
+            known.importSnapshot("synthetic run-only import","Imported fixture",1000,"runs","imported",visit("imported","Ice Citadel",60000));
+            SessionPanel.Loaded withImport=HistoricalStatistics.loot(known,SessionStore.ALL,0,"");
+            SwingUtilities.invokeAndWait(()->{
+                JTable table=named(withImport.createView(),"history-dungeon-loot",JTable.class);
+                assertEquals(1L,value(table,"Observed runs"));assertEquals(1L,value(table,"Excluded imported runs"));assertEquals(99L,value(table,"Excluded unknown-coverage runs"));
+                assertEquals(1.0,value(table,"Items / run"));assertEquals(60.0,value(table,"Items / hour"));
+            });
+        }
+    }
+    @Test public void evidencedSessionKeepsItsVisitWithoutLootInBothDenominators() throws Exception {
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
+            store.put("runs","run",visit("run","Ice Citadel",60000));store.put("runs","empty",visit("empty","Ice Citadel",60000));
+            store.append("loot",drop(2000,"Boss"));store.flush();
+            SessionPanel.Loaded loaded=HistoricalStatistics.loot(store,store.currentId(),0,"");
+            SwingUtilities.invokeAndWait(()->{
+                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
+                assertEquals(2L,value(table,"Observed runs"));assertEquals(2.0,value(table,"Captured minutes"));
+                assertEquals(.5,value(table,"Items / run"));assertEquals(30.0,value(table,"Items / hour"));assertEquals(0L,value(table,"Excluded unknown-coverage runs"));
+                assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("1 with no linked bags"));
+            });
+        }
+    }
+    @Test public void emptyBagEvidenceIsSessionScopedAndSurvivesDungeonFiltering() throws Exception {
+        Path root=temp.newFolder().toPath();String knownId;
+        try(SessionStore known=new SessionStore(root,true,"synthetic known")){
+            knownId=known.currentId();
+            known.put("runs","run",visit("run","Ice Citadel",60000));known.put("runs","empty",visit("empty","Lost Halls",60000));
+            known.append("loot",new LootDashboard.Drop("Blue","Ice Citadel","Boss",2000,Collections.emptyList(),"run"));known.flush();
+        }
+        try(SessionStore unknown=new SessionStore(root,true,"synthetic unknown")){
+            unknown.put("runs","empty",visit("empty","Lost Halls",60000));unknown.flush();
+            SessionPanel.Loaded known=HistoricalStatistics.loot(unknown,knownId,0,"Lost Halls");
+            SessionPanel.Loaded combined=HistoricalStatistics.loot(unknown,SessionStore.ALL,0,"Lost Halls");
+            SessionPanel.Loaded alone=HistoricalStatistics.loot(unknown,unknown.currentId(),0,"Lost Halls");
+            SwingUtilities.invokeAndWait(()->{
+                for(SessionPanel.Loaded loaded:Arrays.asList(known,combined)){
+                    JTable table=named(loaded.createView(),"history-dungeon-loot",JTable.class);
+                    assertEquals(1,table.getRowCount());assertEquals("Lost Halls",value(table,"Dungeon"));assertEquals(1L,value(table,"Observed runs"));
+                    assertEquals(0L,value(table,"Items"));assertEquals(0.0,value(table,"Items / run"));assertEquals(0.0,value(table,"Items / hour"));
+                    assertTrue(value(table,"Loot coverage").toString().contains("Partial"));
+                    assertEquals(loaded==combined?1L:0L,value(table,"Excluded unknown-coverage runs"));
+                }
+                JTable table=named(alone.createView(),"history-dungeon-loot",JTable.class);
+                assertEquals(0L,value(table,"Observed runs"));assertEquals(1L,value(table,"Excluded unknown-coverage runs"));
+                assertNull(value(table,"Items"));assertNull(value(table,"Items / run"));assertNull(value(table,"Items / hour"));
+                assertTrue(value(table,"Loot coverage").toString().contains("coverage unknown"));
+            });
+        }
+    }
+    @Test public void onlyEligibleSessionDurationsCanInvalidateTheHourlyRate() throws Exception {
+        for(boolean knownMissingDuration:new boolean[]{false,true}){
+            Path root=temp.newFolder().toPath();
+            try(SessionStore unknown=new SessionStore(root,true,"synthetic unknown")){
+                unknown.put("runs","gap",visit("gap","Ice Citadel",0));unknown.flush();
+            }
+            try(SessionStore known=new SessionStore(root,true,"synthetic known")){
+                known.put("runs","run",visit("run","Ice Citadel",60000));known.append("loot",drop(2000,"Boss"));
+                if(knownMissingDuration)known.put("runs","gap",visit("gap","Ice Citadel",0));known.flush();
+                SessionPanel.Loaded loaded=HistoricalStatistics.loot(known,SessionStore.ALL,0,"");
+                SwingUtilities.invokeAndWait(()->{
+                    JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
+                    assertEquals(1L,value(table,"Excluded unknown-coverage runs"));assertEquals(knownMissingDuration?2L:1L,value(table,"Observed runs"));
+                    assertEquals(knownMissingDuration?.5:1.0,value(table,"Items / run"));
+                    if(knownMissingDuration){assertNull(value(table,"Items / hour"));assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("at least one visit has no positive observed duration"));}
+                    else assertEquals(60.0,value(table,"Items / hour"));
+                });
+            }
+        }
+    }
+    @Test public void unassignedBagEstablishesSessionEvidenceButCannotCreateARate() throws Exception {
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
+            store.put("runs","a",visit("a","Ice Citadel",60000));store.put("runs","b",visit("b","Ice Citadel",60000));
+            store.append("loot",drop(2000,"Boss"));store.flush(); // Bag refers to absent visit "run".
+            SessionPanel.Loaded loaded=HistoricalStatistics.loot(store,store.currentId(),0,"");
+            SwingUtilities.invokeAndWait(()->{
+                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
+                assertEquals(2L,value(table,"Observed runs"));assertEquals(0L,value(table,"Excluded unknown-coverage runs"));assertEquals(1L,value(table,"Items"));
+                assertNull(value(table,"Items / run"));assertNull(value(table,"Items / hour"));
+                assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("Unassigned bags: 1"));
+            });
+        }
+    }
+    @Test public void unknownAndImportedOnlyCohortsDoNotBecomeRecordedZero() throws Exception {
+        Path root=temp.newFolder().toPath();
+        try(SessionStore imported=new SessionStore(root,true,"Imported")){
+            imported.put("runs","run",visit("run","Ice Citadel",60000));imported.flush();
+        }
+        try(SessionStore unknown=new SessionStore(root,true,"synthetic")){
+            unknown.put("runs","run",visit("run","Ice Citadel",60000));unknown.flush();
+            SessionPanel.Loaded loaded=HistoricalStatistics.loot(unknown,SessionStore.ALL,0,"");
+            SwingUtilities.invokeAndWait(()->{
+                JTable table=named(loaded.createView(),"history-dungeon-loot",JTable.class);
+                assertEquals(0L,value(table,"Observed runs"));assertEquals(1L,value(table,"Excluded imported runs"));assertEquals(1L,value(table,"Excluded unknown-coverage runs"));
+                assertNull(value(table,"Items"));assertNull(value(table,"Items / run"));assertNull(value(table,"Items / hour"));
+                assertTrue(value(table,"Loot coverage").toString().contains("coverage unknown"));
+            });
+        }
+    }
     @Test public void runOnlyImportsExposeUnavailableLootInBothReports() throws Exception {
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"Imported")){
             store.put("runs","run",visit("run","Ice Citadel",60000));store.flush();
