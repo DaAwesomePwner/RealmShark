@@ -10,13 +10,11 @@ import javax.swing.*;
 import javax.swing.table.*;
 import javax.swing.event.*;
 import java.awt.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
-import java.util.regex.Pattern;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.CollectionControl;
@@ -37,6 +35,18 @@ public final class LoggingGUI extends JPanel {
     private final JCheckBox save = new JCheckBox("Save diagnostic samples");
     private final JComboBox<String> sampling = new JComboBox<>(new String[] {"Sampled", "Detailed"});
     private final JTabbedPane tabs = new JTabbedPane();
+    private final JPanel facets = ContentStyle.controls(), chips = ContentStyle.controls();
+    private final JLabel counts = new JLabel();
+    private final JComboBox<String> packetFacet = new JComboBox<>(), statFacet = new JComboBox<>(), objectFacet = new JComboBox<>(), areaFacet = new JComboBox<>(), outcomeFacet = new JComboBox<>();
+    private final JCheckBox changedOnly = new JCheckBox("Changed values only");
+    private final JButton samplesLink = new JButton("View retained samples"), fieldLink = new JButton("Open field definition");
+    private final JComboBox<String> fieldChoice = new JComboBox<>();
+    private final JComboBox<LoggingReport.Source> exportSource = new JComboBox<>(LoggingReport.Source.values());
+    private final JButton openFolder = new JButton("Open report folder");
+    private Path reportFolder;
+    private final List<DiscoveryCatalog.SchemaField> catalog = DiscoveryCatalog.fields();
+    private LoggingQuery chipQuery;
+    private Map<String,Object> chipState;
     private final DataTable packets = new DataTable("ID", "Packet", "Direction", "Evidence", "Count", "Bytes", "Decode errors", "Trailing", "Type listeners");
     private final DataTable stats = new DataTable("ID", "Stat", "Observations", "Changes", "Latest", "Secondary", "Min", "Max", "Withheld");
     private final DataTable events = new DataTable("Time", "Area", "Packet", "Outcome", "Bytes", "Selected values / stat samples");
@@ -72,15 +82,33 @@ public final class LoggingGUI extends JPanel {
         JPanel actions = ContentStyle.controls();
         actions.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));
         JButton export = new JButton("Export report"); export.addActionListener(e -> export());
-        export.setToolTipText("Export current capture diagnostics and full activity history, even while this display is frozen.");
+        export.setToolTipText("Preview the chosen snapshot and counts, then export all retained diagnostics. Display filters are recorded, not applied.");
+        exportSource.setName("logging-export-source"); exportSource.getAccessibleContext().setAccessibleName("Diagnostic export source");
         JButton clear = new JButton("Clear data");
         clear.setToolTipText("Clear diagnostic counters and samples. Runs, Timeline and resource history remain available.");
         clear.addActionListener(e -> { log.clearDiagnostics(); freeze.setSelected(false); refresh(); });
-        search.setToolTipText("Search all columns of every logging view");
+        search.setToolTipText("Literal search of displayed columns and retained nested stat names, IDs, objects and values");
         search.setName("logging-search");search.getAccessibleContext().setAccessibleName("Search logging views");
         JPanel searchBox = new JPanel(new BorderLayout(5,0)); JLabel searchLabel = new JLabel("Search");searchLabel.setLabelFor(search);searchBox.add(searchLabel, BorderLayout.WEST); searchBox.add(search);
-        actions.add(searchBox); actions.add(observedOnly); actions.add(issuesOnly); controls.add(export); controls.add(clear);
+        actions.add(searchBox); actions.add(observedOnly); actions.add(issuesOnly); controls.add(clear);
+        JPanel exportActions = ContentStyle.controls(); exportActions.add(exportSource); exportActions.add(export); exportActions.add(openFolder);
+        openFolder.setEnabled(false); openFolder.addActionListener(e -> {
+            final Path folder=reportFolder;
+            if (folder==null) return;
+            new SwingWorker<Void,Void>() {
+                protected Void doInBackground() throws Exception { Desktop.getDesktop().open(folder.toFile()); return null; }
+                protected void done() { try { get(); } catch (Exception error) { exportStatus.setText("Could not open the report folder; its path is available in the saved report tooltip."); } }
+            }.execute();
+        });
+        exportActions.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(controls); top.add(actions);
+        configureFacet(packetFacet, "Packet"); configureFacet(statFacet, "Stat"); configureFacet(objectFacet, "Object");
+        configureFacet(areaFacet, "Area"); configureFacet(outcomeFacet, "Outcome");
+        changedOnly.setName("logging-changed"); changedOnly.addActionListener(e -> { if (!refreshing) { activeTable().filters.changed=changedOnly.isSelected(); filter(); } });
+        facets.add(changedOnly); facets.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(facets);
+        chips.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(chips);
+        counts.setName("logging-counts"); counts.getAccessibleContext().setAccessibleName("Matching and retained diagnostic rows");
+        counts.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(counts);
         controls.setAlignmentX(Component.LEFT_ALIGNMENT); actions.setAlignmentX(Component.LEFT_ALIGNMENT);
         summary.setAlignmentX(Component.LEFT_ALIGNMENT); losses.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (JLabel label : new JLabel[]{summary, losses, exportStatus}) label.setFont(ContentStyle.metadata(ContentStyle.body()));
@@ -96,12 +124,23 @@ public final class LoggingGUI extends JPanel {
         JScrollPane detailScroll = new JScrollPane(details);
         detailScroll.setMinimumSize(new Dimension(0,70)); detailScroll.setPreferredSize(new Dimension(700,115));
         tabs.setPreferredSize(new Dimension(700,170));
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tabs, detailScroll) {
+        JPanel detailPanel = new JPanel(new BorderLayout()); detailPanel.add(detailScroll);
+        JPanel detailActions = ContentStyle.controls();
+        JButton copy = new JButton("Copy full detail"); copy.setName("logging-copy-detail");
+        copy.addActionListener(e -> { details.selectAll(); details.copy(); details.setCaretPosition(0); });
+        fieldChoice.setName("logging-field-choice"); fieldChoice.getAccessibleContext().setAccessibleName("Retained sample field path");
+        fieldChoice.setPrototypeDisplayValue("newObjects[].status.stats[].statValue");
+        samplesLink.setName("logging-samples-link"); samplesLink.addActionListener(e -> openSamples());
+        fieldLink.setName("logging-field-link"); fieldLink.addActionListener(e -> openField());
+        detailActions.add(copy); detailActions.add(samplesLink); detailActions.add(fieldChoice); detailActions.add(fieldLink);
+        detailPanel.add(detailActions, BorderLayout.NORTH);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tabs, detailPanel) {
             @Override public void doLayout() {
                 super.doLayout();
                 // Swing can retain a desktop divider position after shrinking the window.
-                if (getHeight() >= 140 && getBottomComponent().getHeight() < 80) {
-                    setDividerLocation(getHeight() - 85); super.doLayout();
+                int detailHeight=detailActions.getPreferredSize().height+75;
+                if (getHeight() >= detailHeight+70 && getBottomComponent().getHeight() < detailHeight) {
+                    setDividerLocation(getHeight() - detailHeight - getDividerSize()); super.doLayout();
                 }
             }
         };
@@ -112,18 +151,29 @@ public final class LoggingGUI extends JPanel {
         privacy.setToolTipText("String-stat values and opaque/unknown values are also withheld. Counters cover traffic observed while gameplay & diagnostics collection is on.");
         privacy.setEditable(false); privacy.setOpaque(false); privacy.setLineWrap(true); privacy.setWrapStyleWord(true); privacy.setRows(2);
         privacy.setFont(ContentStyle.metadata(ContentStyle.body()));
-        bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH); add(bottom, BorderLayout.SOUTH);
-        for (DiscoveryCatalog.SchemaField field : DiscoveryCatalog.fields()) fields.add(new Object[] {field.packet, field.path, field.type, field.retention}, field);
+        bottom.add(exportActions, BorderLayout.NORTH); bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH); add(bottom, BorderLayout.SOUTH);
+        for (DiscoveryCatalog.SchemaField field : catalog) fields.add(new Object[] {field.packet, field.path, field.type, field.retention}, field);
         fields.changed();
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); } public void removeUpdate(DocumentEvent e) { filter(); } public void changedUpdate(DocumentEvent e) { filter(); }
         });
-        observedOnly.addActionListener(e -> { refreshTables(); }); issuesOnly.addActionListener(e -> refreshTables());
-        tabs.addChangeListener(e -> refreshTables());
-        for (DataTable table : allTables()) table.table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) showDetails(); });
+        observedOnly.addActionListener(e -> { packets.filters.observed=observedOnly.isSelected(); filter(); });
+        issuesOnly.addActionListener(e -> { packets.filters.issues=issuesOnly.isSelected(); filter(); });
+        tabs.addChangeListener(e -> { refreshTables(); updateFacets(); filter(); });
+        String[] names = {"Packet diagnostics", "Stat observations", "Retained event samples", "Decoder field catalog", "Diagnostic discovery", "Retained re-entry trace"};
+        DataTable[] all = allTables();
+        for (int i=0; i<all.length; i++) {
+            DataTable table=all[i]; table.table.setName("logging-table-" + i); table.table.getAccessibleContext().setAccessibleName(names[i]);
+            table.table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) showDetails(); });
+            table.table.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "diagnostic-details");
+            table.table.getActionMap().put("diagnostic-details", new AbstractAction() {
+                public void actionPerformed(java.awt.event.ActionEvent e) { showDetails(); details.requestFocusInWindow(); }
+            });
+        }
         freeze.addItemListener(e -> { snapshots.invalidate(); refresh(); });
         timer = new javax.swing.Timer(1000, e -> { if (isShowing()) refresh(); });
         addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0) visibilityChanged(); });
+        updateFacets(); filter();
     }
     @Override public void addNotify() { super.addNotify(); visibilityChanged(); }
     @Override public void removeNotify() { timer.stop(); snapshots.invalidate(); super.removeNotify(); }
@@ -144,7 +194,6 @@ public final class LoggingGUI extends JPanel {
     private void refreshTables() {
         if (snapshot == null) return;
         boolean reformat = presentationChanged();
-        if (reformat) for (DataTable table : allTables()) table.query = null;
         updateSummary();
         losses.setText("Omitted: " + DisplayFormat.formatInteger(snapshot.sampledOut) + " events / " + DisplayFormat.formatInteger(snapshot.deltaOmitted)
             + " stat deltas · Disk drops: " + DisplayFormat.formatInteger(snapshot.diskDropped) + " · Observer errors: " + DisplayFormat.formatInteger(snapshot.observerErrors));
@@ -159,8 +208,6 @@ public final class LoggingGUI extends JPanel {
             for (PacketType type : PacketType.values()) {
                 if (type.getIndex() > 255) continue;
                 DiscoveryLog.PacketRow row = seen.remove(type.getIndex());
-                if (observedOnly.isSelected() && row == null) continue;
-                if (issuesOnly.isSelected() && (row == null || row.failures + row.trailing == 0)) continue;
                 packets.add(new Object[] {type.getIndex(), type.name(), DiscoveryCatalog.direction(type), row == null ? "Defined; not observed" : row.lastOutcome,
                     row == null ? 0L : row.count, row == null ? 0L : row.bytes, row == null ? 0L : row.failures, row == null ? 0L : row.trailing,
                     Register.INSTANCE.directListenerCount(type)}, row == null ? type.name() : row);
@@ -187,7 +234,7 @@ public final class LoggingGUI extends JPanel {
             }
         }
         if (active != fields) active.changed();
-        filter(); refreshing = false;
+        refreshing = false; updateFacets(); filter();
         showDetails();
         presentationLocale=Locale.getDefault(Locale.Category.FORMAT);presentationZone=ZoneId.systemDefault();
         if (reformat) active.table.repaint();
@@ -199,58 +246,219 @@ public final class LoggingGUI extends JPanel {
         summary.setText("<html>" + CollectionControl.status(log, freeze.isSelected())
             + (snapshot == null ? " · No diagnostic revision displayed" : "<br>" + DisplayFormat.formatInteger(snapshot.total)
                 + " frames · " + DisplayFormat.formatInteger(snapshot.packets.size()) + " types · "
-                + DisplayFormat.formatInteger(snapshot.events.size()) + " retained samples · Partial coverage") + "</html>");
+                + DisplayFormat.formatInteger(snapshot.events.size()) + " retained samples · Partial coverage<br>Snapshot: " + snapshot.exportedAt) + "</html>");
+        summary.setToolTipText(snapshot==null ? null : "Displayed snapshot reference: " + LoggingReport.revision(snapshot));
     }
     private void filter() {
-        String query=search.getText().trim();
         DataTable table = activeTable();
-        if (!query.equals(table.query)) {
-            boolean wasRefreshing=refreshing;refreshing=true;
-            try {
-                Object selection=table.selectedKey();table.table.clearSelection();
-                table.query = query; table.sorter.setRowFilter(query.isEmpty() ? null : RowFilter.regexFilter("(?i)" + Pattern.quote(query)));
-                table.restore(selection);
-            } finally { refreshing=wasRefreshing; }
-        }
+        table.filters.text=search.getText().trim();
+        boolean wasRefreshing=refreshing; refreshing=true;
+        try {
+            Object selection=table.selectedKey(); table.table.clearSelection();
+            LoggingQuery query=table.filters.copy();
+            table.sorter.setRowFilter(new RowFilter<TableModel,Integer>() {
+                public boolean include(Entry<? extends TableModel,? extends Integer> entry) {
+                    StringBuilder text=new StringBuilder();
+                    for (int i=0; i<entry.getValueCount(); i++) text.append(entry.getStringValue(i)).append(' ');
+                    Object source=table.objects.get(entry.getIdentifier());
+                    return query.matches(source instanceof TraceRow ? ((TraceRow)source).event : source, text.toString());
+                }
+            });
+            table.restore(selection);
+        } finally { refreshing=wasRefreshing; }
+        updateChips();
+        String unit=table==events ? "event samples" : table==fields ? "field definitions" : table==stats ? "stat counter rows"
+            : table==packets ? "packet rows (defined + observed)" : table==reentry ? "re-entry samples" : "discovery topics";
+        counts.setText(DisplayFormat.formatInteger(table.table.getRowCount()) + " matching / " + DisplayFormat.formatInteger(table.rows.size())
+            + (table==fields || table==packets || table==discoveries ? " available " : " retained ") + unit
+            + (table.table.getRowCount()==0 ? (table.rows.isEmpty() ? " · No retained data yet" : " · No matches; reset filters") : ""));
         if (!refreshing) showDetails();
     }
     private DataTable activeTable() { return new DataTable[] {discoveries, reentry, packets, stats, events, fields}[tabs.getSelectedIndex()]; }
+    private void configureFacet(JComboBox<String> box, String label) {
+        box.setName("logging-facet-" + label.toLowerCase(Locale.ROOT));
+        box.getAccessibleContext().setAccessibleName(label + " equals");
+        box.setPrototypeDisplayValue(label.equals("Packet") ? "REALM_SCORE_UPDATE" : label.equals("Stat") ? "123: MAXIMUM_HP_STAT"
+            : label.equals("Outcome") ? "trailing-bytes" : "1234567");
+        JPanel group=new JPanel(new BorderLayout(4,0)); group.setOpaque(false);
+        JLabel name=new JLabel(label); name.setLabelFor(box); group.add(name, BorderLayout.WEST); group.add(box); facets.add(group);
+        box.addActionListener(e -> {
+            if (refreshing) return;
+            LoggingQuery q=activeTable().filters;
+            if (box==packetFacet) q.packet=choice(box);
+            if (box==outcomeFacet) q.outcome=choice(box);
+            if (box==statFacet) q.stat=choice(box).isEmpty() ? null : Integer.valueOf(choice(box).split(":",2)[0]);
+            if (box==objectFacet) q.object=choice(box).isEmpty() ? null : Integer.valueOf(choice(box));
+            if (box==areaFacet) q.area=choice(box).isEmpty() ? null : Long.valueOf(choice(box));
+            filter();
+        });
+    }
+    private static String choice(JComboBox<String> box) { return box.getSelectedIndex()<=0 ? "" : (String)box.getSelectedItem(); }
+    private static void choices(JComboBox<String> box, Collection<String> values, String selected, boolean visible) {
+        box.getParent().setVisible(visible);
+        LinkedHashSet<String> items=new LinkedHashSet<>(); items.add("Any"); items.addAll(values);
+        if (!selected.isEmpty()) items.add(selected); // A vanished value stays resettable, rather than silently broadening the query.
+        List<String> list=new ArrayList<>(items);
+        boolean same=box.getItemCount()==list.size();
+        for (int i=0; same && i<list.size(); i++) same=list.get(i).equals(box.getItemAt(i));
+        if (!same) box.setModel(new DefaultComboBoxModel<>(list.toArray(new String[0])));
+        box.setSelectedItem(selected.isEmpty() ? "Any" : selected);
+    }
+    private void updateFacets() {
+        boolean before=refreshing; refreshing=true;
+        try {
+            DataTable active=activeTable(); LoggingQuery q=active.filters;
+            Set<String> packetNames=new TreeSet<>(), statNames=new TreeSet<>(), objects=new TreeSet<>(), areas=new TreeSet<>(), outcomes=new TreeSet<>();
+            if (active==fields) for (DiscoveryCatalog.SchemaField f:catalog) packetNames.add(f.packet);
+            if (active==packets) for (PacketType p:PacketType.values()) if (p.getIndex()<=255) packetNames.add(p.name());
+            if (snapshot!=null) {
+                if (active==packets) for (DiscoveryLog.PacketRow p:snapshot.packets) { packetNames.add(p.name); outcomes.add(p.lastOutcome); }
+                if (active==stats) for (DiscoveryLog.StatRow s:snapshot.stats) statNames.add(s.id + ": " + s.name);
+                for (DiscoveryLog.Event e:snapshot.events) {
+                    if (active==reentry && !REENTRY_PACKETS.contains(e.packet)) continue;
+                    if (active==events || active==reentry) { packetNames.add(e.packet); areas.add(Long.toString(e.area)); outcomes.add(e.outcome); }
+                    if (active==events) for (DiscoveryLog.Delta d:e.statChanges) {
+                        statNames.add(d.statId + ": " + LoggingQuery.statName(d.statId)); objects.add(Integer.toString(d.objectId));
+                    }
+                }
+            }
+            choices(packetFacet, packetNames, q.packet, active==packets || active==events || active==fields || active==reentry);
+            choices(statFacet, statNames, q.stat==null ? "" : q.stat + ": " + LoggingQuery.statName(q.stat), active==events || active==stats);
+            choices(objectFacet, objects, q.object==null ? "" : q.object.toString(), active==events);
+            choices(areaFacet, areas, q.area==null ? "" : q.area.toString(), active==events || active==reentry);
+            choices(outcomeFacet, outcomes, q.outcome, active==events || active==reentry || active==packets);
+            changedOnly.setVisible(active==events); changedOnly.setSelected(q.changed);
+            observedOnly.setVisible(active==packets); issuesOnly.setVisible(active==packets);
+            observedOnly.setSelected(packets.filters.observed); issuesOnly.setSelected(packets.filters.issues);
+            facets.setVisible(active!=discoveries);
+        } finally { refreshing=before; }
+    }
+    private void chip(String label, Runnable clear) {
+        JButton button=new JButton((label.length()>48 ? label.substring(0,45) + "…" : label) + " ×");
+        button.setToolTipText(label); button.getAccessibleContext().setAccessibleName("Remove filter: " + label);
+        button.addActionListener(e -> { clear.run(); updateFacets(); filter(); }); chips.add(button);
+    }
+    private void updateChips() {
+        LoggingQuery q=activeTable().filters; Map<String,Object> state=q.metadata();
+        if (chipQuery==q && state.equals(chipState)) return; // Keep keyboard targets intact across background refreshes.
+        chipQuery=q; chipState=state; chips.removeAll();
+        if (!q.text.isEmpty()) chip("Search: " + q.text, () -> search.setText(""));
+        if (!q.packet.isEmpty()) chip("Packet: " + q.packet, () -> q.packet="");
+        if (q.stat!=null) chip("Stat: " + q.stat, () -> q.stat=null);
+        if (q.object!=null) chip("Object: " + q.object, () -> q.object=null);
+        if (q.area!=null) chip("Area: " + q.area, () -> q.area=null);
+        if (!q.outcome.isEmpty()) chip("Outcome: " + q.outcome, () -> q.outcome="");
+        if (!q.fieldPath.isEmpty()) chip("Field: " + q.fieldPath, () -> q.fieldPath="");
+        if (q.changed) chip("Changed values", () -> q.changed=false);
+        if (q.observed) chip("Observed packets", () -> q.observed=false);
+        if (q.issues) chip("Packet issues", () -> q.issues=false);
+        JButton reset=new JButton("Reset filters"); reset.setName("logging-reset");
+        reset.addActionListener(e -> { activeTable().filters=new LoggingQuery(); search.setText(""); updateFacets(); filter(); });
+        chips.add(reset); chips.revalidate(); chips.repaint();
+    }
+    private void openSamples() {
+        Object selected=activeTable().selected(); LoggingQuery target=new LoggingQuery();
+        if (selected instanceof DiscoveryLog.StatRow) target.stat=((DiscoveryLog.StatRow)selected).id;
+        else if (selected instanceof DiscoveryLog.PacketRow) target.packet=((DiscoveryLog.PacketRow)selected).name;
+        else if (selected instanceof String) target.packet=(String)selected;
+        else return;
+        events.filters=target; search.setText(""); tabs.setSelectedIndex(4); updateFacets(); filter();
+    }
+    private void openField() {
+        Object selected=activeTable().selected();
+        DiscoveryLog.Event event=selected instanceof DiscoveryLog.Event ? (DiscoveryLog.Event)selected
+            : selected instanceof TraceRow ? ((TraceRow)selected).event : null;
+        String path=(String)fieldChoice.getSelectedItem();
+        if (event==null || path==null) return;
+        fields.filters=new LoggingQuery(); fields.filters.packet=event.packet; fields.filters.fieldPath=path;
+        search.setText(""); tabs.setSelectedIndex(5); updateFacets(); filter(); fields.restore(event.packet + "|" + path); showDetails();
+    }
     private void showDetails() {
         DataTable table = activeTable();
         Object selected = table.selected();
+        samplesLink.setVisible(table==packets || table==stats); samplesLink.setEnabled(selected!=null);
+        DiscoveryLog.Event event=selected instanceof DiscoveryLog.Event ? (DiscoveryLog.Event)selected
+            : selected instanceof TraceRow ? ((TraceRow)selected).event : null;
+        String priorPath=(String)fieldChoice.getSelectedItem();
+        List<String> paths=event==null ? Collections.emptyList() : LoggingQuery.fieldPaths(event,catalog);
+        boolean same=fieldChoice.getItemCount()==paths.size();
+        for (int i=0; same && i<paths.size(); i++) same=paths.get(i).equals(fieldChoice.getItemAt(i));
+        if (!same) fieldChoice.setModel(new DefaultComboBoxModel<>(paths.toArray(new String[0])));
+        if (paths.contains(priorPath)) fieldChoice.setSelectedItem(priorPath);
+        fieldChoice.setVisible(table==events || table==reentry); fieldLink.setVisible(fieldChoice.isVisible());
+        fieldLink.setEnabled(!paths.isEmpty()); fieldChoice.setEnabled(!paths.isEmpty());
+        fieldLink.setToolTipText(paths.isEmpty() ? "No retained value has a verified catalog path in this sample" : "Open the selected decoder path; schema presence does not prove protocol meaning");
         String text;
         if (selected instanceof String[]) {
             String[] opportunity=(String[])selected;
             text = opportunity[0] + "\n\nAvailable in the decoder: " + opportunity[2] + "\nSources: " + opportunity[1] + "\n\nValidation needed: " + opportunity[3];
         } else if (selected != null) {
-            text = new GsonBuilder().setPrettyPrinting().create().toJson(selected);
-            if (selected instanceof DiscoveryLog.Event || selected instanceof TraceRow)
-                text = "Display time zone: " + DisplayFormat.timestampZoneLabel() + " · Raw evidence below uses UTC.\n\n" + text;
-        } else text = "Select a row to inspect captured packet fields and decoder diagnostics.\n\nRe-entry trace orders passive party, reconnect, queue, and admission evidence. It does not send packets or prove a queue bypass.\n\nRuns and Timeline are available in the sidebar. Resources and buff timelines are in DPS Logger.\n\nStat ranges here combine visible objects. Field definitions and clean decoding do not establish protocol meaning. Export includes the current diagnostics and activity history.";
+            text = new GsonBuilder().setPrettyPrinting().serializeNulls().create().toJson(selected);
+            if (event!=null && !event.statChanges.isEmpty()) {
+                StringBuilder semantic=new StringBuilder("Retained stat samples (initial observations have no previous value):\n");
+                for (DiscoveryLog.Delta delta:event.statChanges) semantic.append(LoggingQuery.deltaText(delta)).append('\n');
+                text=semantic + "\nFull retained event:\n" + text;
+            }
+            if (event!=null) text = "Display time zone: " + DisplayFormat.timestampZoneLabel() + " · Raw evidence below uses UTC.\n"
+                + event.timestamp + " · Diagnostic area " + event.area + " · " + event.packet + " · " + event.outcome + "\n\n" + text;
+            if (selected instanceof DiscoveryLog.StatRow) text += "\n\nCounters combine observed objects. View retained samples for per-object/area evidence; sampling may omit changes.";
+            if (selected instanceof DiscoveryCatalog.SchemaField) text += "\n\nDecoder definition only; this does not prove live availability or protocol meaning.";
+        } else text = (table.rows.isEmpty() ? "No retained data yet. " : table.table.getRowCount()==0 ? "No matches; reset the active filters. " : "Select a row; Enter focuses full details. ")
+            + "\n\nPacket → retained samples → selected field definition. Stat → retained object/area samples.\n\nInitial stat observations are not confirmed changes. Object IDs are local to diagnostic areas, not verified player identities.\n\nRe-entry trace is passive evidence, not proof of admission or a queue bypass. Field definitions do not establish protocol meaning. Exports include bounded diagnostics from the explicitly chosen revision.";
         if (!text.equals(details.getText())) { details.setText(text); details.setCaretPosition(0); }
     }
     private DataTable[] allTables() { return new DataTable[] {packets,stats,events,fields,discoveries,reentry}; }
     private void export() {
-        exportTo(Paths.get("logs", "discovery", "reports"));
+        exportTo(Paths.get("logs", "discovery", "reports"), (LoggingReport.Source)exportSource.getSelectedItem(), true);
     }
     SwingWorker<Path,Void> exportTo(Path directory) {
+        return exportTo(directory, LoggingReport.Source.CURRENT);
+    }
+    SwingWorker<Path,Void> exportTo(Path directory, LoggingReport.Source source) {
+        return exportTo(directory, source, false);
+    }
+    private SwingWorker<Path,Void> exportTo(Path directory, LoggingReport.Source source, boolean confirm) {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Export must be requested on the EDT");
         if (exporting) return null;
+        final DiscoveryLog.Snapshot displayed=snapshot;
+        if (source==LoggingReport.Source.DISPLAYED && displayed==null) {
+            exportStatus.setText("No diagnostic revision displayed yet. Refresh before exporting this view."); return null;
+        }
+        Map<String,Object> context=new LinkedHashMap<>();
+        context.put("snapshotRevision", displayed==null ? null : LoggingReport.revision(displayed));
+        context.put("tab", tabs.getTitleAt(tabs.getSelectedIndex())); context.put("filters", activeTable().filters.copy().metadata());
+        context.put("matchingRows", activeTable().table.getRowCount()); context.put("availableRows", activeTable().rows.size());
+        context.put("displayPaused", freeze.isSelected()); context.put("displayTimeZone", DisplayFormat.timestampZoneLabel());
+        context.put("filtersAppliedToExport", false);
         exporting=true;
-        exportStatus.setText("Exporting local report…");
+        exportStatus.setText("Preparing " + source.label.toLowerCase(Locale.ROOT) + "…");
         SwingWorker<Path,Void> worker=new SwingWorker<Path,Void>() {
             protected Path doInBackground() throws Exception {
-                // Logging exports have always represented current capture, independently of Freeze.
-                DiscoveryLog.Snapshot report=log.snapshot();
-                Files.createDirectories(directory);
-                Path file=Files.createTempFile(directory, "discovery-report-", ".json");
+                DiscoveryLog.Snapshot report=source==LoggingReport.Source.DISPLAYED ? displayed : log.diagnosticsSnapshot(null).data;
+                if (confirm) {
+                    boolean[] approved={false};
+                    SwingUtilities.invokeAndWait(() -> {
+                        JTextArea preview=new JTextArea(LoggingReport.preview(source,report,context));
+                        preview.setEditable(false); preview.setLineWrap(true); preview.setWrapStyleWord(true);
+                        preview.getAccessibleContext().setAccessibleName("Diagnostic export scope, revision, counts and filters");
+                        JScrollPane scroll=new JScrollPane(preview); scroll.setPreferredSize(new Dimension(520,300));
+                        approved[0]=JOptionPane.showConfirmDialog(LoggingGUI.this, scroll, "Export diagnostic snapshot",
+                            JOptionPane.OK_CANCEL_OPTION, JOptionPane.INFORMATION_MESSAGE)==JOptionPane.OK_OPTION;
+                    });
+                    if (!approved[0]) return null;
+                }
                 Map<String,Object> document=new LinkedHashMap<>(); document.put("observations",report);
+                document.put("manifest",LoggingReport.manifest(source,report,context));
                 document.put("reentryTrace", traceRows(report.events));
-                document.put("fieldCatalog",DiscoveryCatalog.fields()); document.put("opportunities",DiscoveryCatalog.OPPORTUNITIES);
-                Files.write(file,new GsonBuilder().setPrettyPrinting().create().toJson(document).getBytes(StandardCharsets.UTF_8));
-                return file.toAbsolutePath();
+                document.put("fieldCatalog",catalog); document.put("opportunities",DiscoveryCatalog.OPPORTUNITIES);
+                return LoggingReport.write(directory,document);
             }
             protected void done() {
-                try { Path path=get(); exportStatus.setText("Saved " + path.getFileName() + " in logs/discovery/reports"); exportStatus.setToolTipText(path.toString()); }
+                try {
+                    Path path=get(); exportStatus.setText(path==null ? "Export cancelled." : "Saved " + source.label.toLowerCase(Locale.ROOT) + ": " + path.getFileName());
+                    exportStatus.setToolTipText(path==null ? null : path.toString());
+                    if (path!=null) { reportFolder=path.getParent(); openFolder.setEnabled(true); }
+                }
                 catch (Exception e) { exportStatus.setText("Export failed. Check folder permissions and free disk space."); }
                 finally { exporting=false; }
             }
@@ -301,17 +509,19 @@ public final class LoggingGUI extends JPanel {
         }
     }
     private static final class TraceRow {
+        final transient DiscoveryLog.Event event;
         final String timestamp, packet, direction, step, outcome;
         final long area;
         final Long elapsedMillis;
         final Map<String,Object> retainedValues;
         final String interpretation = "Passive sequence evidence only; server admission remains authoritative.";
         TraceRow(DiscoveryLog.Event event, Long elapsed) {
+            this.event=event;
             timestamp=event.timestamp; packet=event.packet; direction=event.direction; step=step(event); outcome=event.outcome;
             area=event.area; elapsedMillis=elapsed; retainedValues=event.values;
         }
         String evidence() { return retainedValues.isEmpty() ? outcome : outcome + " · " + retainedValues; }
-        String key() { return timestamp + "|" + packet + "|" + area; }
+        String key() { return event.runId + "|" + timestamp + "|" + packet + "|" + event.observedPacketCount; }
     }
     private static final class DataTable {
         final List<Object[]> rows=new ArrayList<>(); final List<Object> objects=new ArrayList<>();
@@ -320,13 +530,22 @@ public final class LoggingGUI extends JPanel {
         final TableRowSorter<TableModel> sorter;
         private List<Object[]> pendingRows;
         private List<Object> pendingObjects;
-        private String query;
+        private LoggingQuery filters=new LoggingQuery();
         DataTable(String... columns) {
             model=new AbstractTableModel() {
                 public int getRowCount(){return rows.size();} public int getColumnCount(){return columns.length;}
                 public String getColumnName(int column){return columns[column];}
                 public Object getValueAt(int row,int column){return rows.get(row)[column];}
-                public Class<?> getColumnClass(int column) { for(Object[] row:rows) if(row[column]!=null) return row[column].getClass(); return Object.class; }
+                public Class<?> getColumnClass(int column) {
+                    switch (columns[column]) {
+                        case "Time": return Instant.class;
+                        case "ID": case "Latest": case "Secondary": case "Min": case "Max": case "Type listeners": return Integer.class;
+                        case "Count": case "Observations": case "Changes": case "Withheld": case "Decode errors": case "Trailing": case "Since prior": return Long.class;
+                        case "Bytes": return columns.length==9 ? Long.class : Integer.class;
+                        case "Area": return columns.length==4 ? String.class : Long.class;
+                        default: return String.class;
+                    }
+                }
             };
             table=new JTable(model); ContentStyle.table(table,ContentStyle.Density.DENSE);
             for(int i=0;i<columns.length;i++) {
@@ -353,7 +572,13 @@ public final class LoggingGUI extends JPanel {
                     return shown.equals(raw)?shown:shown+"\n"+raw;
                 }
             });
-            for(int i=0;i<columns.length;i++) table.getColumnModel().getColumn(i).setPreferredWidth(i==1?230:i==0?110:170);
+            for(int i=0;i<columns.length;i++) {
+                String c=columns[i];
+                int width=c.equals("Time") ? 175 : c.equals("Area") && columns.length==4 ? 215 : c.equals("ID") || c.equals("Area") ? 65
+                    : c.equals("Field path") || c.equals("Retention") || c.contains("values") || c.contains("evidence") ? 300
+                    : c.equals("Packet") || c.equals("Stat") || c.equals("Step") ? 215 : 130;
+                table.getColumnModel().getColumn(i).setPreferredWidth(width);
+            }
         }
         private static String displayValue(String column,Object value) {
             if ("Time".equals(column)) return DisplayFormat.formatTimestamp((Instant)value);
@@ -380,6 +605,7 @@ public final class LoggingGUI extends JPanel {
         Object selected(){int row=table.getSelectedRow();return row<0?null:objects.get(table.convertRowIndexToModel(row));}
         private Object key(int row) {
             Object value=objects.get(row);
+            if(value instanceof DiscoveryCatalog.SchemaField) return LoggingQuery.fieldKey((DiscoveryCatalog.SchemaField)value);
             if(value instanceof ActivityJournal.Visit) return ((ActivityJournal.Visit)value).id;
             if(value instanceof ActivityJournal.Entry) return ((ActivityJournal.Entry)value).id;
             if(value instanceof TraceRow) return ((TraceRow)value).key();

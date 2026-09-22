@@ -80,7 +80,9 @@ public class LoggingGuiTest {
             }
             java.nio.file.Path file=export.get().get(5,java.util.concurrent.TimeUnit.SECONDS);
             com.google.gson.JsonObject document=new com.google.gson.Gson().fromJson(new String(java.nio.file.Files.readAllBytes(file),java.nio.charset.StandardCharsets.UTF_8),com.google.gson.JsonObject.class);
-            assertEquals(2,document.getAsJsonObject("observations").getAsJsonObject("activity").getAsJsonArray("visits").size());
+            assertEquals(2,document.getAsJsonObject("observations").getAsJsonArray("events").size());
+            assertTrue(document.getAsJsonObject("observations").get("activity").isJsonNull());
+            assertEquals("CURRENT",document.getAsJsonObject("manifest").get("source").getAsString());
             await(()->find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount()==2);
         } finally {log.close();}
     }
