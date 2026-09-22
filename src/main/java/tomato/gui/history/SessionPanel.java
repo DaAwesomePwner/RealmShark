@@ -37,6 +37,11 @@ public final class SessionPanel extends JPanel {
     public static JComponent wrap(String name, JComponent live, Loader loader) {
         return AppHistory.store() == null ? live : new SessionPanel(AppHistory.store(), name, live, loader);
     }
+    /** Typed opt-in path; separate name preserves all existing four-argument loader lambdas. */
+    public static <R,F,S extends Enum<S>> ArchiveWorkspace<R,F,S> queried(SessionStore store,String name,
+            JComponent live,ArchiveClient<R,F,S> client,ViewStateStore states) {
+        return new ArchiveWorkspace<>(store,name,live,client,states);
+    }
     public SessionPanel(SessionStore store, String name, JComponent live, Loader loader) {
         super(new BorderLayout(0, 6)); this.store=store;this.loader=loader;
         setName(name + "-session-view");

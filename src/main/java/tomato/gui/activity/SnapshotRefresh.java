@@ -14,9 +14,13 @@ public final class SnapshotRefresh<T> {
     private volatile long generation;
 
     public void request(Object selection, Supplier<T> read, Consumer<T> apply, Consumer<Exception> failure) {
+        request(selection,read,apply,failure,value->{});
+    }
+    /** Disposes an unused result when its generation is superseded while the reader is running. */
+    public void request(Object selection, Supplier<T> read, Consumer<T> apply, Consumer<Exception> failure, Consumer<T> discard) {
         requireEdt();
         if (!Objects.equals(key,selection)) { key=selection; generation++; }
-        pending=new Request(generation,read,apply,failure);
+        pending=new Request(generation,read,apply,failure,discard);
         if (!running) start();
     }
     /** Drops pending work and makes the in-flight completion inert, without spawning a replacement. */
@@ -28,7 +32,10 @@ public final class SnapshotRefresh<T> {
             protected void done() {
                 try {
                     T value=get();
-                    if (request.generation==generation && value!=null) request.apply.accept(value);
+                    if (value!=null) {
+                        if (request.generation==generation) request.apply.accept(value);
+                        else request.discard.accept(value);
+                    }
                 } catch (Exception error) {
                     if (request.generation==generation) request.failure.accept(error);
                 } finally {
@@ -46,8 +53,9 @@ public final class SnapshotRefresh<T> {
         final Supplier<T> read;
         final Consumer<T> apply;
         final Consumer<Exception> failure;
-        Request(long generation,Supplier<T> read,Consumer<T> apply,Consumer<Exception> failure) {
-            this.generation=generation; this.read=read; this.apply=apply; this.failure=failure;
+        final Consumer<T> discard;
+        Request(long generation,Supplier<T> read,Consumer<T> apply,Consumer<Exception> failure,Consumer<T> discard) {
+            this.generation=generation; this.read=read; this.apply=apply; this.failure=failure; this.discard=discard;
         }
     }
 }
