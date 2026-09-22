@@ -82,6 +82,7 @@ final class InspectRunsPanel extends JPanel {
     private RosterViewState liveState;
     private final JPanel stateHost=new JPanel(new BorderLayout());
     private boolean restoringState, restorePending, selectionRequired;
+    private boolean rosterActive;
 
     InspectRunsPanel(DiscoveryLog log, ParsePanelGUI roster) {
         super(new BorderLayout(0, 8));
@@ -124,9 +125,10 @@ final class InspectRunsPanel extends JPanel {
         controls.add(durationUnit);
         durationUnit.addActionListener(e -> {
             int view=table.convertColumnIndexToView(6);if(view>=0)table.getColumnModel().getColumn(view).setHeaderValue(unit().column());table.getTableHeader().repaint();
+            boolean wasApplying = applying;
             applying = true;
             try { model.fireTableDataChanged(); restoreSelection(); }
-            finally { applying = false; }
+            finally { applying = wasApplying; }
             showSelection();
             rememberLiveState();
         });
@@ -149,7 +151,7 @@ final class InspectRunsPanel extends JPanel {
             public void changedUpdate(DocumentEvent e) { filter(); }
         });
         table.getSelectionModel().addListSelectionListener(e -> {
-            if (!applying && !e.getValueIsAdjusting()) selectionChanged();
+            if (!applying && !restoringState && !e.getValueIsAdjusting()) selectionChanged();
         });
         timer = new javax.swing.Timer(1000, e -> requestRefresh());
         addHierarchyListener(e -> {
@@ -160,10 +162,17 @@ final class InspectRunsPanel extends JPanel {
     }
 
     void showRoster() {
-        showSelection();
+        rosterActive = true;
         rosterHost.add(roster);
+        showSelection();
         rosterHost.revalidate();
         requestRefresh();
+    }
+    /** Release before another tab restores or reparents the shared roster. */
+    void releaseRoster() {
+        rosterActive = false;
+        timer.stop();
+        refresh.invalidate();
     }
     void readOnly() { record.setVisible(false); }
     void bindViewState(ViewStateStore store){
@@ -219,6 +228,7 @@ final class InspectRunsPanel extends JPanel {
     }
 
     private void showSelection() {
+        if (restoringState || !rosterActive || roster.getParent() != rosterHost) return;
         ActivityJournal.Visit visit = selectedVisit();
         boolean loaded = visit != null && visit.id.equals(loadedId);
         if (loaded) roster.showRun(visit);
@@ -236,7 +246,7 @@ final class InspectRunsPanel extends JPanel {
     }
 
     private void requestRefresh() {
-        if (isDisplayable()&&!isShowing()) return;
+        if (restoringState || !rosterActive || (isDisplayable()&&!isShowing())) return;
         record.refresh();
         String id = selectedId;
         DiscoveryLog.ActivityRevision known = revision;

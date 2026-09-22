@@ -62,6 +62,7 @@ public class SecurityGUI extends JPanel {
         tabbedPane.addTab("Runs", runs);
         tabbedPane.addTab("Ability Use", abilityUse);
         tabbedPane.addChangeListener(e -> {
+            if (tabbedPane.getSelectedComponent() != runs) runs.releaseRoster();
             if (tabbedPane.getSelectedComponent() == currentArea) {
                 parsePanel.showCurrentArea();
                 currentArea.add(parsePanel);

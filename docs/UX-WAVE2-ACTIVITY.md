@@ -183,6 +183,35 @@ IDs, identical map/time with a different capture's IDs, Resources uptime selecti
 independent module filters, reordered/resized columns and restored Inspect roster.
 No native window/focus/scaling tests were run for these review fixes.
 
+## Inspect shared-roster ownership correction (primary base `18e3c4f`)
+
+Full-wave verification exposed a production restoration bug: restoring the Runs
+duration combo invoked `showSelection()` while Current Area still owned the shared
+roster, switching its 30 current players to an empty historical view. The duration
+listener also cleared an outer `applying` guard during programmatic restoration.
+
+The narrow correction preserves that guard and gates roster publication on both
+completed restoration and explicit Runs ownership. `showRoster()` acquires the
+shared component before displaying its selected visit. Switching to Current Area
+or Ability Use releases Runs ownership and invalidates pending reads before the
+other tab restores/reparents the roster. Hidden controls can no longer change its
+row mode; an old asynchronous read cannot republish after returning to Current Area.
+The separate saved-archive roster cache continues to use its existing path.
+
+`InspectRosterOwnershipTest` reproduced **three failures before the fix**. After
+the fix, **11 focused headless tests passed**, zero failures/errors/skips:
+`InspectRosterOwnershipTest` (3), `InspectArchiveClientTest` (2),
+`InspectContainerStateTest` (1), `InspectFacetStateTest` (2), and
+`InspectViewStateTest` (3). The new checks cover fresh/restored Current Area state,
+30 players arriving before or after binding, changed hidden run-time preferences,
+visible current/recorded column modes, actual run selection/reactivation, inactive
+Ability Use, and a blocked read completing after a tab switch. Reports are in
+`build/w2-inspect-ownership/reports/tests/test`; the isolated project cache is
+`build/w2-inspect-ownership-cache`. JDK 17 / Gradle 7.6.4, main `--release 8`.
+
+The native `ParsePanelRefreshTest` 30-player assertion was not changed or run by
+this package; native/scaled verification remains with the verifier after freeze.
+
 ## Actual scope and limits
 
 - Whole saved scope is filtered/sorted before paging. Saved means persisted source
