@@ -38,13 +38,19 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
     private final ChatFilters filters;
     private final Path scratch;
     private final ChatExplorer live;
+    private final ChatBookmarkIntents bookmarks;
     private long generation;
     private final Map<String,String> policies = new ConcurrentHashMap<>();
     ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch) {
-        this.store = store; this.filters = filters; this.live = live; this.scratch = scratch;
+        this(store, filters, live, scratch, ChatBookmarkIntents.forStore(store));
+    }
+    ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch, ChatBookmarkIntents bookmarks) {
+        this.store = store; this.filters = filters; this.live = live; this.scratch = scratch; this.bookmarks = bookmarks;
+        if (live != null) live.useBookmarkIntents(store, bookmarks);
     }
     public ArchiveQuery<Facets,Sort> initialQuery() {
-        Facets facets = new Facets(); facets.showIgnoredPlayers = Boolean.parseBoolean(util.PropertiesManager.getProperty(ChatExplorer.SHOW_IGNORED_PLAYERS));
+        Facets facets = new Facets(); facets.showIgnoredPlayers = live != null ? live.showsIgnoredPlayers()
+            : Boolean.parseBoolean(util.PropertiesManager.getProperty(ChatExplorer.SHOW_IGNORED_PLAYERS));
         return query().withFacets(facets);
     }
     public static ArchiveQuery<Facets,Sort> query() {
@@ -160,19 +166,25 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         JButton star = new JButton("Toggle star"), ignore = new JButton("Toggle local sender ignore"), copy = new JButton("Copy loaded page transcripts");
         JButton copySelected = new JButton("Copy selected transcripts"), thisPlayer = new JButton("This player"), editPolicy = new JButton("Chat filters…");
         JTextArea saveStatus = ContentStyle.wrappingText(""); saveStatus.setName("chat-archive-save-status");
+        ChatBookmarkIntents.Intent[] retry = new ChatBookmarkIntents.Intent[1];
         star.addActionListener(e -> {
             int index = table.getSelectedRow(); if (index < 0 || !state.active()) return;
             Row selected = page.rows.get(index).value;
             if (selected.message.id == null || selected.message.id.isEmpty() || !store.writable()) { saveStatus.setText("Star unavailable: message ID missing or history is read-only."); return; }
             star.setEnabled(false); saveStatus.setText("Saving star…");
-            ChatExplorer.Bookmark bookmark = new ChatExplorer.Bookmark(selected.message.id, !selected.starred, Math.max(System.currentTimeMillis(), selected.bookmarkChanged + 1));
-            new SwingWorker<Void,Void>() {
-                protected Void doInBackground() throws Exception { store.put("chat-stars", bookmark.id, bookmark); store.flush(); return null; }
-                protected void done() {
-                    try { get(); if (live != null) live.bookmarkChanged(bookmark); if (state.active()) { saveStatus.setText("Star saved."); state.refresh(); } }
-                    catch (Exception failure) { if (state.active()) { saveStatus.setText("Star save failed; retry. " + failure.getMessage()); star.setEnabled(true); } }
-                }
-            }.execute();
+            try {
+                ChatBookmarkIntents.Intent intent = retry[0] != null && retry[0].bookmark.id.equals(selected.message.id)
+                    ? bookmarks.retry(retry[0]) : bookmarks.toggle(selected.message.id, selected.starred, selected.bookmarkChanged);
+                retry[0] = null; star.setText("Toggle star");
+                if (live != null) live.bookmarkIntentAccepted(intent);
+                intent.saved.whenComplete((ignoredResult, failure) -> {
+                    if (!bookmarks.current(intent)) return;
+                    if (live != null) live.bookmarkIntentFinished(intent, failure);
+                    if (!state.active()) return;
+                    if (failure == null) { saveStatus.setText("Star saved."); state.refresh(); }
+                    else { retry[0] = intent; saveStatus.setText("Star save failed; retry. " + failure.getMessage()); star.setText("Retry star save"); star.setEnabled(true); }
+                });
+            } catch (RuntimeException failure) { saveStatus.setText("Star not changed: " + failure.getMessage()); star.setEnabled(true); }
         });
         ignore.addActionListener(e -> { int index = table.getSelectedRow(); if (index >= 0 && state.active()) {
             ChatMessage message = page.rows.get(index).value.message;

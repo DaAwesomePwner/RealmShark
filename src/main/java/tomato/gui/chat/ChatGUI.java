@@ -24,13 +24,17 @@ public class ChatGUI extends JPanel {
     private JComponent queriedWorkspace;
     /** Coordinator shell registration: chatPanel.workspace(). */
     public JComponent workspace() {
-        if (queriedWorkspace != null) return queriedWorkspace;
-        explorer.enableLiveState(tomato.gui.history.ViewStateStore.application());
         tomato.history.SessionStore store = tomato.history.AppHistory.store();
+        return workspace(store, store == null ? null : store.directory().resolve(".query-scratch/chat"), tomato.gui.history.ViewStateStore.application());
+    }
+    /** Explicit writable scratch injection for a read-only archive; default stays beneath user history. */
+    public JComponent workspace(tomato.history.SessionStore store, java.nio.file.Path scratch, tomato.gui.history.ViewStateStore states) {
+        if (queriedWorkspace != null) return queriedWorkspace;
+        if (store != null && (scratch == null || !scratch.isAbsolute())) throw new IllegalArgumentException("Use an absolute, explicitly chosen archive scratch directory.");
+        explorer.enableLiveState(states);
         if (store == null) return this;
         queriedWorkspace = tomato.gui.history.SessionPanel.queried(store, "chat", this,
-            new ChatArchiveClient(store, filters, explorer, store.directory().resolve(".query-scratch/chat")),
-            tomato.gui.history.ViewStateStore.application());
+            new ChatArchiveClient(store, filters, explorer, scratch.normalize()), states);
         return queriedWorkspace;
     }
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {

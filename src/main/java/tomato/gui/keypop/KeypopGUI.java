@@ -34,13 +34,18 @@ public class KeypopGUI extends JPanel {
     private JComponent queriedWorkspace;
     /** Coordinator shell registration: keypopPanel.workspace(). */
     public JComponent workspace() {
-        if (queriedWorkspace != null) return queriedWorkspace;
-        dashboard.enableLiveState(tomato.gui.history.ViewStateStore.application());
         tomato.history.SessionStore store = tomato.history.AppHistory.store();
+        return workspace(store, store == null ? null : store.directory().resolve(".query-scratch/keypops"), tomato.gui.history.ViewStateStore.application());
+    }
+    /** Explicit writable scratch injection for a read-only archive; default stays beneath user history. */
+    public JComponent workspace(tomato.history.SessionStore store, java.nio.file.Path scratch, tomato.gui.history.ViewStateStore states) {
+        if (queriedWorkspace != null) return queriedWorkspace;
+        if (store != null && (scratch == null || !scratch.isAbsolute())) throw new IllegalArgumentException("Use an absolute, explicitly chosen archive scratch directory.");
+        dashboard.enableLiveState(states);
         if (store == null) return this;
-        KeyPopArchiveClient client = new KeyPopArchiveClient(store.directory().resolve(".query-scratch/keypops"));
+        KeyPopArchiveClient client = new KeyPopArchiveClient(scratch.normalize());
         tomato.gui.history.ArchiveWorkspace<KeyPopArchiveClient.Row,KeyPopArchiveClient.Facets,KeyPopArchiveClient.Sort> workspace =
-            tomato.gui.history.SessionPanel.queried(store, "keypops", this, client, tomato.gui.history.ViewStateStore.application());
+            tomato.gui.history.SessionPanel.queried(store, "keypops", this, client, states);
         client.bind(workspace); queriedWorkspace = workspace; return workspace;
     }
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {

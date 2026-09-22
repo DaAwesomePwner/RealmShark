@@ -7,7 +7,8 @@ KEY-2, and the social portions of UX-01/02 state/04/07. It uses the real
 `ArchivePage`, `ViewStateStore`, `HistoryTables` and shared export implementation.
 
 **The module factories are implemented and tested through the shared workspace;
-production shell registrations still require the coordinator changes below.**
+primary shell integration was completed in `2384d1d`.** The registration reference
+below is retained for callers constructing their own shell.
 CHAT-3's contextual alert-draft handoff remains the separately scheduled Wave 3
 slice. Full-wave/native/scaled validation and independent review are not claimed.
 
@@ -216,7 +217,96 @@ $filters = @(); foreach ($selector in $selectors) { $filters += @('--tests', $se
   --project-cache-dir '.gradle/w2-social' '-PrealmSharkBuildDir=build/w2-social' test @filters
 ```
 
-Coordinator gates: replace both shell registrations, run the integrated full
+Coordinator gates: run the integrated full
 test/JAR gate, add appropriate native/scaled evidence through the shared allowlist
 owner, and independently review the final wave head. Native/scaled keyboard,
 compact layouts and visual evidence have not been run in this worker.
+
+## Primary review corrections — base `7f50b99`, 2026-09-22
+
+### Ordered bookmark intents
+
+`ChatBookmarkIntents` supplies one shared per-message intent order per
+`SessionStore`. Live and archive controls enqueue their immutable bookmark on the
+EDT at the time of the action. Background work only waits for the store's flush;
+it cannot enqueue a delayed old write. The compatible `changed` field is now a
+strictly increasing logical version: greater than the wall-clock value, the
+previous accepted intent, and the version observed in the pinned row. Thus
+same-millisecond clicks have durable ordering without guessing a previous star
+value or relying on source-reference tie order. A stale pinned toggle uses the
+coordinator's newer accepted choice. Existing legacy ties still use the frozen
+adapter's deterministic source-reference tie break.
+
+Acceptance applies the new choice to the live model immediately. Completion
+publishes durability feedback/revision refresh only if that exact intent remains
+current; it never reapplies a boolean. Stale successful or failed acknowledgements
+cannot replay old state. Archive Retry preserves the failed choice, assigns a new
+version, and rejects retrying an intent superseded by a newer choice. Pinned
+classification/reasons and held export projections retain their existing semantics.
+
+The controlled regression holds the first archive flush after its real disk write,
+returns to Live, performs unstar/star/unstar in one clock millisecond, verifies
+the latest false value is already durable, then releases the old completion.
+Live stays false, its revision is not spuriously advanced, and reopening saved
+Chat obtains the latest false version. Additional checks cover stale baselines,
+restart rebasing from a captured durable version, and rejection of stale retries.
+
+### Model identity and visibility authority
+
+Key-pop contributor/item drill-down now converts the selected view row to its
+model row and reads model identity column zero. Column hiding/reordering cannot
+turn a pop count into the selected name. Enter and double-click are exercised
+for both summary tables, with sorting and hidden/reordered identity columns.
+
+Once live `ViewStateStore` persistence is attached, `chat-live` is authoritative
+for ignored-player visibility. The legacy `chat.showIgnoredPlayers` key seeds
+defaults only before canonical state is loaded; modern live changes do not
+dual-write it. Navigation no longer re-reads it over a restored named view.
+Standalone legacy explorers retain their compatibility behavior. New archive
+defaults use the attached live setting, while saved archive queries keep their
+own facet. The headless navigation-handler test preserves the restored checkbox,
+Follow state and matching-arrivals badge with a conflicting legacy value.
+
+### Explicit scratch injection
+
+Default factories continue to use absolute store-backed
+`<history>/.query-scratch/chat` and `<history>/.query-scratch/keypops`. Each shared
+foundation query creates its own exclusive pin/result directories there. No CWD
+or automatic system-temporary fallback is introduced for copied history.
+
+Both owned factories now also expose:
+
+```java
+public JComponent workspace(SessionStore store, Path scratch, ViewStateStore states)
+```
+
+Supply an absolute, explicitly chosen writable private profile scratch directory
+when captured history resides on read-only media; the directory is normalized
+and passed directly to the existing query client. The original no-argument shell
+registrations remain valid. Relative scratch paths are rejected instead of being
+resolved against the application working directory. This closes the injection
+limitation recorded in `UX-WAVE2-INTEGRATION.md` without changing foundation code.
+
+`SocialScratchTest` uses a separate headless JDK 17 process with an effective
+JVM-local write/delete guard for both CWD and the captured-history subtree. The
+two real module factories receive a writable scratch namespace inside the
+synthetic user-history profile. Both queries succeed, distinct private pins are
+observed, and closing the workspaces cleans their owned query directories. The
+test changes no workstation ACLs and writes no personal history.
+
+### Fresh correction evidence
+
+**35 focused headless tests passed, zero failures/errors/skips**, including the
+28 previous social checks plus three bookmark-intent checks, two visibility
+checks, the read-only-CWD/history scratch probe, and the additional Key-pop
+column-identity check. Main/test compilation passed with JDK 17 / Gradle 7.6.4
+and the existing Java 8 main target. No native/focus/UI-window checks ran.
+
+Reports: `build/social-review-7f50b99/reports/tests/test/index.html` and
+`build/social-review-7f50b99/test-results/test/`. Project cache:
+`build/social-review-7f50b99-cache`. Use the original selector list above plus
+`ChatBookmarkIntentTest`, `ChatVisibilityStateTest`, and `SocialScratchTest`, with
+the correction build/cache paths and `JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`.
+The new Key-pop method runs through the existing `ExactContributorTest` selector.
+Native navigation, clipboard/chooser behavior, scaled layouts, integrated CI and
+independent final-head review remain coordinator gates.

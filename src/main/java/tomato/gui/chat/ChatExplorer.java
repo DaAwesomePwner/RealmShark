@@ -38,6 +38,7 @@ final class ChatExplorer extends JPanel {
     private final ChatFilters spamFilters;
     private final boolean archive;
     private tomato.history.SessionStore bookmarkStore = tomato.history.AppHistory.store();
+    private ChatBookmarkIntents bookmarkIntents;
     private final java.util.function.Supplier<String> ignoreStatus;
     private final Map<ChatMessage, String> reasons = new IdentityHashMap<>();
     private long filterRevision = -1;
@@ -176,7 +177,8 @@ final class ChatExplorer extends JPanel {
         showIgnoredPlayers.setToolTipText("Show captured messages from locally or in-game ignored players in All and their original channels. Still logged and silent; spam-only matches stay in Ignored.");
         showIgnoredPlayers.getAccessibleContext().setAccessibleDescription(showIgnoredPlayers.getToolTipText());
         showIgnoredPlayers.addActionListener(e -> {
-            PropertiesManager.setProperties(SHOW_IGNORED_PLAYERS, Boolean.toString(showIgnoredPlayers.isSelected()));
+            // The old key is only the compatibility source until live ViewState is attached.
+            if (stateStore == null) PropertiesManager.setProperties(SHOW_IGNORED_PLAYERS, Boolean.toString(showIgnoredPlayers.isSelected()));
             refresh(false);
         });
         starredOnly.setToolTipText("Show starred messages retained in this session");
@@ -327,13 +329,15 @@ final class ChatExplorer extends JPanel {
         bind(table, WHEN_FOCUSED, "control C", "copy-messages", () -> copyText(selectedTranscript()));
         bind(table, WHEN_FOCUSED, "SPACE", "star-message", this::toggleStar);
         addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
-                boolean show = Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS));
-                if (showIgnoredPlayers.isSelected() != show) { showIgnoredPlayers.setSelected(show); refresh(false); }
-                else if (viewDirty || filterRevision != spamFilters.revision()) refreshPolicy();
-            }
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshShownState();
         });
         refresh(false);
+    }
+
+    void refreshShownState() {
+        boolean show = stateStore == null ? Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS)) : showIgnoredPlayers.isSelected();
+        if (showIgnoredPlayers.isSelected() != show) { showIgnoredPlayers.setSelected(show); refresh(false); }
+        else if (viewDirty || filterRevision != spamFilters.revision()) refreshPolicy();
     }
 
     @Override public void updateUI() {
@@ -355,7 +359,7 @@ final class ChatExplorer extends JPanel {
         }
     }
     void loadHistory(List<ChatMessage> messages, Set<String> stars, tomato.history.SessionStore store) {
-        bookmarkStore=store;
+        useBookmarkIntents(store, ChatBookmarkIntents.forStore(store));
         for(ChatMessage message:messages)if(stars.contains(message.id))starred.add(message);
         append(messages,0);
     }
@@ -575,18 +579,17 @@ final class ChatExplorer extends JPanel {
 
     private void toggleStar() {
         ChatMessage message = selected(); if (message == null) return;
-        if (!starred.remove(message)) starred.add(message);
-        if(bookmarkStore!=null&&bookmarkStore.writable()&&message.id!=null) {
-            bookmarkStore.put("chat-stars",message.id,new Bookmark(message.id,starred.contains(message))); bookmarkStatus = "Saving star…";
-            new SwingWorker<Void,Void>() {
-                protected Void doInBackground() throws Exception { bookmarkStore.flush(); return null; }
-                protected void done() { try { get(); bookmarkStatus = "Star saved"; notifyBookmarks(); }
-                    catch (Exception failure) { bookmarkStatus = "Star active locally; save failed. Toggle again to retry."; } refreshPolicy(); }
-            }.execute();
+        if (bookmarkStore != null && bookmarkStore.writable() && message.id != null && !message.id.isEmpty()) {
+            if (bookmarkIntents == null) bookmarkIntents = ChatBookmarkIntents.forStore(bookmarkStore);
+            try {
+                ChatBookmarkIntents.Intent intent = bookmarkIntents.toggle(message.id, starred.contains(message), 0);
+                bookmarkIntentAccepted(intent);
+                intent.saved.whenComplete((ignored, failure) -> bookmarkIntentFinished(intent, failure));
+            } catch (RuntimeException failure) { bookmarkStatus = "Star not changed: " + failure.getMessage(); refreshPolicy(); }
+        } else {
+            if (!starred.remove(message)) starred.add(message);
+            refreshPolicy();
         }
-        boolean following = follow.isSelected(); follow.setSelected(false);
-        refresh(true);
-        follow.setSelected(following);
     }
     static final class Bookmark {
         final String id;final boolean starred;final long changed;
@@ -594,12 +597,24 @@ final class ChatExplorer extends JPanel {
         Bookmark(String id,boolean starred,long changed){this.id=id;this.starred=starred;this.changed=changed;}
     }
 
-    void bookmarkChanged(Bookmark bookmark) {
+    void useBookmarkIntents(tomato.history.SessionStore store, ChatBookmarkIntents intents) {
+        bookmarkStore = store; bookmarkIntents = intents;
+    }
+    void bookmarkIntentAccepted(ChatBookmarkIntents.Intent intent) {
+        if (!bookmarkIntents.current(intent)) return;
+        Bookmark bookmark = intent.bookmark;
         for (ChatMessage message : history) if (bookmark.id.equals(message.id)) {
             if (bookmark.starred) starred.add(message); else starred.remove(message);
         }
-        notifyBookmarks(); refreshPolicy();
+        bookmarkStatus = "Saving star…"; refreshPolicy();
     }
+    void bookmarkIntentFinished(ChatBookmarkIntents.Intent intent, Throwable failure) {
+        if (!bookmarkIntents.current(intent)) return;
+        bookmarkStatus = failure == null ? "Star saved" : "Star active locally; disk save not confirmed.";
+        if (failure == null) notifyBookmarks();
+        refreshPolicy();
+    }
+    boolean showsIgnoredPlayers() { return showIgnoredPlayers.isSelected(); }
     long bookmarkRevision() { return bookmarkRevision; }
     void addBookmarkListener(Runnable listener) { bookmarkListeners.add(listener); }
     void removeBookmarkListener(Runnable listener) { bookmarkListeners.remove(listener); }

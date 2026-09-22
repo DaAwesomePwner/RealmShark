@@ -302,7 +302,8 @@ final class KeyPopDashboard extends JPanel {
         table.setToolTipText("Double-click or press Enter to filter the event history.");
         Runnable drilldown = () -> {
             int row = table.getSelectedRow(); if (row < 0) return;
-            String value = (String)table.getValueAt(row, 0);
+            int modelRow = table.convertRowIndexToModel(row);
+            String value = (String)table.getModel().getValueAt(modelRow, 0);
             if (player) selectPlayer(value); else item.setSelectedItem(value);
             tabs.setSelectedIndex(0);
         };
