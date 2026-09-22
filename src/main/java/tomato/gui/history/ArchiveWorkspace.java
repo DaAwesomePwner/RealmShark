@@ -32,6 +32,16 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     private Cancellation cancel=new Cancellation(),catalogCancel=new Cancellation(),exportCancel=new Cancellation();
     private boolean restoring,loading,exporting,closed,stateLoadFailed;
     private long viewGeneration,saveGeneration;
+    // Weak keys retain cached controls' state without retaining every retired page.
+    private final Map<Component,Boolean> disabledStates=new WeakHashMap<>();
+    private JComponent activeView;
+    private final HierarchyListener reuseListener=event->{
+        Component component=event.getComponent();
+        if((event.getChangeFlags()&HierarchyEvent.PARENT_CHANGED)!=0&&!closed&&!loading&&state.archive
+                &&activeView!=null&&SwingUtilities.isDescendingFrom(activeView,saved)
+                &&SwingUtilities.isDescendingFrom(component,activeView)&&disabledStates.containsKey(component))
+            restoreEnabled(component);
+    };
 
     ArchiveWorkspace(SessionStore store,String name,JComponent live,ArchiveClient<R,F,S> client,ViewStateStore states){
         super(new BorderLayout(0,6));requireEdt();this.store=store;this.name=name;this.client=client;this.states=states;
@@ -151,7 +161,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
                 state=new ViewState<>(state.query,state.archive,state.page,value.tab,value.selected,value.anchor,value.anchorOffset,value.tables);persist();updateActions();}}
         });}catch(RuntimeException failure){update.discard();throw failure;}finally{restoring=false;}
         ArchiveResult<R> old=result;result=update.result;resultQuery=query;displayed=update.page;state=nextState;
-        saved.removeAll();saved.setEnabled(true);saved.add(view);saved.revalidate();saved.repaint();loading=false;
+        saved.removeAll();activeView=view;saved.add(view);restoreEnabled(saved);saved.revalidate();saved.repaint();loading=false;
         List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(item.field.name()+" "+item.direction);
         String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; try Reset filters. "):"";
         status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
@@ -165,8 +175,28 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         }));
     }
     private boolean canExport(){return !closed&&!loading&&!exporting&&state.archive&&result!=null&&state.query.equals(resultQuery);}
-    private void invalidateView(){viewGeneration++;disable(saved);}
-    private static void disable(Component component){component.setEnabled(false);if(component instanceof Container)for(Component child:((Container)component).getComponents())disable(child);}
+    private void invalidateView(){viewGeneration++;activeView=null;disable(saved);}
+    private void disable(Component component){
+        if(!disabledStates.containsKey(component)){
+            disabledStates.put(component,component.isEnabled());component.addHierarchyListener(reuseListener);
+        }
+        if(component instanceof Container)for(Component child:((Container)component).getComponents())disable(child);
+        // UI delegates may disable children when their parent is disabled (e.g. combo arrows).
+        component.setEnabled(false);
+    }
+    /** Only the accepted tree (including asynchronously reparented cached details) is reactivated. */
+    private void restoreEnabled(Component component){
+        boolean wasRestoring=restoring;restoring=true;
+        try{
+            Boolean enabled=disabledStates.remove(component);
+            if(enabled!=null){component.removeHierarchyListener(reuseListener);component.setEnabled(enabled);}
+            if(component instanceof Container)for(Component child:((Container)component).getComponents())restoreEnabled(child);
+        }finally{restoring=wasRestoring;}
+    }
+    private void forgetDisabledStates(){
+        for(Component component:new ArrayList<>(disabledStates.keySet()))component.removeHierarchyListener(reuseListener);
+        disabledStates.clear();
+    }
     private void updateActions(){boolean ready=canExport();exportAll.setEnabled(ready);exportPage.setEnabled(ready);exportSelected.setEnabled(ready&&!state.selected.isEmpty());
         previous.setEnabled(!loading&&state.page>0);next.setEnabled(!loading&&displayed!=null&&displayed.more());}
     public SwingWorker<Path,Void> exportTo(Path directory,String base,ExportSelection selection,ArchiveExport.Format format)throws java.io.IOException {
@@ -260,7 +290,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         dialog.setContentPane(library);dialog.setSize(900,550);dialog.setLocationRelativeTo(this);dialog.setVisible(true);
     }
     @Override public void removeNotify(){if(!closed){invalidateView();cancel.cancel();refresh.invalidate();if(result!=null){result.close();result=null;displayed=null;}}super.removeNotify();}
-    @Override public void close(){requireEdt();if(closed)return;closed=true;invalidateView();cancel.cancel();catalogCancel.cancel();exportCancel.cancel();refresh.invalidate();catalog.invalidate();if(result!=null){result.close();result=null;}}
+    @Override public void close(){requireEdt();if(closed)return;closed=true;invalidateView();forgetDisabledStates();cancel.cancel();catalogCancel.cancel();exportCancel.cancel();refresh.invalidate();catalog.invalidate();if(result!=null){result.close();result=null;}}
     private static final class Choice{final String id,label;Choice(String id,String label){this.id=id;this.label=label;}public String toString(){return label;}}
     private static final class Update<R>{final ArchiveResult<R> result;final ArchivePage<R> page;final boolean owns;
         Update(ArchiveResult<R> result,ArchivePage<R> page,boolean owns){this.result=result;this.page=page;this.owns=owns;}
