@@ -66,12 +66,16 @@ public class AlertRuleEditor extends JPanel {
         JPanel actions = ContentStyle.controls(); actions.add(new JButton(add)); actions.add(new JButton(remove));
         table.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke("INSERT"), "add-rule"); table.getActionMap().put("add-rule", add);
         table.getInputMap().put(KeyStroke.getKeyStroke("DELETE"), "remove-rule"); table.getActionMap().put("remove-rule", remove);
-        JPanel samples = new JPanel(new BorderLayout(0, 6)), fields = ContentStyle.controls();
+        JPanel samples = new JPanel(new BorderLayout(0, 6));
+        JPanel fields = ContentStyle.responsiveGrid(2, 260, 8);
         sampleId.setName("rule-sample-id"); sampleText.setName("rule-sample-text"); sampleResult.setName("rule-sample-result");
         if (domain != AlertRules.Domain.CHAT) fields.add(labeled("Sample ID", sampleId));
         if (domain != AlertRules.Domain.ENTITY) fields.add(labeled(domain == AlertRules.Domain.ITEM ? "Sample name" : "Sample message", sampleText));
-        JButton check = new JButton("Check sample"); check.setName("rule-check-sample"); fields.add(check);
-        check.addActionListener(e -> checkSample()); samples.add(fields, BorderLayout.NORTH); samples.add(sampleResult);
+        JButton check = new JButton("Check sample"); check.setName("rule-check-sample");
+        JPanel sampleActions = ContentStyle.controls(); sampleActions.add(check);
+        JPanel sampleInputs = new JPanel(new BorderLayout(0, 6));
+        sampleInputs.add(fields); sampleInputs.add(sampleActions, BorderLayout.SOUTH);
+        check.addActionListener(e -> checkSample()); samples.add(sampleInputs, BorderLayout.NORTH); samples.add(sampleResult);
         JPanel body = new JPanel(new BorderLayout(0, 6)); body.add(ContentStyle.tableScroll(table, 5)); body.add(actions, BorderLayout.SOUTH);
         JPanel lower = new JPanel(new BorderLayout(0, 6)); lower.add(samples); lower.add(saving.status, BorderLayout.SOUTH);
         add(ContentStyle.page(help, body, lower));
@@ -128,7 +132,7 @@ public class AlertRuleEditor extends JPanel {
     }
     private static JPanel labeled(String text, JTextField field) {
         JLabel label = new JLabel(text); label.setLabelFor(field); field.getAccessibleContext().setAccessibleName(text);
-        JPanel panel = new JPanel(new BorderLayout(4, 0)); panel.add(label, BorderLayout.WEST); panel.add(field); return panel;
+        JPanel panel = new JPanel(new BorderLayout(0, 4)); panel.add(label, BorderLayout.NORTH); panel.add(field); return panel;
     }
     public static DocumentListener changes(Runnable action) {
         return new DocumentListener() {

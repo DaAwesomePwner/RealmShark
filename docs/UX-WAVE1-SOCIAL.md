@@ -202,3 +202,32 @@ allowlist through its owner; serialize real dialog, keyboard/focus, compact 680�
 enlarged-font, 150%/200% and populated/empty/save-failure visual checks. Source opening
 paths are silent, but native opening/closing has not been exercised in this worker.
 Independent final-head review and wave CI/merge gates remain coordinator-owned.
+
+## Primary-wave compact sample-field correction — 2026-09-22
+
+Follow-up on primary `feat/ux-wave-1-trust` at `7aa8593`. The independent settled
+`AlertRuleLayoutEvidenceTest` reported that at font 24 and a 680×520 outer window
+(664×451 client), `rule-sample-text` was allocated 536×52 but only 466×52 was
+reachable in both populated and save-error states.
+
+The sample controls used a wrapping FlowLayout. Wrapping moved each label/field
+pair to another row but could not shrink a pair whose preferred width exceeded the
+page viewport; the inline label consumed additional width beside the 24-column
+text field. The page intentionally has no horizontal scrollbar.
+
+`AlertRuleEditor` now uses the shared `ContentStyle.responsiveGrid(2, 260, 8)` for
+sample inputs. Labels sit above their fields with their `labelFor` associations
+and accessible names retained. The grid allocates actual available cell width and
+drops to one column before two cells would fall below the 260-pixel sizing target.
+Each field fills its cell horizontally, and Check sample has a separate shared
+wrapping action row. Long input remains fully editable through normal JTextField
+caret scrolling; labels, text content and font sizes are retained. The existing
+page scrolling accommodates the resulting vertical layout.
+
+Validation: **`compileJava compileTestJava` passed** with JDK 17 / Gradle 7.6.4,
+`JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`, main `--release 8`, and isolated
+`-PrealmSharkBuildDir=build/social-sample-layout-7aa8593` /
+`--project-cache-dir build/social-sample-layout-cache`.
+No test execution or native/focus validation was performed for this narrow fix.
+The coordinator's unchanged `AlertRuleLayoutEvidenceTest` and `VisualEvidence`
+must be rerun for settled native proof; compilation is not a visual pass.
