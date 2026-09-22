@@ -6,6 +6,7 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.InspectSnapshot;
+import tomato.backend.data.RosterDefinitions;
 import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.CharacterClass;
@@ -33,6 +34,20 @@ public class ParsePanelGUI extends JPanel {
     private static final String DISABLE_FILTER = "Default";
     private static final TreeMap<String, SecurityFilter> filters = new TreeMap<>();
     public static SecurityFilter currentFilter;
+    private final boolean liveOwner;
+    private final java.util.function.Supplier<RosterDefinitions> definitionsSource;
+    private RosterDefinitions definitions = RosterDefinitions.empty();
+    private SecurityFilter selectedFilter;
+    private long requirementsRevision;
+    private final JTextField rosterSearch = new JTextField(16);
+    private final JComboBox<Choice<Integer>> classFacet = new JComboBox<>();
+    private final JComboBox<Choice<String>> guildFacet = new JComboBox<>();
+    private final JComboBox<String> seasonalFacet = new JComboBox<>(new String[]{"Any season", "Seasonal", "Non-seasonal", "Season unknown"});
+    private final JComboBox<String> crucibleFacet = new JComboBox<>(new String[]{"Any crucible mode", "Crucible", "Not crucible", "Crucible unknown"});
+    private final JComboBox<String> verdictFacet = new JComboBox<>(new String[]{"Any result", "Not evaluated", "Pass", "Below requirements", "Unknown"});
+    private final JComboBox<String> maxedFacet = new JComboBox<>(new String[]{"Any maxed count", "Known maxed range", "Unknown maxed count"});
+    private final JSpinner minMaxed = new JSpinner(new SpinnerNumberModel(0, 0, 8, 1)), maxMaxed = new JSpinner(new SpinnerNumberModel(8, 0, 8, 1));
+    private final JTextArea resultDetails = ContentStyle.wrappingText("Select a player to explain requirements."), rosterCount = ContentStyle.wrappingText("No captured players");
 
     // Latest state only: arrivals/updates never enqueue one Swing task per packet.
     private final Object rosterLock = new Object();
@@ -60,6 +75,10 @@ public class ParsePanelGUI extends JPanel {
         this(true);
     }
     ParsePanelGUI(boolean liveOwner) {
+        this(liveOwner, RosterDefinitions::current);
+    }
+    ParsePanelGUI(boolean liveOwner, java.util.function.Supplier<RosterDefinitions> definitionsSource) {
+        this.liveOwner = liveOwner; this.definitionsSource = definitionsSource;
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         setFont(ContentStyle.body());
@@ -72,7 +91,7 @@ public class ParsePanelGUI extends JPanel {
         table.setDefaultRenderer(Double.class, new RosterCell());
         TableRowSorter<RosterModel> sorter = new TableRowSorter<RosterModel>(model) {
             @Override public void toggleSortOrder(int column) {
-                if ((column == 7 || column >= 9) && (getSortKeys().isEmpty() || getSortKeys().get(0).getColumn() != column))
+                if ((column == 7 || column == 9 || column == 10) && (getSortKeys().isEmpty() || getSortKeys().get(0).getColumn() != column))
                     setSortKeys(Collections.singletonList(new RowSorter.SortKey(column, SortOrder.DESCENDING)));
                 else super.toggleSortOrder(column);
             }
@@ -82,9 +101,9 @@ public class ParsePanelGUI extends JPanel {
         table.setRowSorter(sorter);
         table.getTableHeader().setToolTipText("Click a column to sort; click again to reverse. Maxed starts with 8/8 first.");
         table.getAccessibleContext().setAccessibleName("Captured player roster");
-        int[] widths = {190, 185, 160, 75, 75, 75, 75, 90, 210, 110, 110};
+        int[] widths = {190, 185, 160, 75, 75, 75, 75, 90, 210, 110, 110, 165};
         for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
-        for (int i = 9; i < widths.length; i++) runColumns.add(table.getColumnModel().getColumn(i));
+        for (int i = 9; i <= 10; i++) runColumns.add(table.getColumnModel().getColumn(i));
         for (TableColumn column : runColumns) table.removeColumn(column);
         rosterScroll.setName("security-roster-scroll");
         rosterScroll.getVerticalScrollBar().setUnitIncrement(40);
@@ -118,7 +137,8 @@ public class ParsePanelGUI extends JPanel {
             page.revalidate();
         });
         filterRow.add(optionsButton, BorderLayout.EAST);
-        copyOnlyUnderReqCheckbox = new JCheckBox("Only copy below requirements");
+        copyOnlyUnderReqCheckbox = new JCheckBox("Only copy below or unknown requirements");
+        copyOnlyUnderReqCheckbox.setToolTipText("Bulk copy/export uses the latest full current-area or selected-run roster; display facets are independent.");
         copyOnlyUnderReqCheckbox.setSelected("true".equals(PropertiesManager.getProperty("copyOnlyUnderReqCheckbox")));
         copyOnlyUnderReqCheckbox.addActionListener(e -> PropertiesManager.setProperties(
                 "copyOnlyUnderReqCheckbox", Boolean.toString(copyOnlyUnderReqCheckbox.isSelected())));
@@ -133,6 +153,30 @@ public class ParsePanelGUI extends JPanel {
         options.add(sortCheckBox);
         top.add(filterRow, BorderLayout.NORTH);
         top.add(options, BorderLayout.CENTER);
+        JPanel facets = ContentStyle.controls();
+        rosterSearch.setName("inspect-roster-search"); rosterSearch.getAccessibleContext().setAccessibleName("Search displayed roster");
+        facets.add(rosterSearch);
+        classFacet.addItem(new Choice<>(null, "All classes"));
+        guildFacet.addItem(new Choice<>(null, "All guilds")); guildFacet.addItem(new Choice<>(null, "No guild (captured)")); guildFacet.addItem(new Choice<>(null, "Guild not captured"));
+        JComponent[] controls = {classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed};
+        String[] facetNames = {"Class", "Guild", "Season", "Crucible", "Requirements result", "Maxed count", "Minimum maxed", "Maximum maxed"};
+        for (int i = 0; i < controls.length; i++) { controls[i].setName("inspect-facet-" + i); controls[i].getAccessibleContext().setAccessibleName(facetNames[i]); facets.add(controls[i]); }
+        JButton reset = new JButton("Reset display filters"); facets.add(reset);
+        reset.addActionListener(e -> {
+            guiUpdateSuppression = true; rosterSearch.setText("");
+            for (JComboBox<?> combo : new JComboBox<?>[]{classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet}) combo.setSelectedIndex(0);
+            minMaxed.setValue(0); maxMaxed.setValue(8); guiUpdateSuppression = false; requestRefresh();
+        });
+        for (JComboBox<?> combo : new JComboBox<?>[]{classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet})
+            combo.addActionListener(e -> { if (!guiUpdateSuppression) requestRefresh(); });
+        minMaxed.addChangeListener(e -> { if (!guiUpdateSuppression) requestRefresh(); });
+        maxMaxed.addChangeListener(e -> { if (!guiUpdateSuppression) requestRefresh(); });
+        rosterSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { if (!guiUpdateSuppression) requestRefresh(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { insertUpdate(e); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { insertUpdate(e); }
+        });
+        top.add(facets, BorderLayout.SOUTH);
         page.add(top, BorderLayout.NORTH);
 
         JPopupMenu actions = new JPopupMenu("Roster actions");
@@ -179,7 +223,20 @@ public class ParsePanelGUI extends JPanel {
             }
         });
         buttons.add(actionsButton);
-        page.add(buttons, BorderLayout.SOUTH);
+        JPanel footer = new JPanel(new BorderLayout(0, 4));
+        rosterCount.setName("inspect-roster-count"); resultDetails.setName("inspect-requirement-reasons"); resultDetails.setFocusable(true); resultDetails.setVisible(false);
+        JToggleButton explain = new JToggleButton("Requirement details"); buttons.add(explain);
+        explain.addActionListener(e -> { resultDetails.setVisible(explain.isSelected()); page.revalidate(); });
+        footer.add(rosterCount, BorderLayout.NORTH); footer.add(resultDetails, BorderLayout.CENTER); footer.add(buttons, BorderLayout.SOUTH);
+        page.add(footer, BorderLayout.SOUTH);
+        for (JComponent control : new JComponent[]{rosterSearch, classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed, reset, explain}) {
+            JComponent focus = control instanceof JSpinner ? ((JSpinner.DefaultEditor)((JSpinner)control).getEditor()).getTextField() : control;
+            focus.addFocusListener(new FocusAdapter() { public void focusGained(FocusEvent e) { ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight())); } });
+        }
+        resultDetails.addFocusListener(new FocusAdapter() { public void focusGained(FocusEvent e) {
+            try { Rectangle caret = resultDetails.modelToView(resultDetails.getCaretPosition()); if (caret != null) ContentStyle.reveal(resultDetails, caret); }
+            catch (javax.swing.text.BadLocationException impossible) { throw new IllegalStateException(impossible); }
+        } });
 
         bind("copy-player", KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), false, false);
         bind("open-player", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), false, true);
@@ -263,6 +320,9 @@ public class ParsePanelGUI extends JPanel {
         Row row = selectedRow();
         playerActions.forEach(a -> a.setEnabled(row != null));
         guildActions.forEach(a -> a.setEnabled(row != null && !row.guild.isEmpty()));
+        resultDetails.setText(row == null ? "Select a player to explain requirements." : inspectionName(row) + " · " + row.player.origin
+            + "\n" + (row.player.currentArea ? "Current-area snapshot" : "Recorded snapshot") + " · Build/change time: "
+            + (row.player.recordedAt > 0 ? DisplayFormat.formatTimestamp(row.player.recordedAt) : "Not captured") + "\n" + row.requirements.description());
     }
 
     private void selectedAction(boolean guild, boolean open) {
@@ -297,6 +357,7 @@ public class ParsePanelGUI extends JPanel {
         CapturedPlayer player = snapshot(entity.id, entity);
         player.className = captured.className();
         player.origin = "Detached recorded build · Source session/run not supplied";
+        player.currentArea = false;
         return new Row(player, 0, null);
     }
 
@@ -314,7 +375,7 @@ public class ParsePanelGUI extends JPanel {
                 + "\nThis is the retained loadout, not continuous last-seen evidence or equipment at every hit."
                 + "\n\nPlayer: " + inspectionName(row) + "\nClass: " + clazz + "\nLevel: " + (level == null ? "Not captured" : level.statValue)
                 + "\nGuild: " + (entity.getStatGuild() == null ? "Not captured" : row.guild.isEmpty() ? "None (captured)" : row.guild) + "\nCharacter mode: " + mode
-                + "\n\n" + row.player.statsDescription() + "\n\n" + String.join("\n\n", row.equipmentDetails);
+                + "\n\n" + row.player.statsDescription(row.definitions) + "\n\n" + String.join("\n\n", row.equipmentDetails);
     }
 
     protected void showEquipmentDetails(String playerName, String details) {
@@ -356,33 +417,38 @@ public class ParsePanelGUI extends JPanel {
     }
 
     private void loadFilters() {
-        filters.clear();
-        currentFilter = null;
         guiUpdateSuppression = true;
         String saved = PropertiesManager.getProperty("securityFilters");
-        if (saved != null && !saved.isEmpty()) for (String json : saved.split("§")) {
-            SecurityFilter filter = SecurityFilter.loadJson(json);
-            if (filter != null) filters.put(filter.name, filter);
+        if (liveOwner || filters.isEmpty()) {
+            filters.clear();
+            if (saved != null && !saved.isEmpty()) for (String json : saved.split("§")) {
+                SecurityFilter filter = SecurityFilter.loadJson(json);
+                if (filter != null && filter.name != null) filters.put(filter.name, filter);
+            }
         }
         for (String name : filters.keySet()) filterComboBox.addItem(name);
-        currentFilter = filters.get(Objects.toString(PropertiesManager.getProperty("securityFilterName"), ""));
-        filterComboBox.setSelectedItem(currentFilter == null ? DISABLE_FILTER : currentFilter.name);
+        selectedFilter = filters.get(Objects.toString(PropertiesManager.getProperty("securityFilterName"), ""));
+        if (liveOwner) currentFilter = selectedFilter;
+        filterComboBox.setSelectedItem(selectedFilter == null ? DISABLE_FILTER : selectedFilter.name);
         guiUpdateSuppression = false;
-        copyOnlyUnderReqCheckbox.setEnabled(currentFilter != null);
+        copyOnlyUnderReqCheckbox.setEnabled(selectedFilter != null);
     }
 
     private void comboAction(ActionEvent e) {
         if (guiUpdateSuppression) return;
-        currentFilter = filters.get(String.valueOf(filterComboBox.getSelectedItem()));
-        PropertiesManager.setProperties("securityFilterName", currentFilter == null ? "" : currentFilter.name);
-        copyOnlyUnderReqCheckbox.setEnabled(currentFilter != null);
+        selectedFilter = filters.get(String.valueOf(filterComboBox.getSelectedItem()));
+        if (liveOwner) { currentFilter = selectedFilter; PropertiesManager.setProperties("securityFilterName", selectedFilter == null ? "" : selectedFilter.name); }
+        copyOnlyUnderReqCheckbox.setEnabled(selectedFilter != null);
+        requirementsRevision++;
         requestRefresh();
     }
 
     TreeMap<String, SecurityFilter> getFilters() { return filters; }
+    SecurityFilter selectedFilter() { return selectedFilter; }
 
     public void filterUpdate() {
-        String selected = currentFilter == null ? DISABLE_FILTER : currentFilter.name;
+        SecurityFilter active = liveOwner ? currentFilter : selectedFilter;
+        String selected = active == null ? DISABLE_FILTER : active.name;
         guiUpdateSuppression = true;
         filterComboBox.removeAllItems();
         filterComboBox.addItem(DISABLE_FILTER);
@@ -396,9 +462,45 @@ public class ParsePanelGUI extends JPanel {
         synchronized (rosterLock) { revision++; }
     }
 
+    private InspectRosterQuery displayQuery() {
+        int guild = guildFacet.getSelectedIndex();
+        return new InspectRosterQuery(rosterSearch.getText(), choice(classFacet), guild == 0 ? InspectRosterQuery.Guild.ANY
+            : guild == 1 ? InspectRosterQuery.Guild.NONE : guild == 2 ? InspectRosterQuery.Guild.UNKNOWN : InspectRosterQuery.Guild.EXACT,
+            choice(guildFacet), InspectRosterQuery.Mode.values()[seasonalFacet.getSelectedIndex()], InspectRosterQuery.Mode.values()[crucibleFacet.getSelectedIndex()],
+            verdictFacet.getSelectedIndex() == 0 ? null : RequirementResult.Verdict.values()[verdictFacet.getSelectedIndex() - 1],
+            maxedFacet.getSelectedIndex() == 1, maxedFacet.getSelectedIndex() == 2, (Integer)minMaxed.getValue(), (Integer)maxMaxed.getValue());
+    }
+    private void rebuildDisplayChoices(List<CapturedPlayer> players) {
+        Integer selectedClass = choice(classFacet); String selectedGuild = choice(guildFacet); int guildMode = guildFacet.getSelectedIndex();
+        Map<Integer, String> classes = new TreeMap<>(); Set<String> guilds = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (CapturedPlayer player : players) {
+            classes.put(player.playerEntity.objectType, Objects.toString(player.className, "Class " + player.playerEntity.objectType));
+            String guild = player.playerEntity.getStatGuild(); if (guild != null && !guild.isEmpty()) guilds.add(guild);
+        }
+        if (selectedClass != null) classes.putIfAbsent(selectedClass, "Class " + selectedClass);
+        if (selectedGuild != null) guilds.add(selectedGuild);
+        guiUpdateSuppression = true;
+        classFacet.removeAllItems(); classFacet.addItem(new Choice<>(null, "All classes"));
+        guildFacet.removeAllItems(); guildFacet.addItem(new Choice<>(null, "All guilds")); guildFacet.addItem(new Choice<>(null, "No guild (captured)")); guildFacet.addItem(new Choice<>(null, "Guild not captured"));
+        for (Map.Entry<Integer, String> entry : classes.entrySet()) {
+            Choice<Integer> value = new Choice<>(entry.getKey(), entry.getValue()); classFacet.addItem(value);
+            if (entry.getKey().equals(selectedClass)) classFacet.setSelectedItem(value);
+        }
+        for (String guild : guilds) {
+            Choice<String> value = new Choice<>(guild, guild); guildFacet.addItem(value);
+            if (selectedGuild != null && guild.equalsIgnoreCase(selectedGuild)) guildFacet.setSelectedItem(value);
+        }
+        if (guildMode < 3) guildFacet.setSelectedIndex(Math.max(0, guildMode));
+        guiUpdateSuppression = false;
+    }
+    private static <T> T choice(JComboBox<Choice<T>> box) { Choice<T> selected = (Choice<T>)box.getSelectedItem(); return selected == null ? null : selected.value; }
+    private static final class Choice<T> { final T value; final String label; Choice(T value, String label) { this.value = value; this.label = label; } public String toString() { return label; } }
+
     /** Runs only on the EDT, at most once per timer tick, and never while hidden. */
-    private void refreshRoster() {
-        if (!isShowing()) return;
+    void refreshRoster() {
+        if (!isShowing() && isDisplayable()) return;
+        RosterDefinitions nextDefinitions = definitionsSource.get();
+        if (nextDefinitions != definitions) { definitions = nextDefinitions; requestRefresh(); }
         List<CapturedPlayer> players;
         long nextRevision;
         synchronized (rosterLock) {
@@ -407,14 +509,17 @@ public class ParsePanelGUI extends JPanel {
             players = historicalPlayers == null ? new ArrayList<>(roster.values()) : new ArrayList<>(historicalPlayers);
         }
         Row selected = selectedRow();
+        rebuildDisplayChoices(players);
+        SecurityFilter rules = selectedFilter == null ? null : selectedFilter.snapshot();
+        InspectRosterQuery query = displayQuery();
         Map<String, Row> previous = new HashMap<>();
         for (Row row : model.rows) previous.put(rowKey(row.player), row);
         List<Row> rows = new ArrayList<>(players.size());
         for (CapturedPlayer player : players) {
             Row row = previous.get(rowKey(player));
-            if (row == null || row.player != player || row.themeRevision != themeRevision)
-                row = new Row(player, themeRevision, inspectedRun);
-            rows.add(row);
+            if (row == null || row.player != player || row.themeRevision != themeRevision || row.rulesRevision != requirementsRevision || row.definitions != definitions)
+                row = new Row(player, themeRevision, inspectedRun, rules, definitions, requirementsRevision);
+            if (query.matches(player, row.requirements, row.maxedCount, player.className)) rows.add(row);
         }
         if (sortCheckBox.isSelected()) rows.sort(Comparator.comparing((Row r) -> r.guild.isEmpty())
                 .thenComparing(r -> r.guild, String.CASE_INSENSITIVE_ORDER));
@@ -429,6 +534,9 @@ public class ParsePanelGUI extends JPanel {
             }
         }
         updateSelectionActions();
+        rosterCount.setText(players.isEmpty() ? "No captured players in this roster." : rows.isEmpty() ? "No matching players. Reset display filters."
+            : rows.size() + " of " + players.size() + " players shown · " + (historicalPlayers == null ? "Current area" : "Selected run")
+                + " · Display filters do not change bulk-copy scope.");
     }
 
     void showCurrentArea() {
@@ -457,6 +565,7 @@ public class ParsePanelGUI extends JPanel {
             Entity entity = player.toEntity();
             CapturedPlayer row=snapshot(entity.id, entity);row.className=player.className();
             row.recordedAt=player.observedAt();
+            row.currentArea=false;
             row.origin="Recorded run: " + id + (visit == null ? "" : " · " + visit.map) + " · Last recorded loadout";
             captured.add(row);
         }
@@ -469,16 +578,17 @@ public class ParsePanelGUI extends JPanel {
         if (runColumnsVisible == visible) return;
         runColumnsVisible = visible;
         for (TableColumn column : runColumns) { if (visible) table.addColumn(column); else table.removeColumn(column); }
+        if (visible) { table.moveColumn(table.convertColumnIndexToView(9), 9); table.moveColumn(table.convertColumnIndexToView(10), 10); }
         if (!visible) {
             List<RowSorter.SortKey> keys = new ArrayList<>();
-            for (RowSorter.SortKey key : table.getRowSorter().getSortKeys()) if (key.getColumn() < 9) keys.add(key);
+            for (RowSorter.SortKey key : table.getRowSorter().getSortKeys()) if (key.getColumn() != 9 && key.getColumn() != 10) keys.add(key);
             table.getRowSorter().setSortKeys(keys);
         }
     }
 
     private String rowKey(CapturedPlayer player) {
         Entity entity = player.playerEntity;
-        return historicalPlayers == null ? "object:" + entity.id : player.historyKey();
+        return historicalPlayers == null ? "object:" + entity.id : "run:" + displayedRun + ":object:" + entity.id;
     }
 
     private static final StatType[] DISPLAY_STATS = {StatType.NAME_STAT, StatType.GUILD_NAME_STAT,
@@ -491,6 +601,7 @@ public class ParsePanelGUI extends JPanel {
         String className;
         String origin = "Current area · Detached captured build";
         long recordedAt;
+        boolean currentArea = true;
         final boolean[] equipmentCaptured;
         CapturedPlayer(Entity entity, boolean[] equipmentCaptured) {
             super(entity);
@@ -521,7 +632,9 @@ public class ParsePanelGUI extends JPanel {
             if (slot >= 0 && slot < 4) equipmentCaptured[slot] = true;
             copy.stat.set(type, value);
         }
-        return new CapturedPlayer(copy, equipmentCaptured);
+        CapturedPlayer player = new CapturedPlayer(copy, equipmentCaptured);
+        player.recordedAt = source.observedAt();
+        return player;
     }
 
     public static void addPlayer(int id, Entity entity) {
@@ -581,11 +694,12 @@ public class ParsePanelGUI extends JPanel {
         if (SwingUtilities.isEventDispatchThread()) change.run(); else SwingUtilities.invokeLater(change);
     }
 
-    private List<Player> getFilteredPlayers() {
+    List<Player> getFilteredPlayers() {
         List<Player> players;
         synchronized (rosterLock) { players = historicalPlayers == null ? new ArrayList<>(roster.values()) : new ArrayList<>(historicalPlayers); }
-        if (currentFilter != null && copyOnlyUnderReqCheckbox.isSelected())
-            players.removeIf(p -> !currentFilter.parsePlayer(p).isUnderReqs);
+        SecurityFilter rules = selectedFilter == null ? null : selectedFilter.snapshot();
+        RosterDefinitions catalog = definitionsSource.get();
+        if (rules != null && copyOnlyUnderReqCheckbox.isSelected()) players.removeIf(p -> !rules.evaluate(p, catalog).nonPassing());
         return players;
     }
 
@@ -599,9 +713,10 @@ public class ParsePanelGUI extends JPanel {
         }
     }
 
-    private static String json(List<Player> players) {
+    private String json(List<Player> players) {
         StringJoiner result = new StringJoiner(",\n", "[\n", "\n]");
-        for (Player player : players) result.add(player.toString());
+        RosterDefinitions catalog = definitionsSource.get();
+        for (Player player : players) result.add(player.toJson(catalog));
         return result.toString();
     }
 
@@ -650,6 +765,10 @@ public class ParsePanelGUI extends JPanel {
     private static class Row {
         final long themeRevision;
         final CapturedPlayer player;
+        final RequirementResult requirements;
+        final RosterDefinitions definitions;
+        final Integer maxedCount;
+        final long rulesRevision;
         final String guild;
         final Long damage;
         final Double dps;
@@ -657,7 +776,13 @@ public class ParsePanelGUI extends JPanel {
         final ImageIcon[] icons = new ImageIcon[4];
         final ImageIcon skin;
         Row(CapturedPlayer player, long themeRevision, ActivityJournal.Visit run) {
+            this(player, themeRevision, run, null, RosterDefinitions.current(), 0);
+        }
+        Row(CapturedPlayer player, long themeRevision, ActivityJournal.Visit run, SecurityFilter rules, RosterDefinitions definitions, long rulesRevision) {
             this.player = player;
+            this.definitions = definitions; this.rulesRevision = rulesRevision;
+            requirements = rules == null ? RequirementResult.notEvaluated() : rules.evaluate(player, definitions);
+            maxedCount = player.statsMaxed(definitions);
             this.themeRevision = themeRevision;
             guild = Objects.toString(player.playerEntity.getStatGuild(), "");
             damage = run == null ? null : run.damage(player.historyKey());
@@ -710,7 +835,7 @@ public class ParsePanelGUI extends JPanel {
     }
 
     private static class RosterModel extends AbstractTableModel {
-        private final String[] columns = {"Player / level", "Guild", "Class", "Weapon", "Ability", "Armor", "Ring", "Maxed", "Character mode", "Damage", "DPS"};
+        private final String[] columns = {"Player / level", "Guild", "Class", "Weapon", "Ability", "Armor", "Ring", "Maxed", "Character mode", "Damage", "DPS", "Requirements"};
         private List<Row> rows = new ArrayList<>();
         public int getRowCount() { return rows.size(); }
         public int getColumnCount() { return columns.length; }
@@ -721,12 +846,13 @@ public class ParsePanelGUI extends JPanel {
             Entity entity = row.player.playerEntity;
             switch (column) {
                 case 0: return entity.name() + " [" + (entity.stat.get(StatType.LEVEL_STAT) == null ? "Not captured" : entity.stat.get(StatType.LEVEL_STAT).statValue) + "]";
-                case 1: return row.guild;
+                case 1: return entity.getStatGuild() == null ? "Not captured" : row.guild.isEmpty() ? "None (captured)" : row.guild;
                 case 2: return Objects.toString(row.player.className, Objects.toString(CharacterClass.getName(entity.objectType), "Unknown class"));
-                case 7: return row.player.statsMaxed()<0?null:row.player.statsMaxed();
+                case 7: return row.maxedCount;
                 case 8: return Player.modeDescription(entity);
                 case 9: return row.damage;
                 case 10: return row.dps;
+                case 11: return row.requirements.verdict.label;
                 default: return row.equipmentLabels[column - 3];
             }
         }
@@ -758,11 +884,15 @@ public class ParsePanelGUI extends JPanel {
                 getAccessibleContext().setAccessibleName(row.equipmentLabels[slot]);
                 getAccessibleContext().setAccessibleDescription(row.equipmentDetails[slot]);
             } else if (column == 7) {
-                setToolTipText("<html>" + html(row.player.statsDescription()) + "</html>");
+                setToolTipText("<html>" + html(row.player.statsDescription(row.definitions)) + "</html>");
             } else if (column == 8 && !selected) {
                 boolean seasonal = Boolean.TRUE.equals(Player.seasonal(row.player.playerEntity)), crucible = Boolean.TRUE.equals(Player.crucible(row.player.playerEntity));
                 setForeground(ContentStyle.color(crucible ? (seasonal ? "violet" : "amber") : seasonal ? "mint" : "muted"));
-            } else if (column >= 9) {
+            } else if (column == 11) {
+                setToolTipText("<html>" + html(row.requirements.description()) + "</html>");
+                if (!selected) setForeground(ContentStyle.color(row.requirements.verdict == RequirementResult.Verdict.PASS ? "mint"
+                    : row.requirements.verdict == RequirementResult.Verdict.BELOW ? "rose" : "muted"));
+            } else if (column == 9 || column == 10) {
                 setToolTipText(column == 9 ? "Captured outgoing damage in this dungeon; missing older recordings are shown as —."
                         : "Damage per second over the dungeon's shared first-to-last captured hit window. A single timestamp has no measurable DPS. Gear is the last captured loadout.");
             }

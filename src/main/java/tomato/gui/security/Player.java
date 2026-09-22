@@ -95,8 +95,30 @@ public class Player {
         return skinId;
     }
 
-    private int baseStat(int index) {
+    int baseStat(int index) {
         return playerEntity.baseStats == null || index >= playerEntity.baseStats.length ? -1 : playerEntity.baseStats[index];
+    }
+    public String statsDescription(tomato.backend.data.RosterDefinitions definitions) {
+        Integer count = statsMaxed(definitions);
+        StringBuilder text = new StringBuilder("Base stats · ").append(count == null ? "Maxed total unavailable" : count + " / 8 maxed")
+            .append(" · ").append(capturedStatCount()).append(" / 8 captured");
+        for (int i = 0; i < 8; i++) {
+            Integer cap = definitions.cap(playerEntity.objectType, i);
+            text.append('\n').append(statNames[i]).append(": ").append(baseStat(i) < 0 ? "Not captured" : baseStat(i));
+            text.append(" · cap ").append(cap == null ? "Unknown" : cap);
+            if (baseStat(i) >= 0 && cap != null)
+                text.append(" (potions to max: ").append((long)Math.ceil(Math.max(0L, (long)cap - baseStat(i)) / (i < 2 ? 5d : 1d))).append(')');
+        }
+        return text.toString();
+    }
+    public Integer statsMaxed(tomato.backend.data.RosterDefinitions definitions) {
+        int maxed = 0;
+        for (int i = 0; i < 8; i++) {
+            Integer cap = definitions.cap(playerEntity.objectType, i);
+            if (cap == null || baseStat(i) < 0) return null;
+            if (baseStat(i) >= cap) maxed++;
+        }
+        return maxed;
     }
 
     public int capturedStatCount() {
@@ -122,6 +144,9 @@ public class Player {
     }
 
     public String toString() {
+        return toJson(tomato.backend.data.RosterDefinitions.current());
+    }
+    public String toJson(tomato.backend.data.RosterDefinitions definitions) {
         com.google.gson.JsonObject json = new com.google.gson.JsonObject(), equipment = new com.google.gson.JsonObject(), deficits = new com.google.gson.JsonObject();
         json.addProperty("name", playerEntity.name());
         json.addProperty("class", CharacterClass.getName(playerEntity.objectType));
@@ -136,8 +161,12 @@ public class Player {
             equipment.addProperty(equipmentNames[i] + "id", known ? inv[i] : null);
         }
         json.add("equipment", equipment);
-        json.addProperty("maxstats", statsMaxed() < 0 ? null : statsMaxed());
-        int[] missing = statMissing();
+        json.addProperty("maxstats", statsMaxed(definitions));
+        int[] missing = new int[8];
+        for (int i = 0; i < 8; i++) {
+            Integer cap = definitions.cap(playerEntity.objectType, i);
+            missing[i] = cap == null || baseStat(i) < 0 ? -1 : (int)Math.ceil(Math.max(0L, (long)cap - baseStat(i)) / (i < 2 ? 5d : 1d));
+        }
         for (int i = 0; i < missing.length; i++) if (missing[i] != 0)
             deficits.addProperty(statNames[i], missing[i] < 0 ? null : missing[i]);
         json.add("missingstats", deficits);
