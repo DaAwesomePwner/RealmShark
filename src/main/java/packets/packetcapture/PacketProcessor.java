@@ -30,6 +30,7 @@ public class PacketProcessor extends Thread implements PProcessor {
     private volatile java.util.function.Consumer<CaptureState> readiness = state -> {};
     private volatile CaptureState captureState = CaptureState.STOPPED;
     private volatile Runnable stoppedListener = () -> {};
+    private volatile Runnable boundaryListener = () -> {};
     private volatile String stopReason = "Capture ended unexpectedly. See logs/capture-health.log.";
     private final Object lifecycle = new Object();
     private volatile long decodedPackets;
@@ -56,6 +57,14 @@ public class PacketProcessor extends Thread implements PProcessor {
 
     public void setStoppedListener(Runnable listener) {
         stoppedListener = listener == null ? () -> {} : listener;
+    }
+
+    public void setBoundaryListener(Runnable listener) {
+        boundaryListener = listener == null ? () -> {} : listener;
+    }
+
+    private void connectionBoundary() {
+        if (!stopRequested) boundaryListener.run();
     }
 
     public String getStopReason() { return stopReason; }
@@ -107,19 +116,28 @@ public class PacketProcessor extends Thread implements PProcessor {
     public void run() {
         try { tapPackets(); }
         catch (RuntimeException | LinkageError e) { recordTerminalFailure(e); }
-        finally { if (stopRequested) readiness(CaptureState.STOPPED); stoppedListener.run(); }
+        finally {
+            boolean requested = stopRequested;
+            requestStop(); // Retired processors must never accept late transport/data callbacks.
+            if (requested) readiness(CaptureState.STOPPED);
+            else if (captureState != CaptureState.NPCAP_UNAVAILABLE && captureState != CaptureState.FAILED) readiness(CaptureState.FAILED);
+            stoppedListener.run();
+        }
     }
 
     /**
      * Stop method for PacketProcessor.
      */
     public void stopSniffer() {
+        requestStop();
         synchronized (lifecycle) {
-            stopRequested = true;
             if (sniffer != null) closeAttempt(sniffer);
             lifecycle.notifyAll();
         }
     }
+
+    /** Nonblocking dispatch gate; native adapter cleanup remains on the shutdown worker. */
+    public void requestStop() { stopRequested = true; }
 
     /**
      * Method to start the packet sniffer that will send packets back to receivedPackets.
@@ -132,6 +150,7 @@ public class PacketProcessor extends Thread implements PProcessor {
             long retryDelay = 1000;
             String retryReason = "Capture interrupted or idle";
             try {
+                connectionBoundary();
                 readiness(CaptureState.WAITING);
                 CaptureDiagnostics.record("Starting capture attempt", null);
                 incomingPacketConstructor.reset();
@@ -163,6 +182,7 @@ public class PacketProcessor extends Thread implements PProcessor {
             } finally {
                 if (attempt != null) closeAttempt(attempt);
                 sniffer = null;
+                connectionBoundary();
             }
             synchronized (lifecycle) {
                 if (stopRequested) break;
@@ -253,6 +273,7 @@ public class PacketProcessor extends Thread implements PProcessor {
             DiscoveryLog.INSTANCE.decodeFailure(type, size, pData, e);
             return;
         }
+        if (stopRequested) return;
         DiscoveryLog.INSTANCE.observe(type, size, packetType,
             pData.isBufferFullyParsed() ? "decoded" : "trailing-bytes", pData.getRemainingBytes());
         decodedPackets++;
@@ -271,12 +292,16 @@ public class PacketProcessor extends Thread implements PProcessor {
 
     @Override
     public void resetIncoming() {
+        if (stopRequested) return;
+        connectionBoundary();
         DiscoveryLog.INSTANCE.boundary();
         incomingPacketConstructor.reset();
     }
 
     @Override
     public void resetOutgoing() {
+        if (stopRequested) return;
+        connectionBoundary();
         outgoingPacketConstructor.reset();
     }
 }

@@ -38,6 +38,7 @@ public class Tomato {
     // Capture lifecycle decisions belong to the EDT; retain the old worker until its callback.
     private static boolean stoppingCapture, restartCapture;
     private static TomatoRootController rootController;
+    private static CapturePublication capturePublication;
     private static boolean preview;
     private static boolean assetsReady, setupBusy;
 
@@ -182,6 +183,7 @@ public class Tomato {
      */
     private static void loadControllers(TomatoData data) {
         rootController = new TomatoRootController(data);
+        capturePublication = new CapturePublication(data);
         // Create realm packet capture instance and add to root controller
         TomatoPacketCapture packCap = new TomatoPacketCapture(data);
         packetRegister(packCap);
@@ -293,16 +295,24 @@ public class Tomato {
      * Start the packet sniffer.
      */
     public static void startPacketSniffer() {
+        startPacketSniffer(PacketProcessor::new);
+    }
+
+    /** The production lifecycle with a replaceable worker factory for adapter-free integration checks. */
+    static void startPacketSniffer(java.util.function.Supplier<PacketProcessor> factory) {
         if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(Tomato::startPacketSniffer);
+            SwingUtilities.invokeLater(() -> startPacketSniffer(factory));
             return;
         }
         if (stoppingCapture) { restartCapture = true; return; }
         if (preview || setupBusy || !assetsReady) return;
         if (packetProcessor == null) {
+            if (capturePublication == null) throw new IllegalStateException("Capture model has not been initialized");
+            CapturePublication publication = capturePublication;
             ChatGUI.resetObservedIgnores();
-            PacketProcessor next = new PacketProcessor();
+            PacketProcessor next = factory.get();
             packetProcessor = next;
+            next.setBoundaryListener(() -> publication.boundary(next));
             TomatoMenuBar.setCaptureControls(true, true);
             TomatoGUI.setStateOfSniffer(true);
             next.setReadinessListener(state -> SwingUtilities.invokeLater(() -> {
@@ -311,23 +321,34 @@ public class Tomato {
             next.setCaptureStatusListener(message -> SwingUtilities.invokeLater(() -> {
                 if (packetProcessor == next && !stoppingCapture) TomatoGUI.setCaptureDetail(message);
             }));
-            next.setStoppedListener(() -> javax.swing.SwingUtilities.invokeLater(() -> {
-                if (packetProcessor == next) {
-                    boolean requested = stoppingCapture;
-                    packetProcessor = null;
-                    stoppingCapture = false;
-                    TomatoMenuBar.setCaptureControls(false, assetsReady && !setupBusy);
-                    TomatoGUI.setStateOfSniffer(false);
-                    if (restartCapture) {
-                        restartCapture = false;
-                        startPacketSniffer();
-                    } else if (!requested) {
-                        TomatoGUI.setCaptureFailure(next.getStopReason());
-                        TomatoGUI.setCaptureReadiness(next.getCaptureState());
+            next.setStoppedListener(() -> {
+                publication.terminated(next);
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    if (packetProcessor == next) {
+                        boolean requested = stoppingCapture;
+                        packetProcessor = null;
+                        stoppingCapture = false;
+                        TomatoMenuBar.setCaptureControls(false, assetsReady && !setupBusy);
+                        TomatoGUI.setStateOfSniffer(false);
+                        if (restartCapture) {
+                            restartCapture = false;
+                            startPacketSniffer(factory);
+                        } else if (!requested) {
+                            TomatoGUI.setCaptureFailure(next.getStopReason());
+                            TomatoGUI.setCaptureReadiness(next.getCaptureState());
+                        }
                     }
-                }
-            }));
-            next.start();
+                });
+            });
+            publication.started(next);
+            try { next.start(); }
+            catch (RuntimeException | Error failure) {
+                publication.terminated(next);
+                packetProcessor = null;
+                TomatoMenuBar.setCaptureControls(false, assetsReady && !setupBusy);
+                TomatoGUI.setStateOfSniffer(false);
+                throw failure;
+            }
         }
     }
 
@@ -342,10 +363,12 @@ public class Tomato {
         restartCapture = false;
         if (packetProcessor != null && !stoppingCapture) {
             stoppingCapture = true;
+            PacketProcessor stopping = packetProcessor;
+            stopping.requestStop();
+            capturePublication.stopRequested(stopping);
             TomatoMenuBar.setCaptureControls(false, false);
             TomatoGUI.setCaptureReadiness(packets.packetcapture.CaptureState.STOPPING);
             TomatoGUI.setCaptureDetail("Stopping capture connection…");
-            PacketProcessor stopping = packetProcessor;
             Thread stop = new Thread(stopping::stopSniffer, "capture-stop");
             stop.setDaemon(true);
             stop.start();
@@ -369,7 +392,7 @@ public class Tomato {
         data.loadPropList("itemPings");
     }
 
-    /** Complete local initialization before the window/menu can auto-start capture. */
+    /** Complete local initialization before opening the shell and checking capture readiness. */
     static void initializeAndOpen(TomatoData data, Runnable openWindow)
         throws InterruptedException, java.lang.reflect.InvocationTargetException {
         bootload(data);
