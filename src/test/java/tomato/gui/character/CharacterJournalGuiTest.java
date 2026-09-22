@@ -45,6 +45,8 @@ public class CharacterJournalGuiTest {
         for (int i = 0; i < classes.length; i++) {
             RealmCharacter c = new RealmCharacter(); c.classNum = (short)classes[i]; c.charId = 101+i;
             c.level = 20; c.seasonal = i % 2 == 0; c.fame = i == 0 ? 900 : 10000 + i;
+            for (String field : new String[]{"class", "level", "seasonal", "fame"}) c.supplied(field);
+            c.receivedAt = System.currentTimeMillis();
             int[] cap = CharacterClass.getStats(c.classNum); if (cap == null) cap = new int[]{670,385,75,25,50,75,40,60};
             c.hp = cap[0]; c.mp = cap[1]; c.atk = cap[2]; c.def = cap[3]; c.spd = cap[4]; c.dex = cap[5]; c.vit = cap[6]; c.wis = cap[7];
             if (i == 0) { c.hp -= 20; c.wis -= 10; }
@@ -59,14 +61,14 @@ public class CharacterJournalGuiTest {
             search.setText("["); assertEquals(0,roster.getRowCount());
             search.setText("12345"); assertEquals(6,roster.getRowCount()); search.setText("101"); assertEquals(1,roster.getRowCount());
             assertEquals(CharacterClass.getStats(782) == null ? "Unknown" : "6/8", roster.getValueAt(0,5));
-            button(panel,"Mark dead").doClick(); assertEquals("Dead",roster.getValueAt(0,2));
-            button(panel,"Restore alive").doClick(); assertEquals("Alive",roster.getValueAt(0,2));
+            button(panel,"Mark dead").doClick(); assertEquals("Marked dead manually",roster.getValueAt(0,2));
+            button(panel,"Restore alive").doClick(); assertEquals("Last observed alive",roster.getValueAt(0,2));
             JTextArea notes = notes(panel); notes.setText("Finish Life and Wisdom"); button(panel,"Save notes").doClick();
             assertEquals("Finish Life and Wisdom",j.characters().stream().filter(r -> r.characterId == 101).findFirst().get().notes);
             search.setText(""); roster.getRowSorter().toggleSortOrder(6);
             assertEquals(900L, roster.getValueAt(0,6));
-            JComboBox<?> filter = find(panel,JComboBox.class); filter.setSelectedItem("Dead"); assertEquals(1,roster.getRowCount());
-            filter.setSelectedItem("Alive"); assertEquals(5,roster.getRowCount()); filter.setSelectedItem("All characters");
+            JComboBox<?> filter = find(panel,JComboBox.class); filter.setSelectedItem("Marked dead manually"); assertEquals(1,roster.getRowCount());
+            filter.setSelectedItem("Not marked dead"); assertEquals(5,roster.getRowCount()); filter.setSelectedItem("All characters");
             search.setText("");
             JFrame frame = new JFrame("Characters — sample data"); frame.setContentPane(panel);
             try {

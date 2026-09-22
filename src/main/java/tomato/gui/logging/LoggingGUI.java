@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.modern.CollectionControl;
 import tomato.gui.activity.SnapshotRefresh;
 
 /** A searchable, bounded view over sanitized discovery data, refreshed only on the EDT. */
@@ -31,8 +32,9 @@ public final class LoggingGUI extends JPanel {
     private final JTextField search = new JTextField(22);
     private final JCheckBox observedOnly = new JCheckBox("Observed packets only");
     private final JCheckBox issuesOnly = new JCheckBox("Packet issues only");
-    private final JCheckBox freeze = new JCheckBox("Freeze");
-    private final JCheckBox enabled = new JCheckBox("Collect"), save = new JCheckBox("Save logs");
+    private final JCheckBox freeze = new JCheckBox("Pause this view");
+    private final CollectionControl enabled;
+    private final JCheckBox save = new JCheckBox("Save diagnostic samples");
     private final JComboBox<String> sampling = new JComboBox<>(new String[] {"Sampled", "Detailed"});
     private final JTabbedPane tabs = new JTabbedPane();
     private final DataTable packets = new DataTable("ID", "Packet", "Direction", "Evidence", "Count", "Bytes", "Decode errors", "Trailing", "Type listeners");
@@ -53,19 +55,20 @@ public final class LoggingGUI extends JPanel {
 
     public LoggingGUI(DiscoveryLog log) {
         super(new BorderLayout(0, 8)); this.log = log;
+        enabled = new CollectionControl(log, this::refresh);
         setName("logging-panel");
         JPanel top = new JPanel(); top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         JPanel controls = ContentStyle.controls();
-        enabled.setSelected(log.isEnabled());
-        enabled.setToolTipText("Collect decoded game traffic. Capture must also be running.");
-        enabled.addActionListener(e -> { log.setEnabled(enabled.isSelected()); refresh(); });
         save.setSelected(log.isSaving());
-        save.setToolTipText("Local rotating discovery logs and activity-history.json; queued writes may finish after disabling.");
+        save.setToolTipText("Save rotating diagnostic samples (and legacy activity checkpoints when no session store is attached). Separate from automatic session history; queued writes may finish.");
         save.addActionListener(e -> log.setSaving(save.isSelected()));
         sampling.setToolTipText("Sampled: one event per type per second, plus important events and errors. Activity aggregates use every clean packet. Detailed: every packet; at most 24 stat samples each.");
         sampling.getAccessibleContext().setAccessibleName("Diagnostic event sampling");
         sampling.addActionListener(e -> { if (!refreshing) log.setSampleMillis(sampling.getSelectedIndex() == 0 ? 1000 : 0); });
         controls.add(enabled); controls.add(save); controls.add(sampling); controls.add(freeze);
+        controls.add(ContentStyle.detailsButton("Diagnostic coverage", () -> {
+            if (snapshot != null) ContentStyle.showDetails(this, "Diagnostic coverage", DiagnosticCoverage.describe(snapshot));
+        }));
         JPanel actions = ContentStyle.controls();
         actions.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));
         JButton export = new JButton("Export report"); export.addActionListener(e -> export());
@@ -106,7 +109,7 @@ public final class LoggingGUI extends JPanel {
         add(split, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new BorderLayout());
         JTextArea privacy = new JTextArea("Local gameplay logs; payloads, credentials and chat are excluded.\nSampled history. Field definitions do not prove live availability.");
-        privacy.setToolTipText("String-stat values and opaque/unknown values are also withheld. Counters cover traffic observed while Collect is on.");
+        privacy.setToolTipText("String-stat values and opaque/unknown values are also withheld. Counters cover traffic observed while gameplay & diagnostics collection is on.");
         privacy.setEditable(false); privacy.setOpaque(false); privacy.setLineWrap(true); privacy.setWrapStyleWord(true); privacy.setRows(2);
         privacy.setFont(ContentStyle.metadata(ContentStyle.body()));
         bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH); add(bottom, BorderLayout.SOUTH);
@@ -127,11 +130,14 @@ public final class LoggingGUI extends JPanel {
     private void visibilityChanged() { if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); snapshots.invalidate(); } }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
+        enabled.refresh();
+        save.setSelected(log.isSaving());
+        updateSummary();
         if (snapshot != null && presentationChanged()) refreshTables();
         if (freeze.isSelected() || (isDisplayable()&&!isShowing())) return;
         snapshots.request("diagnostics",()->log.diagnosticsSnapshot(revision),next->{
             revision=next.revision; snapshot=next.data; refreshing=true;
-            enabled.setSelected(snapshot.enabled); save.setSelected(snapshot.saving); sampling.setSelectedIndex(snapshot.sampleMillis==0 ? 1 : 0);
+            enabled.refresh(); save.setSelected(log.isSaving()); sampling.setSelectedIndex(snapshot.sampleMillis==0 ? 1 : 0);
             refreshing=false; refreshTables();
         },error->exportStatus.setText("Could not refresh diagnostics; retrying on the next refresh."));
     }
@@ -139,11 +145,9 @@ public final class LoggingGUI extends JPanel {
         if (snapshot == null) return;
         boolean reformat = presentationChanged();
         if (reformat) for (DataTable table : allTables()) table.query = null;
-        summary.setText(DisplayFormat.formatInteger(snapshot.total) + " frames · " + DisplayFormat.formatInteger(snapshot.packets.size())
-            + " types · " + DisplayFormat.formatInteger(snapshot.stats.size()) + " stats · " + DisplayFormat.formatInteger(snapshot.events.size())
-            + " events · " + (snapshot.enabled ? "Collect on" : "Paused"));
+        updateSummary();
         losses.setText("Omitted: " + DisplayFormat.formatInteger(snapshot.sampledOut) + " events / " + DisplayFormat.formatInteger(snapshot.deltaOmitted)
-            + " stats · Disk drops: " + DisplayFormat.formatInteger(snapshot.diskDropped) + " · Errors: " + DisplayFormat.formatInteger(snapshot.observerErrors));
+            + " stat deltas · Disk drops: " + DisplayFormat.formatInteger(snapshot.diskDropped) + " · Observer errors: " + DisplayFormat.formatInteger(snapshot.observerErrors));
         losses.setToolTipText(snapshot.writerError.isEmpty() ? "Cache evictions: " + DisplayFormat.formatInteger(snapshot.cacheEvictions) + ". Sampling and limits affect event history, not packet counts. Export includes all counters." : snapshot.writerError);
         if (!snapshot.writerError.isEmpty()) exportStatus.setText(snapshot.writerError);
         if (!snapshot.activityWriterError.isEmpty()) exportStatus.setText(snapshot.activityWriterError);
@@ -190,6 +194,12 @@ public final class LoggingGUI extends JPanel {
     }
     private boolean presentationChanged() {
         return !Locale.getDefault(Locale.Category.FORMAT).equals(presentationLocale) || !ZoneId.systemDefault().equals(presentationZone);
+    }
+    private void updateSummary() {
+        summary.setText("<html>" + CollectionControl.status(log, freeze.isSelected())
+            + (snapshot == null ? " · No diagnostic revision displayed" : "<br>" + DisplayFormat.formatInteger(snapshot.total)
+                + " frames · " + DisplayFormat.formatInteger(snapshot.packets.size()) + " types · "
+                + DisplayFormat.formatInteger(snapshot.events.size()) + " retained samples · Partial coverage") + "</html>");
     }
     private void filter() {
         String query=search.getText().trim();

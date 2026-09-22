@@ -84,7 +84,7 @@ public class DpsFormattingTest {
                     try {
                         icons.editFont(new java.awt.Font("Dialog", 0, 12));
                         icons.renderData(map, Collections.singletonList(enemy), new ArrayList<>(), 2123, false);
-                        assertTrue(hasLabel(icons, german ? "DMG: 105.000 10,500%" : "DMG: 105,000 10.500%"));
+                        assertTrue(hasLabel(icons, german ? "DMG: 105.000 10,500% of max HP" : "DMG: 105,000 10.500% of max HP"));
                         assertTrue(hasLabel(icons, tag));
                     } finally { icons.editFont(font); }
                     assertEquals(1234, guarded.counterHits); assertEquals(12345, guarded.counterDmg);

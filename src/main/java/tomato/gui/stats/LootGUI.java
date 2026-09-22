@@ -249,8 +249,7 @@ public class LootGUI extends JPanel {
             StatData item = bag.stat.get(StatType.INVENTORY_0_STAT.get() + slot);
             if (item == null || item.statValue < 1) continue;
             String name = IdToAsset.objectName(item.statValue);
-            boolean itemMatch = data.isItemPing(String.valueOf(item.statValue))
-                || (name != null && data.isItemPing(name));
+            boolean itemMatch = data.isItemPing(item.statValue, name);
             String enchantText = notificationEnchants(slot < enchants.length ? enchants[slot] : null);
             boolean enchantMatch = !enchantText.isEmpty() && data.isEnchantPing(enchantText);
             // Several matching rules (including an item rule) still describe one dropped item.

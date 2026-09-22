@@ -10,10 +10,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 
 public class SpriteFlatBuffer {
-    private static String spriteJson = "assets/flatbuffer/spritesheetf";
 
-    private static boolean notLoaded = false;
-    private static final HashMap<String, HashMap<Integer, Sprite>> sprites;
+    private static volatile boolean notLoaded = true;
+    private static volatile HashMap<String, HashMap<Integer, Sprite>> sprites;
 //    private static final HashMap<String, HashMap<Integer, Sprite>> animatedSprites;
 
     /**
@@ -22,35 +21,32 @@ public class SpriteFlatBuffer {
     static {
         sprites = new HashMap<>();
 //        animatedSprites = new HashMap<>();
-        readFlatBuffer();
+        prepareReload(AssetCache.path("flatbuffer/spritesheetf")).run();
     }
 
     /**
      * Loads the flatBuffer file into HashMap data structure.
      */
-    private static void readFlatBuffer() {
-        File file = new File(spriteJson);
-        if (!file.exists()) {
-            notLoaded = true;
-            return;
+    public static boolean reload() {
+        Runnable ready = prepareReload(AssetCache.path("flatbuffer/spritesheetf"));
+        synchronized (ImageBuffer.class) {
+            ready.run();
+            ImageBuffer.clear();
+            return !notLoaded;
         }
-        if (sprites != null) sprites.clear();
-//        if (animatedSprites != null) animatedSprites.clear();
-        byte[] data;
+    }
+
+    /** Decode off the image-read monitor; publication installs this whole coordinate map. */
+    public static Runnable prepareReload(java.nio.file.Path path) {
+        HashMap<String, HashMap<Integer, Sprite>> next = new HashMap<>();
         try {
-            RandomAccessFile f = new RandomAccessFile(file, "r");
-            data = new byte[(int) f.length()];
-            f.readFully(data);
-            f.close();
-        } catch (IOException e) {
-            notLoaded = false;
-            return;
+            byte[] data = java.nio.file.Files.readAllBytes(path);
+            SpriteSheetRoot root = SpriteSheetRoot.getRootAsSpriteSheetRoot(ByteBuffer.wrap(data));
+            decodeSheet(root, next);
+            return () -> { sprites = next; notLoaded = false; };
+        } catch (IOException | RuntimeException e) {
+            return () -> notLoaded = true;
         }
-
-        ByteBuffer buf = ByteBuffer.wrap(data);
-        SpriteSheetRoot ssr = SpriteSheetRoot.getRootAsSpriteSheetRoot(buf);
-
-        decodeSheet(ssr);
     }
 
     /**
@@ -58,7 +54,7 @@ public class SpriteFlatBuffer {
      *
      * @param ssr root flat buffer object.
      */
-    private static void decodeSheet(SpriteSheetRoot ssr) {
+    private static void decodeSheet(SpriteSheetRoot ssr, HashMap<String, HashMap<Integer, Sprite>> sprites) {
         int spriteSheetSize = ssr.spritesLength();
         for (int i = 0; i < spriteSheetSize; i++) {
             SpriteSheet spriteSheet = ssr.sprites(i);
@@ -123,7 +119,8 @@ public class SpriteFlatBuffer {
 //        if (list == null) {
 //            list = animatedSprites.get(name);
 //        }
-        Sprite sprite = list.get(index);
+        Sprite sprite = list == null ? null : list.get(index);
+        if (sprite == null) return null;
         return new int[]{sprite.positionX, sprite.positionY, sprite.positionW, sprite.positionH, sprite.aId};
     }
 
@@ -137,7 +134,8 @@ public class SpriteFlatBuffer {
     public float[] getSpriteColor(String name, int index) {
         if (notLoaded) return null;
         HashMap<Integer, Sprite> list = sprites.get(name);
-        Sprite sprite = list.get(index);
+        Sprite sprite = list == null ? null : list.get(index);
+        if (sprite == null) return null;
         return sprite.colorAsInt();
     }
 

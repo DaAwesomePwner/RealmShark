@@ -5,7 +5,15 @@ import packets.incoming.MapInfoPacket;
 
 /** Dungeon lookups tolerate optional or unavailable extracted asset files. */
 public class ParseDungeon {
-    private static final DungeonCatalog CATALOG = DungeonCatalog.load(Paths.get("assets", "xml"));
+    private static volatile DungeonCatalog CATALOG = DungeonCatalog.load(assets.AssetCache.path("xml"));
+
+    public static void reload() { prepareReload(assets.AssetCache.path("xml")).run(); }
+
+    /** Build independently, then publish a whole catalog; readers never see maps being changed. */
+    public static Runnable prepareReload(java.nio.file.Path directory) {
+        DungeonCatalog next = DungeonCatalog.load(directory);
+        return () -> CATALOG = next;
+    }
 
     public static int[] getModIds(String dungeonString) {
         return CATALOG.getModIds(dungeonString);

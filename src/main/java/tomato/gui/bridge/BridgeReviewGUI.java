@@ -16,14 +16,17 @@ import tomato.gui.modern.ContentStyle;
 public final class BridgeReviewGUI extends JPanel {
     private final BridgeService bridge;
     private final JLabel state=new JLabel(){@Override public void updateUI(){super.updateUI();setForeground(ContentStyle.color("violet"));}}, feedback=new JLabel(" ");
-    private final JTextArea totals=note("");
+    private final JTextArea totals=ContentStyle.wrappingText("",2);
     private final JTextField search=new JTextField(22),endpoint=new JTextField(),guild=new JTextField(),csv=new JTextField(),audit=new JTextField();
     private final JPasswordField token=new JPasswordField();
     private final JCheckBox enabled=new JCheckBox("Enable bridge"),send=new JCheckBox("Send matching drops to bot"),debug=new JCheckBox("Debug logs");
     private final JCheckBox ut=new JCheckBox("UT"),st=new JCheckBox("ST"),shiny=new JCheckBox("Shiny"),enchanted=new JCheckBox("Enchanted"),other=new JCheckBox("Other CSV items");
     private final JComboBox<String> status=new JComboBox<>(new String[]{"All statuses","Queued","Logged","Accepted","Not logged","Not in CSV","Filtered","Local only","Rejected","Uncertain","Cancelled","Queue full"});
+    private final JComboBox<Object> outcome=new JComboBox<>();
+    private final JComboBox<String> character=new JComboBox<>(new String[]{"All characters"}), dungeon=new JComboBox<>(new String[]{"All dungeons"});
+    private final JComboBox<String> enchantFilter=new JComboBox<>(new String[]{"All enchant states","Applied enchants","No applied enchants","Unknown enchants"});
     private final JComboBox<String> level=new JComboBox<>(new String[]{"All levels","INFO","DEBUG","ERROR"});
-    private final Rows reviewModel=new Rows("Time (UTC)","Item","Rarity","Shiny","Character","Dungeon","Status");
+    private final Rows reviewModel=new Rows("Time (UTC)","Item","Rarity","Shiny","Character","Dungeon","Outcome","Delivery status");
     private final Rows logModel=new Rows("Time (UTC)","Level","Message");
     private final JTable review=new JTable(reviewModel),logs=new JTable(logModel);
     private final JTextArea details=note("Detected drops will appear here once the bridge and network capture are enabled. Select a row to inspect enchants and the outgoing fields.");
@@ -42,24 +45,30 @@ public final class BridgeReviewGUI extends JPanel {
         super(new BorderLayout(0,8));this.bridge=bridge;setName("bridge-review-panel");
         JPanel summary=new JPanel(new BorderLayout(0,5));
         state.setFont(ContentStyle.emphasis(ContentStyle.body()));
-        totals.setRows(2);summary.add(state,BorderLayout.NORTH);summary.add(totals);add(summary,BorderLayout.NORTH);
+        totals.setName("bridge-totals");totals.getAccessibleContext().setAccessibleName("Lifetime and shown delivery outcome counts");summary.add(state,BorderLayout.NORTH);summary.add(totals);add(summary,BorderLayout.NORTH);
         setupTable(review,ContentStyle.Density.COMFORTABLE);setupTable(logs,ContentStyle.Density.DENSE);review.setName("bridge-review-table");logs.setName("bridge-log-table");
         review.getColumnModel().getColumn(6).setCellRenderer(new ContentStyle.Badge(){
             @Override protected Color badgeColor(Object value){
                 String status=String.valueOf(value);
-                if(status.equals("Accepted")||status.equals("Logged"))return ContentStyle.color("mint");
-                if(status.equals("Queued")||status.equals("Uncertain")||status.equals("Queue full"))return ContentStyle.color("amber");
-                if(status.equals("Rejected"))return ContentStyle.color("rose");
+                if(status.equals(BridgeService.Outcome.LOGGED.toString()))return ContentStyle.color("mint");
+                if(status.equals(BridgeService.Outcome.RECEIVED.toString())||status.equals(BridgeService.Outcome.PENDING.toString()))return ContentStyle.color("amber");
+                if(status.equals(BridgeService.Outcome.FAILED.toString()))return ContentStyle.color("rose");
                 return ContentStyle.color("muted");
             }
         });
         review.getColumnModel().getColumn(1).setPreferredWidth(230);logs.getColumnModel().getColumn(2).setPreferredWidth(620);
-        review.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);int[] widths={145,205,75,55,125,145,115};
+        review.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);int[] widths={145,205,75,55,125,145,180,115};
         for(int i=0;i<widths.length;i++)review.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         JPanel reviewPage=new JPanel(new BorderLayout(0,8));
         JPanel tools=ContentStyle.controls();search.setName("bridge-search");status.setName("bridge-status-filter");
         search.setColumns(18);search.getAccessibleContext().setAccessibleName("Search bridge review and logs");status.getAccessibleContext().setAccessibleName("Drop delivery status");
-        tools.add(labeled("Search",search));tools.add(status);tools.add(export);
+        outcome.addItem("All outcomes");for(BridgeService.Outcome bucket:BridgeService.Outcome.values())outcome.addItem(bucket);
+        outcome.setName("bridge-outcome-filter");character.setName("bridge-character-filter");dungeon.setName("bridge-dungeon-filter");enchantFilter.setName("bridge-enchant-filter");
+        outcome.getAccessibleContext().setAccessibleName("Delivery outcome bucket");character.getAccessibleContext().setAccessibleName("Observed character");dungeon.getAccessibleContext().setAccessibleName("Observed dungeon");enchantFilter.getAccessibleContext().setAccessibleName("Applied enchant state");
+        search.setToolTipText("Search reasons, item IDs, names, enchant descriptions, characters and dungeons in retained review rows.");
+        character.setPrototypeDisplayValue("All characters / Example #123");dungeon.setPrototypeDisplayValue("All dungeons / Lost Halls");
+        JButton reset=new JButton("Reset filters");reset.addActionListener(e->{search.setText("");status.setSelectedIndex(0);outcome.setSelectedIndex(0);character.setSelectedIndex(0);dungeon.setSelectedIndex(0);enchantFilter.setSelectedIndex(0);});
+        tools.add(labeled("Search",search));tools.add(outcome);tools.add(status);tools.add(character);tools.add(dungeon);tools.add(enchantFilter);tools.add(reset);tools.add(export);
         reviewPage.add(tools,BorderLayout.NORTH);
         details.setName("bridge-details");details.setOpaque(true);details.setFont(ContentStyle.report(ContentStyle.body()));details.setMargin(new Insets(6,8,6,8));
         details.getAccessibleContext().setAccessibleName("Selected drop delivery details");
@@ -81,6 +90,7 @@ public final class BridgeReviewGUI extends JPanel {
         tabs.addTab("Logs",logPage);tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);add(tabs);feedback.setName("bridge-feedback");feedback.setFont(ContentStyle.metadata(ContentStyle.body()));add(feedback,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
         status.addActionListener(e->filter());level.addActionListener(e->filter());
+        outcome.addActionListener(e->filter());character.addActionListener(e->{if(!rebuilding)filter();});dungeon.addActionListener(e->{if(!rebuilding)filter();});enchantFilter.addActionListener(e->filter());
         review.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!rebuilding)showDetails();});
         logs.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!rebuilding)showLogDetails();});
         clear.addActionListener(e->{bridge.clearLogs();refresh();});export.addActionListener(e->exportReview());exportLogs.addActionListener(e->exportLogs());save.addActionListener(e->save());
@@ -160,9 +170,11 @@ public final class BridgeReviewGUI extends JPanel {
         long selected=selected()==null?-1:selected().id;
         String logSelection=logs.getSelectedRow()<0?null:String.valueOf(logs.getValueAt(logs.getSelectedRow(),0))+logs.getValueAt(logs.getSelectedRow(),2);
         rebuilding=true;
-        state.setText(snapshot.state);totals.setText("Observed "+snapshot.observed+"   •   Accepted "+snapshot.accepted+"   •   Skipped / local "+snapshot.skipped+"   •   Failed / uncertain "+snapshot.failed+"   •   Waiting "+snapshot.queued+"   •   CSV "+snapshot.catalogSize);
+        state.setText(snapshot.state);
         rows=new ArrayList<>(snapshot.reviews);Collections.reverse(rows);reviewModel.setRowCount(0);
-        for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;reviewModel.addRow(new Object[]{r.time,d.item.rawName,d.item.rarity,d.item.shiny?"Yes":"",(d.characterName==null?"":d.characterName)+" #"+d.characterId,d.dungeon,r.status});}
+        for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;reviewModel.addRow(new Object[]{r.time,d.item.rawName,d.item.rarity,d.item.shiny?"Yes":"",(d.characterName==null?"":d.characterName)+" #"+d.characterId,d.dungeon,r.outcome().toString(),r.status});}
+        TreeSet<String> characters=new TreeSet<>(),dungeons=new TreeSet<>();for(BridgeService.Review r:rows){characters.add(characterLabel(r));dungeons.add(dungeonLabel(r));}
+        updateFacet(character,"All characters",characters);updateFacet(dungeon,"All dungeons",dungeons);
         logModel.setRowCount(0);for(BridgeService.Log l:snapshot.logs)logModel.addRow(new Object[]{l.time,l.level,l.message});filter();
         for(int i=0;i<rows.size();i++)if(rows.get(i).id==selected){int view=review.convertRowIndexToView(i);if(view>=0)review.setRowSelectionInterval(view,view);break;}
         if(logSelection!=null)for(int i=0;i<logModel.getRowCount();i++)if(logSelection.equals(String.valueOf(logModel.getValueAt(i,0))+logModel.getValueAt(i,2))){int view=logs.convertRowIndexToView(i);if(view>=0)logs.setRowSelectionInterval(view,view);break;}
@@ -173,13 +185,35 @@ public final class BridgeReviewGUI extends JPanel {
         String query=search.getText().trim();
         TableRowSorter<Rows> rs=(TableRowSorter<Rows>)review.getRowSorter(),ls=(TableRowSorter<Rows>)logs.getRowSorter();
         List<RowFilter<Rows,Integer>> rf=new ArrayList<>(),lf=new ArrayList<>();
-        if(!query.isEmpty()){rf.add(RowFilter.regexFilter("(?i)"+Pattern.quote(query)));lf.add(RowFilter.regexFilter("(?i)"+Pattern.quote(query)));}
-        if(status.getSelectedIndex()>0)rf.add(RowFilter.regexFilter("^"+Pattern.quote(String.valueOf(status.getSelectedItem()))+"$",6));
+        rf.add(new RowFilter<Rows,Integer>(){public boolean include(Entry<? extends Rows,? extends Integer> entry){
+            int index=entry.getIdentifier();if(index>=rows.size())return false;BridgeService.Review r=rows.get(index);
+            int enchants=r.drop.item.enchantCount;
+            return r.matches(query)&&(status.getSelectedIndex()==0||r.status.equals(status.getSelectedItem()))
+                &&(outcome.getSelectedIndex()==0||r.outcome()==outcome.getSelectedItem())
+                &&(character.getSelectedIndex()==0||characterLabel(r).equals(character.getSelectedItem()))
+                &&(dungeon.getSelectedIndex()==0||dungeonLabel(r).equals(dungeon.getSelectedItem()))
+                &&(enchantFilter.getSelectedIndex()==0||enchantFilter.getSelectedIndex()==1&&enchants>0||enchantFilter.getSelectedIndex()==2&&enchants==0||enchantFilter.getSelectedIndex()==3&&enchants<0);
+        }});
+        if(!query.isEmpty())lf.add(RowFilter.regexFilter("(?iu)"+Pattern.quote(query)));
         if(level.getSelectedIndex()>0)lf.add(RowFilter.regexFilter("^"+Pattern.quote(String.valueOf(level.getSelectedItem()))+"$",1));
         rs.setRowFilter(rf.isEmpty()?null:RowFilter.andFilter(rf));ls.setRowFilter(lf.isEmpty()?null:RowFilter.andFilter(lf));
+        updateTotals();if(!rebuilding)showDetails();
+    }
+    private static String characterLabel(BridgeService.Review r){return (r.drop.characterName==null?"Unknown":r.drop.characterName)+" #"+r.drop.characterId;}
+    private static String dungeonLabel(BridgeService.Review r){return r.drop.dungeon==null||r.drop.dungeon.isEmpty()?"Unknown":r.drop.dungeon;}
+    private static void updateFacet(JComboBox<String> combo,String all,Set<String> values){Object selected=combo.getSelectedItem();combo.removeAllItems();combo.addItem(all);for(String value:values)combo.addItem(value);if(selected!=null&&!all.equals(selected)&&!values.contains(selected))combo.addItem(selected.toString());combo.setSelectedItem(selected==null?all:selected);}
+    private void updateTotals(){
+        if(snapshot==null)return;
+        Map<BridgeService.Outcome,Long> shown=new EnumMap<>(BridgeService.Outcome.class);
+        for(int i=0;i<review.getRowCount();i++)shown.merge(rows.get(review.convertRowIndexToModel(i)).outcome(),1L,Long::sum);
+        StringBuilder text=new StringBuilder("Lifetime (this service): ").append(snapshot.observed).append(" observed items");
+        for(BridgeService.Outcome bucket:BridgeService.Outcome.values())text.append(" · ").append(bucket).append(' ').append(snapshot.count(bucket));
+        text.append("\nShown: ").append(review.getRowCount()).append(" / ").append(rows.size()).append(" retained items");
+        for(BridgeService.Outcome bucket:BridgeService.Outcome.values())text.append(" · ").append(bucket).append(' ').append(shown.getOrDefault(bucket,0L));
+        totals.setText(text.toString());
     }
     private BridgeService.Review selected(){int row=review.getSelectedRow();if(row<0)return null;int model=review.convertRowIndexToModel(row);return model<rows.size()?rows.get(model):null;}
-    private void showDetails(){BridgeService.Review r=selected();if(r==null){details.setText("Select a detected drop to inspect its enchants, character and delivery details.");return;}BridgePayload.Item i=r.drop.item;details.setText(i.rawName+"  •  ID "+i.id+"  •  "+r.status+"\n"+r.time+" | "+r.detail+"\nRarity: "+i.rarity+" ("+i.raritySource+") | Enchant count: "+(i.enchantCount<0?"unknown":i.enchantCount)+" | Divine: "+i.divine+"\nEnchants: "+(i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nOutgoing JSON (token redacted):\n"+(r.payload.isEmpty()?"No payload queued.":r.payload));details.setCaretPosition(0);}
+    private void showDetails(){BridgeService.Review r=selected();if(r==null){details.setText(rows.isEmpty()?"No retained observations. Bridge Review only records drops while enabled.":review.getRowCount()==0?"No matching retained observations. Reset filters to see other drops.":"Select a detected drop to inspect its enchants, character and delivery details.");return;}BridgePayload.Item i=r.drop.item;details.setText("Observation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot+" (pickup not verified)\nRarity: "+i.rarity+" ("+i.raritySource+") | Enchant count: "+(i.enchantCount<0?"unknown":i.enchantCount)+" | Divine: "+i.divine+"\nEnchants: "+(i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)+"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail+"\nNext step: "+r.nextStep()+"\n\nOutgoing JSON (token redacted):\n"+(r.payload.isEmpty()?"No payload queued.":r.payload));details.setCaretPosition(0);}
     private void exportReview(){List<BridgeService.Review> visible=new ArrayList<>();for(int i=0;i<review.getRowCount();i++)visible.add(rows.get(review.convertRowIndexToModel(i)));chooseExport("bridge-review.csv",reviewCsv(visible));}
     private void exportLogs(){StringBuilder text=new StringBuilder();for(int i=0;i<logs.getRowCount();i++){int r=logs.convertRowIndexToModel(i);text.append(logModel.getValueAt(r,0)).append(" [").append(logModel.getValueAt(r,1)).append("] ").append(logModel.getValueAt(r,2)).append('\n');}chooseExport("bridge-diagnostics.log",text.toString());}
     private void chooseExport(String name,String content){JFileChooser chooser=new JFileChooser();chooser.setSelectedFile(new java.io.File(name));if(chooser.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION)return;Path path=chooser.getSelectedFile().toPath();if(Files.exists(path)&&JOptionPane.showConfirmDialog(this,"Replace the selected file?","Export",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;new SwingWorker<Void,Void>(){protected Void doInBackground()throws Exception{Files.write(path,content.getBytes(StandardCharsets.UTF_8));return null;}protected void done(){try{get();feedback.setText("Exported "+path.getFileName());}catch(Exception ex){feedback.setText("Export failed. Check the chosen folder and permissions.");}}}.execute();}

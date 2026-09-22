@@ -158,7 +158,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             .append(" HP: ")
             .append(DisplayFormat.formatInteger(entity.maxHp()))
             .append("\n");
-        sb.append(" [").append(DisplayFormat.formatDurationMillis(entity.getFightTimer())).append("]");
+        sb.append(" [").append(DisplayFormat.formatDurationMillis(CombatMeterData.windowMillis(entity))).append(" first-to-last hit window]");
         String mobName = sb.toString();
 
         int iconLarge = largeIconSize();
@@ -179,6 +179,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
         panel.add(mobPanel);
 
         List<Damage> playerDamageList = entity.getPlayerDamageList();
+        CombatMeterData metrics = new CombatMeterData(java.util.Collections.singletonList(entity), null);
 
         JPanel panelAllPlayers = new JPanel();
         panelAllPlayers.setLayout(
@@ -218,7 +219,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             float pers = (((float) dmg.damage * 100) / (float) entity.maxHp());
 
             String userIndicator = (user ? " ->" : (highlight ? ">>" : "  ")) + DisplayFormat.formatInteger(counter);
-            String s2 = String.format(Locale.ROOT, "DMG: %7s %7s", DisplayFormat.formatInteger(dmg.damage), DisplayFormat.formatPercentage(pers, 3));
+            String s2 = String.format(Locale.ROOT, "DMG: %7s %7s of max HP", DisplayFormat.formatInteger(dmg.damage), DisplayFormat.formatPercentage(pers, 3));
             int icon = 0;
             if (
                 dmg.owner != null &&
@@ -303,7 +304,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
                 pref[pref.length - 1] = height;
             }
 
-            float fightDuration = entity.getFightDuration() / 60000f;
+            float fightDuration = CombatMeterData.windowMillis(entity) / 60000f;
 
             float damagePerMinute = (float) dmg.damage / fightDuration;
 
@@ -315,22 +316,11 @@ public class IconDpsGUI extends DisplayDpsGUI {
                 dmg
             );
 
-            int[] damageFight = dmg.owner.damageTaken(entity);
-            int[] damageTotal = dmg.owner.damageTaken(null);
-            String tooltipText = "";
-            if (damageFight[1] > 0) {
-                tooltipText = String.format(
-                    "Damage taken: %s (hits: %s)\n",
-                    DisplayFormat.formatInteger(damageFight[0]),
-                    DisplayFormat.formatInteger(damageFight[1])
-                );
-            }
-            if (damageTotal[1] > 0) {
-                tooltipText += String.format(
-                    "Total damage taken: %s (hits: %s)\n\n",
-                    DisplayFormat.formatInteger(damageTotal[0]),
-                    DisplayFormat.formatInteger(damageTotal[1])
-                );
+            String tooltipText = "Legacy percent: damage / enemy max HP; not recorded damage share.\n"+CombatMeterData.WINDOW_DEFINITION+"\n";
+            for (CombatMeterData.Row row : metrics.rows) if (row.player.id == dmg.owner.id) {
+                tooltipText += row.incomingAvailable ? "Damage taken (inclusive fight window, all sources): "+DisplayFormat.formatInteger(row.taken)+" (hits: "+DisplayFormat.formatInteger(row.incomingHits)+")\nFull dungeon taken: "+DisplayFormat.formatInteger(row.totalTaken)+"\n"
+                    : "Incoming damage: not captured for this represented contributor.\n";
+                break;
             }
 
             tooltipText +=

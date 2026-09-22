@@ -3,6 +3,9 @@ package tomato.gui.quest;
 import assets.IdToAsset;
 import assets.ImageBuffer;
 import packets.data.QuestData;
+import tomato.backend.data.ProgressionData;
+import tomato.backend.data.TomatoData;
+import tomato.gui.stats.Formatters;
 import tomato.gui.modern.ContentStyle;
 import javax.swing.*;
 import javax.swing.event.*;
@@ -22,6 +25,14 @@ public class QuestGUI extends JPanel {
     private List<Quest> quests = new ArrayList<>();
     private List<Quest> visible = new ArrayList<>();
     private final Set<String> pinned = new HashSet<>();
+    private final Set<String> globalPinned = new HashSet<>();
+    private ProgressionData source;
+    private ProgressionData.Snapshot publication;
+    private final java.util.concurrent.atomic.AtomicBoolean scheduled = new java.util.concurrent.atomic.AtomicBoolean();
+    private final Runnable publicationListener = this::schedulePublication;
+    private boolean listening;
+    private final JTextArea context = labelText("Unverified snapshot · Pins are global interests");
+    private final javax.swing.Timer ageTimer = new javax.swing.Timer(1000, e -> showContext());
     private final JTextField search = new JTextField();
     private final JComboBox<String> type = new JComboBox<>();
     private final JComboBox<String> reward = new JComboBox<>();
@@ -36,6 +47,7 @@ public class QuestGUI extends JPanel {
     private final JTable table = new JTable(model);
     private final JPanel details = new DetailPanel();
     private final JButton pin = new JButton("Pin quest");
+    private final JButton removeGlobal = new JButton("Remove global interest");
     private boolean refreshing;
     private boolean captured;
     private boolean columnSizingPending;
@@ -48,6 +60,64 @@ public class QuestGUI extends JPanel {
             Preferences.userNodeForPackage(QuestGUI.class));
     }
 
+    /** The shell binds this constructor to the same source used by packet ingestion. */
+    public QuestGUI(TomatoData data) {
+        this();
+        bind(data);
+    }
+    QuestGUI(TomatoData data, IntFunction<String> names, IntFunction<Icon> images, Preferences preferences) {
+        this(names, images, preferences); bind(data);
+    }
+    private void bind(TomatoData data) {
+        source = Objects.requireNonNull(data).progression();
+        listen(); applyPublication();
+    }
+
+    private void listen() { if (source != null && !listening) { source.addListener(publicationListener); listening = true; } }
+    @Override public void addNotify() { super.addNotify(); listen(); if (source != null) schedulePublication(); ageTimer.start(); }
+    @Override public void removeNotify() {
+        ageTimer.stop();
+        if (listening) { source.removeListener(publicationListener); listening = false; }
+        super.removeNotify();
+    }
+    private void schedulePublication() {
+        if (scheduled.compareAndSet(false, true)) SwingUtilities.invokeLater(() -> { scheduled.set(false); applyPublication(); });
+    }
+    private void applyPublication() {
+        ProgressionData.Snapshot next = source.snapshot();
+        if (publication != null && next.quests == publication.quests && next.scope == publication.scope) return;
+        if (publication != null && next.scope != publication.scope) table.clearSelection();
+        publication = next;
+        quests = new ArrayList<>(); pinned.clear(); globalPinned.clear();
+        captured = next.quests != null;
+        if (captured) for (QuestData q : next.quests.rows()) quests.add(new Quest(q));
+        loadPreferences(); rebuildFilters(); refresh();
+    }
+    private String pinAccount() {
+        return publication == null || publication.quests == null ? null : publication.quests.scope.account;
+    }
+    private void loadPreferences() {
+        QuestPins store = new QuestPins(preferences);
+        for (Quest q : quests) {
+            if (!categoryNames.containsKey(q.category)) categoryNames.put(q.category,
+                preferences == null ? "" : preferences.get("category." + q.category, ""));
+            if (source == null ? store.global(key(q)) : store.pinned(pinAccount(), key(q))) pinned.add(key(q));
+            if (source != null && store.global(key(q))) globalPinned.add(key(q));
+        }
+    }
+    private boolean canPin() { return source == null || publication != null && publication.currentQuests() && source.scope() == publication.scope; }
+    private void showContext() {
+        if (source == null || publication == null) return;
+        ProgressionData.Quests q = publication.quests;
+        boolean current = publication.currentQuests() && source.scope() == publication.scope;
+        String text = q == null ? "No quest list captured · " + publication.scope.description()
+            : q.scope.description() + " · Captured " + Formatters.formatTimestamp(q.capturedAt) + " · "
+                + Math.max(0, (System.currentTimeMillis() - q.capturedAt) / 1000) + "s ago · "
+                + (current ? "Last captured list; server changes require a fresh capture" : "Stale / unverified for the current capture");
+        context.setText(text + "\n" + (current ? "Account-scoped snapshot" : publication.scope.reason) + " · Account pins; legacy global interests retained.");
+        pin.setEnabled(selected() != null && canPin());
+    }
+
     QuestGUI(IntFunction<String> names, IntFunction<Icon> images, Preferences preferences) {
         this.names = names; this.images = images; this.preferences = preferences;
         setLayout(new BorderLayout(0, 8));
@@ -58,7 +128,10 @@ public class QuestGUI extends JPanel {
         details.setName("quest-details"); table.setName("quest-table");
         table.getAccessibleContext().setAccessibleName("Captured quests");
         JPanel header = new JPanel(new BorderLayout(0, 8));
-        header.add(summary, BorderLayout.NORTH);
+        JPanel descriptions = new JPanel(new BorderLayout(0, 4));
+        context.setName("quest-capture-context"); context.getAccessibleContext().setAccessibleName("Quest account and freshness");
+        descriptions.add(context, BorderLayout.NORTH); descriptions.add(summary, BorderLayout.SOUTH);
+        header.add(descriptions, BorderLayout.NORTH);
         search.putClientProperty("JTextField.placeholderText", "Search quests, rewards, marks or tokens…");
         search.getAccessibleContext().setAccessibleName("Search quests");
         header.add(search, BorderLayout.CENTER);
@@ -138,12 +211,17 @@ public class QuestGUI extends JPanel {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         count.setFont(ContentStyle.metadata(ContentStyle.body()));
         footer.add(count, BorderLayout.CENTER);
-        pin.setEnabled(false); pin.addActionListener(e -> togglePin()); footer.add(pin, BorderLayout.EAST);
+        pin.setEnabled(false); pin.addActionListener(e -> togglePin());
+        removeGlobal.setVisible(false); removeGlobal.addActionListener(e -> {
+            Quest q = selected(); if (q == null) return;
+            new QuestPins(preferences).removeGlobal(key(q)); globalPinned.remove(key(q)); refresh();
+        });
+        JPanel pinActions = ContentStyle.controls(); pinActions.add(removeGlobal); pinActions.add(pin); footer.add(pinActions, BorderLayout.EAST);
         JScrollPane page = ContentStyle.page(header, split, footer);
         page.setName("quest-page-scroll");
         page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
         add(page, BorderLayout.CENTER);
-        for (JComponent control : new JComponent[]{search, type, reward, sort, onlyPinned, completed, labels, reset, pin}) revealOnFocus(control);
+        for (JComponent control : new JComponent[]{search, type, reward, sort, onlyPinned, completed, labels, reset, pin, removeGlobal}) revealOnFocus(control);
         table.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override public void focusGained(java.awt.event.FocusEvent event) {
                 ContentStyle.reveal(table, table.getCellRect(Math.max(0, table.getSelectedRow()), 1, true));
@@ -177,7 +255,7 @@ public class QuestGUI extends JPanel {
     }
 
     private void sizeColumns() {
-        String[] examples = {"Yes", "Quest name", "Category 99999", "Choose: Quest Chest", "999", "Repeatable • completed before"};
+        String[] examples = {"Global interest", "Quest name", "Category 99999", "Choose: Quest Chest", "999", "Repeatable • completed before"};
         int[] preferred = {40, 210, 105, 210, 75, 110};
         for (int column = 0; column < examples.length; column++) {
             TableColumn value = table.getColumnModel().getColumn(column);
@@ -207,15 +285,13 @@ public class QuestGUI extends JPanel {
 
     /** Copy mutable packet arrays before dispatching work to Swing. */
     public void update(QuestData[] data) {
+        // Legacy previews have no source identity. Bound live views only accept the source mailbox.
+        if (source != null) return;
         List<Quest> snapshot = new ArrayList<>();
         if (data != null) for (QuestData q : data) if (q != null) snapshot.add(new Quest(q));
         Runnable apply = () -> {
             quests = snapshot; captured = true;
-            for (Quest q : quests) {
-                if (!categoryNames.containsKey(q.category)) categoryNames.put(q.category,
-                    preferences == null ? "" : preferences.get("category." + q.category, ""));
-                if (preferences != null && preferences.getBoolean("pin." + key(q), false)) pinned.add(key(q));
-            }
+            loadPreferences();
             rebuildFilters(); refresh();
         };
         if (SwingUtilities.isEventDispatchThread()) apply.run(); else SwingUtilities.invokeLater(apply);
@@ -259,7 +335,7 @@ public class QuestGUI extends JPanel {
         visible = new ArrayList<>();
         for (Quest q : quests) {
             if (!completed.isSelected() && q.completed && !q.repeatable) continue;
-            if (onlyPinned.isSelected() && !pinned.contains(key(q))) continue;
+            if (onlyPinned.isSelected() && !pinned.contains(key(q)) && !globalPinned.contains(key(q))) continue;
             if (type.getSelectedIndex() > 0 && !typeName(q).equals(type.getSelectedItem())) continue;
             if (!matchesReward(q, (String) reward.getSelectedItem())) continue;
             String haystack = q.name + " " + q.description + " " + typeName(q) + " "
@@ -295,6 +371,7 @@ public class QuestGUI extends JPanel {
         count.setText(captured ? visible.size() + " shown • Requirements shown; owned items not checked." : "No quests captured");
         for (JComboBox<String> combo : Arrays.asList(type, reward, sort)) combo.setToolTipText((String)combo.getSelectedItem());
         showDetails();
+        showContext();
     }
 
     private boolean matchesReward(Quest q, String filter) {
@@ -321,7 +398,8 @@ public class QuestGUI extends JPanel {
 
     private void showDetails() {
         details.removeAll();
-        Quest q = selected(); pin.setEnabled(q != null);
+        Quest q = selected(); pin.setEnabled(q != null && canPin());
+        removeGlobal.setVisible(q != null && globalPinned.contains(key(q)));
         if (q == null) {
             pin.setText("Pin quest");
             details.add(text(captured ? "No matching quests. Change your filters or enter the Daily Quest Room to refresh."
@@ -344,8 +422,9 @@ public class QuestGUI extends JPanel {
             body.add(Box.createVerticalStrut(8));
             body.add(text("Compare turn-ins: select a reward above, then sort by Fewest required items. Pin quests you want to keep at the top."));
             body.add(text("Server category: " + q.category + " • Use Name types to label it Daily, Event, or Utility."));
+            if (globalPinned.contains(key(q))) body.add(text("Legacy global interest · Not an account-specific plan."));
             details.add(body, BorderLayout.NORTH);
-            pin.setText(pinned.contains(key(q)) ? "Unpin quest" : "Pin quest");
+            pin.setText(pinned.contains(key(q)) ? "Unpin quest" : source == null ? "Pin quest" : "Pin for account");
         }
         details.revalidate(); details.repaint();
     }
@@ -428,10 +507,11 @@ public class QuestGUI extends JPanel {
     }
 
     private void togglePin() {
-        Quest q = selected(); if (q == null) return;
+        Quest q = selected(); if (q == null || !canPin()) return;
         String key = key(q); boolean value = !pinned.contains(key);
         if (value) pinned.add(key); else pinned.remove(key);
-        if (preferences != null) preferences.putBoolean("pin." + key, value);
+        if (source == null) { if (preferences != null) preferences.putBoolean("pin." + key, value); }
+        else new QuestPins(preferences).set(pinAccount(), key, value);
         refresh();
     }
 
@@ -508,7 +588,7 @@ public class QuestGUI extends JPanel {
         public Object getValueAt(int r, int c) {
             Quest q = visible.get(r);
             switch (c) {
-                case 0: return pinned.contains(key(q)) ? "Yes" : "";
+                case 0: return pinned.contains(key(q)) ? "Yes" : globalPinned.contains(key(q)) ? "Global interest" : "";
                 case 1: return q.name;
                 case 2: return typeName(q);
                 case 3: return (q.choice ? "Choose: " : "") + itemsText(q.rewards);

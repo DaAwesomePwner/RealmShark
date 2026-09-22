@@ -216,6 +216,7 @@ public class DungeonStatData {
         java.util.List<Snapshot> result = new java.util.ArrayList<>();
         if (data != null) for (DungeonInfo dungeon : data.values()) {
             Snapshot copy = new Snapshot(dungeon.name, dungeon.enteredDungeon, dungeon.totalTime);
+            copy.ongoingActivity = info != null && java.util.Objects.equals(info.name, dungeon.name);
             if (dungeon.entityDamaged != null) copy.hits.putAll(dungeon.entityDamaged);
             if (dungeon.entityLoot != null) dungeon.entityLoot.forEach((id, loot) -> {
                 if (loot != null && loot.lootList != null) copy.loot.put(id, new TreeMap<>(loot.lootList));
@@ -229,11 +230,34 @@ public class DungeonStatData {
         public final String name;
         public final int visits;
         public final long time;
+        /** Optional in saved summaries: old records cannot establish whether activity was ongoing. */
+        public Boolean ongoingActivity;
         public final Map<Integer, Integer> hits = new TreeMap<>();
         public final Map<Integer, Map<Integer, Integer>> loot = new TreeMap<>();
         public Snapshot(String name, int visits, long time) { this.name = name; this.visits = visits; this.time = time; }
         public long hitCount() { return hits.values().stream().mapToLong(Integer::longValue).sum(); }
         public long itemCount() { return loot.values().stream().flatMap(m -> m.values().stream()).mapToLong(Integer::longValue).sum(); }
+        public static String canonicalName(String name) {
+            return name == null ? "Unknown" : tomato.realmshark.ParseDungeon.getPortalId(name) < 0 ? name : tomato.realmshark.ParseDungeon.canonicalName(name);
+        }
+        /** Presentation-only alias merging; persistent keys and counters are never rewritten. */
+        public static java.util.List<Snapshot> canonicalize(java.util.List<Snapshot> rows) {
+            Map<String, Snapshot> result = new TreeMap<>();
+            for (Snapshot row : rows) {
+                String name = canonicalName(row.name);
+                Snapshot previous = result.get(name);
+                Snapshot combined = new Snapshot(name, row.visits + (previous == null ? 0 : previous.visits), row.time + (previous == null ? 0 : previous.time));
+                combined.ongoingActivity = previous == null ? row.ongoingActivity
+                    : Boolean.TRUE.equals(previous.ongoingActivity) || Boolean.TRUE.equals(row.ongoingActivity) ? Boolean.TRUE
+                    : previous.ongoingActivity == null || row.ongoingActivity == null ? null : Boolean.FALSE;
+                for (Snapshot source : previous == null ? java.util.Collections.singletonList(row) : java.util.Arrays.asList(previous, row)) {
+                    source.hits.forEach((id, count) -> combined.hits.merge(id, count, Integer::sum));
+                    source.loot.forEach((id, items) -> items.forEach((item, count) -> combined.loot.computeIfAbsent(id, key -> new TreeMap<>()).merge(item, count, Integer::sum)));
+                }
+                result.put(name, combined);
+            }
+            return new java.util.ArrayList<>(result.values());
+        }
     }
 
     public class DungeonInfo {

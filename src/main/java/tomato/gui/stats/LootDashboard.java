@@ -128,8 +128,8 @@ public final class LootDashboard extends JPanel {
     private static boolean white(String bag) { return bag.equals("White") || bag.equals("B.White"); }
     private static boolean itemView(int view) { return view < 3 || view >= 6; }
     private String scopeDescription() {
-        return "Observed drops, not pickups · Tiered: weapons/armor T13+, abilities T6+ · Slots = unlocked enchant slots (including empty); Enchants = applied effects. Rarity follows slot count; unavailable counts are — and missing/invalid rarity is Unknown.\nWhites: contents of white / boosted white bags · Recent Drops retains "
-            + DisplayFormat.formatInteger(RECENT_LIMIT) + " bags; summary totals retain " + (historical ? "the selected session scope." : "the full app session.");
+        return "Observed drops, not pickups · Tiered: weapons/armor T13+, abilities T6+ · Slots = unlocked enchant slots (including empty); Enchants = applied effects. Rarity follows slot count; unavailable counts are — and missing/invalid rarity is Unknown.\nWhites: contents of white / boosted white bags · Recent Drops searches the globally newest "
+            + DisplayFormat.formatInteger(RECENT_LIMIT) + " bags by timestamp (ties: session and record order); item summaries retain " + (historical ? "the selected session scope." : "the full app session.");
     }
 
     void accept(Drop drop) {
@@ -140,7 +140,7 @@ public final class LootDashboard extends JPanel {
     void acceptAll(Collection<Drop> drops) {
         synchronized (state) {
             if (drops.isEmpty()) return;
-            for (Drop drop : drops) accumulate(state, drop);
+            for (Drop drop : drops) accumulate(state, drop, "", state.sequence++);
             state.version++;
             state.summaries.clear();
             if (state.refreshQueued) return;
@@ -153,18 +153,27 @@ public final class LootDashboard extends JPanel {
         });
     }
 
-    List<Drop> recentDrops() { synchronized (state) { return new ArrayList<>(state.recent); } }
-    private static void accumulate(State state, Drop drop) {
-        Map<String, Bucket> dungeon=state.buckets.computeIfAbsent(drop.dungeon,key->new LinkedHashMap<>());
+    List<Drop> recentDrops() { synchronized (state) { return recentDrops(state); } }
+    private static List<Drop> recentDrops(State state) {
+        List<Drop> result = new ArrayList<>();
+        for (Recent entry : state.recent.descendingSet()) result.add(entry.drop);
+        return result;
+    }
+    private static void accumulate(State state, Drop drop, String session, long ordinal) {
+        String name = tomato.backend.data.DungeonStatData.Snapshot.canonicalName(drop.dungeon);
+        Map<String, Bucket> dungeon=state.buckets.computeIfAbsent(name,key->new LinkedHashMap<>());
         Bucket bucket=dungeon.computeIfAbsent(drop.bag,key->new Bucket());bucket.bags++;
         state.totalBags++;state.totalItems+=drop.items.size();
         for(Item item:drop.items){bucket.items++;if(item.potion)bucket.potions++;
             ItemCount count=bucket.counts.computeIfAbsent(item.key,key->new ItemCount(item));count.count++;count.lastTime=Math.max(count.lastTime,drop.time);}
-        state.recent.addFirst(drop);if(state.recent.size()>RECENT_LIMIT)state.recent.removeLast();
+        state.recent.add(new Recent(drop, session, ordinal));
+        if(state.recent.size()>RECENT_LIMIT)state.recent.pollFirst();
     }
     static final class Archive {
         private final State state=new State();
-        void accept(Drop drop){accumulate(state,drop);state.version++;}
+        private final Map<String, Long> ordinals = new HashMap<>();
+        void accept(Drop drop){accept("",drop);}
+        void accept(String session, Drop drop){long ordinal=ordinals.getOrDefault(session,0L);ordinals.put(session,ordinal+1);accumulate(state,drop,session,ordinal);state.version++;}
         LootDashboard view(){return new LootDashboard(state,true);}
     }
     void searchHistory(String query){search.setText(query);}
@@ -184,7 +193,7 @@ public final class LootDashboard extends JPanel {
                 dungeons = new ArrayList<>(state.buckets.keySet());
                 for (Map<String, Bucket> dungeon : state.buckets.values()) bags.addAll(dungeon.keySet());
                 summary = state.summaries.computeIfAbsent(key, scope -> summarize(scope.get(0), scope.get(1)));
-                recent = new ArrayList<>(state.recent);
+                recent = recentDrops(state);
                 renderedVersion = state.version;
                 Arrays.fill(dirty, true);
             }
@@ -231,7 +240,7 @@ public final class LootDashboard extends JPanel {
             for (Aggregate item : (view == 2 ? summary.whiteItems : summary.allItems).values()) {
                 if (view == 1 && !item.item.potion) continue;
                 if (view == 6 && !item.item.ut || view == 7 && !item.item.st || view == 8 && !item.item.highTier) continue;
-                Icon icon = state.icons.computeIfAbsent(item.item.id, id -> ImageBuffer.getOutlinedIcon(id, 24));
+                Icon icon = iconForItem(item.item.id);
                 ParseEnchants.Summary enchants = item.item.enchants;
                 rows.add(new Object[]{icon, item.item.name, item.count, item.dungeon, item.item.tier,
                     enchants.slots == 0 ? "Common / Unenchanted" : enchants.rarity(),
@@ -245,7 +254,8 @@ public final class LootDashboard extends JPanel {
             long latest = recent.stream().mapToLong(drop -> drop.time).max().orElse(0);
             for (Drop drop : recent) {
                 if (!"All bags".equals(bagSelection) && !drop.bag.equals(bagSelection)) continue;
-                if (!"All dungeons".equals(dungeonSelection) && !drop.dungeon.equals(dungeonSelection)) continue;
+                String canonical = tomato.backend.data.DungeonStatData.Snapshot.canonicalName(drop.dungeon);
+                if (!"All dungeons".equals(dungeonSelection) && !canonical.equals(dungeonSelection)) continue;
                 if (window > 0 && drop.time < latest - window) continue;
                 StringJoiner names = new StringJoiner(", "); for (Item item : drop.items) names.add(item.description());
                 rows.add(new Object[]{drop.time, drop.bag,
@@ -254,6 +264,7 @@ public final class LootDashboard extends JPanel {
         }
         return rows;
     }
+    Icon iconForItem(int id) { return state.icons.computeIfAbsent(id, key -> ImageBuffer.liveOutlinedIcon(key, 24)); }
     private static void addOption(JComboBox<String> combo, String value) {
         for (int i = 0; i < combo.getItemCount(); i++) if (value.equals(combo.getItemAt(i))) return;
         combo.addItem(value);
@@ -284,7 +295,7 @@ public final class LootDashboard extends JPanel {
                 + " · Uncommon (1): " + DisplayFormat.formatInteger(counts[1]) + " · Rare (2): " + DisplayFormat.formatInteger(counts[2])
                 + " · Legendary (3): " + DisplayFormat.formatInteger(counts[3]) + " · Divine (4): " + DisplayFormat.formatInteger(counts[4]) + " · Unknown: " + DisplayFormat.formatInteger(counts[5]));
         }
-        results.setText(summary == null || summary.bags == 0 ? "No loot in this scope. Start capture or adjust the filters."
+        results.setText(summary == null || summary.bags == 0 ? (historical ? "No saved loot in this scope; recording coverage may be unknown. Adjust the filters or inspect Session comparison." : "No loot in this scope. Start capture or adjust the filters.")
             : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + views.getTitleAt(view) + " · Filters remain active as drops arrive");
     }
     static final class Item {
@@ -328,11 +339,17 @@ public final class LootDashboard extends JPanel {
     private static final class State {
         final Map<String, Map<String, Bucket>> buckets = new LinkedHashMap<>();
         final Map<Integer, Icon> icons = new HashMap<>();
-        final Deque<Drop> recent = new ArrayDeque<>(); final List<LootDashboard> views = new ArrayList<>();
+        final NavigableSet<Recent> recent = new TreeSet<>(Comparator.comparingLong((Recent r) -> r.drop.time)
+            .thenComparing(r -> r.session).thenComparingLong(r -> r.ordinal));
+        final List<LootDashboard> views = new ArrayList<>();
         final Map<List<String>, Summary> summaries = new HashMap<>();
-        long version;
+        long version, sequence;
         int totalBags, totalItems;
         boolean refreshQueued;
+    }
+    private static final class Recent {
+        final Drop drop; final String session; final long ordinal;
+        Recent(Drop drop, String session, long ordinal) { this.drop=drop;this.session=session;this.ordinal=ordinal; }
     }
     private static final class Bucket { int bags, items, potions; final Map<List<Integer>, ItemCount> counts = new LinkedHashMap<>(); }
     private static final class ItemCount {

@@ -18,7 +18,11 @@ public abstract class CustomListGUI extends JPanel {
     // Table columns: 0 = item name/id (String), 1 = remove button (String placeholder)
     private final JTable table;
     private final DefaultTableModel model;
-    private final JDialog dialog;
+    private JDialog dialog;
+    private final JOptionPane pane;
+    private final String title;
+    private final JButton saveButton = new JButton("Save");
+    private final DraftSaveStatus saving = new DraftSaveStatus(saveButton, "custom-rule-save-status");
     private final String propName;
     public String validationErrorMessage = "Invalid entry! Please correct the input.";
 
@@ -31,6 +35,7 @@ public abstract class CustomListGUI extends JPanel {
     ) {
         CustomListGUI gui = this;
         this.propName = propName;
+        this.title = title;
 
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -105,14 +110,11 @@ public abstract class CustomListGUI extends JPanel {
         table.getActionMap().put("add-rule", addRule);
         table.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "remove-rule");
         table.getActionMap().put("remove-rule", removeRule);
-        add(bottom, BorderLayout.SOUTH);
+        JPanel footer = new JPanel(new BorderLayout()); footer.add(bottom, BorderLayout.NORTH); footer.add(saving.status); add(footer, BorderLayout.SOUTH);
+        model.addTableModelListener(e -> saving.edited());
 
-        JOptionPane pane = getPane(data, gui);
+        pane = getPane(data, gui);
         ContentStyle.refreshFonts(pane);
-
-        this.dialog = pane.createDialog(null, title);
-        realmshark.branding.AppIdentity.apply(dialog);
-        dialog.setResizable(true);
     }
 
     private void removeRow(int row) {
@@ -125,11 +127,11 @@ public abstract class CustomListGUI extends JPanel {
     }
 
     private static JOptionPane getPane(TomatoData data, CustomListGUI gui) {
-        JButton close = new JButton("Save");
-        JOptionPane pane = new JOptionPane(gui, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new JButton[]{close}, close);
+        JButton close = gui.saveButton, cancel = new JButton("Cancel");
+        JOptionPane pane = new JOptionPane(gui, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new JButton[]{cancel, close}, close);
+        cancel.setToolTipText("Discard unsubmitted edits; already applied changes remain active.");
+        cancel.addActionListener(e -> { Window w = SwingUtilities.getWindowAncestor(gui); if (w != null) w.dispose(); });
         close.addActionListener(e -> {
-            Window w = SwingUtilities.getWindowAncestor(close);
-
             // If a cell is being edited, finish editing so the model reflects the latest text
             if (gui.table.isEditing()) {
                 // Use the CellEditor interface which returns a boolean from stopCellEditing()
@@ -148,9 +150,6 @@ public abstract class CustomListGUI extends JPanel {
                 }
             }
 
-            pane.setValue(-1);
-            w.dispose();
-
             // collect items from table model
             ArrayList<String> arr = new ArrayList<>();
             DefaultTableModel m = gui.model;
@@ -162,7 +161,7 @@ public abstract class CustomListGUI extends JPanel {
                     arr.add(v);
                 }
             }
-            data.savePropList(arr, gui.propName);
+            gui.saving.submit(() -> { data.savePropList(arr, gui.propName); return util.PropertiesManager.flush(); });
         });
         return pane;
     }
@@ -232,6 +231,7 @@ public abstract class CustomListGUI extends JPanel {
     private class ValidatingTextEditor extends DefaultCellEditor {
         public ValidatingTextEditor() {
             super(new JTextField());
+            ((JTextField)getComponent()).getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
         }
 
         @Override
@@ -249,6 +249,9 @@ public abstract class CustomListGUI extends JPanel {
     }
 
     public void open() {
+        if (dialog == null) {
+            dialog = pane.createDialog(null, title); realmshark.branding.AppIdentity.apply(dialog); dialog.setResizable(true);
+        }
         this.dialog.setVisible(true);
     }
 

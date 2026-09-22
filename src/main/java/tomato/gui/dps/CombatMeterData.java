@@ -18,7 +18,7 @@ final class CombatMeterData {
         }
     }
     final List<Row> rows = new ArrayList<>();
-    long total, first = Long.MAX_VALUE, last = Long.MIN_VALUE;
+    long total, unattributed, first = Long.MAX_VALUE, last = Long.MIN_VALUE;
     double seconds;
 
     CombatMeterData(List<Entity> targets, Entity localPlayer) {
@@ -32,13 +32,13 @@ final class CombatMeterData {
             if (target.getFirstDamageTaken() >= 0) first = Math.min(first, target.getFirstDamageTaken());
             last = Math.max(last, target.getLastDamageTaken());
             for (Damage hit : new ArrayList<>(target.getDamageList())) {
-                if (hit.owner == null) continue;
+                total += hit.damage;
+                if (hit.owner == null) { unattributed += hit.damage; continue; }
                 Row row = players.computeIfAbsent(hit.owner.id, id -> new Row(hit.owner));
                 row.damage += hit.damage;
                 row.hits++;
                 row.biggest = Math.max(row.biggest, hit.damage);
                 row.outgoing.add(hit);
-                total += hit.damage;
             }
         }
         if (localPlayer != null) players.computeIfAbsent(localPlayer.id, id -> new Row(localPlayer));
@@ -62,4 +62,8 @@ final class CombatMeterData {
         }
     }
     Double dps(Row row) { return seconds > 0 ? row.damage / seconds : null; }
+    Double share(Row row) { return total > 0 ? row.damage * 100.0 / total : null; }
+    static long windowMillis(Entity entity) { return Math.max(0,entity.getLastDamageTaken()-entity.getFirstDamageTaken()); }
+    static final String WINDOW_DEFINITION = "First to last recorded hit on selected enemies; same duration for every player. Incoming fight bounds include both endpoints, once per event.";
+    static final String POPULATION = "Incoming rankings include represented outgoing contributors plus the captured local player when available; not a full player roster. Remote players without incoming events are unavailable, not zero.";
 }

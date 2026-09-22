@@ -2,13 +2,15 @@
 
 Enter the Daily Quest Room during capture to load the server's current quest list.
 
+The header identifies the captured-for account, capture generation, receipt time and age. A retained list keeps its original context and becomes **Stale / unverified** when it no longer matches the current capture. Capture a fresh list after switching accounts or restarting capture; account pin changes require a current, identified snapshot.
+
 - Search by quest, reward, mark, or token name.
 - Filter to any quest chest, Mighty, Epic, Standard, Beginner, or an exact captured reward.
 - Select a reward and sort by **Fewest required items** to compare turn-in requirements. This counts items, not dungeon difficulty or farming time.
 - Click column headers to sort, or use the sort selector for quest type, reward name, quest name, and pins.
-- Pin desired quests locally and enable **Pinned only** to make a shortlist.
+- Use **Pin for account** to shortlist quests for the captured account, then enable **Pinned only**. Older global pins remain labeled **Global interest** and are also included; **Remove global interest** removes only that legacy interest, not an account pin.
 - Select a quest to see its description, captured expiration, repeated-item quantities, and all requirements. **Choose one** rewards are explicitly distinguished from receiving every listed item.
-- Completed one-time quests are hidden unless **Show completed** is enabled. Repeatable quests remain visible.
+- Completed one-time quests are hidden unless **Show completed** is enabled. Repeatable quests remain visible. Completion comes from fetched quest rows; a redemption-success message alone does not change it. Capture a fresh list to see server updates.
 
 Compact windows and enlarged fonts use wrapping filters and explanations, horizontal table scrolling, and an outer page scroll. The roster and details reserve usable content space, and keyboard focus reveals controls through nested viewports. Selection and Pin/Unpin follow the quest ID when incoming data changes row order. When no quests remain visible, obsolete details are cleared and Pin is disabled.
 
@@ -18,7 +20,7 @@ The captured packet contains a numeric category with no label, and this checkout
 
 Quest type is never inferred from repeatability, chest name, or expiration. An event can award a standard chest.
 
-The category form scrolls for long names or many categories, with keyboard-reachable editors and OK/Cancel. Cancel keeps the prior labels. Static explanatory labels are not extra keyboard stops; detailed text remains readable through the scrollable view. Pins and labels retain the existing Java Preferences node and keys.
+The category form scrolls for long names or many categories, with keyboard-reachable editors and OK/Cancel. Cancel keeps the prior labels. Static explanatory labels are not extra keyboard stops; detailed text remains readable through the scrollable view. Category labels remain global local preferences; new pins are stored per account, separately from preserved legacy global interests.
 
 ## Scope
 

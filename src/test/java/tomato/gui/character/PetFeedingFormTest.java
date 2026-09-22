@@ -26,7 +26,7 @@ public class PetFeedingFormTest {
                 frame.setSize(640, 600);
                 CharacterPetsGUI.addPet(pet(stat(StatType.PET_INSTANCE_ID_STAT, 1), stat(StatType.PET_MAX_ABILITY_POWER_STAT, 30)));
                 frame.setVisible(true);
-                find(panel, JTextField.class).setText("0");
+                feedField(panel).setText("0");
                 JLabel invalid = label(panel, "Enter a positive whole number (1–2,147,483,647).");
                 JLabel locked = label(panel, "Locked ability");
                 assertNotNull(invalid);
@@ -58,7 +58,7 @@ public class PetFeedingFormTest {
             frame.setContentPane(panel);
             frame.setSize(640, 600);
             try {
-                JTextField feed = find(panel, JTextField.class);
+                JTextField feed = feedField(panel);
                 JButton calculate = button(panel, "Recalculate feeding costs");
                 assertNotNull(calculate);
                 assertEquals("Recalculate feeding costs", calculate.getText());
@@ -83,14 +83,15 @@ public class PetFeedingFormTest {
                         stat(StatType.PET_FIRST_ABILITY_POINT_STAT, 100)));
                 frame.setVisible(true);
                 assertNotNull(label(panel, "Heal · Level 1"));
-                assertNotNull(label(panel, "Feed power: 100"));
-                assertNotNull(label(panel, "Items to max: 4"));
-                assertNotNull(label(panel, "Fame to max: 60"));
+                assertTrue(text(panel).contains("Captured points: 100"));
+                assertTrue(text(panel).contains("Items to max: 4"));
+                assertTrue(text(panel).contains("Fame to max: 60"));
+                assertTrue(text(panel).contains("Next level items:"));
 
                 feed.setText("1000");
                 feed.postActionEvent();
-                assertNotNull(label(panel, "Items to max: 2"));
-                assertNotNull(label(panel, "Fame to max: 30"));
+                assertTrue(text(panel).contains("Items to max: 2"));
+                assertTrue(text(panel).contains("Fame to max: 30"));
                 frame.setVisible(false);
                 CharacterPetsGUI.clearPets();
                 frame.setVisible(true);
@@ -104,6 +105,21 @@ public class PetFeedingFormTest {
         object.status = new ObjectStatusData();
         object.status.stats = stats;
         return object;
+    }
+    private static String text(Container root) {
+        StringBuilder result = new StringBuilder();
+        for (Component child : root.getComponents()) {
+            if (child instanceof JTextArea) result.append(((JTextArea)child).getText());
+            if (child instanceof Container) result.append(text((Container)child));
+        }
+        return result.toString();
+    }
+    private static JTextField feedField(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JTextField && "pet-feed-power".equals(child.getName())) return (JTextField)child;
+            if (child instanceof Container) { JTextField result = feedField((Container)child); if (result != null) return result; }
+        }
+        return null;
     }
 
     private static StatData stat(StatType type, int number) {

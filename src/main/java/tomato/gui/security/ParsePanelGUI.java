@@ -284,11 +284,20 @@ public class ParsePanelGUI extends JPanel {
     /** Opens the same Inspect details for a detached player from another view or saved encounter. */
     public static void inspectPlayer(Component owner, InspectSnapshot captured) {
         if (captured == null) return;
+        Row row = detachedRow(captured);
+        showEquipmentDetails(owner, inspectionName(row), inspectionDetails(row));
+    }
+
+    static String detachedDetails(InspectSnapshot captured) {
+        return inspectionDetails(detachedRow(captured));
+    }
+
+    private static Row detachedRow(InspectSnapshot captured) {
         Entity entity = captured.toEntity();
         CapturedPlayer player = snapshot(entity.id, entity);
         player.className = captured.className();
-        Row row = new Row(player, 0, null);
-        showEquipmentDetails(owner, inspectionName(row), inspectionDetails(row));
+        player.origin = "Detached recorded build · Source session/run not supplied";
+        return new Row(player, 0, null);
     }
 
     private static String inspectionName(Row row) {
@@ -298,11 +307,13 @@ public class ParsePanelGUI extends JPanel {
 
     private static String inspectionDetails(Row row) {
         Entity entity = row.player.playerEntity;
-        int level = entity.stat.get(StatType.LEVEL_STAT).statValue;
+        StatData level = entity.stat.get(StatType.LEVEL_STAT);
         String clazz = Objects.toString(row.player.className, Objects.toString(CharacterClass.getName(entity.objectType), "Unknown class"));
-        String mode = (entity.isSeasonal() ? "Seasonal" : "Non-seasonal") + (entity.isCrucible() ? " · Crucible" : "");
-        return "Player: " + inspectionName(row) + "\nClass: " + clazz + "\nLevel: " + (level > 0 ? level : "Not captured")
-                + "\nGuild: " + (row.guild.isEmpty() ? "None captured" : row.guild) + "\nCharacter mode: " + mode
+        String mode = Player.modeDescription(entity);
+        return row.player.origin + "\nRecorded build/change time: " + (row.player.recordedAt > 0 ? DisplayFormat.formatTimestamp(row.player.recordedAt) : "Not captured")
+                + "\nThis is the retained loadout, not continuous last-seen evidence or equipment at every hit."
+                + "\n\nPlayer: " + inspectionName(row) + "\nClass: " + clazz + "\nLevel: " + (level == null ? "Not captured" : level.statValue)
+                + "\nGuild: " + (entity.getStatGuild() == null ? "Not captured" : row.guild.isEmpty() ? "None (captured)" : row.guild) + "\nCharacter mode: " + mode
                 + "\n\n" + row.player.statsDescription() + "\n\n" + String.join("\n\n", row.equipmentDetails);
     }
 
@@ -444,7 +455,10 @@ public class ParsePanelGUI extends JPanel {
         List<CapturedPlayer> captured = new ArrayList<>();
         for (InspectSnapshot player : players) {
             Entity entity = player.toEntity();
-            CapturedPlayer row=snapshot(entity.id, entity);row.className=player.className();captured.add(row);
+            CapturedPlayer row=snapshot(entity.id, entity);row.className=player.className();
+            row.recordedAt=player.observedAt();
+            row.origin="Recorded run: " + id + (visit == null ? "" : " · " + visit.map) + " · Last recorded loadout";
+            captured.add(row);
         }
         synchronized (rosterLock) { historicalPlayers = captured; }
         requestRefresh();
@@ -475,6 +489,8 @@ public class ParsePanelGUI extends JPanel {
     // Copy values on the producer thread, before the mutable capture entity can change again.
     private static final class CapturedPlayer extends Player {
         String className;
+        String origin = "Current area · Detached captured build";
+        long recordedAt;
         final boolean[] equipmentCaptured;
         CapturedPlayer(Entity entity, boolean[] equipmentCaptured) {
             super(entity);
@@ -494,16 +510,15 @@ public class ParsePanelGUI extends JPanel {
         copy.baseStats = source.baseStats == null ? new int[]{-1, -1, -1, -1, -1, -1, -1, -1} : source.baseStats.clone();
         for (StatType type : DISPLAY_STATS) {
             StatData original = source.stat.get(type);
+            if (original == null) continue;
             StatData value = new StatData();
             value.statType = type;
             value.statTypeNum = type.get();
-            value.statValue = original == null ? 0 : original.statValue;
-            value.statValueTwo = original == null ? 0 : original.statValueTwo;
-            value.stringStatValue = original == null || original.stringStatValue == null ? "" : original.stringStatValue;
-            if (type == StatType.UNIQUE_DATA_STRING) value.stringStatValue = original == null ? null : original.stringStatValue;
+            value.statValue = original.statValue;
+            value.statValueTwo = original.statValueTwo;
+            value.stringStatValue = original.stringStatValue;
             int slot = type.get() - StatType.INVENTORY_0_STAT.get();
-            if (slot >= 0 && slot < 4) equipmentCaptured[slot] = original != null;
-            if (original == null && type.get() >= StatType.INVENTORY_0_STAT.get() && type.get() <= StatType.INVENTORY_3_STAT.get()) value.statValue = -1;
+            if (slot >= 0 && slot < 4) equipmentCaptured[slot] = true;
             copy.stat.set(type, value);
         }
         return new CapturedPlayer(copy, equipmentCaptured);
@@ -536,6 +551,7 @@ public class ParsePanelGUI extends JPanel {
         if (a.playerEntity.objectType != b.playerEntity.objectType || !Arrays.equals(a.playerEntity.baseStats, b.playerEntity.baseStats)) return false;
         for (StatType type : DISPLAY_STATS) {
             StatData x = a.playerEntity.stat.get(type), y = b.playerEntity.stat.get(type);
+            if (x == null || y == null) { if (x != y) return false; else continue; }
             if (x.statValue != y.statValue || x.statValueTwo != y.statValueTwo || !Objects.equals(x.stringStatValue, y.stringStatValue)) return false;
         }
         return true;
@@ -704,11 +720,11 @@ public class ParsePanelGUI extends JPanel {
             Row row = rows.get(index);
             Entity entity = row.player.playerEntity;
             switch (column) {
-                case 0: return entity.name() + " [" + entity.stat.get(StatType.LEVEL_STAT).statValue + "]";
+                case 0: return entity.name() + " [" + (entity.stat.get(StatType.LEVEL_STAT) == null ? "Not captured" : entity.stat.get(StatType.LEVEL_STAT).statValue) + "]";
                 case 1: return row.guild;
                 case 2: return Objects.toString(row.player.className, Objects.toString(CharacterClass.getName(entity.objectType), "Unknown class"));
                 case 7: return row.player.statsMaxed()<0?null:row.player.statsMaxed();
-                case 8: return (entity.isSeasonal() ? "Seasonal" : "Non-seasonal") + (entity.isCrucible() ? " · Crucible" : "");
+                case 8: return Player.modeDescription(entity);
                 case 9: return row.damage;
                 case 10: return row.dps;
                 default: return row.equipmentLabels[column - 3];
@@ -744,7 +760,7 @@ public class ParsePanelGUI extends JPanel {
             } else if (column == 7) {
                 setToolTipText("<html>" + html(row.player.statsDescription()) + "</html>");
             } else if (column == 8 && !selected) {
-                boolean seasonal = row.player.playerEntity.isSeasonal(), crucible = row.player.playerEntity.isCrucible();
+                boolean seasonal = Boolean.TRUE.equals(Player.seasonal(row.player.playerEntity)), crucible = Boolean.TRUE.equals(Player.crucible(row.player.playerEntity));
                 setForeground(ContentStyle.color(crucible ? (seasonal ? "violet" : "amber") : seasonal ? "mint" : "muted"));
             } else if (column >= 9) {
                 setToolTipText(column == 9 ? "Captured outgoing damage in this dungeon; missing older recordings are shown as —."

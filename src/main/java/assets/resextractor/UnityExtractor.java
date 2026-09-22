@@ -1,10 +1,8 @@
 package assets.resextractor;
 
 import assets.AssetExtractor;
-import realmshark.branding.AppIdentity;
 
 import javax.imageio.ImageIO;
-import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.*;
@@ -36,28 +34,13 @@ public class UnityExtractor {
         extractXml(res, output[2]);
     }
 
-    private void createFolders(File[] output) {
+    private void createFolders(File[] output) throws IOException {
         for (File f : output) {
-            boolean b = f.mkdirs();
-
-            try {
-                File ff = new File(f + "/temp");
-                ff.createNewFile();
-                ff.delete();
-            } catch (IOException e) {
-                String s = e.getMessage();
-                if (s.equals("The system cannot find the path specified")) {
-                    JOptionPane.showMessageDialog(null,
-                        "<html>Asset extraction access denied.<br/>Please move " + AppIdentity.NAME
-                            + " to a different folder.<br/>Windows is blocking access to the current folder.</html>",
-                        AppIdentity.NAME + " Asset Extraction", JOptionPane.ERROR_MESSAGE);
-                    AppIdentity.exit(0);
-                }
-            }
+            java.nio.file.Files.createDirectories(f.toPath());
         }
     }
 
-    private void extractXml(Resources res, File outputFolder) {
+    private void extractXml(Resources res, File outputFolder) throws IOException {
         for (TextAsset t : res.assetTextAsset) {
             counter++;
             AssetExtractor.setDisplay("Extracting Xml Files " + counter);
@@ -65,12 +48,8 @@ public class UnityExtractor {
             if (!Arrays.asList(TextAsset.NON_XML_FILES).contains(t.name)) {
                 String name = checkDuplicates(t.name);
                 File outputFile = new File(outputFolder + "/" + name + ".xml");
-                try {
-                    FileOutputStream outputStream = new FileOutputStream(outputFile);
+                try (FileOutputStream outputStream = new FileOutputStream(outputFile)) {
                     outputStream.write(t.m_Script);
-                    outputStream.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
                 }
             }
         }
@@ -90,18 +69,16 @@ public class UnityExtractor {
         }
     }
 
-    private void extractSpritesheet(Resources res, File outputFolder) {
+    private void extractSpritesheet(Resources res, File outputFolder) throws IOException {
         if (res.spritesheet != null) {
             File outputFile = new File(outputFolder + "/spritesheetf");
             try (FileOutputStream outputStream = new FileOutputStream(outputFile)) {
                 outputStream.write(res.spritesheet.m_Script);
-            } catch (IOException e) {
-                e.printStackTrace();
             }
         }
     }
 
-    private void extractSprites(Resources res, File outputFolder) {
+    private void extractSprites(Resources res, File outputFolder) throws IOException {
         for (Texture2D t : res.assetTexture2D) {
             if (Arrays.asList(Texture2D.SPRITESHEET_NAMES).contains(t.name)) {
                 AssetExtractor.setDisplay("Extracting Sprite: " + t.name);
@@ -125,11 +102,7 @@ public class UnityExtractor {
                 g.drawImage(image, 0, 0, null);
                 g.dispose();
 
-                try {
-                    ImageIO.write(newImage, "png", outputFile);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+                if (!ImageIO.write(newImage, "png", outputFile)) throw new IOException("No PNG writer available.");
             }
         }
     }

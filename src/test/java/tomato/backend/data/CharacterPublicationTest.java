@@ -93,7 +93,7 @@ public class CharacterPublicationTest {
             assertTrue(entered.await(2, TimeUnit.SECONDS));
             data.rememberCharacter(); // Accept the worker response through the real capture-side publication path.
             assertNotNull(data.pet);
-            assertTrue("Pets publication must stay queued on the EDT", petCache().isEmpty());
+            assertFalse("Detached pet publication is available without waiting for the EDT", petCache().isEmpty());
             assertEquals("Char", fame.getClassNameForCharacterId(8));
         } finally { release.countDown(); }
 
@@ -290,7 +290,14 @@ public class CharacterPublicationTest {
                 + "<Ability type='407' power='50' points='1000'/><Ability type='408' power='40' points='800'/>"
                 + "<Ability type='406' power='30' points='600'/></Abilities></Pet>" : "<Pet/>") + "</Char>";
     }
-    @SuppressWarnings("unchecked") private Map<Integer, Stat> petCache() throws Exception { return (Map<Integer, Stat>)field(CharacterPetsGUI.class, "pets").get(pets); }
+    private Map<Integer, Stat> petCache() {
+        Map<Integer, Stat> result = new HashMap<>();
+        for (ProgressionData.Pet pet : data.progression().snapshot().pets) {
+            Integer id = pet.value(StatType.PET_INSTANCE_ID_STAT);
+            if (id != null) result.put(id, pet.stats());
+        }
+        return result;
+    }
     @SuppressWarnings("unchecked") private static Map<Integer, String> names() throws Exception { return (Map<Integer, String>)field(CharacterClass.class, "CLASS_NAME").get(null); }
     private void replaceStatic(Class<?> type, String name, Object value) throws Exception {
         Field field = field(type, name);

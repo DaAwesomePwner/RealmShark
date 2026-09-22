@@ -1,15 +1,10 @@
 package tomato.backend;
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.stream.Stream;
 import packets.Packet;
-import packets.data.QuestData;
 import packets.incoming.*;
 import packets.outgoing.*;
 import tomato.backend.data.CrucibleBonusManager;
 import tomato.backend.data.TomatoData;
-import tomato.gui.TomatoGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.stats.FameTablePanel;
 import tomato.realmshark.Sound;
@@ -121,11 +116,7 @@ public class TomatoPacketCapture implements Controller {
             HelloPacket p = (HelloPacket) packet;
             data.updateToken(p.accessToken);
         } else if (packet instanceof QuestFetchResponsePacket) {
-            QuestFetchResponsePacket p = (QuestFetchResponsePacket) packet;
-            Stream<QuestData> list = Arrays.stream(p.quests).sorted(
-                Comparator.comparing(questData -> questData.category)
-            );
-            TomatoGUI.updateQuests(list.toArray(QuestData[]::new));
+            data.quests((QuestFetchResponsePacket) packet);
         } else if (packet instanceof TradeRequestedPacket) {
             if (Sound.trade.isEnabled()) {
                 Sound.trade.play();

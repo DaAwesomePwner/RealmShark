@@ -11,6 +11,7 @@ import javax.swing.table.*;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.CharacterJournal.AccountRecord;
+import tomato.backend.data.FieldCapture;
 import tomato.realmshark.enums.CharacterClass;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
@@ -19,17 +20,19 @@ import tomato.gui.stats.Formatters;
 /** Searchable persistent roster, with explicit unknowns and reversible life-state annotations. */
 public final class CharacterJournalGUI extends JPanel {
     private final CharacterJournal journal;
+    private final java.util.function.LongSupplier clock;
     private final JTextField search = new JTextField(18);
-    private final JComboBox<String> life = new JComboBox<>(new String[]{"All characters", "Alive", "Dead"});
+    private final JComboBox<String> life = new JComboBox<>(new String[]{"All characters", "Not marked dead", "Marked dead manually"});
     private final JComboBox<String> season = new JComboBox<>(new String[]{"All seasons", "Seasonal", "Regular"});
     private final JLabel heading = new JLabel("Select a character");
     private final JTextArea summary = ContentStyle.wrappingText(""), status = ContentStyle.wrappingText(""), seen = ContentStyle.wrappingText(" ");
     private final JButton death = new JButton("Mark dead"), saveNotes = new JButton("Save notes");
     private final JTextArea notes = new JTextArea(3, 30);
-    private final DefaultTableModel rosterModel = model("Character", "Account", "State", "Season", "Level", "Maxed", "Fame", "Last seen");
+    private final DefaultTableModel rosterModel = model("Character", "Account", "State", "Season", "Level", "Maxed", "Fame", "Last snapshot update");
     private final JTable roster = table(rosterModel);
-    private final DefaultTableModel statModel = model("Stat", "Base", "Cap", "Potions to max");
-    private final DefaultTableModel gearModel = model("Slot", "Item", "Item ID");
+    private final DefaultTableModel statModel = model("Stat", "Base", "Cap", "Potions to max", "Field evidence");
+    private final DefaultTableModel gearModel = model("Slot", "Item", "Item ID", "Field evidence");
+    private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
     private final DefaultTableModel exaltModel = model("Account", "Class", "Stat", "Level", "Completions", "Next tier", "Observed");
     private final DefaultTableModel charExaltModel = model("Stat", "Level", "Completions", "Next tier");
     private final JPanel exalts = new JPanel(new BorderLayout(0, 8)) {
@@ -45,10 +48,15 @@ public final class CharacterJournalGUI extends JPanel {
     private final javax.swing.Timer timer;
 
     public CharacterJournalGUI(CharacterJournal journal) {
-        super(new BorderLayout(0, 8)); this.journal = journal;
+        this(journal, System::currentTimeMillis);
+    }
+
+    CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock) {
+        super(new BorderLayout(0, 8)); this.journal = journal; this.clock = Objects.requireNonNull(clock);
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel top = new JPanel(new BorderLayout(0, 6));
         summary.setName("character-summary");
+        seen.setName("character-snapshot-evidence");
         ContentStyle.font(summary, ContentStyle.body()); top.add(summary, BorderLayout.NORTH);
         seen.setFont(ContentStyle.metadata(ContentStyle.body())); status.setFont(ContentStyle.metadata(ContentStyle.body()));
         JPanel filters = ContentStyle.controls();
@@ -121,6 +129,7 @@ public final class CharacterJournalGUI extends JPanel {
             }
         };
         notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH); tabs.addTab("Notes", notePanel);
+        tabs.addTab("Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3));
         detail.add(tabs, BorderLayout.CENTER);
         JTextArea hint = note("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
         hint.setToolTipText("Potion estimates use +5 Life/Mana and +1 other stats. Exalts are account/class progress shared across characters.");
@@ -184,6 +193,7 @@ public final class CharacterJournalGUI extends JPanel {
         boolean detached = !isDisplayable() && !exalts.isDisplayable();
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
+        if (isShowing() || detached) refreshTimeEvidence(selected());
         String storageStatus = journal.storageStatus();
         if (records.isEmpty() && storageStatus.startsWith("Saved"))
             storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
@@ -217,12 +227,12 @@ public final class CharacterJournalGUI extends JPanel {
             if (!haystack.toString().toLowerCase(Locale.ROOT).contains(query)) continue;
             filtered.add(r);
             int count = CharacterJournal.maxed(r, CharacterClass.getStats(r.classId));
-            rosterModel.addRow(new Object[]{className(r.classId) + " #" + r.characterId, accountName(r.account), r.dead ? "Dead" : "Alive",
+            rosterModel.addRow(new Object[]{className(r.classId) + " #" + r.characterId, accountName(r.account), lifeLabel(r),
                 r.seasonal == null ? "Unknown" : r.seasonal ? "Seasonal" : "Regular", r.level,
                 count < 0 ? "Unknown" : count + "/8", r.fame, r.lastSeen});
         }
-        summary.setText(records.isEmpty() ? "Your saved characters will appear here" : DisplayFormat.formatInteger(alive) + " alive  •  "
-                + DisplayFormat.formatInteger(deadCount) + " dead  •  " + DisplayFormat.formatInteger(maxed) + " at 8/8  •  "
+        summary.setText(records.isEmpty() ? "Your saved characters will appear here" : DisplayFormat.formatInteger(alive) + " not marked dead  •  "
+                + DisplayFormat.formatInteger(deadCount) + " marked dead manually  •  " + DisplayFormat.formatInteger(maxed) + " at 8/8  •  "
                 + DisplayFormat.formatInteger(filtered.size()) + " shown");
         if (records.isEmpty() && journal.storageStatus().startsWith("Saved")) status.setText("Start capture and enter the game on a character. Account identity is required before saving.");
         for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key.equals(oldKey)) {
@@ -240,20 +250,23 @@ public final class CharacterJournalGUI extends JPanel {
             for (CharacterRecord previous : records) if (previous.key.equals(selectedKey)) previous.notes = notes.getText();
         }
         selectedKey = newKey;
-        statModel.setRowCount(0); gearModel.setRowCount(0); charExaltModel.setRowCount(0);
+        statModel.setRowCount(0); gearModel.setRowCount(0); charExaltModel.setRowCount(0); metadataModel.setRowCount(0);
         death.setEnabled(r != null); saveNotes.setEnabled(r != null); notes.setEnabled(r != null);
         if (r == null) { heading.setText("Select a character"); heading.setIcon(null); seen.setText(" "); seen.setToolTipText(null); notes.setText(""); return; }
-        heading.setText(className(r.classId) + " #" + r.characterId + (r.dead ? " • Dead" : ""));
+        heading.setText(className(r.classId) + " #" + r.characterId + (r.dead ? " • Marked dead manually" : ""));
         heading.setIcon(ImageBuffer.getOutlinedIcon(r.skin == null || r.skin == 0 ? r.classId : r.skin, 28));
-        death.setText(r.dead ? "Restore alive" : "Mark dead");
-        seen.setText("First seen " + date(r.firstSeen) + "  •  Last seen " + date(r.lastSeen));
-        seen.setToolTipText(r.source + (r.created == null ? "" : " • Created " + r.created) + (r.dead ? " • Marked dead " + date(r.diedAt) : ""));
+        death.setText(r.dead ? r.observedAgainAt > 0 ? "Observed again—restore?" : "Restore alive" : "Mark dead");
+        refreshTimeEvidence(r);
+        seen.setToolTipText(r.source);
+        String[] fields = {"class", "level", "skin", "fame", "seasonal", "created"};
+        Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
+        for (int i = 0; i < fields.length; i++) metadataModel.addRow(new Object[]{fields[i], unknown(values[i]), evidence(r, fields[i], values[i] != null)});
         if (changed) notes.setText(r.notes);
         int[] caps = CharacterClass.getStats(r.classId);
         for (int i = 0; i < 8; i++) statModel.addRow(new Object[]{CharacterJournal.STATS[i], unknown(r.stats[i]), caps == null ? "Unknown" : caps[i],
-            caps == null || r.stats[i] == null ? "Unknown" : CharacterJournal.potions(r.stats[i], caps[i], i)});
+            caps == null || r.stats[i] == null ? "Unknown" : CharacterJournal.potions(r.stats[i], caps[i], i), evidence(r, "stat." + i, r.stats[i] != null)});
         String[] slots = {"Weapon", "Ability", "Armor", "Ring"};
-        for (int i = 0; i < r.equipment.length; i++) gearModel.addRow(new Object[]{i < 4 ? slots[i] : i < 12 ? "Inventory " + (i - 3) : "Backpack " + (i - 11), itemName(r.equipment[i]), r.equipment[i]});
+        for (int i = 0; i < r.equipment.length; i++) gearModel.addRow(new Object[]{i < 4 ? slots[i] : i < 12 ? "Inventory " + (i - 3) : "Backpack " + (i - 11), itemName(r.equipment[i]), r.equipment[i], evidence(r, "equipment." + i, r.equipment[i] != null)});
         int[] exalt = null;
         for (AccountRecord a : accounts) if (a.key.equals(r.account)) exalt = a.exalts.get(r.classId);
         for (int i = 0; i < 8; i++) {
@@ -261,7 +274,28 @@ public final class CharacterJournalGUI extends JPanel {
             charExaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
         }
     }
+    /** Time advances even after capture stops; refresh just this text, not selection or editable drafts. */
+    private void refreshTimeEvidence(CharacterRecord r) {
+        if (r == null) return;
+        long age = r.lastSeen <= 0 ? -1 : Math.max(0, (clock.getAsLong() - r.lastSeen) / 1000);
+        String text = "Last observed alive " + date(r.lastObservedAlive) + "  •  Roster received " + date(r.rosterReceivedAt)
+            + "\nSnapshot update age: " + (age < 0 ? "Unknown" : age + "s") + " · "
+            + Arrays.stream(r.stats).filter(Objects::nonNull).count() + "/8 known stats · "
+            + Arrays.stream(r.equipment).filter(Objects::nonNull).count() + "/28 known slots (may be retained)"
+            + (r.dead ? "\nMarked dead manually " + date(r.diedAt) + "; preserved snapshot."
+                + (r.observedAgainAt > 0 ? " Reported again " + date(r.observedAgainAt) + ". Restore explicitly to accept updates." : "") : "");
+        if (!seen.getText().equals(text)) seen.setText(text);
+    }
     private String accountName(String key) { for (AccountRecord a : accounts) if (a.key.equals(key)) return (a.name == null ? "Account" : a.name) + " · " + key.substring(0, 6); return "Account · " + key.substring(0, 6); }
+    private static String lifeLabel(CharacterRecord r) {
+        return r.dead ? "Marked dead manually" : r.lastObservedAlive > 0 ? "Last observed alive" : r.rosterReceivedAt > 0 ? "Reported in roster" : "Legacy life state";
+    }
+    private static String evidence(CharacterRecord r, String key, boolean known) {
+        if (!known) return "Not captured";
+        FieldCapture field = r.fields.get(key);
+        if (field == null) return "Legacy / provenance unknown";
+        return field.source + " · " + date(field.at) + (field.at > 0 && field.at < r.lastSeen ? " · Retained from earlier observation" : "");
+    }
     private static String next(int count) { for (int goal : new int[]{5,15,30,50,75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }
     private static Object unknown(Object value) { return value == null ? "Unknown" : value; }
     private static String className(int id) { String name = CharacterClass.getName(id); return name == null ? "Class " + id : name; }

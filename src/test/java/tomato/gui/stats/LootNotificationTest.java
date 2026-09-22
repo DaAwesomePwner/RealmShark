@@ -18,27 +18,65 @@ import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.realmshark.LootDelivery;
 import tomato.realmshark.SendLoot;
+import tomato.realmshark.AlertRules;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
 
 public class LootNotificationTest {
     private String savedEnchantRules;
+    private String savedItemRules;
     private TomatoData data;
     private LootGUI view;
     private SendLoot.Session sharing;
 
     @Before public void setup() throws Exception {
         savedEnchantRules = PropertiesManager.getProperty("enchantPing.selected");
+        savedItemRules = PropertiesManager.getProperty(AlertRules.Domain.ITEM.key());
+        PropertiesManager.flush().toCompletableFuture().get(3, java.util.concurrent.TimeUnit.SECONDS);
+        preferences().remove(AlertRules.Domain.ITEM.key());
         PropertiesManager.setProperties("enchantPing.selected", "777,888");
         data = new TomatoData();
         sharing = new SendLoot.Session(new LootDelivery(() -> { throw new AssertionError("Notification tests must not connect"); }, 2, true, false));
         SwingUtilities.invokeAndWait(() -> view = new LootGUI(data, sharing));
     }
 
-    @After public void restore() {
+    @After public void restore() throws Exception {
+        PropertiesManager.flush().toCompletableFuture().get(3, java.util.concurrent.TimeUnit.SECONDS);
+        if (savedItemRules == null) preferences().remove(AlertRules.Domain.ITEM.key());
+        else preferences().setProperty(AlertRules.Domain.ITEM.key(), savedItemRules);
         PropertiesManager.setProperties("enchantPing.selected", savedEnchantRules == null ? "" : savedEnchantRules);
+        PropertiesManager.flush().toCompletableFuture().get(3, java.util.concurrent.TimeUnit.SECONDS);
         LootGUI.lootSharing(true);
         sharing.close();
+    }
+    private static java.util.Properties preferences() throws Exception {
+        Field field = PropertiesManager.class.getDeclaredField("properties"); field.setAccessible(true);
+        return (java.util.Properties)field.get(null);
+    }
+
+    @Test public void typedExactIdAtTheLootProducerCoalescesEnchantsAndRejects142() {
+        data.setPropList("itemPings", new ArrayList<>(Collections.singletonList("142")));
+        PropertiesManager.setProperties(AlertRules.Domain.ITEM.key(),
+            "{\"version\":1,\"rules\":[{\"mode\":\"ITEM_ID\",\"value\":\"42\"}]}");
+        Entity bag = new Entity(null, 9, 0);
+        item(bag, 0, 42); item(bag, 1, 142); item(bag, 2, -1); item(bag, 3, 42); item(bag, 7, 999997);
+        enchants(bag, String.join(",", encode(777), "", encode(777), "!!!", "", "", "", encode(777)));
+        for (boolean disabled : new boolean[]{true, false}) {
+            LootGUI.lootSharing(disabled); List<String> calls = new ArrayList<>();
+            view.notifyItems(bag, () -> calls.add("alert"), () -> {
+                assertEquals(Arrays.asList("alert", "alert", "alert"), calls); calls.add("share");
+            });
+            assertEquals(disabled ? Arrays.asList("alert", "alert", "alert")
+                : Arrays.asList("alert", "alert", "alert", "share"), calls);
+        }
+    }
+
+    @Test public void unsupportedTypedRulesDoNotReactivateTheLegacyLootProbe() {
+        data.setPropList("itemPings", new ArrayList<>(Collections.singletonList("42")));
+        PropertiesManager.setProperties(AlertRules.Domain.ITEM.key(), "{\"version\":999,\"rules\":[]}");
+        Entity bag = new Entity(null, 9, 0); item(bag, 0, 42); item(bag, 7, 142);
+        LootGUI.lootSharing(true);
+        view.notifyItems(bag, () -> fail("Unsupported typed rules must remain inactive"), () -> fail("Sharing opted out"));
     }
 
     @Test public void alertsOncePerMatchingItemBeforeSharingWithEitherOptOutState() {

@@ -4,6 +4,8 @@ import java.awt.*;
 import java.util.*;
 import javax.swing.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.maingui.DraftSaveStatus;
+import tomato.gui.maingui.AlertRuleEditor;
 
 /** Editable local rules, with explicit scope and reversible changes. */
 final class ChatFilterPanel extends JPanel {
@@ -48,15 +50,28 @@ final class ChatFilterPanel extends JPanel {
         JPanel actions = ContentStyle.controls();
         ((FlowLayout) actions.getLayout()).setAlignment(FlowLayout.TRAILING);
         JButton cancel = new JButton("Cancel"), save = new JButton("Save filters"); save.setName("chat-save-filters");
+        DraftSaveStatus saving = new DraftSaveStatus(save, "chat-filter-save-status");
+        long[] expected = {filters.edits()};
         cancel.setName("chat-cancel-filters");
-        actions.add(cancel); actions.add(save); add(actions, BorderLayout.SOUTH);
+        actions.add(cancel); actions.add(save);
+        JPanel footer = new JPanel(new BorderLayout()); footer.add(saving.status); footer.add(actions, BorderLayout.SOUTH); add(footer, BorderLayout.SOUTH);
         cancel.addActionListener(e -> cancelled.run());
+        cancel.setToolTipText("Discard unsubmitted edits. Changes already submitted remain active even if disk saving failed.");
+        for (JTextArea area : new JTextArea[]{players, phrases, allowed}) area.getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
+        for (JCheckBox box : new JCheckBox[]{advertisements, whisperLinks, gameIgnores, inherited}) box.addActionListener(e -> saving.edited());
         save.addActionListener(e -> {
             ChatFilters.Settings next = new ChatFilters.Settings();
             next.advertisements = advertisements.isSelected(); next.whisperLinks = whisperLinks.isSelected();
             next.gameIgnores = gameIgnores.isSelected(); next.inheritedRules = inherited.isSelected();
             next.ignoredPlayers = lines(players); next.phrases = lines(phrases); next.allowedPlayers = lines(allowed);
-            filters.apply(next, true); saved.run();
+            long[] submittedEdits = new long[1];
+            saving.submit(() -> {
+                java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> completion = filters.apply(next, true, expected[0]);
+                expected[0] = filters.edits();
+                submittedEdits[0] = expected[0];
+                saved.run(); // Compatibility callback announces application, not disk durability.
+                return completion;
+            }, () -> filters.edits() == submittedEdits[0]);
         });
     }
     private static JTextArea editor(String name) {

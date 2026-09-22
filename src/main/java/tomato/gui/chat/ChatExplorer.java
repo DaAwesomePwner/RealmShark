@@ -39,6 +39,7 @@ final class ChatExplorer extends JPanel {
     private final java.util.function.Supplier<String> ignoreStatus;
     private final Map<ChatMessage, String> reasons = new IdentityHashMap<>();
     private long filterRevision = -1;
+    private ChatFilters.Classification classification;
     private final JTextArea filterStatus = ContentStyle.wrappingText(""), ignoreReason = ContentStyle.wrappingText("");
     private final JButton ignorePlayer = new JButton("Ignore player");
     private final List<ChatMessage> history = new ArrayList<>();
@@ -77,6 +78,21 @@ final class ChatExplorer extends JPanel {
     private final javax.swing.Timer debounce;
     private final JMenuItem copyView = new JMenuItem("Copy filtered messages"), exportView = new JMenuItem("Export filtered messages…");
     private boolean columnSizingPending;
+    private final java.util.concurrent.atomic.AtomicBoolean policyRefreshPending = new java.util.concurrent.atomic.AtomicBoolean();
+    private final Runnable policyChanged = () -> {
+        if (policyRefreshPending.compareAndSet(false, true)) SwingUtilities.invokeLater(() -> {
+            policyRefreshPending.set(false);
+            if (isDisplayable()) refreshPolicy();
+        });
+    };
+
+    @Override public void addNotify() { super.addNotify(); spamFilters.addListener(policyChanged); refreshPolicy(); }
+    @Override public void removeNotify() { spamFilters.removeListener(policyChanged); debounce.stop(); super.removeNotify(); }
+
+    private void refreshPolicy() {
+        boolean following = follow.isSelected(); follow.setSelected(false);
+        refresh(true); follow.setSelected(following);
+    }
 
     ChatExplorer(Runnable editAlerts) {
         this(editAlerts, new ChatFilters(), () -> "In-game ignore status is unavailable in this preview.");
@@ -277,7 +293,7 @@ final class ChatExplorer extends JPanel {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                 boolean show = Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS));
                 if (showIgnoredPlayers.isSelected() != show) { showIgnoredPlayers.setSelected(show); refresh(false); }
-                else if (viewDirty) refresh(true);
+                else if (viewDirty || filterRevision != spamFilters.revision()) refreshPolicy();
             }
         });
         refresh(false);
@@ -396,7 +412,8 @@ final class ChatExplorer extends JPanel {
         int firstRow = table.rowAtPoint(scroll.getViewport().getViewPosition());
         ChatMessage anchor = firstRow >= 0 && firstRow < visible.size() ? visible.get(firstRow) : null;
         int offset = firstRow >= 0 ? scroll.getViewport().getViewPosition().y - firstRow * table.getRowHeight() : 0;
-        long currentRevision = spamFilters.revision();
+        classification = spamFilters.snapshot();
+        long currentRevision = classification.revision;
         if (filterRevision != currentRevision) { reasons.clear(); filterRevision = currentRevision; }
         List<ChatMessage> filtered = new ArrayList<>(); int[] counts = new int[channels.length];
         String query = search.getText().trim().toLowerCase(Locale.ROOT);
@@ -404,7 +421,7 @@ final class ChatExplorer extends JPanel {
         for (ChatMessage message : history) {
             boolean ignored = !reason(message).isEmpty();
             if (ignored) counts[ChatMessage.Channel.IGNORED.ordinal()]++;
-            boolean inChannels = !ignored || (showIgnoredPlayers.isSelected() && spamFilters.ignoresPlayer(message));
+            boolean inChannels = !ignored || (showIgnoredPlayers.isSelected() && classification.ignoresPlayer(message));
             if (inChannels) { counts[0]++; counts[message.channel.ordinal()]++; }
             if ((channel == ChatMessage.Channel.IGNORED ? ignored : inChannels && (channel == ChatMessage.Channel.ALL || message.channel == channel))
                     && (!starredOnly.isSelected() || starred.contains(message)) && message.matchesNormalized(query, playerQuery)) filtered.add(message);
@@ -422,7 +439,8 @@ final class ChatExplorer extends JPanel {
         }
         updateChannelLabels();
         filterStatus.setText(counts[ChatMessage.Channel.IGNORED.ordinal()] + " ignored · "
-                + (showIgnoredPlayers.isSelected() ? "ignored players shown in channels · " : "") + "filtered messages stay silent");
+                + (showIgnoredPlayers.isSelected() ? "ignored players shown in channels · " : "") + "filtered messages stay silent"
+                + (spamFilters.saveStatus().isEmpty() ? "" : " · " + spamFilters.saveStatus()));
         filterStatus.setToolTipText("Actions > Chat filters edits player ignores, blocked phrases, and advertisement detection.");
         cards.show(body, visible.isEmpty() ? "empty" : "messages");
         emptyTitle.setText(history.isEmpty() ? "Your Realm conversations, together" : "No matching messages");
@@ -474,7 +492,8 @@ final class ChatExplorer extends JPanel {
         ignoreReason.setToolTipText(why.isEmpty() ? null : plainTooltip(why));
         ignoreReason.setVisible(!why.isEmpty());
         star.setText(hasMessage && starred.contains(message) ? "Unstar" : "Star");
-        detailHeader.setText(hasMessage ? message.clock() + " · " + message.channel.label + " · " + message.playerLabel() : "Select a message to read or star");
+        detailHeader.setText(hasMessage ? message.clock() + " · " + message.channel.label + " · " + message.playerLabel()
+            + (message.gameIgnored ? " · In-game ignore observed at receipt" : "") : "Select a message to read or star");
         detailHeader.setForeground(ContentStyle.color(why.isEmpty() ? "violet" : "rose"));
         detailHeader.setToolTipText(hasMessage ? message.date() + " · " + message.sender + (message.recipient.isEmpty() ? "" : " → " + message.recipient) : null);
         String query = search.getText().trim();
@@ -527,7 +546,7 @@ final class ChatExplorer extends JPanel {
     }
 
     private String reason(ChatMessage message) {
-        return reasons.computeIfAbsent(message, spamFilters::reason);
+        return reasons.computeIfAbsent(message, classification::reason);
     }
 
     private void openFilters() {
@@ -540,7 +559,7 @@ final class ChatExplorer extends JPanel {
         realmshark.branding.AppIdentity.apply(dialog);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         dialog.setContentPane(new ChatFilterPanel(spamFilters, ignoreStatus.get(), () -> {
-            refresh(false); dialog.dispose();
+            refreshPolicy();
         }, dialog::dispose));
         int line = getFontMetrics(ContentStyle.body()).getHeight();
         GraphicsConfiguration configuration = dialog.getGraphicsConfiguration();

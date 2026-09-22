@@ -100,7 +100,7 @@ public class WorkspaceUiTest {
     @Test public void originalMenusAndPreviewCaptureGuardRemain() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             List<String> labels = new ArrayList<>(); collectMenu(frame.getJMenuBar(), labels);
-            for (String required : new String[] {"Start Sniffer", "Opt-out Loot Sharing", "Save Chat", "Clear Chat",
+            for (String required : new String[] {"Start capture connection", "Opt-out Loot Sharing", "Save Chat", "Clear Chat",
                     "Chat Message Pings", "Entity ID Pings", "Item Drop Pings", "Enchant Pings", "DPS Options", "Filter Loot",
                     "RealmShark Violet", "Darcula Theme", "High Contrast Light Theme", "Solarized Dark Theme", "Font", "Net traffic"}) {
                 assertTrue("Missing original menu: " + required, labels.contains(required));

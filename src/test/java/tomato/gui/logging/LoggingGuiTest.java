@@ -52,7 +52,7 @@ public class LoggingGuiTest {
                         tabs.setSelectedIndex(tab); frame.validate();
                         capture(frame,"logging-"+width+"-"+tab+".png");
                         assertTrue("Details must remain visible at " + width + ": " + detail.getParent().getHeight(),detail.getParent().getHeight()>=60);
-                        assertTrue("Collect control must be visible",checkbox(panel,"Collect").isShowing());
+                        assertTrue("Collection control must be visible",checkbox(panel,"Gameplay & diagnostics collection").isShowing());
                     }
                 }
             } finally { frame.dispose(); log.close(); }
@@ -66,13 +66,13 @@ public class LoggingGuiTest {
             MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";emit(log,map);
             SwingUtilities.invokeAndWait(()->{panel[0]=new LoggingGUI(log);find(panel[0],JTabbedPane.class).setSelectedIndex(4);panel[0].refresh();});
             await(()->find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount()==1);
-            SwingUtilities.invokeAndWait(()->{checkbox(panel[0],"Freeze").setSelected(true);checkbox(panel[0],"Freeze").setSelected(true);});
+            SwingUtilities.invokeAndWait(()->{checkbox(panel[0],"Pause this view").setSelected(true);checkbox(panel[0],"Pause this view").setSelected(true);});
             map.name="Ocean Trench";emit(log,map);
             synchronized(log){
                 SwingUtilities.invokeAndWait(()->{
                     panel[0].refresh();assertEquals(1,find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount());
                     export.set(panel[0].exportTo(directory));assertNull(panel[0].exportTo(directory));
-                    checkbox(panel[0],"Freeze").setSelected(false); // Also queue a blocked diagnostic refresh.
+                    checkbox(panel[0],"Pause this view").setSelected(false); // Also queue a blocked diagnostic refresh.
                 });
                 java.util.concurrent.CountDownLatch heartbeat=new java.util.concurrent.CountDownLatch(1);SwingUtilities.invokeLater(heartbeat::countDown);
                 assertTrue("export snapshot acquisition must be off EDT",heartbeat.await(2,java.util.concurrent.TimeUnit.SECONDS));

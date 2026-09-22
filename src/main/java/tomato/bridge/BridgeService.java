@@ -13,6 +13,21 @@ import packets.incoming.MapInfoPacket;
 
 /** Bounded background sender and local review journal, independent of the legacy sharing socket. */
 public final class BridgeService implements AutoCloseable {
+    public enum Outcome {
+        LOGGED("Confirmed logged"), RECEIVED("Received—unconfirmed"), NOT_LOGGED("Not logged"),
+        LOCAL("Local/excluded"), FAILED("Failed/uncertain"), PENDING("Pending");
+        private final String label;
+        Outcome(String label){this.label=label;}
+        @Override public String toString(){return label;}
+        public static Outcome of(String status){
+            if("Logged".equals(status))return LOGGED;
+            if("Accepted".equals(status))return RECEIVED;
+            if("Not logged".equals(status))return NOT_LOGGED;
+            if("Queued".equals(status))return PENDING;
+            if(Arrays.asList("Not in CSV","Filtered","Local only","Cancelled").contains(status))return LOCAL;
+            return FAILED;
+        }
+    }
     public interface Transport { Response post(String endpoint,String json) throws IOException; }
     public static final class Response {
         public final int status; public final String body;
@@ -21,9 +36,29 @@ public final class BridgeService implements AutoCloseable {
     public static final class Review {
         public final long id; public final String time;
         public final BridgePayload.Drop drop;
-        public final String status, detail, payload;
-        private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload){this.id=id;this.time=time;this.drop=drop;this.status=status;this.detail=detail;this.payload=payload;}
-        Review with(String status,String detail){return new Review(id,time,drop,status,detail,payload);}
+        public final String status, detail, payload, localChoice;
+        private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload){this(id,time,drop,status,detail,payload,status+": "+detail);}
+        private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload,String localChoice){this.id=id;this.time=time;this.drop=drop;this.status=status;this.detail=detail;this.payload=payload;this.localChoice=localChoice;}
+        Review with(String status,String detail){return new Review(id,time,drop,status,detail,payload,localChoice);}
+        public Outcome outcome(){return Outcome.of(status);}
+        public String nextStep(){
+            if("Uncertain".equals(status))return "Check the bot's log before resubmitting; delivery is uncertain and retries may duplicate loot.";
+            if(detail.contains("unmapped_character"))return "In Discord, open /mysniffer → Configure Character and map character #"+drop.characterId+" to the intended character. Check the bot outcome before resubmitting; this observed drop is not automatically resent.";
+            if(outcome()==Outcome.RECEIVED)return "Check the bot's log before resubmitting; receipt does not confirm logging and retries may duplicate loot.";
+            if(detail.contains("item_not_in")||"Not in CSV".equals(status))return "Check this item ID/name against the local CSV and the bot's loot catalog; ask the guild administrator to reconcile the allowlists.";
+            if("Filtered".equals(status))return "Review Include categories in Bridge Settings; the item must match a selected category and the CSV.";
+            if("Local only".equals(status))return "Sending was off for this observation. Enable Send in Bridge Settings for future matching drops if desired.";
+            if("Cancelled".equals(status))return "Settings changed before submission. Check the active settings for future drops; this item was not sent.";
+            if("Queue full".equals(status))return "Wait for the worker queue to drain and review the logs. This item was not sent; there is no automatic retry.";
+            if(outcome()==Outcome.LOGGED)return "Logging was confirmed. No resubmission needed; announcement status is a separate bot result.";
+            if(outcome()==Outcome.PENDING)return "Wait for the submission result; do not submit a duplicate.";
+            if(outcome()==Outcome.NOT_LOGGED)return "The bot explicitly did not log this drop. Review the reason above and ask the guild administrator to check routing and loot rules.";
+            return "Check endpoint, link token, guild and bot settings in Bridge Settings. Review the bot before any manual resubmission; no automatic retry.";
+        }
+        public boolean matches(String query){
+            String text=time+" "+drop.item.rawName+" "+drop.item.id+" "+drop.item.rarity+" "+drop.item.enchants+" "+drop.item.enchantCount+" "+drop.characterId+" "+drop.characterName+" "+drop.characterClass+" "+drop.dungeon+" "+status+" "+outcome()+" "+detail+" "+localChoice;
+            return text.toLowerCase(Locale.ROOT).contains(query.trim().toLowerCase(Locale.ROOT));
+        }
     }
     public static final class Log {
         public final String time,level,message;
@@ -35,7 +70,9 @@ public final class BridgeService implements AutoCloseable {
         public final String state;
         public final boolean loading,closed;
         public final BridgeConfig config;
-        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,long a,long s,long f,long revision,String state,boolean loading,boolean closed,BridgeConfig config){reviews=r;logs=l;queued=q;catalogSize=c;observed=o;accepted=a;skipped=s;failed=f;this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
+        public final Map<Outcome,Long> outcomes;
+        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,Map<Outcome,Long> counts,long revision,String state,boolean loading,boolean closed,BridgeConfig config){reviews=r;logs=l;queued=q;catalogSize=c;observed=o;outcomes=Collections.unmodifiableMap(new EnumMap<>(counts));accepted=count(Outcome.LOGGED)+count(Outcome.RECEIVED);skipped=count(Outcome.LOCAL);failed=count(Outcome.FAILED);this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
+        public long count(Outcome outcome){return outcomes.getOrDefault(outcome,0L);}
     }
     private static final class Holder { static final BridgeService INSTANCE = create(); }
     private static BridgeService create(){return new BridgeService(Paths.get("bridge.properties"),Tomato.isPreview(),new BridgeHttp(),256);}
@@ -55,7 +92,8 @@ public final class BridgeService implements AutoCloseable {
     private volatile BridgeCatalog catalog=BridgeCatalog.empty();
     private volatile boolean active,closed;
     private boolean loading=true;
-    private long generation,sequence,observed,accepted,skipped,failed,revision;
+    private long generation,sequence,observed,revision;
+    private final Map<Outcome,Long> outcomes=new EnumMap<>(Outcome.class);
     private String state="Loading bridge settings…";
     private Closeable folderLock; // Owned exclusively by configurationWorker, including cleanup.
 
@@ -134,7 +172,7 @@ public final class BridgeService implements AutoCloseable {
                 synchronized(this){if(!active||preview||closed)return;target=config;items=catalog;version=generation;}
                 boolean tracked=items.contains(drop.item), included=target.includes(drop.item);
                 String status=!tracked?"Not in CSV":!included?"Filtered":!target.send?"Local only":"Queued";
-                String detail=!tracked?"Item is absent from the CSV allowlist; nothing sent.":!included?"Excluded by category selection.":!target.send?"Sending is turned off.":"Awaiting HTTP submission.";
+                String detail=!tracked?"Item is absent from the CSV allowlist; nothing sent.":!included?"Excluded by category selection.":!target.send?"Sending is turned off.":"Matched CSV and an included category; sending enabled. Awaiting HTTP submission.";
                 if(drop.item.enchantCount<0)detail+=" Enchant data could not be decoded; rarity may be unknown.";
                 JsonObject payload=target.send&&tracked&&included?BridgePayload.loot(target,drop):null;
                 String redacted=payload==null?"":BridgePayload.redacted(payload).toString();
@@ -144,9 +182,12 @@ public final class BridgeService implements AutoCloseable {
                     observed++;
                     Review entry=new Review(++sequence,Instant.now().toString(),drop,status,detail,redacted);
                     reviews.put(entry.id,entry);while(reviews.size()>1000)reviews.remove(reviews.keySet().iterator().next());revision++;
-                    if(!status.equals("Queued"))skipped++;
+                    outcomes.merge(entry.outcome(),1L,Long::sum);
                     try {worker.execute(()->process(entry,payload,target,version));}
-                    catch(RejectedExecutionException e){finish(entry,"Queue full","Worker queue is full; this item was not sent.",target,false);failed++;log("ERROR","Bridge queue is full; an event could not be processed. Review its status.");}
+                    catch(RejectedExecutionException e){
+                        finish(entry,payload==null?entry.status:"Queue full",payload==null?entry.detail+" Local audit queue full; optional journal entry was not saved.":"Worker queue is full; this item was not sent.",target,false);
+                        log("ERROR","Bridge queue is full; an event could not be processed. Review its status.");
+                    }
                 }
                 break;
             }
@@ -155,7 +196,7 @@ public final class BridgeService implements AutoCloseable {
     private void process(Review entry,JsonObject payload,BridgeConfig target,long version) {
         if(payload==null){audit(entry,target);if(target.debug)log("DEBUG",entry.status+": "+entry.drop.item.rawName);return;}
         boolean cancelled;
-        synchronized(this){cancelled=!active||version!=generation||closed;if(cancelled)skipped++;}
+        synchronized(this){cancelled=!active||version!=generation||closed;}
         if(cancelled){finish(entry,"Cancelled","Settings changed before this request started; nothing sent.",target,true);return;}
         send(entry,payload,target);
     }
@@ -172,29 +213,34 @@ public final class BridgeService implements AutoCloseable {
             String status=response.status>=200&&response.status<300?"Accepted":"Rejected";
             try {
                 JsonObject body=JsonParser.parseString(response.body).getAsJsonObject();
-                if(body.has("ok")&&!body.get("ok").getAsBoolean())status="Rejected";
+                if(Boolean.FALSE.equals(booleanResult(body,"ok")))status="Rejected";
                 JsonObject result=body.has("result")&&body.get("result").isJsonObject()?body.getAsJsonObject("result"):body;
                 for(String key:new String[]{"reason","routing_reason","error"}) {
                     JsonElement value=result.get(key);if(value==null)value=body.get(key);
                     if(value!=null&&value.isJsonPrimitive()) {String code=value.getAsString();if(code.matches("[a-zA-Z0-9_]{1,96}"))detail+=" | "+key+"="+code;}
                 }
-                if(status.equals("Accepted")&&result.has("logged"))status=result.get("logged").getAsBoolean()?"Logged":entry==null?"Accepted":"Not logged";
-                if(result.has("announced")&&result.get("announced").isJsonPrimitive())detail+=" | announced="+result.get("announced").getAsBoolean();
+                Boolean logged=booleanResult(result,"logged");
+                if(status.equals("Accepted")&&logged!=null)status=logged?"Logged":"Not logged";
+                Boolean announced=booleanResult(result,"announced");
+                if(announced!=null)detail+=" | announced="+announced;
+                if(status.equals("Accepted"))detail+=" | No recognized logging confirmation; HTTP receipt alone does not confirm loot logging.";
             }catch(RuntimeException ignored){detail+=" | No recognized bot result; HTTP receipt alone does not confirm loot logging.";}
             detail=detail.replace(target.token,"[redacted]");
             if(status.equals("Rejected"))detail+=". Check endpoint, token, guild and bot settings; no automatic retry.";
-            synchronized(this){if(entry!=null){if(status.equals("Rejected"))failed++;else accepted++;}}
             log(status.equals("Rejected")?"ERROR":"INFO",label+": "+status+" | "+detail);
             if(entry!=null)finish(entry,status,detail,target,true);
         } catch(IOException|RuntimeException e) {
-            synchronized(this){if(entry!=null)failed++;}
             String detail="Delivery is uncertain ("+e.getClass().getSimpleName()+"). Check the bot before resubmitting; automatic retries could duplicate loot.";
             log("ERROR",label+": "+detail);if(entry!=null)finish(entry,"Uncertain",detail,target,true);
         }
     }
+    private static Boolean booleanResult(JsonObject object,String key){
+        JsonElement value=object.get(key);
+        return value!=null&&value.isJsonPrimitive()&&value.getAsJsonPrimitive().isBoolean()?value.getAsBoolean():null;
+    }
     private void finish(Review entry,String status,String detail,BridgeConfig target,boolean save) {
         Review updated=entry.with(status,detail);
-        synchronized(this){if(reviews.containsKey(entry.id))reviews.put(entry.id,updated);revision++;}
+        synchronized(this){outcomes.merge(entry.outcome(),-1L,Long::sum);outcomes.merge(updated.outcome(),1L,Long::sum);if(reviews.containsKey(entry.id))reviews.put(entry.id,updated);revision++;}
         if(save)audit(updated,target);
     }
     private void audit(Review entry,BridgeConfig target) {
@@ -207,7 +253,7 @@ public final class BridgeService implements AutoCloseable {
         if(!config.token.isEmpty())message=message.replace(config.token,"[redacted]");
         logs.addLast(new Log(level,message));while(logs.size()>500)logs.removeFirst();revision++;
     }
-    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,accepted,skipped,failed,revision,state,loading,closed,config);}
+    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,outcomes,revision,state,loading,closed,config);}
     public synchronized void clearLogs(){logs.clear();revision++;}
     private static void requireBackgroundWait(){if(SwingUtilities.isEventDispatchThread())throw new IllegalStateException("Do not wait for bridge workers on the EDT.");}
     /** Startup has settled (possibly with an error in snapshot().state), or close has invalidated it. */

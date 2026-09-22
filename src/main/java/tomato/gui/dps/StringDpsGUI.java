@@ -16,15 +16,10 @@ import java.util.List;
 public class StringDpsGUI extends DisplayDpsGUI {
 
     private static JTextArea textAreaDPS;
-    private final TomatoData data;
-    private final JButton button;
-    private final JPanel actions = ContentStyle.controls();
-    private boolean freeze;
     private LocalPlayerContext playerContext;
     void setPlayerContext(LocalPlayerContext player) { playerContext=player; }
 
     public StringDpsGUI(TomatoData data) {
-        this.data = data;
 
         setLayout(new BorderLayout());
         textAreaDPS = new tomato.gui.modern.EmptyLogArea("Every encounter tells a story", "Start capture and enter combat to see damage here.");
@@ -33,20 +28,6 @@ public class StringDpsGUI extends DisplayDpsGUI {
         textAreaDPS.setMargin(new Insets(6, 8, 6, 8));
         ContentStyle.font(textAreaDPS, ContentStyle.report(ContentStyle.body()));
 
-        button = new JButton("Freeze");
-        button.addActionListener(e -> clicked());
-        actions.add(button);
-        add(actions, BorderLayout.SOUTH);
-    }
-
-    private void clicked() {
-        if (freeze) {
-            button.setText("Freeze");
-            freeze = false;
-        } else {
-            button.setText("Unfreeze");
-            freeze = true;
-        }
     }
 
     /**
@@ -60,11 +41,6 @@ public class StringDpsGUI extends DisplayDpsGUI {
 
     @Override
     protected void renderData(MapInfoPacket map, List<Entity> sortedEntityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean isLive) {
-        if (freeze && isLive && button.isVisible()) {
-            return;
-        }
-        button.setVisible(isLive);
-        actions.setVisible(isLive);
         setTextAreaAndLabelDPS(DpsToString.stringDmgRealtime(map, sortedEntityHitList, notifications, playerContext, totalDungeonPcTime));
     }
 

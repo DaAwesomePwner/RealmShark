@@ -22,7 +22,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private final JComboBox<String> classes = new JComboBox<>(new String[]{"All classes"});
     private final JComboBox<String> metric = new JComboBox<>(new String[]{"Damage", "DPS", "Hits dealt", "Damage taken", "Hits taken"});
     private final JTextField search = new JTextField(12);
-    private final JCheckBox colors = new JCheckBox("Class colors", true), paused = new JCheckBox("Pause view");
+    private final JCheckBox colors = new JCheckBox("Class colors", true);
     private final DefaultListModel<Entity> enemies = new DefaultListModel<>();
     private final JList<Entity> enemyList = new JList<>(enemies);
     private final JLabel summary = new JLabel("Waiting for combat");
@@ -59,7 +59,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         ContentStyle.font(scope, ContentStyle.metadata(ContentStyle.body()));
         JPanel filters = ContentStyle.controls();
         filters.add(new JLabel("Rank by")); filters.add(metric); filters.add(classes);
-        filters.add(new JLabel("Player")); filters.add(search); filters.add(colors); filters.add(paused);
+        filters.add(new JLabel("Player")); filters.add(search); filters.add(colors);
         summary.setAlignmentX(LEFT_ALIGNMENT); scope.setAlignmentX(LEFT_ALIGNMENT);
         filters.setAlignmentX(LEFT_ALIGNMENT);
         controls.add(summary); controls.add(filters); controls.add(scope);
@@ -139,7 +139,6 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         classes.addActionListener(e -> { if (!updating) filterRows(); });
         metric.addActionListener(e -> { updateMeterMaximum(); rank(); showDetails(); table.repaint(); });
         colors.addActionListener(e -> table.repaint());
-        paused.addActionListener(e -> { if (!paused.isSelected()) DpsGUI.update(); });
         table.getSelectionModel().addListSelectionListener(e -> { if (!updating) showDetails(); });
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filterRows(); }
@@ -147,7 +146,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             public void changedUpdate(DocumentEvent e) { filterRows(); }
         });
         search.getAccessibleContext().setAccessibleName("Filter player name");
-        scope.setToolTipText("DPS uses the same first-to-last target hit interval for every player. All enemies shows full recorded dungeon incoming totals, as in the legacy tooltip. Selecting an enemy limits incoming events to its fight window. Incoming data can include estimates; missing capture cannot be reconstructed.");
+        scope.setToolTipText(CombatMeterData.WINDOW_DEFINITION+" "+CombatMeterData.POPULATION);
     }
 
     void setContext(Object key, Entity player) {
@@ -155,7 +154,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     void setContext(Object key, Entity player, DpsData.LocalPlayerContext context) {
         if (encounter != key) {
-            encounter = key; paused.setSelected(false);
+            encounter = key;
             updating = true; enemyList.clearSelection(); updating = false;
             missingLocalSpawn = key instanceof DpsData && missingLocalSpawn((DpsData)key);
         }
@@ -177,7 +176,6 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         return missedShots && localHit;
     }
     protected void renderData(MapInfoPacket map, List<Entity> entities, ArrayList<NotificationPacket> notes, long elapsed, boolean isLive) {
-        if (paused.isSelected()) return;
         targets = new ArrayList<>(entities); mapName = map == null ? "No encounter" : map.name; live = isLive;
         targets.removeIf(Entity::isPlayerCharacter);
         String warning = missingLocalSpawn && !isLive
@@ -240,8 +238,8 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         updating = false;
         summary.setText(mapName + "  ·  " + (live ? "LIVE" : "SAVED") + "  ·  " + number(scopedEnemies) + " enemies  ·  " + number(visible.size()) + "/" + number(snapshot.rows.size()) + " players  ·  DMG: " + number(snapshot.total));
         summary.setToolTipText(summary.getText().startsWith("<html>") ? " " + summary.getText() : summary.getText());
-        scope.setText(DisplayFormat.formatNumber(snapshot.seconds, 1) + "s DPS window · Taken: "
-            + (wholeEncounter ? "full dungeon" : "fight window, all sources") + " · — = no recorded data");
+        scope.setText(DisplayFormat.formatNumber(snapshot.seconds, 1) + "s first-to-last hit window · Taken: "
+            + (wholeEncounter ? "full dungeon" : "inclusive fight window") + " · Represented contributors only");
         showDetails();
     }
     private int metricColumn() { return METRIC_COLUMNS[metric.getSelectedIndex()]; }
@@ -262,12 +260,16 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     private void showDetails() {
         int index = table.getSelectedRow();
-        if (index < 0) { details.setText(visible.isEmpty() ? "No players match this view. Clear filters or choose another enemy." : "Select a player for hit details. Right-click a player and choose Inspect for their captured build. Click column headers to sort; drag dividers to resize."); return; }
+        if (index < 0) { details.setText((visible.isEmpty() ? "No players match this view. Clear filters or choose another enemy." : "Select a player for hit details. Right-click a player and choose Inspect for their captured build.")+"\n"+CombatMeterData.WINDOW_DEFINITION+"\nRecorded damage share = player damage / all recorded damage on selected enemies; player filters do not change the denominator. Legacy uses enemy max HP instead.\n"+CombatMeterData.POPULATION); return; }
         CombatMeterData.Row row = visible.get(table.convertRowIndexToModel(index));
         boolean incoming = metric.getSelectedIndex() >= 3;
         StringBuilder text = new StringBuilder(String.valueOf(row.player.name())).append(" · ").append(row.className()).append("\n");
         text.append("Damage: ").append(number(row.damage)).append(" · Hits: ").append(number(row.hits))
             .append(" · Max hit: ").append(number(row.biggest)).append("\n");
+        text.append("Recorded damage share: ").append(number(row.damage)).append(" / ").append(number(snapshot.total)).append(" = ")
+            .append(snapshot.share(row)==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatPercentage(snapshot.share(row),1)).append("; denominator includes hidden players, not enemy max HP. Unattributed damage included: ").append(number(snapshot.unattributed)).append(".\n")
+            .append("DPS: ").append(number(row.damage)).append(" / ").append(DisplayFormat.formatNumber(snapshot.seconds,3)).append(" seconds; ").append(CombatMeterData.WINDOW_DEFINITION).append('\n')
+            .append(CombatMeterData.POPULATION).append('\n');
         if (row.incomingAvailable) text.append("Taken (recorded/estimated): ").append(number(row.taken))
             .append(" · Incoming events: ").append(number(row.incomingHits)).append("\n");
         if (row.incomingAvailable && !wholeEncounter) text.append("Full dungeon taken: ").append(number(row.totalTaken))
@@ -285,7 +287,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
                 String source = incoming ? (hit.owner == null ? "AoE / ground / unknown" : String.valueOf(hit.owner.name())) :
                     (hit.projectile == null || hit.projectile.getContainerType() <= 0 ? "Unknown item / generic" : "Item #" + hit.projectile.getContainerType());
                 text.append(String.format(Locale.ROOT, "%7ss  %10s    %s%n",
-                    DisplayFormat.formatDurationSeconds(hit.time - snapshot.first, 2), number(hit.damage), source));
+                    snapshot.first==Long.MAX_VALUE?DisplayFormat.UNAVAILABLE:DisplayFormat.formatDurationSeconds(hit.time - snapshot.first, 2), number(hit.damage), source));
             }
         }
         int caret = details.getCaretPosition(); details.setText(text.toString()); details.setCaretPosition(Math.min(caret, details.getDocument().getLength()));
@@ -303,7 +305,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     private static String number(long value) { return DisplayFormat.formatInteger(value); }
     private final class MeterModel extends AbstractTableModel {
-        private final String[] names = {"Player / meter", "Class", "Damage", "DPS", "Share %", "Hits dealt", "Avg hit", "Max hit", "Taken (est.)", "Hits taken"};
+        private final String[] names = {"Player / meter", "Class", "Damage", "DPS", "Recorded share %", "Hits dealt", "Avg hit", "Max hit", "Taken (est.)", "Hits taken"};
         public int getRowCount() { return visible.size(); }
         public int getColumnCount() { return names.length; }
         public String getColumnName(int c) { return names[c]; }
@@ -312,7 +314,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             CombatMeterData.Row row = visible.get(r);
             switch (c) {
                 case 0: return row.player.name(); case 1: return row.className(); case 2: return row.damage;
-                case 3: return snapshot.dps(row); case 4: return snapshot.total == 0 ? 0.0 : row.damage * 100.0 / snapshot.total;
+                case 3: return snapshot.dps(row); case 4: return snapshot.share(row);
                 case 5: return row.hits; case 6: return row.hits == 0 ? null : (double)row.damage / row.hits;
                 case 7: return row.biggest; case 8: return row.incomingAvailable ? row.taken : null;
                 default: return row.incomingAvailable ? row.incomingHits : null;

@@ -2,21 +2,11 @@ package tomato.gui.maingui;
 
 import tomato.backend.data.TomatoData;
 import tomato.realmshark.Sound;
+import tomato.realmshark.AlertRules;
 
-public class ItemPingGUI extends CustomListGUI {
+public class ItemPingGUI extends AlertRuleEditor {
 
     public ItemPingGUI(TomatoData data) {
-        super(data, "itemPings", "Item Ping Customization", data.getItemPings(), "Item ID or Name");
-    }
-
-    public void open() {
-        Sound.custom.play();
-        super.open();
-    }
-
-    @Override
-    protected boolean validateEntry(String entry) {
-        // no validation needed for item names/IDs
-        return true;
+        super(AlertRules.application(), AlertRules.Domain.ITEM, data.getItemPings(), "Item alert rules", () -> Sound.custom.preview(null));
     }
 }

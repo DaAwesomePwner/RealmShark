@@ -51,8 +51,8 @@ public class SecurityFilter {
     public ParsedPlayerObject parsePlayer(Player player) {
         ArrayList<String> missing = new ArrayList<>();
         for (int i = 0; i < this.statMaxed.length; i++) {
-            if (this.statMaxed[i] && player.statMissing()[i] > 0) {
-                missing.add("Stats not maxed");
+            if (this.statMaxed[i] && player.statMissing()[i] != 0) {
+                missing.add(player.statMissing()[i] < 0 ? "Required stat not captured" : "Stats not maxed");
                 break;
             }
         }

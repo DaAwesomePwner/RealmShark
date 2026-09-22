@@ -20,15 +20,15 @@ public class DungeonStats extends JPanel {
     private List<Snapshot> snapshots = Collections.emptyList();
     private final JTextField search = StatsUi.search("dungeon-search", "Search dungeons", 22);
     private final JTextField detailSearch = StatsUi.search("dungeon-detail-search", "Search enemies or items", 20);
-    private final JComboBox<String> activity = new JComboBox<>(new String[]{"All activity", "With loot", "With recorded visits"});
+    private final JComboBox<String> activity = new JComboBox<>(new String[]{"All activity", "With loot", "With activity-recorded exits"});
     private final JComboBox<String> enemy = new JComboBox<>();
     private final Map<String, Integer> enemyIds = new LinkedHashMap<>();
     private final JLabel[] metrics = new JLabel[4];
     private final JLabel detailTitle = new JLabel("Select a dungeon to explore its enemies and loot");
     private final JLabel status = new JLabel("No dungeon history yet. Start capture and change instance.");
     private final DefaultTableModel dungeons = StatsUi.model(
-        new String[]{"Dungeon", "Recorded visits", "Time", "Avg / visit", "Hit events", "Items"},
-        String.class, Integer.class, Long.class, Long.class, Long.class, Long.class);
+        new String[]{"Dungeon", "Activity-recorded exits", "Finalized time", "Avg / exit", "Hit events", "Items", "Ongoing contribution"},
+        String.class, Integer.class, Long.class, Long.class, Long.class, Long.class, String.class);
     private final DefaultTableModel enemies = StatsUi.model(new String[]{"Icon", "Enemy", "Hit events", "Items"},
         Icon.class, String.class, Integer.class, Long.class);
     private final DefaultTableModel items = StatsUi.model(new String[]{"Icon", "Item", "Count", "Dropper"},
@@ -51,7 +51,7 @@ public class DungeonStats extends JPanel {
         activity.getAccessibleContext().setAccessibleName("Dungeon activity filter");
         JButton reset = new JButton("Reset filters"); filters.add(reset);
         add(StatsUi.stack(StatsUi.heading(currentSession ? "Current session dungeons" : "Dungeon history", "Select a row for recorded enemy and item details in this scope."),
-            StatsUi.metrics(metrics, "Dungeons shown", "Recorded visits", "Recorded time", "Observed items"), filters), BorderLayout.NORTH);
+            StatsUi.metrics(metrics, "Dungeons shown", "Activity-recorded exits", "Finalized time", "Observed items"), filters), BorderLayout.NORTH);
         StatsUi.durationColumn(dungeonTable, 2); StatsUi.durationColumn(dungeonTable, 3);
         StatsUi.countColumns(dungeonTable, 1, 4, 5);
         StatsUi.countColumns(enemyTable, 2, 3); StatsUi.countColumns(itemTable, 2);
@@ -77,7 +77,7 @@ public class DungeonStats extends JPanel {
         });
         JPanel content = new JPanel(new BorderLayout(0, 6));
         content.add(detailToolbar, BorderLayout.NORTH); content.add(tabs, BorderLayout.CENTER); add(content, BorderLayout.CENTER);
-        JTextArea note = StatsUi.note("Select a dungeon, then open Enemies or Loot by source. Hit events are not kills. Items are observed drops. Visits/time finalize on exit.");
+        JTextArea note = StatsUi.note("Hit events are not kills; items are observed drops. Exits/time finalize only for areas with tracked activity. Runs counts observed visits, including zero-activity and ongoing visits, so totals can differ. Ongoing hits/items are included here before exit time is finalized. Legacy counters have no date bounds.");
         note.setToolTipText("Maps with no tracked activity may be absent. Hit events do not confirm soulbound credit. Historical dates and drop rates are not recorded.");
         status.setFont(ContentStyle.metadata(ContentStyle.body()));
         add(StatsUi.stack(status, note), BorderLayout.SOUTH);
@@ -93,11 +93,11 @@ public class DungeonStats extends JPanel {
 
     void refreshData() {
         dirty = false;
-        if (source != null) snapshots = currentSession ? source.sessionSnapshot() : source.snapshot();
+        if (source != null) snapshots = Snapshot.canonicalize(currentSession ? source.sessionSnapshot() : source.snapshot());
         refreshRows();
     }
     static JComponent history(java.util.List<Snapshot> snapshots) {
-        DungeonStats panel = new DungeonStats(false, false);panel.snapshots=snapshots;panel.refreshRows();return panel;
+        DungeonStats panel = new DungeonStats(false, false);panel.snapshots=Snapshot.canonicalize(snapshots);panel.refreshRows();return panel;
     }
 
     private String selectedName() {
@@ -116,7 +116,7 @@ public class DungeonStats extends JPanel {
             if (!StatsUi.matches(row.name, search.getText())) continue;
             if (activity.getSelectedIndex() == 1 && row.itemCount() == 0) continue;
             if (activity.getSelectedIndex() == 2 && row.visits == 0) continue;
-            dungeons.addRow(new Object[]{row.name, row.visits, row.time, row.visits == 0 ? null : row.time / row.visits, row.hitCount(), row.itemCount()});
+            dungeons.addRow(new Object[]{row.name, row.visits, row.time, row.visits == 0 ? null : row.time / row.visits, row.hitCount(), row.itemCount(),row.ongoingActivity==null?"Not captured":row.ongoingActivity?"Included; time not finalized":"None at snapshot"});
             visits += row.visits; time += row.time; loot += row.itemCount();
         }
         metrics[0].setText(DisplayFormat.formatInteger(dungeons.getRowCount())); metrics[1].setText(DisplayFormat.formatInteger(visits));
@@ -125,7 +125,7 @@ public class DungeonStats extends JPanel {
         for (int r = 0; r < dungeonTable.getRowCount(); r++) if (Objects.equals(selection, dungeonTable.getValueAt(r, 0))) choose = r;
         if (choose >= 0) dungeonTable.setRowSelectionInterval(choose, choose);
         rebuilding = false; selectDungeon();
-        status.setText(snapshots.isEmpty() ? "No dungeon history yet. Start capture and change instance."
+        status.setText(snapshots.isEmpty() ? "No activity counters in this scope; observed visits are available in Runs."
             : DisplayFormat.formatInteger(dungeons.getRowCount()) + " of " + DisplayFormat.formatInteger(snapshots.size()) + " dungeons shown · Click column headings to sort");
     }
 

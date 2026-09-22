@@ -13,10 +13,16 @@ public final class InspectSnapshot {
     private final int id, objectType;
     private final int[] baseStats;
     private final StatData[] stats;
-    private final long observedAt = System.currentTimeMillis();
+    private final long observedAt;
     private final String className;
 
     public InspectSnapshot(Entity source) {
+        this(source, System.currentTimeMillis());
+    }
+
+    /** Producer snapshot/change time; callers detaching old entities must not treat this as their capture time. */
+    public InspectSnapshot(Entity source, long recordedAt) {
+        observedAt = Math.max(0, recordedAt);
         id = source.id;
         objectType = source.objectType;
         className = tomato.realmshark.enums.CharacterClass.getName(objectType);

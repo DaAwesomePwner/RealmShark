@@ -7,7 +7,8 @@ import java.io.*;
 /**
  * Class extracted from UnityPy https://github.com/K0lb3/UnityPy
  */
-public class SerializedFile {
+public class SerializedFile implements Closeable {
+    private final DataReader reader;
     public long version;
     public long data_offset;
 
@@ -30,8 +31,13 @@ public class SerializedFile {
         this.version = header.version;
         this.data_offset = header.data_offset;
 
-        DataReader reader = DataReader.getReader(f, header.bigEndian);
+        reader = DataReader.getReader(f, header.bigEndian);
+        boolean parsed = false;
+        try { read(reader); parsed = true; }
+        finally { if (!parsed) reader.close(); }
+    }
 
+    private void read(DataReader reader) throws IOException {
         for (int i = 0; i < 12; i++) {
             reader.readInt();
         }
@@ -126,6 +132,8 @@ public class SerializedFile {
 //        # if environment is not None:
 //        #    environment.container = {**environment.container, **self.container}
     }
+
+    @Override public void close() throws IOException { reader.close(); }
 
     public class ScriptTypes {
         int local_serialized_file_index;

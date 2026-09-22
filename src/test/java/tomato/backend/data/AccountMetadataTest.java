@@ -200,7 +200,7 @@ public class AccountMetadataTest {
             requested.countDown(); await(release); return roster("A",7,25);
         });
         AtomicReference<CharacterPetsGUI> petView = new AtomicReference<>();
-        SwingUtilities.invokeAndWait(() -> petView.set(new CharacterPetsGUI(null)));
+        SwingUtilities.invokeAndWait(() -> petView.set(new CharacterPetsGUI(data)));
         TomatoPacketCapture capture = new TomatoPacketCapture(data);
         try {
             connect(capture,"token-A","Pet Yard");
@@ -217,13 +217,11 @@ public class AccountMetadataTest {
             assertEquals(500,data.charMap.get(7).fame); // The packet observation wins over HTTP's 25.
             assertEquals(CharacterJournal.accountKey("A"),data.characterJournal().characters().get(0).account);
             assertEquals(15,RealmCharacter.exalts.get(782)[7]);
-            java.lang.reflect.Field pets = CharacterPetsGUI.class.getDeclaredField("pets"); pets.setAccessible(true);
             SwingUtilities.invokeAndWait(() -> {
-                try {
-                    Map<?,?> collected = (Map<?,?>)pets.get(petView.get());
-                    assertEquals(1,collected.size());
-                    assertEquals(70,((Stat)collected.get(42)).get(StatType.PET_MAX_ABILITY_POWER_STAT).statValue);
-                } catch (IllegalAccessException e) { throw new AssertionError(e); }
+                List<ProgressionData.Pet> collected = data.progression().snapshot().pets;
+                assertEquals(1, collected.size());
+                assertEquals(Integer.valueOf(42), collected.get(0).value(StatType.PET_INSTANCE_ID_STAT));
+                assertEquals(Integer.valueOf(70), collected.get(0).value(StatType.PET_MAX_ABILITY_POWER_STAT));
             });
         } finally { release.countDown(); data.awaitMetadataIdle(2000); SwingUtilities.invokeAndWait(CharacterPetsGUI::clearPets); }
     }

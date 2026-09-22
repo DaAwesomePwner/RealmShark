@@ -5,9 +5,10 @@ The Key-pops workspace tracks observed key, rune, vial and inc notifications dur
 - **Events** shows sortable timestamps, players, types and dungeons/items, newest first.
 - **By player** ranks contributors with total pops, key/rune/vial/inc counts, share of filtered pops and the last pop time.
 - **By dungeon / item** shows pop counts, distinct players, shares and last activity.
-- Search is literal, case insensitive and matches every space-separated word. Combine it with event type, dungeon/item and time range (all retained, 15 minutes, one hour or today in local time). All cards and tables use the same filters. Double-click a summary row to filter events.
+- Search is literal, case insensitive and matches every space-separated word. Combine it with event type, dungeon/item and time range (all retained, 15 minutes, one hour or today in local time). All cards and tables use the same filters. Double-click a summary row, or select it and press Enter, to filter events.
+- A **By player** drill-down adds a removable **Player equals … · Clear** chip. It matches the exact contributor name, ignoring case: Ann does not include Anna. General search stays independent and combines with the chip. Events, summaries, cards and CSV use the same filtered events. Activate the chip to remove only that name filter, or use **Reset filters** to clear it together with search, type, dungeon/item and time filters. In saved views, these dashboard filters narrow the loaded page.
 - **Export CSV** saves the filtered event history in UTF-8, with UTC timestamps and spreadsheet-safe text. The view displays local time.
-- **Notifications** opens the Key pops section of the shared Sound & Notifications module, with dungeon search, select/unselect shown, and missing-completion alerts. Choices save immediately. See [Sound & Notifications](NOTIFICATIONS.md).
+- **Notifications** opens the Key pops section of the shared Sound & Notifications module, with dungeon search, **Selected only**, **Select shown / Clear shown**, and missing-completion alerts. Choices save immediately; counts show selections inside and outside the current filter. See [Sound & Notifications](NOTIFICATIONS.md).
 - **Log to file** retains the existing `keypops.log` preference and records incoming events independently of view filters.
 - **Clear history** resets the entire in-memory history and its statistics after confirmation, preserving the log file.
 

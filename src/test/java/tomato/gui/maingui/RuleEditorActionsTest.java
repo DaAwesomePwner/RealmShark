@@ -66,7 +66,7 @@ public class RuleEditorActionsTest {
                 assertEquals("Toggle enchant group A", toggle.getAccessibleContext().getAccessibleName());
                 pressSpace(toggle);
                 assertSame(toggle, button(panel, "▼ A"));
-                JCheckBox checkBox = find(panel, JCheckBox.class);
+                JCheckBox checkBox = SocialRuleEditorTest.named(panel, "enchant-1", JCheckBox.class);
                 checkBox.setSelected(true);
                 pressSpace(toggle);
                 assertSame(toggle, button(panel, "▶ A"));
@@ -76,7 +76,7 @@ public class RuleEditorActionsTest {
                 search.setText("");
                 assertSame(toggle, button(panel, "▶ A"));
                 assertEquals(Arrays.asList("Agile(1)"), panel.getSelectedItems());
-                assertSame(checkBox, find(panel, JCheckBox.class));
+                assertSame(checkBox, SocialRuleEditorTest.named(panel, "enchant-1", JCheckBox.class));
             } finally {
                 ParseEnchants.ENCHANTS.clear();
                 ParseEnchants.ENCHANTS.putAll(old);
@@ -100,24 +100,24 @@ public class RuleEditorActionsTest {
                     return selections.size() == 1 ? first : selections.size() == 2 ? second : retry;
                 }));
                 button(panel.get(), "Save").doClick();
-                assertEquals("Saving 1 items…", saveStatus(panel.get()).getText());
-                button(panel.get(), "Clear All").doClick();
+                assertEquals("Applied now; saving to disk…", saveStatus(panel.get()).getText());
+                button(panel.get(), "Clear all catalog").doClick();
                 button(panel.get(), "Save").doClick();
-                assertEquals("Saving 0 items…", saveStatus(panel.get()).getText());
+                assertEquals("Applied now; saving to disk…", saveStatus(panel.get()).getText());
                 assertEquals(Arrays.asList("1", ""), selections);
             });
             // Finishing the old write must not turn the newer request into a false Saved label.
             first.complete(PreferencesStore.SaveResult.saved(1));
-            SwingUtilities.invokeAndWait(() -> assertEquals("Saving 0 items…", saveStatus(panel.get()).getText()));
+            SwingUtilities.invokeAndWait(() -> assertEquals("Applied now; saving to disk…", saveStatus(panel.get()).getText()));
             second.complete(PreferencesStore.SaveResult.failed(2, new IOException("move denied")));
             SwingUtilities.invokeAndWait(() -> {
-                assertEquals("Save failed", saveStatus(panel.get()).getText());
+                assertTrue(saveStatus(panel.get()).getText().startsWith("Save failed"));
                 assertTrue(saveStatus(panel.get()).getToolTipText().contains("move denied"));
-                button(panel.get(), "Save").doClick();
-                assertEquals("Saving 0 items…", saveStatus(panel.get()).getText());
+                button(panel.get(), "Retry save").doClick();
+                assertEquals("Applied now; saving to disk…", saveStatus(panel.get()).getText());
             });
             retry.complete(PreferencesStore.SaveResult.saved(3));
-            SwingUtilities.invokeAndWait(() -> assertEquals("Saved 0 items.", saveStatus(panel.get()).getText()));
+            SwingUtilities.invokeAndWait(() -> assertEquals("Submitted changes saved.", saveStatus(panel.get()).getText()));
         } finally {
             SwingUtilities.invokeAndWait(() -> {
                 ParseEnchants.ENCHANTS.clear(); ParseEnchants.ENCHANTS.putAll(old);
@@ -125,10 +125,10 @@ public class RuleEditorActionsTest {
         }
     }
 
-    private static JLabel saveStatus(Container root) {
+    private static JTextArea saveStatus(Container root) {
         for (Component c : root.getComponents()) {
-            if (c instanceof JLabel && "enchant-save-status".equals(c.getName())) return (JLabel) c;
-            if (c instanceof Container) { JLabel found = saveStatus((Container) c); if (found != null) return found; }
+            if (c instanceof JTextArea && "enchant-save-status".equals(c.getName())) return (JTextArea) c;
+            if (c instanceof Container) { JTextArea found = saveStatus((Container) c); if (found != null) return found; }
         }
         return null;
     }

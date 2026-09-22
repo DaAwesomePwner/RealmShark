@@ -7,6 +7,7 @@ import tomato.realmshark.Sound;
 import tomato.realmshark.RealmCharacterStats;
 import tomato.realmshark.enums.CharacterStatistics;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.maingui.DraftSaveStatus;
 import util.PropertiesManager;
 
 import javax.swing.*;
@@ -213,6 +214,8 @@ public class KeypopGUI extends JPanel {
         });
 
         JButton applyButton = new JButton("Apply");
+        DraftSaveStatus saving = new DraftSaveStatus(applyButton, "keypop-save-status");
+        java.util.List<Set<String>> expected = new java.util.ArrayList<>(); expected.add(getSelectedDungeons());
         applyButton.addActionListener(e -> {
             Set<String> next = new TreeSet<>();
             if (missingDungeons.isSelected()) {
@@ -223,10 +226,10 @@ public class KeypopGUI extends JPanel {
                     next.add(checkbox.getText());
                 }
             }
-            selectedDungeons = next;
-            saveDungeonChoices();
-            Sound.keypop.preview(null);
-            configureDialog.dispose();
+            saving.submit(() -> {
+                if (!getSelectedDungeons().equals(expected.get(0))) throw new IllegalStateException("Dungeon choices changed elsewhere. Reopen this editor; your draft remains here.");
+                setSelectedDungeons(next); expected.set(0, getSelectedDungeons()); return PropertiesManager.flush();
+            });
         });
 
         JPanel buttonPanel = ContentStyle.controls();
@@ -234,6 +237,9 @@ public class KeypopGUI extends JPanel {
         buttonPanel.add(unselectAllButton);
         JButton cancel = new JButton("Cancel"); cancel.addActionListener(e -> configureDialog.dispose()); buttonPanel.add(cancel);
         buttonPanel.add(applyButton);
+        JButton test = new JButton("Test sound"); test.addActionListener(e -> Sound.keypop.preview(null)); buttonPanel.add(test);
+        for (JCheckBox box : checkboxes) box.addItemListener(e -> saving.edited());
+        missingDungeons.addItemListener(e -> saving.edited());
 
         JPanel checkboxPanel = new JPanel(new GridLayout(0, 2, 8, 5));
         for (JCheckBox checkbox : checkboxes) {
@@ -253,7 +259,8 @@ public class KeypopGUI extends JPanel {
             for (JCheckBox checkbox : checkboxes) if (checkbox.getText().toLowerCase(java.util.Locale.ROOT).contains(query)) checkboxPanel.add(checkbox);
             checkboxPanel.revalidate(); checkboxPanel.repaint();
         });
-        configureDialog.add(buttonPanel, BorderLayout.SOUTH);
+        JPanel footer = new JPanel(new BorderLayout()); footer.add(saving.status); footer.add(buttonPanel, BorderLayout.SOUTH);
+        configureDialog.add(footer, BorderLayout.SOUTH);
         configureDialog.setSize(700, 500);
         configureDialog.setLocationRelativeTo(dashboard);
         return configureDialog;

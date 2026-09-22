@@ -239,7 +239,10 @@ public class FameFormattingTest {
                         assertTrue(totals.startsWith(german ? "2.469 drops shown" : "2,469 drops shown"));
                         assertTrue(totals.contains(german ? "Unknown: 1.234" : "Unknown: 1,234"));
                         assertTrue(totals.contains(german ? "Unenchanted (0 slots): 1.235" : "Unenchanted (0 slots): 1,235"));
-                        assertTrue(field(panel, "scopeNote", JTextArea.class).getText().contains(german ? "retains 1.000 bags" : "retains 1,000 bags"));
+                        String scope = field(panel, "scopeNote", JTextArea.class).getText();
+                        assertTrue(scope.contains(german ? "globally newest 1.000 bags by timestamp" : "globally newest 1,000 bags by timestamp"));
+                        assertTrue(scope.contains("ties: session and record order"));
+                        assertTrue(scope.contains("item summaries retain the full app session"));
                         items.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.ASCENDING)));
                         assertEquals(1, items.getValueAt(0, 2)); assertEquals(1234, items.getValueAt(items.getRowCount() - 1, 2));
                         views.setSelectedIndex(5);

@@ -129,7 +129,7 @@ public class ActivityModulesTest {
             MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
             SwingUtilities.invokeAndWait(()->{panel[0]=new ActivityPanel(log,ActivityPanel.Mode.RUNS);panel[0].refresh();});
             await(()->find(panel[0],JTable.class,null).getRowCount()==1);
-            SwingUtilities.invokeAndWait(()->{JCheckBox freeze=checkbox(panel[0],"Freeze");freeze.setSelected(true);freeze.setSelected(true);});
+            SwingUtilities.invokeAndWait(()->{JCheckBox freeze=checkbox(panel[0],"Pause this view");freeze.setSelected(true);freeze.setSelected(true);});
             log.clear();map.name="Ocean Trench";log.observe(PacketType.MAPINFO.getIndex(),30,map,"decoded",0);
             SwingUtilities.invokeAndWait(()->{
                 panel[0].refresh();assertEquals("Ice Citadel",find(panel[0],JTable.class,null).getValueAt(0,1));
@@ -138,7 +138,7 @@ public class ActivityModulesTest {
             Path file=export.get().get(5,java.util.concurrent.TimeUnit.SECONDS);
             ActivityJournal.State report=new com.google.gson.Gson().fromJson(new String(Files.readAllBytes(file),java.nio.charset.StandardCharsets.UTF_8),ActivityJournal.State.class);
             assertEquals(1,report.visits.size());assertEquals("Ice Citadel",report.visits.get(0).map);
-            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(false));
+            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Pause this view").setSelected(false));
             await(()->"Ocean Trench".equals(find(panel[0],JTable.class,null).getValueAt(0,1)));
         } finally {log.close();}
     }
@@ -148,13 +148,13 @@ public class ActivityModulesTest {
             java.util.List<ActivityJournal.Visit> original=log.activityHistory().visits;
             SwingUtilities.invokeAndWait(()->{panel[0]=new ActivityPanel(log,ActivityPanel.Mode.COMBAT);panel[0].refresh();});
             await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==2);
-            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(true));
+            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Pause this view").setSelected(true));
             log.clear();
             SwingUtilities.invokeAndWait(()->panel[0].selectVisit(original.get(0).id));
             await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ice Citadel"));
             SwingUtilities.invokeAndWait(()->assertEquals(2,find(panel[0],JTable.class,null).getRowCount()));
             assertTrue(log.activityHistory().visits.isEmpty());
-            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(false));
+            SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Pause this view").setSelected(false));
             await(()->find(panel[0],JComboBox.class,"activity-visit").getItemCount()==0);
         } finally {log.close();}
     }
@@ -195,13 +195,13 @@ public class ActivityModulesTest {
             SwingUtilities.invokeAndWait(()->panel[0].selectVisit(a));
             await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ice Citadel"));
             SwingUtilities.invokeAndWait(()->{
-                checkbox(panel[0],"Freeze").setSelected(true);
+                checkbox(panel[0],"Pause this view").setSelected(true);
                 panel[0].selectVisit(b);
             });
             await(()->find(panel[0],JTextArea.class,"activity-detail").getText().startsWith("Ocean Trench"));
             SwingUtilities.invokeAndWait(()->assertTrue(find(panel[0],CombatTimelineChart.class,null).getInspectionSummary().startsWith("No recorded resource samples")));
             synchronized(log){
-                SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Freeze").setSelected(false));
+                SwingUtilities.invokeAndWait(()->checkbox(panel[0],"Pause this view").setSelected(false));
                 // Hold the resumed B read in the observer, then supersede it with A. No capture
                 // mutation may rescue an incorrectly reused original-A comparison token.
                 await(()->Thread.getAllStackTraces().entrySet().stream().anyMatch(thread->thread.getKey().getState()==Thread.State.BLOCKED

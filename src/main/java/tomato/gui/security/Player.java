@@ -5,7 +5,6 @@ import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.realmshark.enums.CharacterClass;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 
 public class Player {
@@ -24,10 +23,10 @@ public class Player {
     public boolean updateInv() {
         int[] newInv = new int[4];
 
-        newInv[0] = playerEntity.stat.get(StatType.INVENTORY_0_STAT).statValue;
-        newInv[1] = playerEntity.stat.get(StatType.INVENTORY_1_STAT).statValue;
-        newInv[2] = playerEntity.stat.get(StatType.INVENTORY_2_STAT).statValue;
-        newInv[3] = playerEntity.stat.get(StatType.INVENTORY_3_STAT).statValue;
+        for (int i = 0; i < newInv.length; i++) {
+            packets.data.StatData value = playerEntity.stat.get(StatType.INVENTORY_0_STAT.get() + i);
+            newInv[i] = value == null ? -1 : value.statValue;
+        }
 
         boolean didInvChange = !Arrays.equals(inv, newInv);
         this.inv = newInv;
@@ -40,7 +39,7 @@ public class Player {
      */
     public int[] statMissing() {
         Entity player = this.playerEntity;
-        if (!CharacterClass.hasStats(player.objectType)) return new int[]{-1,-1,-1,-1,-1,-1,-1,-1};
+        if (!CharacterClass.hasStats(player.objectType) || player.baseStats == null || player.baseStats.length != 8) return new int[]{-1,-1,-1,-1,-1,-1,-1,-1};
         int[] stats = new int[8];
         stats[0] = (int) Math.ceil((CharacterClass.getLife(player.objectType) - player.baseStats[0]) / 5.0);
         stats[1] = (int) Math.ceil((CharacterClass.getMana(player.objectType) - player.baseStats[1]) / 5.0);
@@ -50,7 +49,7 @@ public class Player {
         stats[5] = CharacterClass.getDex(player.objectType) - player.baseStats[5];
         stats[6] = CharacterClass.getVit(player.objectType) - player.baseStats[6];
         stats[7] = CharacterClass.getWis(player.objectType) - player.baseStats[7];
-
+        for (int i = 0; i < stats.length; i++) stats[i] = baseStat(i) < 0 ? -1 : Math.max(0, stats[i]);
         return stats;
     }
 
@@ -59,7 +58,7 @@ public class Player {
      */
     public int statsMaxed() {
         Entity player = this.playerEntity;
-        if (!CharacterClass.hasStats(player.objectType)) return -1;
+        if (!CharacterClass.hasStats(player.objectType) || capturedStatCount() != 8) return -1;
         int outOf8 = 0;
         if (CharacterClass.getLife(player.objectType) == player.baseStats[0]) outOf8++;
         if (CharacterClass.getMana(player.objectType) == player.baseStats[1]) outOf8++;
@@ -74,12 +73,13 @@ public class Player {
     }
 
     public String statsDescription() {
-        StringBuilder text = new StringBuilder("Base stats · ").append(statsMaxed() < 0 ? "Max stats unavailable" : statsMaxed() + " / 8 maxed");
+        StringBuilder text = new StringBuilder("Base stats · ").append(statsMaxed() < 0 ? "Maxed total unavailable" : statsMaxed() + " / 8 maxed")
+            .append(" · ").append(capturedStatCount()).append(" / 8 captured");
         int[] missing = statMissing();
         for (int i = 0; i < statNames.length; i++) {
             text.append('\n').append(statNames[i]).append(": ");
-            if (playerEntity.baseStats[i] < 0) text.append("Not captured");
-            else { text.append(playerEntity.baseStats[i]);if(missing[i]>=0)text.append(" (potions to max: ").append(missing[i]).append(')'); }
+            if (baseStat(i) < 0) text.append("Not captured");
+            else { text.append(baseStat(i));if(missing[i]>=0)text.append(" (potions to max: ").append(missing[i]).append(')'); }
         }
         return text.toString();
     }
@@ -89,50 +89,58 @@ public class Player {
      */
     public int getSkinId() {
         Entity player = this.playerEntity;
-        int skinId = player.stat.get(StatType.SKIN_ID).statValue;
+        int skinId = player.stat.get(StatType.SKIN_ID) == null ? 0 : player.stat.get(StatType.SKIN_ID).statValue;
         if (skinId == 0) skinId = player.objectType;
 
         return skinId;
     }
 
+    private int baseStat(int index) {
+        return playerEntity.baseStats == null || index >= playerEntity.baseStats.length ? -1 : playerEntity.baseStats[index];
+    }
+
+    public int capturedStatCount() {
+        int count = 0;
+        for (int i = 0; i < 8; i++) if (baseStat(i) >= 0) count++;
+        return count;
+    }
+
+    public static Boolean seasonal(Entity entity) {
+        packets.data.StatData value = entity.stat.get(StatType.SEASONAL);
+        return value == null || (value.statValue != 0 && value.statValue != 1) ? null : value.statValue == 1;
+    }
+
+    public static Boolean crucible(Entity entity) {
+        packets.data.StatData value = entity.stat.get(StatType.CRUCIBLE_STAT);
+        return value == null || value.stringStatValue == null ? null : !value.stringStatValue.isEmpty();
+    }
+
+    public static String modeDescription(Entity entity) {
+        Boolean seasonal = seasonal(entity), crucible = crucible(entity);
+        return (seasonal == null ? "Seasonal: Not captured" : seasonal ? "Seasonal" : "Non-seasonal")
+            + " · " + (crucible == null ? "Crucible: Not captured" : crucible ? "Crucible" : "Not Crucible");
+    }
+
     public String toString() {
-        int type = playerEntity.objectType;
-        String clazz = CharacterClass.getName(type);
-        int level = playerEntity.stat.get(StatType.LEVEL_STAT).statValue;
-        boolean seasonal = playerEntity.isSeasonal();
-        boolean crucible = playerEntity.isCrucible();
-        int stat = statsMaxed();
-        int[] missing = statMissing();
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("\t{\n");
-        sb.append("\t\t").append("\"name\":\"").append(playerEntity.name()).append("\",\n");
-        sb.append("\t\t").append("\"class\":\"").append(clazz).append("\",\n");
-        sb.append("\t\t").append("\"level\":").append(level).append(",\n");
-        sb.append("\t\t").append("\"guild\":\"").append(playerEntity.getStatGuild()).append("\",\n");
-        sb.append("\t\t").append("\"seasonal\":").append(seasonal ? "true" : "false").append(",\n");
-        sb.append("\t\t").append("\"crucible\":").append(crucible ? "true" : "false").append(",\n");
-
-        sb.append("\t\t").append("\"equipment\":{\n");
+        com.google.gson.JsonObject json = new com.google.gson.JsonObject(), equipment = new com.google.gson.JsonObject(), deficits = new com.google.gson.JsonObject();
+        json.addProperty("name", playerEntity.name());
+        json.addProperty("class", CharacterClass.getName(playerEntity.objectType));
+        packets.data.StatData level = playerEntity.stat.get(StatType.LEVEL_STAT);
+        json.addProperty("level", level == null ? null : level.statValue);
+        json.addProperty("guild", playerEntity.getStatGuild());
+        json.addProperty("seasonal", seasonal(playerEntity));
+        json.addProperty("crucible", crucible(playerEntity));
         for (int i = 0; i < 4; i++) {
-            sb.append("\t\t\t").append("\"").append(equipmentNames[i]).append("\":\"").append(IdToAsset.objectName(inv[i])).append("\",\n");
-            sb.append("\t\t\t").append("\"").append(equipmentNames[i]).append("id\":").append(inv[i]).append(i != 3 ? "," : "").append("\n");
+            boolean known = playerEntity.stat.get(StatType.INVENTORY_0_STAT.get() + i) != null;
+            equipment.addProperty(equipmentNames[i], known ? IdToAsset.objectName(inv[i]) : null);
+            equipment.addProperty(equipmentNames[i] + "id", known ? inv[i] : null);
         }
-        sb.append("\t\t").append("},\n");
-
-        sb.append("\t\t").append("\"maxstats\":").append(stat).append(",\n");
-        sb.append("\t\t").append("\"missingstats\":{\n");
-        ArrayList<String> l = new ArrayList<>();
-        for (int i = 0; i < missing.length; i++) {
-            if (missing[i] == 0) continue;
-            l.add(String.format("\t\t\t\"%s\":%d", statNames[i], missing[i]));
-        }
-        for (int i = 0; i < l.size(); i++) {
-            sb.append(l.get(i)).append(i < l.size() - 1 ? "," : "").append("\n");
-        }
-        sb.append("\t\t").append("}\n");
-
-        sb.append("\t}");
-        return sb.toString();
+        json.add("equipment", equipment);
+        json.addProperty("maxstats", statsMaxed() < 0 ? null : statsMaxed());
+        int[] missing = statMissing();
+        for (int i = 0; i < missing.length; i++) if (missing[i] != 0)
+            deficits.addProperty(statNames[i], missing[i] < 0 ? null : missing[i]);
+        json.add("missingstats", deficits);
+        return new com.google.gson.GsonBuilder().serializeNulls().setPrettyPrinting().create().toJson(json);
     }
 }

@@ -27,9 +27,10 @@ public class FileHeader {
     public int type;
 
     public FileHeader(File f) throws IOException {
-        FileInputStream fin = new FileInputStream(f);
-        DataInputStream reader = new DataInputStream(fin);
+        try (DataInputStream reader = new DataInputStream(new FileInputStream(f))) { read(f, reader); }
+    }
 
+    private void read(File f, DataInputStream reader) throws IOException {
         size = f.length();
         metadata_size = Integer.toUnsignedLong(reader.readInt());
         file_size = Integer.toUnsignedLong(reader.readInt());

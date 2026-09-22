@@ -13,16 +13,24 @@ import util.StringXML;
  */
 public class Equip {
 
-    private static final String PETS_XML_PATH = "assets/xml/equip.xml";
-    public static HashMap<Integer, Weapon> weapons = new HashMap<>();
+    public static volatile HashMap<Integer, Weapon> weapons = new HashMap<>();
 
     static {
         load();
     }
 
     public static void load() {
-        try {
-            FileInputStream file = new FileInputStream(PETS_XML_PATH);
+        reload(assets.AssetCache.path("xml/equip.xml"));
+    }
+
+    public static boolean reload(java.nio.file.Path path) {
+        try { prepareReload(path).run(); return true; }
+        catch (IOException failure) { return false; }
+    }
+
+    public static Runnable prepareReload(java.nio.file.Path path) throws IOException {
+        HashMap<Integer, Weapon> next = new HashMap<>();
+        try (FileInputStream file = new FileInputStream(path.toFile())) {
             String result = new BufferedReader(new InputStreamReader(file))
                 .lines()
                 .collect(Collectors.joining("\n"));
@@ -122,11 +130,13 @@ public class Equip {
                         }
                     }
                     w.fix();
-                    weapons.put(w.id, w);
+                    next.put(w.id, w);
                 }
             }
-        } catch (IOException | ParserConfigurationException | SAXException e) {
-            throw new RuntimeException(e);
+            if (next.isEmpty()) throw new IOException("No equipment definitions.");
+            return () -> weapons = next;
+        } catch (IOException | ParserConfigurationException | SAXException | RuntimeException e) {
+            throw new IOException("Could not load weapon definitions.", e);
         }
     }
 

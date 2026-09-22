@@ -20,7 +20,7 @@ public class ImageBuffer {
     private static final SpriteFlatBuffer spriteFlatBuffer = new SpriteFlatBuffer();
     private static BufferedImage emptyImg;
 
-    private static String[] spriteSheets = {"assets/sprites/groundTiles.png", "assets/sprites/characters.png", "assets/sprites/characters_masks.png", "assets/sprites/mapObjects.png"};
+    private static String[] spriteSheets = {"groundTiles.png", "characters.png", "characters_masks.png", "mapObjects.png"};
     private static BufferedImage[] bigImages = new BufferedImage[4];
 
     private static BufferedImage emptyImage() {
@@ -36,7 +36,10 @@ public class ImageBuffer {
      * @return Sprite of based of the object type ID.
      * @throws IOException Thrown if the sprite atlas file is missing.
      */
-    public static BufferedImage getImage(int id) throws IOException {
+    public static BufferedImage getImage(int id) throws IOException { return getImage(id, null); }
+
+    /** The package-local observation point permits a deterministic paused-reader regression. */
+    static synchronized BufferedImage getImage(int id, Runnable afterCoordinates) throws IOException {
         if (id <= 0) return null;
 //        if (images.containsKey(id)) return images.get(id);
         String name = IdToAsset.getObjectTextureName(id, 0);
@@ -44,6 +47,7 @@ public class ImageBuffer {
         int index = IdToAsset.getObjectTextureIndex(id, 0);
         int[] spriteData = spriteFlatBuffer.getSpriteData(name, index);
         if (spriteData == null) return emptyImage();
+        if (afterCoordinates != null) afterCoordinates.run();
         BufferedImage sprite = getSprite(spriteData);
         images.put(id, sprite);
         return sprite;
@@ -55,7 +59,7 @@ public class ImageBuffer {
      * @param id Type ID of the tile.
      * @return Most common color of the tile.
      */
-    public static float[] getColor(int id) {
+    public static synchronized float[] getColor(int id) {
         if (id <= 0) return null;
         if (colors.containsKey(id)) return colors.get(id);
         if (!IdToAsset.tileIdExists(id)) return null;
@@ -76,7 +80,7 @@ public class ImageBuffer {
      */
     private static BufferedImage getSprite(int[] data) throws IOException { // data:{x, y, w, h, aId}
         if (data == null) return null;
-        if (bigImages[data[4] - 1] == null) bigImages[data[4] - 1] = ImageIO.read(new File(spriteSheets[data[4] - 1]));
+        if (bigImages[data[4] - 1] == null) bigImages[data[4] - 1] = ImageIO.read(AssetCache.path("sprites/" + spriteSheets[data[4] - 1]).toFile());
 
         return bigImages[data[4] - 1].getSubimage(data[0], data[1], data[2], data[3]);
     }
@@ -84,10 +88,22 @@ public class ImageBuffer {
     /**
      * Resets the assets after loading new ones.
      */
-    public static void clear() {
+    public static synchronized void clear() {
+        outlinedImages.clear();
         images.clear();
         colors.clear();
         bigImages = new BufferedImage[4];
+    }
+
+    /** A view may retain this item reference; its bitmap always comes from the current coherent cache. */
+    public static Icon liveOutlinedIcon(int id, int size) {
+        return new Icon() {
+            public int getIconWidth() { return size; }
+            public int getIconHeight() { return size; }
+            public void paintIcon(Component component, Graphics graphics, int x, int y) {
+                getOutlinedIcon(id, size).paintIcon(component, graphics, x, y);
+            }
+        };
     }
 
     /**
@@ -115,7 +131,7 @@ public class ImageBuffer {
      * @param size Size of the requested image
      * @return Outlined image with specific size
      */
-    public static ImageIcon getOutlinedIcon(int id, int size) {
+    public static synchronized ImageIcon getOutlinedIcon(int id, int size) {
         long l = ((long) id << 10) + size;
         if (outlinedImages.containsKey(l)) return outlinedImages.get(l);
 
@@ -125,7 +141,7 @@ public class ImageBuffer {
         } else {
             try {
                 img = ImageBuffer.getImage(id);
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 img = ImageBuffer.getEmptyImg();
             }
         }
@@ -167,7 +183,7 @@ public class ImageBuffer {
         return i;
     }
 
-    public static ImageIcon getOutlinedIconWithGlow(int id, int size, Color glowColor, int glowSize) {
+    public static synchronized ImageIcon getOutlinedIconWithGlow(int id, int size, Color glowColor, int glowSize) {
         // Check if we have a matching hash for the desired id, size, glowColor and glowSize
         long hashingNumber = (((long) id << 10) + size) ^ glowColor.getRGB() ^ glowSize;
         if (outlinedImages.containsKey(hashingNumber)) return outlinedImages.get(hashingNumber);

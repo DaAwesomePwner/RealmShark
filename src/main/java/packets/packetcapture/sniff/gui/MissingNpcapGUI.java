@@ -19,7 +19,7 @@ public class MissingNpcapGUI extends JFrame {
     private JLabel descript2 = new JLabel(description2);
     private JLabel descript3 = new JLabel(description3);
     private JLabel link = new JLabel(str);
-    private JButton close = new JButton("Close");
+    private JButton close = new JButton("Continue browsing history");
 
     public MissingNpcapGUI() throws HeadlessException {
         super();
@@ -50,7 +50,7 @@ public class MissingNpcapGUI extends JFrame {
             }
         });
 
-        close.addActionListener(e -> realmshark.branding.AppIdentity.exit(0));
+        close.addActionListener(e -> dispose());
         BoxLayout box = new BoxLayout(getContentPane(), BoxLayout.Y_AXIS);
 
         setLayout(box);
@@ -70,6 +70,12 @@ public class MissingNpcapGUI extends JFrame {
         panel3.setLayout(f2);
         panel3.add(descript3);
         panel3.add(link);
+        JButton open = new JButton("Open Npcap website");
+        open.addActionListener(e -> {
+            try { Desktop.getDesktop().browse(new URI(str)); }
+            catch (Exception failure) { JOptionPane.showMessageDialog(this, "Open https://npcap.com/ in your browser to install or repair Npcap."); }
+        });
+        panel3.add(open);
         Panel panel4 = new Panel();
         panel4.setLayout(new FlowLayout(FlowLayout.CENTER));
         panel4.add(close);
@@ -82,7 +88,9 @@ public class MissingNpcapGUI extends JFrame {
         pack();
         setResizable(false);
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        getRootPane().setDefaultButton(close);
+        getRootPane().registerKeyboardAction(e -> dispose(), KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
         setVisible(true);
     }
 }
