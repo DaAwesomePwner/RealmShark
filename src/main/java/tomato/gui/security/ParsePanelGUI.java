@@ -7,6 +7,8 @@ import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.InspectSnapshot;
 import tomato.backend.data.RosterDefinitions;
+import tomato.gui.history.ViewStateStore;
+import tomato.gui.roster.RosterViewState;
 import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.CharacterClass;
@@ -48,6 +50,10 @@ public class ParsePanelGUI extends JPanel {
     private final JComboBox<String> maxedFacet = new JComboBox<>(new String[]{"Any maxed count", "Known maxed range", "Unknown maxed count"});
     private final JSpinner minMaxed = new JSpinner(new SpinnerNumberModel(0, 0, 8, 1)), maxMaxed = new JSpinner(new SpinnerNumberModel(8, 0, 8, 1));
     private final JTextArea resultDetails = ContentStyle.wrappingText("Select a player to explain requirements."), rosterCount = ContentStyle.wrappingText("No captured players");
+    private RosterViewState viewState;
+    private final JPanel stateHost = new JPanel(new BorderLayout());
+    private boolean restoringState;
+    private JToggleButton explain;
 
     // Latest state only: arrivals/updates never enqueue one Swing task per packet.
     private final Object rosterLock = new Object();
@@ -73,6 +79,7 @@ public class ParsePanelGUI extends JPanel {
 
     public ParsePanelGUI() {
         this(true);
+        bindViewState(ViewStateStore.application());
     }
     ParsePanelGUI(boolean liveOwner) {
         this(liveOwner, RosterDefinitions::current);
@@ -225,9 +232,10 @@ public class ParsePanelGUI extends JPanel {
         buttons.add(actionsButton);
         JPanel footer = new JPanel(new BorderLayout(0, 4));
         rosterCount.setName("inspect-roster-count"); resultDetails.setName("inspect-requirement-reasons"); resultDetails.setFocusable(true); resultDetails.setVisible(false);
-        JToggleButton explain = new JToggleButton("Requirement details"); buttons.add(explain);
-        explain.addActionListener(e -> { resultDetails.setVisible(explain.isSelected()); page.revalidate(); });
-        footer.add(rosterCount, BorderLayout.NORTH); footer.add(resultDetails, BorderLayout.CENTER); footer.add(buttons, BorderLayout.SOUTH);
+        explain = new JToggleButton("Requirement details"); buttons.add(explain);
+        explain.addActionListener(e -> { resultDetails.setVisible(explain.isSelected()); page.revalidate(); rememberViewState(); });
+        JPanel bottom = new JPanel(new BorderLayout(0, 4)); bottom.add(buttons, BorderLayout.NORTH); bottom.add(stateHost, BorderLayout.SOUTH); stateHost.setVisible(false);
+        footer.add(rosterCount, BorderLayout.NORTH); footer.add(resultDetails, BorderLayout.CENTER); footer.add(bottom, BorderLayout.SOUTH);
         page.add(footer, BorderLayout.SOUTH);
         for (JComponent control : new JComponent[]{rosterSearch, classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed, reset, explain}) {
             JComponent focus = control instanceof JSpinner ? ((JSpinner.DefaultEditor)((JSpinner)control).getEditor()).getTextField() : control;
@@ -437,7 +445,7 @@ public class ParsePanelGUI extends JPanel {
     private void comboAction(ActionEvent e) {
         if (guiUpdateSuppression) return;
         selectedFilter = filters.get(String.valueOf(filterComboBox.getSelectedItem()));
-        if (liveOwner) { currentFilter = selectedFilter; PropertiesManager.setProperties("securityFilterName", selectedFilter == null ? "" : selectedFilter.name); }
+        if (liveOwner && historicalPlayers == null) { currentFilter = selectedFilter; PropertiesManager.setProperties("securityFilterName", selectedFilter == null ? "" : selectedFilter.name); }
         copyOnlyUnderReqCheckbox.setEnabled(selectedFilter != null);
         requirementsRevision++;
         requestRefresh();
@@ -460,6 +468,7 @@ public class ParsePanelGUI extends JPanel {
 
     private void requestRefresh() {
         synchronized (rosterLock) { revision++; }
+        rememberViewState();
     }
 
     private InspectRosterQuery displayQuery() {
@@ -540,10 +549,13 @@ public class ParsePanelGUI extends JPanel {
     }
 
     void showCurrentArea() {
+        boolean returning = historicalPlayers != null;
         displayedRun = null;
         inspectedRun = null;
         showRunColumns(false);
         synchronized (rosterLock) { historicalPlayers = null; }
+        if (returning && liveOwner) { selectedFilter = currentFilter; guiUpdateSuppression = true; filterComboBox.setSelectedItem(selectedFilter == null ? DISABLE_FILTER : selectedFilter.name); guiUpdateSuppression = false; requirementsRevision++; }
+        if (returning && viewState != null) viewState.restoreLast();
         table.clearSelection();
         requestRefresh();
         refreshRoster();
@@ -556,6 +568,7 @@ public class ParsePanelGUI extends JPanel {
     void showRun(ActivityJournal.Visit visit) { showRun(visit.id, visit.inspectedPlayers.values(), visit); }
 
     private void showRun(String id, Collection<InspectSnapshot> players, ActivityJournal.Visit visit) {
+        if (historicalPlayers == null && viewState != null) viewState.save();
         if (!Objects.equals(displayedRun, id)) table.clearSelection();
         displayedRun = id;
         inspectedRun = visit;
@@ -584,6 +597,58 @@ public class ParsePanelGUI extends JPanel {
             for (RowSorter.SortKey key : table.getRowSorter().getSortKeys()) if (key.getColumn() != 9 && key.getColumn() != 10) keys.add(key);
             table.getRowSorter().setSortKeys(keys);
         }
+    }
+
+    public void bindViewState(ViewStateStore store) {
+        if (viewState != null || !liveOwner) return;
+        viewState = new RosterViewState(store, "inspect-live-roster", this::captureViewState, this::prepareViewState);
+        stateHost.add(viewState.controls()); stateHost.setVisible(true);
+        RosterViewState.listenTable(table, this::rememberViewState);
+    }
+    public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
+        if (viewState == null || historicalPlayers != null) throw new IllegalStateException("Live view state is not active"); return viewState.save();
+    }
+    @Override public void removeNotify() { if (viewState != null && historicalPlayers == null) viewState.save(); super.removeNotify(); }
+    private void rememberViewState() {
+        if (viewState != null && historicalPlayers == null && !guiUpdateSuppression && !restoringState) viewState.changed();
+    }
+    private Map<String, String> captureViewState() {
+        Map<String, String> values = new LinkedHashMap<>(); InspectRosterQuery q = displayQuery();
+        values.put("text", rosterSearch.getText()); values.put("class", Objects.toString(q.classId, ""));
+        values.put("guildMode", q.guild.name()); values.put("guild", Objects.toString(q.guildName, ""));
+        values.put("season", q.seasonal.name()); values.put("crucible", q.crucible.name());
+        values.put("verdict", q.verdict == null ? "ANY" : q.verdict.name());
+        values.put("maxed", q.knownRange ? "RANGE" : q.unknownMaxed ? "UNKNOWN" : "ANY");
+        values.put("minimum", minMaxed.getValue().toString()); values.put("maximum", maxMaxed.getValue().toString());
+        values.put("details", Boolean.toString(explain.isSelected())); RosterViewState.captureTable(values, table); return values;
+    }
+    private Runnable prepareViewState(Map<String, String> values) {
+        String clazzText = values.getOrDefault("class", Objects.toString(choice(classFacet), "")); Integer clazz = clazzText.isEmpty() ? null : Integer.valueOf(clazzText);
+        InspectRosterQuery.Guild guildMode = InspectRosterQuery.Guild.valueOf(values.getOrDefault("guildMode", displayQuery().guild.name()));
+        String guild = values.getOrDefault("guild", Objects.toString(choice(guildFacet), ""));
+        if (guildMode == InspectRosterQuery.Guild.EXACT && guild.isEmpty()) throw new IllegalArgumentException("Missing exact guild value");
+        InspectRosterQuery.Mode season = InspectRosterQuery.Mode.valueOf(values.getOrDefault("season", displayQuery().seasonal.name()));
+        InspectRosterQuery.Mode crucible = InspectRosterQuery.Mode.valueOf(values.getOrDefault("crucible", displayQuery().crucible.name()));
+        int verdict = RosterViewState.option(values, "verdict", verdictFacet.getSelectedIndex(), "ANY", "NOT_EVALUATED", "PASS", "BELOW", "UNKNOWN");
+        int maxed = RosterViewState.option(values, "maxed", maxedFacet.getSelectedIndex(), "ANY", "RANGE", "UNKNOWN");
+        int minimum = RosterViewState.number(values, "minimum", (Integer)minMaxed.getValue(), 0, 8), maximum = RosterViewState.number(values, "maximum", (Integer)maxMaxed.getValue(), 0, 8);
+        int details = RosterViewState.option(values, "details", explain.isSelected() ? 1 : 0, "false", "true");
+        Runnable columns = RosterViewState.prepareTable(values, table);
+        return () -> {
+            restoringState = guiUpdateSuppression = true;
+            try {
+                rosterSearch.setText(values.getOrDefault("text", rosterSearch.getText())); selectChoice(classFacet, clazz, clazz == null ? "All classes" : "Class " + clazz);
+                if (guildMode == InspectRosterQuery.Guild.EXACT) selectChoice(guildFacet, guild, guild);
+                else guildFacet.setSelectedIndex(guildMode == InspectRosterQuery.Guild.NONE ? 1 : guildMode == InspectRosterQuery.Guild.UNKNOWN ? 2 : 0);
+                seasonalFacet.setSelectedIndex(season.ordinal()); crucibleFacet.setSelectedIndex(crucible.ordinal()); verdictFacet.setSelectedIndex(verdict); maxedFacet.setSelectedIndex(maxed);
+                minMaxed.setValue(minimum); maxMaxed.setValue(maximum); explain.setSelected(details == 1); resultDetails.setVisible(details == 1); columns.run();
+                synchronized (rosterLock) { revision++; } refreshRoster();
+            } finally { restoringState = guiUpdateSuppression = false; }
+        };
+    }
+    private static <T> void selectChoice(JComboBox<Choice<T>> box, T value, String label) {
+        for (int i = 0; i < box.getItemCount(); i++) if (Objects.equals(box.getItemAt(i).value, value)) { box.setSelectedIndex(i); return; }
+        Choice<T> item = new Choice<>(value, label); box.addItem(item); box.setSelectedItem(item);
     }
 
     private String rowKey(CapturedPlayer player) {

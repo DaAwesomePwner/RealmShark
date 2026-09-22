@@ -24,7 +24,7 @@ public class DungeonListTest {
             TomatoData data = new TomatoData();
             data.dpsData.add(encounter("First")); data.dpsData.add(encounter("Second"));
             DpsGUI dps = new DpsGUI(data); dps.setIndex(0);
-            DungeonListGUI chooser = new DungeonListGUI(dps, data);
+            DungeonListGUI chooser = new DungeonListGUI(dps, data, null);
             JTable table = table(chooser);
             await(() -> table.getRowCount() == 3);
             assertEquals("First", table.getValueAt(table.getSelectedRow(), 2));
@@ -57,7 +57,7 @@ public class DungeonListTest {
         BlockingMap.wroteOffEdt.set(false); BlockingMap.readOffEdt.set(false);
         try {
             SwingUtilities.invokeAndWait(() -> {
-                chooser[0] = new DungeonListGUI(new DpsGUI(data), data);
+                chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
                 await(() -> table(chooser[0]).getRowCount() == 2);
                 table(chooser[0]).setValueAt(true, row(table(chooser[0]), "Saved"), 0);
                 job[0] = chooser[0].exportFiles(folder, false);
@@ -112,7 +112,7 @@ public class DungeonListTest {
         data.dpsData.add(first); data.dpsData.add(second);
         DungeonListGUI[] chooser = new DungeonListGUI[1];
         SwingUtilities.invokeAndWait(() -> {
-            chooser[0] = new DungeonListGUI(new DpsGUI(data), data);
+            chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
             await(() -> table(chooser[0]).getRowCount() == 3);
             for (int row = 0; row < table(chooser[0]).getRowCount(); row++) if (table(chooser[0]).isCellEditable(row, 0)) table(chooser[0]).setValueAt(true, row, 0);
         });

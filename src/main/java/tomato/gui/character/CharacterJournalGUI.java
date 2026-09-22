@@ -17,6 +17,8 @@ import tomato.realmshark.enums.CharacterClass;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.stats.Formatters;
+import tomato.gui.history.ViewStateStore;
+import tomato.gui.roster.RosterViewState;
 
 /** Searchable persistent roster, with explicit unknowns and reversible life-state annotations. */
 public final class CharacterJournalGUI extends JPanel {
@@ -61,9 +63,16 @@ public final class CharacterJournalGUI extends JPanel {
     private boolean refreshing;
     private boolean rosterDirty = true, exaltsDirty = true;
     private final javax.swing.Timer timer;
+    private RosterViewState viewState;
+    private final JPanel stateHost = new JPanel(new BorderLayout());
+    private final JTabbedPane tabs = new JTabbedPane();
+    private JScrollPane pageScroll;
+    private String pendingSelectionKey;
+    private boolean restoringState;
 
     public CharacterJournalGUI(CharacterJournal journal) {
         this(journal, System::currentTimeMillis);
+        bindViewState(ViewStateStore.application());
     }
 
     CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock) {
@@ -133,7 +142,7 @@ public final class CharacterJournalGUI extends JPanel {
         JPanel title = new JPanel(new BorderLayout(8, 3)); heading.setFont(ContentStyle.emphasis(ContentStyle.body()));
         JPanel titleActions = ContentStyle.controls(); titleActions.add(heading); titleActions.add(death);
         title.add(titleActions); title.add(seen, BorderLayout.SOUTH); detail.add(title, BorderLayout.NORTH);
-        JTabbedPane tabs = new JTabbedPane(); tabs.setName("character-detail-tabs"); tabs.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
+        tabs.setName("character-detail-tabs"); tabs.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
         JTable stats = table(statModel);
         stats.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell() {
             @Override public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
@@ -185,7 +194,8 @@ public final class CharacterJournalGUI extends JPanel {
         };
         split.setName("character-roster-detail-split");
         split.setResizeWeight(.48); split.setDividerLocation(235); split.setBorder(null);
-        JScrollPane page = ContentStyle.page(top, split, status);
+        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH); footer.add(stateHost, BorderLayout.CENTER); stateHost.setVisible(false);
+        JScrollPane page = ContentStyle.page(top, split, footer); pageScroll = page;
         page.setName("character-page-scroll");
         page.getAccessibleContext().setAccessibleName("Characters; scroll for roster, details and actions at large text sizes");
         add(page, BorderLayout.CENTER);
@@ -221,7 +231,7 @@ public final class CharacterJournalGUI extends JPanel {
         addHierarchyListener(visibility); exalts.addHierarchyListener(visibility); refresh();
     }
     @Override public void addNotify() { super.addNotify(); timer.start(); refresh(); }
-    @Override public void removeNotify() { super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
+    @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
     public JPanel exaltPanel() { return exalts; }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
@@ -266,7 +276,7 @@ public final class CharacterJournalGUI extends JPanel {
         if (refreshing) return;
         rosterDirty = false;
         refreshing = true;
-        String oldKey = selectedKey;
+        String oldKey = pendingSelectionKey != null ? pendingSelectionKey : selectedKey;
         filtered = new ArrayList<>(); rosterModel.setRowCount(0);
         CharacterRosterQuery query = query(); long now = clock.getAsLong();
         int alive = 0, deadCount = 0, maxed = 0;
@@ -287,18 +297,21 @@ public final class CharacterJournalGUI extends JPanel {
         for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key.equals(oldKey)) {
             int view = roster.convertRowIndexToView(i); roster.setRowSelectionInterval(view, view); break;
         }
-        if (roster.getSelectedRow() < 0 && !filtered.isEmpty()) roster.setRowSelectionInterval(0, 0);
+        if (roster.getSelectedRow() < 0 && !filtered.isEmpty() && pendingSelectionKey == null) roster.setRowSelectionInterval(0, 0);
         refreshing = false; select();
+        rememberViewState();
     }
     private CharacterRecord selected() { int row = roster.getSelectedRow(); return row < 0 ? null : filtered.get(roster.convertRowIndexToModel(row)); }
     private void select() {
         CharacterRecord r = selected(); String newKey = r == null ? null : r.key;
         boolean changed = !Objects.equals(selectedKey, newKey);
         if (changed && selectedKey != null) {
-            journal.notes(selectedKey, notes.getText());
-            for (CharacterRecord previous : records) if (previous.key.equals(selectedKey)) previous.notes = notes.getText();
+            for (CharacterRecord previous : records) if (previous.key.equals(selectedKey) && !Objects.equals(previous.notes, notes.getText())) {
+                journal.notes(selectedKey, notes.getText()); previous.notes = notes.getText();
+            }
         }
         selectedKey = newKey;
+        if (Objects.equals(selectedKey, pendingSelectionKey)) pendingSelectionKey = null;
         statModel.setRowCount(0); gearModel.setRowCount(0); charExaltModel.setRowCount(0); metadataModel.setRowCount(0);
         death.setEnabled(r != null); saveNotes.setEnabled(r != null); notes.setEnabled(r != null);
         if (r == null) { heading.setText("Select a character"); heading.setIcon(null); seen.setText(" "); seen.setToolTipText(null); notes.setText(""); return; }
@@ -324,6 +337,65 @@ public final class CharacterJournalGUI extends JPanel {
             Integer count = exalt == null ? null : exalt[CharacterJournal.EXALT_ORDER[i]];
             charExaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
         }
+        rememberViewState();
+    }
+    public void bindViewState(ViewStateStore store) {
+        if (viewState != null) return;
+        viewState = new RosterViewState(store, "characters-live-roster", this::captureViewState, this::prepareViewState);
+        stateHost.add(viewState.controls()); stateHost.setVisible(true);
+        RosterViewState.listenTable(roster, this::rememberViewState);
+        tabs.addChangeListener(e -> rememberViewState());
+        pageScroll.getViewport().addChangeListener(e -> { if (isShowing()) rememberViewState(); });
+    }
+    public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
+        if (viewState == null) throw new IllegalStateException("View state is not bound"); return viewState.save();
+    }
+    private void rememberViewState() { if (viewState != null && !refreshing && !restoringState) viewState.changed(); }
+    private Map<String, String> captureViewState() {
+        Map<String, String> values = new LinkedHashMap<>(); CharacterRosterQuery q = query();
+        values.put("text", search.getText()); values.put("account", Objects.toString(q.account, "")); values.put("class", Objects.toString(q.classId, ""));
+        values.put("life", new String[]{"ANY", "NOT_MARKED", "MANUAL_DEAD"}[life.getSelectedIndex()]);
+        values.put("season", new String[]{"ANY", "SEASONAL", "REGULAR", "UNKNOWN"}[season.getSelectedIndex()]);
+        values.put("needsLife", q.life.name()); values.put("missing", q.missing.name()); values.put("maxed", q.maxed.name()); values.put("age", q.age.name());
+        values.put("minimum", minMaxed.getValue().toString()); values.put("maximum", maxMaxed.getValue().toString()); values.put("hours", ageHours.getValue().toString());
+        values.put("selected", Objects.toString(pendingSelectionKey != null ? pendingSelectionKey : selectedKey, ""));
+        values.put("tab", Integer.toString(tabs.getSelectedIndex())); values.put("pageY", Integer.toString(pageScroll.getViewport().getViewPosition().y));
+        RosterViewState.captureTable(values, roster); return values;
+    }
+    private Runnable prepareViewState(Map<String, String> values) {
+        int savedLife = RosterViewState.option(values, "life", life.getSelectedIndex(), "ANY", "NOT_MARKED", "MANUAL_DEAD");
+        int savedSeason = RosterViewState.option(values, "season", season.getSelectedIndex(), "ANY", "SEASONAL", "REGULAR", "UNKNOWN");
+        CharacterRosterQuery.NeedLife need = CharacterRosterQuery.NeedLife.valueOf(values.getOrDefault("needsLife", query().life.name()));
+        CharacterRosterQuery.Missing coverage = CharacterRosterQuery.Missing.valueOf(values.getOrDefault("missing", query().missing.name()));
+        CharacterRosterQuery.Maxed maxed = CharacterRosterQuery.Maxed.valueOf(values.getOrDefault("maxed", query().maxed.name()));
+        CharacterRosterQuery.Age age = CharacterRosterQuery.Age.valueOf(values.getOrDefault("age", query().age.name()));
+        int minimum = RosterViewState.number(values, "minimum", (Integer)minMaxed.getValue(), 0, 8), maximum = RosterViewState.number(values, "maximum", (Integer)maxMaxed.getValue(), 0, 8);
+        int hours = RosterViewState.number(values, "hours", (Integer)ageHours.getValue(), 0, 1000000), tab = RosterViewState.number(values, "tab", tabs.getSelectedIndex(), 0, tabs.getTabCount() - 1);
+        int y = RosterViewState.number(values, "pageY", 0, 0, Integer.MAX_VALUE);
+        String account = values.getOrDefault("account", Objects.toString(choice(accountFilter), ""));
+        if (!account.isEmpty() && !account.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid account reference");
+        String classText = values.getOrDefault("class", Objects.toString(choice(classFilter), "")); Integer clazz = classText.isEmpty() ? null : Integer.valueOf(classText);
+        String selected = values.getOrDefault("selected", Objects.toString(selectedKey, ""));
+        if (!selected.isEmpty() && !selected.matches("[0-9a-f]{64}:[0-9]+")) throw new IllegalArgumentException("Invalid character reference");
+        Runnable tableState = RosterViewState.prepareTable(values, roster);
+        return () -> {
+            restoringState = refreshing = true;
+            try {
+                search.setText(values.getOrDefault("text", search.getText())); life.setSelectedIndex(savedLife); season.setSelectedIndex(savedSeason);
+                selectChoice(accountFilter, account.isEmpty() ? null : account, account.isEmpty() ? "All accounts" : accountName(account));
+                selectChoice(classFilter, clazz, clazz == null ? "All classes" : className(clazz));
+                needsLife.setSelectedIndex(need.ordinal()); missing.setSelectedIndex(coverage.ordinal()); maxedFilter.setSelectedIndex(maxed.ordinal()); ageFilter.setSelectedIndex(age.ordinal());
+                minMaxed.setValue(minimum); maxMaxed.setValue(maximum); ageHours.setValue(hours); tabs.setSelectedIndex(tab);
+                pendingSelectionKey = selected.isEmpty() ? null : selected;
+                refreshing = false; filter(); tableState.run();
+                SwingUtilities.invokeLater(() -> pageScroll.getViewport().setViewPosition(new Point(0, Math.min(y,
+                    Math.max(0, pageScroll.getViewport().getViewSize().height - pageScroll.getViewport().getExtentSize().height)))));
+            } finally { refreshing = restoringState = false; }
+        };
+    }
+    private static <T> void selectChoice(JComboBox<Choice<T>> box, T value, String label) {
+        for (int i = 0; i < box.getItemCount(); i++) if (Objects.equals(box.getItemAt(i).value, value)) { box.setSelectedIndex(i); return; }
+        Choice<T> choice = new Choice<>(value, label); box.addItem(choice); box.setSelectedItem(choice);
     }
     /** Time advances even after capture stops; refresh just this text, not selection or editable drafts. */
     private void refreshTimeEvidence(CharacterRecord r) {

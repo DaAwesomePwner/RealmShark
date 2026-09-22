@@ -19,7 +19,7 @@ public class EncounterLibraryStateTest {
         SwingUtilities.invokeAndWait(() -> {
             TomatoData data = new TomatoData(); DpsData first = EncounterCatalogTest.encounter("Same"), second = EncounterCatalogTest.encounter("Same");
             second.dungeonStartTime = 2000; data.dpsData.add(first); data.dpsData.add(second);
-            DpsGUI dps = new DpsGUI(data); DungeonListGUI view = new DungeonListGUI(dps, data); JTable table = find(view, JTable.class, null);
+            DpsGUI dps = new DpsGUI(data); DungeonListGUI view = new DungeonListGUI(dps, data, null); JTable table = find(view, JTable.class, null);
             await(() -> table.getRowCount() == 3);
             table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
             table.setRowSelectionInterval(0, 0); String id = dps.currentEncounterId(); assertNotNull(id);
@@ -31,7 +31,7 @@ public class EncounterLibraryStateTest {
             data.dpsData.add(EncounterCatalogTest.encounter("Third")); DpsGUI.updateMapPacket(data); view.refreshEncounters();
             await(() -> table.getModel().getRowCount() == 4); search.setText("");
             assertEquals(id, dps.currentEncounterId()); assertEquals(Boolean.TRUE, table.getValueAt(table.getSelectedRow(), 0));
-            DungeonListGUI reopened = new DungeonListGUI(dps, data); JTable again = find(reopened, JTable.class, null); await(() -> again.getRowCount() == 4);
+            DungeonListGUI reopened = new DungeonListGUI(dps, data, null); JTable again = find(reopened, JTable.class, null); await(() -> again.getRowCount() == 4);
             assertEquals(Boolean.TRUE, again.getValueAt(again.getSelectedRow(), 0));
         });
     }
@@ -39,7 +39,7 @@ public class EncounterLibraryStateTest {
         Path file = temp.getRoot().toPath().resolve("fixture.dps"); EncounterCatalogTest.write(file, EncounterCatalogTest.encounter("Imported"));
         DpsGUI[] dps = new DpsGUI[1]; DungeonListGUI[] view = new DungeonListGUI[1]; TomatoData data = new TomatoData();
         SwingWorker<?, ?>[] job = new SwingWorker<?, ?>[1];
-        SwingUtilities.invokeAndWait(() -> { dps[0] = new DpsGUI(data); view[0] = new DungeonListGUI(dps[0], data); job[0] = view[0].importFile(file.toFile()); });
+        SwingUtilities.invokeAndWait(() -> { dps[0] = new DpsGUI(data); view[0] = new DungeonListGUI(dps[0], data, null); job[0] = view[0].importFile(file.toFile()); });
         job[0].get(5, TimeUnit.SECONDS); await(() -> dps[0].encounters().entries().size() == 1);
         SwingUtilities.invokeAndWait(() -> {
             assertTrue(data.dpsData.isEmpty());

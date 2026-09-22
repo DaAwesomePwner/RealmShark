@@ -198,3 +198,94 @@ column and numeric maxed values; they compile but were not run. No native/focus/
 screenshots, packaging, live capture, real deliveries or personal history/settings reads were
 performed in this worker lane. Fresh native evidence and independent final-head review remain
 required before the coordinator closes these IDs in the wave ledger.
+
+## Primary Wave 2 review fixes and live-state adoption
+
+Starting primary head: `f604e78402bd2cc137fad77f742eb7b4fc79ba9a`.
+
+### Verified blocker corrections
+
+- `EncounterCatalog.capture(Supplier<DpsData[]>)` obtains its generation **before** invoking
+  the source snapshot read. `captured(records, expectedGeneration)` rejects an obsolete result
+  atomically under the catalog lock. Both production DpsGUI publication sites use the supplier
+  API. The array-only overload remains for detached, single-threaded compatibility callers.
+- `CapturedPublicationRaceTest` pauses the real DpsGUI producer after `toArray` copied encounter A,
+  clears logs on the EDT, then releases the old read. A, its checks and its catalog revision
+  cannot return; a subsequent fresh publication of B succeeds. This is not just an import test.
+- Requirements now distinguish missing tier/policy evidence from inputs capable of changing the
+  numeric score. Blacklist entries cannot award points. A known zero score below a class threshold
+  remains Below even when tier evidence is unknown, with both reasons retained. Irrelevant missing
+  asset definitions do not manufacture Unknown results. Genuine missing positive awards remain
+  Unknown when they could satisfy the threshold; a provable upper-bound shortfall remains Below.
+
+### Resources integration
+
+The production Resources tab now uses `ActivityPanel.workspace(history, Mode.COMBAT)`.
+`DpsGUI.browseSavedResources()` is an EDT history-open callback, wired to **Saved resources**:
+it accepts `ArchiveWorkspace`, calls `selectSession(SessionStore.ALL)` and selects the Resources
+tab. Legacy `SessionPanel` support is a compatibility fallback; a bare live panel is not treated
+as saved history. `DpsResourcesWorkspaceTest` verifies the typed workspace and all-session scope.
+The shell's separate Runs history-open callback remains the integration owner's responsibility.
+
+### UX-02 state adoption status
+
+The module-owned `RosterViewState` adapter uses the existing foundation `ViewStateStore` and
+asynchronous preference writer. Production constructors bind it automatically; `bindViewState`
+and `saveViewState` are real EDT hooks for controlled hosts and tests. The live control document
+has its own version, validates before applying, coalesces saves, reports failures with retry,
+and preserves unreadable/unsupported state until an explicit reset. It never serializes a
+Swing component, combat graph or character-note draft.
+
+| Module key | Durable panel-local state |
+| --- | --- |
+| `characters-live-roster` | All new task filters, full account/class identities, Unknown choices, ranges, age hours, numeric sorting, column widths, character-key selection, detail tab and outer-page offset |
+| `inspect-live-roster` | Search/class/exact-guild/mode/verdict/maxed facets, Unknown choices, ranges, sorting, column widths and explanation expansion |
+| `encounter-library-live` | Search/source/context facets, sorting, widths, exact selection/check references and catalog-clear epoch |
+
+Character notes remain authoritative in `CharacterJournal`; restoring filters cannot copy one
+account's notes into another same-numbered character. Unchanged notes are not rewritten during
+selection restoration. An unavailable saved character reference remains unresolved rather than
+selecting an unrelated namesake.
+
+Inspect snapshots use runtime-scoped object IDs. Those live row selections and scroll anchors are
+not persisted across captures: there is no durable source identity to restore safely. Switching
+to a recorded run cannot overwrite the remembered live filters; returning to Current Area restores
+them. Recorded/archive query and position state belong to the foundation's Inspect workspace.
+
+Encounter references distinguish exact imported bytes (`file:<sha256>`), captured recording UUIDs
+(`native:<uuid>`) and legacy runtime entries (`entry:<uuid>`). Resolution must be unique; no name,
+timestamp or imported recording-ID claim substitutes for identity. A renamed exact file can restore
+its checks, while same-ID/different-byte variants remain distinct. References do not reopen files
+automatically. Missing entries stay unresolved until explicitly loaded. Clear invalidates remembered
+checks in the same catalog lifetime, and explicit meter navigation, including Go live, takes priority
+over an older dialog selection.
+
+These are the new panel/filter adapters, not a claim that every top-level shell/subtab or live-data
+position in the application is persistable. Parent workspace navigation and archive envelopes remain
+with their owners. Native layout/focus/scaling evidence for the added state controls is still pending.
+
+### Headless proof
+
+The final focused run passed **49 tests, zero failures/errors/skips**; main/test compilation passed.
+Unique output/cache: `build/ux-w2-roster-fixes` and its `project-cache` subdirectory. The local init
+script `.omc/ux/w2-roster-fixes-headless.gradle` sets `java.awt.headless=true`; standard test
+history/preferences isolation remains active.
+
+The run includes the earlier roster, Inspect, library, serialization, export and historical-filter
+behavior suites (excluding the unchanged RosterDefinitions suite), plus these new selectors:
+
+```text
+tomato.gui.dps.CapturedPublicationRaceTest
+tomato.gui.dps.DpsResourcesWorkspaceTest
+tomato.gui.roster.RosterViewStateTest
+tomato.gui.character.CharacterViewStateTest
+tomato.gui.security.InspectViewStateTest
+tomato.gui.dps.EncounterViewStateTest
+```
+
+`RequirementResultTest` now has seven cases, including the verified counterexamples and positive
+weight uncertainty. State tests cover recreation, stable IDs, unknowns, note ownership, variant-safe
+check restoration, Clear, explicit Go live, failed-save retry and unsupported-version preservation.
+Reports: `build/ux-w2-roster-fixes/test-results/test/TEST-*.xml`.
+No GUI/native/focus suite, capture, network delivery, shared-foundation edit or ledger/checkpoint
+change was performed by this correction lane.

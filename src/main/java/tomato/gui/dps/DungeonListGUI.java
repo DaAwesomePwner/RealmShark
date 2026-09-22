@@ -5,6 +5,8 @@ import tomato.backend.data.TomatoData;
 import tomato.gui.activity.SnapshotRefresh;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.history.ViewStateStore;
+import tomato.gui.roster.RosterViewState;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.*;
@@ -34,13 +36,23 @@ public class DungeonListGUI extends JPanel {
     private boolean rebuilding, busy;
     private String selectedId, importedId;
     private long displayedRevision = -1;
+    private RosterViewState viewState;
+    private final JPanel stateHost = new JPanel(new BorderLayout());
+    private final Set<String> rememberedChecks = new LinkedHashSet<>();
+    private String rememberedSelection = "";
+    private boolean restoringState;
+    private long rememberedGeneration;
 
     public DungeonListGUI(DpsGUI dps, TomatoData data) {
+        this(dps, data, ViewStateStore.application());
+    }
+    DungeonListGUI(DpsGUI dps, TomatoData data, ViewStateStore states) {
         super(new BorderLayout(0, 8)); this.dps = dps; catalog = dps.encounters(); selectedId = dps.currentEncounterId();
+        rememberedGeneration = catalog.generation();
         JPanel buttons = ContentStyle.controls(); buttons.add(load); buttons.add(save); buttons.add(viewImported);
         load.addActionListener(e -> loadButton()); save.addActionListener(e -> saveButton());
         viewImported.addActionListener(e -> {
-            if (dps.showEncounter(importedId)) { selectedId = importedId; restoreSelection(); status.setText("Opened imported encounter. Display filters are unchanged."); }
+            if (dps.showEncounter(importedId)) { selectedId = importedId; rememberedSelection = EncounterCatalog.reference(catalog.find(importedId)); restoreSelection(); rememberViewState(); status.setText("Opened imported encounter. Display filters are unchanged."); }
         });
         JPanel filters = ContentStyle.controls(); JLabel label = new JLabel("Search encounters"); label.setLabelFor(search);
         search.setName("encounter-search"); filters.add(label); filters.add(search); filters.add(source); filters.add(context);
@@ -61,8 +73,10 @@ public class DungeonListGUI extends JPanel {
         table.getSelectionModel().addListSelectionListener(e -> {
             if (rebuilding || e.getValueIsAdjusting() || table.getSelectedRow() < 0) return;
             Row row = selected(); selectedId = row.entry == null ? null : row.entry.id;
+            rememberedSelection = EncounterCatalog.reference(row.entry);
             if (row.entry == null) dps.setIndex(-1); else dps.showEncounter(row.entry.id);
             showDetails();
+            rememberViewState();
         });
         table.getInputMap().put(KeyStroke.getKeyStroke("SPACE"), "toggle-export");
         table.getActionMap().put("toggle-export", new AbstractAction() {
@@ -72,7 +86,8 @@ public class DungeonListGUI extends JPanel {
                 if (model.isCellEditable(row, 0)) model.setValueAt(!Boolean.TRUE.equals(model.getValueAt(row, 0)), row, 0);
             }
         });
-        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(details, BorderLayout.NORTH); footer.add(status, BorderLayout.SOUTH);
+        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(details, BorderLayout.NORTH);
+        JPanel bottom = new JPanel(new BorderLayout(0, 4)); bottom.add(status, BorderLayout.NORTH); bottom.add(stateHost, BorderLayout.SOUTH); stateHost.setVisible(false); footer.add(bottom, BorderLayout.SOUTH);
         details.setName("encounter-details"); status.setName("encounter-status");
         add(ContentStyle.page(header, ContentStyle.tableScroll(table, 3), footer), BorderLayout.CENTER);
         for (JComponent control : new JComponent[]{load, save, viewImported, search, source, context, reset})
@@ -86,9 +101,11 @@ public class DungeonListGUI extends JPanel {
         source.addActionListener(e -> filter()); context.addActionListener(e -> filter());
         timer = new javax.swing.Timer(500, e -> { if (catalog.revision() != displayedRevision) refreshEncounters(); });
         addHierarchyListener(e -> { if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) { if (isShowing()) { refreshEncounters(); timer.start(); } else timer.stop(); } });
+        if (states != null) bindViewState(states);
         refreshEncounters(); updateButtons();
     }
     void refreshEncounters() {
+        applyRememberedReferences();
         long revision = catalog.revision(); List<EncounterCatalog.Entry> entries = catalog.entries();
         refresh.request(revision, () -> {
             List<Row> rows = new ArrayList<>(); rows.add(new Row(null, null));
@@ -113,6 +130,7 @@ public class DungeonListGUI extends JPanel {
             restoreSelection();
         } finally { rebuilding = false; }
         updateButtons(); showDetails();
+        rememberViewState();
     }
     private Row selected() { int row = table.getSelectedRow(); return row < 0 ? null : model.rows.get(table.convertRowIndexToModel(row)); }
     private void restoreSelection() {
@@ -126,7 +144,7 @@ public class DungeonListGUI extends JPanel {
     }
     private void showDetails() {
         Row row = selected();
-        details.setText(row == null ? "Selected encounter is outside these display filters." : row.entry == null ? "Live capture is not an exportable saved encounter."
+        details.setText(row == null ? "Selected encounter is not loaded or is outside these display filters." : row.entry == null ? "Live capture is not an exportable saved encounter."
             : row.summary.dungeon + " · Entry " + row.entry.id + "\nRecording ID: " + Objects.toString(row.entry.data.getRecordingId(), "Not recorded (legacy)")
                 + "\n" + row.summary.coverage + "\nLocal context: " + row.summary.localContext + " · " + row.summary.contextDescription
                 + (row.entry.origin == null ? "\nCaptured in this application" : "\nImported file: " + row.entry.origin.fileName + " · SHA-256 " + row.entry.origin.fingerprint));
@@ -193,6 +211,64 @@ public class DungeonListGUI extends JPanel {
         count.setText(visible + " of " + catalog.entries().size() + " retained encounters shown · " + checked.size() + " checked · " + hiddenChecks + " checked outside filters");
     }
     private void failed(Throwable error) { setBusy(false, "File operation failed: " + error.getMessage()); }
+    public void bindViewState(ViewStateStore states) {
+        if (viewState != null) return;
+        viewState = new RosterViewState(states, "encounter-library-live", this::captureViewState, this::prepareViewState);
+        stateHost.add(viewState.controls()); stateHost.setVisible(true); RosterViewState.listenTable(table, this::rememberViewState);
+    }
+    public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
+        if (viewState == null) throw new IllegalStateException("View state is not bound"); return viewState.save();
+    }
+    @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); }
+    private void rememberViewState() { if (viewState != null && !rebuilding && !restoringState) viewState.changed(); }
+    private Map<String, String> captureViewState() {
+        applyRememberedReferences();
+        Map<String, String> values = new LinkedHashMap<>(); values.put("text", search.getText());
+        values.put("source", EncounterQuery.Source.values()[source.getSelectedIndex()].name());
+        values.put("context", context.getSelectedIndex() == 0 ? "ANY" : context.getSelectedItem().toString().toUpperCase(Locale.ROOT));
+        values.put("selected", rememberedSelection.isEmpty() ? EncounterCatalog.reference(catalog.find(selectedId)) : rememberedSelection);
+        Set<String> checks = new LinkedHashSet<>(rememberedChecks); for (EncounterCatalog.Entry entry : catalog.checkedEntries()) checks.add(EncounterCatalog.reference(entry));
+        values.put("checked", String.join("\n", checks)); values.put("catalog", catalog.lifetimeId()); values.put("generation", Long.toString(catalog.generation()));
+        RosterViewState.captureTable(values, table); return values;
+    }
+    private Runnable prepareViewState(Map<String, String> values) {
+        int selectedSource = RosterViewState.option(values, "source", source.getSelectedIndex(), "ANY", "CAPTURED", "IMPORTED");
+        int selectedContext = RosterViewState.option(values, "context", context.getSelectedIndex(), "ANY", "AVAILABLE", "PARTIAL", "UNAVAILABLE");
+        String selection = dps.hasSelectionIntent() ? EncounterCatalog.reference(catalog.find(dps.currentEncounterId()))
+            : values.getOrDefault("selected", EncounterCatalog.reference(catalog.find(selectedId)));
+        validateReference(selection);
+        Set<String> checks = new LinkedHashSet<>();
+        if (values.containsKey("checked")) for (String ref : values.get("checked").split("\n")) { validateReference(ref); if (!ref.isEmpty()) checks.add(ref); }
+        else for (EncounterCatalog.Entry entry : catalog.checkedEntries()) checks.add(EncounterCatalog.reference(entry));
+        long generation = values.containsKey("generation") ? Long.parseLong(values.get("generation")) : catalog.generation();
+        if (generation < 0) throw new IllegalArgumentException("Invalid catalog generation");
+        boolean cleared = catalog.lifetimeId().equals(values.get("catalog")) && generation != catalog.generation();
+        Runnable columns = RosterViewState.prepareTable(values, table);
+        return () -> {
+            restoringState = true;
+            try {
+                rememberedChecks.clear(); if (!cleared) rememberedChecks.addAll(checks);
+                rememberedSelection = cleared ? "" : selection; rememberedGeneration = catalog.generation();
+                search.setText(values.getOrDefault("text", search.getText())); source.setSelectedIndex(selectedSource); context.setSelectedIndex(selectedContext);
+                columns.run(); applyRememberedReferences(); filter();
+            } finally { restoringState = false; }
+        };
+    }
+    private static void validateReference(String reference) {
+        if (!reference.isEmpty() && !reference.matches("file:[0-9a-f]{64}|(?:native|entry):[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
+            throw new IllegalArgumentException("Invalid encounter reference");
+    }
+    private void applyRememberedReferences() {
+        if (rememberedGeneration != catalog.generation()) {
+            rememberedGeneration = catalog.generation(); rememberedChecks.clear(); rememberedSelection = ""; selectedId = null; rememberViewState();
+        }
+        for (Iterator<String> pending = rememberedChecks.iterator(); pending.hasNext();) {
+            EncounterCatalog.Entry entry = catalog.resolve(pending.next());
+            if (entry != null) { catalog.check(entry.id, true); pending.remove(); }
+        }
+        EncounterCatalog.Entry selection = catalog.resolve(rememberedSelection);
+        if (!rememberedSelection.isEmpty()) selectedId = selection == null ? "unresolved:" + rememberedSelection : selection.id;
+    }
     public static void open(DpsGUI dps, TomatoData data) {
         DungeonListGUI list = new DungeonListGUI(dps, data); JButton close = new JButton("Close");
         JOptionPane pane = new JOptionPane(list, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new JButton[]{close}, close);
@@ -220,6 +296,9 @@ public class DungeonListGUI extends JPanel {
         public void setValueAt(Object value, int row, int column) {
             if (!isCellEditable(row, column)) return;
             catalog.check(rows.get(row).entry.id, Boolean.TRUE.equals(value)); fireTableCellUpdated(row, column); updateButtons();
+            String reference = EncounterCatalog.reference(rows.get(row).entry);
+            rememberedChecks.remove(reference); // Loaded checks are authoritative in the catalog; only unresolved references wait here.
+            rememberViewState();
         }
     }
     public class CheckBoxAccessory extends JPanel {
