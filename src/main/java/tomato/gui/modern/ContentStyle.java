@@ -460,6 +460,43 @@ public final class ContentStyle {
         return new RoundedPanel(layout);
     }
 
+    /** A real button keeps summary explanations available to keyboard and assistive technology. */
+    public static JButton detailsButton(String subject, Runnable open) {
+        JButton button = new JButton("Details…");
+        button.getAccessibleContext().setAccessibleName(subject + " details");
+        button.addActionListener(e -> open.run());
+        return button;
+    }
+
+    /** The caller supplies detached text, so an open explanation never follows a different record. */
+    public static void showDetails(Component owner, String title, String text) {
+        Window window = owner instanceof Window ? (Window) owner : SwingUtilities.getWindowAncestor(owner);
+        JDialog dialog = new JDialog(window, title, Dialog.ModalityType.MODELESS);
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        JTextArea body = wrappingText(text, 12);
+        body.setFocusable(true);
+        body.getAccessibleContext().setAccessibleName(title);
+        body.setCaretPosition(0);
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        JScrollPane scroll = new JScrollPane(body);
+        scroll.setPreferredSize(new Dimension(620, 360));
+        content.add(scroll);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        content.add(close, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
+        dialog.getRootPane().setDefaultButton(close);
+        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(), KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        refreshFonts(content);
+        dialog.pack();
+        Rectangle bounds = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        dialog.setSize(Math.min(dialog.getWidth(), bounds.width), Math.min(dialog.getHeight(), bounds.height));
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+        body.requestFocusInWindow();
+    }
+
     private static final class RoundedPanel extends JPanel {
         private static final int ARC = 10;
         /** Resolved once per look-and-feel rather than on every paint. */

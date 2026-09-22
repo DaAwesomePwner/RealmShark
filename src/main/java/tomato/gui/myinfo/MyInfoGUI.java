@@ -15,6 +15,7 @@ import tomato.backend.data.TomatoData;
 import tomato.realmshark.ParseEnchants;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.modern.Evidence;
 
 /** Captured character details and explicitly scoped build estimates. */
 public class MyInfoGUI extends JPanel {
@@ -30,7 +31,8 @@ public class MyInfoGUI extends JPanel {
     private final JLabel[] summary = new JLabel[4];
     private final JLabel[] icons = new JLabel[4];
     private final JLabel[] equipmentNames = new JLabel[4];
-    private final JCheckBox outOfCombatCheck = new JCheckBox("Out of combat");
+    private final JCheckBox outOfCombatCheck = new JCheckBox("Estimate scenario: out of combat");
+    private final JComboBox<String> evidence = new JComboBox<>(new String[] {"All evidence", "Captured", "Estimated", "Unavailable"});
     private final JTextField search = new JTextField(18);
     private final JComboBox<String> category = new JComboBox<>(new String[] {
         "All details", "Character", "Equipment", "Damage", "Recovery", "Pet", "Dust"
@@ -368,6 +370,10 @@ public class MyInfoGUI extends JPanel {
             summary[i] = new JLabel("—");
             summary[i].setFont(ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 18f / ContentStyle.FONT_SIZE));
             card.add(summary[i], BorderLayout.CENTER);
+            final int metric = i;
+            JButton details = ContentStyle.detailsButton(labels[i], () -> showMetricDetails(labels[metric], metricDetails(metric)));
+            details.setName("myinfo-metric-" + i);
+            card.add(details, BorderLayout.SOUTH);
             cards.add(card);
         }
         header.add(cards, BorderLayout.CENTER);
@@ -394,8 +400,11 @@ public class MyInfoGUI extends JPanel {
         search.putClientProperty("JTextField.placeholderText", "Search build details…");
         search.getAccessibleContext().setAccessibleName("Search build details");
         category.getAccessibleContext().setAccessibleName("Detail category");
-        toolbar.add(search); toolbar.add(category); toolbar.add(outOfCombatCheck);
-        outOfCombatCheck.setToolTipText("Apply the existing out-of-combat enchant regeneration bonuses.");
+        evidence.setName("myinfo-evidence");
+        evidence.getAccessibleContext().setAccessibleName("Build evidence filter");
+        evidence.addActionListener(e -> filter());
+        toolbar.add(search); toolbar.add(category); toolbar.add(evidence); toolbar.add(outOfCombatCheck);
+        outOfCombatCheck.setToolTipText("Changes this local estimate only; does not report or change captured combat conditions.");
         outOfCombatCheck.addActionListener(e -> updateMe());
         category.addActionListener(e -> filter());
         search.getDocument().addDocumentListener(new DocumentListener() {
@@ -460,10 +469,13 @@ public class MyInfoGUI extends JPanel {
     private void filter() {
         final String query = search.getText().trim().toLowerCase(Locale.ROOT);
         final String group = (String) category.getSelectedItem();
+        final String provenance = (String) evidence.getSelectedItem();
         sorter.setRowFilter(new RowFilter<DetailModel, Integer>() {
             public boolean include(Entry<? extends DetailModel, ? extends Integer> entry) {
                 Row row = rows.get(entry.getIdentifier());
                 return ("All details".equals(group) || row.group.equals(group))
+                    && ("All evidence".equals(provenance) || ("Unavailable".equals(provenance) ? row.value == null
+                        : row.value != null && row.source.toString().equals(provenance)))
                     && (row.group + " " + row.name + " " + row.value + " " + row.unit + " " + row.notes)
                         .toLowerCase(Locale.ROOT).contains(query);
             }
@@ -544,7 +556,34 @@ public class MyInfoGUI extends JPanel {
     }
 
     private void add(String group, String name, Double value, String unit, String notes) {
-        rows.add(new Row(group, name, value, unit, notes));
+        if (value != null && (Double.isNaN(value) || Double.isInfinite(value))) { value = null; notes = "Captured value is not a finite number. " + notes; }
+        Evidence.Source source = "Damage".equals(group) || "Recovery".equals(group) || ("Pet".equals(group) && !"Pet capture".equals(name))
+            ? Evidence.Source.ESTIMATED : Evidence.Source.CAPTURED;
+        rows.add(new Row(group, name, value, unit, source + (value == null ? " · Unavailable" : "") + ". " + notes, source));
+    }
+
+    protected void showMetricDetails(String title, String text) { ContentStyle.showDetails(this, title, text); }
+
+    public void refreshAssets() {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refreshAssets); return; }
+        updateMe();
+    }
+
+    String metricDetails(int metric) {
+        if (player == null) return "Not captured: no current character build. Start capture and enter the game. Saved history remains available in the other workspaces.";
+        StringBuilder text = new StringBuilder(metric < 2 ? "Captured character values" : "Estimated from the displayed build");
+        if (metric == 3) text.append("\nEstimate scenario: ").append(outOfCombatCheck.isSelected() ? "out of combat" : "in combat");
+        for (Row row : rows) {
+            boolean include = metric == 0 ? row.name.equals("Health") || row.name.equals("Maximum health")
+                : metric == 1 ? row.name.equals("Mana") || row.name.equals("Maximum mana")
+                : metric == 2 ? row.group.equals("Damage") && (row.name.startsWith("Projectile group") || row.name.equals("Weapon total"))
+                    || row.name.equals("Attack") || row.name.equals("Dexterity") || row.name.equals("Exaltation damage multiplier") || row.name.equals("Weapon")
+                : row.group.equals("Recovery") && !row.name.equals("Enchant health recovery") || row.name.equals("Magic heal") || row.name.equals("Pet capture");
+            if (include) text.append("\n\n").append(row.name).append(": ")
+                .append(row.value == null ? "Unavailable" : "item ID".equals(row.unit) ? Long.toString(row.value.longValue()) : format(row.value))
+                .append(' ').append(row.unit).append('\n').append(row.notes);
+        }
+        return text.toString();
     }
 
     private void updateMe() {
@@ -617,7 +656,12 @@ public class MyInfoGUI extends JPanel {
                 total += dps;
             }
         }
-        add("Damage", "Weapon total", total, "dmg/sec", total == null ? "Waiting for weapon metadata and attack, dexterity and exaltation stats." : assumptions);
+        List<String> missing = new ArrayList<>();
+        if (weapon == null || weapon.bullets.isEmpty()) missing.add("weapon/projectile definitions");
+        if (atk == null) missing.add("attack");
+        if (dex == null) missing.add("dexterity");
+        if (exalt == null) missing.add("exaltation damage multiplier");
+        add("Damage", "Weapon total", total, "dmg/sec", (total == null ? "Missing inputs: " + String.join(", ", missing) + ". " : "") + assumptions);
         summary[2].setText(total == null ? "—" : format(total));
         double petDps = 0;
         int[] types = {406, 402, 404, 405};
@@ -645,7 +689,7 @@ public class MyInfoGUI extends JPanel {
         Double wis = stat(player, StatType.WISDOM_STAT), maxMp = stat(player, StatType.MAX_MP_STAT),
             maxHp = stat(player, StatType.MAX_HP_STAT);
         Double manaEnchant = null, hpEnchant = null;
-        String mode = outOfCombatCheck.isSelected() ? "Out of combat" : "In combat";
+        String mode = "Estimate scenario: " + (outOfCombatCheck.isSelected() ? "out of combat" : "in combat");
         String[] raw = enchants.completeCodes();
         if (raw != null) {
             if (maxMp != null) manaEnchant = (double) ParseEnchants.getManaRegenPerSecondFromEnchants(raw, maxMp.intValue(), outOfCombatCheck.isSelected());
@@ -660,8 +704,15 @@ public class MyInfoGUI extends JPanel {
             + DisplayFormat.formatInteger(petManaPerLevel[level - 1]) + " mana every " + DisplayFormat.formatExact(petRegenTimeMpHp[level - 1]) + " sec.");
         Double total = base == null || manaEnchant == null || petAvailability == TomatoData.PetAvailability.UNKNOWN
             ? null : base + manaEnchant + petMana;
+        List<String> missing = new ArrayList<>();
+        if (wis == null) missing.add("wisdom not captured");
+        if (maxMp == null) missing.add("maximum mana not captured");
+        if (raw == null) missing.add("incomplete or malformed equipped enchant data");
+        if (petAvailability == TomatoData.PetAvailability.UNKNOWN) missing.add("pet metadata unknown for the current character");
         add("Recovery", "Estimated mana recovery", total, "mana/sec", mode + " • Wisdom + supported enchants + pet Magic Heal. Does not model pet suppression. "
-            + enchants.evidence() + (petAvailability == TomatoData.PetAvailability.UNKNOWN ? " Pet data unavailable for the current character." : ""));
+            + enchants.evidence() + (missing.isEmpty() ? "" : " Missing inputs: " + String.join("; ", missing) + ".")
+            + (petAvailability == TomatoData.PetAvailability.ABSENT ? " Explicitly no equipped pet: pet contribution 0."
+                : petAvailability == TomatoData.PetAvailability.PRESENT && level < 1 ? " Complete pet metadata has no active Magic Heal: pet contribution 0." : ""));
         summary[3].setText(total == null ? "—" : format(total));
         add("Recovery", "Enchant health recovery", hpEnchant, "hp/sec", mode + " • Partial estimate only. Base Vitality recovery and pet Heal are not included. " + enchants.evidence());
     }
@@ -714,8 +765,10 @@ public class MyInfoGUI extends JPanel {
     static final class Row {
         final String group, name, unit, notes;
         final Double value;
-        Row(String group, String name, Double value, String unit, String notes) {
+        final Evidence.Source source;
+        Row(String group, String name, Double value, String unit, String notes, Evidence.Source source) {
             this.group = group; this.name = name; this.value = value; this.unit = unit; this.notes = notes;
+            this.source = source;
         }
     }
 

@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.modern.CollectionControl;
 import tomato.realmshark.ParseDungeon;
 
 /** Product-facing history modules sharing the capture journal, independent of diagnostic tables. */
@@ -52,8 +53,8 @@ public final class ActivityPanel extends JPanel {
     private final JTextField search=new JTextField(18);
     private final JComboBox<VisitChoice> visitPicker=new JComboBox<>();
     private final JComboBox<String> kind=new JComboBox<>(new String[]{"All activities","Party","Exalt","Item / ability","Inventory","Equipment","Resources","Capture","Ownership"});
-    private final JCheckBox freeze=new JCheckBox("Freeze");
-    private final JCheckBox record=new JCheckBox("Record");
+    private final JCheckBox freeze=new JCheckBox("Pause this view");
+    private final CollectionControl record;
     private final JComboBox<RunDurationUnit> durationUnit=new JComboBox<>(RunDurationUnit.values());
     private final JLabel summary=new JLabel(" "), saved=new JLabel(" ");
     private final JTextArea detail=new JTextArea();
@@ -78,6 +79,7 @@ public final class ActivityPanel extends JPanel {
 
     public ActivityPanel(DiscoveryLog log, Mode mode) {
         super(new BorderLayout(0,8)); this.log=log; this.mode=mode; setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
+        record=new CollectionControl(log,this::refresh);
         String[] columns=mode==Mode.RUNS ? new String[]{"Entered","Dungeon","Observed minutes","Progress increase","Use requests","Capture issues","Status","Damage","DPS"}
             : mode==Mode.TIMELINE ? new String[]{"Time","Area","Activity","Summary","Meaning"}
             : new String[]{"Condition","Active seconds","Observed seconds","Uptime %"};
@@ -125,9 +127,7 @@ public final class ActivityPanel extends JPanel {
         search.setName("activity-search");search.getAccessibleContext().setAccessibleName("Search "+mode.name().toLowerCase(Locale.ROOT));
         search.putClientProperty("JTextField.placeholderText","Search this view");
         search.setToolTipText("Search this module; text is matched literally"); controls.add(labeled("Search",search));
-        record.setSelected(log.isEnabled()); record.setToolTipText("Enable shared gameplay collection for Runs, Timeline, buffs and diagnostics. Capture must also be running.");
         displayedEnabled=record.isSelected();
-        record.addActionListener(e->{log.setEnabled(record.isSelected());refresh();});
         JButton export=new JButton("Export history"); export.addActionListener(e->export());
         export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
         controls.add(record); controls.add(freeze); controls.add(export);
@@ -204,6 +204,7 @@ public final class ActivityPanel extends JPanel {
     }
     public void refresh(){
         if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::refresh);return;}
+        record.refresh();updateSummary();
         refreshPresentation();
         if(freeze.isSelected() || (isDisplayable()&&!isShowing()))return;
         String selected=choice();
@@ -231,7 +232,7 @@ public final class ActivityPanel extends JPanel {
         // Only reuse that token when it also describes the payload actually on screen.
         revision=mode!=Mode.COMBAT || update.selected.equals(displayed.view.selectedVisit) ? displayed.revision : null;
         visitCount=displayed.view.visitCount;eventCount=displayed.view.eventCount;
-        record.setSelected(displayedEnabled); refreshing=true;
+        record.refresh(); refreshing=true;
         updateChoices(mode==Mode.COMBAT?update.selected:choice());
         refreshing=false; fill(selectionChanged); rememberPresentation();
     }
@@ -318,7 +319,7 @@ public final class ActivityPanel extends JPanel {
     private void updateSummary(){
         String counts=mode==Mode.RUNS ? number(table.getRowCount())+" of "+number(rows.size())+" dungeon runs · "+number(visitCount-rows.size())+" other area visits in Timeline"
             : number(visitCount)+" visits · "+number(eventCount)+" retained events";
-        summary.setText((displayedEnabled?"Recording enabled":"Recording paused")+" · "+counts);
+        summary.setText("<html>"+CollectionControl.status(log,freeze.isSelected())+"<br>"+counts+"</html>");
     }
     private String selectedKey(){int row=table.getSelectedRow();return row<0?"":key(items.get(table.convertRowIndexToModel(row)));}
     private void restoreSelection(String selected){
@@ -344,9 +345,10 @@ public final class ActivityPanel extends JPanel {
             +"\nTimeline records omitted by retention limits: "+number(v.timelineOmitted)+". Old visits without time samples retain their aggregate summaries.";
         else if(item instanceof ActivityJournal.Entry){ActivityJournal.Entry e=(ActivityJournal.Entry)item;text=time(e.time)+" ("+DisplayFormat.timestampZoneLabel()+") · "+e.map+"\n"+e.kind+" · "+eventText(e)+"\n"+e.detail+"\n\n"+new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(e.values);}
         else text=mode==Mode.COMBAT?"Select a recorded visit to see local HP/MP and buff lanes. New captures supply time samples; existing aggregate-only records cannot be reconstructed into a timeline. Blank intervals mean unknown coverage."
-            : mode==Mode.RUNS ? (rows.isEmpty()?"No dungeon runs recorded. Enable Record, start capture and enter a dungeon such as Ice Citadel or Ocean Trench."
+            : mode==Mode.RUNS ? (rows.isEmpty()?(log.isHistorical()?"No dungeon runs saved in this scope. Recording coverage is unknown.":"No dungeon runs recorded. Enable gameplay & diagnostics collection, start capture and enter a dungeon such as Ice Citadel or Ocean Trench.")
                 : table.getRowCount()==0?"No dungeon runs match your search.":"Select a dungeon run for progression, party and capture details.")+" Hub, overworld and unresolved area visits are available in Timeline."
-            : "Start capture and enter a fresh area to record activity. Search or select a row for details. Saved history is shared across Runs, Timeline and DPS Logger.";
+            : log.isHistorical()?"Saved activity evidence. No selected record; search or select a row for details. An empty history does not establish complete recording coverage."
+                : "Start capture and enter a fresh area to record activity. Search or select a row for details. Saved history is shared across Runs, Timeline and DPS Logger.";
         if(!text.equals(detail.getText())){detail.setText(text);detail.setCaretPosition(0);}
     }
     public static String time(long millis){return DisplayFormat.formatTimestamp(millis);}

@@ -166,7 +166,7 @@ public class ParsePanelRefreshTest {
             assertEquals(2, table.getRowCount());
             assertEquals("Second [20]", table.getValueAt(0, 0));
             assertEquals("First [1000]", table.getValueAt(1, 0));
-            assertEquals("Non-seasonal", table.getValueAt(1, 8));
+            assertEquals("Non-seasonal · Not Crucible", table.getValueAt(1, 8));
             frame.setVisible(false);
             ParsePanelGUI.clear();
             ParsePanelGUI.addPlayer(4, player(4, "New map", ""));

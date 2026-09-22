@@ -6,6 +6,7 @@ import tomato.gui.activity.SnapshotRefresh;
 import tomato.gui.activity.RunDurationUnit;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.modern.CollectionControl;
 import tomato.realmshark.ParseDungeon;
 
 import javax.swing.*;
@@ -51,8 +52,8 @@ final class InspectRunsPanel extends JPanel {
     private final JTable table = new JTable(model);
     private final TableRowSorter<AbstractTableModel> sorter = new TableRowSorter<>(model);
     private final JTextField search = new JTextField(18);
-    private final JCheckBox record = new JCheckBox("Record");
-    private final JLabel summary = new JLabel("No dungeon runs recorded. Enable Record and start capture.");
+    private final CollectionControl record;
+    private final JLabel summary = new JLabel("No dungeon runs recorded.");
     private final SnapshotRefresh<DiscoveryLog.ActivitySnapshot> refresh = new SnapshotRefresh<>();
     private final javax.swing.Timer timer;
     private DiscoveryLog.ActivityRevision revision;
@@ -63,6 +64,7 @@ final class InspectRunsPanel extends JPanel {
     InspectRunsPanel(DiscoveryLog log, ParsePanelGUI roster) {
         super(new BorderLayout(0, 8));
         this.log = log; this.roster = roster;
+        record = new CollectionControl(log, this::requestRefresh);
         setName("inspect-runs");
         ContentStyle.table(table, ContentStyle.Density.DENSE);
         table.setName("inspect-runs-table");
@@ -95,9 +97,6 @@ final class InspectRunsPanel extends JPanel {
         JLabel label = new JLabel("Search runs"); label.setLabelFor(search);
         search.setName("inspect-runs-search"); search.getAccessibleContext().setAccessibleName("Search dungeon runs");
         controls.add(label); controls.add(search);
-        record.setSelected(log.isEnabled());
-        record.setToolTipText("Record shared run history and player snapshots while capture is running.");
-        record.addActionListener(e -> { log.setEnabled(record.isSelected()); requestRefresh(); });
         controls.add(record);
         durationUnit.setName("inspect-run-duration-unit");durationUnit.getAccessibleContext().setAccessibleName("Run duration units");
         controls.add(durationUnit);
@@ -167,7 +166,7 @@ final class InspectRunsPanel extends JPanel {
         boolean loaded = visit != null && visit.id.equals(loadedId);
         if (loaded) roster.showRun(visit);
         else roster.showRun(visit == null ? "" : visit.id, Collections.emptyList());
-        String text = visit == null ? (visits.isEmpty() ? "No dungeon runs recorded. Enable Record and start capture."
+        String text = visit == null ? (visits.isEmpty() ? (log.isHistorical() ? "No dungeon runs saved in this scope; recording coverage unknown." : "No dungeon runs recorded. Enable gameplay & diagnostics collection and start capture.")
                 : "Select a dungeon run to inspect its players.")
                 : !loaded ? "Loading player snapshots…"
                 : visit.inspectedPlayers.isEmpty() ? "No player snapshots saved for this run. New captures record player loadouts."
@@ -181,6 +180,7 @@ final class InspectRunsPanel extends JPanel {
 
     private void requestRefresh() {
         if (!isShowing()) return;
+        record.refresh();
         String id = selectedId;
         DiscoveryLog.ActivityRevision known = revision;
         refresh.request(id, () -> log.activityView(ActivityJournal.View.INSPECT, id, known), this::apply,
@@ -193,7 +193,7 @@ final class InspectRunsPanel extends JPanel {
             revision = snapshot.revision;
             loadedId = snapshot.view.selectedVisit;
             selectedId = loadedId;
-            record.setSelected(snapshot.enabled);
+            record.refresh();
             table.clearSelection();
             visits.clear();
             for (int i = snapshot.view.data.visits.size() - 1; i >= 0; i--) {

@@ -22,6 +22,7 @@ public final class DiscoveryLog implements AutoCloseable {
     private boolean activityChanged;
     private long activityGeneration;
     private volatile boolean enabled = true, saveToDisk = true;
+    private boolean historical;
     private long diagnosticsRevision, collectionRevision, diagnosticsCopies;
     private long observedDiskDropped;
     private String observedWriterError = "", observedActivityError = "";
@@ -59,12 +60,14 @@ public final class DiscoveryLog implements AutoCloseable {
         });
     }
     private DiscoveryLog(ActivityJournal.State saved) {
+        historical = true;
         directory = null; activityStore = null; enabled = false; saveToDisk = false;
         activity = new ActivityJournal(saved, false);
     }
     public static DiscoveryLog historyView(ActivityJournal.State saved) { return new DiscoveryLog(saved); }
     public boolean isEnabled() { return enabled; }
     public boolean isSaving() { return saveToDisk; }
+    public boolean isHistorical() { return historical; }
     public synchronized void setEnabled(boolean value) {
         if (enabled != value) { previous.clear(); area++; diagnosticsRevision++; collectionRevision++; activityBoundary("Collection paused / resumed"); checkpoint(); }
         enabled = value;
@@ -347,7 +350,7 @@ public final class DiscoveryLog implements AutoCloseable {
         public final ActivityJournal.State activity;
         public final String activityWriterError;
         public final String runId, exportedAt=Instant.now().toString(), writerError;
-        public final String scope="Passive decoded traffic only. Sampled events; counters include all observed frames while logging is enabled. Not a complete combat recording.";
+        public final String scope="Passive game-traffic diagnostics. Counters include observed frames, including decode failures, while gameplay & diagnostics collection is enabled. Retained events are sampled and bounded; not a complete combat recording.";
         public final long area, total, sampledOut, deltaOmitted, cacheEvictions, observerErrors, diskDropped;
         public final boolean enabled, saving;
         public final int sampleMillis;

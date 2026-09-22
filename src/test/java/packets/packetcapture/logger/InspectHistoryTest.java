@@ -12,6 +12,14 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class InspectHistoryTest {
+    @Test public void unchangedLoadoutsRetainTheirRecordedChangeTime() {
+        ActivityJournal journal = new ActivityJournal();
+        map(journal, "Ice Citadel", 1000);
+        Entity entity = new Entity(null, 7, 0); entity.markPlayerIdentity();
+        assertTrue(journal.inspectPlayer(new InspectSnapshot(entity, 1100)));
+        assertFalse(journal.inspectPlayer(new InspectSnapshot(entity, 1900)));
+        assertEquals(1100, journal.snapshot().visits.get(0).inspectedPlayers.values().iterator().next().observedAt());
+    }
     private static void map(ActivityJournal journal, String name, long time) {
         MapInfoPacket map = new MapInfoPacket(); map.name = name;
         journal.observe(map, PacketType.MAPINFO, "decoded", time, Collections.emptyMap());
