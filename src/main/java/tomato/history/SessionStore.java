@@ -125,20 +125,53 @@ public final class SessionStore implements AutoCloseable {
     /** Called by readers on a worker, never on Swing's event thread. */
     public List<Session> sessions() throws IOException {
         List<Session> result = new ArrayList<>();
+        for (SessionEntry entry : catalog()) if (entry.readable()) result.add(entry.session());
+        return result;
+    }
+    /** Metadata failures belong to one entry, not the entire library. No payloads are loaded. */
+    public List<SessionEntry> catalog() throws IOException {
+        return catalog(new tomato.history.archive.Cancellation());
+    }
+    public List<SessionEntry> catalog(tomato.history.archive.Cancellation cancel) throws IOException {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read history off the EDT");
+        if (Files.exists(root) && !Files.isDirectory(root)) throw new IOException("History location is not a directory");
+        List<SessionEntry> result = new ArrayList<>();
         if (Files.isDirectory(root)) try (DirectoryStream<Path> folders = Files.newDirectoryStream(root)) {
             for (Path folder : folders) {
+                cancel.check();
                 if (!validId(folder.getFileName().toString()) || !Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) continue;
-                Path meta = folder.resolve("session.json");
-                if (!Files.isRegularFile(meta)) continue;
-                Session session = JSON.fromJson(new String(Files.readAllBytes(meta), StandardCharsets.UTF_8), Session.class);
-                if (session == null || session.schemaVersion!=1 || session.label==null || session.version==null
-                        || !folder.getFileName().toString().equals(session.id)) throw new IOException("Invalid session metadata: " + meta);
-                result.add(session);
+                String id = folder.getFileName().toString();
+                try {
+                    Path meta = folder.resolve("session.json");
+                    if (!Files.isRegularFile(meta, LinkOption.NOFOLLOW_LINKS) || Files.size(meta) > 1024 * 1024)
+                        throw new IOException("Missing or oversized metadata");
+                    Session session = JSON.fromJson(new String(Files.readAllBytes(meta), StandardCharsets.UTF_8), Session.class);
+                    if (session == null || session.schemaVersion!=1 || session.label==null || session.version==null
+                            || !id.equals(session.id)) throw new IOException("Invalid metadata");
+                    Set<String> modules = new TreeSet<>();
+                    try (DirectoryStream<Path> files = Files.newDirectoryStream(folder)) {
+                        for (Path file : files) {
+                            String name = file.getFileName().toString();
+                            if (name.endsWith(".jsonl") && Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) modules.add(name.substring(0, name.length()-6));
+                            else if (name.matches("[a-z][a-z-]*") && Files.isDirectory(file, LinkOption.NOFOLLOW_LINKS)) modules.add(name);
+                        }
+                    }
+                    result.add(new SessionEntry(id, session, modules, "", true));
+                } catch (IOException | RuntimeException failure) {
+                    result.add(new SessionEntry(id, null, Collections.emptySet(),
+                            "Session metadata could not be read (" + failure.getClass().getSimpleName() + ").", true));
+                }
             }
         }
-        if (result.stream().noneMatch(s -> s.id.equals(current.id))) result.add(current);
-        result.sort(Comparator.comparingLong((Session s) -> s.started).reversed());
-        return result;
+        if (result.stream().noneMatch(s -> s.id.equals(current.id)))
+            result.add(new SessionEntry(current.id, current, Collections.emptySet(), "", false));
+        result.sort(Comparator.comparingLong((SessionEntry s) -> s.metadata == null ? Long.MIN_VALUE : s.metadata.started)
+                .reversed().thenComparing(s -> s.id));
+        return Collections.unmodifiableList(result);
+    }
+    public tomato.history.archive.ReadSnapshot capture(List<tomato.history.archive.ReadSnapshot.Source> sources,
+            Path scratch, tomato.history.archive.Cancellation cancel) throws IOException {
+        return tomato.history.archive.ReadSnapshot.capture(this, sources, scratch, cancel);
     }
     public <T> void read(String scope, String module, Class<T> type, BiConsumer<Session,T> consumer) throws IOException {
         checkModule(module);
@@ -215,6 +248,22 @@ public final class SessionStore implements AutoCloseable {
         } catch (OverlappingFileLockException e) { throw new IOException("This session is still open.", e); }
         Files.deleteIfExists(path.resolve(".active")); Files.delete(path);
     }
+    public void rename(String id, String label) throws IOException {
+        if (!writable || id.equals(current.id)) throw new IOException("The current session is still recording.");
+        if (label == null || label.length() > 200) throw new IllegalArgumentException("Session label must contain at most 200 characters");
+        Path path=sessionPath(id);
+        try (FileChannel channel=FileChannel.open(path.resolve(".active"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
+             FileLock lock=channel.tryLock()) {
+            if(lock==null)throw new IOException("This session is open in another RealmShark instance.");
+            Path meta=path.resolve("session.json");
+            if(Files.size(meta)>1024*1024)throw new IOException("Oversized session metadata");
+            Session session;JsonObject metadata;
+            try{metadata=JsonParser.parseString(new String(Files.readAllBytes(meta),StandardCharsets.UTF_8)).getAsJsonObject();session=JSON.fromJson(metadata,Session.class);}
+            catch(RuntimeException failure){throw new IOException("Unreadable session metadata",failure);}
+            if(session==null||!id.equals(session.id)||session.schemaVersion!=1)throw new IOException("Invalid session metadata");
+            metadata.addProperty("label",label);atomic(meta,metadata.toString());
+        }catch(OverlappingFileLockException failure){throw new IOException("This session is still open.",failure);}
+    }
     public void flush() throws Exception {
         if (!writable) return;
         worker.submit(() -> { collect(); do { drain(); } while (pending() && error.isEmpty()); }).get(10, TimeUnit.SECONDS);
@@ -247,8 +296,56 @@ public final class SessionStore implements AutoCloseable {
     public static final class Session {
         public int schemaVersion = 1;
         public String id, label, version; public long started, ended;
+        /** Optional evidence; absent in schema-1 histories written before availability tracking. */
+        public Map<String, ModuleAvailability> availability;
         Session(String id, long started, String label, String version) { this.id=id;this.started=started;this.label=label;this.version=version; }
         @Override public String toString() { return (label.isEmpty() ? "Session" : label) + " · " + tomato.gui.modern.DisplayFormat.formatTimestamp(started); }
+    }
+    public static final class ModuleAvailability {
+        public enum State { UNKNOWN, PARTIAL, NOT_CAPTURED }
+        public final int schemaVersion;
+        public final State state;
+        public final String reason;
+        public final Long from, until;
+        public ModuleAvailability(State state, String reason, Long from, Long until) {
+            this.schemaVersion = 1;
+            this.state = Objects.requireNonNull(state); this.reason = Objects.requireNonNull(reason);
+            this.from = from; this.until = until;
+        }
+    }
+    /** Future producers explicitly declare coverage. Merely writing a record never declares completeness. */
+    public CompletionStage<Void> availability(String module, ModuleAvailability evidence) {
+        checkModule(module); Objects.requireNonNull(evidence);
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        if (!writable || closing) { completion.completeExceptionally(new IOException("History is read-only or closed")); return completion; }
+        worker.execute(() -> {
+            try {
+                ensureCurrent();
+                Session next = JSON.fromJson(JSON.toJson(current), Session.class);
+                if (next.availability == null) next.availability = new LinkedHashMap<>();
+                next.availability.put(module, evidence);
+                atomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(next));
+                current.availability = next.availability; completion.complete(null);
+            } catch (Exception failure) { completion.completeExceptionally(failure); }
+        });
+        return completion;
+    }
+    public static final class SessionEntry {
+        public final String id, error;
+        public final Set<String> modules;
+        public final boolean persisted;
+        private final Session metadata;
+        SessionEntry(String id, Session metadata, Set<String> modules, String error, boolean persisted) {
+            this.id = id; this.metadata = metadata == null ? null : JSON.fromJson(JSON.toJson(metadata), Session.class);
+            this.modules = Collections.unmodifiableSet(new TreeSet<>(modules)); this.error = error; this.persisted = persisted;
+        }
+        public boolean readable() { return metadata != null; }
+        public Session session() { return metadata == null ? null : JSON.fromJson(JSON.toJson(metadata), Session.class); }
+        public ModuleAvailability availability(String module) {
+            ModuleAvailability value = metadata == null || metadata.availability == null ? null : metadata.availability.get(module);
+            return value != null && value.schemaVersion == 1 && value.state != null && value.reason != null ? value
+                : new ModuleAvailability(ModuleAvailability.State.UNKNOWN, "Recording coverage unknown", null, null);
+        }
     }
     private static final class Write {
         final String session,module,key; final Object value;
