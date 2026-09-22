@@ -60,3 +60,6 @@ DPS-Recovered/
 /docs/DISCOVERY-FINDINGS-2026-09-08.md
 /docs/INSTANCE-TRANSITION-ANALYSIS-2026-09-12.md
 /docs/INSTANCE-TRANSITION-EVIDENCE-2026-09-12.json
+
+# Local UX execution state, agent worktrees and validation evidence
+/.omc/ux/

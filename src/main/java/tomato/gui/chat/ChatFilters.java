@@ -60,6 +60,7 @@ final class ChatFilters {
     long revision() { return revision; }
     int inheritedCount() { return inherited.size(); }
     boolean ignoresPlayer(String name) { return rules.ignored.contains(playerKey(name)); }
+    boolean ignoresPlayer(ChatMessage message) { return !playerIgnoreReason(rules, message).isEmpty(); }
     void togglePlayer(String name) {
         Settings settings = settings(); String key = playerKey(name);
         if (key.isEmpty() || key.startsWith("#")) return;
@@ -69,8 +70,8 @@ final class ChatFilters {
     String reason(ChatMessage message) {
         Rules r = rules;
         if (message.ownMessage || message.channel == ChatMessage.Channel.SYSTEM) return "";
-        if (r.ignored.contains(playerKey(message.sender))) return "Ignored player: " + message.sender;
-        if (r.settings.gameIgnores && message.gameIgnored) return "In-game ignore observed at receipt";
+        String playerIgnore = playerIgnoreReason(r, message);
+        if (!playerIgnore.isEmpty()) return playerIgnore;
         if (r.allowed.contains(playerKey(message.sender))) return "";
         String text = normalize(message.text);
         for (String phrase : r.phrases) if (text.contains(phrase)) return "Blocked phrase: " + phrase;
@@ -82,6 +83,11 @@ final class ChatFilters {
         if (r.settings.whisperLinks && privateMessage && link) return "Link in whisper";
         if (r.settings.advertisements && link && SALES.matcher(text).find()) return "Possible advertisement: link and sales wording";
         return "";
+    }
+    private static String playerIgnoreReason(Rules rules, ChatMessage message) {
+        if (message.ownMessage || message.channel == ChatMessage.Channel.SYSTEM) return "";
+        if (rules.ignored.contains(playerKey(message.sender))) return "Ignored player: " + message.sender;
+        return rules.settings.gameIgnores && message.gameIgnored ? "In-game ignore observed at receipt" : "";
     }
     static String normalize(String text) {
         String value = Normalizer.normalize(text == null ? "" : text, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);

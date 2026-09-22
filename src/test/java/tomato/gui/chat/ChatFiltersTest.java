@@ -14,6 +14,7 @@ import packets.data.enums.StatType;
 import tomato.backend.TomatoPacketCapture;
 import tomato.backend.data.*;
 import tomato.gui.modern.VioletTheme;
+import ui.UiTestLayout;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
 
@@ -123,6 +124,8 @@ public class ChatFiltersTest {
 
     @Test public void ignoredMessagesAreRetainedButNeverReachAnyChatAlertAndOrdinaryChatStillDoes() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
+            String oldVisibility = PropertiesManager.getProperty(ChatExplorer.SHOW_IGNORED_PLAYERS);
+            PropertiesManager.setProperties(ChatExplorer.SHOW_IGNORED_PLAYERS, "false");
             ChatFilters filters = new ChatFilters(); ChatFilters.Settings s = filters.settings();
             s.ignoredPlayers.add("Blocked"); s.phrases.add("CUSTOM-SPAM"); filters.apply(s, false);
             TomatoData data = new TomatoData();
@@ -135,16 +138,22 @@ public class ChatFiltersTest {
             ChatGUI.save = true;
             try {
             ChatGUI.updateChat(packet("Vendor", "Aster", "Buy at shop.example"));
-            ChatGUI.updateChat(packet("Blocked", "*Guild*", "hi"));
+            ChatGUI.updateChat(packet("Blocked", "*Guild*", "ignored-player-hidden"));
             ChatGUI.updateChat(packet("Other", "*Party*", "custom-spam"));
             player(data, 42, "GameIgnored", "account-a");
             new TomatoPacketCapture(data).packetCapture(accountList(1, -1, "account-a"));
             ChatGUI.updateChat(packet("GameIgnored", "Aster", "hi"));
             assertEquals(0, alerts.get()); assertEquals(0, find(ui, JTable.class, "chat-messages").getRowCount());
+            button(ui, "chat-show-ignored-players").doClick();
+            assertEquals(2, find(ui, JTable.class, "chat-messages").getRowCount());
+            ChatGUI.updateChat(packet("Blocked", "*Guild*", "ignored-player-visible"));
+            assertEquals(0, alerts.get()); assertEquals(3, find(ui, JTable.class, "chat-messages").getRowCount());
+            button(ui, "chat-show-ignored-players").doClick();
+            assertEquals(0, find(ui, JTable.class, "chat-messages").getRowCount());
             ChatGUI.updateChat(packet("Friend", "Aster", "Meet at nexus"));
             assertEquals(1, alerts.get()); assertEquals(1, find(ui, JTable.class, "chat-messages").getRowCount());
             button(ui, "chat-channel-IGNORED").doClick();
-            assertEquals(4, find(ui, JTable.class, "chat-messages").getRowCount());
+            assertEquals(5, find(ui, JTable.class, "chat-messages").getRowCount());
             StringBuilder log = new StringBuilder();
             File[] logs = new File("chat").listFiles((dir, name) -> name.endsWith(".data"));
             assertNotNull(logs);
@@ -153,8 +162,13 @@ public class ChatFiltersTest {
             } catch (java.io.IOException e) { throw new AssertionError(e); }
             assertTrue(log.toString().contains("Buy at shop.example"));
             assertTrue(log.toString().contains("[Ignored:"));
+            assertTrue(log.toString().contains("ignored-player-hidden"));
+            assertTrue(log.toString().contains("ignored-player-visible"));
             assertTrue(log.toString().contains("Meet at nexus"));
-            } finally { ChatGUI.save = oldSave; }
+            } finally {
+                ChatGUI.save = oldSave;
+                PropertiesManager.setProperties(ChatExplorer.SHOW_IGNORED_PLAYERS, oldVisibility == null ? "" : oldVisibility);
+            }
         });
     }
 
@@ -195,6 +209,7 @@ public class ChatFiltersTest {
             JFrame frame = new JFrame("Chat filters - synthetic data");
             try {
                 frame.setContentPane(editor); frame.setSize(660, 600); frame.setVisible(true); frame.validate();
+                UiTestLayout.settle(frame);
                 snapshot(frame, "chat-filter-settings");
                 assertTrue("Editor rectangle: " + find(editor, JTextArea.class, "chat-ignored-players").getVisibleRect(),
                         find(editor, JTextArea.class, "chat-ignored-players").getVisibleRect().height > 90);
@@ -206,8 +221,12 @@ public class ChatFiltersTest {
                 JTable table = find(ui, JTable.class, "chat-messages"); table.setRowSelectionInterval(0, 0);
                 for (int width : new int[]{1060, 500}) {
                     frame.setSize(width, width == 500 ? 600 : 740); frame.validate();
+                    UiTestLayout.settle(frame);
                     assertTrue(table.getVisibleRect().height > 100);
                     assertTrue(button(ui, "chat-channel-IGNORED").getWidth() >= 60);
+                    AbstractButton toggle = button(ui, "chat-show-ignored-players");
+                    assertTrue(toggle.isShowing());
+                    assertEquals(new Rectangle(0, 0, toggle.getWidth(), toggle.getHeight()), toggle.getVisibleRect());
                     snapshot(frame, "chat-ignored-" + width);
                 }
             } finally { frame.dispose(); }
