@@ -37,10 +37,10 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     private JComponent activeView;
     private final HierarchyListener reuseListener=event->{
         Component component=event.getComponent();
-        if((event.getChangeFlags()&HierarchyEvent.PARENT_CHANGED)!=0&&!closed&&!loading&&state.archive
+        if((event.getChangeFlags()&HierarchyEvent.PARENT_CHANGED)!=0&&!closed&&!loading&&!restoring&&state.archive
                 &&activeView!=null&&SwingUtilities.isDescendingFrom(activeView,saved)
                 &&SwingUtilities.isDescendingFrom(component,activeView)&&disabledStates.containsKey(component))
-            restoreEnabled(component);
+            restoreAdoptedSubtree(component);
     };
 
     ArchiveWorkspace(SessionStore store,String name,JComponent live,ArchiveClient<R,F,S> client,ViewStateStore states){
@@ -183,6 +183,16 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         if(component instanceof Container)for(Component child:((Container)component).getComponents())disable(child);
         // UI delegates may disable children when their parent is disabled (e.g. combo arrows).
         component.setEnabled(false);
+    }
+    private void restoreAdoptedSubtree(Component component){
+        // Container delivers child events first. Let the highest tracked ancestor's own
+        // callback restore the subtree; consuming/removing child listeners earlier also
+        // changes listener counts while the JDK is still traversing those descendants.
+        for(Component ancestor=component;ancestor!=activeView;){
+            ancestor=ancestor.getParent();
+            if(ancestor==null||disabledStates.containsKey(ancestor))return;
+        }
+        restoreEnabled(component);
     }
     /** Only the accepted tree (including asynchronously reparented cached details) is reactivated. */
     private void restoreEnabled(Component component){
