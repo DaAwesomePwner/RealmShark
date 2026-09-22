@@ -1,0 +1,500 @@
+# RealmShark UX and data roadmap
+
+**Review date:** 2026-09-21  
+**Scope:** All 14 workspaces, their secondary views, and shared navigation, history, settings, and capture setup.  
+**Method:** Five read-only sub-agent reviews of the current working tree, synthesized into this roadmap and checked against source. This is a product backlog, not a record of implemented changes.
+
+## Executive recommendation
+
+**Make RealmShark a connected investigation and progression tool: find the right evidence, understand what it means, and move directly to the next useful view.**
+
+The app already has a strong foundation: searchable tables, many useful filters, durable session history, equipment inspection, dungeon loot profiles, session comparisons, keyboard controls, and recent compact-layout/accessibility work. The biggest opportunity is the experience between these features.
+
+Five themes stand out:
+
+1. **Make scope predictable.** Users should know whether they are looking at live data, a saved session, all sessions, a page, or a filtered subset. Filters, counts, sorting, and exports should agree.
+2. **Make measurements explain themselves.** Damage share, DPS, loot rates, run counts, estimates, and unknown values need concise definitions and accessible supporting evidence.
+3. **Connect records across modules.** A run should lead to its roster, timeline, resource chart, and observed loot. An item should lead to its occurrences and an alert-rule draft. Navigation should preserve the user's place.
+4. **Add task-oriented filters and comparisons.** Examples: runs with timing gaps, characters needing Life, loot with unused enchant slots, exact-player key contributions, and comparable runs with different loadouts.
+5. **Turn snapshots into plans.** Saved maxing/exalt goals and aggregated quest requirements would make the app useful before the next session as well as afterward.
+
+**Recommended first investment:** shared archive queries and persistent view state, accompanied by small fixes to misleading outcomes, missing-data handling, alert editors, and saved-loot ordering. These unlock more value than another broad visual refresh.
+
+## 1. Review coverage and evidence boundaries
+
+| Review group | Modules and secondary surfaces reviewed |
+| --- | --- |
+| 1 — Social and alerts | Chat and message actions/filters; Key-pops and contributor summaries; Notifications and chat/item/entity/enchantment rule editors; Bridge Review, Settings, and Logs |
+| 2 — Combat | Inspect Current Area, Runs, requirements, equipment details, Ability Use; DPS Meters/Legacy, encounter selection/import/export, Resources & buffs; My Info |
+| 3 — Progression | Characters roster, stat maxing, equipment/inventory, class/account exalts, notes, manual death/restore, pets/feeding; Daily Quests and category labels |
+| 4 — Analytics | Statistics fame graph/table/map breakdown/saved viewer/dungeon counters; all nine Loot tabs, live log, dungeon profiles, session comparisons; Runs; Timeline |
+| 5 — Shared UX | Shell, menus, setup, capture controls, history wrappers/storage, shared tables/formatting/accessibility, settings; all six Logging tabs; cross-module identity feasibility |
+
+Registration is verified in [TomatoGUI.java, lines 76–87](../src/main/java/tomato/gui/TomatoGUI.java#L76-L87); DPS's independent resource-history wrapper is in [DpsGUI.java, lines 119–123](../src/main/java/tomato/gui/dps/DpsGUI.java#L119-L123).
+
+The reviews examined implementation, backing models, documentation, relevant test definitions, and, where available, existing synthetic screenshots. Some screenshots predate current labels/history wrappers; source takes precedence. No fresh interactive usability study, application launch, live capture, network delivery, or test run was performed. Priority and user benefit are product judgments to validate with tasks, not measured user-research results. Current Chat edits were included in the review.
+
+### How to read the backlog
+
+- **P1:** Correct interpretation, reliable task completion, or a high-leverage foundation.
+- **P2:** Substantial workflow or analytical improvement.
+- **P3:** Enrichment after core workflows are coherent.
+- **S / M / L:** Localized UI change / coordinated model-and-UI work / shared architecture or new persistence. These are relative sizes, not calendar estimates.
+- **Existing data:** Implementable from retained fields, potentially with a new query/projection.
+- **New metadata:** Requires additional provenance, IDs, or recording. Historical records cannot automatically acquire missing facts.
+- **Local planning data:** User-authored goals/counts/annotations, stored separately from captured observations.
+
+Observed implementation gaps are described as such. Proposed designs and their expected benefits are recommendations. Validation scenarios below are future acceptance criteria, not tests executed during this review.
+
+## 2. Shared product foundations
+
+These should be shared capabilities rather than fourteen independently designed toolbars.
+
+### UX-01 — One scope and query contract
+
+**P1 · L · Existing data, query infrastructure**
+
+**Observed friction:** The archive search scans a whole selected scope, but structured filters inside paged views operate on the loaded page. Sorting is also page-local. Chat, Key-pops, and Timeline page at 1,000 records; visit views page at 100. Historical Statistics/Loot use different aggregate projections. Users can see no rows even though matching records exist elsewhere.
+
+**Build:** A typed query per module, applied before pagination, returning rows, total matches, ordering, scope, revision, and coverage. Share the query between rows, metrics, and exports. Retain a separately labeled local Find operation if useful. Add date/time bounds, multi-select facets, removable filter chips, Reset, and named saved views.
+
+Example:
+
+```text
+All sessions · Saved data · Sep 14–21 · Local time
+[Dungeon: Lost Halls, The Void] [UT equipment] [Slots ≥ 2] [Clear filters]
+47 matching occurrences · 20 displayed · Sorted by newest
+```
+
+Counts must identify their unit: messages, bags, item occurrences, variants, players, or visits. A dashboard can intentionally show broader totals, but label them separately from matching totals. Relative periods should display their actual ending time rather than silently changing anchors between pages.
+
+**Acceptance:** A structured match beyond record 1,000 appears in the first filtered result page. Sorting applies across all matches. Paging preserves filters. Export all matches agrees with the displayed matching count. Aggregated counters without timestamps state that custom-period filtering is unavailable.
+
+**Evidence:** [HistoryPage.java:16–32](../src/main/java/tomato/gui/history/HistoryPage.java#L16-L32), [SessionPanel.java:58–98](../src/main/java/tomato/gui/history/SessionPanel.java#L58-L98), [HistoricalStatistics.java:83–134](../src/main/java/tomato/gui/stats/HistoricalStatistics.java#L83-L134).
+
+### UX-02 — Contextual navigation and remembered workspaces
+
+**P1 · M for state; L for routing · Existing links plus new metadata for some destinations**
+
+**Observed friction:** The shell selects destinations by index. Showing an archived workspace reloads and reconstructs its inner view, losing local control/selection state. There is no shared Back/context route.
+
+**Build:** Preserve each module's tab, scope, query, sort, selection, column layout, and scroll anchor. Introduce explicit actions such as **Open this run's timeline**, **Inspect recorded build**, and **View item occurrences**, carrying exact references and return state. Ordinary sidebar navigation should preserve independent module scopes. A contextual route should visibly open its requested scope without silently synchronizing every module.
+
+First connect Runs ↔ Inspect Runs ↔ Timeline ↔ Resources, then visit-linked Loot. Add a visible Back action and a context breadcrumb, such as `Saved session → Lost Halls, 20:14 → Resource timeline`.
+
+**Acceptance:** Follow a run from session A into Timeline and return with the original selection and filters intact. A separately selected session B in Chat stays unchanged. Targets outside the first archive page resolve by ID.
+
+**Evidence:** [WorkspaceShell.java:325–337](../src/main/java/tomato/gui/modern/WorkspaceShell.java#L325-L337), [SessionPanel.java:70–101](../src/main/java/tomato/gui/history/SessionPanel.java#L70-L101), [ActivityPanel.java:275–305](../src/main/java/tomato/gui/activity/ActivityPanel.java#L275-L305).
+
+### UX-03 — A common vocabulary for metrics, provenance, and coverage
+
+**P1 · S/M initially; M/L for additional recording**
+
+**Build:** Use consistent badges and explanations: **Captured**, **Estimated**, **Manually recorded**, **Not captured**, **Partial**, and **Unlinked**. Make summary cards keyboard-accessible entry points to their calculation or missing prerequisites. A small Coverage panel should explain observed interval, relevant gaps, retention limits, and why a metric is unavailable.
+
+For rates, show numerator, denominator, interval, and exclusions. For snapshots, distinguish capture/change time from continuous last-seen time. Keep confirmed zero numeric; explain `—` rather than leaving one symbol to represent every failure mode.
+
+Unify capture terminology: **Capture connection**, **Gameplay & diagnostics collection**, **Pause this view**, **Save diagnostic samples**, and **Automatic session history** are different operations. Logging's Collect and Activity's Record currently control the same collector; that shared impact should be visible.
+
+**Acceptance:** A paused display, stopped collector, imported record without loot coverage, and zero observed loot produce four distinct explanations. A resource gap does not become zero uptime. Changing an estimate scenario does not imply a captured condition changed.
+
+**Evidence:** [DiscoveryLog.java:52–75](../src/main/java/packets/packetcapture/logger/DiscoveryLog.java#L52-L75), [ActivityPanel.java:128–133](../src/main/java/tomato/gui/activity/ActivityPanel.java#L128-L133), [HistoricalStatistics.java:136–147](../src/main/java/tomato/gui/stats/HistoricalStatistics.java#L136-L147), [DisplayFormat.java:38–55](../src/main/java/tomato/gui/modern/DisplayFormat.java#L38-L55).
+
+### UX-04 — Exports that declare what they contain
+
+**P1 · M for local exports; L for whole-archive exports · Depends on UX-01**
+
+Offer explicit scopes: **Selected record and linked evidence**, **Matching rows**, **Loaded page**, and **All matches** where supported. Show record count, source sessions, filters, time range, and snapshot revision before export; include them in a manifest/header. Provide CSV for analysis and JSON for structured evidence while retaining `.dps` and existing formats.
+
+Resolve current differences: Activity exports its displayed revision without applying inner filters; Logging exports fresh diagnostics even when its display is frozen; paged exports contain loaded records. Saved Runs needs a linked-event query to export its timeline. Statistics and Loot need discoverable analytical exports. Report partial batch success per file, extend the existing collision-safe `.dps` publishing behavior to exporters that lack it, and offer Open folder.
+
+**Acceptance:** A frozen-view export and a current-diagnostics export identify different revisions. A selected saved-run export includes that run's linked events only. Two same-second exports both survive. All-match exports work without loading the entire archive into Swing tables.
+
+**Evidence:** [LoggingGUI.java:223–247](../src/main/java/tomato/gui/logging/LoggingGUI.java#L223-L247), [ActivityPanel.java:367–385](../src/main/java/tomato/gui/activity/ActivityPanel.java#L367-L385), [ParsePanelGUI.java:604–621](../src/main/java/tomato/gui/security/ParsePanelGUI.java#L604-L621), [DungeonListGUI.java:142–178](../src/main/java/tomato/gui/dps/DungeonListGUI.java#L142-L178).
+
+### UX-05 — A history library that scales beyond a dropdown
+
+**P2 · M · Existing metadata/cached summaries for presence and counts; new metadata for recording coverage**
+
+Add a shared searchable history manager with date, user label, build, active/imported state, available modules, and storage health. Keep compact recent-session pickers in each workspace. Move archive-management actions into the library while retaining discoverable shortcuts.
+
+Isolate unreadable session metadata instead of allowing one malformed session to block healthy history enumeration. Keep protected active sessions, deletion confirmation, and idempotent imports. Record per-module collection availability for future sessions to distinguish an unrecorded module from an empty recorded one. For older sessions, say **No saved records; recording coverage unknown** unless explicit evidence, such as a known run-only import, establishes otherwise.
+
+**Acceptance:** With 500 sessions and one malformed metadata file, healthy sessions remain searchable. The affected entry explains its read failure. Returning to the library preserves the selected session.
+
+**Evidence:** [SessionStore.java:125–141,189–216](../src/main/java/tomato/history/SessionStore.java#L125-L141), [SessionPanel.java:43–55](../src/main/java/tomato/gui/history/SessionPanel.java#L43-L55).
+
+### UX-06 — Recoverable setup and capture readiness
+
+**P1 · M · Existing startup/capture signals**
+
+Open a usable shell with an actionable setup card: assets missing, Npcap unavailable, capture stopped, waiting for connection, or receiving data. Provide Choose assets, Retry, and saved-history browsing. Put reconnect guidance beside the state that needs it.
+
+The review found a concrete missing-assets path: `assetFile()` can return null before `lastEdited()` dereferences it, preceding the intended picker. The active missing-Npcap dialog exits the app on Close. Reproduce these paths during implementation and make recovery possible without abandoning history.
+
+**Acceptance:** Missing assets or Npcap leave a keyboard-accessible recovery path and usable saved-history browsing. The setup card distinguishes no connection from no matching records.
+
+**Evidence:** [AssetExtractor.java:100–110,304–328](../src/main/java/assets/AssetExtractor.java#L100-L110), [Tomato.java:148–178](../src/main/java/tomato/Tomato.java#L148-L178), [active MissingNpcapGUI.java:53–86](../src/main/java/packets/packetcapture/sniff/gui/MissingNpcapGUI.java#L53-L86). An unused duplicate warning class was present during the original review and removed during baseline preparation with user approval.
+
+### UX-07 — Reusable table, detail, and empty-state behavior
+
+**P2 · M · Existing data**
+
+Build on ContentStyle: saved column presets, visible Reset, typed sorting, accessible table names, Copy selected, keyboard detail actions, and selection stability. Put high-value columns first on compact screens; let users opt into technical columns. Use a consistent selected-record detail area with full values rather than relying on tooltips.
+
+Differentiate **No data yet**, **No matches**, **Not observed**, **History read failed**, and **Collection paused**. A saved-view empty state should not tell users to start capture. Validate full values and actions at 680×520, enlarged text, and 150%/200% scaling.
+
+**Acceptance:** Keyboard-only users can identify the table, inspect/copy a truncated value, clear filters, and return without losing selection. Screen-reader checks expose empty-state explanations, including custom-painted components.
+
+**Evidence:** [ContentStyle.java:251–308](../src/main/java/tomato/gui/modern/ContentStyle.java#L251-L308), [HistoryTables.java:13–25](../src/main/java/tomato/gui/history/HistoryTables.java#L13-L25), [EmptyLogArea.java:6–23](../src/main/java/tomato/gui/modern/EmptyLogArea.java#L6-L23).
+
+### UX-08 — Searchable settings and actions
+
+**P3 · M · Existing settings infrastructure**
+
+Provide a searchable entry point for Appearance, Capture, History, Notifications, and Sharing, linking to existing editors. A lightweight command search could also locate workspace actions such as Export selected run or Create item alert. Explain which settings persist in the app folder versus the user-level history directory, and whether preview changes persist.
+
+Consider optional navigation groups — **Live**, **Review**, **Plan**, **Tools** — only after testing findability with users. Preserve direct workspace access and shortcuts.
+
+**Acceptance:** Searching “font,” “history location,” or “item alert” reaches the appropriate control without knowledge of the menu hierarchy.
+
+**Evidence:** [TomatoMenuBar.java:53–328](../src/main/java/tomato/gui/maingui/TomatoMenuBar.java#L53-L328), [PropertiesManager.java:16–27](../src/main/java/util/PropertiesManager.java#L16-L27).
+
+## 3. Module-by-module opportunities
+
+### 3.1 Chat
+
+**Keep:** Channels, PM direction, literal search, player filters, persistent stars, full-message details, filtered export, reading-position preservation, and the current Show ignored players behavior with silent ignored messages.
+
+- **CHAT-1 — Shared filter policy [P1/M, existing data].** Historical pages load their own filter objects; edits can diverge from the live filter/alert gate. Publish rule changes to every view and expose the difference between current local rules and an in-game ignore observed at receipt. **Done when:** ignoring a sender in history immediately affects live classification and alert suppression, and unignore works without restart.
+- **CHAT-2 — Unseen arrivals while reading [P2/S, existing data].** Add `7 new matching messages · Jump to latest` when Follow releases. Count against current channel/player/search filters and preserve the reading position. **Done when:** unrelated incoming messages do not inflate the badge and keyboard activation returns to latest.
+- **CHAT-3 — Saved conversation views [P2/M, UX-01/02].** Named views such as Guild mentions, Starred PMs, or Party planning; channel/player/star/time filters apply across history. Add Create alert from this message and return to the same row. **Done when:** starred messages beyond page one remain discoverable and an alert-rule draft carries its sample without enabling itself.
+
+**Evidence:** [ChatGUI.java:24–69,149–198](../src/main/java/tomato/gui/chat/ChatGUI.java#L24-L69), [ChatExplorer.java:203–280,390–440,508–544](../src/main/java/tomato/gui/chat/ChatExplorer.java#L203-L280), [CHAT.md](CHAT.md).
+
+### 3.2 Key-pops
+
+**Keep:** Events, By player, By dungeon/item, type/item/time filters, numeric aggregates, keyboard contributor drill-down, CSV, and the distinction between observed pops and portal callouts.
+
+- **KEY-1 — Exact contributor drill-down [P1/S, existing data].** Use a `Player equals Ann` chip instead of inserting Ann into general substring search. **Done when:** Ann's report excludes Anna without hiding general name search.
+- **KEY-2 — Comparable contribution reports [P2/M, UX-01/04].** Add absolute periods, multi-item/type facets, and explicit Export events / Export current summary, including in historical views. Label shares and whether the denominator includes callouts. **Done when:** selected summary counts match the exported report across all saved matches.
+- **KEY-3 — Dungeon notification handoff [P2/S/M, UX-02].** Open the selected dungeon in Notifications with current selection visible; show unresolved names rather than guessing a mapping. **Done when:** returning restores the contributor report and no notification choice changes before an explicit action.
+
+**Evidence:** [KeyPopDashboard.java:148–203,212–237](../src/main/java/tomato/gui/keypop/KeyPopDashboard.java#L148-L203), [KeypopGUI.java:33–39,66–83](../src/main/java/tomato/gui/keypop/KeypopGUI.java#L33-L83), [KEY-POPS.md](KEY-POPS.md).
+
+### 3.3 Inspect
+
+**Keep:** Sortable current/saved rosters, class and mode, full equipment/stat details, requirements presets, copy/export actions, damage/DPS, and evidence-based run outcomes.
+
+- **INS-1 — Visible requirements results [P1/M, existing rules].** Add Pass / Below requirements / Unknown with expandable reasons. Add class, guild, mode, maxed-stat range, and requirement-result facets. Keep copy restrictions independent of display filtering. **Done when:** a fully qualifying, under-tier, and uncaptured build land in distinct buckets; unknown definitions do not count as a pass.
+- **INS-2 — Recorded-build provenance [P1/M, some new metadata].** Show source session/run, last recorded loadout, field completeness, and correctly labeled observation/change time. Uncaptured mode/stats remain unknown. **Done when:** opening an old build cannot substitute a live namesake or present dialog-open time as historical capture time.
+- **INS-3 — Baseline build/run comparison [P2/M, UX-02].** Pin two recorded builds and compare equipment, base stats, outcome, damage, and DPS duration. Show class changes and missing fields. **Done when:** a DPS difference includes both time windows and never attributes the difference to gear automatically.
+- **INS-4 — Structured ability activity [P2/M, new event model].** Replace the hard-to-filter text log with time/player/ability/evidence rows and label current stasis/decoy/mana heuristics as inferred. **Done when:** users can search one player's retained observations without interpreting the list as a complete successful-cast ledger.
+
+**Evidence:** [SecurityFilter.java:51–102](../src/main/java/tomato/gui/security/SecurityFilter.java#L51-L102), [ParsePanelGUI.java:277–345,489–507,568–623](../src/main/java/tomato/gui/security/ParsePanelGUI.java#L277-L345), [InspectRunsPanel.java:32–179](../src/main/java/tomato/gui/security/InspectRunsPanel.java#L32-L179), [SecurityAbilityUseCheck.java:35–115](../src/main/java/tomato/backend/SecurityAbilityUseCheck.java#L35-L115).
+
+### 3.4 Characters
+
+**Keep:** Account-qualified character keys, retained roster, partial-stat handling, maxing deficits, reversible manual death marks, notes, account/class exalts, and pet feeding estimates.
+
+- **CHAR-1 — Freshness and life-state clarity [P1/M, new field provenance].** Label Last observed alive versus Marked dead manually; show snapshot age/completeness and a restore prompt when a marked-dead character is observed again. Preserve absent metadata instead of turning it into zero/Regular. **Done when:** a partial refresh cannot make old equipment appear freshly observed or silently overwrite a preserved dead snapshot.
+- **CHAR-2 — Task-oriented roster [P1/M, existing data].** Add account/class, Needs Life, Missing stats, maxed-count range, observation age, and numeric Potions remaining. Search known equipment by ID as well as resolved name; distinguish no roster from no matches. **Done when:** Account A + Seasonal + Needs Life returns known matching records, with unknowns separately discoverable.
+- **CHAR-3 — Maxing and exalt goals [P2/M, local planning data].** Pin target stats and next exalt thresholds; show required standard-potion equivalents, near-complete goals, and relevant dungeons from versioned local metadata. Retain a detailed table alongside an optional class-by-stat matrix. **Done when:** a Life deficit of 16 means four standard potions; missing caps remain unknown; observed loot never becomes owned stock.
+- **CHAR-4 — Equipment and manual death review [P2/L, new snapshots/annotations].** Group Equipped / Inventory / Backpack and Occupied / Empty / Not captured. Reuse keyboard equipment details. Add optional death occurrence time, notes, and a user-selected run link, distinct from when the mark was made. **Done when:** a historical loadout stays unchanged and an ambiguous final run requires explicit selection.
+- **CHAR-5 — Trustworthy pet planner [P1/M, presence metadata].** Show pet identity, current account/session, equipped state, next-level items/fame, and calculation inputs inline. Missing ability points cannot mean Fully fed; unsupported cost tiers cannot produce negative costs. Offer an item feed-power selector with manual override. **Done when:** incomplete data produces a useful unavailable reason, with all details keyboard-readable.
+
+**Evidence:** [CharacterJournalGUI.java:47–170,192–275](../src/main/java/tomato/gui/character/CharacterJournalGUI.java#L47-L170), [CharacterJournal.java:90–171,193–273](../src/main/java/tomato/backend/data/CharacterJournal.java#L90-L171), [CharacterPetsGUI.java:136–274](../src/main/java/tomato/gui/character/CharacterPetsGUI.java#L136-L274), [exaltationConfig.xml:47–95](../assets/xml/exaltationConfig.xml#L47-L95).
+
+### 3.5 Statistics
+
+**Keep:** Live fame ranges/gain view, character and map tables, dungeon/enemy/item-by-source drill-down, saved fame, session comparisons, and dungeon loot profiles.
+
+- **STAT-1 — Explain and reconcile counters [P1/M, existing data].** Distinguish activity-recorded exits/finalized time from Runs' observed visits. Normalize verified dungeon aliases in presentation and expose ongoing contributions. Keep enemy counts labeled hit events. Add metric details for loot rates and display run-only imports as loot not recorded. **Done when:** a zero-activity run or ongoing visit explains why two totals differ.
+- **STAT-2 — Live/saved fame parity [P2/M/L, map linkage requires new metadata].** Reuse range, character, gain/total controls in saved exploration. Pin intervals by timestamps; provide keyboard endpoints and a text delta. **Done when:** pointer movement and new samples do not clear a pinned interval; saved histories without map association say Not recorded.
+- **STAT-3 — Controlled A/B session analysis [P2/L, UX-01/03].** Extend existing comparisons with baseline/candidate selection, same-dungeon/outcome/coverage cohorts, absolute/rate deltas, denominator sizes, and per-run distributions. **Done when:** ten runs versus two show both totals and per-run rates; a zero baseline has no invented percentage change.
+
+**Evidence:** [DungeonStatData.java:55–106,228–236](../src/main/java/tomato/backend/data/DungeonStatData.java#L55-L106), [HistoricalStatistics.java:43–147](../src/main/java/tomato/gui/stats/HistoricalStatistics.java#L43-L147), [GraphPanel.java:31–42,116–122](../src/main/java/tomato/gui/stats/GraphPanel.java#L31-L42), [FameSessionViewer.java:54–78](../src/main/java/tomato/gui/stats/session/FameSessionViewer.java#L54-L78).
+
+### 3.6 Daily Quests
+
+**Keep:** Literal search, type/reward filters, numeric quantities, pins, completion visibility, category labeling, aggregated requirements, and choice-reward semantics.
+
+- **QUEST-1 — Account and freshness context [P1/M, new metadata].** Show captured-for account/time and stale status. Reject late updates from a previous account/capture generation. Decide whether pins are global interests or account-specific plans. **Done when:** switching accounts cannot present the old list as current for the new account. Redemption success alone does not mark an arbitrary row complete.
+- **QUEST-2 — Better quest comparisons [P2/M, mostly existing fields].** Add Repeatable / One-time, Choose-one / All rewards, requirement-item facets, quantity bounds, and expiration availability. Search stable IDs. Keep raw category IDs alongside ambiguous custom labels. **Done when:** unknown expiration formats stay visible and unsorted into a fabricated deadline; missing requirements do not imply a free turn-in.
+- **QUEST-3 — Pinned requirements plan [P2/L, local planning data].** Aggregate quantities for selected quests and intended repeats. Initially show required totals; optionally add timestamped Manually confirmed held quantities with reservations. Keep choice rewards separate. **Done when:** requirements of two plus three total five, four manual items leave one remaining, and an observed drop changes neither readiness nor owned count.
+
+**Evidence:** [QuestGUI.java:208–310,335–435,502–530](../src/main/java/tomato/gui/quest/QuestGUI.java#L208-L310), [TomatoPacketCapture.java:119–128](../src/main/java/tomato/backend/TomatoPacketCapture.java#L119-L128), [QuestRedeemResponsePacket.java:9–22](../src/main/java/packets/incoming/QuestRedeemResponsePacket.java#L9-L22).
+
+### 3.7 My Info
+
+**Keep:** Captured stats/equipment, theoretical weapon DPS, pet/recovery estimates, dust details, search/categories, and explicit estimate caveats.
+
+- **INFO-1 — Actionable estimate cards [P1/S/M, existing data].** Activating a card opens its components, assumptions, and missing inputs. Relabel Out of combat as Estimate scenario: out of combat. Add Captured / Estimated / Unavailable facets. **Done when:** an unavailable MP/sec card immediately explains unknown pet metadata or incomplete equipment data.
+- **INFO-2 — Estimate versus observed workflow [P2/M, COMBAT-3 identity dependency].** Open a selected linked encounter's verified local-player row from a current estimate, keeping current-build assumptions distinct from historical recorded DPS. **Done when:** users see the relevant scope/window and cannot mistake a current build estimate for the historical build.
+
+**Evidence:** [MyInfoGUI.java:353–473,550–676](../src/main/java/tomato/gui/myinfo/MyInfoGUI.java#L353-L473), [TomatoData.java:85–138](../src/main/java/tomato/backend/data/TomatoData.java#L85-L138).
+
+### 3.8 DPS Logger and Resources & buffs
+
+**Keep:** Multiple outgoing/incoming metrics, enemy/player/class filters, historical filter context, pinned equipment inspection, Legacy reports, `.dps` exchange, background I/O, and coverage-aware keyboard-accessible resource charts.
+
+- **COMBAT-1 — Explicit metric populations and pause state [P1/M, existing data].** Distinguish Recorded damage share from Legacy's % enemy max HP; retain the existing DPS duration display and make its window definition consistent across views. Label incoming rankings as among represented contributors, preserving existing unavailable-versus-zero handling. Align or clearly document boundary-time treatment. Show paused source/time and resume immediately. **Done when:** 200 damage of 400 recorded against 1,000 HP reads 50% recorded share and 20% max HP; filtering another player changes neither denominator.
+- **COMBAT-2 — Searchable encounter library [P1/M, new import provenance].** Add entered time, elapsed duration, contributors, damage, source file, and local-context availability. Preserve export checks through sorting and offer View imported encounter. **Done when:** twenty identically named encounters are distinguishable without trial-and-error opening.
+- **COMBAT-3 — Encounter-to-visit links [P2/L, new IDs].** Record optional app-session/visit references in new encounters, preserving old file compatibility. Offer Open roster / Timeline / Resources only for verified links; ambiguous imports remain unlinked. **Done when:** consecutive same-dungeon visits never open each other's evidence.
+- **COMBAT-4 — Event and loadout explorer [P2/M, existing retained events; new metadata for victim loadouts].** Make events beyond the latest-500 text display reachable in a paged table. Filter time, amount, item/source, and supported event flags. Inspect the damage owner's event-time equipment only where the event retained it, separately from last-recorded gear. Incoming hits do not generally record the victim's equipment-at-hit; show Not captured unless an explicit snapshot exists. **Done when:** event 1 of 1,200 is findable, an outgoing event's retained weapon-swap snapshot is correct, and absent incoming-hit victim gear remains unavailable.
+- **COMBAT-5 — Selected-window resource analysis [P2/M, existing samples].** Separate raw HP/MP plots; select a time interval by mouse or keyboard; show window extrema and active/observed/unknown duration. Allow zero-active condition lanes and Timeline handoff around a sample. **Done when:** two active seconds in four observed seconds of a ten-second window show 50% observed uptime and six seconds unknown. Percentage-of-max requires future per-sample maxima.
+
+**Evidence:** [CombatMeterData.java:28–64](../src/main/java/tomato/gui/dps/CombatMeterData.java#L28-L64), [MeterDpsGUI.java:156–291](../src/main/java/tomato/gui/dps/MeterDpsGUI.java#L156-L291), [DpsToString.java:122–199](../src/main/java/tomato/gui/dps/DpsToString.java#L122-L199), [DungeonListGUI.java:66–178](../src/main/java/tomato/gui/dps/DungeonListGUI.java#L66-L178), [DpsData.java:17–47](../src/main/java/tomato/backend/data/DpsData.java#L17-L47), [CombatTimelineChart.java:24–180](../src/main/java/tomato/gui/activity/CombatTimelineChart.java#L24-L180).
+
+### 3.9 Loot
+
+**Keep:** All Items, Stat Potions, Whites, By Bag, Recent Drops, By Dungeon, UTs, STs, Tiered, enchant-count variants, dungeon profiles, and zero-loot runs in eligible rate denominators.
+
+- **LOOT-1 — Correct global recency and deep history search [P1/M, existing journals].** Archive reading visits newest sessions first, but prepending every record into a capped recent deque lets older sessions displace newer drops. Select globally newest records by timestamp with a stable tie-breaker. Provide all-history occurrence search beyond the 1,000-bag recent window. **Done when:** two 1,100-drop sessions return the globally newest 1,000, and older matching items remain discoverable.
+- **LOOT-2 — Composable facets and honest counts [P2/M, UX-01].** Multi-select dungeons/bags, rarity, tier, unlocked slots, applied-enchant count, and Unknown. Show matching occurrences, variant rows, and broader scoped items separately. Add compact column presets. **Done when:** UT + slots ≥ 2 + applied = 0 finds unused-slot variants and never treats unknown as zero.
+- **LOOT-3 — Item occurrences and calculation details [P2/M, UX-02/03].** Open an item variant's contributing dungeons/bags, then its exact linked run. From a dungeon rate, show numerator, eligible runs, zero-loot runs, duration, exclusions, and unassigned drops. **Done when:** an unavailable rate explains why; three items across two eligible one-minute runs, one with no loot, yield 1.5/run and 90/hour.
+- **LOOT-4 — Durable drop-time context [P3/L, new optional fields].** Retain exact enchant IDs and selected already-observed boost/modifier/context fields for future drops. Keep aggregate count grouping with occurrence-level details. **Done when:** equal-count variants with different effects are inspectable individually; older records explicitly lack those fields.
+
+**Evidence:** [SessionStore.java:126–158](../src/main/java/tomato/history/SessionStore.java#L126-L158), [LootDashboard.java:157–168,228–325](../src/main/java/tomato/gui/stats/LootDashboard.java#L157-L168), [HistoricalStatistics.java:43–59,136–147](../src/main/java/tomato/gui/stats/HistoricalStatistics.java#L43-L59), [LootGUI.java:436–468,554–618](../src/main/java/tomato/gui/stats/LootGUI.java#L436-L468).
+
+### 3.10 Logging
+
+**Keep:** Discovery, Re-entry trace, Packets, Stat explorer, Event samples, Field catalog, typed sorting, details, freeze, bounded collection, and background diagnostic export.
+
+- **LOG-1 — Connected diagnostic drill-down [P2/M, existing retained samples].** Packet → samples → field definition; stat → object/area deltas. Add contextual facets for packet, stat, object, area, outcome, and changed values. Use stable packet-plus-field keys. **Done when:** the third field of a packet stays selected through refresh and matching nested stat samples can be found without manually searching JSON.
+- **LOG-2 — Coverage and actionable errors [P1/M, UX-03; some new counters].** Surface retained interval, sampling, decode failures, omitted fields, disk drops, and collection state separately. Explain which gameplay views are affected. **Done when:** a collection pause, decode failure, and retention eviction have distinct explanations; retained samples never claim complete history.
+- **LOG-3 — Scope-aware controls and details [P2/S/M, UX-04/07].** Show packet-only controls only where relevant; provide matching/retained counts, accessible table names, full timestamp details, and an explicit current-versus-frozen export choice. **Done when:** keyboard users can inspect and copy a full event and identify the report revision.
+
+**Evidence:** [LoggingGUI.java:59–79,142–247,314–380](../src/main/java/tomato/gui/logging/LoggingGUI.java#L59-L79), [DiscoveryLog.java:159–225,314–363](../src/main/java/packets/packetcapture/logger/DiscoveryLog.java#L159-L225).
+
+### 3.11 Runs
+
+**Keep:** Visit history, sortable durations, damage/DPS, completion evidence, and selected-run details.
+
+- **RUN-1 — Review-queue filters [P2/M, existing fields].** Outcome, evidence source, duration range, capture issues, and timing gaps; saved presets such as Completed with gaps or Long unconfirmed visits. Default compact columns: dungeon, entered, duration, outcome, coverage. **Done when:** outcome is visible at compact width and Left-unconfirmed is never renamed Failed.
+- **RUN-2 — Run workbench [P2/M, UX-02/03].** Group details into Outcome, Timing/coverage, Progression, and Related evidence, with actions to Inspect, Timeline, Resources, and Loot. **Done when:** one selected visit opens exact linked evidence and Back restores the review queue.
+
+**Evidence:** [ActivityPanel.java:81–137,279–305,333–344](../src/main/java/tomato/gui/activity/ActivityPanel.java#L81-L137), [ActivityJournal.java:649–675](../src/main/java/packets/packetcapture/logger/ActivityJournal.java#L649-L675).
+
+### 3.12 Timeline
+
+**Keep:** Visit/type/text filters, event detail, freeze, history, and JSON export.
+
+- **TIME-1 — Human-readable change summaries [P2/M, existing event fields].** Explain area entry, equipment changes, resource requests, and progression before exposing raw JSON. Add multi-type selection, Assigned / Unassigned, matching/loaded counts, and scope-appropriate empty states. **Done when:** Area entered is meaningful without opening `{}`, and unassigned events stay unassigned.
+- **TIME-2 — Windowed investigation [P2/M, UX-01/02].** Open around a resource sample or selected run event, with adjustable time bounds and linked outcome evidence. Mark delayed counter confirmation as observed later rather than moving it to an invented completion time. **Done when:** a ±30-second route reproduces the same events in the table and export.
+
+**Evidence:** [ActivityPanel.java:54,286–289,317–365](../src/main/java/tomato/gui/activity/ActivityPanel.java#L317-L365), [ActivityJournal.java:312–350](../src/main/java/packets/packetcapture/logger/ActivityJournal.java#L312-L350).
+
+### 3.13 Bridge Review
+
+**Keep:** Local review, explicit delivery outcomes, redacted payload details, searchable logs, category selection, asynchronous validation, and visible uncertain responses.
+
+- **BRIDGE-1 — Outcome clarity [P1/M, existing responses plus lifetime buckets].** Split Confirmed logged, Received—unconfirmed, Not logged, Local/excluded, and Failed/uncertain. The current Accepted counter includes some successful HTTP responses that are Not logged, and Accepted/Logged share positive styling. Label lifetime versus shown counts. **Done when:** `logged=true`, `logged=false`, and unrecognized successful responses occupy distinct buckets.
+- **BRIDGE-2 — Searchable reasons and next steps [P1/M, existing details].** Index reason codes, item IDs, and enchants; add character/dungeon/outcome facets. Structure details as observation → local choice → bot result → next step. **Done when:** searching `unmapped_character` finds the relevant review row and explains the mapping action.
+- **BRIDGE-3 — Draft versus active settings [P2/M, existing configuration].** Show unsaved changes, active mode/catalog, Revert, inline validation, and the actual confirmation result. **Done when:** a failed save clearly leaves the previous configuration active while retaining the editable draft.
+- **BRIDGE-4 — Saved review history [P2/L, new reader/versioned persistence].** Start with opening an explicitly selected review journal, then add session-aware retained review. Distinguish historical evidence from delivery controls. **Done when:** reopening a synthetic journal restores outcomes and exports without sending anything; records never journaled are not implied to exist.
+
+**Evidence:** [BridgeReviewGUI.java:41–187](../src/main/java/tomato/gui/bridge/BridgeReviewGUI.java#L41-L187), [BridgeService.java:103–118,145–203](../src/main/java/tomato/bridge/BridgeService.java#L103-L118), [BridgeStorage.java:31–35](../src/main/java/tomato/bridge/BridgeStorage.java#L31-L35).
+
+### 3.14 Notifications
+
+**Keep:** Category profiles, master volume/mute, custom WAVs, explicit sound Test, dungeon shown-selection controls, realm-event cooldowns, searchable enchant groups, and local alerts independent of sharing.
+
+- **ALERT-1 — Predictable editing [P1/M, existing save infrastructure].** Distinguish automatic settings from draft rule edits. Opening an editor should be silent; use Test for playback. Reuse the enchant editor's existing asynchronous save/failure pattern in editors that close before saving; keep drafts editable, with Cancel and Retry. **Done when:** opening every editor produces no audio, and a failed save preserves editable input.
+- **ALERT-2 — Explainable typed matching [P1/M, schema migration].** Offer Name contains, Exact item ID, Exact entity type, and clear chat match modes, plus a silent sample matcher explaining why it matched. Preserve existing substring/token rules during migration. **Done when:** exact ID 42 does not match 142, and punctuation behavior is explained for chat tokens.
+- **ALERT-3 — Consistent bulk-selection scope [P1/S, existing state].** Enchant controls should mirror dungeon controls: Select shown / Clear shown, selected-outside-search count, selected-only view, and explicitly labeled all-catalog operations. **Done when:** clearing filtered results preserves hidden selections.
+- **ALERT-4 — Recent alert decisions [P2/M, new instrumentation].** Bounded history of matched rule, precedence, cooldown/mute/ignore suppression, playback outcome, and Edit rule action. **Done when:** users can distinguish No match, Matched but muted, and Playback unavailable without replaying the event.
+
+**Evidence:** [NotificationsGUI.java:38–109,182–236](../src/main/java/tomato/gui/notifications/NotificationsGUI.java#L38-L109), [CustomListGUI.java:127–166](../src/main/java/tomato/gui/maingui/CustomListGUI.java#L127-L166), [EnchantPingGUI.java:76–140,251–285](../src/main/java/tomato/gui/maingui/EnchantPingGUI.java#L76-L140), [Sound.java:78–130](../src/main/java/tomato/realmshark/Sound.java#L78-L130).
+
+## 4. Cross-module experiences worth building
+
+### A. Post-run debrief — first flagship workflow
+
+**Runs → Inspect → Timeline/Resources → Loot → optional linked DPS**
+
+```text
+Lost Halls · Sep 21, 20:14 · Saved session
+Completed: counter evidence | Observed span: 7m 42s | Coverage: partial
+
+Overview | Recorded players | Timeline | Local resources | Observed loot
+Open linked combat recording                         Back to run list
+```
+
+This is a coordinated selected-run experience built on existing screens. Show the evidence behind completion, resource gaps, recorded builds, and every linked bag, including a genuine zero-loot run. DPS integration follows only after encounter linkage exists.
+
+**References carried:** source session, exact visit ID, optional scoped player/event reference, time interval, destination query, return state.  
+**Value to validate:** time and navigation steps required to explain one unusual run.
+
+### B. Investigate a loot-rate change
+
+**Dungeon profile → comparable run cohort → contributing runs → item occurrences**
+
+Pin a baseline and candidate period. Compare the same dungeon/outcome/coverage rules, show sample sizes and exclusions, then inspect differences. Keep zero-loot runs visible and separate unassigned drops. Avoid interpreting small samples as true drop probabilities.
+
+**References carried:** session set, canonical dungeon, resolved period, cohort filters, metric, exact visit/drop references where available.  
+**Value to validate:** whether users can identify the denominator and explain a rate difference without manual exports.
+
+### C. Understand a combat moment
+
+**DPS event → verified linked local resource window → surrounding Timeline → retained event equipment, where available**
+
+Select an incoming event and inspect a short interval. State that resources describe the local player, not an arbitrary remote row. Keep last-recorded gear separate from the damage owner's equipment retained on supported events. The local victim's gear at an incoming hit is generally not recorded; a visit link cannot establish it. Capturing victim loadouts would be additional instrumentation.
+
+**References carried:** encounter, linked visit, verified local identity, event time/window, selected metric, source snapshot.  
+**Dependency:** COMBAT-3; unlinked recordings must explain the unavailable handoff.
+
+### D. Plan the next session
+
+**Characters / Daily Quests → pinned goals → relevant historical evidence → Notifications**
+
+Combine a character's maxing/exalt goal with selected quest requirements. Show what is required, optionally what the user manually confirmed holding, and which existing records are relevant. Offer alert-rule drafts for desired items. Update progression from new captured stats/quest lists, not from observing a drop.
+
+**References carried:** verified account/character key where available, goal/quest IDs, snapshot timestamp, item/stat IDs, quantity provenance, return state.  
+**Dependency:** account-safe quest snapshots and explicit local planning storage. Requirement-to-dungeon suggestions need verified mapping data.
+
+### E. Explain or create an alert
+
+**Chat message / Loot occurrence / Bridge review → rule draft → silent match preview → Notifications**
+
+Seed a draft from selected evidence, explain matching semantics, test sound explicitly, and return to the original record. Recent alert decisions answer why the next observation did or did not play.
+
+**References carried:** source session/event reference when available, item/enchant IDs or sample message, draft match mode, return state.  
+**Value to validate:** whether users can configure and diagnose an alert without trial-and-error live events.
+
+## 5. Identity and data prerequisites
+
+Implement narrow, typed links before a universal player/item profile.
+
+| Relationship | Available today | Roadmap rule |
+| --- | --- | --- |
+| Session → archived record | Store readers supply session identity; some projections discard it | Retain origin session in projected rows and routes |
+| Visit → Timeline, resources, Inspect builds | Explicit visit IDs or data stored inside a visit | First exact cross-module links |
+| Visit → Loot | Saved drops carry visit ID; profiles already join session + visit with dungeon agreement | Reuse exact join; keep unassigned drops accessible |
+| DPS encounter → visit | Encounter has map/time/context but no persisted visit link | Add optional capture-time association; do not silently join by name/time |
+| Inspect player → account character | Normalized name or anonymous object ID is an observed, scoped key | Never treat name matching as verified account identity |
+| Character journal → fame history | Journal uses account key + character ID; fame lacks that account key | Add verified provenance for future records; session alone does not solve account switches |
+| Chat/Key-pop player → Inspect | Names exist; verified player/visit relationships are absent | Offer labeled name searches, not asserted identity links |
+| Loot occurrence → Bridge review | No common persisted occurrence ID; Bridge IDs are service-local | Introduce shared local drop-event identity for future observations |
+| Diagnostics → gameplay visit | Diagnostic run/area identifiers differ from app-session/visit IDs | Record explicit mapping before linking precise diagnostics |
+| Resource samples → percentage maxima / healing sources | Samples lack historical max HP/MP and source attribution | Retain raw units; additional capture is a separate feature |
+
+**Evidence:** [HistoryPage.java:19–32](../src/main/java/tomato/gui/history/HistoryPage.java#L19-L32), [HistoricalStatistics.java:43–59](../src/main/java/tomato/gui/stats/HistoricalStatistics.java#L43-L59), [InspectSnapshot.java:45–67](../src/main/java/tomato/backend/data/InspectSnapshot.java#L45-L67), [AppHistory.java:35–45](../src/main/java/tomato/history/AppHistory.java#L35-L45), [DpsData.java:17–47](../src/main/java/tomato/backend/data/DpsData.java#L17-L47), [BridgePayload.java:43–66](../src/main/java/tomato/bridge/BridgePayload.java#L43-L66), [ActivityJournal.java:649–698](../src/main/java/packets/packetcapture/logger/ActivityJournal.java#L649-L698).
+
+A proposed navigation request should carry destination, scope, query, optional exact entity references, time bounds, and return state. Persist new optional provenance fields compatibly with old histories. A timestamp/name candidate can be offered for user selection, but it should remain labeled a candidate.
+
+## 6. Delivery roadmap
+
+Use outcome-based increments rather than attempting every module simultaneously. Module improvements share the foundation effort; the estimates should not be added as if each builds its own query/router/table system.
+
+### Wave 1 — Trust and clear feedback
+
+**Outcome:** Users can understand what a value/action means and avoid misleading state.
+
+- UX-03 terminology and metric explanations; UX-06 setup recovery.
+- LOOT-1 recency correction; STAT-1 imported-coverage/counter explanations.
+- CHAT-1 shared policy; KEY-1 exact contributor selection.
+- ALERT-1/2/3 editor reliability and matching scope.
+- QUEST-1 account freshness; CHAR-1/5 partial-data correctness.
+- BRIDGE-1/2 outcomes/reasons; INFO-1 estimate details; COMBAT-1 definitions.
+- Early INS-2/LOG-2 slices: existing-field unknown states, honest capture/change-time wording, shared collector status, and already-available error counters.
+
+**Start with small slices:** explicit labels/counts, silent editor opening, shown-only bulk actions, exact-player chips, imported-data unavailable states, and calculation details. Larger schema/identity changes should remain separately scoped tasks.
+
+**Exit criteria:** representative zero/unknown/partial cases are distinguishable; editor failure preserves work; imported histories do not imply absent capture is zero; recency and account-transition scenarios pass.
+
+### Wave 2 — Find the evidence and keep your place
+
+**Outcome:** History search, filters, sorting, and exports describe the same records.
+
+- UX-01 queries, starting with Chat and Key-pops before Timeline/visits/loot occurrences.
+- UX-02 persistent workspace state; UX-04 explicit export scopes; UX-05 library.
+- UX-07 table/empty-state contract applied to touched screens.
+- CHAR-2, INS-1, KEY-2, LOOT-2, RUN-1, TIME-1, LOG-1/3, and COMBAT-2.
+- CHAT-2/3 saved conversation workflows after the shared query contract.
+
+**Exit criteria:** global predicates/sort work beyond a page; all-match export counts agree; navigation preserves context; compact screens retain essential outcomes/actions. Profile archive responsiveness on representative large synthetic histories before adding indexing.
+
+### Wave 3 — Connected analysis
+
+**Outcome:** One selected run/item/moment can be investigated across existing modules.
+
+- UX-02 typed routes and exact visit links; RUN-2 post-run workbench first.
+- COMBAT-3 capture-time linkage, then COMBAT-4/5 and INFO-2.
+- LOOT-3 occurrence/calculation drill-down; STAT-2/3 comparisons; remaining INS-2 provenance metadata and INS-3 comparison.
+- TIME-2 sample-window routing; remaining LOG-2 coverage instrumentation and cross-module drill-down.
+- KEY-3 and alert drafts from records; ALERT-4 decision history.
+- BRIDGE-3/4 active-setting feedback and saved review.
+
+**Exit criteria:** same-name consecutive visits cannot cross-link; missing links have useful fallbacks; comparisons show denominators; historical inspection cannot substitute current data; Back restores the origin.
+
+### Wave 4 — Planning and enrichment
+
+**Outcome:** Users can decide what to do next and retain personal goals.
+
+- CHAR-3/4 maxing/exalts, richer equipment and manual death review.
+- QUEST-2/3 comparison facets and requirements planning.
+- LOOT-4 richer drop-time context; INS-4 structured inferred ability activity.
+- UX-08 settings/action search and optional navigation grouping.
+
+**Exit criteria:** goals persist; manual quantities and captured observations stay distinct; incomplete old records remain useful; users can complete a planning task without maintaining duplicate notes in multiple modules.
+
+### Highest-value planning order
+
+| Rank | Backlog cluster | Why it should lead |
+| --- | --- | --- |
+| 1 | UX-01 archive query contract | Fixes the reach and meaning of filters across most analytical modules |
+| 2 | UX-02 remembered state + exact visit navigation | Removes repeated setup and enables the main cross-module journey |
+| 3 | UX-03 + STAT-1 + COMBAT-1 | Makes current measurements interpretable before adding more metrics |
+| 4 | LOOT-1 + CHAT-1 + QUEST-1 | Corrects concrete historical/policy/identity behavior that can undermine trust |
+| 5 | ALERT-1/2/3 | High-value, contained improvements to frequently edited controls |
+| 6 | UX-04 | Makes sharing and external analysis reproducible |
+| 7 | INS-1 + CHAR-2 + LOOT-2 + RUN-1 | Adds targeted filters around recognizable player tasks |
+| 8 | COMBAT-2/3 + RUN-2 | Makes recordings identifiable and joins combat to the run review |
+| 9 | STAT-2/3 + LOOT-3 + COMBAT-5 | Converts existing data into useful comparisons and explanations |
+| 10 | CHAR-3 + QUEST-3 | Adds a new planning reason to return to the app |
+
+This is leverage ordering, not a mandate to finish large foundations before shipping small fixes. UX-06 startup blockers and Wave 1 correctness issues should be reproduced and addressed alongside foundation work.
+
+## 7. Validation and product decisions
+
+### Representative task-based evaluation
+
+Before implementation, establish a baseline using synthetic histories; repeat the same tasks after each wave. Measure success, time, navigation steps, scope mistakes, and requests for clarification. Set numeric improvement targets after the baseline rather than inventing current performance.
+
+1. Find an older starred PM outside the first page and export all matches.
+2. Locate one of twenty same-name dungeon recordings and open its exact roster.
+3. Explain a change in UT/hour, including zero-loot runs and missing coverage.
+4. Identify a character needing Life and create a maxing goal.
+5. Plan two quests sharing an item without double-counting manually held quantities.
+6. Explain why an alert did not play and adjust the correct rule.
+7. Distinguish bot receipt from confirmed logging for a specific item.
+8. Investigate a local resource dip without claiming an unsupported damage/healing source.
+
+### Implementation checks
+
+- Use histories larger than current page/retention bounds; include equal timestamps, repeated dungeon names, account switches, imports, and incomplete records.
+- Preserve sorting/selection across updates and return navigation; confirm archive browsing leaves capture behavior intact.
+- Verify unknown versus zero, observed versus estimated/manual, and display-pause versus collection-pause semantics.
+- Exercise keyboard-only flows, screen-reader names/descriptions, narrow windows, enlarged fonts, light/dark themes, and existing 150%/200% scaling checks.
+- Extend the existing module test suites where behavior changes; use the repository's normal build/test and typography-validation commands for implementation work. No new test-pass claim is made by this roadmap.
+
+### Decisions needed before larger features
+
+1. **Archive filtering:** use whole-scope matching as the default; keep page-local Find explicitly secondary.
+2. **Custom periods:** specify entry-time versus overlap inclusion for runs, and use actual captured fame endpoints. Do not prorate aggregate counters that lack timestamps.
+3. **Combat retention:** decide whether the encounter library remains based on manual `.dps` files or gains automatic durable recording; this changes storage and migration scope.
+4. **Planning:** decide whether manual inventory quantities are worth user maintenance. A requirements-only plan is useful independently.
+5. **Account scope:** decide global versus account-specific pins/goals, and capture verified account identity before merging historical characters.
+6. **Game metadata:** record which asset/config version governs stat caps, exalt mappings, pet costs, and quest-to-dungeon suggestions.
+7. **History enrichment:** choose which fields justify durable storage; old data must remain explicitly partial rather than receiving guessed backfills.
+
+### Ideas to defer until the data supports them
+
+Automatic quest readiness from loot observations; universal cross-session player profiles based only on names; party-wide healing/buff attribution; exact historical resource percentages without maxima; causal gear-performance claims; and drop-chance predictions from small observed samples. The prerequisite work above identifies what would be needed to revisit these ideas responsibly.
+
+## 8. Review conclusion
+
+RealmShark has enough useful data and existing UI capability to support a substantially better experience without replacing its desktop design. The strongest roadmap is cumulative: **trust the data → find the evidence → connect the modules → compare outcomes → plan the next session**.
+
+The first flagship experience should be a connected post-run debrief. The second should be a small, provenance-aware progression plan. Both reuse current strengths while exposing clear, testable requirements for the missing pieces.
