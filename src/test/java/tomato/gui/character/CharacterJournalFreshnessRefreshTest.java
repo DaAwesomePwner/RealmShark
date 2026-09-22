@@ -28,8 +28,9 @@ public class CharacterJournalFreshnessRefreshTest {
         journal.mergeRoster(account, Arrays.asList(character(7, 100_000), character(8, 90_000)));
         journal.notes(account + ":7", "Saved notes");
         AtomicLong clock = new AtomicLong(100_000);
+        tomato.backend.data.RosterDefinitions definitions = tomato.backend.data.RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterJournalGUI panel = new CharacterJournalGUI(journal, clock::get);
+            CharacterJournalGUI panel = new CharacterJournalGUI(journal, clock::get, () -> definitions);
             JTable roster = named(panel, "character-roster", JTable.class);
             JTextArea notes = named(panel, "character-notes", JTextArea.class);
             JTextArea evidence = named(panel, "character-snapshot-evidence", JTextArea.class);
@@ -66,8 +67,9 @@ public class CharacterJournalFreshnessRefreshTest {
         journal.mergeRoster(account, Arrays.asList(character(7, 100_000), character(8, 0)));
         journal.notes(account + ":8", "unknown-timestamp-only");
         AtomicLong clock = new AtomicLong(120_000);
+        tomato.backend.data.RosterDefinitions definitions = tomato.backend.data.RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterJournalGUI panel = new CharacterJournalGUI(journal, clock::get);
+            CharacterJournalGUI panel = new CharacterJournalGUI(journal, clock::get, () -> definitions);
             JTextArea evidence = named(panel, "character-snapshot-evidence", JTextArea.class);
             assertTrue(evidence.getText().contains("Snapshot update age: 20s"));
             clock.set(90_000); panel.refresh();
