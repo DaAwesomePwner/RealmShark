@@ -1,6 +1,8 @@
 # Wave 1D — reporting evidence and integration handoff
 
 Worker branch: `work/ux-w1-reporting`, based on `d1bfb63` (integrated 1A/1B/1C).
+Reporting core: `1c2c62f`. The typed-hook follow-up uses primary-owner commit
+`83c0c3c`, copied unchanged into this worktree as `3588b2e`.
 Scope: Wave 1 portions of LOOT-1, STAT-1, COMBAT-1, BRIDGE-1 and BRIDGE-2 from
 [the approved roadmap](UX-ROADMAP-2026-09-21.md). Worker implementation and focused
 headless validation are complete. Coordinator integration, independent review and
@@ -100,11 +102,14 @@ automatic retry or saved-journal reader was added.
 
 ## Validation evidence
 
-Final focused run: **52 tests, 0 failures, 0 errors, 0 skipped**, using JDK
+Final focused run including the typed loot hook: **62 tests, 0 failures, 0 errors,
+0 skipped**, using JDK
 17.0.20.1 and Gradle wrapper 7.6.4. Main compilation retains `--release 8`.
 Test JVMs used `JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`, the existing in-memory
 PreferencesFactory, isolated working/history directories and synthetic fixtures.
 Transport tests use in-process fakes; the existing HTTP contract test uses loopback.
+The reporting core was separately validated with 52 passing tests before importing
+the typed-overload dependency; the final 62-test run rechecked those same selectors.
 
 Outputs are relative to this worker checkout:
 
@@ -127,6 +132,8 @@ Outputs are relative to this worker checkout:
 | `backend.data.DungeonSessionScopeTest` | 1 |
 | `gui.dps.DpsRefreshTest` | 4 |
 | `gui.dps.DpsFormattingTest` | 2 |
+| `gui.stats.LootNotificationTest` | 8 |
+| `realmshark.TypedProducerIntegrationTest` | 2 |
 | `gui.dps.CombatMeterTest.incomingUsesInclusiveWindowWithoutDoubleCountingOverlaps` | 1 |
 | `gui.dps.CombatMeterTest.zeroDurationDoesNotInventDpsAndTotalsUseLongs` | 1 |
 | `gui.dps.CombatMeterTest.remotePlayerIncomingMatchesLegacyDungeonTotalAndKeepsFightScope` | 1 |
@@ -164,35 +171,40 @@ Outputs are relative to this worker checkout:
   enchant search; composing facets; unknown versus zero enchants; mapping guidance;
   shown counts; no additional transport calls from browsing.
 
-## Pending integration hook and coordinator gates
+## Typed loot hook and coordinator integration
 
-The reporting core was validated on `d1bfb63`, without
-`TomatoData.isItemPing(int, String)`. At handoff preparation, coordinator head
-`8f316db` became available; its parent integration commit `83c0c3c` supplies the
-overload. The reporting core commit remains independent. A follow-up may cherry-pick
-only `83c0c3c` and replace these two probes in `LootGUI.notifyItems`:
-
-```java
-boolean itemMatch = data.isItemPing(String.valueOf(item.statValue))
-    || (name != null && data.isItemPing(name));
-```
-
-with:
+At handoff preparation, coordinator head `8f316db` became available; its parent
+`83c0c3c` supplies `TomatoData.isItemPing(int, String)`. Only that integration commit
+was cherry-picked as `3588b2e`. The typed-hook follow-up changes
+`LootGUI.notifyItems` to:
 
 ```java
 boolean itemMatch = data.isItemPing(item.statValue, name);
 ```
 
-Preserve the occupied-slot guard, `itemMatch || enchantMatch`, malformed-slot
-isolation, one alert per occupied matching slot, and local alerts before optional
-sharing. Re-run `LootNotificationTest`, especially
+The occupied-slot guard, `itemMatch || enchantMatch`, malformed-slot isolation,
+one alert per occupied matching slot, and local alerts before optional sharing are
+preserved. The final headless run includes `LootNotificationTest`, especially
 `alertsOncePerMatchingItemBeforeSharingWithEitherOptOutState`,
 `malformedSlotsDoNotAbortOrdinaryAlertsLaterEnchantMatchesOrSharing` and
-`nameIdAndEnchantRulesCoalesceToOneAlertForTheSameItem`; add the integrated exact-ID
-42 versus 142 producer case using the actual typed overload.
+`nameIdAndEnchantRulesCoalesceToOneAlertForTheSameItem`. New production-caller cases
+`typedExactIdAtTheLootProducerCoalescesEnchantsAndRejects142` and
+`unsupportedTypedRulesDoNotReactivateTheLegacyLootProbe` prove exact ID 42 does not
+match 142, matching item/enchant rules coalesce, malformed and empty slots remain
+isolated, later enchant matches survive, opt-out state is honored, and unsupported
+typed settings cannot fall back to the old string probes. All callbacks are
+synthetic; no audio or sharing delivery occurs. Typed preference state is isolated
+and restored along with the existing enchant fixture.
+
+Coordinator integration: cherry-pick worker core `1c2c62f` and the typed-hook
+follow-up commit. The coordinator already has original `83c0c3c`, so it should not
+duplicate this worktree's copy `3588b2e`. That unchanged primary-owner commit is the
+only imported dependency and owns its shared shell/data/scaling-policy edits.
+
+## Remaining coordinator gates
 
 This worker did not run native/focus/desktop screenshots, scaled suites, full-suite
 packaging or `shadowJar`. Those checks and independent review belong to the
 coordinator's serialized integration gate. New test classes need consideration in
-that gate's scaling policy; this worker did not edit shared build configuration.
+that gate's scaling policy; this worker authored no shared build configuration edits.
 No shared checkpoint or coverage ledger was changed.
