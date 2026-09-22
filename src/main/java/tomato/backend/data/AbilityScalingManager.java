@@ -21,11 +21,21 @@ import tomato.realmshark.ParseEnchants;
 public class AbilityScalingManager {
 
     private static AbilityScalingManager instance;
-    private final Map<Integer, AbilityScalingData> scalingData =
-        new HashMap<>();
-    private final Map<Integer, Integer> projectileToWeaponMap = new HashMap<>();
-    private final Map<Integer, AbilityScalingData> projectileScalingData =
-        new HashMap<>();
+    private volatile Rules rules = new Rules();
+
+    private static final class Rules {
+        final Map<Integer, AbilityScalingData> scalingData;
+        final Map<Integer, Integer> projectileToWeaponMap;
+        final Map<Integer, AbilityScalingData> projectileScalingData;
+        Rules() {
+            scalingData = new HashMap<>(); projectileToWeaponMap = new HashMap<>(); projectileScalingData = new HashMap<>();
+        }
+        Rules(Rules parsed) {
+            scalingData = java.util.Collections.unmodifiableMap(new HashMap<>(parsed.scalingData));
+            projectileToWeaponMap = java.util.Collections.unmodifiableMap(new HashMap<>(parsed.projectileToWeaponMap));
+            projectileScalingData = java.util.Collections.unmodifiableMap(new HashMap<>(parsed.projectileScalingData));
+        }
+    }
 
     /**
      * Data structure to hold scaling information for an ability.
@@ -59,7 +69,7 @@ public class AbilityScalingManager {
 
     private AbilityScalingManager() {}
 
-    public static AbilityScalingManager getInstance() {
+    public static synchronized AbilityScalingManager getInstance() {
         if (instance == null) {
             instance = new AbilityScalingManager();
         }
@@ -68,28 +78,12 @@ public class AbilityScalingManager {
 
     /**
      * Initializes the scaling manager by parsing equip.xml.
-     * Should be called once on application startup.
+     * Also supports asset recovery; failed parsing preserves the previous rules.
      */
     public void initialize() {
         try {
-            File equipFile = new File("assets/xml/equip.xml");
-            if (!equipFile.exists()) {
-                return;
-            }
-
-            DocumentBuilderFactory factory =
-                DocumentBuilderFactory.newInstance();
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            Document document = builder.parse(equipFile);
-            document.getDocumentElement().normalize();
-
-            parseEquipXml(document);
-
-            System.out.println(
-                "AbilityScalingManager initialized with " +
-                    scalingData.size() +
-                    " abilities"
-            );
+            java.nio.file.Path path = assets.AssetCache.path("xml/equip.xml");
+            if (java.nio.file.Files.isRegularFile(path)) prepareReload(path).run();
         } catch (Exception e) {
             System.err.println(
                 "Failed to initialize AbilityScalingManager: " + e.getMessage()
@@ -97,7 +91,18 @@ public class AbilityScalingManager {
         }
     }
 
-    private void parseEquipXml(Document document) {
+    public Runnable prepareReload(java.nio.file.Path file) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document document = builder.parse(file.toFile());
+        document.getDocumentElement().normalize();
+        Rules next = new Rules();
+        parseEquipXml(document, next);
+        Rules complete = new Rules(next);
+        return () -> rules = complete;
+    }
+
+    private void parseEquipXml(Document document, Rules next) {
         NodeList objectNodes = document.getElementsByTagName("Object");
 
         for (int i = 0; i < objectNodes.getLength(); i++) {
@@ -111,16 +116,16 @@ public class AbilityScalingManager {
             // Check if this is a projectile object
             String projectileId = objectElement.getAttribute("id");
             if (projectileId != null && isProjectileObject(projectileId)) {
-                mapProjectileToWeapon(objectElement, weaponId);
+                mapProjectileToWeapon(objectElement, weaponId, next);
             }
 
             // Parse Activate elements
-            parseActivateElements(objectElement, weaponId, "Activate");
-            if (!scalingData.containsKey(weaponId)) {
+            parseActivateElements(objectElement, weaponId, "Activate", next);
+            if (!next.scalingData.containsKey(weaponId)) {
                 parseActivateElements(
                     objectElement,
                     weaponId,
-                    "OnConditionEndActivate"
+                    "OnConditionEndActivate", next
                 );
             }
         }
@@ -148,7 +153,7 @@ public class AbilityScalingManager {
     private void parseActivateElements(
         Element objectElement,
         int weaponId,
-        String tagName
+        String tagName, Rules next
     ) {
         NodeList activateNodes = objectElement.getElementsByTagName(tagName);
 
@@ -160,7 +165,7 @@ public class AbilityScalingManager {
             );
 
             if (data != null) {
-                scalingData.put(weaponId, data);
+                next.scalingData.put(weaponId, data);
                 break;
             }
         }
@@ -268,7 +273,7 @@ public class AbilityScalingManager {
 
     private void mapProjectileToWeapon(
         Element projectileElement,
-        int projectileId
+        int projectileId, Rules next
     ) {
         String projectileType =
             "0x" + Integer.toHexString(projectileId).toUpperCase();
@@ -289,7 +294,7 @@ public class AbilityScalingManager {
                 );
 
                 if (parentId != null) {
-                    projectileToWeaponMap.put(projectileId, parentId);
+                    next.projectileToWeaponMap.put(projectileId, parentId);
                     return;
                 }
             }
@@ -361,29 +366,23 @@ public class AbilityScalingManager {
      * Gets scaling data for a specific weapon ID.
      */
     public AbilityScalingData getScalingData(int weaponId) {
-        AbilityScalingData data = scalingData.get(weaponId);
+        Rules current = rules;
+        AbilityScalingData data = current.scalingData.get(weaponId);
         if (data != null) return data;
 
-        Integer parentWeaponId = projectileToWeaponMap.get(weaponId);
+        Integer parentWeaponId = current.projectileToWeaponMap.get(weaponId);
         if (parentWeaponId != null) {
-            return scalingData.get(parentWeaponId);
+            return current.scalingData.get(parentWeaponId);
         }
 
-        return projectileScalingData.get(weaponId);
+        return current.projectileScalingData.get(weaponId);
     }
 
     /**
      * Checks if a weapon has stat scaling.
      */
     public boolean hasScaling(int weaponId) {
-        if (scalingData.containsKey(weaponId)) return true;
-
-        Integer parentWeaponId = projectileToWeaponMap.get(weaponId);
-        if (parentWeaponId != null && scalingData.containsKey(parentWeaponId)) {
-            return true;
-        }
-
-        return projectileScalingData.containsKey(weaponId);
+        return getScalingData(weaponId) != null;
     }
 
     /**
@@ -455,15 +454,13 @@ public class AbilityScalingManager {
      * Clears all cached data.
      */
     public void clear() {
-        scalingData.clear();
-        projectileToWeaponMap.clear();
-        projectileScalingData.clear();
+        rules = new Rules();
     }
 
     /**
      * Gets the number of abilities with scaling data.
      */
     public int getScalingAbilityCount() {
-        return scalingData.size();
+        return rules.scalingData.size();
     }
 }

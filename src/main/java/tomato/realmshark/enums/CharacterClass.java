@@ -9,7 +9,6 @@ import java.util.stream.Collectors;
 import util.StringXML;
 
 public class CharacterClass {
-    private static final String PLAYERS_XML_PATH = "assets/xml/players.xml";
 
     public final int id;
     public final String name;
@@ -54,16 +53,21 @@ public class CharacterClass {
         reload();
     }
 
-    public static boolean reload() { return reload(java.nio.file.Paths.get(PLAYERS_XML_PATH)); }
+    public static boolean reload() { return reload(assets.AssetCache.path("xml/players.xml")); }
 
     public static synchronized boolean reload(java.nio.file.Path path) {
+        try { prepareReload(path).run(); return true; }
+        catch (java.io.IOException failure) { return false; }
+    }
+
+    public static Runnable prepareReload(java.nio.file.Path path) throws java.io.IOException {
         List<CharacterClass> charClassList = new ArrayList<>();
         try (FileInputStream file = new FileInputStream(path.toFile())) {
             populateFromXML(new BufferedReader(new InputStreamReader(file)).lines().collect(Collectors.joining("\n")), charClassList);
         } catch (Exception e) {
-            return false;
+            throw new java.io.IOException("Could not load class definitions.", e);
         }
-        if (charClassList.isEmpty()) return false;
+        if (charClassList.isEmpty()) throw new java.io.IOException("No class definitions.");
         TreeMap<Integer, CharacterClass> classes = new TreeMap<>();
         TreeMap<Integer, String> names = new TreeMap<>();
         TreeMap<Integer, int[]> weapons = new TreeMap<>(), stats = new TreeMap<>();
@@ -72,10 +76,11 @@ public class CharacterClass {
             ids.add(o.id); classes.put(o.id, o); names.put(o.id, o.name);
             weapons.put(o.id, o.weaponGroup); stats.put(o.id, o.maxStats);
         }
-        CHARACTER_CLASS = classes; CLASS_NAME = names; WEAPON_CLASSES = weapons;
-        CLASS_MAX_STATS = stats; CHARACTER_IDS = ids;
-        CHAR_CLASS_LIST = charClassList.toArray(new CharacterClass[0]);
-        return true;
+        CharacterClass[] list = charClassList.toArray(new CharacterClass[0]);
+        return () -> {
+            CHARACTER_CLASS = classes; CLASS_NAME = names; WEAPON_CLASSES = weapons;
+            CLASS_MAX_STATS = stats; CHARACTER_IDS = ids; CHAR_CLASS_LIST = list;
+        };
     }
 
     private static void populateFromXML(String rawXML, List<CharacterClass> charClassList) throws Exception {

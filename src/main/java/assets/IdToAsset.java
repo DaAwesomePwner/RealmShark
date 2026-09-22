@@ -75,8 +75,7 @@ public class IdToAsset {
      * Construct the list on start of using this class.
      */
     static {
-        readObjectList();
-        readTileList();
+        reloadDefinitions();
     }
 
     /**
@@ -86,16 +85,23 @@ public class IdToAsset {
         reloadDefinitions();
     }
 
-    public static boolean reloadDefinitions() { return readObjectList() & readTileList(); }
+    public static boolean reloadDefinitions() {
+        try { prepareReload(AssetCache.root()).run(); return true; }
+        catch (java.io.IOException failure) { return false; }
+    }
+
+    public static Runnable prepareReload(java.nio.file.Path root) throws java.io.IOException {
+        HashMap<Integer, IdToAsset> objects = readObjectList(root.resolve("ObjectID.list"));
+        HashMap<Integer, IdToAsset> tiles = readTileList(root.resolve("TileID.list"));
+        return () -> { objectID = objects; tileID = tiles; };
+    }
 
     /**
      * Method to grab the full list of object resource's from file and construct the hashmap.
      */
-    private static boolean readObjectList() {
+    private static HashMap<Integer, IdToAsset> readObjectList(java.nio.file.Path path) throws java.io.IOException {
         HashMap<Integer, IdToAsset> next = new HashMap<>();
-        File objectsFile = new File(AssetExtractor.ASSETS_OBJECT_FILE_DIR_PATH);
-        if (!objectsFile.exists()) return false;
-        try (BufferedReader br = Files.newBufferedReader(objectsFile.toPath(), java.nio.charset.Charset.defaultCharset())) {
+        try (BufferedReader br = Files.newBufferedReader(path, java.nio.charset.Charset.defaultCharset())) {
             String line;
 
             while ((line = br.readLine()) != null) {
@@ -112,22 +118,19 @@ public class IdToAsset {
                 next.put(id, new IdToAsset(line, id, idName, display, clazz, projectiles, texture, label, group));
             }
         } catch (Exception e) {
-            return false;
+            throw new java.io.IOException("Could not load object definitions.", e);
         }
-        if (next.isEmpty()) return false;
+        if (next.isEmpty()) throw new java.io.IOException("No object definitions.");
         next.put(-1, new IdToAsset("", -1, "Unloaded", "Unloaded", "", null, "", "", "Unloaded"));
-        objectID = next;
-        return true;
+        return next;
     }
 
     /**
      * Method to grab the full list of tile resource's from file and construct the hashmap.
      */
-    private static boolean readTileList() {
+    private static HashMap<Integer, IdToAsset> readTileList(java.nio.file.Path path) throws java.io.IOException {
         HashMap<Integer, IdToAsset> next = new HashMap<>();
-        File tilesFile = new File(AssetExtractor.ASSETS_TILE_FILE_DIR_PATH);
-        if (!tilesFile.exists()) return false;
-        try (BufferedReader br = Files.newBufferedReader(tilesFile.toPath(), java.nio.charset.Charset.defaultCharset())) {
+        try (BufferedReader br = Files.newBufferedReader(path, java.nio.charset.Charset.defaultCharset())) {
             String line;
 
             while ((line = br.readLine()) != null) {
@@ -148,13 +151,12 @@ public class IdToAsset {
                 next.put(id, new IdToAsset(line, id, damage, idName, texture));
             }
         } catch (Exception e) {
-            return false;
+            throw new java.io.IOException("Could not load tile definitions.", e);
         }
 
-        if (next.isEmpty()) return false;
+        if (next.isEmpty()) throw new java.io.IOException("No tile definitions.");
         next.put(-1, new IdToAsset("", -1, -1, "Unknown", ""));
-        tileID = next;
-        return true;
+        return next;
     }
 
     public static void main(String[] args) {

@@ -14,17 +14,21 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class ParseEquipment {
-    private static final String XML_PATH = "assets/xml/equip.xml";
     private static volatile HashMap<Integer, Equipment> EQUIPMENT = new HashMap<>();
 
     /*
       Load Enchant XML data to get names from file.
      */
     static {
-        reload(java.nio.file.Paths.get(XML_PATH));
+        reload(assets.AssetCache.path("xml/equip.xml"));
     }
 
     public static boolean reload(java.nio.file.Path path) {
+        try { prepareReload(path).run(); return true; }
+        catch (IOException failure) { return false; }
+    }
+
+    public static Runnable prepareReload(java.nio.file.Path path) throws IOException {
         HashMap<Integer, Equipment> next = new HashMap<>();
         try (FileInputStream file = new FileInputStream(path.toFile())) {
             String result = new BufferedReader(new InputStreamReader(file)).lines().collect(Collectors.joining("\n"));
@@ -62,11 +66,10 @@ public class ParseEquipment {
                     next.put(equipment.id, equipment);
                 }
             }
-            if (next.isEmpty()) return false;
-            EQUIPMENT = next;
-            return true;
+            if (next.isEmpty()) throw new IOException("No equipment definitions.");
+            return () -> EQUIPMENT = next;
         } catch (ParserConfigurationException | IOException | SAXException | RuntimeException e) {
-            return false;
+            throw new IOException("Could not load equipment definitions.", e);
         }
     }
 

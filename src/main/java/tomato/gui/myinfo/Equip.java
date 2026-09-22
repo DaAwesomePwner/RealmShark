@@ -13,7 +13,6 @@ import util.StringXML;
  */
 public class Equip {
 
-    private static final String PETS_XML_PATH = "assets/xml/equip.xml";
     public static volatile HashMap<Integer, Weapon> weapons = new HashMap<>();
 
     static {
@@ -21,10 +20,15 @@ public class Equip {
     }
 
     public static void load() {
-        reload(java.nio.file.Paths.get(PETS_XML_PATH));
+        reload(assets.AssetCache.path("xml/equip.xml"));
     }
 
     public static boolean reload(java.nio.file.Path path) {
+        try { prepareReload(path).run(); return true; }
+        catch (IOException failure) { return false; }
+    }
+
+    public static Runnable prepareReload(java.nio.file.Path path) throws IOException {
         HashMap<Integer, Weapon> next = new HashMap<>();
         try (FileInputStream file = new FileInputStream(path.toFile())) {
             String result = new BufferedReader(new InputStreamReader(file))
@@ -129,11 +133,10 @@ public class Equip {
                     next.put(w.id, w);
                 }
             }
-            if (next.isEmpty()) return false;
-            weapons = next;
-            return true;
+            if (next.isEmpty()) throw new IOException("No equipment definitions.");
+            return () -> weapons = next;
         } catch (IOException | ParserConfigurationException | SAXException | RuntimeException e) {
-            return false;
+            throw new IOException("Could not load weapon definitions.", e);
         }
     }
 

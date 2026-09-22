@@ -15,7 +15,6 @@ import java.util.*;
  * Json parser specific made for realm sprite json.
  */
 public class SpriteJson implements JsonDeserializer<SpriteJson> {
-    private static String spriteJson = "assets/json/spritesheet.json";
 
     private static volatile boolean notLoaded = true;
     private static volatile HashMap<String, HashMap<Integer, Sprite>> sprites = new HashMap<>();
@@ -32,8 +31,9 @@ public class SpriteJson implements JsonDeserializer<SpriteJson> {
      * Loads the json file into HashMap data structure.
      */
     public static void jsonFileReader() {
-        File jsonFile = new File(spriteJson);
+        File jsonFile = AssetCache.path("json/spritesheet.json").toFile();
         if (!jsonFile.exists()) {
+            notLoaded = true;
             return;
         }
         GsonBuilder builder = new GsonBuilder();
@@ -45,7 +45,7 @@ public class SpriteJson implements JsonDeserializer<SpriteJson> {
             gson.fromJson(json, SpriteJson.class);
             notLoaded = false;
         } catch (FileNotFoundException | RuntimeException e) {
-            // Retain any previously loaded catalog; missing images have a neutral fallback.
+            notLoaded = true;
         }
     }
 

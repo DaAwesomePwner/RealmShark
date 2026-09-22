@@ -31,9 +31,6 @@ import util.StringXML;
  */
 public class ParseEnchants {
 
-    private static final String ENCHANT_XML_PATH =
-        "assets/xml/enchantments.xml";
-
     // Maps enchant type ID -> display name
     public static volatile HashMap<Short, String> ENCHANTS = new HashMap<>();
 
@@ -54,14 +51,19 @@ public class ParseEnchants {
         ENCHANTS.put((short) -1, "[empty]");
     }
 
-    public static boolean reload() { return loadEnchants(ENCHANT_XML_PATH); }
+    public static boolean reload() { return loadEnchants(assets.AssetCache.path("xml/enchantments.xml").toString()); }
 
     private static boolean loadEnchants(String path) {
+        try { prepareReload(java.nio.file.Paths.get(path)).run(); return true; }
+        catch (java.io.IOException failure) { return false; }
+    }
+
+    public static Runnable prepareReload(java.nio.file.Path path) throws java.io.IOException {
         HashMap<Short, String> names = new HashMap<>();
         HashMap<Short, EnchantEffect> effects = new HashMap<>();
         HashMap<Short, RegenEffect> regeneration = new HashMap<>();
         HashMap<Short, Float> loot = new HashMap<>();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(path)))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(path.toFile())))) {
             String result = reader.lines().collect(Collectors.joining("\n"));
             StringXML base = StringXML.getParsedXML(result);
 
@@ -179,15 +181,14 @@ public class ParseEnchants {
                 }
             }
             names.put((short) -1, "[empty]");
-            ENCHANTS = names; ENCHANT_EFFECTS = effects; ENCHANT_REGEN = regeneration; ENCHANT_LOOT_BONUS = loot;
-            return true;
+            return () -> { ENCHANTS = names; ENCHANT_EFFECTS = effects; ENCHANT_REGEN = regeneration; ENCHANT_LOOT_BONUS = loot; };
         } catch (
             ParserConfigurationException
             | SAXException
             | RuntimeException
             | java.io.IOException e
         ) {
-            return false;
+            throw new java.io.IOException("Could not load enchant definitions.", e);
         }
     }
 

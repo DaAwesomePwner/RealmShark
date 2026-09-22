@@ -140,7 +140,7 @@ public final class WorkspaceShell extends JPanel {
         JPanel setup = new JPanel(new BorderLayout(0, 4));
         setupMessage.setName("capture-setup-message");
         setupMessage.getAccessibleContext().setAccessibleName("Capture readiness and asset setup");
-        setupMessage.setText(preview ? "Preview · Capture disabled. Saved history is available." : "Capture starts only when you choose Start capture. Saved history is available without capture.");
+        setupMessage.setText(preview ? "Preview · Capture disabled. Saved history is available." : "Saved capture preference is applied after assets are ready. Saved history is available without capture.");
         JScrollPane setupScroll = new JScrollPane(setupMessage) {
             @Override public Dimension getPreferredSize() {
                 Dimension size = super.getPreferredSize();

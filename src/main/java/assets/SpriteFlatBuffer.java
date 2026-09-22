@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 
 public class SpriteFlatBuffer {
-    private static String spriteJson = "assets/flatbuffer/spritesheetf";
 
     private static volatile boolean notLoaded = true;
     private static volatile HashMap<String, HashMap<Integer, Sprite>> sprites;
@@ -29,7 +28,7 @@ public class SpriteFlatBuffer {
      * Loads the flatBuffer file into HashMap data structure.
      */
     public static boolean reload() {
-        File file = new File(spriteJson);
+        File file = AssetCache.path("flatbuffer/spritesheetf").toFile();
         if (!file.exists()) {
             notLoaded = true;
             return false;

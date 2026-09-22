@@ -45,6 +45,24 @@ public class Tomato {
     public static boolean isPreview() { return preview; }
     public static boolean isCaptureRunning() { return packetProcessor != null; }
 
+    /** Explicit user choice, distinct from errors, transport cleanup and setup retries. */
+    public static void setCaptureRequested(boolean requested) { setCaptureRequested(requested, PacketProcessor::new); }
+
+    static void setCaptureRequested(boolean requested, java.util.function.Supplier<PacketProcessor> factory) {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> setCaptureRequested(requested, factory)); return; }
+        if (preview) return;
+        PropertiesManager.setProperties("sniffer", requested ? "T" : "F");
+        if (requested) startPacketSniffer(factory); else stopPacketSniffer();
+    }
+
+    /** Only the initial readiness result can honor the saved auto-start choice. */
+    static void finishAssetSetup(boolean initial, boolean ready, java.util.function.Supplier<PacketProcessor> factory) {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Setup completion belongs to the EDT");
+        assetsReady = ready; setupBusy = false;
+        TomatoMenuBar.setCaptureControls(false, ready);
+        if (initial && ready && "T".equals(PropertiesManager.getProperty("sniffer"))) startPacketSniffer(factory);
+    }
+
     public static void main(String[] args) {
         AppIdentity.initialize();
         // Load before any GUI/model presets are read; readers themselves never perform I/O.
@@ -430,7 +448,6 @@ public class Tomato {
                     AssetExtractor.recover(chosen == null ? AssetExtractor.assetFile() : chosen, Version.ASSET_CACHE_VERSION, this::publish);
                 } else if (needed) return false;
                 else AssetExtractor.reloadAssetsOnRunningApp();
-                AbilityScalingManager.getInstance().initialize();
                 return true;
             }
             @Override protected void process(java.util.List<String> messages) {
@@ -441,7 +458,7 @@ public class Tomato {
                 String message;
                 try {
                     assetsReady = get();
-                    message = assetsReady ? (sourceAvailable ? "Assets ready · Start capture when ready, then enter a fresh area or reconnect the game."
+                    message = assetsReady ? (sourceAvailable ? "Assets ready · Enter a fresh area or reconnect the game after capture starts."
                         : "Cached assets loaded · Source file unavailable; freshness unverified. Choose assets to refresh, or start capture with the cached definitions.")
                         : "Assets missing or outdated · Choose resources.assets, or Retry assets if the game is installed. Browse saved history without capture.";
                     if (assetsReady) TomatoGUI.assetsReloaded();
@@ -451,7 +468,7 @@ public class Tomato {
                     message = "Asset setup failed (" + cause.getClass().getSimpleName() + "). Choose a readable resources.assets file and a writable app folder, then Retry assets. Saved history remains available.";
                 }
                 TomatoGUI.setSetupState(message, assetsReady, false);
-                TomatoMenuBar.setCaptureControls(false, assetsReady);
+                finishAssetSetup(!recover && chosen == null, assetsReady, PacketProcessor::new);
             }
         }.execute();
     }

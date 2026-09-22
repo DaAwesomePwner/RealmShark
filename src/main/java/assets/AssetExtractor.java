@@ -37,12 +37,6 @@ public class AssetExtractor {
     public static final String ASSETS_OBJECT_FILE_DIR_PATH =
         "assets/ObjectID.list";
     public static final String ASSETS_TILE_FILE_DIR_PATH = "assets/TileID.list";
-    private static final String XML_DIR_PATH = "assets/xml";
-    private static final File[] ASSET_FOLDERS = {
-        new File("assets/flatbuffer/"),
-        new File("assets/sprites/"),
-        new File("assets/xml/"),
-    };
     private static String REALM_RES_PATH;
     private static boolean explicitPath;
     private static volatile java.util.function.Consumer<String> progress = text -> {};
@@ -76,7 +70,7 @@ public class AssetExtractor {
 
     public static void main(String[] args) throws Throwable {
         AppIdentity.initialize();
-        extractAssetsFromXML();
+        extractAssetsFromXML(AssetCache.root());
     }
 
     /**
@@ -96,9 +90,12 @@ public class AssetExtractor {
     }
 
     public static boolean hasUsableCache() {
-        for (String name : new String[]{ASSETS_OBJECT_FILE_DIR_PATH, ASSETS_TILE_FILE_DIR_PATH,
-                "assets/xml/equip.xml", "assets/xml/players.xml", "assets/xml/enchantments.xml"})
-            if (!Files.isRegularFile(Paths.get(name)) || !Files.isReadable(Paths.get(name))) return false;
+        return hasUsableCache(AssetCache.root());
+    }
+
+    private static boolean hasUsableCache(Path root) {
+        for (String name : new String[]{"ObjectID.list", "TileID.list", "xml/equip.xml", "xml/players.xml", "xml/enchantments.xml"})
+            if (!Files.isRegularFile(root.resolve(name)) || !Files.isReadable(root.resolve(name))) return false;
         return true;
     }
 
@@ -120,16 +117,27 @@ public class AssetExtractor {
             throws IOException, ParserConfigurationException {
         if (source == null || !source.isFile() || !source.canRead()) throw new IOException("Choose a readable resources.assets file.");
         progress = listener == null ? text -> {} : listener;
+        Path generation = null;
+        boolean published = false;
         try {
             String stamp = Files.getLastModifiedTime(source.toPath()).toString() + "-" + version;
-            extraction.extract(source, ASSET_FOLDERS.clone());
-            extractAssetsFromXML();
-            if (!hasUsableCache()) throw new IOException("Extraction did not produce the required asset files.");
-            reloadAssetsOnRunningApp();
+            generation = AssetCache.createGeneration();
+            File[] folders = {generation.resolve("flatbuffer").toFile(), generation.resolve("sprites").toFile(), generation.resolve("xml").toFile()};
+            extraction.extract(source, folders);
+            extractAssetsFromXML(generation);
+            if (!hasUsableCache(generation)) throw new IOException("Extraction did not produce the required asset files.");
+            Runnable catalogs = prepareCatalogs(generation);
+            AssetCache.publish(generation, stamp);
+            published = true;
+            catalogs.run();
+            reloadImages();
             setRealmResPath(source.getAbsolutePath());
             PropertiesManager.setProperties("realmResPath", source.getAbsolutePath());
             PropertiesManager.setProperties("lastModifiedTime", stamp);
-        } finally { progress = text -> {}; }
+        } finally {
+            progress = text -> {};
+            if (generation != null && !published) AssetCache.discard(generation);
+        }
     }
 
     public static String lastEdited(String version) throws IOException {
@@ -179,11 +187,11 @@ public class AssetExtractor {
      * @return True if assets are missing.
      */
     private static int checkUpdateAssets(String lastModifiedTime) {
-        if (!new File(ASSETS_OBJECT_FILE_DIR_PATH).exists()) return 1;
-        if (!new File(ASSETS_TILE_FILE_DIR_PATH).exists()) return 2;
+        if (!Files.isRegularFile(AssetCache.path("ObjectID.list"))) return 1;
+        if (!Files.isRegularFile(AssetCache.path("TileID.list"))) return 2;
         if (
             !Objects.equals(
-                PropertiesManager.getProperty("lastModifiedTime"),
+                AssetCache.stamp() == null ? PropertiesManager.getProperty("lastModifiedTime") : AssetCache.stamp(),
                 lastModifiedTime
             )
         ) return 3;
@@ -193,13 +201,13 @@ public class AssetExtractor {
     /**
      * Extracts assets from XML files.
      */
-    private static void extractAssetsFromXML()
+    private static void extractAssetsFromXML(Path root)
         throws IOException, ParserConfigurationException {
         ArrayList<AssetObject> objectAssets = new ArrayList<>();
         ArrayList<AssetTile> tileAssets = new ArrayList<>();
         ArrayList<Path> files = new ArrayList<>();
 
-        try (Stream<Path> paths = Files.walk(Paths.get(XML_DIR_PATH))) {
+        try (Stream<Path> paths = Files.walk(root.resolve("xml"))) {
             paths.filter(Files::isRegularFile).filter(p -> p.toString().endsWith("xml")).forEach(files::add);
         }
 
@@ -213,10 +221,10 @@ public class AssetExtractor {
         }
 
         objectAssets.sort(Comparator.comparing(a -> a.id));
-        writeAssetList(Paths.get(ASSETS_OBJECT_FILE_DIR_PATH), objectAssets.stream().map(Object::toString).collect(Collectors.toList()));
+        writeAssetList(root.resolve("ObjectID.list"), objectAssets.stream().map(Object::toString).collect(Collectors.toList()));
 
         tileAssets.sort(Comparator.comparing(a -> a.id));
-        writeAssetList(Paths.get(ASSETS_TILE_FILE_DIR_PATH), tileAssets.stream().map(Object::toString).collect(Collectors.toList()));
+        writeAssetList(root.resolve("TileID.list"), tileAssets.stream().map(Object::toString).collect(Collectors.toList()));
     }
 
     private static void writeAssetList(Path target, List<String> lines) throws IOException {
@@ -232,11 +240,24 @@ public class AssetExtractor {
      * Reloads assets to reset assets in running app.
      */
     public static void reloadAssetsOnRunningApp() throws IOException {
-        if (!tomato.gui.myinfo.Equip.reload(Paths.get("assets/xml/equip.xml"))
-                || !tomato.realmshark.ParseEquipment.reload(Paths.get("assets/xml/equip.xml"))
-                || !tomato.realmshark.enums.CharacterClass.reload()) throw new IOException("Extracted equipment or class definitions could not be loaded.");
-        if (!tomato.realmshark.ParseEnchants.reload()) throw new IOException("Extracted enchant definitions could not be loaded.");
-        if (!IdToAsset.reloadDefinitions()) throw new IOException("Extracted object/tile lists could not be loaded.");
+        prepareCatalogs(AssetCache.root()).run();
+        reloadImages();
+    }
+
+    private static Runnable prepareCatalogs(Path root) throws IOException {
+        List<Runnable> prepared = new ArrayList<>();
+        prepared.add(tomato.gui.myinfo.Equip.prepareReload(root.resolve("xml/equip.xml")));
+        prepared.add(tomato.realmshark.ParseEquipment.prepareReload(root.resolve("xml/equip.xml")));
+        prepared.add(tomato.realmshark.enums.CharacterClass.prepareReload(root.resolve("xml/players.xml")));
+        prepared.add(tomato.realmshark.ParseEnchants.prepareReload(root.resolve("xml/enchantments.xml")));
+        prepared.add(IdToAsset.prepareReload(root));
+        prepared.add(tomato.realmshark.ParseDungeon.prepareReload(root.resolve("xml")));
+        try { prepared.add(tomato.backend.data.AbilityScalingManager.getInstance().prepareReload(root.resolve("xml/equip.xml"))); }
+        catch (Exception failure) { throw new IOException("Could not load ability scaling definitions.", failure); }
+        return () -> prepared.forEach(Runnable::run);
+    }
+
+    private static void reloadImages() {
         SpriteJson.jsonFileReader();
         SpriteFlatBuffer.reload();
         ImageBuffer.clear();

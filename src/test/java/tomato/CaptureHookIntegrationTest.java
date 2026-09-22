@@ -22,14 +22,58 @@ public class CaptureHookIntegrationTest {
     private final Map<Field, Object> original = new LinkedHashMap<>();
     private final List<Worker> workers = new ArrayList<>();
     private TomatoData data;
+    private String capturePreference;
 
     @Before public void isolateRuntime() throws Exception {
         data = new TomatoData();
+        capturePreference = util.PropertiesManager.getProperty("sniffer");
         SwingUtilities.invokeAndWait(() -> {
             replace("packetProcessor", null); replace("stoppingCapture", false); replace("restartCapture", false);
             replace("assetsReady", true); replace("setupBusy", false); replace("preview", false);
             replace("capturePublication", new CapturePublication(data));
         });
+    }
+
+    @Test public void savedAutoStartWaitsForSuccessfulInitialReadinessAndRetriesPreserveTheChoice() throws Exception {
+        Worker worker = new Worker(false); workers.add(worker);
+        java.util.concurrent.atomic.AtomicInteger created = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.Supplier<PacketProcessor> factory = () -> { created.incrementAndGet(); return worker; };
+        util.PropertiesManager.setProperties("sniffer", "T");
+        SwingUtilities.invokeAndWait(() -> {
+            Tomato.finishAssetSetup(true, false, factory);
+            assertEquals(0, created.get()); assertEquals("T", util.PropertiesManager.getProperty("sniffer"));
+            Tomato.finishAssetSetup(false, true, factory); // A successful retry is not an implicit start action.
+            assertEquals(0, created.get()); assertEquals("T", util.PropertiesManager.getProperty("sniffer"));
+            Tomato.finishAssetSetup(true, true, factory); // A subsequent launch with usable assets honors T.
+        });
+        assertTrue(worker.entered.await(2, TimeUnit.SECONDS)); assertEquals(1, created.get());
+        assertSavedCapturePreference("T");
+        SwingUtilities.invokeAndWait(() -> Tomato.setCaptureRequested(false, factory));
+        assertEquals("F", util.PropertiesManager.getProperty("sniffer"));
+        assertSavedCapturePreference("F");
+    }
+
+    @Test public void explicitTogglePersistsAndUnexpectedFailureDoesNotEraseSavedAutoStart() throws Exception {
+        Worker worker = new Worker(false); workers.add(worker);
+        SwingUtilities.invokeAndWait(() -> {
+            util.PropertiesManager.setProperties("sniffer", "T");
+            Tomato.setCaptureRequested(false, () -> { throw new AssertionError("Stop must not create capture"); });
+            Tomato.finishAssetSetup(true, true, () -> { throw new AssertionError("Explicit F must override pending auto-start"); });
+            assertEquals("F", util.PropertiesManager.getProperty("sniffer"));
+            Tomato.setCaptureRequested(true, () -> worker);
+            assertEquals("T", util.PropertiesManager.getProperty("sniffer"));
+        });
+        assertTrue(worker.entered.await(2, TimeUnit.SECONDS));
+        worker.jobs.add(() -> { throw new NoClassDefFoundError("synthetic/CaptureFailure"); });
+        worker.join(3000); assertFalse(worker.isAlive()); SwingUtilities.invokeAndWait(() -> {});
+        assertEquals("T", util.PropertiesManager.getProperty("sniffer"));
+        assertSavedCapturePreference("T");
+    }
+    private static void assertSavedCapturePreference(String expected) throws Exception {
+        assertTrue(util.PropertiesManager.flush().toCompletableFuture().get(3, TimeUnit.SECONDS).isSuccess());
+        Properties saved = new Properties();
+        try (java.io.Reader reader = java.nio.file.Files.newBufferedReader(java.nio.file.Paths.get("realmShark.properties"), java.nio.charset.Charset.defaultCharset())) { saved.load(reader); }
+        assertEquals(expected, saved.getProperty("sniffer"));
     }
     private void replace(String name, Object value) {
         try { Field field = Tomato.class.getDeclaredField(name); field.setAccessible(true); original.put(field, field.get(null)); field.set(null, value); }
@@ -42,6 +86,7 @@ public class CaptureHookIntegrationTest {
             try { for (Map.Entry<Field,Object> entry : original.entrySet()) entry.getKey().set(null, entry.getValue()); }
             catch (IllegalAccessException e) { throw new AssertionError(e); }
         });
+        util.PropertiesManager.setProperties("sniffer", capturePreference == null ? "" : capturePreference);
     }
 
     @Test public void startPrecedesWorkerAndStopInvalidatesBeforeBlockedNativeClose() throws Exception {

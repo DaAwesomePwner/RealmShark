@@ -20,7 +20,7 @@ public class ImageBuffer {
     private static final SpriteFlatBuffer spriteFlatBuffer = new SpriteFlatBuffer();
     private static BufferedImage emptyImg;
 
-    private static String[] spriteSheets = {"assets/sprites/groundTiles.png", "assets/sprites/characters.png", "assets/sprites/characters_masks.png", "assets/sprites/mapObjects.png"};
+    private static String[] spriteSheets = {"groundTiles.png", "characters.png", "characters_masks.png", "mapObjects.png"};
     private static BufferedImage[] bigImages = new BufferedImage[4];
 
     private static BufferedImage emptyImage() {
@@ -76,7 +76,7 @@ public class ImageBuffer {
      */
     private static BufferedImage getSprite(int[] data) throws IOException { // data:{x, y, w, h, aId}
         if (data == null) return null;
-        if (bigImages[data[4] - 1] == null) bigImages[data[4] - 1] = ImageIO.read(new File(spriteSheets[data[4] - 1]));
+        if (bigImages[data[4] - 1] == null) bigImages[data[4] - 1] = ImageIO.read(AssetCache.path("sprites/" + spriteSheets[data[4] - 1]).toFile());
 
         return bigImages[data[4] - 1].getSubimage(data[0], data[1], data[2], data[3]);
     }

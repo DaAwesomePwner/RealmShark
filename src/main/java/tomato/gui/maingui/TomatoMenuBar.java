@@ -678,11 +678,7 @@ public class TomatoMenuBar implements ActionListener {
     @Override
     public void actionPerformed(ActionEvent e) {
         if (e.getSource() == sniffer) { // Starts and stops the sniffer
-            if (!Tomato.isCaptureRunning()) {
-                Tomato.startPacketSniffer();
-            } else {
-                stopPacketSniffer();
-            }
+            Tomato.setCaptureRequested(!Tomato.isCaptureRunning());
         } else if (e.getSource() == disableDataSending) { // disables data sharing
             boolean b = disableDataSending.isSelected();
             PropertiesManager.setProperties("disableDataSending", b ? "true" : "false");
