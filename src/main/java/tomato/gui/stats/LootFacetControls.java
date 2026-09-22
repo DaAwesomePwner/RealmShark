@@ -33,6 +33,12 @@ final class LootFacetControls extends JPanel {
         JPanel top=ContentStyle.controls();top.add(toggle);top.add(new JLabel(summary(facets)));top.add(error);add(top,BorderLayout.NORTH);add(expanded);
     }
     Facets value(){Facets next=SessionStore.JSON.fromJson(SessionStore.JSON.toJson(initial),Facets.class);next.bags=new LinkedHashSet<>(bags.getSelectedValuesList());next.dungeons=new LinkedHashSet<>(dungeons.getSelectedValuesList());next.rarities=new LinkedHashSet<>(rarities.getSelectedValuesList());next.tiers=new LinkedHashSet<>(tiers.getSelectedValuesList());next.kind=(Kind)kind.getSelectedItem();next.slots=slots.value();next.applied=applied.value();return next;}
+    void updateChoices(Collection<String> bagChoices,Collection<String> dungeonChoices){update(bags,bagChoices);update(dungeons,dungeonChoices);}
+    private static void update(JList<String> list,Collection<String> choices){
+        Set<String> selected=new LinkedHashSet<>(list.getSelectedValuesList()),values=new TreeSet<>(choices);values.addAll(selected);
+        List<String> current=new ArrayList<>();for(int i=0;i<list.getModel().getSize();i++)current.add(list.getModel().getElementAt(i));if(current.equals(new ArrayList<>(values)))return;
+        list.setListData(values.toArray(new String[0]));for(int i=0;i<list.getModel().getSize();i++)if(selected.contains(list.getModel().getElementAt(i)))list.addSelectionInterval(i,i);
+    }
     static String summary(Facets f){return "Bags "+f.bags+" · Dungeons "+f.dungeons+" · "+f.kind+" · Rarity "+f.rarities+" · Tier "+f.tiers+" · Slots "+range(f.slots)+" · Applied "+range(f.applied);}
     private static String range(Range r){return Objects.toString(r.min,"any")+"…"+Objects.toString(r.max,"any")+" / unknown "+r.unknown;}
     private static JList<String> list(String name,Collection<String> choices,Set<String> selected){

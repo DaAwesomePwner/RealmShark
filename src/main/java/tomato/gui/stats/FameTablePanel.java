@@ -36,6 +36,8 @@ public class FameTablePanel extends JPanel {
     private final JTable fameTable = StatsUi.table(tableModel, "fame-characters");
     private final JTable mapTable = StatsUi.table(mapModel, "fame-maps");
     private final JTabbedPane views = new JTabbedPane();
+    private final JScrollPane fameScroll=StatsUi.tableScroll(fameTable),mapScroll=StatsUi.tableScroll(mapTable);
+    private final ArrayList<String> characterKeys=new ArrayList<>(),mapKeys=new ArrayList<>();
 
     public FameTablePanel(TomatoData tomatoData) {
         this.tomatoData = tomatoData;
@@ -55,10 +57,11 @@ public class FameTablePanel extends JPanel {
         mapTable.getColumnModel().getColumn(0).setPreferredWidth(200);
         fameTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING)));
         mapTable.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING)));
-        views.addTab("Characters", StatsUi.tableScroll(fameTable));
+        views.setName("fame-table-views");activity.setName("fame-activity");mapView.setName("fame-map-view");gainedOnly.setName("fame-gained-only");
+        views.addTab("Characters", fameScroll);
         JPanel maps = new JPanel(new BorderLayout(0, 8));
         JPanel mapFilters = StatsUi.controls(); mapFilters.add(mapSearch); mapFilters.add(mapView); mapFilters.add(gainedOnly);
-        maps.add(StatsUi.stack(mapFilters), BorderLayout.NORTH); maps.add(StatsUi.tableScroll(mapTable), BorderLayout.CENTER); maps.add(mapStatus, BorderLayout.SOUTH);
+        maps.add(StatsUi.stack(mapFilters), BorderLayout.NORTH); maps.add(mapScroll, BorderLayout.CENTER); maps.add(mapStatus, BorderLayout.SOUTH);
         views.addTab("Map breakdown", maps); add(views, BorderLayout.CENTER);
         JPopupMenu actions = new JPopupMenu();
         JMenuItem newSession = new JMenuItem("New Session"); newSession.setToolTipText("Start fresh tracking. Shift+click deletes the current session file.");
@@ -80,6 +83,11 @@ public class FameTablePanel extends JPanel {
     }
 
     public static FameTablePanel getInstance() { return INSTANCE; }
+    void bindViewState(tomato.gui.history.ViewStateStore store){
+        StatisticsLiveState state=new StatisticsLiveState(store,"statistics-live-fame-table").attach(this);
+        state.text(search);state.text(mapSearch);state.combo(activity);state.combo(mapView);state.check(gainedOnly);state.tabs(views);
+        state.table(fameTable,fameScroll,row->row<characterKeys.size()?characterKeys.get(row):"");state.table(mapTable,mapScroll,row->row<mapKeys.size()?mapKeys.get(row):"");
+    }
     void setSessionSaveStatus(String text) { sessionSaveStatus = text; refresh(); }
     public static void updateRealmChars() {
         FameTablePanel panel = INSTANCE;
@@ -144,14 +152,14 @@ public class FameTablePanel extends JPanel {
         boolean maps = allViews || views.getSelectedIndex() == 1;
         FameTrackingModel.TableSnapshot data = tracking.snapshot(maps);
         saveStatus.setText(sessionSaveStatus);
-        if (characters) tableModel.setRowCount(0);
+        if (characters) {tableModel.setRowCount(0);characterKeys.clear();}
         double totalGain = 0; long totalTime = 0; int shown = 0;
         for (int id : new TreeSet<>(data.initial.keySet())) {
             if (!include(data, id)) continue;
             Fame last = data.last.get(id); double initial = data.initial.get(id);
             long elapsed = data.observed.getOrDefault(id, 0L); double gained = data.gain(id);
-            if (characters) tableModel.addRow(new Object[]{data.displayName(id), id == data.currentId ? "Current" : last == null ? "Not observed" : "Inactive",
-                initial, last == null ? initial : last.getFame(), gained, elapsed, elapsed > 0 ? gained * 3600000.0 / elapsed : null});
+            if (characters) {characterKeys.add("character:"+id);tableModel.addRow(new Object[]{data.displayName(id), id == data.currentId ? "Current" : last == null ? "Not observed" : "Inactive",
+                initial, last == null ? initial : last.getFame(), gained, elapsed, elapsed > 0 ? gained * 3600000.0 / elapsed : null});}
             shown++; totalGain += gained; totalTime += elapsed;
         }
         metrics[0].setText(DisplayFormat.formatInteger(shown)); metrics[1].setText(Formatters.formatNumber(totalGain, 0));
@@ -161,18 +169,21 @@ public class FameTablePanel extends JPanel {
         if (maps) renderMaps(data);
     }
     private void renderMaps(FameTrackingModel.TableSnapshot data) {
-        mapModel.setRowCount(0);
+        mapModel.setRowCount(0);mapKeys.clear();
         Map<String, double[]> grouped = new TreeMap<>();
         int count = 0; double gain = 0; long duration = 0;
         HashMap<Integer, ArrayList<MapFameData>> all = data.maps;
         for (int id : new TreeSet<>(all.keySet())) {
             if (!include(data, id)) continue;
+            int ordinal=0;
             for (MapFameData map : all.get(id)) {
+                int position=ordinal++;
                 if (!StatsUi.matches(map.mapName, mapSearch.getText()) || (gainedOnly.isSelected() && map.getFameGained() <= 0)) continue;
                 long elapsed = Math.max(0, map.getTimeSpent()); double gained = map.getFameGained();
                 boolean open = map == data.open.get(id);
                 count++; gain += gained; duration += elapsed;
                 if (mapView.getSelectedIndex() == 1) {
+                    mapKeys.add("visit:"+id+"/"+position+"/"+map.startTime);
                     mapModel.addRow(new Object[]{map.mapName, data.displayName(id), 1, elapsed, gained,
                         elapsed > 0 ? gained * 3600000.0 / elapsed : null, open ? "Open · latest sample" : "Closed", map.startTime});
                 } else {
@@ -181,8 +192,8 @@ public class FameTablePanel extends JPanel {
                 }
             }
         }
-        grouped.forEach((name, sum) -> mapModel.addRow(new Object[]{name, "Matching characters", (int)sum[0], (long)sum[1], sum[2],
-            sum[1] > 0 ? sum[2] * 3600000.0 / sum[1] : null, sum[3] > 0 ? DisplayFormat.formatInteger((int)sum[3]) + " open" : "Closed", null}));
+        grouped.forEach((name, sum) -> {mapKeys.add("map:"+name);mapModel.addRow(new Object[]{name, "Matching characters", (int)sum[0], (long)sum[1], sum[2],
+            sum[1] > 0 ? sum[2] * 3600000.0 / sum[1] : null, sum[3] > 0 ? DisplayFormat.formatInteger((int)sum[3]) + " open" : "Closed", null});});
         mapStatus.setText(count == 0 ? "No matching map visits. Map tracking begins with the first fame sample in an instance."
             : DisplayFormat.formatInteger(count) + " visits · " + Formatters.formatNumber(gain, 1) + " fame · " + Formatters.formatDurationHMS(duration) + " observed");
     }
