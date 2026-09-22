@@ -20,6 +20,17 @@ import tomato.realmshark.ParseDungeon;
 
 /** Product-facing history modules sharing the capture journal, independent of diagnostic tables. */
 public final class ActivityPanel extends JPanel {
+    /** EDT factory used by the shell; each mode has an independent saved workspace. */
+    public static JComponent workspace(DiscoveryLog log,Mode mode) {
+        ActivityPanel live=new ActivityPanel(log,mode);
+        tomato.history.SessionStore store=tomato.history.AppHistory.store();
+        return store==null?live:workspace(store,live,mode,Paths.get(System.getProperty("java.io.tmpdir"),"realmshark-activity-archive"),tomato.gui.history.ViewStateStore.application());
+    }
+    public static tomato.gui.history.ArchiveWorkspace<ActivityQueries.Row,ActivityQueries.Filters,ActivityQueries.Sort> workspace(
+            tomato.history.SessionStore store,JComponent live,Mode mode,Path scratch,tomato.gui.history.ViewStateStore states) {
+        String name=mode==Mode.RUNS?"runs":mode==Mode.TIMELINE?"timeline":"combat";
+        return tomato.gui.history.SessionPanel.queried(store,name,live,new ActivityArchiveClient(mode,scratch),states);
+    }
     public static tomato.gui.history.SessionPanel.Loaded runsHistory(tomato.history.SessionStore store,String scope,int page,String query)throws java.io.IOException {
         return savedHistory(store,scope,page,query,Mode.RUNS);
     }
@@ -128,7 +139,7 @@ public final class ActivityPanel extends JPanel {
         search.putClientProperty("JTextField.placeholderText","Search this view");
         search.setToolTipText("Search this module; text is matched literally"); controls.add(labeled("Search",search));
         displayedEnabled=record.isSelected();
-        JButton export=new JButton("Export history"); export.addActionListener(e->export());
+        JButton export=new JButton("Export displayed history (unfiltered)"); export.addActionListener(e->export());
         export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
         controls.add(record); controls.add(freeze); controls.add(export);
         if(mode==Mode.RUNS){
@@ -359,12 +370,13 @@ public final class ActivityPanel extends JPanel {
     private static String identifier(Object value){return value instanceof Number?Long.toString(((Number)value).longValue()):DisplayFormat.UNAVAILABLE;}
     private static String item(Object value){if(!(value instanceof Number))return "Unknown item";int id=((Number)value).intValue();if(id==-1)return "Empty";String name=assets.IdToAsset.objectName(id);return name==null||name.isEmpty()?"Item "+id:name;}
     private static String eventText(ActivityJournal.Entry e){Map<String,Object> v=e.values;
+        if(e.kind==null||v==null)return ActivitySummaries.event(e);
         if(e.kind.equals("Party roster"))return "Party "+identifier(v.get("partyId"))+" · "+number(v.get("memberCount"))+" observed members";
         if(e.kind.equals("Exalt change"))return "Class "+identifier(v.get("classId"))+" · "+v.get("stat")+": "+number(v.get("before"))+" → "+number(v.get("after"));
         if(e.kind.equals("Resources"))return "HP "+number(v.get("hp"))+" · MP "+number(v.get("mp"));
         if(e.kind.equals("Item / ability request"))return item(v.get("slotObject.objectType"))+" · "+v.getOrDefault("slotLabel","Unknown slot");
         if(e.kind.equals("Equipment changed"))return item(v.get("before"))+" → "+item(v.get("after"));
-        return new com.google.gson.Gson().toJson(v);
+        return ActivitySummaries.event(e);
     }
     static ActivityJournal.State exportHistory(ActivityJournal.State state,Mode mode){
         if(mode!=Mode.RUNS)return state;
@@ -378,11 +390,18 @@ public final class ActivityPanel extends JPanel {
     private void export(){exportTo(Paths.get("logs","discovery","reports"));}
     SwingWorker<Path,Void> exportTo(Path dir){
         if(exporting||displayed==null)return null;
-        final DiscoveryLog.ActivitySnapshot source=displayed;exporting=true;saved.setText("Saving displayed history revision…");
+        final DiscoveryLog.ActivitySnapshot source=displayed;final boolean frozen=freeze.isSelected();exporting=true;saved.setText("Saving displayed history revision; view filters not applied…");
         SwingWorker<Path,Void> worker=new SwingWorker<Path,Void>(){
             protected Path doInBackground()throws Exception{
                 ActivityJournal.State report=exportHistory(source.fullHistory(),mode);
-                Files.createDirectories(dir);Path path=Files.createTempFile(dir,"activity-",".json");Files.write(path,new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(report).getBytes(StandardCharsets.UTF_8));return path;
+                com.google.gson.Gson json=new com.google.gson.GsonBuilder().setPrettyPrinting().create();
+                com.google.gson.JsonObject document=json.toJsonTree(report).getAsJsonObject(),manifest=new com.google.gson.JsonObject();
+                manifest.addProperty("exportScope",mode==Mode.RUNS?"DISPLAYED_DUNGEON_HISTORY_AND_LINKED_EVENTS":"DISPLAYED_HISTORY");
+                manifest.addProperty("displayFrozen",frozen);manifest.addProperty("filtersApplied",false);
+                manifest.addProperty("scopeNote","Legacy live/frozen history export; search, visit picker and table filters do not limit this report");
+                manifest.add("revision",json.toJsonTree(source.revision));manifest.addProperty("displayCapturedAt",report.checkpointTime);
+                manifest.addProperty("visitCount",report.visits.size());manifest.addProperty("eventCount",report.entries.size());document.add("manifest",manifest);
+                Files.createDirectories(dir);Path path=Files.createTempFile(dir,"activity-",".json");Files.write(path,json.toJson(document).getBytes(StandardCharsets.UTF_8));return path;
             }
             protected void done(){try{Path path=get();saved.setText("Saved "+path.getFileName());saved.setToolTipText(path.toAbsolutePath().toString());}catch(Exception e){saved.setText("Could not save history. Check folder permissions and free space.");}finally{exporting=false;}}
         };worker.execute();return worker;

@@ -7,6 +7,14 @@ import javax.swing.*;
 import java.awt.*;
 
 public class SecurityGUI extends JPanel {
+    public static JComponent workspace(SecurityGUI live) {
+        tomato.history.SessionStore store=tomato.history.AppHistory.store();
+        return store==null?live:workspace(store,live,java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"),"realmshark-inspect-archive"),tomato.gui.history.ViewStateStore.application());
+    }
+    public static tomato.gui.history.ArchiveWorkspace<tomato.gui.activity.ActivityQueries.Row,tomato.gui.activity.ActivityQueries.Filters,tomato.gui.activity.ActivityQueries.Sort> workspace(
+            tomato.history.SessionStore store,JComponent live,java.nio.file.Path scratch,tomato.gui.history.ViewStateStore states) {
+        return tomato.gui.history.SessionPanel.queried(store,"inspect",live,InspectRunsPanel.archiveClient(scratch),states);
+    }
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws java.io.IOException {
         packets.packetcapture.logger.ActivityJournal.State state = new packets.packetcapture.logger.ActivityJournal.State();
         tomato.gui.history.HistoryPage<packets.packetcapture.logger.ActivityJournal.Visit> visits = tomato.gui.history.HistoryPage.read(store,scope,"runs",packets.packetcapture.logger.ActivityJournal.Visit.class,page,100,query,

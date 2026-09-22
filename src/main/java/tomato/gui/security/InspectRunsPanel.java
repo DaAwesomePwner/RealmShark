@@ -25,6 +25,20 @@ import java.util.regex.Pattern;
 
 /** Select the same dungeon visits as Runs, then inspect their last observed player loadouts. */
 final class InspectRunsPanel extends JPanel {
+    /** Archive visit filters are global; the roster owns only selected-run display facets. */
+    static tomato.gui.activity.ActivityArchiveClient archiveClient(java.nio.file.Path scratch) {
+        return new tomato.gui.activity.ActivityArchiveClient(tomato.gui.activity.ActivityPanel.Mode.RUNS,scratch,
+                new tomato.gui.activity.ActivityArchiveClient.VisitRenderer() {
+                    private ParsePanelGUI savedRoster;
+                    private String session="";
+                    public JComponent render(ActivityJournal.Visit visit,tomato.history.archive.ArchiveRow.Ref origin) {
+                        if(savedRoster==null)savedRoster=new ParsePanelGUI(false);
+                        // ParsePanel's local row keys use visit ID. Clear them when the source session changes.
+                        if(!session.equals(origin.session))savedRoster.showRun("",Collections.emptyList());
+                        session=origin.session;savedRoster.showRun(visit);return savedRoster;
+                    }
+                });
+    }
     private final DiscoveryLog log;
     private final ParsePanelGUI roster;
     private final JPanel rosterHost = new JPanel(new BorderLayout());
