@@ -29,6 +29,24 @@ allprojects {
                     includeTestsMatching 'tomato.gui.quest.QuestConsistencyTest'
                     includeTestsMatching 'tomato.gui.keypop.KeyPopTest.rendersAllViewsAtNormalAndCompactSizes'
                     includeTestsMatching 'tomato.gui.myinfo.MyInfoGuiTest'
+                    // Wave 1 trust, scoped publication and editor surfaces. Pure model suites stay in test.
+                    includeTestsMatching 'tomato.SetupWorkspaceTest'
+                    includeTestsMatching 'tomato.gui.chat.ShellHookIntegrationTest'
+                    includeTestsMatching 'tomato.gui.myinfo.MyInfoEvidenceTest'
+                    includeTestsMatching 'tomato.gui.logging.LoggingGuiTest'
+                    includeTestsMatching 'tomato.gui.logging.CollectionEvidenceTest.sharedCollectionStateChangesWhileBothDisplaysRemainPaused'
+                    includeTestsMatching 'tomato.gui.activity.ActivityModulesTest'
+                    includeTestsMatching 'tomato.gui.dps.DpsInspectMenuTest'
+                    includeTestsMatching 'tomato.gui.character.PetFeedingFormTest'
+                    includeTestsMatching 'tomato.gui.quest.QuestGuiTest'
+                    includeTestsMatching 'tomato.gui.chat.SharedChatPolicyTest.historicalIgnorePublishesToLiveAndOtherPagesWithoutReplayingAlerts'
+                    includeTestsMatching 'tomato.gui.chat.SharedChatPolicyTest.receiptEvidenceSurvivesLocalUnignoreAndStaleDraftCannotClobberNewPolicy'
+                    includeTestsMatching 'tomato.gui.chat.SharedChatPolicyTest.failedFilterSaveRetainsInputAndActivePolicyWhileClassificationSnapshotsStayPinned'
+                    includeTestsMatching 'tomato.gui.keypop.ExactContributorTest'
+                    includeTestsMatching 'tomato.gui.maingui.SocialRuleEditorTest'
+                    includeTestsMatching 'tomato.gui.maingui.RuleEditorActionsTest'
+                    includeTestsMatching 'tomato.gui.notifications.NotificationDraftTest'
+                    includeTestsMatching 'tomato.realmshark.SilentRuleEditorTest'
                 }
                 testLogging { events 'failed'; exceptionFormat 'full' }
             }

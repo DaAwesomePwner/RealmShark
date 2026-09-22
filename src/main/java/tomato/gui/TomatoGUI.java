@@ -75,7 +75,7 @@ public class TomatoGUI {
         securityPanel = new SecurityGUI();
         characterPanel = new CharacterPanelGUI(data);
         statistics = new StatisticsGUI(data);
-        questPanel = new QuestGUI();
+        questPanel = new QuestGUI(data);
         myDmg = new MyInfoGUI(data);
         dpsPanel = new DpsGUI(data);
 
@@ -84,7 +84,7 @@ public class TomatoGUI {
 
         runsWorkspace = tomato.gui.history.SessionPanel.wrap("runs", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS), tomato.gui.activity.ActivityPanel::runsHistory);
         shell = new WorkspaceShell(new JComponent[] {
-            tomato.gui.history.SessionPanel.wrap("chat", chatPanel, ChatGUI::history),
+            tomato.gui.history.SessionPanel.wrap("chat", chatPanel, chatPanel::historyWithPolicy),
             tomato.gui.history.SessionPanel.wrap("keypops", keypopPanel, KeypopGUI::history),
             tomato.gui.history.SessionPanel.wrap("inspect", securityPanel, SecurityGUI::history),
             characterPanel, tomato.gui.history.SessionPanel.wrap("statistics", statistics, tomato.gui.stats.HistoricalStatistics::statistics),

@@ -418,14 +418,8 @@ public class TomatoData {
      * @param idType ID of sound alert entity
      */
     private void customSoundAlert(int idType) {
-        ArrayList<String> idEntityPing = getEntityIdPings();
-        if (idEntityPing != null) {
-            for (String id : idEntityPing) {
-                if (String.valueOf(idType).equals(id)) {
-                    Sound.custom.play();
-                    break;
-                }
-            }
+        if (tomato.realmshark.AlertRules.application().matchEntityType(getEntityIdPings(), idType).matched) {
+            Sound.custom.play();
         }
     }
 
@@ -1663,6 +1657,10 @@ public class TomatoData {
     public ArrayList<String> getItemPings() {
         ArrayList<String> result = propLists.get("itemPings");
         return result != null ? result : new ArrayList<>();
+    }
+
+    public boolean isItemPing(int itemType, String resolvedName) {
+        return tomato.realmshark.AlertRules.application().matchItem(getItemPings(), itemType, resolvedName).matched;
     }
 
     public boolean isItemPing(String item) {
