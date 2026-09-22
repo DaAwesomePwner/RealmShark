@@ -19,18 +19,25 @@ public final class RosterViewState {
     private final String key;
     private final Supplier<Map<String, String>> capture;
     private final Function<Map<String, String>, Runnable> prepare;
+    private final BooleanSupplier ownsLiveState;
     private final JTextArea status = ContentStyle.wrappingText("");
     private final JPanel controls = new JPanel(new BorderLayout(0, 4));
+    private final JButton retry = new JButton("Save view state"), reset = new JButton("Reset saved view state");
     private ViewState<Fields, Order> state;
     private boolean restoring, blocked, queued;
     private long saveGeneration;
+    private long changeGeneration;
 
     public RosterViewState(ViewStateStore store, String key, Supplier<Map<String, String>> capture,
                            Function<Map<String, String>, Runnable> prepare) {
+        this(store, key, capture, prepare, () -> true);
+    }
+    public RosterViewState(ViewStateStore store, String key, Supplier<Map<String, String>> capture,
+                           Function<Map<String, String>, Runnable> prepare, BooleanSupplier ownsLiveState) {
         this.store = store; this.key = key; this.capture = capture; this.prepare = prepare;
+        this.ownsLiveState = Objects.requireNonNull(ownsLiveState);
         state = ViewState.initial(ArchiveQuery.of(ArchiveQuery.CURRENT, new Fields(), Fields.class, Order.NONE));
         status.setName(key + "-state-status"); status.getAccessibleContext().setAccessibleName("Live workspace state persistence");
-        JButton retry = new JButton("Save view state"), reset = new JButton("Reset saved view state");
         retry.setName(key + "-save-state"); reset.setName(key + "-reset-state");
         retry.addActionListener(e -> save()); reset.addActionListener(e -> reset());
         JPanel actions = ContentStyle.controls(); actions.add(retry); actions.add(reset);
@@ -38,34 +45,51 @@ public final class RosterViewState {
         try {
             ViewState<Fields, Order> saved = store.load(key, state); Fields fields = saved.query.facets();
             if (fields.version != 1 || fields.values == null || fields.values.containsValue(null)) throw new IllegalArgumentException("Unsupported live state");
-            Runnable apply = prepare.apply(Collections.unmodifiableMap(fields.values));
-            restoring = true;
-            try { apply.run(); state = saved; } finally { restoring = false; }
+            if (ownsLiveState.getAsBoolean()) {
+                Runnable apply = prepare.apply(Collections.unmodifiableMap(fields.values));
+                restoring = true;
+                try { apply.run(); } finally { restoring = false; }
+            }
+            state = saved;
         } catch (RuntimeException invalid) {
             blocked = true; status.setText("Saved view state unavailable. Current controls remain usable; Reset saved view state to replace it.");
         }
+        ownershipChanged();
     }
     public JComponent controls() { return controls; }
     public boolean restoring() { return restoring; }
+    /** Invalidate pending UI intent at a scope boundary, including a live -> recorded -> live round trip. */
+    public void ownershipChanged() {
+        cancelQueued();
+        boolean active = ownsLiveState.getAsBoolean();
+        controls.setVisible(active); retry.setEnabled(active); reset.setEnabled(active);
+    }
+    private void cancelQueued() { queued = false; changeGeneration++; }
     public void changed() {
-        if (restoring || blocked || queued) return;
+        if (restoring || blocked || queued || !ownsLiveState.getAsBoolean()) return;
         queued = true;
-        SwingUtilities.invokeLater(() -> { if (queued) { queued = false; save(); } });
+        long ticket = ++changeGeneration;
+        SwingUtilities.invokeLater(() -> { if (queued && ticket == changeGeneration) { queued = false; save(); } });
     }
     public CompletionStage<PreferencesStore.SaveResult> save() {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Capture view state on the EDT");
-        queued = false;
+        cancelQueued();
+        if (!ownsLiveState.getAsBoolean()) return CompletableFuture.completedFuture(PreferencesStore.SaveResult.failed(0, new IllegalStateException("Live view state is not active")));
         if (blocked) return CompletableFuture.completedFuture(PreferencesStore.SaveResult.failed(0, new IllegalStateException("Reset unsupported saved state first")));
         Fields fields = new Fields(); fields.values.putAll(state.query.facets().values); fields.values.putAll(capture.get()); state = state.withQuery(state.query.withFacets(fields));
         try { return watch(store.save(key, state)); }
         catch (RuntimeException failure) { return watch(CompletableFuture.completedFuture(PreferencesStore.SaveResult.failed(0, failure))); }
     }
     public void restoreLast() {
+        if (!ownsLiveState.getAsBoolean()) return;
+        cancelQueued();
         Runnable apply = prepare.apply(state.query.facets().values); restoring = true;
         try { apply.run(); } finally { restoring = false; }
     }
     private void reset() {
-        blocked = false; queued = false;
+        cancelQueued();
+        if (!ownsLiveState.getAsBoolean()) return;
+        blocked = false;
         state = ViewState.initial(ArchiveQuery.of(ArchiveQuery.CURRENT, new Fields(), Fields.class, Order.NONE));
         watch(store.reset(key));
         status.setText("Saved state reset. Current controls and notes are retained; Save view state remembers them.");

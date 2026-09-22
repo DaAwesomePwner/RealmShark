@@ -2,6 +2,10 @@ package tomato.gui.roster;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.awt.event.ActionEvent;
 import javax.swing.*;
 import org.junit.Test;
 import com.google.gson.*;
@@ -9,6 +13,35 @@ import static org.junit.Assert.*;
 import static tomato.gui.roster.RosterStateTestSupport.*;
 
 public class RosterViewStateTest {
+    @Test public void ownershipGuardsCaptureSaveResetAndQueuedIntentAcrossRoundTrip() throws Exception {
+        Memory memory = new Memory(); AtomicBoolean live = new AtomicBoolean(true);
+        AtomicInteger captures = new AtomicInteger(), applies = new AtomicInteger();
+        Map<String, String> fields = new LinkedHashMap<>(); fields.put("text", "Initial live L");
+        RosterViewState[] state = new RosterViewState[1]; CompletableFuture<Void> betweenCallbacks = new CompletableFuture<>();
+        SwingUtilities.invokeAndWait(() -> {
+            state[0] = new RosterViewState(memory.store, "guarded-live", () -> { assertTrue(live.get()); captures.incrementAndGet(); return fields; },
+                values -> () -> applies.incrementAndGet(), live::get);
+            state[0].save(); String original = memory.values.get("ux.archive.guarded-live"); int savedCaptures = captures.get(), savedApplies = applies.get();
+            fields.put("text", "Old queued live intent"); state[0].changed();
+            // This observer is queued after the old callback but before the fresh live callback.
+            SwingUtilities.invokeLater(() -> {
+                try { assertEquals(original, memory.values.get("ux.archive.guarded-live")); assertEquals(savedCaptures, captures.get()); betweenCallbacks.complete(null); }
+                catch (Throwable failure) { betweenCallbacks.completeExceptionally(failure); }
+            });
+            live.set(false); state[0].ownershipChanged(); fields.put("text", "Historical H");
+            assertFalse(state[0].save().toCompletableFuture().join().isSuccess()); state[0].changed(); state[0].restoreLast();
+            JButton reset = named(state[0].controls(), "guarded-live-reset-state", JButton.class);
+            for (java.awt.event.ActionListener listener : reset.getActionListeners()) listener.actionPerformed(new ActionEvent(reset, ActionEvent.ACTION_PERFORMED, "stale-reset"));
+            assertEquals(savedCaptures, captures.get()); assertEquals(savedApplies, applies.get()); assertEquals(original, memory.values.get("ux.archive.guarded-live"));
+            live.set(true); state[0].ownershipChanged(); fields.put("text", "Fresh live intent"); state[0].changed();
+        });
+        betweenCallbacks.get(3, TimeUnit.SECONDS);
+        SwingUtilities.invokeAndWait(() -> {
+            assertEquals(2, captures.get()); assertEquals(2, memory.writes);
+            assertTrue(memory.values.get("ux.archive.guarded-live").contains("Fresh live intent"));
+            assertFalse(memory.values.get("ux.archive.guarded-live").contains("Historical H"));
+        });
+    }
     @Test public void failureKeepsCurrentControlsAndRetryPersistsThem() throws Exception {
         Memory memory = new Memory(); Map<String, String> controls = new LinkedHashMap<>(); controls.put("mode", "UNKNOWN");
         RosterViewState[] state = new RosterViewState[1];

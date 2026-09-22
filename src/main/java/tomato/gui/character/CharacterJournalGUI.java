@@ -221,7 +221,7 @@ public final class CharacterJournalGUI extends JPanel {
         life.addActionListener(e -> filter()); season.addActionListener(e -> filter());
         for (JComboBox<?> facet : new JComboBox<?>[]{accountFilter, classFilter, needsLife, missing, maxedFilter, ageFilter}) facet.addActionListener(e -> filter());
         minMaxed.addChangeListener(e -> filter()); maxMaxed.addChangeListener(e -> filter()); ageHours.addChangeListener(e -> filter());
-        roster.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) select(); });
+        roster.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) select(!restoringState); });
         death.addActionListener(e -> { CharacterRecord r = selected(); if (r != null) { journal.markDead(r.key, !r.dead); refresh(); } });
         saveNotes.addActionListener(e -> { if (selectedKey != null) { journal.notes(selectedKey, notes.getText()); refresh(); } });
         timer = new javax.swing.Timer(1000, e -> { if (isShowing() || exalts.isShowing()) refresh(); });
@@ -298,12 +298,13 @@ public final class CharacterJournalGUI extends JPanel {
             int view = roster.convertRowIndexToView(i); roster.setRowSelectionInterval(view, view); break;
         }
         if (roster.getSelectedRow() < 0 && !filtered.isEmpty() && pendingSelectionKey == null) roster.setRowSelectionInterval(0, 0);
-        refreshing = false; select();
+        refreshing = false; select(false);
         rememberViewState();
     }
     private CharacterRecord selected() { int row = roster.getSelectedRow(); return row < 0 ? null : filtered.get(roster.convertRowIndexToModel(row)); }
-    private void select() {
+    private void select(boolean explicitSelection) {
         CharacterRecord r = selected(); String newKey = r == null ? null : r.key;
+        if (explicitSelection && r != null) pendingSelectionKey = null;
         boolean changed = !Objects.equals(selectedKey, newKey);
         if (changed && selectedKey != null) {
             for (CharacterRecord previous : records) if (previous.key.equals(selectedKey) && !Objects.equals(previous.notes, notes.getText())) {

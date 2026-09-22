@@ -289,3 +289,53 @@ check restoration, Clear, explicit Go live, failed-save retry and unsupported-ve
 Reports: `build/ux-w2-roster-fixes/test-results/test/TEST-*.xml`.
 No GUI/native/focus suite, capture, network delivery, shared-foundation edit or ledger/checkpoint
 change was performed by this correction lane.
+
+## Persistence ownership corrections after independent review
+
+Starting primary head: `48f5304b0b1c7529a35cff9e8870b50db2725df6`.
+
+- `RosterViewState` accepts an explicit live-ownership predicate. It checks ownership at capture/
+  save, queued autosave, restore and reset boundaries. `ownershipChanged()` hides/disables the
+  adapter's controls and invalidates queued intent by generation, including a live -> recorded ->
+  live round trip. A stale control callback cannot bypass the adapter merely by invoking its action
+  listener directly. The existing four-argument constructor retains always-owned behavior for
+  character/encounter adapters.
+- `ParsePanelGUI` supplies `liveOwner && historicalPlayers == null`, guards the capture callback
+  itself, and updates adapter ownership at each current-area/recorded-run transition. The live-state
+  control host is hidden in recorded runs. The outgoing live state is flushed before the boundary;
+  returning to Current Area restores that live state, not subsequently edited historical controls.
+- Character selection now distinguishes explicit selection events from programmatic refresh/state
+  restoration. Selecting B explicitly supersedes an unresolved saved reference to A before an
+  automatic save can capture it. Background refresh preserves A's pending intent until a selection
+  is actually made; refresh and recreation thereafter retain B by its account-qualified key.
+
+The new tests were run against the old production code first: **5 tests, 3 failures**. They
+reproduced historical Save writing H over L, a queued historical Reset deleting L, and explicit B
+being cleared on refresh because pending A survived. After the fixes, the final focused run passed
+**29 tests, zero failures/errors/skips**, with main and test compilation passing normally.
+
+New/extended proof:
+
+- `InspectViewStateTest` exercises the actual Save button, disabled/hidden controls in recorded
+  mode, direct stale action-listener delivery, queued Save/Reset across the mode boundary, and
+  restoration of L after editing H.
+- `RosterViewStateTest` counts captures/applies/writes, proves inactive operations do not call
+  capture or mutate storage, and places an EDT observer between old and fresh queued callbacks
+  to prove an invalidated callback cannot consume a new live intent.
+- `CharacterViewStateTest` restores a filtered-out A, verifies a programmatic refresh still retains
+  that unresolved reference, explicitly selects B, then checks automatic persistence, refresh and
+  recreation all retain B without changing the other character's notes.
+
+Final selectors (whole classes): `InspectViewStateTest`, `CharacterViewStateTest`,
+`RosterViewStateTest`, `RequirementResultTest`, `CapturedPublicationRaceTest`,
+`CharacterRosterQueryTest`, `CharacterRosterStateTest`, `CharacterJournalFreshnessRefreshTest`,
+`InspectFacetStateTest`, `InspectEvidenceTest`, `EncounterViewStateTest`.
+The approved scoring and capture/Clear implementation files were not changed; all seven scoring
+tests and the real producer/Clear interleaving regression passed again.
+
+JDK 17 / Gradle 7.6.4; test JVMs forced headless through the local ignored init script
+`.omc/ux/w2-roster-ownership-headless.gradle`. Unique output and project cache:
+`build/ux-w2-roster-ownership` and `build/ux-w2-roster-ownership/project-cache`.
+XML proof: `build/ux-w2-roster-ownership/test-results/test/TEST-*.xml`.
+No native/focus/scaling tests, shared-foundation changes or coordinator ledger/checkpoint edits
+were performed in this correction.

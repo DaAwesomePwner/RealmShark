@@ -554,6 +554,7 @@ public class ParsePanelGUI extends JPanel {
         inspectedRun = null;
         showRunColumns(false);
         synchronized (rosterLock) { historicalPlayers = null; }
+        updateViewStateOwnership();
         if (returning && liveOwner) { selectedFilter = currentFilter; guiUpdateSuppression = true; filterComboBox.setSelectedItem(selectedFilter == null ? DISABLE_FILTER : selectedFilter.name); guiUpdateSuppression = false; requirementsRevision++; }
         if (returning && viewState != null) viewState.restoreLast();
         table.clearSelection();
@@ -583,6 +584,7 @@ public class ParsePanelGUI extends JPanel {
             captured.add(row);
         }
         synchronized (rosterLock) { historicalPlayers = captured; }
+        updateViewStateOwnership();
         requestRefresh();
         refreshRoster();
     }
@@ -601,18 +603,24 @@ public class ParsePanelGUI extends JPanel {
 
     public void bindViewState(ViewStateStore store) {
         if (viewState != null || !liveOwner) return;
-        viewState = new RosterViewState(store, "inspect-live-roster", this::captureViewState, this::prepareViewState);
-        stateHost.add(viewState.controls()); stateHost.setVisible(true);
+        viewState = new RosterViewState(store, "inspect-live-roster", this::captureViewState, this::prepareViewState, this::ownsLiveViewState);
+        stateHost.add(viewState.controls()); updateViewStateOwnership();
         RosterViewState.listenTable(table, this::rememberViewState);
     }
     public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
-        if (viewState == null || historicalPlayers != null) throw new IllegalStateException("Live view state is not active"); return viewState.save();
+        if (viewState == null || !ownsLiveViewState()) throw new IllegalStateException("Live view state is not active"); return viewState.save();
     }
     @Override public void removeNotify() { if (viewState != null && historicalPlayers == null) viewState.save(); super.removeNotify(); }
     private void rememberViewState() {
-        if (viewState != null && historicalPlayers == null && !guiUpdateSuppression && !restoringState) viewState.changed();
+        if (viewState != null && ownsLiveViewState() && !guiUpdateSuppression && !restoringState) viewState.changed();
+    }
+    private boolean ownsLiveViewState() { return liveOwner && historicalPlayers == null; }
+    private void updateViewStateOwnership() {
+        if (viewState == null) return;
+        viewState.ownershipChanged(); stateHost.setVisible(ownsLiveViewState());
     }
     private Map<String, String> captureViewState() {
+        if (!ownsLiveViewState()) throw new IllegalStateException("Cannot capture recorded controls as live state");
         Map<String, String> values = new LinkedHashMap<>(); InspectRosterQuery q = displayQuery();
         values.put("text", rosterSearch.getText()); values.put("class", Objects.toString(q.classId, ""));
         values.put("guildMode", q.guild.name()); values.put("guild", Objects.toString(q.guildName, ""));
