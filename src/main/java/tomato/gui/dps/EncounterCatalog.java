@@ -30,20 +30,43 @@ public final class EncounterCatalog {
     private final Set<String> checked = new HashSet<>();
     private long revision;
     private long generation;
+    private final String lifetimeId = UUID.randomUUID().toString();
+    public String lifetimeId() { return lifetimeId; }
     public synchronized long revision() { return revision; }
     public synchronized long generation() { return generation; }
-    /** Producer-owned array snapshot; importing never mutates the capture-owned history list. */
+    /** Take the epoch before reading the producer's list; Clear can invalidate the read in flight. */
+    public boolean capture(java.util.function.Supplier<DpsData[]> read) {
+        long expectedGeneration = generation();
+        return captured(read.get(), expectedGeneration);
+    }
+    /** Compatibility for already detached, single-threaded callers. Producers use capture(Supplier). */
     public synchronized void captured(DpsData[] records) {
+        captured(records, generation);
+    }
+    public synchronized boolean captured(DpsData[] records, long expectedGeneration) {
+        if (generation != expectedGeneration) return false;
         List<Entry> next = new ArrayList<>(); Set<DpsData> retained = Collections.newSetFromMap(new IdentityHashMap<>());
         for (DpsData record : records) if (record != null && retained.add(record)) next.add(captured.computeIfAbsent(record, d -> new Entry(d, null)));
         captured.keySet().retainAll(retained);
         if (!orderedCaptured.equals(next)) { orderedCaptured.clear(); orderedCaptured.addAll(next); pruneChecks(); revision++; }
+        return true;
     }
     public synchronized List<Entry> entries() {
         List<Entry> entries = new ArrayList<>(orderedCaptured); entries.addAll(imports); return Collections.unmodifiableList(entries);
     }
     public synchronized Entry find(String id) { for (Entry entry : entries()) if (entry.id.equals(id)) return entry; return null; }
     public synchronized Entry find(DpsData data) { for (Entry entry : entries()) if (entry.data == data) return entry; return null; }
+    public static String reference(Entry entry) {
+        if (entry == null) return "";
+        return entry.origin != null ? "file:" + entry.origin.fingerprint : entry.data.getRecordingId() != null
+            ? "native:" + entry.data.getRecordingId() : "entry:" + entry.id;
+    }
+    /** Ambiguous claims are not a selection. Import references use exact original bytes. */
+    public synchronized Entry resolve(String reference) {
+        Entry match = null;
+        for (Entry entry : entries()) if (reference(entry).equals(reference)) { if (match != null) return null; match = entry; }
+        return match;
+    }
     public synchronized Admission add(EncounterImport candidate) {
         return add(candidate, generation);
     }
