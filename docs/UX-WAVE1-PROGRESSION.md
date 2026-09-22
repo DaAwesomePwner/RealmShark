@@ -199,3 +199,52 @@ Reproduce with those options, `-I .omc/ux/progression-blockers-headless.gradle`,
 --tests tomato.gui.character.CharacterJournalFreshnessRefreshTest`. XML results are in
 `build/w1-progression-blockers/test-results/test/`; main/test compilation also passed.
 No native windows, rendering, focus/scaling validation or packaging was run for these corrections.
+
+## Settled Pets layout correction
+
+Starting checkout: primary `feat/ux-wave-1-trust` at
+`7aa8593444c3cbb921ae5e81890876734add5970`, using the independently approved, uncommitted
+`PetLayoutEvidenceTest` / `ui.VisualEvidence` fixtures unchanged.
+
+`CharacterPetsGUI` now puts its account context, pet list and feeding form inside
+`ContentStyle.page`. The inner pet viewport has a font-derived five-line minimum, so short
+windows scroll the whole page rather than allocating all available height to the header/form.
+Focus and text-caret reveal actions use `ContentStyle.reveal` through both viewports. Fonts,
+estimate content and scenario controls remain intact. This works within the existing direct
+`CharacterPanelGUI` tab mounting; no container integration change was needed.
+
+Only `tomato.gui.character.PetLayoutEvidenceTest` was run, serially, with JDK 17 / Gradle 7.6.4:
+
+```text
+test --tests tomato.gui.character.PetLayoutEvidenceTest
+-PrealmSharkBuildDir=build/ux-pet-layout
+--project-cache-dir build/ux-pet-layout/project-cache
+```
+
+Result: **1 test passed, 0 failures/errors/skips**, covering four settled native combinations
+at normal display transform 1.0:
+
+| Requested outer size | Font | Realized client | Result |
+| --- | ---: | --- | --- |
+| 1080 x 780 | 13 | 1064 x 741 | Pass |
+| 680 x 520 | 13 | 664 x 481 | Pass |
+| 1080 x 780 | 24 | 1064 x 711 | Pass |
+| 680 x 520 | 24 | 664 x 451 | Pass |
+
+At the previously failing 664 x 451 client/font 24, both estimate areas receive 286 x 614;
+their required text heights are 548 and 608. The unchanged fixture verifies the full first
+and last text rectangles can be revealed for each estimate and the account context. It also
+checks the feed field and complete Use item ID / Recalculate feeding costs button labels.
+The stdout visible rectangles are logged before those scrolling operations; initially offscreen
+content is expected on a scrollable page. The post-scroll reachability assertions all pass.
+The manual 500-to-1000 feed-power change also retains the known/unknown estimate distinction.
+
+Fresh report: `build/ux-pet-layout/test-results/test/TEST-tomato.gui.character.PetLayoutEvidenceTest.xml`.
+Sixteen settled screenshots are in `build/ux-pet-layout/ui-test/screenshots/wave1/`.
+Visually inspected the compact/font-24 known-estimate, unknown-estimate and scenario captures,
+the desktop/font-13 overview, both compact/font-13 estimates and both desktop/font-24 estimates.
+In particular, `pets-680-24-known-estimate.png` shows the final calculation explanation,
+`pets-680-24-unknown-estimate.png` shows the complete missing-points reason, and
+`pets-680-24-scenario.png` shows the feed field and entire action labels after page scrolling.
+This is scroll-reachable full-text evidence, not a claim that a long estimate fits all at once.
+No additional desktop, focus, scaling or packaging suite was run by this worker.

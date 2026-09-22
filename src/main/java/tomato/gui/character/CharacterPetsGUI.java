@@ -46,9 +46,14 @@ public class CharacterPetsGUI extends JPanel {
         source = data == null ? new ProgressionData() : data.progression();
         setLayout(new BorderLayout(8, 8)); setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         petPanel.setLayout(new BoxLayout(petPanel, BoxLayout.Y_AXIS));
-        JScrollPane scroll = new JScrollPane(petPanel); scroll.getVerticalScrollBar().setUnitIncrement(40);
+        JScrollPane scroll = new JScrollPane(petPanel) {
+            @Override public Dimension getMinimumSize() {
+                Insets insets = getInsets();
+                return new Dimension(0, petPanel.getFontMetrics(ContentStyle.body()).getHeight() * 5 + insets.top + insets.bottom);
+            }
+        };
+        scroll.setName("pet-list-scroll"); scroll.getVerticalScrollBar().setUnitIncrement(40);
         context.setName("pet-capture-context"); context.getAccessibleContext().setAccessibleName("Pet account and capture context");
-        add(context, BorderLayout.NORTH); add(scroll, BorderLayout.CENTER);
 
         JPanel form = new JPanel(new BorderLayout(0, 4));
         JPanel controls = ContentStyle.controls();
@@ -62,7 +67,11 @@ public class CharacterPetsGUI extends JPanel {
         JButton useId = new JButton("Use item ID"); selector.add(useId);
         JPanel top = new JPanel(new BorderLayout(0, 4)); top.add(selector, BorderLayout.NORTH); top.add(catalogStatus, BorderLayout.SOUTH);
         form.add(top, BorderLayout.NORTH); form.add(controls); form.add(validation, BorderLayout.SOUTH);
-        add(form, BorderLayout.SOUTH);
+        JScrollPane page = ContentStyle.page(context, scroll, form);
+        page.setName("pet-page-scroll");
+        page.getAccessibleContext().setAccessibleName("Pets; scroll for captured pets, feeding estimates and scenario controls");
+        add(page, BorderLayout.CENTER);
+        for (JComponent control : new JComponent[]{context, catalogStatus, itemSearch, items, useId, feed, calculate}) revealOnFocus(control);
         validation.getAccessibleContext().setAccessibleName("Feed power validation");
         calculate.addActionListener(e -> recalculate()); feed.addActionListener(e -> recalculate());
         feed.getDocument().addDocumentListener(changes(() -> { itemRequest++; scenario = "Manual override"; validateFeed(); }));
@@ -88,6 +97,28 @@ public class CharacterPetsGUI extends JPanel {
         public void removeUpdate(DocumentEvent e) { action.run(); }
         public void changedUpdate(DocumentEvent e) { action.run(); }
     }; }
+
+    private static void revealOnFocus(JComponent control) {
+        control.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                if (control instanceof JTextArea) revealCaret((JTextArea) control);
+                else ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight()));
+            }
+        });
+        if (control instanceof JTextArea) {
+            JTextArea text = (JTextArea) control;
+            text.addCaretListener(e -> {
+                if (text.isFocusOwner()) SwingUtilities.invokeLater(() -> { if (text.isFocusOwner()) revealCaret(text); });
+            });
+        }
+    }
+
+    private static void revealCaret(JTextArea text) {
+        try {
+            Rectangle caret = text.modelToView(text.getCaretPosition());
+            if (caret != null) ContentStyle.reveal(text, caret);
+        } catch (javax.swing.text.BadLocationException e) { throw new IllegalStateException("Cannot reveal pet details", e); }
+    }
 
     private void loadCatalog() {
         new SwingWorker<Map<String, Integer>, Void>() {
@@ -181,6 +212,7 @@ public class CharacterPetsGUI extends JPanel {
         String heading = (name == null ? "Pet" : name) + " · " + (id == null ? "Instance not captured (object " + pet.objectId + ")" : "Instance " + id)
             + " · " + equipped + "\nMax level " + known(cap) + " · " + pet.source + " · " + timestamp(pet.capturedAt);
         JTextArea title = ContentStyle.wrappingText(heading); title.setFont(ContentStyle.emphasis(ContentStyle.body()));
+        revealOnFocus(title);
         JPanel identity = new JPanel(new BorderLayout(8, 0)); identity.add(title, BorderLayout.CENTER);
         if (skin != null) identity.add(new JLabel(ImageBuffer.getOutlinedIcon(skin, 28)), BorderLayout.WEST);
         card.add(identity, BorderLayout.NORTH);
@@ -201,6 +233,7 @@ public class CharacterPetsGUI extends JPanel {
             + "\nItems to max: " + known(estimate.maxItems) + " · Fame to max: " + known(estimate.maxFame)
             + "\n" + (estimate.fullyFed ? "Fully fed at captured maximum level. " : "") + estimate.reason;
         JTextArea explanation = ContentStyle.wrappingText(text); explanation.setFocusable(true);
+        revealOnFocus(explanation);
         explanation.getAccessibleContext().setAccessibleName("Ability " + (index + 1) + " feeding inputs and estimate");
         details.add(explanation, BorderLayout.CENTER);
         if (estimate.locked) details.add(new SemanticLabel("Locked ability", "muted"), BorderLayout.SOUTH);
