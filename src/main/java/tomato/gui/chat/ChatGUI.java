@@ -21,6 +21,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.nio.charset.StandardCharsets;
 
 public class ChatGUI extends JPanel {
+    private JComponent queriedWorkspace;
+    /** Coordinator shell registration: chatPanel.workspace(). */
+    public JComponent workspace() {
+        if (queriedWorkspace != null) return queriedWorkspace;
+        explorer.enableLiveState(tomato.gui.history.ViewStateStore.application());
+        tomato.history.SessionStore store = tomato.history.AppHistory.store();
+        if (store == null) return this;
+        queriedWorkspace = tomato.gui.history.SessionPanel.queried(store, "chat", this,
+            new ChatArchiveClient(store, filters, explorer, store.directory().resolve(".query-scratch/chat")),
+            tomato.gui.history.ViewStateStore.application());
+        return queriedWorkspace;
+    }
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
         return history(store, scope, page, query, ChatFilters.load());
     }

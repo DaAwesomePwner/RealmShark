@@ -81,15 +81,22 @@ final class ChatMessage {
     }
 
     boolean matches(String query, String playerQuery) {
-        return matchesNormalized(query.trim().toLowerCase(Locale.ROOT), playerQuery.trim().toLowerCase(Locale.ROOT));
+        return matchesFields(query.trim().toLowerCase(Locale.ROOT), playerQuery.trim().toLowerCase(Locale.ROOT));
     }
 
     boolean matchesNormalized(String query, String playerQuery) {
-        return searchable.contains(query) && players.contains(playerQuery);
+        if (searchable != null && players != null) return searchable.contains(query) && players.contains(playerQuery);
+        return matchesFields(query, playerQuery);
     }
 
-    String clock() { return CLOCK.format(received); }
-    String date() { return DATE.format(received); }
+    private boolean matchesFields(String query, String playerQuery) {
+        String people = (safe(sender) + "\n" + safe(recipient) + "\n" + safe(player)).toLowerCase(Locale.ROOT);
+        String haystack = (date() + "\n" + (channel == null ? "Unknown" : channel.label) + "\n" + people + "\n" + safe(text)).toLowerCase(Locale.ROOT);
+        return haystack.contains(query) && people.contains(playerQuery);
+    }
+
+    String clock() { return received == null ? "Not captured" : CLOCK.format(received); }
+    String date() { return received == null ? "Not captured" : DATE.format(received); }
     String playerLabel() { return direction.isEmpty() ? player : direction + ": " + player; }
     String transcript() {
         return date() + " [" + channel.label + "] " + sender

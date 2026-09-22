@@ -28,6 +28,7 @@ final class KeyPopEvent {
     static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     final Instant time;
+    final String id = java.util.UUID.randomUUID().toString();
     final String player;
     final String item;
     final Kind kind;

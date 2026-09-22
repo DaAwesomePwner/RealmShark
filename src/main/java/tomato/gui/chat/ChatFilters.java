@@ -111,6 +111,13 @@ final class ChatFilters {
         private Classification(Policy policy) { this.policy = policy; revision = policy.revision; }
         String reason(ChatMessage message) { return ChatFilters.reason(policy, message); }
         boolean ignoresPlayer(ChatMessage message) { return !playerIgnoreReason(policy.rules, message).isEmpty(); }
+        String fingerprint() {
+            try {
+                byte[] bytes = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((new Gson().toJson(policy.rules.settings) + "\n" + new Gson().toJson(policy.inherited)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                StringBuilder hex = new StringBuilder(); for (byte b : bytes) hex.append(String.format(Locale.ROOT, "%02x", b & 255)); return hex.toString();
+            } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+        }
     }
     private static String reason(Policy current, ChatMessage message) {
         Rules r = current.rules;
