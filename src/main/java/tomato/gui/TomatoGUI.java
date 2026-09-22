@@ -3,9 +3,14 @@ package tomato.gui;
 import com.github.weisj.darklaf.LafManager;
 import com.github.weisj.darklaf.theme.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import javax.swing.*;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import packets.data.QuestData;
+import packets.packetcapture.logger.DiscoveryLog;
 import realmshark.branding.AppIdentity;
 import tomato.Tomato;
 import tomato.backend.data.TomatoData;
@@ -14,6 +19,9 @@ import tomato.gui.chat.ChatGUI;
 import tomato.gui.chat.ChatPingGUI;
 import tomato.gui.dps.DpsDisplayOptions;
 import tomato.gui.dps.DpsGUI;
+import tomato.gui.activity.ActivityPanel;
+import tomato.gui.history.ArchiveWorkspace;
+import tomato.gui.history.ViewStateStore;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.maingui.*;
 import tomato.gui.myinfo.MyInfoGUI;
@@ -21,6 +29,9 @@ import tomato.gui.quest.QuestGUI;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.security.SecurityGUI;
 import tomato.gui.stats.StatisticsGUI;
+import tomato.gui.stats.HistoricalStatistics;
+import tomato.history.AppHistory;
+import tomato.history.SessionStore;
 import util.PropertiesManager;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
@@ -82,17 +93,23 @@ public class TomatoGUI {
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
 
-        runsWorkspace = tomato.gui.history.SessionPanel.wrap("runs", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS), tomato.gui.activity.ActivityPanel::runsHistory);
+        SessionStore store = AppHistory.store();
+        ViewStateStore states = ViewStateStore.application();
+        // Queries create private pin/result directories here, outside captured journals.
+        Path scratch = Paths.get(System.getProperty("java.io.tmpdir"), "realmshark-archive");
+        JComponent statisticsWorkspace = store == null ? statistics : HistoricalStatistics.statisticsWorkspace(
+            store, statistics, scratch.resolve("statistics"), states);
+        JComponent lootWorkspace = store == null ? statistics.getLootDashboard() : HistoricalStatistics.lootWorkspace(
+            store, statistics.getLootDashboard(), scratch.resolve("loot"), states);
+        runsWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.RUNS);
         shell = new WorkspaceShell(new JComponent[] {
-            tomato.gui.history.SessionPanel.wrap("chat", chatPanel, chatPanel::historyWithPolicy),
-            tomato.gui.history.SessionPanel.wrap("keypops", keypopPanel, KeypopGUI::history),
-            tomato.gui.history.SessionPanel.wrap("inspect", securityPanel, SecurityGUI::history),
-            characterPanel, tomato.gui.history.SessionPanel.wrap("statistics", statistics, tomato.gui.stats.HistoricalStatistics::statistics),
+            chatPanel.workspace(), keypopPanel.workspace(), SecurityGUI.workspace(securityPanel),
+            characterPanel, statisticsWorkspace,
             questPanel, myDmg, dpsPanel,
-            tomato.gui.history.SessionPanel.wrap("loot", statistics.getLootDashboard(), tomato.gui.stats.HistoricalStatistics::loot),
-            new tomato.gui.logging.LoggingGUI(packets.packetcapture.logger.DiscoveryLog.INSTANCE),
+            lootWorkspace,
+            new tomato.gui.logging.LoggingGUI(DiscoveryLog.INSTANCE),
             runsWorkspace,
-            tomato.gui.history.SessionPanel.wrap("timeline", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.TIMELINE), tomato.gui.activity.ActivityPanel::timelineHistory),
+            ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE),
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
@@ -203,10 +220,26 @@ public class TomatoGUI {
         frame.setSize(Math.min(windowWidth, screen.width), Math.min(windowHeight, screen.height));
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent event) { closeWorkspace(); }
+            @Override public void windowClosed(WindowEvent event) { closeWorkspace(); }
+        });
         frame.setJMenuBar(jMenuBar);
         menuBar.setFrame(frame);
         frame.setContentPane(mainPanel);
         frame.setVisible(true);
+    }
+
+    /** Releases saved readers, including nested Resources, without closing capture or history writers. */
+    public void closeWorkspace() {
+        // AppHistory's shutdown hook still checkpoints DiscoveryLog before closing SessionStore.
+        onEdt(() -> closeArchiveWorkspaces(mainPanel));
+    }
+
+    private static void closeArchiveWorkspaces(Component component) {
+        if (component instanceof ArchiveWorkspace) ((ArchiveWorkspace<?, ?, ?>) component).close();
+        if (component instanceof Container)
+            for (Component child : ((Container) component).getComponents()) closeArchiveWorkspaces(child);
     }
 
     /**
@@ -299,8 +332,10 @@ public class TomatoGUI {
     public static void browseSavedHistory() {
         onEdt(() -> {
             if (shell != null) shell.select(10);
-            if (runsWorkspace instanceof tomato.gui.history.SessionPanel)
-                ((tomato.gui.history.SessionPanel) runsWorkspace).selectSession(tomato.history.SessionStore.ALL);
+            if (runsWorkspace instanceof ArchiveWorkspace)
+                ((ArchiveWorkspace<?, ?, ?>) runsWorkspace).selectSession(SessionStore.ALL);
+            else if (runsWorkspace instanceof tomato.gui.history.SessionPanel)
+                ((tomato.gui.history.SessionPanel) runsWorkspace).selectSession(SessionStore.ALL);
         });
     }
     public static void assetsReloaded() {

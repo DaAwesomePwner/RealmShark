@@ -4,7 +4,7 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.TomatoData;
 import tomato.gui.TomatoGUI;
-import tomato.gui.activity.ActivityPanel;
+import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
@@ -18,44 +18,50 @@ import static tomato.gui.activity.SnapshotTestSupport.await;
 public class SetupWorkspaceTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
-    @Test public void fullWorkspaceWithoutAssetsCanOpenActualSavedRunsWithoutCreatingAWindowOrCapture() throws Exception {
+    @Test public void previewWorkspaceWithoutAssetsCanOpenQueriedSavedRunsWithoutCreatingAWindowOrCapture() throws Exception {
         Field storeField = AppHistory.class.getDeclaredField("store"); storeField.setAccessible(true);
         Object previous = storeField.get(null);
+        Field previewField = Tomato.class.getDeclaredField("preview"); previewField.setAccessible(true);
+        Object previousPreview = previewField.get(null); previewField.set(null, true);
+        String runsState = util.PropertiesManager.getProperty("ux.archive.runs");
+        util.PropertiesManager.setProperties("ux.archive.runs", "");
+        String temporaryDirectory = System.getProperty("java.io.tmpdir");
+        System.setProperty("java.io.tmpdir", temp.newFolder("scratch").getAbsolutePath());
         SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "synthetic");
+        TomatoGUI gui = new TomatoGUI(new TomatoData());
+        WorkspaceShell[] shell = new WorkspaceShell[1];
         int windows = Window.getWindows().length;
         try {
             ActivityJournal.Visit visit = new ActivityJournal.Visit(); visit.id = "synthetic-run"; visit.map = "Ice Citadel";
             visit.started = 1000; visit.ended = visit.lastSeen = 2000;
             store.put("runs", visit.id, visit); store.flush(); storeField.set(null, store);
-            WorkspaceShell[] shell = new WorkspaceShell[1];
             SwingUtilities.invokeAndWait(() -> {
-                shell[0] = (WorkspaceShell)new TomatoGUI(new TomatoData()).createWorkspace();
+                shell[0] = (WorkspaceShell)gui.createWorkspace();
                 TomatoGUI.setSetupState("Assets missing · Choose assets or browse saved history", false, false);
                 assertFalse(named(shell[0], "capture-toggle", JButton.class).isEnabled());
-                assertTrue(named(shell[0], "choose-assets", JButton.class).isEnabled());
+                assertFalse(named(shell[0], "choose-assets", JButton.class).isEnabled());
                 named(shell[0], "browse-history", JButton.class).doClick();
                 assertEquals(10, shell[0].getSelectedPage());
             });
-            await(() -> savedActivity(shell[0]) != null);
+            ArchiveWorkspace<?,?,?> runs = named(shell[0], "runs-session-view", ArchiveWorkspace.class);
+            assertNotNull(runs);
+            await(() -> !runs.loading() && runs.displayedPage() != null);
             SwingUtilities.invokeAndWait(() -> {
-                assertTrue(named(savedActivity(shell[0]), "activity-summary", JLabel.class).getText().contains("Saved history"));
+                assertEquals(SessionStore.ALL, runs.state().query.scope());
+                assertEquals(1, runs.displayedPage().matches);
+                assertEquals("Ice Citadel", named(runs, "saved-activity-table", JTable.class).getValueAt(0, 0));
                 TomatoGUI.setSetupState("Assets ready", true, false);
-                assertTrue(named(shell[0], "capture-toggle", JButton.class).isEnabled());
+                assertFalse(named(shell[0], "capture-toggle", JButton.class).isEnabled());
             });
             assertFalse(Tomato.isCaptureRunning());
             assertEquals(windows, Window.getWindows().length);
-        } finally { storeField.set(null, previous); store.close(); }
-    }
-
-    private static ActivityPanel savedActivity(Container root) {
-        for (Component c : root.getComponents()) {
-            if (c instanceof ActivityPanel) {
-                JLabel summary = named((Container)c, "activity-summary", JLabel.class);
-                if (summary.getText().contains("Saved history")) return (ActivityPanel)c;
-            }
-            if (c instanceof Container) { ActivityPanel found = savedActivity((Container)c); if (found != null) return found; }
+        } finally {
+            gui.closeWorkspace();
+            SwingUtilities.invokeAndWait(() -> { if (shell[0] != null) shell[0].removeNotify(); });
+            util.PropertiesManager.setProperties("ux.archive.runs", runsState == null ? "" : runsState);
+            System.setProperty("java.io.tmpdir", temporaryDirectory);
+            storeField.set(null, previous); previewField.set(null, previousPreview); store.close();
         }
-        return null;
     }
     private static <T> T named(Container root, String name, Class<T> type) {
         for (Component c : root.getComponents()) {
