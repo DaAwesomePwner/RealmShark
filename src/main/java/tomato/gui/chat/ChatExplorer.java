@@ -13,10 +13,12 @@ import javax.swing.event.*;
 import javax.swing.table.*;
 import javax.swing.text.DefaultHighlighter;
 import tomato.gui.modern.ContentStyle;
+import util.PropertiesManager;
 
 /** Session-local, bounded chat history. All model and Swing changes happen on the EDT. */
 final class ChatExplorer extends JPanel {
     static final int HISTORY_LIMIT = 10000;
+    static final String SHOW_IGNORED_PLAYERS = "chat.showIgnoredPlayers";
     private static final Icon STAR_ICON = new Icon() {
         public int getIconWidth() { return 14; }
         public int getIconHeight() { return 14; }
@@ -52,6 +54,7 @@ final class ChatExplorer extends JPanel {
     private ChatMessage.Channel channel = ChatMessage.Channel.ALL;
     private final JTextField search = new JTextField(), player = new JTextField();
     private final JCheckBox starredOnly = new JCheckBox("Starred"), follow = new JCheckBox("Follow latest", true);
+    private final JCheckBox showIgnoredPlayers = new JCheckBox("Show ignored players");
     private final JTextArea summary = ContentStyle.wrappingText(""), detailHeader = ContentStyle.wrappingText("Select a message");
     private final JLabel emptyTitle = new JLabel(), emptyHint = new JLabel();
     private final JTextArea detail = new JTextArea();
@@ -123,7 +126,15 @@ final class ChatExplorer extends JPanel {
         player.getAccessibleContext().setAccessibleName("Filter by player");
         player.setColumns(12);
         playerRow.add(playerLabel, BorderLayout.WEST); playerRow.add(player, BorderLayout.CENTER);
-        filterRow.add(playerRow); filterRow.add(starredOnly); filterRow.add(follow);
+        filterRow.add(playerRow); filterRow.add(starredOnly); filterRow.add(follow); filterRow.add(showIgnoredPlayers);
+        showIgnoredPlayers.setName("chat-show-ignored-players");
+        showIgnoredPlayers.setSelected(Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS)));
+        showIgnoredPlayers.setToolTipText("Show captured messages from locally or in-game ignored players in All and their original channels. Still logged and silent; spam-only matches stay in Ignored.");
+        showIgnoredPlayers.getAccessibleContext().setAccessibleDescription(showIgnoredPlayers.getToolTipText());
+        showIgnoredPlayers.addActionListener(e -> {
+            PropertiesManager.setProperties(SHOW_IGNORED_PLAYERS, Boolean.toString(showIgnoredPlayers.isSelected()));
+            refresh(false);
+        });
         starredOnly.setToolTipText("Show starred messages retained in this session");
         follow.setToolTipText("Scroll to new matching messages. Turn off to read earlier history.");
         filters.add(filterRow, BorderLayout.CENTER);
@@ -176,7 +187,10 @@ final class ChatExplorer extends JPanel {
         table.getColumnModel().getColumn(0).setHeaderRenderer(starHeader);
         table.setDefaultRenderer(Object.class, new MessageRenderer());
         table.getColumnModel().getColumn(2).setCellRenderer(new ContentStyle.Badge() {
-            protected Color badgeColor(Object value) { return channelColor(String.valueOf(value)); }
+            protected Color badgeColor(Object value) {
+                String label = String.valueOf(value);
+                return label.endsWith(" · Ignored") ? ContentStyle.color("rose") : channelColor(label);
+            }
         });
         sizeColumns();
         table.addPropertyChangeListener(e -> {
@@ -214,7 +228,7 @@ final class ChatExplorer extends JPanel {
         detailHeader.setName("chat-detail-header"); ignoreReason.setName("chat-ignore-reason");
         ContentStyle.font(detailHeader, ContentStyle.emphasis(ContentStyle.body()));
         ContentStyle.font(ignoreReason, ContentStyle.metadata(ContentStyle.body()));
-        ignoreReason.setForeground(ContentStyle.color("amber"));
+        ignoreReason.setForeground(ContentStyle.color("rose"));
         detailHeader.setAlignmentX(Component.LEFT_ALIGNMENT); detailTop.add(detailHeader);
         ignoreReason.putClientProperty("html.disable", true);
         ignoreReason.setAlignmentX(Component.LEFT_ALIGNMENT); detailTop.add(ignoreReason);
@@ -260,7 +274,11 @@ final class ChatExplorer extends JPanel {
         bind(table, WHEN_FOCUSED, "control C", "copy-messages", () -> copyText(selectedTranscript()));
         bind(table, WHEN_FOCUSED, "SPACE", "star-message", this::toggleStar);
         addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing() && viewDirty) refresh(true);
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+                boolean show = Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS));
+                if (showIgnoredPlayers.isSelected() != show) { showIgnoredPlayers.setSelected(show); refresh(false); }
+                else if (viewDirty) refresh(true);
+            }
         });
         refresh(false);
     }
@@ -270,8 +288,8 @@ final class ChatExplorer extends JPanel {
         if (filterStatus == null) return;
         filterStatus.setForeground(ContentStyle.color("muted"));
         summary.setForeground(ContentStyle.color("muted"));
-        ignoreReason.setForeground(ContentStyle.color("amber"));
-        detailHeader.setForeground(ContentStyle.color("violet"));
+        ignoreReason.setForeground(ContentStyle.color("rose"));
+        detailHeader.setForeground(ContentStyle.color(ignoreReason.isVisible() ? "rose" : "violet"));
     }
 
     void accept(ChatMessage message) {
@@ -342,8 +360,11 @@ final class ChatExplorer extends JPanel {
                 for (char digit = '0'; digit <= '9'; digit++)
                     minimum = Math.max(minimum, cellWidth(index, "" + digit + digit + ':' + digit + digit + ':' + digit + digit));
             }
-            if (index == 2) for (ChatMessage.Channel value : ChatMessage.Channel.values())
+            if (index == 2) for (ChatMessage.Channel value : ChatMessage.Channel.values()) {
                 minimum = Math.max(minimum, cellWidth(index, value.label));
+                if (value != ChatMessage.Channel.ALL && value != ChatMessage.Channel.SYSTEM && value != ChatMessage.Channel.IGNORED)
+                    minimum = Math.max(minimum, cellWidth(index, value.label + " · Ignored"));
+            }
             if (index == 3) minimum = Math.max(minimum, cellWidth(index, "From: Wren"));
             if (index == 4) minimum = Math.max(minimum, cellWidth(index, "Message text"));
             // Start semantic columns at their measured size; users may still widen them.
@@ -383,8 +404,9 @@ final class ChatExplorer extends JPanel {
         for (ChatMessage message : history) {
             boolean ignored = !reason(message).isEmpty();
             if (ignored) counts[ChatMessage.Channel.IGNORED.ordinal()]++;
-            else { counts[0]++; counts[message.channel.ordinal()]++; }
-            if ((ignored ? channel == ChatMessage.Channel.IGNORED : channel == ChatMessage.Channel.ALL || message.channel == channel)
+            boolean inChannels = !ignored || (showIgnoredPlayers.isSelected() && spamFilters.ignoresPlayer(message));
+            if (inChannels) { counts[0]++; counts[message.channel.ordinal()]++; }
+            if ((channel == ChatMessage.Channel.IGNORED ? ignored : inChannels && (channel == ChatMessage.Channel.ALL || message.channel == channel))
                     && (!starredOnly.isSelected() || starred.contains(message)) && message.matchesNormalized(query, playerQuery)) filtered.add(message);
         }
         visible = filtered;
@@ -399,7 +421,8 @@ final class ChatExplorer extends JPanel {
             button.setToolTipText(value.label + " · " + counts[value.ordinal()] + " retained messages before search filters");
         }
         updateChannelLabels();
-        filterStatus.setText(counts[ChatMessage.Channel.IGNORED.ordinal()] + " ignored - filtered messages are silent");
+        filterStatus.setText(counts[ChatMessage.Channel.IGNORED.ordinal()] + " ignored · "
+                + (showIgnoredPlayers.isSelected() ? "ignored players shown in channels · " : "") + "filtered messages stay silent");
         filterStatus.setToolTipText("Actions > Chat filters edits player ignores, blocked phrases, and advertisement detection.");
         cards.show(body, visible.isEmpty() ? "empty" : "messages");
         emptyTitle.setText(history.isEmpty() ? "Your Realm conversations, together" : "No matching messages");
@@ -452,7 +475,7 @@ final class ChatExplorer extends JPanel {
         ignoreReason.setVisible(!why.isEmpty());
         star.setText(hasMessage && starred.contains(message) ? "Unstar" : "Star");
         detailHeader.setText(hasMessage ? message.clock() + " · " + message.channel.label + " · " + message.playerLabel() : "Select a message to read or star");
-        detailHeader.setForeground(ContentStyle.color("violet"));
+        detailHeader.setForeground(ContentStyle.color(why.isEmpty() ? "violet" : "rose"));
         detailHeader.setToolTipText(hasMessage ? message.date() + " · " + message.sender + (message.recipient.isEmpty() ? "" : " → " + message.recipient) : null);
         String query = search.getText().trim();
         if (detailedMessage == message && highlightedQuery.equals(query)) return;
@@ -573,7 +596,7 @@ final class ChatExplorer extends JPanel {
             switch (column) {
                 case 0: return starred.contains(message) ? "★" : "";
                 case 1: return message.clock();
-                case 2: return message.channel.label;
+                case 2: return message.channel.label + (reason(message).isEmpty() ? "" : " · Ignored");
                 case 3: return message.playerLabel();
                 default: return message.text.replace('\n', ' ').replace('\r', ' ');
             }
@@ -598,7 +621,8 @@ final class ChatExplorer extends JPanel {
             setIcon(column == 0 && hasRow && starred.contains(visible.get(row)) ? STAR_ICON : null);
             if (column == 0) setText("");
             if (!selected) {
-                if (column == 0) setForeground(ContentStyle.color("amber"));
+                if (hasRow && !reason(visible.get(row)).isEmpty()) setForeground(ContentStyle.color("rose"));
+                else if (column == 0) setForeground(ContentStyle.color("amber"));
                 else if (column == 1) setForeground(ContentStyle.color("muted"));
                 else if (column == 3 && hasRow && visible.get(row).ownMessage) setForeground(ContentStyle.color("violet"));
             }

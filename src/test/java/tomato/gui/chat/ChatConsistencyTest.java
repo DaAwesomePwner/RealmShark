@@ -89,6 +89,8 @@ public class ChatConsistencyTest {
                         assertEquals("Semantic columns remain manually resizable", width + 30, model.getWidth()); model.setWidth(width);
                     }
                     for (ChatMessage.Channel channel : ChatMessage.Channel.values()) assertButtonFits(find(chat[0], "chat-channel-" + channel.name(), AbstractButton.class));
+                    assertButtonFits(find(chat[0], "chat-show-ignored-players", JCheckBox.class));
+                    assertReachable(find(chat[0], "chat-show-ignored-players", JCheckBox.class));
                     assertTextFits(find(chat[0], "chat-detail-header", JTextArea.class));
                     assertDetailReachable(chat[0], text);
                     find(chat[0], "chat-channel-IGNORED", AbstractButton.class).doClick(); table.setRowSelectionInterval(0, 0);
@@ -98,6 +100,9 @@ public class ChatConsistencyTest {
                     assertTextFits(find(chat[0], "chat-detail-header", JTextArea.class));
                     JTextArea reason = find(chat[0], "chat-ignore-reason", JTextArea.class);
                     assertTrue(reason.getText().contains(sender)); assertTextFits(reason);
+                    JTable table = find(chat[0], "chat-messages", JTable.class);
+                    Component badge = table.prepareRenderer(table.getCellRenderer(0, 2), 0, 2);
+                    assertTrue("Ignored channel label fits", table.getColumnModel().getColumn(2).getWidth() >= badge.getPreferredSize().width);
                     assertDetailReachable(chat[0], text);
                     JTextField search = find(chat[0], "chat-search", JTextField.class);
                     search.setText("no-such-message"); chat[0].refresh(false);
