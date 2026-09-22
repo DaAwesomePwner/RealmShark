@@ -42,30 +42,40 @@ public class CharacterClass {
     }
 
     // Static structures to hold dynamic data
-    public static final CharacterClass[] CHAR_CLASS_LIST;
-    private static final TreeMap<Integer, CharacterClass> CHARACTER_CLASS = new TreeMap<>();
-    private static final TreeMap<Integer, String> CLASS_NAME = new TreeMap<>();
-    private static final TreeMap<Integer, int[]> CLASS_MAX_STATS = new TreeMap<>();
-    private static final TreeMap<Integer, int[]> WEAPON_CLASSES = new TreeMap<>();
-    private static final TreeSet<Integer> CHARACTER_IDS = new TreeSet<>();
+    public static volatile CharacterClass[] CHAR_CLASS_LIST = new CharacterClass[0];
+    private static volatile TreeMap<Integer, CharacterClass> CHARACTER_CLASS = new TreeMap<>();
+    private static volatile TreeMap<Integer, String> CLASS_NAME = new TreeMap<>();
+    private static volatile TreeMap<Integer, int[]> CLASS_MAX_STATS = new TreeMap<>();
+    private static volatile TreeMap<Integer, int[]> WEAPON_CLASSES = new TreeMap<>();
+    private static volatile TreeSet<Integer> CHARACTER_IDS = new TreeSet<>();
 
     // Static initialization block
     static {
+        reload();
+    }
+
+    public static boolean reload() { return reload(java.nio.file.Paths.get(PLAYERS_XML_PATH)); }
+
+    public static synchronized boolean reload(java.nio.file.Path path) {
         List<CharacterClass> charClassList = new ArrayList<>();
-        try {
-            FileInputStream file = new FileInputStream(PLAYERS_XML_PATH);
+        try (FileInputStream file = new FileInputStream(path.toFile())) {
             populateFromXML(new BufferedReader(new InputStreamReader(file)).lines().collect(Collectors.joining("\n")), charClassList);
         } catch (Exception e) {
-            e.printStackTrace();
+            return false;
         }
+        if (charClassList.isEmpty()) return false;
+        TreeMap<Integer, CharacterClass> classes = new TreeMap<>();
+        TreeMap<Integer, String> names = new TreeMap<>();
+        TreeMap<Integer, int[]> weapons = new TreeMap<>(), stats = new TreeMap<>();
+        TreeSet<Integer> ids = new TreeSet<>();
+        for (CharacterClass o : charClassList) {
+            ids.add(o.id); classes.put(o.id, o); names.put(o.id, o.name);
+            weapons.put(o.id, o.weaponGroup); stats.put(o.id, o.maxStats);
+        }
+        CHARACTER_CLASS = classes; CLASS_NAME = names; WEAPON_CLASSES = weapons;
+        CLASS_MAX_STATS = stats; CHARACTER_IDS = ids;
         CHAR_CLASS_LIST = charClassList.toArray(new CharacterClass[0]);
-        for (CharacterClass o : CHAR_CLASS_LIST) {
-                CHARACTER_IDS.add(o.id);
-                CHARACTER_CLASS.put(o.id, o);
-            CLASS_NAME.put(o.id, o.name);
-                WEAPON_CLASSES.put(o.id, o.weaponGroup);
-                CLASS_MAX_STATS.put(o.id, o.maxStats);
-        }
+        return true;
     }
 
     private static void populateFromXML(String rawXML, List<CharacterClass> charClassList) throws Exception {

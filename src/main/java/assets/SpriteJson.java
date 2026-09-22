@@ -17,9 +17,9 @@ import java.util.*;
 public class SpriteJson implements JsonDeserializer<SpriteJson> {
     private static String spriteJson = "assets/json/spritesheet.json";
 
-    private static boolean notLoaded = false;
-    private static HashMap<String, HashMap<Integer, Sprite>> sprites;
-    private static HashMap<String, HashMap<Integer, Sprite>> animatedSprites;
+    private static volatile boolean notLoaded = true;
+    private static volatile HashMap<String, HashMap<Integer, Sprite>> sprites = new HashMap<>();
+    private static volatile HashMap<String, HashMap<Integer, Sprite>> animatedSprites = new HashMap<>();
 
     /**
      * Static class used to load the json file and parse the json.
@@ -34,20 +34,18 @@ public class SpriteJson implements JsonDeserializer<SpriteJson> {
     public static void jsonFileReader() {
         File jsonFile = new File(spriteJson);
         if (!jsonFile.exists()) {
-            notLoaded = true;
             return;
         }
-        if (sprites != null) sprites.clear();
-        if (animatedSprites != null) animatedSprites.clear();
         GsonBuilder builder = new GsonBuilder();
         builder.registerTypeAdapter(SpriteJson.class, new SpriteJson());
         builder.registerTypeAdapter(Sprite.class, new Sprite());
         Gson gson = builder.setFieldNamingPolicy(LOWER_CASE_WITH_UNDERSCORES).create();
-        try {
-            String json = new Scanner(jsonFile).useDelimiter("\\Z").next();
+        try (Scanner scanner = new Scanner(jsonFile, "UTF-8")) {
+            String json = scanner.useDelimiter("\\Z").next();
             gson.fromJson(json, SpriteJson.class);
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
+            notLoaded = false;
+        } catch (FileNotFoundException | RuntimeException e) {
+            // Retain any previously loaded catalog; missing images have a neutral fallback.
         }
     }
 
@@ -81,7 +79,8 @@ public class SpriteJson implements JsonDeserializer<SpriteJson> {
         if (list == null) {
             list = animatedSprites.get(name);
         }
-        Sprite sprite = list.get(index);
+        Sprite sprite = list == null ? null : list.get(index);
+        if (sprite == null) return null;
         return new int[]{sprite.position.x, sprite.position.y, sprite.position.w, sprite.position.h, sprite.aId};
     }
 
@@ -95,7 +94,8 @@ public class SpriteJson implements JsonDeserializer<SpriteJson> {
     public int getSpriteColor(String name, int index) {
         if(notLoaded) return -1;
         HashMap<Integer, Sprite> list = sprites.get(name);
-        Sprite sprite = list.get(index);
+        Sprite sprite = list == null ? null : list.get(index);
+        if (sprite == null) return -1;
         return sprite.mostCommonColor.asInt();
     }
 

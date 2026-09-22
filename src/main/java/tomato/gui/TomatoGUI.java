@@ -48,6 +48,7 @@ public class TomatoGUI {
     private TomatoMenuBar menuBar;
     private static TomatoData data;
     private static WorkspaceShell shell;
+    private static JComponent runsWorkspace;
     private static tomato.gui.notifications.NotificationsGUI notifications;
 
     public TomatoGUI(TomatoData data) {
@@ -59,6 +60,14 @@ public class TomatoGUI {
      */
     public void create() {
         if (!SwingUtilities.isEventDispatchThread()) { onEdt(this::create); return; }
+        createWorkspace();
+        makeFrame();
+        frame.setVisible(true);
+    }
+
+    /** Builds the usable shell independently of a native window, asset setup and capture startup. */
+    public JComponent createWorkspace() {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Build workspace on the EDT");
         loadFontPreset();
         ContentStyle.applyFontDefaults();
         chatPanel = new ChatGUI(data);
@@ -73,6 +82,7 @@ public class TomatoGUI {
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
 
+        runsWorkspace = tomato.gui.history.SessionPanel.wrap("runs", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS), tomato.gui.activity.ActivityPanel::runsHistory);
         shell = new WorkspaceShell(new JComponent[] {
             tomato.gui.history.SessionPanel.wrap("chat", chatPanel, ChatGUI::history),
             tomato.gui.history.SessionPanel.wrap("keypops", keypopPanel, KeypopGUI::history),
@@ -81,10 +91,10 @@ public class TomatoGUI {
             questPanel, myDmg, dpsPanel,
             tomato.gui.history.SessionPanel.wrap("loot", statistics.getLootDashboard(), tomato.gui.stats.HistoricalStatistics::loot),
             new tomato.gui.logging.LoggingGUI(packets.packetcapture.logger.DiscoveryLog.INSTANCE),
-            tomato.gui.history.SessionPanel.wrap("runs", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.RUNS), tomato.gui.activity.ActivityPanel::runsHistory),
+            runsWorkspace,
             tomato.gui.history.SessionPanel.wrap("timeline", new tomato.gui.activity.ActivityPanel(packets.packetcapture.logger.DiscoveryLog.INSTANCE, tomato.gui.activity.ActivityPanel.Mode.TIMELINE), tomato.gui.activity.ActivityPanel::timelineHistory),
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
-            TomatoMenuBar::togglePacketSniffer, Tomato.isPreview());
+            TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.
@@ -94,9 +104,7 @@ public class TomatoGUI {
         jMenuBar = menuBar.make();
         ContentStyle.refreshFonts(jMenuBar);
         refreshContentFonts();
-        makeFrame();
-
-        frame.setVisible(true);
+        return mainPanel;
     }
 
     /**
@@ -273,12 +281,35 @@ public class TomatoGUI {
     }
 
     public static void setCaptureDetail(String detail) {
-        SwingUtilities.invokeLater(() -> { if (shell != null) shell.setCaptureDetail(detail); });
+        Runnable update = () -> { if (shell != null) shell.setCaptureDetail(detail); };
+        if (SwingUtilities.isEventDispatchThread()) update.run(); else SwingUtilities.invokeLater(update);
     }
 
     public static void setCaptureFailure(String reason) {
         Runnable update = () -> { if (shell != null) shell.setCaptureFailure(reason); };
         if (SwingUtilities.isEventDispatchThread()) update.run(); else SwingUtilities.invokeLater(update);
+    }
+
+    public static void setCaptureReadiness(packets.packetcapture.CaptureState state) {
+        onEdt(() -> { if (shell != null) shell.setCaptureReadiness(state); });
+    }
+    public static void setSetupState(String message, boolean ready, boolean busy) {
+        onEdt(() -> { if (shell != null) shell.setSetupState(message, ready, busy); });
+    }
+    public static void browseSavedHistory() {
+        onEdt(() -> {
+            if (shell != null) shell.select(10);
+            if (runsWorkspace instanceof tomato.gui.history.SessionPanel)
+                ((tomato.gui.history.SessionPanel) runsWorkspace).selectSession(tomato.history.SessionStore.ALL);
+        });
+    }
+    public static void assetsReloaded() {
+        onEdt(() -> {
+            if (shell != null) SwingUtilities.updateComponentTreeUI(shell);
+            refreshContentFonts();
+            ParsePanelGUI.update();
+            if (myDmg != null) myDmg.refreshAssets();
+        });
     }
 
     /**

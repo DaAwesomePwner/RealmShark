@@ -36,7 +36,7 @@ public class ImageBuffer {
      * @return Sprite of based of the object type ID.
      * @throws IOException Thrown if the sprite atlas file is missing.
      */
-    public static BufferedImage getImage(int id) throws IOException {
+    public static synchronized BufferedImage getImage(int id) throws IOException {
         if (id <= 0) return null;
 //        if (images.containsKey(id)) return images.get(id);
         String name = IdToAsset.getObjectTextureName(id, 0);
@@ -55,7 +55,7 @@ public class ImageBuffer {
      * @param id Type ID of the tile.
      * @return Most common color of the tile.
      */
-    public static float[] getColor(int id) {
+    public static synchronized float[] getColor(int id) {
         if (id <= 0) return null;
         if (colors.containsKey(id)) return colors.get(id);
         if (!IdToAsset.tileIdExists(id)) return null;
@@ -84,7 +84,8 @@ public class ImageBuffer {
     /**
      * Resets the assets after loading new ones.
      */
-    public static void clear() {
+    public static synchronized void clear() {
+        outlinedImages.clear();
         images.clear();
         colors.clear();
         bigImages = new BufferedImage[4];
@@ -115,7 +116,7 @@ public class ImageBuffer {
      * @param size Size of the requested image
      * @return Outlined image with specific size
      */
-    public static ImageIcon getOutlinedIcon(int id, int size) {
+    public static synchronized ImageIcon getOutlinedIcon(int id, int size) {
         long l = ((long) id << 10) + size;
         if (outlinedImages.containsKey(l)) return outlinedImages.get(l);
 
@@ -125,7 +126,7 @@ public class ImageBuffer {
         } else {
             try {
                 img = ImageBuffer.getImage(id);
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 img = ImageBuffer.getEmptyImg();
             }
         }
@@ -167,7 +168,7 @@ public class ImageBuffer {
         return i;
     }
 
-    public static ImageIcon getOutlinedIconWithGlow(int id, int size, Color glowColor, int glowSize) {
+    public static synchronized ImageIcon getOutlinedIconWithGlow(int id, int size, Color glowColor, int glowSize) {
         // Check if we have a matching hash for the desired id, size, glowColor and glowSize
         long hashingNumber = (((long) id << 10) + size) ^ glowColor.getRGB() ^ glowSize;
         if (outlinedImages.containsKey(hashingNumber)) return outlinedImages.get(hashingNumber);

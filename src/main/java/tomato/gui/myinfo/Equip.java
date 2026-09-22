@@ -14,15 +14,19 @@ import util.StringXML;
 public class Equip {
 
     private static final String PETS_XML_PATH = "assets/xml/equip.xml";
-    public static HashMap<Integer, Weapon> weapons = new HashMap<>();
+    public static volatile HashMap<Integer, Weapon> weapons = new HashMap<>();
 
     static {
         load();
     }
 
     public static void load() {
-        try {
-            FileInputStream file = new FileInputStream(PETS_XML_PATH);
+        reload(java.nio.file.Paths.get(PETS_XML_PATH));
+    }
+
+    public static boolean reload(java.nio.file.Path path) {
+        HashMap<Integer, Weapon> next = new HashMap<>();
+        try (FileInputStream file = new FileInputStream(path.toFile())) {
             String result = new BufferedReader(new InputStreamReader(file))
                 .lines()
                 .collect(Collectors.joining("\n"));
@@ -122,11 +126,14 @@ public class Equip {
                         }
                     }
                     w.fix();
-                    weapons.put(w.id, w);
+                    next.put(w.id, w);
                 }
             }
-        } catch (IOException | ParserConfigurationException | SAXException e) {
-            throw new RuntimeException(e);
+            if (next.isEmpty()) return false;
+            weapons = next;
+            return true;
+        } catch (IOException | ParserConfigurationException | SAXException | RuntimeException e) {
+            return false;
         }
     }
 

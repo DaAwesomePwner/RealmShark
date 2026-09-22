@@ -35,26 +35,32 @@ public class ParseEnchants {
         "assets/xml/enchantments.xml";
 
     // Maps enchant type ID -> display name
-    public static final HashMap<Short, String> ENCHANTS = new HashMap<>();
+    public static volatile HashMap<Short, String> ENCHANTS = new HashMap<>();
 
     // Maps enchant type ID -> parsed effect multipliers
-    private static final HashMap<Short, EnchantEffect> ENCHANT_EFFECTS =
+    private static volatile HashMap<Short, EnchantEffect> ENCHANT_EFFECTS =
         new HashMap<>();
 
     // Maps enchant type ID -> regen effects (HP/MP, flat/percent)
-    private static final HashMap<Short, RegenEffect> ENCHANT_REGEN =
+    private static volatile HashMap<Short, RegenEffect> ENCHANT_REGEN =
         new HashMap<>();
 
     // Maps enchant type ID -> total LootBonus percent (additive)
-    private static final HashMap<Short, Float> ENCHANT_LOOT_BONUS =
+    private static volatile HashMap<Short, Float> ENCHANT_LOOT_BONUS =
         new HashMap<>();
 
     static {
-        loadEnchants(ENCHANT_XML_PATH);
+        reload();
         ENCHANTS.put((short) -1, "[empty]");
     }
 
-    private static void loadEnchants(String path) {
+    public static boolean reload() { return loadEnchants(ENCHANT_XML_PATH); }
+
+    private static boolean loadEnchants(String path) {
+        HashMap<Short, String> names = new HashMap<>();
+        HashMap<Short, EnchantEffect> effects = new HashMap<>();
+        HashMap<Short, RegenEffect> regeneration = new HashMap<>();
+        HashMap<Short, Float> loot = new HashMap<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(path)))) {
             String result = reader.lines().collect(Collectors.joining("\n"));
             StringXML base = StringXML.getParsedXML(result);
@@ -165,21 +171,23 @@ public class ParseEnchants {
 
                 if (enchantType != null) {
                     if (enchantName != null) {
-                        ENCHANTS.put(enchantType, enchantName);
+                        names.put(enchantType, enchantName);
                     }
-                    ENCHANT_EFFECTS.put(enchantType, effect);
-                    ENCHANT_REGEN.put(enchantType, regen);
-                    ENCHANT_LOOT_BONUS.put(enchantType, lootBonus);
+                    effects.put(enchantType, effect);
+                    regeneration.put(enchantType, regen);
+                    loot.put(enchantType, lootBonus);
                 }
             }
+            names.put((short) -1, "[empty]");
+            ENCHANTS = names; ENCHANT_EFFECTS = effects; ENCHANT_REGEN = regeneration; ENCHANT_LOOT_BONUS = loot;
+            return true;
         } catch (
             ParserConfigurationException
             | SAXException
             | RuntimeException
             | java.io.IOException e
         ) {
-            // If the asset is missing at runtime we still want the app to work; maps will be partially populated.
-            // You can log this if desired.
+            return false;
         }
     }
 

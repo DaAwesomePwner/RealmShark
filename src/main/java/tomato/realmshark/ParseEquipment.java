@@ -15,18 +15,18 @@ import java.util.stream.Collectors;
 
 public class ParseEquipment {
     private static final String XML_PATH = "assets/xml/equip.xml";
-    private static final HashMap<Integer, Equipment> EQUIPMENT = new HashMap<>();
+    private static volatile HashMap<Integer, Equipment> EQUIPMENT = new HashMap<>();
 
     /*
       Load Enchant XML data to get names from file.
      */
     static {
-        loadEnchants(XML_PATH);
+        reload(java.nio.file.Paths.get(XML_PATH));
     }
 
-    private static void loadEnchants(String path) {
-        try {
-            FileInputStream file = new FileInputStream(path);
+    public static boolean reload(java.nio.file.Path path) {
+        HashMap<Integer, Equipment> next = new HashMap<>();
+        try (FileInputStream file = new FileInputStream(path.toFile())) {
             String result = new BufferedReader(new InputStreamReader(file)).lines().collect(Collectors.joining("\n"));
             StringXML base = StringXML.getParsedXML(result);
             for (StringXML xml : base) {
@@ -59,11 +59,14 @@ public class ParseEquipment {
                             equipment.displayId = info.children.get(0).value;
                         }
                     }
-                    EQUIPMENT.put(equipment.id, equipment);
+                    next.put(equipment.id, equipment);
                 }
             }
-        } catch (ParserConfigurationException | IOException | SAXException e) {
-            throw new RuntimeException(e);
+            if (next.isEmpty()) return false;
+            EQUIPMENT = next;
+            return true;
+        } catch (ParserConfigurationException | IOException | SAXException | RuntimeException e) {
+            return false;
         }
     }
 
@@ -78,6 +81,7 @@ public class ParseEquipment {
     }
 
     public static Boolean isParseItem(Equipment e) {
+        if (e == null) return false;
         final boolean isNonConsumable = e.labels != null && !e.labels.contains("CONSUMABLE");
         final boolean isSTUT = e.labels != null && (e.labels.contains("ST") || e.labels.contains("UT"));
 
@@ -92,6 +96,13 @@ public class ParseEquipment {
 
     public static Equipment getEquipmentById(int id) {
         return EQUIPMENT.get(id);
+    }
+
+    /** Detached catalog suitable for a feed-power picker; callers cannot mutate the shared definitions. */
+    public static java.util.Map<Integer, Integer> feedPowerCatalog() {
+        java.util.Map<Integer, Integer> values = new java.util.TreeMap<>();
+        for (Equipment item : EQUIPMENT.values()) if (item.feedpower > 0) values.put(item.id, item.feedpower);
+        return java.util.Collections.unmodifiableMap(values);
     }
 
     public static class Equipment {

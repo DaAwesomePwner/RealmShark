@@ -12,7 +12,6 @@ import packets.packetcapture.register.Register;
 import packets.packetcapture.sniff.PProcessor;
 import packets.packetcapture.sniff.Sniffer;
 import packets.reader.BufferReader;
-import packets.packetcapture.sniff.gui.MissingNpcapGUI;
 
 import java.nio.ByteBuffer;
 
@@ -28,11 +27,14 @@ public class PacketProcessor extends Thread implements PProcessor {
     private volatile Sniffer sniffer;
     private volatile boolean stopRequested;
     private volatile java.util.function.Consumer<String> captureStatus = message -> {};
+    private volatile java.util.function.Consumer<CaptureState> readiness = state -> {};
+    private volatile CaptureState captureState = CaptureState.STOPPED;
     private volatile Runnable stoppedListener = () -> {};
     private volatile String stopReason = "Capture ended unexpectedly. See logs/capture-health.log.";
     private final Object lifecycle = new Object();
     private volatile long decodedPackets;
     private volatile long decodedTicks;
+    private volatile long lastDecodedNanos;
     private final PacketLogger logger;
     private final byte[] srcAddr;
 
@@ -57,21 +59,39 @@ public class PacketProcessor extends Thread implements PProcessor {
     }
 
     public String getStopReason() { return stopReason; }
+    public CaptureState getCaptureState() { return captureState; }
+    public void setReadinessListener(java.util.function.Consumer<CaptureState> listener) {
+        readiness = listener == null ? state -> {} : listener;
+    }
+    private void readiness(CaptureState state) {
+        if (captureState == state) return;
+        captureState = state;
+        try { readiness.accept(state); }
+        catch (RuntimeException e) { CaptureDiagnostics.record("Capture readiness listener failed", e); }
+    }
 
     private void recordTerminalFailure(Throwable failure) {
+        readiness(CaptureState.FAILED);
         Throwable cause = failure;
         while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
         StackTraceElement[] frames = cause.getStackTrace();
         String location = frames.length == 0 ? "" : " in " + frames[0].getClassName().replaceAll(".*\\.", "")
                 + "." + frames[0].getMethodName();
         stopReason = "Capture stopped: " + cause.getClass().getSimpleName() + location + ". See logs/capture-health.log.";
-        if (failure instanceof LinkageError) {
+        if (cause instanceof UnsatisfiedLinkError) {
+            stopReason = npcapGuidance();
+            readiness(CaptureState.NPCAP_UNAVAILABLE);
+        } else if (failure instanceof LinkageError) {
             String missingClass = CaptureDiagnostics.missingClassName(cause);
             stopReason = "Restart RealmShark using Launch-RealmShark.cmd: Java could not load an application class"
                     + (missingClass.isEmpty() ? "" : " (" + missingClass + ")")
                     + ". Restarting capture alone cannot repair this. See logs/capture-health.log.";
         }
         CaptureDiagnostics.record("Capture worker terminated", failure);
+    }
+
+    private static String npcapGuidance() {
+        return "Npcap could not load. Install or repair Npcap from https://npcap.com/, then retry capture. If Java's native library initialization failed, restart RealmShark after installation. Saved history remains available.";
     }
 
     protected Sniffer createSniffer() { return new Sniffer(this); }
@@ -87,7 +107,7 @@ public class PacketProcessor extends Thread implements PProcessor {
     public void run() {
         try { tapPackets(); }
         catch (RuntimeException | LinkageError e) { recordTerminalFailure(e); }
-        finally { stoppedListener.run(); }
+        finally { if (stopRequested) readiness(CaptureState.STOPPED); stoppedListener.run(); }
     }
 
     /**
@@ -112,6 +132,7 @@ public class PacketProcessor extends Thread implements PProcessor {
             long retryDelay = 1000;
             String retryReason = "Capture interrupted or idle";
             try {
+                readiness(CaptureState.WAITING);
                 CaptureDiagnostics.record("Starting capture attempt", null);
                 incomingPacketConstructor.reset();
                 outgoingPacketConstructor.reset();
@@ -119,7 +140,10 @@ public class PacketProcessor extends Thread implements PProcessor {
                 outgoingPacketConstructor.startResets();
                 decodedPackets = decodedTicks = 0;
                 attempt = createSniffer();
-                attempt.setStatusListener(message -> reportCapture(message + " | Decoded: " + decodedPackets + " | Ticks: " + decodedTicks));
+                attempt.setStatusListener(message -> {
+                    if (decodedPackets == 0 || System.nanoTime() - lastDecodedNanos > java.util.concurrent.TimeUnit.SECONDS.toNanos(15)) readiness(CaptureState.WAITING);
+                    reportCapture(message + " | Decoded: " + decodedPackets + " | Ticks: " + decodedTicks);
+                });
                 synchronized (lifecycle) {
                     if (stopRequested) break;
                     sniffer = attempt;
@@ -127,9 +151,9 @@ public class PacketProcessor extends Thread implements PProcessor {
                 attempt.startSniffer();
                 consecutiveFailures = 0;
             } catch (UnsatisfiedLinkError e) {
-                stopReason = "Capture stopped: Npcap could not load. Install or repair Npcap, then restart RealmShark.";
+                stopReason = npcapGuidance();
+                readiness(CaptureState.NPCAP_UNAVAILABLE);
                 CaptureDiagnostics.record("Npcap unavailable", e);
-                javax.swing.SwingUtilities.invokeLater(MissingNpcapGUI::new);
                 break;
             } catch (Exception e) {
                 CaptureDiagnostics.record("Capture attempt failed", e);
@@ -142,6 +166,7 @@ public class PacketProcessor extends Thread implements PProcessor {
             }
             synchronized (lifecycle) {
                 if (stopRequested) break;
+                readiness(CaptureState.WAITING);
                 reportCapture(retryReason + "; reopening adapters in " + (retryDelay / 1000) + "s...");
                 CaptureDiagnostics.record("Reopening adapters after capture ended or became idle", null);
                 try { lifecycle.wait(retryDelay); }
@@ -231,6 +256,8 @@ public class PacketProcessor extends Thread implements PProcessor {
         DiscoveryLog.INSTANCE.observe(type, size, packetType,
             pData.isBufferFullyParsed() ? "decoded" : "trailing-bytes", pData.getRemainingBytes());
         decodedPackets++;
+        lastDecodedNanos = System.nanoTime();
+        readiness(CaptureState.RECEIVING);
         if (type == PacketType.NEWTICK.getIndex()) decodedTicks++;
         Register.INSTANCE.emitPacketLogs(packetType);
     }

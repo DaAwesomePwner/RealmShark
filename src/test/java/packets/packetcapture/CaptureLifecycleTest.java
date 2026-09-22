@@ -7,6 +7,28 @@ import java.util.concurrent.atomic.*;
 import static org.junit.Assert.*;
 
 public class CaptureLifecycleTest {
+    @Test public void missingNpcapPublishesRecoverableStateWithoutOpeningOrClosingWindows() {
+        int windows = java.awt.Window.getWindows().length;
+        AtomicBoolean stopped = new AtomicBoolean();
+        PacketProcessor processor = new PacketProcessor() {
+            @Override protected Sniffer createSniffer() { throw new UnsatisfiedLinkError("synthetic unavailable native library"); }
+        };
+        processor.setStoppedListener(() -> stopped.set(true));
+        processor.run(); // Synthetic factory only; never opens an adapter.
+        assertTrue(stopped.get());
+        assertEquals(CaptureState.NPCAP_UNAVAILABLE, processor.getCaptureState());
+        assertTrue(processor.getStopReason().contains("Saved history remains available"));
+        assertEquals(windows, java.awt.Window.getWindows().length);
+    }
+    @Test public void nativeInitializationWrapperStillExplainsNpcapRecovery() {
+        PacketProcessor processor = new PacketProcessor() {
+            @Override protected Sniffer createSniffer() { throw new ExceptionInInitializerError(new UnsatisfiedLinkError("synthetic")); }
+        };
+        processor.run();
+        assertEquals(CaptureState.NPCAP_UNAVAILABLE, processor.getCaptureState());
+        assertTrue(processor.getStopReason().contains("Npcap"));
+        assertTrue(processor.getStopReason().contains("restart RealmShark"));
+    }
     @Test(timeout = 2000) public void missingClassRequiresAnAppRestartInsteadOfLoopingInTheBrokenJvm() throws Exception {
         AtomicBoolean callback = new AtomicBoolean();
         PacketProcessor processor = new PacketProcessor() {

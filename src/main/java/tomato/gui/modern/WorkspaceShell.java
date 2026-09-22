@@ -53,11 +53,20 @@ public final class WorkspaceShell extends JPanel {
     private final JLabel previewLabel = new JLabel("PREVIEW");
     private boolean compact;
     private final JTextArea captureFailure = new JTextArea();
+    private final JTextArea setupMessage = ContentStyle.wrappingText("", 2);
+    private final JButton chooseAssets = new JButton("Choose assets…"), retrySetup = new JButton("Retry assets"), browseHistory = new JButton("Browse saved history");
+    private boolean assetsReady = true, setupBusy, captureRunning, preview;
     private int selected;
     private boolean scrollPending;
 
     public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview) {
+        this(panels, toggleCapture, preview, null, null, null);
+    }
+
+    public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview,
+                          Runnable choose, Runnable retry, Runnable browse) {
         super(new BorderLayout());
+        this.preview = preview;
         if (panels.length != TITLES.length) throw new IllegalArgumentException("All feature panels are required");
         sidebar.setPreferredSize(new Dimension(188, 0));
         JPanel brandRow = new JPanel(new BorderLayout(8, 0)); brandRow.setOpaque(false);
@@ -127,7 +136,33 @@ public final class WorkspaceShell extends JPanel {
         previewLabel.setFont(ContentStyle.metadata(ContentStyle.body()));
         previewLabel.setVisible(preview); actions.add(previewLabel); actions.add(capture);
         capture.setEnabled(!preview);
-        header.add(actions, BorderLayout.EAST); workspace.add(header, BorderLayout.NORTH);
+        header.add(actions, BorderLayout.EAST);
+        JPanel setup = new JPanel(new BorderLayout(0, 4));
+        setupMessage.setName("capture-setup-message");
+        setupMessage.getAccessibleContext().setAccessibleName("Capture readiness and asset setup");
+        setupMessage.setText(preview ? "Preview · Capture disabled. Saved history is available." : "Capture starts only when you choose Start capture. Saved history is available without capture.");
+        JScrollPane setupScroll = new JScrollPane(setupMessage) {
+            @Override public Dimension getPreferredSize() {
+                Dimension size = super.getPreferredSize();
+                size.height = Math.min(size.height, setupMessage.getFontMetrics(setupMessage.getFont()).getHeight() * 3 + 8);
+                return size;
+            }
+        };
+        setupScroll.setBorder(null);
+        setupScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        setup.add(setupScroll);
+        JPanel setupActions = ContentStyle.controls();
+        chooseAssets.setName("choose-assets"); retrySetup.setName("retry-assets"); browseHistory.setName("browse-history");
+        chooseAssets.setVisible(choose != null); retrySetup.setVisible(retry != null); browseHistory.setVisible(browse != null);
+        if (choose != null) chooseAssets.addActionListener(e -> choose.run());
+        if (retry != null) retrySetup.addActionListener(e -> retry.run());
+        if (browse != null) browseHistory.addActionListener(e -> browse.run());
+        setupActions.add(chooseAssets); setupActions.add(retrySetup); setupActions.add(browseHistory);
+        setup.add(setupActions, BorderLayout.SOUTH);
+        JPanel headingAndSetup = new JPanel(new BorderLayout(0, 6));
+        headingAndSetup.add(header, BorderLayout.NORTH); headingAndSetup.add(setup);
+        workspace.add(headingAndSetup, BorderLayout.NORTH);
+        setSetupState(setupMessage.getText(), true, false);
         cards.setMinimumSize(new Dimension(0, 0)); workspace.add(cards, BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout(16, 0));
         status.setFont(ContentStyle.metadata(ContentStyle.body()));
@@ -337,11 +372,27 @@ public final class WorkspaceShell extends JPanel {
     public int getSelectedPage() { return selected; }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {
+        captureRunning = running;
         captureFailure.setText(""); captureFailure.setVisible(false);
         capture.setText(running ? "Stop capture" : "Start capture");
-        status.setText(running ? "Capture enabled" : "Capture is off");
-        hint.setText(running ? "Waiting for game traffic or receiving packets." : "Start capture, then enter the Realm to see activity.");
+        status.setText(running ? "Waiting for game connection" : "Capture connection stopped");
+        hint.setText(running ? "Enter a fresh area or reconnect the game to begin decoding." : "Saved history is available. Start capture when ready.");
         status.setToolTipText(hint.getText());
+        updateSetupActions();
+    }
+    public void setSetupState(String message, boolean ready, boolean busy) {
+        assetsReady = ready; setupBusy = busy;
+        setupMessage.setText(message);
+        updateSetupActions();
+    }
+    private void updateSetupActions() {
+        capture.setEnabled(!preview && !setupBusy && (assetsReady || captureRunning));
+        chooseAssets.setEnabled(!preview && !setupBusy && !captureRunning);
+        retrySetup.setEnabled(!preview && !setupBusy && !captureRunning);
+    }
+    public void setCaptureReadiness(packets.packetcapture.CaptureState state) {
+        status.setText(state.toString());
+        if (state == packets.packetcapture.CaptureState.STOPPING) capture.setEnabled(false);
     }
     public void setCaptureDetail(String detail) {
         hint.setText(detail);

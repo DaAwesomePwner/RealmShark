@@ -195,7 +195,10 @@ public class MyInfoGuiTest {
             java.lang.reflect.Field field = ParseEnchants.class.getDeclaredField(name); field.setAccessible(true);
             java.util.Map<Object, Object> definitions = (java.util.Map<Object, Object>) field.get(null);
             java.util.Map<Object, Object> before = new java.util.HashMap<>(definitions);
-            restore.add(() -> { definitions.clear(); definitions.putAll(before); });
+            restore.add(() -> {
+                try { field.set(null, new java.util.HashMap<>(before)); }
+                catch (IllegalAccessException e) { throw new AssertionError(e); }
+            });
         }
         java.nio.file.Path fixture = java.nio.file.Files.createTempFile("myinfo-health-enchants-", ".xml");
         try {

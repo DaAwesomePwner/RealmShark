@@ -2,7 +2,6 @@ package tomato;
 
 import assets.AssetExtractor;
 import java.io.File;
-import java.nio.file.AccessDeniedException;
 import javax.swing.*;
 import packets.PacketType;
 import packets.packetcapture.PacketProcessor;
@@ -40,8 +39,10 @@ public class Tomato {
     private static boolean stoppingCapture, restartCapture;
     private static TomatoRootController rootController;
     private static boolean preview;
+    private static boolean assetsReady, setupBusy;
 
     public static boolean isPreview() { return preview; }
+    public static boolean isCaptureRunning() { return packetProcessor != null; }
 
     public static void main(String[] args) {
         AppIdentity.initialize();
@@ -149,12 +150,12 @@ public class Tomato {
         try {
             CrashLogger.loadThisClass();
             TomatoGUI.loadThemePreset();
-            AssetExtractor.checkForExtraction(Version.ASSET_CACHE_VERSION);
             TomatoData data = new TomatoData();
             loadControllers(data);
             initializeAndOpen(data, () -> {
                 new TomatoGUI(data).create();
                 data.publishDungeonStats();
+                beginAssetSetup(null, false);
             });
             CheckVersion.checkVersion();
             Thread crucible = new Thread(Tomato::initializeCrucibleData, "crucible-startup");
@@ -163,21 +164,12 @@ public class Tomato {
         } catch (OutOfMemoryError | StackOverflowError e) {
             JavaOutOfMemoryGUI.crashDialog();
             AppIdentity.exit(0);
-        } catch (AccessDeniedException e) {
-            JOptionPane.showMessageDialog(
-                null,
-                "<html>Asset extraction access denied.<br/>Please move " + AppIdentity.NAME
-                    + " to a different folder.<br/>Windows is blocking access to the current folder.</html>",
-                AppIdentity.NAME + " Asset Extraction",
-                JOptionPane.ERROR_MESSAGE
-            );
-            AppIdentity.exit(0);
         } catch (Exception e) {
             e.printStackTrace();
             CrashLogger.printCrash(e);
         } catch (Throwable e) {
             e.printStackTrace();
-            CrashLogger.printCrash((Exception) e);
+            CrashLogger.printCrash(new RuntimeException(e));
         } finally {
             dispose();
         }
@@ -306,10 +298,16 @@ public class Tomato {
             return;
         }
         if (stoppingCapture) { restartCapture = true; return; }
+        if (preview || setupBusy || !assetsReady) return;
         if (packetProcessor == null) {
             ChatGUI.resetObservedIgnores();
             PacketProcessor next = new PacketProcessor();
             packetProcessor = next;
+            TomatoMenuBar.setCaptureControls(true, true);
+            TomatoGUI.setStateOfSniffer(true);
+            next.setReadinessListener(state -> SwingUtilities.invokeLater(() -> {
+                if (packetProcessor == next && !stoppingCapture) TomatoGUI.setCaptureReadiness(state);
+            }));
             next.setCaptureStatusListener(message -> SwingUtilities.invokeLater(() -> {
                 if (packetProcessor == next && !stoppingCapture) TomatoGUI.setCaptureDetail(message);
             }));
@@ -318,12 +316,14 @@ public class Tomato {
                     boolean requested = stoppingCapture;
                     packetProcessor = null;
                     stoppingCapture = false;
+                    TomatoMenuBar.setCaptureControls(false, assetsReady && !setupBusy);
+                    TomatoGUI.setStateOfSniffer(false);
                     if (restartCapture) {
                         restartCapture = false;
                         startPacketSniffer();
                     } else if (!requested) {
-                        TomatoMenuBar.stopPacketSniffer();
                         TomatoGUI.setCaptureFailure(next.getStopReason());
+                        TomatoGUI.setCaptureReadiness(next.getCaptureState());
                     }
                 }
             }));
@@ -342,6 +342,9 @@ public class Tomato {
         restartCapture = false;
         if (packetProcessor != null && !stoppingCapture) {
             stoppingCapture = true;
+            TomatoMenuBar.setCaptureControls(false, false);
+            TomatoGUI.setCaptureReadiness(packets.packetcapture.CaptureState.STOPPING);
+            TomatoGUI.setCaptureDetail("Stopping capture connection…");
             PacketProcessor stopping = packetProcessor;
             Thread stop = new Thread(stopping::stopSniffer, "capture-stop");
             stop.setDaemon(true);
@@ -371,5 +374,62 @@ public class Tomato {
         throws InterruptedException, java.lang.reflect.InvocationTargetException {
         bootload(data);
         SwingUtilities.invokeAndWait(openWindow);
+    }
+
+    public static void chooseAssets() {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(Tomato::chooseAssets); return; }
+        if (preview || setupBusy || isCaptureRunning()) return;
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Choose resources.assets");
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Game resources.assets", "assets"));
+        if (chooser.showOpenDialog(TomatoGUI.getFrame()) == JFileChooser.APPROVE_OPTION)
+            beginAssetSetup(chooser.getSelectedFile(), true);
+    }
+
+    public static void retryAssets() {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(Tomato::retryAssets); return; }
+        beginAssetSetup(null, true);
+    }
+
+    private static void beginAssetSetup(File chosen, boolean recover) {
+        if (preview || setupBusy || isCaptureRunning()) return;
+        boolean repairFailedCache = recover && !assetsReady;
+        setupBusy = true;
+        TomatoMenuBar.setCaptureControls(false, false);
+        TomatoGUI.setSetupState(recover ? "Preparing assets… Saved history remains available." : "Checking local assets… Saved history remains available.", false, true);
+        new SwingWorker<Boolean, String>() {
+            private boolean sourceAvailable;
+            @Override protected Boolean doInBackground() throws Exception {
+                sourceAvailable = chosen != null || AssetExtractor.assetFile() != null;
+                boolean needed = AssetExtractor.needsExtraction(Version.ASSET_CACHE_VERSION);
+                if (chosen != null || (recover && needed) || repairFailedCache) {
+                    AssetExtractor.recover(chosen == null ? AssetExtractor.assetFile() : chosen, Version.ASSET_CACHE_VERSION, this::publish);
+                } else if (needed) return false;
+                else AssetExtractor.reloadAssetsOnRunningApp();
+                AbilityScalingManager.getInstance().initialize();
+                return true;
+            }
+            @Override protected void process(java.util.List<String> messages) {
+                if (!messages.isEmpty()) TomatoGUI.setSetupState(messages.get(messages.size() - 1) + " · Saved history remains available.", false, true);
+            }
+            @Override protected void done() {
+                setupBusy = false;
+                String message;
+                try {
+                    assetsReady = get();
+                    message = assetsReady ? (sourceAvailable ? "Assets ready · Start capture when ready, then enter a fresh area or reconnect the game."
+                        : "Cached assets loaded · Source file unavailable; freshness unverified. Choose assets to refresh, or start capture with the cached definitions.")
+                        : "Assets missing or outdated · Choose resources.assets, or Retry assets if the game is installed. Browse saved history without capture.";
+                    if (assetsReady) TomatoGUI.assetsReloaded();
+                } catch (Exception failure) {
+                    assetsReady = false;
+                    Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+                    message = "Asset setup failed (" + cause.getClass().getSimpleName() + "). Choose a readable resources.assets file and a writable app folder, then Retry assets. Saved history remains available.";
+                }
+                TomatoGUI.setSetupState(message, assetsReady, false);
+                TomatoMenuBar.setCaptureControls(false, assetsReady);
+            }
+        }.execute();
     }
 }

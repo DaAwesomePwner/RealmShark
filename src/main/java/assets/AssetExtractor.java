@@ -1,10 +1,8 @@
 package assets;
 
 import assets.resextractor.UnityExtractor;
-import java.awt.*;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -13,10 +11,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.swing.*;
 import javax.swing.filechooser.FileSystemView;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
@@ -30,9 +26,7 @@ import org.xml.sax.ErrorHandler;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import realmshark.branding.AppIdentity;
-import realmshark.version.Version;
 import util.PropertiesManager;
-import util.Util;
 
 /**
  * Main loader for assets. If assets are missing or are outdated,
@@ -50,7 +44,8 @@ public class AssetExtractor {
         new File("assets/xml/"),
     };
     private static String REALM_RES_PATH;
-    private static JOptionPane pane;
+    private static boolean explicitPath;
+    private static volatile java.util.function.Consumer<String> progress = text -> {};
 
     static {
         String os = System.getProperty("os.name").toLowerCase();
@@ -81,8 +76,6 @@ public class AssetExtractor {
 
     public static void main(String[] args) throws Throwable {
         AppIdentity.initialize();
-        //        checkForExtraction(Version.VERSION);
-        pane = new JOptionPane();
         extractAssetsFromXML();
     }
 
@@ -92,207 +85,63 @@ public class AssetExtractor {
      */
     public static void setRealmResPath(String path) {
         REALM_RES_PATH = path;
+        explicitPath = true;
     }
 
     /**
      * Main loader for realm assets.
      */
     public static void checkForExtraction(String version) throws Throwable {
-        String lastModifiedTime = lastEdited(version);
-        if (checkUpdateAssets(lastModifiedTime) != 0) {
-            assetExtractionWindow(lastModifiedTime);
-        }
+        if (needsExtraction(version)) recover(assetFile(), version, text -> {});
+    }
+
+    public static boolean hasUsableCache() {
+        for (String name : new String[]{ASSETS_OBJECT_FILE_DIR_PATH, ASSETS_TILE_FILE_DIR_PATH,
+                "assets/xml/equip.xml", "assets/xml/players.xml", "assets/xml/enchantments.xml"})
+            if (!Files.isRegularFile(Paths.get(name)) || !Files.isReadable(Paths.get(name))) return false;
+        return true;
+    }
+
+    public static boolean needsExtraction(String version) throws IOException {
+        if (!hasUsableCache()) return true;
+        File source = assetFile();
+        return source != null && checkUpdateAssets(lastEdited(version)) != 0;
+    }
+
+    /** Runs on the setup worker, with capture stopped. No Swing or native capture is started here. */
+    public static void recover(File source, String version, java.util.function.Consumer<String> listener)
+            throws IOException, ParserConfigurationException {
+        recover(source, version, listener, (input, output) -> new UnityExtractor().extract(input, output));
+    }
+
+    @FunctionalInterface interface Extraction { void extract(File source, File[] folders) throws IOException; }
+
+    static synchronized void recover(File source, String version, java.util.function.Consumer<String> listener, Extraction extraction)
+            throws IOException, ParserConfigurationException {
+        if (source == null || !source.isFile() || !source.canRead()) throw new IOException("Choose a readable resources.assets file.");
+        progress = listener == null ? text -> {} : listener;
+        try {
+            String stamp = Files.getLastModifiedTime(source.toPath()).toString() + "-" + version;
+            extraction.extract(source, ASSET_FOLDERS.clone());
+            extractAssetsFromXML();
+            if (!hasUsableCache()) throw new IOException("Extraction did not produce the required asset files.");
+            reloadAssetsOnRunningApp();
+            setRealmResPath(source.getAbsolutePath());
+            PropertiesManager.setProperties("realmResPath", source.getAbsolutePath());
+            PropertiesManager.setProperties("lastModifiedTime", stamp);
+        } finally { progress = text -> {}; }
     }
 
     public static String lastEdited(String version) throws IOException {
         File file = assetFile();
+        if (file == null) throw new IOException("Game asset source not found. Choose resources.assets to recover.");
         BasicFileAttributes attr;
         attr = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
         return attr.lastModifiedTime().toString() + "-" + version;
     }
 
-    /**
-     * GUI dialog options for extracting the assets.
-     *
-     * @param lastModifiedTime Last modified time of the assets file.
-     */
-    private static void assetExtractionWindow(String lastModifiedTime)
-        throws Throwable {
-        JFrame frame = new JFrame(AppIdentity.NAME + " Asset Extractor");
-        AppIdentity.apply(frame);
-        frame.setResizable(false);
-        frame.setVisible(true);
-        Object[] options = { "Extract", "Ignore" };
-        int n = JOptionPane.showOptionDialog(
-            frame,
-            "Game assets need to be extracted for some " + AppIdentity.NAME + " features.\nExtract them now?",
-            AppIdentity.NAME + " Asset Extractor",
-            JOptionPane.YES_NO_CANCEL_OPTION,
-            JOptionPane.QUESTION_MESSAGE,
-            null, //do not use a custom Icon
-            options, //the titles of buttons
-            options[1]
-        ); //default button title
-        if (n == 0) {
-            File assetsFile = getAssetsFile();
-            if (assetsFile != null) {
-                waitWhileExtracting(frame, assetsFile, lastModifiedTime);
-            }
-        }
-        frame.dispose();
-    }
-
-    /**
-     * Gets the asset file and if file is not found in default folder
-     * opens a file dialog window for user to give location of assets file.
-     *
-     * @return The resources.assets file used for extraction
-     */
-    private static File getAssetsFile()
-        throws UnsupportedLookAndFeelException, ClassNotFoundException, InstantiationException, IllegalAccessException {
-        File f = assetFile();
-
-        if (!f.exists()) {
-            int i = JOptionPane.showOptionDialog(
-                null,
-                "Please select realm folder",
-                "Realm folder not found",
-                JOptionPane.ERROR_MESSAGE,
-                JOptionPane.DEFAULT_OPTION,
-                null,
-                new Object[] { "Realm Folder", "Cancel" },
-                null
-            );
-            if (i == 0) {
-                UIManager.setLookAndFeel(
-                    UIManager.getSystemLookAndFeelClassName()
-                );
-
-                File path =
-                    FileSystemView.getFileSystemView().getDefaultDirectory();
-                while (true) {
-                    JFileChooser fc = new JFileChooser();
-                    fc.setCurrentDirectory(path);
-                    fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-                    int returnVal = fc.showDialog(null, "Realm Folder");
-                    if (returnVal == JFileChooser.APPROVE_OPTION) {
-                        path = fc.getSelectedFile();
-
-                        try (
-                            Stream<Path> pathStream = Files.find(
-                                path.toPath(),
-                                5,
-                                (p, basicFileAttributes) ->
-                                    p
-                                        .getFileName()
-                                        .toString()
-                                        .equalsIgnoreCase("resources.assets")
-                            )
-                        ) {
-                            List<Path> list = pathStream.collect(
-                                Collectors.toList()
-                            );
-                            if (list.size() == 1) {
-                                Path p = list.get(0);
-                                f = p.toFile();
-                                PropertiesManager.setProperties(
-                                    "realmResPath",
-                                    f.getPath()
-                                );
-                                break;
-                            }
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    } else if (returnVal == JFileChooser.CANCEL_OPTION) {
-                        return null;
-                    }
-                }
-            }
-        }
-        return f;
-    }
-
-    /**
-     * Starts the extraction on the resources.assets file while
-     * creates dialog window for user to wait.
-     *
-     * @param frame
-     * @param assetsFile       The resources.assets file to be extracted.
-     * @param lastModifiedTime Last modified time used to keep track of updates on the assets file.
-     */
-    private static void waitWhileExtracting(
-        JFrame frame,
-        File assetsFile,
-        String lastModifiedTime
-    ) throws Throwable {
-        JPanel panel = new JPanel(new BorderLayout());
-        JButton ok = new JButton("OK");
-        ok.setEnabled(false);
-        JLabel text = new JLabel("Please wait while extracting.");
-        panel.add(text, BorderLayout.CENTER);
-        ok.addActionListener(e -> {
-            Component component = (Component) e.getSource();
-            if (component == null) {
-                return;
-            }
-            Window win = SwingUtilities.getWindowAncestor(component);
-            if (win == null) {
-                return;
-            }
-            win.dispose();
-        });
-        pane = new JOptionPane(
-            "Extracting. Please wait.",
-            JOptionPane.PLAIN_MESSAGE,
-            JOptionPane.OK_CANCEL_OPTION,
-            null,
-            new JButton[] { ok },
-            ok
-        );
-        JDialog dialog = pane.createDialog(frame, AppIdentity.NAME + " Asset Extraction");
-        AppIdentity.apply(dialog);
-        dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-
-        Thread extractThread = new Thread(() -> {
-            try {
-                extractAssets(assetsFile, lastModifiedTime);
-                extractAssetsFromXML();
-            } catch (IOException | ParserConfigurationException e) {
-                throw new RuntimeException(e);
-            }
-            pane.setMessage("Finished extraction.");
-            ok.setEnabled(true);
-            System.out.println("done extracting.");
-            dialog.dispose();
-        });
-        AtomicReference<Throwable> throwableReference = new AtomicReference<>();
-        extractThread.setUncaughtExceptionHandler((t, e) -> {
-            dialog.dispose();
-            throwableReference.set(e);
-        });
-
-        extractThread.start();
-        dialog.setVisible(true);
-
-        extractThread.join();
-        Throwable throwable = throwableReference.get();
-        if (throwable == null) return;
-        if (throwable instanceof AccessDeniedException) {
-            JOptionPane.showMessageDialog(
-                pane,
-                "<html>Asset extraction access denied.<br/>Please move " + AppIdentity.NAME
-                    + " to a different folder.<br/>Windows is blocking access to the current folder.</html>",
-                AppIdentity.NAME + " Asset Extraction",
-                JOptionPane.ERROR_MESSAGE
-            );
-            AppIdentity.exit(0);
-        }
-        throw throwable;
-    }
-
     public static void setDisplay(String s) {
-        pane.setMessage("<html>Extracting. Please wait.<br/>" + s + "</html>");
+        progress.accept(s);
     }
 
     /**
@@ -304,40 +153,23 @@ public class AssetExtractor {
     public static File assetFile() {
         File defaultFile;
         try {
-            if (Paths.get(REALM_RES_PATH).isAbsolute()) {
-                defaultFile = new File(REALM_RES_PATH);
+            String configured = explicitPath ? REALM_RES_PATH : PropertiesManager.getProperty("realmResPath");
+            if (configured == null || configured.trim().isEmpty()) configured = REALM_RES_PATH;
+            if (configured == null || configured.trim().isEmpty()) return null;
+            if (Paths.get(configured).isAbsolute()) {
+                defaultFile = new File(configured);
             } else {
                 String homeDir = FileSystemView.getFileSystemView().getDefaultDirectory().getAbsolutePath();
-                Path defaultPath = Paths.get(homeDir, REALM_RES_PATH);
+                Path defaultPath = Paths.get(homeDir, configured);
                 defaultFile = defaultPath.toFile();
             }
         } catch (java.nio.file.InvalidPathException e) {
-            System.err.println(
-                "ERROR: Invalid path format in REALM_RES_PATH: " +
-                    REALM_RES_PATH
-            );
             return null;
         }
-        if (defaultFile.exists()) {
-            System.out.println("Using path: " + defaultFile.getAbsolutePath());
+        if (defaultFile.isFile()) {
             return defaultFile;
         }
-        System.err.println(
-            "ERROR: Default path not found: " + defaultFile.getAbsolutePath()
-        );
         return null;
-    }
-
-    /**
-     * Extracts assets using the UnityExtractor from realms resrouces.assets file into assets folder.
-     *
-     * @param file             File path to resrouces.assets.
-     * @param lastModifiedTime Last modified time of the assets file.
-     */
-    private static void extractAssets(File file, String lastModifiedTime)
-        throws IOException {
-        new UnityExtractor().extract(file, ASSET_FOLDERS);
-        PropertiesManager.setProperties("lastModifiedTime", lastModifiedTime);
     }
 
     /**
@@ -367,10 +199,9 @@ public class AssetExtractor {
         ArrayList<AssetTile> tileAssets = new ArrayList<>();
         ArrayList<Path> files = new ArrayList<>();
 
-        Files.walk(Paths.get(XML_DIR_PATH))
-            .filter(Files::isRegularFile)
-            .filter(p -> p.toString().endsWith("xml"))
-            .forEach(files::add);
+        try (Stream<Path> paths = Files.walk(Paths.get(XML_DIR_PATH))) {
+            paths.filter(Files::isRegularFile).filter(p -> p.toString().endsWith("xml")).forEach(files::add);
+        }
 
         int counter = 0;
         for (Path p : files) {
@@ -378,27 +209,37 @@ public class AssetExtractor {
             AssetExtractor.setDisplay("Parsing XML Files " + counter);
             try {
                 parseXML(p, objectAssets, tileAssets);
-            } catch (SAXException e) {}
+            } catch (SAXException e) { throw new IOException("An extracted XML file could not be parsed.", e); }
         }
 
         objectAssets.sort(Comparator.comparing(a -> a.id));
-        objectAssets.forEach(e ->
-            Util.print(ASSETS_OBJECT_FILE_DIR_PATH + "-", e.toString())
-        );
+        writeAssetList(Paths.get(ASSETS_OBJECT_FILE_DIR_PATH), objectAssets.stream().map(Object::toString).collect(Collectors.toList()));
 
         tileAssets.sort(Comparator.comparing(a -> a.id));
-        tileAssets.forEach(e ->
-            Util.print(ASSETS_TILE_FILE_DIR_PATH + "-", e.toString())
-        );
+        writeAssetList(Paths.get(ASSETS_TILE_FILE_DIR_PATH), tileAssets.stream().map(Object::toString).collect(Collectors.toList()));
+    }
+
+    private static void writeAssetList(Path target, List<String> lines) throws IOException {
+        Path temporary = Files.createTempFile(target.toAbsolutePath().getParent(), "asset-list-", ".tmp");
+        try {
+            Files.write(temporary, lines, java.nio.charset.Charset.defaultCharset());
+            try { Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE); }
+            catch (java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+        } finally { Files.deleteIfExists(temporary); }
     }
 
     /**
      * Reloads assets to reset assets in running app.
      */
-    private static void reloadAssetsOnRunningApp() {
-        ImageBuffer.clear();
-        IdToAsset.reloadAssets();
+    public static void reloadAssetsOnRunningApp() throws IOException {
+        if (!tomato.gui.myinfo.Equip.reload(Paths.get("assets/xml/equip.xml"))
+                || !tomato.realmshark.ParseEquipment.reload(Paths.get("assets/xml/equip.xml"))
+                || !tomato.realmshark.enums.CharacterClass.reload()) throw new IOException("Extracted equipment or class definitions could not be loaded.");
+        if (!tomato.realmshark.ParseEnchants.reload()) throw new IOException("Extracted enchant definitions could not be loaded.");
+        if (!IdToAsset.reloadDefinitions()) throw new IOException("Extracted object/tile lists could not be loaded.");
         SpriteJson.jsonFileReader();
+        SpriteFlatBuffer.reload();
+        ImageBuffer.clear();
     }
 
     /**
