@@ -434,20 +434,35 @@ public class Tomato {
     }
 
     private static void beginAssetSetup(File chosen, boolean recover) {
-        if (preview || setupBusy || isCaptureRunning()) return;
-        boolean repairFailedCache = recover && !assetsReady;
+        beginAssetSetup(chosen, recover, PacketProcessor::new);
+    }
+
+    static SwingWorker<Boolean, String> beginAssetSetup(File chosen, boolean recover, java.util.function.Supplier<PacketProcessor> factory) {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Setup belongs to the EDT");
+        if (preview || setupBusy || isCaptureRunning()) return null;
+        boolean readyBeforeAttempt = assetsReady;
         setupBusy = true;
         TomatoMenuBar.setCaptureControls(false, false);
         TomatoGUI.setSetupState(recover ? "Preparing assets… Saved history remains available." : "Checking local assets… Saved history remains available.", false, true);
-        new SwingWorker<Boolean, String>() {
+        SwingWorker<Boolean, String> worker = new SwingWorker<Boolean, String>() {
             private boolean sourceAvailable;
+            private boolean activeCacheReady = readyBeforeAttempt;
             @Override protected Boolean doInBackground() throws Exception {
+                if (!AssetExtractor.hasUsableCache()) activeCacheReady = false;
                 sourceAvailable = chosen != null || AssetExtractor.assetFile() != null;
-                boolean needed = AssetExtractor.needsExtraction(Version.ASSET_CACHE_VERSION);
-                if (chosen != null || (recover && needed) || repairFailedCache) {
-                    AssetExtractor.recover(chosen == null ? AssetExtractor.assetFile() : chosen, Version.ASSET_CACHE_VERSION, this::publish);
-                } else if (needed) return false;
-                else AssetExtractor.reloadAssetsOnRunningApp();
+                if (chosen != null) AssetExtractor.recover(chosen, Version.ASSET_CACHE_VERSION, this::publish);
+                else {
+                    boolean needed = AssetExtractor.needsExtraction(Version.ASSET_CACHE_VERSION);
+                    if (recover && needed) AssetExtractor.recover(AssetExtractor.assetFile(), Version.ASSET_CACHE_VERSION, this::publish);
+                    else if (needed) return false;
+                    else try { AssetExtractor.reloadAssetsOnRunningApp(); }
+                    catch (java.io.IOException invalidActiveCache) {
+                        activeCacheReady = false;
+                        File source = AssetExtractor.assetFile();
+                        if (!recover || source == null) throw invalidActiveCache;
+                        AssetExtractor.recover(source, Version.ASSET_CACHE_VERSION, this::publish);
+                    }
+                }
                 return true;
             }
             @Override protected void process(java.util.List<String> messages) {
@@ -456,20 +471,26 @@ public class Tomato {
             @Override protected void done() {
                 setupBusy = false;
                 String message;
+                boolean completed = false;
                 try {
                     assetsReady = get();
+                    completed = true;
                     message = assetsReady ? (sourceAvailable ? "Assets ready · Enter a fresh area or reconnect the game after capture starts."
                         : "Cached assets loaded · Source file unavailable; freshness unverified. Choose assets to refresh, or start capture with the cached definitions.")
                         : "Assets missing or outdated · Choose resources.assets, or Retry assets if the game is installed. Browse saved history without capture.";
                     if (assetsReady) TomatoGUI.assetsReloaded();
                 } catch (Exception failure) {
-                    assetsReady = false;
+                    assetsReady = activeCacheReady;
                     Throwable cause = failure.getCause() == null ? failure : failure.getCause();
-                    message = "Asset setup failed (" + cause.getClass().getSimpleName() + "). Choose a readable resources.assets file and a writable app folder, then Retry assets. Saved history remains available.";
+                    message = "Asset setup failed (" + cause.getClass().getSimpleName() + "). "
+                        + (assetsReady ? "Active cached assets remain ready for manual capture. Retry assets to recheck them, or choose another resources.assets file."
+                            : "Choose a readable resources.assets file and a writable app folder, then Retry assets. Saved history remains available.");
                 }
                 TomatoGUI.setSetupState(message, assetsReady, false);
-                finishAssetSetup(!recover && chosen == null, assetsReady, PacketProcessor::new);
+                finishAssetSetup(completed && !recover && chosen == null, assetsReady, factory);
             }
-        }.execute();
+        };
+        worker.execute();
+        return worker;
     }
 }

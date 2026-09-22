@@ -36,7 +36,10 @@ public class ImageBuffer {
      * @return Sprite of based of the object type ID.
      * @throws IOException Thrown if the sprite atlas file is missing.
      */
-    public static synchronized BufferedImage getImage(int id) throws IOException {
+    public static BufferedImage getImage(int id) throws IOException { return getImage(id, null); }
+
+    /** The package-local observation point permits a deterministic paused-reader regression. */
+    static synchronized BufferedImage getImage(int id, Runnable afterCoordinates) throws IOException {
         if (id <= 0) return null;
 //        if (images.containsKey(id)) return images.get(id);
         String name = IdToAsset.getObjectTextureName(id, 0);
@@ -44,6 +47,7 @@ public class ImageBuffer {
         int index = IdToAsset.getObjectTextureIndex(id, 0);
         int[] spriteData = spriteFlatBuffer.getSpriteData(name, index);
         if (spriteData == null) return emptyImage();
+        if (afterCoordinates != null) afterCoordinates.run();
         BufferedImage sprite = getSprite(spriteData);
         images.put(id, sprite);
         return sprite;
@@ -89,6 +93,17 @@ public class ImageBuffer {
         images.clear();
         colors.clear();
         bigImages = new BufferedImage[4];
+    }
+
+    /** A view may retain this item reference; its bitmap always comes from the current coherent cache. */
+    public static Icon liveOutlinedIcon(int id, int size) {
+        return new Icon() {
+            public int getIconWidth() { return size; }
+            public int getIconHeight() { return size; }
+            public void paintIcon(Component component, Graphics graphics, int x, int y) {
+                getOutlinedIcon(id, size).paintIcon(component, graphics, x, y);
+            }
+        };
     }
 
     /**

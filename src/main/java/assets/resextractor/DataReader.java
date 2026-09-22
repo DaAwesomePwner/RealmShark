@@ -5,7 +5,7 @@ import java.io.*;
 /**
  * Class extracted from UnityPy https://github.com/K0lb3/UnityPy
  */
-public class DataReader {
+public class DataReader implements Closeable {
     private final FileInputStream fileIo;
     private final DataInputStream buffer;
     private final long length;
@@ -119,6 +119,7 @@ public class DataReader {
         do {
             if (c != 0) s.append((char) c);
             c = buffer.read();
+            if (c < 0) throw new EOFException("Unterminated resource string");
         } while (c != 0b0);
         return s.toString();
     }
@@ -152,4 +153,6 @@ public class DataReader {
         buffer.read(out);
         return out;
     }
+
+    @Override public void close() throws IOException { buffer.close(); }
 }

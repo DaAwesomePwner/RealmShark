@@ -28,8 +28,7 @@ public class Resources {
     }
 
     public void extractAssets(File f, FileHeader header) throws IOException {
-        SerializedFile sf = new SerializedFile(f, header);
-        parseAllResources(sf);
+        try (SerializedFile sf = new SerializedFile(f, header)) { parseAllResources(sf); }
     }
 
     public void parseAllResources(SerializedFile sf) throws IOException {

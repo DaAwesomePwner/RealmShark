@@ -46,9 +46,17 @@ public final class AssetCache {
         publish(root, stamp, (temporary, target) -> Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING));
     }
 
+    static void publish(Path root, String stamp, Runnable activateCatalogs) throws IOException {
+        publish(root, stamp, (temporary, target) -> Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING), activateCatalogs);
+    }
+
     @FunctionalInterface interface PointerMove { void move(Path temporary, Path target) throws IOException; }
 
     static void publish(Path root, String stamp, PointerMove move) throws IOException {
+        publish(root, stamp, move, () -> {});
+    }
+
+    private static void publish(Path root, String stamp, PointerMove move, Runnable activateCatalogs) throws IOException {
         if (!root.toAbsolutePath().getParent().equals(GENERATIONS.toAbsolutePath())
                 || stamp.contains("\n") || stamp.contains("\r")) throw new IOException("Invalid asset cache generation.");
         if (Files.exists(POINTER)) readPointer(false); // A recognized pointer with a missing generation can be repaired.
@@ -57,8 +65,14 @@ public final class AssetCache {
         try {
             Files.write(temporary, Arrays.asList(VERSION, root.getFileName().toString(), stamp), StandardCharsets.UTF_8);
             move.move(temporary, POINTER);
-            current = new Generation(root, stamp);
             committed = true;
+            // Image reads hold this same monitor from texture lookup through atlas cropping/cache insertion.
+            // Disk commit and parsing are complete; old readers keep their retained files. Only in-memory
+            // publication/cache clearing occurs here, with no I/O or Swing callbacks under the monitor.
+            synchronized (ImageBuffer.class) {
+                current = new Generation(root, stamp);
+                activateCatalogs.run();
+            }
         } finally { if (!committed) Files.deleteIfExists(temporary); }
     }
 

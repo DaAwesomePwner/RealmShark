@@ -166,3 +166,52 @@ conversion, serialized desktop/scaling checks and integrated packaging/CI. No GU
 test or native capture was run for these corrections. Prior successful generations
 are retained intentionally; automated cache cleanup is not part of this fix. The
 pointer requires atomic replacement support and fails safely if unavailable.
+
+## Active-cache readiness and image-coherence follow-up
+
+Following review of `75011ce`, replacement-attempt success is separate from active
+cache readiness. A failed replacement retains the previously validated active
+cache and manual capture availability. Retry validates a usable cache even if the
+original resource file is gone; it repairs from a source only when necessary and
+does not auto-start capture. Failure to validate the active cache itself still
+withholds readiness. Feedback identifies when the old cache remains usable.
+
+Image publication now shares `ImageBuffer`'s existing read monitor. Coordinate
+decoding, catalog parsing and disk-pointer commit happen outside that monitor;
+the in-memory root, texture/catalog maps, prepared coordinates and image-cache
+clear are installed together. Writers remain serialized by `AssetExtractor` and
+do not invoke Swing or wait for the EDT while holding the image monitor. Old
+generation files remain available to readers. Loot retains logical item icons
+that resolve through the current image cache when painted, rather than retaining
+an old bitmap indefinitely.
+
+Deterministic tests pause a reader after its old coordinates are known, and pause
+another reader with an old atlas cached. They wait until the publisher is blocked
+on that reader's image monitor, then verify a red old tile followed by a blue new
+tile whose coordinates and texture mapping moved. Fixtures use real XML,
+FlatBuffers and PNG data. A separate test retains a Loot icon across publication
+without new loot rows. The runtime test deletes the original resource, rejects
+two invalid replacements, retries the retained cache, and starts only an explicit
+fake capture worker. The first run exposed leaked decoder file handles; header
+and serialized-data readers now close on success/failure, and unterminated
+resource strings fail at EOF instead of looping.
+
+Focused headless validation: **25 tests passed, zero failures/errors/skips**.
+Build/cache: `build/ux-w1-cache-coherence` and `.gradle/ux-w1-cache-coherence`.
+JDK 17 / Gradle 7.6.4, existing Java 8 main target, with
+`JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`. Exact selectors:
+
+```text
+assets.ImageGenerationTest
+tomato.AssetReadinessRecoveryTest
+tomato.gui.stats.LootIconGenerationTest
+assets.AssetRecoveryTest
+tomato.CaptureHookIntegrationTest
+tomato.backend.data.AbilityScalingReloadTest
+packets.packetcapture.CaptureLifecycleTest
+```
+
+Native/scaled GUI validation and settled My Info/Loot clipping checks belong to
+the coordinated fixture/full-test pass. No layout pass is claimed here. The
+fixture writer's tests and the shared execution ledger were not edited by this
+package. Independent review of the final head remains required.

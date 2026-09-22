@@ -240,7 +240,7 @@ public final class LootDashboard extends JPanel {
             for (Aggregate item : (view == 2 ? summary.whiteItems : summary.allItems).values()) {
                 if (view == 1 && !item.item.potion) continue;
                 if (view == 6 && !item.item.ut || view == 7 && !item.item.st || view == 8 && !item.item.highTier) continue;
-                Icon icon = state.icons.computeIfAbsent(item.item.id, id -> ImageBuffer.getOutlinedIcon(id, 24));
+                Icon icon = iconForItem(item.item.id);
                 ParseEnchants.Summary enchants = item.item.enchants;
                 rows.add(new Object[]{icon, item.item.name, item.count, item.dungeon, item.item.tier,
                     enchants.slots == 0 ? "Common / Unenchanted" : enchants.rarity(),
@@ -264,6 +264,7 @@ public final class LootDashboard extends JPanel {
         }
         return rows;
     }
+    Icon iconForItem(int id) { return state.icons.computeIfAbsent(id, key -> ImageBuffer.liveOutlinedIcon(key, 24)); }
     private static void addOption(JComboBox<String> combo, String value) {
         for (int i = 0; i < combo.getItemCount(); i++) if (value.equals(combo.getItemAt(i))) return;
         combo.addItem(value);

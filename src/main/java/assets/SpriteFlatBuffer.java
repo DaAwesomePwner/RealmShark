@@ -21,29 +21,31 @@ public class SpriteFlatBuffer {
     static {
         sprites = new HashMap<>();
 //        animatedSprites = new HashMap<>();
-        reload();
+        prepareReload(AssetCache.path("flatbuffer/spritesheetf")).run();
     }
 
     /**
      * Loads the flatBuffer file into HashMap data structure.
      */
     public static boolean reload() {
-        File file = AssetCache.path("flatbuffer/spritesheetf").toFile();
-        if (!file.exists()) {
-            notLoaded = true;
-            return false;
+        Runnable ready = prepareReload(AssetCache.path("flatbuffer/spritesheetf"));
+        synchronized (ImageBuffer.class) {
+            ready.run();
+            ImageBuffer.clear();
+            return !notLoaded;
         }
+    }
+
+    /** Decode off the image-read monitor; publication installs this whole coordinate map. */
+    public static Runnable prepareReload(java.nio.file.Path path) {
+        HashMap<String, HashMap<Integer, Sprite>> next = new HashMap<>();
         try {
-            byte[] data = java.nio.file.Files.readAllBytes(file.toPath());
+            byte[] data = java.nio.file.Files.readAllBytes(path);
             SpriteSheetRoot root = SpriteSheetRoot.getRootAsSpriteSheetRoot(ByteBuffer.wrap(data));
-            HashMap<String, HashMap<Integer, Sprite>> next = new HashMap<>();
             decodeSheet(root, next);
-            sprites = next;
-            notLoaded = false;
-            return true;
+            return () -> { sprites = next; notLoaded = false; };
         } catch (IOException | RuntimeException e) {
-            notLoaded = true;
-            return false;
+            return () -> notLoaded = true;
         }
     }
 

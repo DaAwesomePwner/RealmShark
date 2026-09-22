@@ -127,10 +127,10 @@ public class AssetExtractor {
             extractAssetsFromXML(generation);
             if (!hasUsableCache(generation)) throw new IOException("Extraction did not produce the required asset files.");
             Runnable catalogs = prepareCatalogs(generation);
-            AssetCache.publish(generation, stamp);
+            setDisplay("Publishing validated assets");
+            AssetCache.publish(generation, stamp, catalogs);
             published = true;
-            catalogs.run();
-            reloadImages();
+            SpriteJson.jsonFileReader();
             setRealmResPath(source.getAbsolutePath());
             PropertiesManager.setProperties("realmResPath", source.getAbsolutePath());
             PropertiesManager.setProperties("lastModifiedTime", stamp);
@@ -239,9 +239,10 @@ public class AssetExtractor {
     /**
      * Reloads assets to reset assets in running app.
      */
-    public static void reloadAssetsOnRunningApp() throws IOException {
-        prepareCatalogs(AssetCache.root()).run();
-        reloadImages();
+    public static synchronized void reloadAssetsOnRunningApp() throws IOException {
+        Runnable ready = prepareCatalogs(AssetCache.root());
+        synchronized (ImageBuffer.class) { ready.run(); }
+        SpriteJson.jsonFileReader();
     }
 
     private static Runnable prepareCatalogs(Path root) throws IOException {
@@ -254,13 +255,8 @@ public class AssetExtractor {
         prepared.add(tomato.realmshark.ParseDungeon.prepareReload(root.resolve("xml")));
         try { prepared.add(tomato.backend.data.AbilityScalingManager.getInstance().prepareReload(root.resolve("xml/equip.xml"))); }
         catch (Exception failure) { throw new IOException("Could not load ability scaling definitions.", failure); }
-        return () -> prepared.forEach(Runnable::run);
-    }
-
-    private static void reloadImages() {
-        SpriteJson.jsonFileReader();
-        SpriteFlatBuffer.reload();
-        ImageBuffer.clear();
+        prepared.add(SpriteFlatBuffer.prepareReload(root.resolve("flatbuffer/spritesheetf")));
+        return () -> { prepared.forEach(Runnable::run); ImageBuffer.clear(); };
     }
 
     /**
