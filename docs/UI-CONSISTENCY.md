@@ -14,6 +14,16 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 - The DPS encounter chooser supports keyboard selection and separate export checkboxes. Live legacy reports remain selectable and read-only. Its compact toolbar wraps as the available width changes.
 - The resource chart has keyboard-accessible zoom/reset and sample inspection. Rule-editor add/remove controls have meaningful labels and keyboard focus.
 
+### Wave 1 evidence and recovery
+
+- The shell and saved history open before asset setup finishes. **Choose assets…** and **Retry assets** provide recovery in place; the saved capture preference is applied only after successful initial readiness. See [setup guidance](../README.md#troubleshooting).
+- **My Info** has **Captured**, **Estimated** and **Unavailable** filters. Each of its four summary cards has a Details action for inputs, assumptions and missing data, independent of table filters. **Estimate scenario: out of combat** changes the local calculation, not the captured combat state.
+- **Inspect** keeps absent mode, stats and equipment fields unknown. Missing seasonal metadata does not mean Non-seasonal; missing inputs do not become exact maxed counts or fabricated potion deficits. Equipment details distinguish retained build/change time from last seen, and do not assign a capture time to an untimed DPS snapshot.
+- **Gameplay & diagnostics collection** is shared across Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. **Pause this view** holds displayed data while collection status stays current; saved views identify themselves as **Saved history**. See [Logging](LOGGING.md).
+- Alert editors open silently, offer explicit **Test sound**, and distinguish changes active in memory from confirmed disk saves. See [Notifications](NOTIFICATIONS.md#editing-match-rules).
+
+Wave 1 validation and pending delivery gates are tracked in the [execution ledger](UX-EXECUTION.md). The dated reports below describe their own earlier milestones.
+
 ### Phase 3 consistency improvements
 
 - Sidebar keyboard focus now has a visible look-and-feel outline, distinct from the selected destination. Desktop label width follows font metrics; compact navigation retains its labeled popup and shortcuts.

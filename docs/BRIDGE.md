@@ -8,7 +8,7 @@ Open **Bridge Review** in the sidebar or press **Alt+B**. It uses the existing d
 2. Open **Bridge Review → Settings**. Enter your guild's **Endpoint**, **Guild ID** and **Link Token**. No guild or endpoint is preconfigured.
 3. Choose the loot CSV with **Browse**, or select **Use included CSV** to enter `./rotmg_loot_drops_updated.csv`. The dot and slash are accepted; paths resolve from the application's working folder. Absolute paths work too. This CSV is an **input allowlist**, not an output file.
 4. Select **Enable bridge** and **Send matching drops to bot**, then **Save settings**. Saving sends the upstream `bridge_settings_test` confirmation when sending is enabled. Inspect **Logs** for the response. Actual Discord announcement depends on the bot's configuration and permissions.
-5. Turn network capture on using **File → Start Sniffer** or **Start capture**. Enter a fresh game connection if capture began mid-session. Keep only one sniffer instance running.
+5. Turn network capture on using **File → Start capture connection** or **Start capture** once assets are ready. Enter a fresh game connection if capture began mid-session. Keep only one sniffer instance running.
 6. Configure unseen characters through the guild bot's `/mysniffer → Configure Character` flow.
 
 All fields remain editable. **Debug logs** adds sanitized outgoing fields and skip explanations. **Enable bridge** controls this module independently of **File → Opt-out Loot Sharing**, which still controls the original RealmShark sharing service. Disabling the guild bridge does not change that legacy service.
@@ -20,8 +20,8 @@ The included CSV is an editable public starting catalog with 1,241 rows from the
 - All category boxes selected preserves the public bridge's CSV matching behavior. Names normalize apostrophes, dashes and whitespace; a shiny can match the base item's CSV row.
 - Categories are additive: UT, ST, shiny or enchanted matches any selected category. **Other CSV items** covers items with none of those labels. A category match still needs a CSV match to send.
 - Turn off **Send matching drops to bot** for local review without HTTP requests. Enable bridge and a valid CSV are still required.
-- The sortable **Review** table shows the latest 1,000 observed items, including excluded and unlisted drops. Search and status filters control the rows included in **Export review CSV**.
-- Select an item to inspect decoded enchants, rarity provenance, character ID, delivery result and outgoing JSON with the token redacted. Full enchant descriptions stay local because the public bridge's wire contract uses rarity instead.
+- The sortable **Review** table shows the latest 1,000 observed items, including excluded and unlisted drops. Combine literal search (including reason codes, item IDs and enchant descriptions) with outcome, delivery status, exact character/dungeon and applied/none/unknown enchant filters. **Reset filters** clears them; **Export review CSV** uses the visible rows.
+- Select an item to follow **Observation → Local choice at observation → Bot / delivery result → Next step**, with decoded enchants, rarity provenance, character ID and token-redacted outgoing JSON. The original local choice remains visible after delivery. Full enchant descriptions stay local because the public bridge's wire contract uses rarity instead.
 - **Logs** retains the latest 500 diagnostics, supports level filtering, shares the Review search, and has **Export logs** and **Clear logs**.
 - Set **Review log (optional)**, for example `./logs/bridge-review.jsonl`, for an ongoing local record beyond the session table. It records final processing outcomes and decoded item data, with the token redacted. At 5 MB the file rotates to a single `.1` backup. Prior logs are not automatically imported or resubmitted.
 
@@ -29,7 +29,20 @@ The local review CSV is a human-readable report with its own documented header, 
 
 ## Delivery outcomes
 
-**Queued** means waiting locally. **Accepted** means the HTTP request succeeded without a recognized positive loot result; it alone does not establish that loot was recorded. **Logged** reflects `result.logged=true`. **Not logged** reflects a successful response with `logged=false`, including an item missing from the bot's catalog. Response `reason` and `routing_reason` codes appear in details and logs; `unmapped_character` identifies the Discord configuration step.
+The **Outcome** column groups the compatible delivery statuses into six mutually exclusive buckets:
+
+| Outcome | Meaning |
+| --- | --- |
+| **Confirmed logged** | Successful HTTP response with JSON boolean `logged=true` in the bot result, without an explicit `ok=false` rejection. Delivery status: **Logged**. |
+| **Received—unconfirmed** | HTTP succeeded without an explicit rejection, but logging confirmation is absent, null, malformed or unrecognized (including a string instead of a boolean). Delivery status: **Accepted**. |
+| **Not logged** | Successful, non-rejected response explicitly contains JSON boolean `logged=false`. |
+| **Local/excluded** | **Not in CSV**, **Filtered**, **Local only** or **Cancelled**. |
+| **Failed/uncertain** | **Rejected**, **Uncertain** or **Queue full**; inspect the specific status and reason. |
+| **Pending** | **Queued**, awaiting a delivery result. |
+
+Only confirmed logging has positive styling; Discord announcement is a separate bot result. **Lifetime (this service)** counts include observations beyond the retained table, while **Shown** counts follow the current filters. Each item belongs to one outcome bucket at a time. Local audit-write failures are reported separately and do not turn local/excluded items into failed deliveries.
+
+Response `reason` and `routing_reason` codes appear in details and logs and are searchable. For example, search `unmapped_character`, then follow **Next step** to Discord's `/mysniffer → Configure Character`; fixing the mapping does not automatically resend the observed drop.
 
 **Not in CSV**, **Filtered**, **Local only**, **Cancelled** and **Queue full** do not submit the item. **Rejected** includes the HTTP status and safe bot error code. Check endpoint, Guild ID, token, guild-side enablement, and the bot's catalog. **Uncertain** means a network exception occurred; the bot might already have processed the request. Check Discord before manually adding loot.
 

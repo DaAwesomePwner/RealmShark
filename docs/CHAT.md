@@ -17,7 +17,7 @@ The live workspace retains the latest **10,000 messages** per application sessio
 
 Time and Channel columns resize from their renderer/header metrics when fonts change. You can widen them further; narrow windows scroll horizontally instead of imposing a timestamp-clipping maximum. Selected-message headings and ignore reasons wrap while full messages remain in the detail pane.
 
-Existing PM, party and guild sound settings, custom phrase alerts, fonts, and Umi response hints remain available. **Actions → Chat alert rules** opens the existing phrase editor. Local spam rules load from `block.txt`; empty rules are ignored. The existing remote spam-rule request has timeouts and falls back to local rules on failure. New search, starring and export functions make no network requests.
+Existing PM, party and guild sound settings, custom phrase alerts, fonts, and Umi response hints remain available. **Actions → Chat alert rules** opens the typed-rule editor silently, with text/token modes, preserved legacy rules, **Check sample** and explicit **Test sound**. See [editing match rules](NOTIFICATIONS.md#editing-match-rules). Local spam rules load from `block.txt`; empty rules are ignored. The existing remote spam-rule request has timeouts and falls back to local rules on failure. New search, starring and export functions make no network requests.
 
 ## Spam filters and ignored players
 
@@ -32,7 +32,9 @@ Open **Chat → Actions → Chat filters** to edit saved rules. Short checkbox c
 
 Your own messages and System/NPC notices are exempt. Filters classify matching messages as **Ignored before any chat alert runs**, including PM, party, guild, custom keyword and realm announcement checks. Showing ignored players does not unignore them or enable their alerts. Opening Ignored, searching, starring or exporting does not play sounds. Each ignored message has a reason in its details and exported transcript. Automatic session history retains received messages while the toggle is off; **Edit → Save Chat** additionally logs them to text with their ignore reason. Changing visibility does not change capture or logging.
 
-Saving rules immediately re-filters retained messages and applies to future arrivals. Reset only clears search/channel/star filters; it does not disable spam protection. Rules are saved locally in `realmShark.properties`. Ignored messages share the live buffer limit and are also retained in the structured session archive. Replaying history does not trigger chat alerts.
+Live and saved Chat views share the current local filter policy. Saving filters or ignoring a player from a saved page reclassifies retained views and affects future live alerts. Saved chat uses today's local rules while its in-game-ignore evidence still describes receipt time. Browsing or reclassification never replays alerts.
+
+**Save filters** applies changes immediately and reports disk saving separately. If saving fails, the rules remain active, the draft stays editable and **Retry save** is available; Cancel does not roll back applied settings. Rules persist locally in `realmShark.properties` when saving succeeds. Reset clears view filters, not spam protection. Ignored messages share the live buffer limit and are also retained in the structured session archive.
 
 ### In-game ignore observation
 

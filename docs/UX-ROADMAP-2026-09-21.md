@@ -2,7 +2,7 @@
 
 **Review date:** 2026-09-21  
 **Scope:** All 14 workspaces, their secondary views, and shared navigation, history, settings, and capture setup.  
-**Method:** Five read-only sub-agent reviews of the current working tree, synthesized into this roadmap and checked against source. This is a product backlog, not a record of implemented changes.
+**Method:** Five read-only sub-agent reviews of the working tree at the review date, synthesized into this roadmap and checked against source. This is the assessment baseline and product backlog, not a record of implemented changes; see the [execution ledger](UX-EXECUTION.md#coverage-ledger) for implementation and validation status.
 
 ## Executive recommendation
 

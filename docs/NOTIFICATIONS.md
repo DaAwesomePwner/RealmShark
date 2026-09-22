@@ -4,15 +4,31 @@ Open **Notifications** in the sidebar (Alt+N), or **Edit > Sound > Sound & Notif
 
 - **Messages:** incoming whispers/DMs, party chat, guild chat, and trade requests. Your own messages do not trigger these sounds. Whisper alerts require the recipient to match your captured player name; sent whispers and messages with unknown direction stay silent, including keyword sounds. Player-name metadata and letter case do not affect this check.
 - **Bags:** white, orange, red, gold, egg and blue bags, including boosted variants. Hiding a bag in Loot does not mute its alert.
-- **Key pops:** select dungeons using literal search and Select/Unselect shown. Hidden selections remain unchanged. Optionally include missing dungeon completes for the current character. Both observed openings and existing portal callouts use this profile; callouts do not inflate key-pop statistics.
+- **Key pops:** select dungeons using literal search, **Selected only**, **Select shown** and **Clear shown**. Counts distinguish selected choices shown from those outside the filter; hidden selections remain unchanged. Optionally include missing dungeon completes for the current character. Both observed openings and existing portal callouts use this profile; callouts do not inflate key-pop statistics.
 - **Realm events:** Cube God and Legion General presets, plus Add realm event for other announcements. Each event has its own enable switch, volume and sound. Enable the events you want; new event rules start disabled. Edit a phrase and click Save phrase to refine what triggers it.
-- **Other alerts:** independently adjust chat keyword sounds and the existing item/entity/enchantment-match sound. Rule-editor buttons preserve the existing detailed matching workflows.
+- **Other alerts:** independently adjust chat keyword sounds and the item/entity/enchantment-match sound. Open the rule editors to choose match modes or enchant selections.
 
 Item and enchantment rules run locally before optional loot sharing. **Opt-out Loot Sharing** does not disable these alerts. Multiple matching rules on the same item produce one custom alert; separate matching items can each alert. Empty inventory slots and invalid enchant data do not trigger enchant matches, and an invalid slot does not suppress valid matches in later slots.
 
 Long filenames and error/status messages wrap to their full measured text height. Short windows scroll the page while retaining usable settings space. Background status changes preserve the current scroll position instead of pulling the page toward the footer; manual keyboard navigation still reveals its destination.
 
 Each alert offers a built-in sound, a local WAV file (10 MB and 30 seconds maximum), Default to restore its original tone, and Test. Custom files must remain at the chosen path. Test bypasses that alert's enable switch; it still honors master mute and both volume controls. Effective volume is master volume multiplied by alert volume. For example, 50% master and 50% alert produces 25% amplitude. Zero volume is silent. Audio loads on a bounded background worker, and the footer reports missing/unsupported files or unavailable output instead of interrupting capture. On Windows, playback resolves the current default multimedia output through WASAPI for each alert. Longer sounds follow output changes while playing; the footer names the actual selected device. Shared-mode conversion uses the existing device format without changing Windows settings. If the selected output cannot open, the footer reports the failure instead of choosing another device. Other platforms use Java Sound.
+
+## Editing match rules
+
+Opening chat, item, entity or enchant editors is silent. **Test sound** explicitly plays the configured sound; **Check sample** silently checks the current typed-rule draft without saving, playing audio or testing delivery.
+
+| Category | Match modes |
+| --- | --- |
+| Items | **Name contains** (literal, case-insensitive), or **Exact item ID** (positive decimal ID; works without an asset name). |
+| Entities | **Exact entity type** (decimal 0–65535), not an object's instance ID. |
+| Chat | **Text contains** or **Space-delimited token**, both case-insensitive. Tokens split only on literal spaces; punctuation, tabs and line breaks remain part of the token. |
+
+Existing entries keep explicitly labeled **Legacy** matching until you edit their mode. For example, legacy item `42` can match ID `142`; **Exact item ID** `42` cannot. Legacy quoted chat rules retain their space-token behavior. Opening the editor does not migrate settings on disk. Unsupported rows stay inactive and are preserved until explicitly removed; unreadable or future rule formats preserve the original data and disable editing/matching for that category.
+
+**Save rules** applies the submitted draft immediately, then confirms disk persistence separately. **Applied now; saving to disk…** is not a saved confirmation. A failed write keeps the editor and draft available with **Retry save**, and the submitted settings remain active in memory. Cancel discards only unsubmitted edits, not already applied settings. New edits made while saving remain unsaved; if another editor changed the same rules, reopen to load the current settings. Chat filters and enchant selections use the same applied/saved distinction. Failed realm-event saves retain the draft; retry updates the same newly created, disabled event.
+
+In the enchant editor, **Selected only**, **Select shown** and **Clear shown** operate on the current filter, including group actions. **Select all catalog** and **Clear all catalog** explicitly affect the catalog instead. Counts include selections outside the filter; saved selections missing from the current catalog and unrecognized saved entries survive saving.
 
 ## Realm announcement matching
 

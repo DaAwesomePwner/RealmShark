@@ -11,7 +11,7 @@ The application, launchers and Windows package use the **RealmShark fin logo** a
 1. Install [Npcap](https://npcap.com/#download), enabling **WinPcap API-compatible Mode**.
 2. Extract the **entire** `RealmShark-Windows-x64.zip` into a writable folder.
 3. Open **RealmShark.exe**. Java is included; keep the `app` and `runtime` directories beside the EXE.
-4. Start capture and reconnect to the game so RealmShark sees a fresh connection.
+4. Wait for asset readiness, start capture if it is stopped, and reconnect to the game so RealmShark sees a fresh connection.
 
 Use **Preview-RealmShark.cmd** to inspect the UI without capture, startup API requests or game-asset extraction. See [Windows setup, updates and packaging](docs/WINDOWS-BUNDLE.md).
 
@@ -83,7 +83,8 @@ The four-phase review implementation, retained regression evidence, and final cl
 ## Troubleshooting
 
 - If the app opens without game data, check Npcap's compatibility-mode installation, start capture, and reconnect to the game.
-- For a first-launch asset prompt, select `resources.assets` from your installed game, or pass `--path "full path to resources.assets"`.
+- The workspace and **Browse saved history** remain available when assets or Npcap are missing. Use **Choose assets…** to select the game's `resources.assets`, or **Retry assets** to recheck setup. You can also pass `--path "full path to resources.assets"`. Cancelling asset selection leaves the workspace open.
+- Explicit Start/Stop retains your capture preference for the next launch; automatic start waits for successful initial asset readiness. Setup failures and manual retries preserve that preference, but a retry does not itself start capture. A failed asset replacement keeps a previously usable cache; a cache without its source file is labeled freshness unverified.
 - Check the capture status/footer and `logs/capture-health.log` for capture failures. The Logging workspace can export a diagnostic report.
 - Rebuild and restart through the launcher after source updates. Avoid replacing an application's active JAR or runtime folder.
 - Use one game connection at a time; multiple simultaneous game clients are not supported.

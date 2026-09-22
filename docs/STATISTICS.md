@@ -4,6 +4,14 @@ The four Statistics tabs use the existing dark violet theme, sortable tables, su
 
 Statistics and Loot default to **Current Session**, defined by the app launch. Their independent session pickers expose past launches and All Sessions, with session comparisons, historical fame graphs, and per-run/per-hour dungeon loot profiles. History survives new build folders through the shared Windows user profile. See [Session history](SESSION-HISTORY.md).
 
+### Saved loot coverage and rates
+
+Session comparisons distinguish **Not captured** loot in run-only imports, **coverage unknown** when a session has no saved bags, and **Partial** coverage when bags were saved. A captured empty bag can establish zero visible items; a missing journal cannot. Saved bags are observations, not proof of continuous recording or item ownership.
+
+Select a dungeon profile to read its numerator units, eligible visits, visits with no linked bags, ongoing visits, observed duration and exclusions. Per-run rates divide observed counts by eligible visits; per-hour rates divide by their observed hours, including gaps. Eligibility requires at least one saved bag in the **same session**, even an empty or unassigned bag. Visits without linked bags still enter the denominator within that evidenced session; run-only imports and sessions without loot evidence are excluded, with counts and unknown-coverage duration shown. Ongoing eligible visits are included.
+
+Rates are unavailable when drops cannot be linked to a matching session, visit and dungeon. Any eligible visit without positive observed duration makes hourly rates unavailable. Verified dungeon aliases are combined; unknown area names stay separate. These sample rates are not drop probabilities.
+
 ## Fame Graph
 
 - Follow the current character or pin a character using the selector.
@@ -41,7 +49,7 @@ Every item table separates copies by item ID, unlocked enchant slots and applied
 
 Rarity is derived from unlocked slots: **Common / Unenchanted (0)**, **Uncommon (1)**, **Rare (2)**, **Legendary (3)**, **Divine (4)**. Empty unlocked slots count toward rarity but not applied enchants; locked and unused slots count toward neither. Missing or invalid enchant data stays **Unknown**, separate from confirmed zero-slot drops. Items with empty unlocked slots can therefore have a rarity while showing zero applied enchants. These are captured drop snapshots, not subsequent rerolls or inventory changes.
 
-Recent Drops includes each item's tier, rarity, slots and applied count and offers 5-minute, 15-minute and one-hour ranges relative to the latest captured drop. Its 1,000-bag history limit does not truncate the aggregate session totals, including enchantment breakdowns. Dates sort chronologically. Whites means contents observed in white or boosted white bags, not an inferred item rarity.
+Recent Drops includes each item's tier, rarity, slots and applied count and offers 5-minute, 15-minute and one-hour ranges relative to the latest captured drop. It retains the globally newest 1,000 bags across the selected sessions, regardless of archive read order; equal-time observations remain distinct. Recent filters search that retained window, while aggregate totals and enchantment breakdowns include all accepted records in scope. Dates sort chronologically. Whites means contents observed in white or boosted white bags, not an inferred item rarity.
 
 **Live log** shows rarity, unlocked slots and applied enchant counts in item tooltips, alongside enchant descriptions. Icon glow follows unlocked slot count. Its bag visibility still follows **Edit > Filter Loot**. Explorer filters do not change capture, sounds, or sharing settings. Counts represent observed drops, not inventory pickups. The live explorer shows current-session totals; saved views aggregate all recorded drops in their selected session scope, including drops older than the recent-bag display limit.
 
@@ -49,9 +57,9 @@ The Statistics Loot panel includes a compact **legacy sharing** status and a Det
 
 ## Dungeon Stats
 
-Search saved dungeon history and filter to dungeons with loot or recorded visits. Select a dungeon, then open Enemies or Loot by source (double-clicking a dungeon opens Enemies). Detail search and the dropper selector refine those views. Unknown sources and sources with loot but no hit counter remain visible.
+Search saved dungeon history and filter to dungeons with loot or **activity-recorded exits**. Select a dungeon, then open Enemies or Loot by source (double-clicking a dungeon opens Enemies). Detail search and the dropper selector refine those views. Unknown sources and sources with loot but no hit counter remain visible.
 
-The default Dungeon Stats tab shows counters recorded during this app launch, excluding the loaded `dungeon.stats` baseline. Historical scopes load saved per-session counters. Hit events are not kills or proof of soulbound credit. Recorded visits and time finalize on exit, and maps without tracked activity can be absent. Ongoing item/hit counters may therefore be ahead of visit/time totals. The legacy cumulative file remains compatible; new session/run records supply the historical comparisons and loot-rate denominators.
+The default Dungeon Stats tab shows counters recorded during this app launch, excluding the loaded `dungeon.stats` baseline. Historical scopes load saved per-session counters. **Activity-recorded exits** and **Finalized time** count areas with tracked activity at exit; **Runs** instead counts observed visits, including ongoing and zero-activity visits. Hit events are not kills or proof of soulbound credit. Ongoing item/hit counters can precede finalized exit/time totals; the ongoing-activity column distinguishes this from **Not captured** in older snapshots. Legacy counters have no date bounds. The legacy cumulative file remains compatible; session/run records supply the historical comparisons and loot-rate denominators.
 
 ## Validation
 
