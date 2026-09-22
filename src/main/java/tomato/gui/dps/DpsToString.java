@@ -49,6 +49,8 @@ public class DpsToString {
         long totalDungeonPcTime
     ) {
         StringBuilder sb = new StringBuilder();
+        sb.append("Legacy: % enemy max HP = player damage / captured enemy max HP; hidden players do not change it.\n")
+            .append(CombatMeterData.WINDOW_DEFINITION).append("\n\n");
 
         if (DpsDisplayOptions.equipmentOption == 3) {
             sb.append(
@@ -165,7 +167,7 @@ public class DpsToString {
             sb
                 .append(' ')
                 .append(DisplayFormat.formatPercentage(percentOfMob, 3))
-                .append(" ")
+                .append(" of max HP ")
                 .append(extra);
             if (!inv.isEmpty()) {
                 sb.append(' ').append(inv);
@@ -193,9 +195,9 @@ public class DpsToString {
             .append(entity.name())
             .append(" HP: ")
             .append(DisplayFormat.formatInteger(entity.maxHp()))
-            .append(" [").append(DisplayFormat.formatDurationMillis(entity.getFightTimer())).append("]")
+            .append(" [").append(DisplayFormat.formatDurationMillis(CombatMeterData.windowMillis(entity))).append(" first-to-last hit window]")
             .append("\n")
-            .append("    #   Player      DMG         % \n")
+            .append("    #   Player      DMG         % enemy max HP \n")
             .append("    -----------------------------------------------\n");
         return sb.toString();
     }

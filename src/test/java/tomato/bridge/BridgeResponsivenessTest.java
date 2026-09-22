@@ -213,8 +213,10 @@ public class BridgeResponsivenessTest {
         try {
             s.configure(config("old",true),false,false);s.receive(drop());network.reached();s.receive(drop());
             s.configure(config("new",false),false,false);network.open();audit.reached();assertEquals("Cancelled",s.snapshot().reviews.get(1).status);
-            responsive(s,true);s.receive(drop());s.receive(drop());assertEquals(2,s.snapshot().queued);assertEquals(1,s.snapshot().failed);
-            assertEquals("Queue full",s.snapshot().reviews.get(4).status);assertEquals(1,sends.get());
+            responsive(s,true);s.receive(drop());s.receive(drop());assertEquals(2,s.snapshot().queued);assertEquals(0,s.snapshot().failed);
+            assertEquals("Local only",s.snapshot().reviews.get(4).status);assertTrue(s.snapshot().reviews.get(4).detail.contains("audit queue full"));assertEquals(1,sends.get());
+            assertEquals(4,s.snapshot().count(BridgeService.Outcome.LOCAL));assertEquals(1,s.snapshot().count(BridgeService.Outcome.RECEIVED));
+            assertTrue(s.snapshot().logs.stream().anyMatch(log->log.level.equals("ERROR")&&log.message.contains("queue is full")));
             audit.open();close(s);assertTrue(storage.audited.stream().anyMatch(r->r.status.equals("Cancelled")));assertEquals(1,sends.get());
         } finally {network.open();audit.open();close(s);}
     }

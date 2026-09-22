@@ -35,6 +35,9 @@ public class DpsGUI extends JPanel {
     private JPanel dpsTopPanel;
     private JPanel center;
     private final JTextArea filterNotice = new JTextArea();
+    private final JCheckBox paused = new JCheckBox("Pause this view");
+    private final JTextArea pauseNotice = ContentStyle.wrappingText("",1);
+    private DisplayFrame displayed;
     private boolean liveUpdates = true;
     private int index = 0;
     private JComboBox<String> filterComboBox;
@@ -101,6 +104,9 @@ public class DpsGUI extends JPanel {
         dpsTopPanel.add(dList);
         dpsTopPanel.add(next);
         dpsTopPanel.add(live);
+        paused.setName("dps-pause-view");
+        paused.addActionListener(e -> updateGui());
+        dpsTopPanel.add(paused);
 
         setLayout(new BorderLayout());
         JPanel damagePage = new JPanel(new BorderLayout());
@@ -111,6 +117,9 @@ public class DpsGUI extends JPanel {
         filterNotice.setVisible(false);
         JPanel header = new JPanel(new BorderLayout(0, 4));
         header.add(dpsTopPanel, BorderLayout.NORTH); header.add(filterNotice, BorderLayout.CENTER);
+        pauseNotice.setEditable(false);pauseNotice.setOpaque(false);pauseNotice.setLineWrap(true);pauseNotice.setWrapStyleWord(true);
+        pauseNotice.setName("dps-pause-notice");pauseNotice.getAccessibleContext().setAccessibleName("Damage view source and pause state");
+        ContentStyle.font(pauseNotice,ContentStyle.metadata(ContentStyle.body()));header.add(pauseNotice,BorderLayout.SOUTH);
         damagePage.add(header, BorderLayout.NORTH);
 
         center = new JPanel();
@@ -138,7 +147,7 @@ public class DpsGUI extends JPanel {
     @Override public void removeNotify() { refreshTimer.stop(); super.removeNotify(); }
 
     private void refreshLiveView() {
-        if (liveUpdates && centerDisplay.isShowing() && latest != rendered) updateGui();
+        if (!paused.isSelected() && liveUpdates && centerDisplay.isShowing() && latest != rendered) updateGui();
     }
 
     private void dListButton(JButton dpsLabel) {
@@ -216,17 +225,30 @@ public class DpsGUI extends JPanel {
     }
 
     private void renderData(MapInfoPacket map, Entity[] entityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean b) {
+        if(paused.isSelected()&&displayed!=null){present(displayed);return;}
         entityHitList = Arrays.stream(entityHitList).filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
-        setCenterDisplay();
         DpsData saved = b ? null : data.dpsData.get(index);
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
-        displayMeter.setContext(b ? map : saved, b ? rendered.player : null, context);
-        displayString.setPlayerContext(context);
-        displayIcon.setPlayerContext(context);
-        String notice = Filter.unavailableReason(context);
+        displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context);
+        present(displayed);
+    }
+    private void present(DisplayFrame frame){
+        setCenterDisplay();
+        displayMeter.setContext(frame.key, frame.player, frame.context);
+        displayString.setPlayerContext(frame.context);
+        displayIcon.setPlayerContext(frame.context);
+        String notice = Filter.unavailableReason(frame.context);
         filterNotice.setText(notice); filterNotice.setVisible(!notice.isEmpty());
-        List<Entity> sortedEntityHitList = centerDisplay == displayMeter ? Arrays.asList(entityHitList) : getSortedEntityList(entityHitList);
-        centerDisplay.renderData(map, sortedEntityHitList, notifications, totalDungeonPcTime, b);
+        pauseNotice.setText((paused.isSelected()?"Paused this view · ":"")+(frame.live?"Live encounter":"Saved encounter")+" · "+(frame.map==null?"No map":frame.map.name)
+            +(paused.isSelected()?" · snapshot displayed at "+frame.displayedAt+". Capture continues; uncheck Pause to show the latest data. Switching display modes uses this same snapshot.":" · Pause freezes both Meters and Legacy; choosing another encounter resumes the view."));
+        List<Entity> sortedEntityHitList = centerDisplay == displayMeter ? Arrays.asList(frame.targets) : getSortedEntityList(frame.targets);
+        centerDisplay.renderData(frame.map, sortedEntityHitList, frame.notes, frame.elapsed, frame.live);
+    }
+    private static final class DisplayFrame {
+        final MapInfoPacket map;final Entity[] targets;final ArrayList<NotificationPacket> notes;
+        final long elapsed;final boolean live;final Object key;final Entity player;final DpsData.LocalPlayerContext context;
+        final String displayedAt=java.time.Instant.now().toString();
+        DisplayFrame(MapInfoPacket map,Entity[] targets,ArrayList<NotificationPacket> notes,long elapsed,boolean live,Object key,Entity player,DpsData.LocalPlayerContext context){this.map=map;this.targets=targets;this.notes=notes;this.elapsed=elapsed;this.live=live;this.key=key;this.player=player;this.context=context;}
     }
 
     private List<Entity> getSortedEntityList(Entity[] entityHitList) {
@@ -280,6 +302,7 @@ public class DpsGUI extends JPanel {
      */
     public static void clearDpsLogs() {
         INSTANCE.data.dpsData.clear();
+        INSTANCE.paused.setSelected(false);
         INSTANCE.liveUpdates = true;
         INSTANCE.dList.setText("Live");
         update();
@@ -360,6 +383,8 @@ public class DpsGUI extends JPanel {
     }
 
     private void updateGui() {
+        if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::updateGui);return;}
+        if(paused.isSelected()&&displayed!=null){present(displayed);return;}
         if (liveUpdates) {
             rendered=latest;
             renderData(rendered.map, rendered.targets, rendered.notifications, rendered.elapsed, true);
@@ -376,6 +401,7 @@ public class DpsGUI extends JPanel {
     }
 
     public void setIndex(int index) {
+        paused.setSelected(false);
         this.index = index;
 
         if (index == -1) {
@@ -396,10 +422,12 @@ public class DpsGUI extends JPanel {
     }
 
     private void scrollData(int a) {
+        paused.setSelected(false);
         int size = data.dpsData.size();
         index += a;
         if (liveUpdates) {
             if (a > 0 || size == 0) {
+                updateGui();
                 return;
             }
             index = size - 1;
