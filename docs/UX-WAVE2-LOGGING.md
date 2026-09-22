@@ -15,8 +15,8 @@ Worker branch: `work/ux-w2-logging`. Scope: LOG-1, LOG-3 and Logging's UX-04 sli
 - Literal search includes nested stat names/IDs, object IDs and previous/current
   values, plus formatted and raw table values. Users can find stat samples without
   searching JSON. Searches identify **events**, not an exhaustive protocol history.
-- Per-tab facet state survives tab switches. Search remains a shared literal search;
-  a contextual drill-down clears it and replaces only the destination's facets.
+- Per-tab facet and literal-search state survives tab switches. A contextual drill-down
+  clears the destination search and replaces only the destination's facets.
   Removable chips and Reset filters expose all effective predicates. Missing/evicted
   facet values remain selected until explicitly cleared, rather than broadening silently.
 - Matching/retained counts identify their unit. Defined packet rows, schema fields
@@ -137,3 +137,72 @@ export, 2 query-model and 6 workflow tests). `shadowJar` passed, and the isolate
 `RealmShark-v1.2.3.jar --help` smoke test exited successfully on JDK 17.0.20.1.
 The successful test command applies the selectors above to `test` before the
 `shadowJar` task, with `JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`.
+
+## Bounded UX-02 live-state adoption
+
+Implemented in the primary `feat/ux-wave-2-evidence` checkout, starting at `48f5304`.
+The concurrent roster-owner commit `2594929` is retained. This slice uses the real
+`ViewStateStore.application()` adapter and the existing asynchronous
+`PropertiesManager`/`PreferencesStore` writer; it adds no shared storage framework.
+
+### Actual state contract
+
+- **Independent key:** `ux.archive.logging-live`. Shared envelope version 1; Logging
+  payload version 1 (`LoggingViewState.Fields`). The store retains both last-used
+  intent and named views under this one module key. Other module keys are untouched.
+- **Saved:** active tab; each tab's literal text and applicable facets; sort keys by
+  stable column name; complete visible-column order and widths; detail-divider
+  location; optional per-tab exact diagnostic selection references. Column reordering
+  is available through the table header. Layout values and all queries are validated
+  before any restored controls are applied.
+- **Not saved:** diagnostic payloads/snapshots, revisions as data sources, frozen
+  samples, or runtime collection, disk-saving and sampling controls. Pause is
+  deliberately **temporary**. Recreating, loading a named view, or Reset saved resumes
+  fresh diagnostics, unpaused. The named-view and pause controls explain this policy.
+  Existing explicit frozen-versus-fresh export behavior remains intact within the
+  current view's lifetime.
+- **Capture-bound facets:** object/area predicates retain `captureRun`. The capture
+  chip makes this scope removable together with object/area facets. A saved object ID
+  from capture A cannot match a same-numbered object in capture B. Selecting an
+  object/area explicitly binds it to the currently displayed capture.
+- **Selection:** persisted references contain diagnostic run ID, area and stable row
+  key. Event/trace keys also include timestamp, packet identity and observed packet
+  count. Restoration is attempted only against the matching populated tab and is
+  consumed once; absent, filtered-out, wrong-run or wrong-area references do not
+  select replacement rows. Explicit selection cancels any pending reference. A live
+  capture change also clears old selection even if rendered values happen to match.
+  These references are not world-player, app-session or gameplay-visit identity.
+- **Actions:** editable named-view selector plus accessible Save, Load, Delete,
+  Reset saved and Retry save buttons. Reset saved clears Logging's saved document
+  and names and applies default live controls; Reset filters only resets the active
+  query. Short windows scroll the header so table and full-detail areas stay usable.
+- **Persistence:** edits coalesce to an EDT capture and the existing background
+  preferences writer. Equal intent does not cause repeated disk writes on diagnostic
+  refresh. Memory updates survive disk failure; failure status exposes Retry save.
+  Retry after recreation explicitly writes the loaded memory state rather than
+  treating it as proof of durability. Completion generations and queued-edit checks
+  reject obsolete success/failure callbacks; detachment invalidates UI callbacks.
+- **Forward compatibility:** unsupported/malformed last state, envelope, or named
+  payload blocks automatic and named writes. Working controls stay usable; original
+  saved bytes remain until explicit Reset saved. Validation includes all named
+  payloads, not just whichever one was last opened.
+
+### State validation evidence
+
+`LoggingViewStateTest` adds six headless cases: in-process recreation with independent
+tab text/facets, sort/order/width/divider and exact selection; real preferences-file
+restart and named views; pause/runtime-control exclusions; wrong-capture/wrong-area
+rejection; future envelope/named-payload preservation and explicit reset; out-of-order
+durability completions/detachment; and real disk failure with memory recreation and
+successful Retry. Test fixtures inject isolated stores, including legacy Logging
+tests, so view-state persistence does not leak between cases.
+
+The state slice's final targeted run passes **37 tests with zero failures/errors/skips**:
+the preceding 31 selectors plus `tomato.gui.logging.LoggingViewStateTest`. This includes
+unchanged frozen-A/fresh-B export assertions and the headless 680×520 layout check.
+JDK 17, Gradle 7.6.4 and main Java 8 targeting were used with
+`JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`. Primary-checkout output/cache are isolated
+under `build/w2-logging-state` and `build/w2-logging-state/cache`; reports are in
+`build/w2-logging-state/reports/tests/test/` and XML in
+`build/w2-logging-state/test-results/test/`. Native/focus/scaled and the full integrated
+suite are deferred to the coordinator's normal validation pass.

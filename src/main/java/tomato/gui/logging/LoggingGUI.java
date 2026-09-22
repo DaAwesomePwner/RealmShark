@@ -19,9 +19,12 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.CollectionControl;
 import tomato.gui.activity.SnapshotRefresh;
+import tomato.gui.history.ViewState;
+import tomato.gui.history.ViewStateStore;
 
 /** A searchable, bounded view over sanitized discovery data, refreshed only on the EDT. */
 public final class LoggingGUI extends JPanel {
+    private static final String[] TAB_KEYS={"discovery","reentry","packets","stats","events","fields"};
     private static final Set<String> REENTRY_PACKETS = new HashSet<>(Arrays.asList(
         "ESCAPE", "PARTY_JOIN_REQUEST", "PARTY_REQUEST_RESPONSE", "PARTY_ACTION", "PARTY_ACTION_RESULT",
         "FOR_RECONNECT", "RECONNECT", "HELLO", "QUEUE_INFORMATION", "FAILURE", "MAPINFO", "LOAD", "CREATE_SUCCESS"));
@@ -62,12 +65,19 @@ public final class LoggingGUI extends JPanel {
     private ZoneId presentationZone;
     private volatile DiscoveryLog.DiagnosticsRevision revision;
     private final SnapshotRefresh<DiscoveryLog.DiagnosticsSnapshot> snapshots=new SnapshotRefresh<>();
+    private LoggingViewState viewState;
+    private JSplitPane split;
+    private boolean applyingState, stateReady;
+    private int activeTab;
 
     public LoggingGUI(DiscoveryLog log) {
+        this(log,ViewStateStore.application());
+    }
+    LoggingGUI(DiscoveryLog log, ViewStateStore store) {
         super(new BorderLayout(0, 8)); this.log = log;
         enabled = new CollectionControl(log, this::refresh);
         setName("logging-panel");
-        JPanel top = new JPanel(); top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        JPanel top = new Header(); top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         JPanel controls = ContentStyle.controls();
         save.setSelected(log.isSaving());
         save.setToolTipText("Save rotating diagnostic samples (and legacy activity checkpoints when no session store is attached). Separate from automatic session history; queued writes may finish.");
@@ -76,6 +86,7 @@ public final class LoggingGUI extends JPanel {
         sampling.getAccessibleContext().setAccessibleName("Diagnostic event sampling");
         sampling.addActionListener(e -> { if (!refreshing) log.setSampleMillis(sampling.getSelectedIndex() == 0 ? 1000 : 0); });
         controls.add(enabled); controls.add(save); controls.add(sampling); controls.add(freeze);
+        freeze.setToolTipText("Pause is temporary. Reopening or loading a saved view resumes fresh diagnostics; saved views never restore collection or disk-saving controls.");
         controls.add(ContentStyle.detailsButton("Diagnostic coverage", () -> {
             if (snapshot != null) ContentStyle.showDetails(this, "Diagnostic coverage", DiagnosticCoverage.describe(snapshot));
         }));
@@ -113,7 +124,13 @@ public final class LoggingGUI extends JPanel {
         summary.setAlignmentX(Component.LEFT_ALIGNMENT); losses.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (JLabel label : new JLabel[]{summary, losses, exportStatus}) label.setFont(ContentStyle.metadata(ContentStyle.body()));
         summary.setBorder(BorderFactory.createEmptyBorder(4, 8, 2, 8)); top.add(summary);
-        losses.setBorder(BorderFactory.createEmptyBorder(2, 8, 6, 8)); top.add(losses); add(top, BorderLayout.NORTH);
+        losses.setBorder(BorderFactory.createEmptyBorder(2, 8, 6, 8)); top.add(losses);
+        JScrollPane header=new JScrollPane(top,JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,JScrollPane.HORIZONTAL_SCROLLBAR_NEVER) {
+            @Override public Dimension getPreferredSize() {
+                Dimension size=super.getPreferredSize(); size.height=Math.min(size.height,Math.max(120,LoggingGUI.this.getHeight()/2-20)); return size;
+            }
+        };
+        header.setBorder(null); header.getAccessibleContext().setAccessibleName("Logging view and collection controls"); add(header,BorderLayout.NORTH);
         tabs.addTab("Discovery", discoveries.scroll()); tabs.addTab("Re-entry trace", reentry.scroll()); tabs.addTab("Packets", packets.scroll());
         tabs.addTab("Stat explorer", stats.scroll()); tabs.addTab("Event samples", events.scroll()); tabs.addTab("Field catalog", fields.scroll());
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -134,12 +151,12 @@ public final class LoggingGUI extends JPanel {
         fieldLink.setName("logging-field-link"); fieldLink.addActionListener(e -> openField());
         detailActions.add(copy); detailActions.add(samplesLink); detailActions.add(fieldChoice); detailActions.add(fieldLink);
         detailPanel.add(detailActions, BorderLayout.NORTH);
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tabs, detailPanel) {
+        split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tabs, detailPanel) {
             @Override public void doLayout() {
                 super.doLayout();
                 // Swing can retain a desktop divider position after shrinking the window.
-                int detailHeight=detailActions.getPreferredSize().height+75;
-                if (getHeight() >= detailHeight+70 && getBottomComponent().getHeight() < detailHeight) {
+                int detailHeight=Math.min(detailActions.getPreferredSize().height+75,getHeight()-70-getDividerSize());
+                if (detailHeight>0 && getBottomComponent().getHeight() < detailHeight) {
                     setDividerLocation(getHeight() - detailHeight - getDividerSize()); super.doLayout();
                 }
             }
@@ -147,36 +164,59 @@ public final class LoggingGUI extends JPanel {
         split.setResizeWeight(.60); split.setBorder(null);
         add(split, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new BorderLayout());
-        JTextArea privacy = new JTextArea("Local gameplay logs; payloads, credentials and chat are excluded.\nSampled history. Field definitions do not prove live availability.");
-        privacy.setToolTipText("String-stat values and opaque/unknown values are also withheld. Counters cover traffic observed while gameplay & diagnostics collection is on.");
-        privacy.setEditable(false); privacy.setOpaque(false); privacy.setLineWrap(true); privacy.setWrapStyleWord(true); privacy.setRows(2);
+        JTextArea privacy = new JTextArea("Bounded, sanitized local samples. Field definitions do not prove live availability.");
+        privacy.setToolTipText("Payloads, credentials, chat, string-stat values and opaque/unknown values are withheld. Counters cover traffic observed while gameplay & diagnostics collection is on.");
+        privacy.setEditable(false); privacy.setOpaque(false); privacy.setLineWrap(true); privacy.setWrapStyleWord(true); privacy.setRows(1);
         privacy.setFont(ContentStyle.metadata(ContentStyle.body()));
         bottom.add(exportActions, BorderLayout.NORTH); bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH); add(bottom, BorderLayout.SOUTH);
         for (DiscoveryCatalog.SchemaField field : catalog) fields.add(new Object[] {field.packet, field.path, field.type, field.retention}, field);
         fields.changed();
         search.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { filter(); } public void removeUpdate(DocumentEvent e) { filter(); } public void changedUpdate(DocumentEvent e) { filter(); }
+            public void insertUpdate(DocumentEvent e) { update(); } public void removeUpdate(DocumentEvent e) { update(); } public void changedUpdate(DocumentEvent e) { update(); }
+            private void update() { if (!applyingState) filter(); }
         });
         observedOnly.addActionListener(e -> { packets.filters.observed=observedOnly.isSelected(); filter(); });
         issuesOnly.addActionListener(e -> { packets.filters.issues=issuesOnly.isSelected(); filter(); });
-        tabs.addChangeListener(e -> { refreshTables(); updateFacets(); filter(); });
+        tabs.addChangeListener(e -> {
+            if (applyingState) return;
+            activeTab=tabs.getSelectedIndex(); applyingState=true;
+            try { search.setText(activeTable().filters.text); } finally { applyingState=false; }
+            refreshTables(); updateFacets(); filter(); stateChanged();
+        });
         String[] names = {"Packet diagnostics", "Stat observations", "Retained event samples", "Decoder field catalog", "Diagnostic discovery", "Retained re-entry trace"};
         DataTable[] all = allTables();
         for (int i=0; i<all.length; i++) {
             DataTable table=all[i]; table.table.setName("logging-table-" + i); table.table.getAccessibleContext().setAccessibleName(names[i]);
-            table.table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) showDetails(); });
+            table.table.getSelectionModel().addListSelectionListener(e -> {
+                if (!e.getValueIsAdjusting() && !refreshing && !applyingState) {
+                    table.pendingSelection=null; showDetails(); stateChanged();
+                }
+            });
+            table.sorter.addRowSorterListener(e -> { if (e.getType()==RowSorterEvent.Type.SORT_ORDER_CHANGED) stateChanged(); });
+            table.table.getColumnModel().addColumnModelListener(new TableColumnModelListener() {
+                public void columnAdded(TableColumnModelEvent e) { }
+                public void columnRemoved(TableColumnModelEvent e) { }
+                public void columnMoved(TableColumnModelEvent e) { if (e.getFromIndex()!=e.getToIndex()) stateChanged(); }
+                public void columnMarginChanged(ChangeEvent e) { stateChanged(); }
+                public void columnSelectionChanged(ListSelectionEvent e) { }
+            });
             table.table.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "diagnostic-details");
             table.table.getActionMap().put("diagnostic-details", new AbstractAction() {
                 public void actionPerformed(java.awt.event.ActionEvent e) { showDetails(); details.requestFocusInWindow(); }
             });
         }
-        freeze.addItemListener(e -> { snapshots.invalidate(); refresh(); });
+        freeze.addItemListener(e -> { if (!applyingState) { snapshots.invalidate(); refresh(); } });
+        split.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY,e -> stateChanged());
         timer = new javax.swing.Timer(1000, e -> { if (isShowing()) refresh(); });
         addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0) visibilityChanged(); });
         updateFacets(); filter();
+        viewState=new LoggingViewState(store,this::captureViewState,this::applyViewState,this::validateViewState);
+        viewState.controls().setAlignmentX(Component.LEFT_ALIGNMENT); top.add(viewState.controls(),0);
+        viewState.restore();
+        stateReady=true;
     }
     @Override public void addNotify() { super.addNotify(); visibilityChanged(); }
-    @Override public void removeNotify() { timer.stop(); snapshots.invalidate(); super.removeNotify(); }
+    @Override public void removeNotify() { timer.stop(); snapshots.invalidate(); if (viewState!=null) viewState.detach(); super.removeNotify(); }
     private void visibilityChanged() { if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); snapshots.invalidate(); } }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
@@ -186,7 +226,12 @@ public final class LoggingGUI extends JPanel {
         if (snapshot != null && presentationChanged()) refreshTables();
         if (freeze.isSelected() || (isDisplayable()&&!isShowing())) return;
         snapshots.request("diagnostics",()->log.diagnosticsSnapshot(revision),next->{
-            revision=next.revision; snapshot=next.data; refreshing=true;
+            refreshing=true;
+            if (snapshot!=null && (!snapshot.runId.equals(next.data.runId) || snapshot.area!=next.data.area)) {
+                boolean differentRun=!snapshot.runId.equals(next.data.runId);
+                for (DataTable table:allTables()) if (differentRun || table!=events && table!=reentry) table.table.clearSelection();
+            }
+            revision=next.revision; snapshot=next.data;
             enabled.refresh(); save.setSelected(log.isSaving()); sampling.setSelectedIndex(snapshot.sampleMillis==0 ? 1 : 0);
             refreshing=false; refreshTables();
         },error->exportStatus.setText("Could not refresh diagnostics; retrying on the next refresh."));
@@ -234,7 +279,9 @@ public final class LoggingGUI extends JPanel {
             }
         }
         if (active != fields) active.changed();
+        active.renderedRun=snapshot.runId; active.renderedArea=snapshot.area;
         refreshing = false; updateFacets(); filter();
+        restoreSelection(active);
         showDetails();
         presentationLocale=Locale.getDefault(Locale.Category.FORMAT);presentationZone=ZoneId.systemDefault();
         if (reformat) active.table.repaint();
@@ -250,6 +297,7 @@ public final class LoggingGUI extends JPanel {
         summary.setToolTipText(snapshot==null ? null : "Displayed snapshot reference: " + LoggingReport.revision(snapshot));
     }
     private void filter() {
+        if (applyingState) return;
         DataTable table = activeTable();
         table.filters.text=search.getText().trim();
         boolean wasRefreshing=refreshing; refreshing=true;
@@ -273,6 +321,7 @@ public final class LoggingGUI extends JPanel {
             + (table==fields || table==packets || table==discoveries ? " available " : " retained ") + unit
             + (table.table.getRowCount()==0 ? (table.rows.isEmpty() ? " · No retained data yet" : " · No matches; reset filters") : ""));
         if (!refreshing) showDetails();
+        stateChanged();
     }
     private DataTable activeTable() { return new DataTable[] {discoveries, reentry, packets, stats, events, fields}[tabs.getSelectedIndex()]; }
     private void configureFacet(JComboBox<String> box, String label) {
@@ -290,6 +339,7 @@ public final class LoggingGUI extends JPanel {
             if (box==statFacet) q.stat=choice(box).isEmpty() ? null : Integer.valueOf(choice(box).split(":",2)[0]);
             if (box==objectFacet) q.object=choice(box).isEmpty() ? null : Integer.valueOf(choice(box));
             if (box==areaFacet) q.area=choice(box).isEmpty() ? null : Long.valueOf(choice(box));
+            if (box==objectFacet || box==areaFacet) q.captureRun=(q.object==null && q.area==null) || snapshot==null ? "" : snapshot.runId;
             filter();
         });
     }
@@ -345,8 +395,9 @@ public final class LoggingGUI extends JPanel {
         if (!q.text.isEmpty()) chip("Search: " + q.text, () -> search.setText(""));
         if (!q.packet.isEmpty()) chip("Packet: " + q.packet, () -> q.packet="");
         if (q.stat!=null) chip("Stat: " + q.stat, () -> q.stat=null);
-        if (q.object!=null) chip("Object: " + q.object, () -> q.object=null);
-        if (q.area!=null) chip("Area: " + q.area, () -> q.area=null);
+        if (q.object!=null) chip("Object: " + q.object, () -> { q.object=null; if (q.area==null) q.captureRun=""; });
+        if (q.area!=null) chip("Area: " + q.area, () -> { q.area=null; if (q.object==null) q.captureRun=""; });
+        if (!q.captureRun.isEmpty()) chip("Capture: " + q.captureRun, () -> { q.captureRun=""; q.object=null; q.area=null; });
         if (!q.outcome.isEmpty()) chip("Outcome: " + q.outcome, () -> q.outcome="");
         if (!q.fieldPath.isEmpty()) chip("Field: " + q.fieldPath, () -> q.fieldPath="");
         if (q.changed) chip("Changed values", () -> q.changed=false);
@@ -362,7 +413,7 @@ public final class LoggingGUI extends JPanel {
         else if (selected instanceof DiscoveryLog.PacketRow) target.packet=((DiscoveryLog.PacketRow)selected).name;
         else if (selected instanceof String) target.packet=(String)selected;
         else return;
-        events.filters=target; search.setText(""); tabs.setSelectedIndex(4); updateFacets(); filter();
+        events.filters=target; tabs.setSelectedIndex(4); updateFacets(); filter();
     }
     private void openField() {
         Object selected=activeTable().selected();
@@ -371,7 +422,7 @@ public final class LoggingGUI extends JPanel {
         String path=(String)fieldChoice.getSelectedItem();
         if (event==null || path==null) return;
         fields.filters=new LoggingQuery(); fields.filters.packet=event.packet; fields.filters.fieldPath=path;
-        search.setText(""); tabs.setSelectedIndex(5); updateFacets(); filter(); fields.restore(event.packet + "|" + path); showDetails();
+        tabs.setSelectedIndex(5); updateFacets(); filter(); fields.restore(event.packet + "|" + path); showDetails();
     }
     private void showDetails() {
         DataTable table = activeTable();
@@ -408,6 +459,101 @@ public final class LoggingGUI extends JPanel {
         if (!text.equals(details.getText())) { details.setText(text); details.setCaretPosition(0); }
     }
     private DataTable[] allTables() { return new DataTable[] {packets,stats,events,fields,discoveries,reentry}; }
+    private DataTable[] tabTables() { return new DataTable[] {discoveries,reentry,packets,stats,events,fields}; }
+    private void stateChanged() { if (stateReady && viewState!=null && !applyingState && !refreshing) viewState.changed(); }
+
+    LoggingViewState.Fields captureViewState() {
+        LoggingViewState.Fields state=new LoggingViewState.Fields(); state.tab=TAB_KEYS[activeTab]; state.divider=split.getDividerLocation();
+        DataTable[] tables=tabTables();
+        for (int i=0;i<tables.length;i++) {
+            DataTable table=tables[i]; LoggingViewState.Tab tab=new LoggingViewState.Tab(); tab.query=table.filters.copy();
+            for (RowSorter.SortKey sort:table.sorter.getSortKeys()) tab.sort.add(new LoggingViewState.Sort(table.model.getColumnName(sort.getColumn()),sort.getSortOrder()));
+            for (Enumeration<TableColumn> columns=table.table.getColumnModel().getColumns();columns.hasMoreElements();) {
+                TableColumn column=columns.nextElement();
+                tab.columns.add(new ViewState.Column(table.model.getColumnName(column.getModelIndex()),Math.max(16,Math.min(10000,column.getWidth())),true));
+            }
+            tab.selection=table.pendingSelection;
+            if (table.selectedKey()!=null && !table.renderedRun.isEmpty()) {
+                Object value=table.selected(); DiscoveryLog.Event event=value instanceof DiscoveryLog.Event ? (DiscoveryLog.Event)value : value instanceof TraceRow ? ((TraceRow)value).event : null;
+                tab.selection=new LoggingViewState.Selection(event==null ? table.renderedRun : event.runId,
+                    event==null ? table.renderedArea : event.area,table.selectedKey().toString());
+            }
+            state.tabs.put(TAB_KEYS[i],tab);
+        }
+        return state;
+    }
+    private void validateViewState(LoggingViewState.Fields state) {
+        if (state==null || state.version!=1 || !Arrays.asList(TAB_KEYS).contains(state.tab) || state.tabs==null
+                || state.divider < -1 || state.divider>10000) throw new IllegalArgumentException("Unsupported Logging state");
+        for (Map.Entry<String,LoggingViewState.Tab> entry:state.tabs.entrySet()) {
+            int index=Arrays.asList(TAB_KEYS).indexOf(entry.getKey());
+            if (index<0 || entry.getValue()==null) throw new IllegalArgumentException("Unknown Logging tab");
+            LoggingViewState.Tab tab=entry.getValue(); LoggingQuery q=tab.query;
+            if (q==null || q.text==null || q.packet==null || q.fieldPath==null || q.outcome==null || q.captureRun==null
+                    || (q.object!=null || q.area!=null) && q.captureRun.isEmpty() || tab.sort==null || tab.columns==null)
+                throw new IllegalArgumentException("Invalid Logging query");
+            if (q.stat!=null && (q.stat<0 || q.stat>255) || q.area!=null && q.area<0
+                    || !q.captureRun.isEmpty() && q.object==null && q.area==null
+                    || (q.observed || q.issues) && index!=2 || !q.fieldPath.isEmpty() && index!=5
+                    || q.stat!=null && index!=3 && index!=4 || (q.object!=null || q.changed) && index!=4
+                    || q.area!=null && index!=1 && index!=4 || !q.outcome.isEmpty() && index!=1 && index!=2 && index!=4
+                    || !q.packet.isEmpty() && index!=1 && index!=2 && index!=4 && index!=5)
+                throw new IllegalArgumentException("Facet does not apply to this Logging tab");
+            if (tab.selection!=null && (tab.selection.run==null || tab.selection.run.isEmpty() || tab.selection.key==null || tab.selection.key.isEmpty()))
+                throw new IllegalArgumentException("Invalid diagnostic reference");
+            DataTable table=tabTables()[index]; Set<String> sorts=new HashSet<>(), columns=new HashSet<>();
+            for (LoggingViewState.Sort sort:tab.sort) if (sort==null || sort.order==null || columnIndex(table,sort.column)<0 || !sorts.add(sort.column))
+                throw new IllegalArgumentException("Invalid sort");
+            for (ViewState.Column column:tab.columns) if (column==null || !column.visible || columnIndex(table,column.id)<0
+                    || !columns.add(column.id) || column.width<16 || column.width>10000) throw new IllegalArgumentException("Invalid column");
+            if (!tab.columns.isEmpty() && columns.size()!=table.model.getColumnCount()) throw new IllegalArgumentException("Incomplete column layout");
+        }
+    }
+    private static int columnIndex(DataTable table,String name) {
+        for (int i=0;i<table.model.getColumnCount();i++) if (table.model.getColumnName(i).equals(name)) return i;
+        return -1;
+    }
+    private void applyViewState(LoggingViewState.Fields state) {
+        validateViewState(state); applyingState=true; snapshots.invalidate();
+        try {
+            freeze.setSelected(false); snapshot=null; revision=null;
+            DataTable[] tables=tabTables();
+            for (int i=0;i<tables.length;i++) {
+                DataTable table=tables[i]; LoggingViewState.Tab saved=state.tabs.get(TAB_KEYS[i]);
+                table.table.clearSelection(); table.pendingSelection=saved==null ? null : saved.selection;
+                table.filters=saved==null ? new LoggingQuery() : saved.query.copy(); table.renderedRun="";
+                if (table!=fields) { table.clear(); table.changed(); }
+                List<RowSorter.SortKey> sorts=new ArrayList<>();
+                if (saved!=null) for (LoggingViewState.Sort sort:saved.sort) sorts.add(new RowSorter.SortKey(columnIndex(table,sort.column),sort.order));
+                table.sorter.setSortKeys(sorts);
+                List<ViewState.Column> columns=saved==null || saved.columns.isEmpty() ? table.defaultColumns : saved.columns;
+                for (int target=0;target<columns.size();target++) {
+                    ViewState.Column column=columns.get(target); int model=columnIndex(table,column.id);
+                    int from=table.table.convertColumnIndexToView(model); table.table.moveColumn(from,target);
+                    TableColumn actual=table.table.getColumnModel().getColumn(target); actual.setPreferredWidth(column.width); actual.setWidth(column.width);
+                }
+            }
+            activeTab=Arrays.asList(TAB_KEYS).indexOf(state.tab); tabs.setSelectedIndex(activeTab);
+            search.setText(activeTable().filters.text); split.setDividerLocation(state.divider);
+        } finally { applyingState=false; }
+        updateFacets(); filter(); updateSummary(); if (stateReady) refresh();
+    }
+    private void restoreSelection(DataTable table) {
+        LoggingViewState.Selection selected=table.pendingSelection;
+        if (selected==null || snapshot==null) return;
+        table.pendingSelection=null;
+        if (!selected.run.equals(snapshot.runId)) { stateChanged(); return; }
+        boolean before=refreshing; refreshing=true;
+        try {
+            for (int i=0;i<table.objects.size();i++) {
+                Object value=table.objects.get(i); DiscoveryLog.Event event=value instanceof DiscoveryLog.Event ? (DiscoveryLog.Event)value : value instanceof TraceRow ? ((TraceRow)value).event : null;
+                if (selected.area==(event==null ? snapshot.area : event.area) && selected.key.equals(table.key(i).toString())) {
+                    int view=table.table.convertRowIndexToView(i); if (view>=0) table.table.setRowSelectionInterval(view,view); break;
+                }
+            }
+        } finally { refreshing=before; }
+        showDetails(); stateChanged();
+    }
     private void export() {
         exportTo(Paths.get("logs", "discovery", "reports"), (LoggingReport.Source)exportSource.getSelectedItem(), true);
     }
@@ -521,7 +667,15 @@ public final class LoggingGUI extends JPanel {
             area=event.area; elapsedMillis=elapsed; retainedValues=event.values;
         }
         String evidence() { return retainedValues.isEmpty() ? outcome : outcome + " · " + retainedValues; }
-        String key() { return event.runId + "|" + timestamp + "|" + packet + "|" + event.observedPacketCount; }
+        String key() { return event.runId + "|" + area + "|" + timestamp + "|" + packet + "|" + event.observedPacketCount; }
+    }
+    /** Keep short-window controls scrollable instead of consuming the evidence/detail split. */
+    private static final class Header extends JPanel implements Scrollable {
+        public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        public int getScrollableUnitIncrement(Rectangle visible,int orientation,int direction) { return 24; }
+        public int getScrollableBlockIncrement(Rectangle visible,int orientation,int direction) { return Math.max(24,visible.height-24); }
+        public boolean getScrollableTracksViewportWidth() { return true; }
+        public boolean getScrollableTracksViewportHeight() { return false; }
     }
     private static final class DataTable {
         final List<Object[]> rows=new ArrayList<>(); final List<Object> objects=new ArrayList<>();
@@ -531,6 +685,10 @@ public final class LoggingGUI extends JPanel {
         private List<Object[]> pendingRows;
         private List<Object> pendingObjects;
         private LoggingQuery filters=new LoggingQuery();
+        private LoggingViewState.Selection pendingSelection;
+        private String renderedRun="";
+        private long renderedArea;
+        private final List<ViewState.Column> defaultColumns=new ArrayList<>();
         DataTable(String... columns) {
             model=new AbstractTableModel() {
                 public int getRowCount(){return rows.size();} public int getColumnCount(){return columns.length;}
@@ -561,7 +719,7 @@ public final class LoggingGUI extends JPanel {
                     }
                 });
             }
-            table.getTableHeader().setReorderingAllowed(false);
+            table.getTableHeader().setReorderingAllowed(true);
             table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF); table.setFillsViewportHeight(true);
             sorter=new TableRowSorter<>(model); table.setRowSorter(sorter);
@@ -578,6 +736,7 @@ public final class LoggingGUI extends JPanel {
                     : c.equals("Field path") || c.equals("Retention") || c.contains("values") || c.contains("evidence") ? 300
                     : c.equals("Packet") || c.equals("Stat") || c.equals("Step") ? 215 : 130;
                 table.getColumnModel().getColumn(i).setPreferredWidth(width);
+                defaultColumns.add(new ViewState.Column(c,width,true));
             }
         }
         private static String displayValue(String column,Object value) {
@@ -609,7 +768,7 @@ public final class LoggingGUI extends JPanel {
             if(value instanceof ActivityJournal.Visit) return ((ActivityJournal.Visit)value).id;
             if(value instanceof ActivityJournal.Entry) return ((ActivityJournal.Entry)value).id;
             if(value instanceof TraceRow) return ((TraceRow)value).key();
-            if(value instanceof DiscoveryLog.Event) { DiscoveryLog.Event event=(DiscoveryLog.Event)value;return event.runId+"|"+event.timestamp+"|"+event.id+"|"+event.observedPacketCount; }
+            if(value instanceof DiscoveryLog.Event) { DiscoveryLog.Event event=(DiscoveryLog.Event)value;return event.runId+"|"+event.area+"|"+event.timestamp+"|"+event.id+"|"+event.observedPacketCount; }
             return rows.get(row)[0];
         }
         Object selectedKey(){int row=table.getSelectedRow();return row<0?null:key(table.convertRowIndexToModel(row));}

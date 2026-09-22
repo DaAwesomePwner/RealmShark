@@ -20,7 +20,7 @@ public class CollectionEvidenceTest {
             log.observe(PacketType.byClass(packet).getIndex(), 20, packet, "decoded", 0);
             LoggingGUI[] diagnostics = new LoggingGUI[1]; ActivityPanel[] activity = new ActivityPanel[1];
             SwingUtilities.invokeAndWait(() -> {
-                diagnostics[0] = new LoggingGUI(log); activity[0] = new ActivityPanel(log, ActivityPanel.Mode.TIMELINE);
+                diagnostics[0] = new LoggingGUI(log,LoggingStateTestSupport.memoryStore()); activity[0] = new ActivityPanel(log, ActivityPanel.Mode.TIMELINE);
                 find(diagnostics[0], JTabbedPane.class, null).setSelectedIndex(4);
                 diagnostics[0].refresh(); activity[0].refresh();
             });

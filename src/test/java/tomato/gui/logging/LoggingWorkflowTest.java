@@ -147,7 +147,7 @@ public class LoggingWorkflowTest {
             LoggingGUI[] view=new LoggingGUI[1]; AtomicReference<SwingWorker<Path,Void>> worker=new AtomicReference<>();
             Path invalid=temp.newFile().toPath(), valid=temp.newFolder().toPath();
             SwingUtilities.invokeAndWait(() -> {
-                view[0]=new LoggingGUI(log); assertNull(view[0].exportTo(valid,LoggingReport.Source.DISPLAYED));
+                view[0]=new LoggingGUI(log,LoggingStateTestSupport.memoryStore()); assertNull(view[0].exportTo(valid,LoggingReport.Source.DISPLAYED));
                 assertTrue(field(view[0],"exportStatus",JLabel.class).getText().contains("No diagnostic revision"));
                 worker.set(view[0].exportTo(invalid));
             });
@@ -172,7 +172,10 @@ public class LoggingWorkflowTest {
                     for (int pass=0;pass<4;pass++) layout(view);
                     assertTrue("Tab viewport at tab " + i + ": " + tabs(view).getHeight(),tabs(view).getHeight()>=70);
                     JTextArea detail=named(view,"logging-details",JTextArea.class);
-                    assertTrue("Full detail viewport at tab " + i + ": " + detail.getParent().getHeight(),detail.getParent().getHeight()>=55);
+                    assertTrue("Full detail viewport at tab " + i + ": " + detail.getParent().getHeight()
+                        + "; split=" + named(view,null,JSplitPane.class).getSize()
+                        + "; tabs=" + tabs(view).getHeight()
+                        + "; detail panel=" + detail.getParent().getParent().getParent().getSize(),detail.getParent().getHeight()>=55);
                 }
             });
         }
@@ -207,7 +210,7 @@ public class LoggingWorkflowTest {
     }
 
     private static LoggingGUI view(DiscoveryLog log) throws Exception {
-        LoggingGUI[] result=new LoggingGUI[1]; SwingUtilities.invokeAndWait(() -> { result[0]=new LoggingGUI(log); result[0].refresh(); });
+        LoggingGUI[] result=new LoggingGUI[1]; SwingUtilities.invokeAndWait(() -> { result[0]=new LoggingGUI(log,LoggingStateTestSupport.memoryStore()); result[0].refresh(); });
         await(() -> field(result[0],"snapshot",DiscoveryLog.Snapshot.class)!=null); return result[0];
     }
     private static JTabbedPane tabs(LoggingGUI view) { return named(view,null,JTabbedPane.class); }

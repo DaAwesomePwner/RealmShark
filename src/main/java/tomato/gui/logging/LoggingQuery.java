@@ -7,14 +7,14 @@ import java.util.*;
 
 /** Predicates over retained diagnostic evidence, never a query over saved activity history. */
 final class LoggingQuery {
-    String text = "", packet = "", outcome = "", fieldPath = "";
+    String text = "", packet = "", outcome = "", fieldPath = "", captureRun = "";
     Integer stat, object;
     Long area;
     boolean changed, observed, issues;
 
     LoggingQuery copy() {
         LoggingQuery q = new LoggingQuery();
-        q.text=text; q.packet=packet; q.outcome=outcome; q.fieldPath=fieldPath;
+        q.text=text; q.packet=packet; q.outcome=outcome; q.fieldPath=fieldPath; q.captureRun=captureRun;
         q.stat=stat; q.object=object; q.area=area; q.changed=changed; q.observed=observed; q.issues=issues;
         return q;
     }
@@ -22,6 +22,7 @@ final class LoggingQuery {
     boolean matches(Object source, String visibleText) {
         if (source instanceof DiscoveryLog.Event) {
             DiscoveryLog.Event e = (DiscoveryLog.Event)source;
+            if (!captureRun.isEmpty() && !captureRun.equals(e.runId)) return false;
             if (!packet.isEmpty() && !packet.equals(e.packet) || area != null && area != e.area
                     || !outcome.isEmpty() && !outcome.equals(e.outcome)) return false;
             // All delta facets must be satisfied by the SAME retained delta.
@@ -101,6 +102,7 @@ final class LoggingQuery {
         values.put("objectIdEquals", object); values.put("diagnosticAreaEquals", area); values.put("outcomeEquals", outcome);
         values.put("changedValuesOnly", changed); values.put("observedPacketsOnly", observed);
         values.put("packetIssuesOnly", issues); values.put("fieldPathEquals", fieldPath);
+        values.put("captureRunEquals", captureRun);
         return values;
     }
 }
