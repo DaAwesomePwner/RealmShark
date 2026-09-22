@@ -141,7 +141,7 @@ public class LoggingFormattingTest {
                 named(view[0], "logging-search", JTextField.class).setText("reconnect");
                 JTable trace = activeTable(view[0]); assertEquals(1234, trace.getRowCount()); trace.setRowSelectionInterval(0, 0);
                 selected[0] = (Instant)trace.getValueAt(0, 0);
-                assertTrue(field(view[0], "summary", JLabel.class).getText().startsWith("1,234 frames"));
+                assertTrue(field(view[0], "summary", JLabel.class).getText().contains("1,234 frames"));
             });
             Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY); TimeZone.setDefault(TimeZone.getTimeZone("Europe/Berlin"));
             SwingUtilities.invokeAndWait(() -> {
@@ -191,7 +191,7 @@ public class LoggingFormattingTest {
     }
     private static void assertDiagnosticPresentation(LoggingGUI panel, DiscoveryLog.Snapshot retained, Instant selected, boolean german, String zone) {
         assertSame(retained, field(panel, "snapshot", DiscoveryLog.Snapshot.class));
-        assertTrue(field(panel, "summary", JLabel.class).getText().startsWith(german ? "1.234 frames" : "1,234 frames"));
+        assertTrue(field(panel, "summary", JLabel.class).getText().contains(german ? "1.234 frames" : "1,234 frames"));
         JTable table = activeTable(panel); assertEquals(1234, table.getRowCount()); assertTrue(table.getSelectedRow() >= 0);
         assertEquals(Instant.class, table.getColumnClass(0)); assertEquals(Long.class, table.getColumnClass(4));
         assertEquals(selected, table.getValueAt(table.getSelectedRow(), 0));

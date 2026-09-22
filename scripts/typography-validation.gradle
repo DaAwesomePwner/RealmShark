@@ -47,6 +47,11 @@ allprojects {
                     includeTestsMatching 'tomato.gui.maingui.RuleEditorActionsTest'
                     includeTestsMatching 'tomato.gui.notifications.NotificationDraftTest'
                     includeTestsMatching 'tomato.realmshark.SilentRuleEditorTest'
+                    includeTestsMatching 'tomato.gui.maingui.AlertRuleLayoutEvidenceTest'
+                    includeTestsMatching 'tomato.gui.character.PetLayoutEvidenceTest'
+                    includeTestsMatching 'tomato.gui.myinfo.MyInfoLayoutEvidenceTest'
+                    includeTestsMatching 'tomato.gui.stats.LootLayoutEvidenceTest'
+                    includeTestsMatching 'ui.SetupLayoutEvidenceTest'
                 }
                 testLogging { events 'failed'; exceptionFormat 'full' }
             }

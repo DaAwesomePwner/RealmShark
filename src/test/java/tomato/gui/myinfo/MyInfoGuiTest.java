@@ -11,6 +11,7 @@ import javax.swing.*;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
+import tomato.backend.data.FieldCapture;
 import tomato.backend.data.TomatoData;
 import tomato.gui.modern.VioletTheme;
 import tomato.realmshark.ParseEnchants;
@@ -217,9 +218,15 @@ public class MyInfoGuiTest {
         return () -> restore.forEach(Runnable::run);
     }
 
-    private static void equipPet(TomatoData data, int firstAbility) {
+    static void equipPet(TomatoData data, int firstAbility) {
         RealmCharacter character = new RealmCharacter(); character.charId = 7; character.equipment = new int[0];
         character.petAbilitys = new int[] {0, 100, firstAbility, 0, 0, 409, 0, 0, 410};
+        // This fixture supplies all three ability types/powers, including the two explicit zero powers.
+        for (StatType type : new StatType[]{StatType.PET_FIRST_ABILITY_TYPE_STAT, StatType.PET_FIRST_ABILITY_POWER_STAT,
+                StatType.PET_SECOND_ABILITY_TYPE_STAT, StatType.PET_SECOND_ABILITY_POWER_STAT,
+                StatType.PET_THIRD_ABILITY_TYPE_STAT, StatType.PET_THIRD_ABILITY_POWER_STAT}) {
+            character.presence.put("pet." + type.get(), new FieldCapture(1000, "Synthetic character metadata"));
+        }
         data.characterListUpdate(new java.util.ArrayList<>(java.util.Collections.singletonList(character)));
     }
 

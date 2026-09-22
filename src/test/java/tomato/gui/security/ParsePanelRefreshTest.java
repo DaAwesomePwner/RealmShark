@@ -141,6 +141,8 @@ public class ParsePanelRefreshTest {
             Thread capture = new Thread(() -> {
                 try {
                     Entity first = player(1, "First", "Zulu");
+                    stat(first, StatType.SEASONAL, 0, "");
+                    stat(first, StatType.CRUCIBLE_STAT, 0, "");
                     ParsePanelGUI.addPlayer(1, first);
                     for (int i = 1; i <= 1000; i++) {
                         first.stat.get(StatType.LEVEL_STAT).statValue = i;
@@ -322,6 +324,7 @@ public class ParsePanelRefreshTest {
             VioletTheme.install();
             ActionPanel actions = new ActionPanel(); panel = actions;
             Entity low = player(1, "Low", ""), high = player(2, "High", "");
+            stat(low, StatType.SEASONAL, 0, "");
             stat(low, StatType.CRUCIBLE_STAT, 0, "active");
             stat(high, StatType.CRUCIBLE_STAT, 0, "active"); stat(high, StatType.SEASONAL, 1, "");
             stat(high, StatType.INVENTORY_0_STAT, 12345, "");
