@@ -64,7 +64,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         sessions.addActionListener(e->{if(!restoring){Choice selected=(Choice)sessions.getSelectedItem();if(selected!=null)selectSession(selected.id);}});
         browse.addActionListener(e->{state=state.withArchive(!state.archive);persist();request(false);});
         reload.addActionListener(e->{reloadCatalog();request(true);});library.addActionListener(e->openLibrary());
-        stop.addActionListener(e->{cancel.cancel();refresh.invalidate();loading=false;status.setText("Read cancelled. Refresh to retry.");updateActions();});
+        stop.addActionListener(e->{invalidateView();cancel.cancel();refresh.invalidate();loading=false;status.setText("Read cancelled. Refresh to retry.");updateActions();});
         search.addActionListener(e->changeQuery(state.query.withText(search.getText())));
         resetFilters.addActionListener(e->changeQuery(client.initialQuery().withScope(state.query.scope())));
         previous.addActionListener(e->selectPage(Math.max(0,state.page-1)));next.addActionListener(e->selectPage(state.page+1));
@@ -76,7 +76,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         exportPage.addActionListener(e->{if(displayed!=null)chooseExport(ExportSelection.page(displayed.page,displayed.size));});
         exportSelected.addActionListener(e->chooseExport(ExportSelection.selected(state.selected)));cancelExport.addActionListener(e->exportCancel.cancel());
         addHierarchyListener(e->{if((e.getChangeFlags()&HierarchyEvent.SHOWING_CHANGED)!=0){
-            if(isShowing()){if(!closed)request(false);}else{cancel.cancel();refresh.invalidate();loading=false;updateActions();}
+            if(isShowing()){if(!closed)request(false);}else{invalidateView();cancel.cancel();refresh.invalidate();loading=false;updateActions();}
         }});
         reloadNames();syncControls();reloadCatalog();request(false);
     }
@@ -118,7 +118,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         },failure->status.setText("Session list could not be read. Open History library or Refresh."));
     }
     private void request(boolean fresh){
-        requireEdt();if(closed)return;cancel.cancel();refresh.invalidate();cancel=new Cancellation();
+        requireEdt();if(closed)return;invalidateView();cancel.cancel();refresh.invalidate();cancel=new Cancellation();
         ((CardLayout)cards.getLayout()).show(cards,state.archive?"saved":"live");
         archiveTools.setVisible(state.archive);browse.setText(state.archive?"Current live view":"Browse saved");
         if(!state.archive){loading=false;updateActions();return;}
@@ -140,17 +140,18 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
             status.setText("History read failed: "+cause.getMessage()+". Refresh to retry; no new revision was applied.");updateActions();},Update::discard);
     }
     private void apply(Update<R> update,ArchiveQuery<F,S> query){
-        if(closed){update.discard();return;}long ticket=++viewGeneration;
+        if(closed||!state.archive||!query.equals(state.query)){update.discard();return;}long ticket=++viewGeneration;
         ViewState<F,S> nextState=state.withPage(update.page.page);JComponent view;
         restoring=true;
         try{view=client.render(update.page,nextState,new ArchiveClient.Binding<F,S>(){
-            public void queryChanged(ArchiveQuery<F,S> value){if(ticket==viewGeneration)changeQuery(value);}
-            public void refresh(){requireEdt();if(!restoring&&!closed&&ticket==viewGeneration)request(true);}
-            public void viewChanged(ViewState<F,S> value){requireEdt();if(!restoring&&!closed&&ticket==viewGeneration&&value.query.equals(state.query)){
+            private boolean current(){requireEdt();return !restoring&&!closed&&!loading&&isVisible()&&state.archive&&ticket==viewGeneration&&query.equals(state.query);}
+            public void queryChanged(ArchiveQuery<F,S> value){if(current())changeQuery(value);}
+            public void refresh(){if(current())request(true);}
+            public void viewChanged(ViewState<F,S> value){if(current()&&value.query.equals(state.query)){
                 state=new ViewState<>(state.query,state.archive,state.page,value.tab,value.selected,value.anchor,value.anchorOffset,value.tables);persist();updateActions();}}
         });}catch(RuntimeException failure){update.discard();throw failure;}finally{restoring=false;}
         ArchiveResult<R> old=result;result=update.result;resultQuery=query;displayed=update.page;state=nextState;
-        saved.removeAll();saved.add(view);saved.revalidate();saved.repaint();loading=false;
+        saved.removeAll();saved.setEnabled(true);saved.add(view);saved.revalidate();saved.repaint();loading=false;
         List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(item.field.name()+" "+item.direction);
         String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; try Reset filters. "):"";
         status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
@@ -164,50 +165,93 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         }));
     }
     private boolean canExport(){return !closed&&!loading&&!exporting&&state.archive&&result!=null&&state.query.equals(resultQuery);}
+    private void invalidateView(){viewGeneration++;disable(saved);}
+    private static void disable(Component component){component.setEnabled(false);if(component instanceof Container)for(Component child:((Container)component).getComponents())disable(child);}
     private void updateActions(){boolean ready=canExport();exportAll.setEnabled(ready);exportPage.setEnabled(ready);exportSelected.setEnabled(ready&&!state.selected.isEmpty());
         previous.setEnabled(!loading&&state.page>0);next.setEnabled(!loading&&displayed!=null&&displayed.more());}
     public SwingWorker<Path,Void> exportTo(Path directory,String base,ExportSelection selection,ArchiveExport.Format format)throws java.io.IOException {
         requireEdt();if(!canExport())throw new IllegalStateException("Wait for the displayed query revision before exporting");
-        List<ArchiveExport.Column<R>> columns=new ArrayList<>(client.exportColumns());
-        ArchiveResult.Lease<R> lease=result.lease();String exportedUnit=result.unit,exportedRevision=result.revision;
-        return startExport(lease,directory,base,selection,format,columns,exportedUnit,exportedRevision);
+        return startExport(result.lease(),directory,base,selection,format);
     }
-    private SwingWorker<Path,Void> startExport(ArchiveResult.Lease<R> lease,Path directory,String base,ExportSelection selection,
-            ArchiveExport.Format format,List<ArchiveExport.Column<R>> columns,String exportedUnit,String exportedRevision){
-        exportCancel=new Cancellation();Cancellation token=exportCancel;
-        java.util.concurrent.atomic.AtomicBoolean claimed=new java.util.concurrent.atomic.AtomicBoolean();exporting=true;updateActions();
-        SwingWorker<Path,Void> worker=new SwingWorker<Path,Void>(){
-            protected Path doInBackground()throws Exception{
-                if(!claimed.compareAndSet(false,true))throw new java.util.concurrent.CancellationException();
-                try(ArchiveResult.Lease<R> held=lease){return ArchiveExport.write(held,selection,format,directory,base,columns,token);}
+    SwingWorker<Path,Void> startExport(ArchiveResult.Lease<R> lease,Path directory,String base,ExportSelection selection,
+            ArchiveExport.Format format){
+        requireEdt();
+        String revision=lease.manifest().get("revision").getAsString();
+        return launch(new ExportTask<Path>(lease,false){
+            protected Path runExport()throws Exception{return client.writeExport(lease,selection,format,directory,base,token);}
+            protected void discard(Path output)throws Exception{if(output!=null)java.nio.file.Files.deleteIfExists(output);}
+            protected boolean completed(Path path){
+                exportFolder=path.toAbsolutePath().getParent();openFolder.setEnabled(Desktop.isDesktopSupported()&&Desktop.getDesktop().isSupported(Desktop.Action.OPEN));
+                status.setText("Export complete · revision "+revision.substring(0,8)+" · "+path.getFileName());return false;
             }
-            protected void done(){exporting=false;try{Path path=get();exportFolder=path.toAbsolutePath().getParent();openFolder.setEnabled(Desktop.isDesktopSupported()&&Desktop.getDesktop().isSupported(Desktop.Action.OPEN));
-                status.setText("Exported "+selection.expected(lease.matches())+" "+exportedUnit+" · revision "+exportedRevision.substring(0,8)+" · "+path.getFileName());}
-                catch(Exception failure){status.setText(token.isCancelled()||isCancelled()?"Export cancelled; unfinished output cleanup requested":"Export failed: "+failure.getMessage());}
-                finally{if(claimed.compareAndSet(false,true))lease.close();updateActions();}}
-        };worker.execute();return worker;
+        });
+    }
+    /** Shared toolbar and headless tests use the same asynchronous pre-confirmation path. */
+    SwingWorker<String,Void> prepareExport(ExportSelection selection,java.util.function.BiPredicate<ArchiveResult.Lease<R>,String> confirm)throws java.io.IOException {
+        requireEdt();if(!canExport())throw new IllegalStateException("Wait for the displayed query revision before exporting");
+        ArchiveResult.Lease<R> lease=result.lease();
+        return launch(new ExportTask<String>(lease,true){
+            protected String runExport()throws Exception{return client.previewExport(lease,selection,token);}
+            protected boolean completed(String text){return confirm.test(lease,text);}
+        });
+    }
+    private <T> SwingWorker<T,Void> launch(ExportTask<T> worker){
+        exporting=true;exportCancel=worker.token;updateActions();worker.execute();return worker;
+    }
+    /** Future completion and writer exit are separate when cancel(false) is used. */
+    private abstract class ExportTask<T> extends SwingWorker<T,Void> {
+        final ArchiveResult.Lease<R> lease;
+        final Cancellation token=new Cancellation(this::isCancelled);
+        private final boolean transferLease;
+        private final java.util.concurrent.atomic.AtomicBoolean claimed=new java.util.concurrent.atomic.AtomicBoolean(),exited=new java.util.concurrent.atomic.AtomicBoolean(),published=new java.util.concurrent.atomic.AtomicBoolean();
+        private T value;private Throwable failure;
+        ExportTask(ArchiveResult.Lease<R> lease,boolean transferLease){this.lease=lease;this.transferLease=transferLease;}
+        protected abstract T runExport()throws Exception;
+        protected abstract boolean completed(T value);
+        protected void discard(T value)throws Exception { }
+        protected T doInBackground()throws Exception {
+            if(!claimed.compareAndSet(false,true))throw new java.util.concurrent.CancellationException();
+            try{token.check();value=runExport();token.check();return value;}
+            catch(Exception|Error error){failure=error;throw error;}
+            finally{
+                if(!transferLease||failure!=null||token.isCancelled())lease.close();
+                exited.set(true);SwingUtilities.invokeLater(this::publishCompletion);
+            }
+        }
+        protected void done(){
+            if(isCancelled())token.cancel();
+            if(claimed.compareAndSet(false,true))exited.set(true);
+            publishCompletion();
+        }
+        private void publishCompletion(){
+            if(!isDone()||!exited.get()||!published.compareAndSet(false,true))return;
+            if(closed||token.isCancelled()){
+                // A final cancellation can race with a writer returning its owned output path.
+                java.util.concurrent.CompletableFuture.runAsync(()->{
+                    try{discard(value);}catch(Exception error){throw new java.util.concurrent.CompletionException(error);}finally{lease.close();}
+                }).whenComplete((ignored,error)->SwingUtilities.invokeLater(()->{
+                    exporting=false;status.setText(error==null?"Export cancelled; unfinished output cleaned":"Export cancelled; cleanup failed: "+error.getMessage());updateActions();
+                }));return;
+            }
+            boolean transferred=false;
+            try{
+                if(failure!=null)status.setText("Export failed: "+failure.getMessage());
+                else transferred=completed(value);
+            }catch(RuntimeException error){status.setText("Export could not finish: "+error.getMessage());}
+            finally{if(!transferred){lease.close();exporting=false;}updateActions();}
+        }
     }
     private void chooseExport(ExportSelection selection){
         if(!canExport())return;
-        ArchiveResult.Lease<R> held=null;boolean handedOff=false;
-        try {
-            ArchiveResult<R> source=result;ViewState<F,S> intent=state;
-            List<ArchiveExport.Column<R>> columns=new ArrayList<>(client.exportColumns());held=source.lease();
-            String message=selection.expected(source.matches)+" "+source.unit+" · "+selection.kind+"\nRevision "+source.revision
-                    +"\nSource sessions (including dependencies): "+held.manifest().getAsJsonArray("sessions").size()
-                    +"\nResolved bounds: "+intent.query.bounds().from+" to "+intent.query.bounds().until+" (exclusive), "+intent.query.bounds().zone
-                    +"\nQuery and ordering: "+intent.query.toJson();
+        try{prepareExport(selection,(held,message)->{
             JTextArea preview=ContentStyle.wrappingText(message);preview.getAccessibleContext().setAccessibleName("Export population and revision");
             JScrollPane previewScroll=new JScrollPane(preview);previewScroll.setPreferredSize(new Dimension(600,240));
             Object format=JOptionPane.showInputDialog(this,previewScroll,"Export pinned revision",JOptionPane.PLAIN_MESSAGE,null,ArchiveExport.Format.values(),ArchiveExport.Format.JSON);
-            if(!(format instanceof ArchiveExport.Format)||closed)return;JFileChooser chooser=new JFileChooser();chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            if(chooser.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION||closed)return;
-            if(exporting)throw new IllegalStateException("Wait for the running export to finish");
+            if(!(format instanceof ArchiveExport.Format)||closed||exportCancel.isCancelled())return false;JFileChooser chooser=new JFileChooser();chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if(chooser.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION||closed||exportCancel.isCancelled())return false;
             // Modal dialogs run a nested EDT loop: the displayed result may have changed since preview.
-            startExport(held,chooser.getSelectedFile().toPath(),name+"-"+System.currentTimeMillis(),selection,(ArchiveExport.Format)format,columns,source.unit,source.revision);
-            handedOff=true;
-        }catch(java.io.IOException|RuntimeException failure){status.setText("Export could not start: "+failure.getMessage());}
-        finally{if(!handedOff&&held!=null)held.close();}
+            startExport(held,chooser.getSelectedFile().toPath(),name+"-"+System.currentTimeMillis(),selection,(ArchiveExport.Format)format);return true;
+        });}catch(java.io.IOException|RuntimeException failure){status.setText("Export could not start: "+failure.getMessage());}
     }
     private void openLibrary(){
         Window parent=SwingUtilities.getWindowAncestor(this);JDialog dialog=new JDialog(parent,"History library",Dialog.ModalityType.MODELESS);
@@ -215,8 +259,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);dialog.addWindowListener(new WindowAdapter(){public void windowClosed(WindowEvent e){librarySelection=library.rememberedSelection();library.close();if(!closed)reloadCatalog();}});
         dialog.setContentPane(library);dialog.setSize(900,550);dialog.setLocationRelativeTo(this);dialog.setVisible(true);
     }
-    @Override public void removeNotify(){if(!closed){cancel.cancel();refresh.invalidate();if(result!=null){result.close();result=null;displayed=null;}}super.removeNotify();}
-    @Override public void close(){requireEdt();if(closed)return;closed=true;cancel.cancel();catalogCancel.cancel();exportCancel.cancel();refresh.invalidate();catalog.invalidate();if(result!=null){result.close();result=null;}}
+    @Override public void removeNotify(){if(!closed){invalidateView();cancel.cancel();refresh.invalidate();if(result!=null){result.close();result=null;displayed=null;}}super.removeNotify();}
+    @Override public void close(){requireEdt();if(closed)return;closed=true;invalidateView();cancel.cancel();catalogCancel.cancel();exportCancel.cancel();refresh.invalidate();catalog.invalidate();if(result!=null){result.close();result=null;}}
     private static final class Choice{final String id,label;Choice(String id,String label){this.id=id;this.label=label;}public String toString(){return label;}}
     private static final class Update<R>{final ArchiveResult<R> result;final ArchivePage<R> page;final boolean owns;
         Update(ArchiveResult<R> result,ArchivePage<R> page,boolean owns){this.result=result;this.page=page;this.owns=owns;}

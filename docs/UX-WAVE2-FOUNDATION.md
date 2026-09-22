@@ -38,6 +38,17 @@ call `store.capture(sources, scratch, cancel)` and then
 `ArchiveResult.open(pin, query, adapter, scratch, cancel)`; that overload takes
 ownership of the pin on success **and failure**. Close unused pins yourself.
 
+The pin retains its capturing store's current-session ID. `pin.resolveScope(...)`
+resolves `@current` against that frozen ID. Opening a supplied pin validates the
+adapter's required `sources(...)` and binds its reads to those scopes before the
+scan, including custom adapters' unscoped `pin.read(module, ...)` calls. An
+ALL-session pin can serve session A, but a B-only pin cannot serve A or claim an
+ALL-session result. Required modules and global dependencies must have actually
+been captured. Declare the primary selected session explicitly; global auxiliary
+sources (such as Chat stars) retain their ALL-session scope. Source declaration
+methods must be pure: the origin store is provided for identity resolution, not
+for fresh reads during replay. A pin is transferred to one result, not rebound.
+
 The foundation owns `SessionStore`, these archive types, `HistoryPage`,
 `SessionPanel.queried`, `ArchiveWorkspace`, `ArchiveClient`, `HistoryTables`,
 `HistoryLibrary`, `ViewState`, `ViewStateStore`, and the optional
@@ -191,6 +202,11 @@ renderer runs on the EDT. Inner controls call
 `binding.queryChanged(state.query.withFacets(nextFacets))`; they must **not**
 refilter `page.rows`. Header sorting uses the same callback. Programmatic restore
 callbacks are suppressed. Pending query changes disable ambiguous exports.
+Renderer callbacks are invalidated when intent changes, before replacement work
+starts, and on hide/removal/disposal. Obsolete controls are disabled and callbacks
+also check their original query against the current intent. Saved references are
+validated and reconstructed before state installation or persistence: malformed
+anchors, selected refs and null entries cannot replace a valid active view.
 Paging keeps the revision; Refresh captures a new one and can re-anchor by Ref.
 After a shared policy change use `binding.refresh()` even if the query is equal.
 For a saved annotation, wait for its save to finish off the EDT before requesting
@@ -396,6 +412,47 @@ need pinned Runs + Loot sources and explicit eligible denominators.
 
 ## Export API and metadata library
 
+The shared toolbar dispatches two module-owned hooks on a worker:
+
+```java
+default String previewExport(ArchiveResult.Lease<R> lease,
+    ExportSelection selection, Cancellation cancel) throws IOException;
+default Path writeExport(ArchiveResult.Lease<R> lease,
+    ExportSelection selection, ArchiveExport.Format format,
+    Path directory, String base, Cancellation cancel) throws IOException;
+```
+
+The defaults preview/export matching projection rows. `exportColumns()` and both
+hooks must use frozen data and avoid reading Swing controls. Preview runs **before
+confirmation**, and the same lease is transferred to the writer even if the
+display refreshes while the user chooses a destination. Cancellation is tied to
+the SwingWorker's cancellation state, including `cancel(false)`. The toolbar stays
+busy until the background reader/writer and output cleanup actually finish.
+
+`ActivityArchiveClient.writeExport` already has the exact signature and is now
+dispatched automatically, so selected visits use its linked-evidence exporter.
+The integration owner must add this companion preview override in that client
+(the foundation owner does not edit module clients):
+
+```java
+@Override public String previewExport(ArchiveResult.Lease<Row> lease,
+        ExportSelection selection, Cancellation cancel) throws IOException {
+    if (mode != ActivityPanel.Mode.TIMELINE
+            && selection.kind == ExportSelection.Kind.SELECTED) {
+        if (selection.refs.size() != 1)
+            throw new IllegalArgumentException("Select exactly one visit for linked evidence export");
+        return SelectedRunExport.preview(lease,
+            selection.refs.iterator().next(), cancel).description();
+    }
+    return ArchiveClient.super.previewExport(lease, selection, cancel);
+}
+```
+
+This supplies the linked-event count before confirmation. The shared hook tests
+exercise that implementation through a headless confirmation callback and verify
+old-pin ownership through a display refresh; the production module override is
+an integration change.
+
 Capture an export lease on the EDT before scheduling the job; close it after the
 worker finishes, including failure/cancellation. The provided workspace does
 this, including cancellation of a SwingWorker before its reader starts.
@@ -411,7 +468,9 @@ try (ArchiveResult.Lease<Row> held = result.lease()) {
 
 JSON embeds `manifest` and ordered `rows` (each with `origin` and `value`). CSV
 begins with a quoted `# RealmShark archive manifest` record, followed by column
-headers/data; spreadsheet formula-leading text is escaped. With no CSV columns,
+headers/data; spreadsheet formula-leading text is escaped. Numeric values retain
+their type when formatted: numeric `-12` stays `"-12"`, while textual `"-12"`
+is emitted as `"'-12"`. With no CSV columns,
 the last column is record JSON. Both include count/unit, selected scope,
 query/bounds/order, source-session metadata, source cuts/digests, dependency
 versions and revision. Selected references missing from the result fail the
@@ -423,7 +482,12 @@ transaction is promised. The workspace offers Open export folder after success.
 `SessionStore.catalog(cancel)` returns healthy and unreadable `SessionEntry`s;
 one malformed metadata file cannot hide other sessions. An unreadable selected
 session fails; All Sessions continues healthy entries with explicit issues.
-`sessions()` remains the healthy-entry compatibility projection. The library
+`sessions()` is a strict legacy enumeration: it throws if any session metadata
+cannot be read. Legacy `read(scope, ...)` validates the selected metadata before
+calling consumers, throws for a corrupt selected session or incomplete ALL scope,
+and permits a healthy specific session despite unrelated bad metadata. These APIs
+have no channel for partial coverage; callers needing isolated entries/issues use
+`catalog` or pinned results. The library
 loads metadata in the background, supports search/open/import/rename/delete,
 retains selection by ID, and labels open/interrupted sessions honestly. Existing
 active locks and import markers continue protecting deletion/idempotency.
@@ -434,6 +498,23 @@ PARTIAL and NOT_CAPTURED with a reason and optional observed bounds. Module
 presence, import labels and absent metadata never imply complete recording or
 recorded zero. Unknown availability versions fall back to UNKNOWN. Later producer
 owners must supply positive evidence; no producers were instrumented in 2A.
+
+Integration-owner call shape (schema version 1; the map is optional on old sessions):
+
+```java
+CompletionStage<Void> saved = store.availability("loot",
+    new SessionStore.ModuleAvailability(
+        SessionStore.ModuleAvailability.State.PARTIAL,
+        "Observed collection interval; gaps remain possible", fromMillis, untilMillis));
+// Handle saved.whenComplete(...) without waiting on the EDT.
+```
+
+Read with `entry.availability("loot")` after `store.catalog(cancel)` on a worker.
+The value exposes `schemaVersion`, `state`, `reason`, nullable `from`/`until`.
+UNKNOWN is the fallback for absent/unsupported metadata. NOT_CAPTURED needs
+positive evidence for the declared interval; do not infer it from an empty file,
+an import label, or a currently paused collector. Producer integration belongs
+to the capture/AppHistory owner, who must preserve earlier observed coverage.
 
 ## Validation and handoff boundaries
 
@@ -460,6 +541,14 @@ The same invocation compiled all main/test sources, with main `--release 8`.
 Breakdown: archive pipeline 12, catalog 4, headless workspace 6, persistent state
 3, existing SessionStore 8, and existing SnapshotRefresh 2. This is bounded
 headless evidence, not the full wave or native/scaled gate.
+
+Review-fix validation on the integrated `f604e78` baseline: 12 new regression
+tests first failed, covering all six reported blockers. After the fixes, **87
+headless tests passed with zero failures/errors/skips**, including three export
+hook/lifecycle tests and the integrated Activity, Chat, Key-pop, Loot and Statistics
+client suites. Red evidence: `build/w2-foundation-review-fixes-red/`; passing
+evidence: `build/w2-foundation-review-fixes/`; isolated project cache:
+`.gradle/w2-foundation-review-fixes`. Native/scaled validation remains separate.
 Fixtures use isolated history/preferences/scratch. Tests cover 12,005 records,
 24,010-row global ties/external merge, explicit page byte limits, 500 sessions with
 one corrupt metadata file, checkpoint/star/journal changes, leased exports under

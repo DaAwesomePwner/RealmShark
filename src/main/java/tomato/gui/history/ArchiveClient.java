@@ -14,6 +14,20 @@ public interface ArchiveClient<R,F,S extends Enum<S>> {
     JComponent render(ArchivePage<R> page,ViewState<F,S> state,Binding<F,S> binding);
     default int pageSize(){return 1000;}
     default List<ArchiveExport.Column<R>> exportColumns(){return Collections.emptyList();}
+    /** Runs off the EDT before confirmation, with the same lease later supplied to writeExport. */
+    default String previewExport(ArchiveResult.Lease<R> lease,ExportSelection selection,Cancellation cancel)throws java.io.IOException {
+        cancel.check();com.google.gson.JsonObject manifest=lease.manifest();
+        if(selection.kind==ExportSelection.Kind.SELECTED)lease.stream(selection,row->{},cancel);
+        return selection.expected(lease.matches())+" "+manifest.get("unit").getAsString()+" · "+selection.kind
+                +"\nRevision "+manifest.get("revision").getAsString()
+                +"\nSource sessions (including dependencies): "+manifest.getAsJsonArray("sessions").size()
+                +"\nQuery, bounds and ordering: "+manifest.get("query")+"\nSource issues: "+manifest.get("issues");
+    }
+    /** Runs off the EDT. Caller owns the lease; custom exports must honor cancellation and clean failed output. */
+    default Path writeExport(ArchiveResult.Lease<R> lease,ExportSelection selection,ArchiveExport.Format format,
+            Path directory,String base,Cancellation cancel)throws java.io.IOException {
+        return ArchiveExport.write(lease,selection,format,directory,base,exportColumns(),cancel);
+    }
     interface Binding<F,S extends Enum<S>> {
         void queryChanged(ArchiveQuery<F,S> query);
         void viewChanged(ViewState<F,S> state);
