@@ -83,12 +83,15 @@ public class SecurityFilter {
             else if (cap == null) reasons.add(new RequirementResult.Reason(UNKNOWN, "cap-missing", statNames[i] + ": cap definition unavailable."));
             else if (value < cap) reasons.add(new RequirementResult.Reason(FAILURE, "stat-below", statNames[i] + ": " + value + " below cap " + cap + "."));
         }
-        long points = 0; boolean completeScore = true;
-        Integer required = player.playerEntity.objectType > 0 ? classPoint.getOrDefault(player.playerEntity.objectType, 0) : null;
+        long points = 0, possibleExtra = 0; boolean completeScore = true;
+        boolean variableItemScore = isWhitelistFilter && itemPoint.values().stream().anyMatch(value -> value != 0);
+        int maximumItemScore = isWhitelistFilter ? itemPoint.values().stream().mapToInt(Integer::intValue).max().orElse(0) : 0;
+        Integer required = player.playerEntity.objectType > 0 ? classPoint.getOrDefault(player.playerEntity.objectType, 0)
+            : classPoint.values().stream().allMatch(value -> value == 0) ? Integer.valueOf(0) : null;
         if (required == null) reasons.add(new RequirementResult.Reason(UNKNOWN, "class-missing", "Character class not captured; points threshold unknown."));
         if (exaltSkinPoints != 0) {
             StatData skin = player.playerEntity.stat.get(StatType.SKIN_ID);
-            if (skin == null) { completeScore = false; reasons.add(new RequirementResult.Reason(UNKNOWN, "skin-missing", "Skin not captured; exalted-skin points unknown.")); }
+            if (skin == null) { completeScore = false; possibleExtra += Math.max(0, exaltSkinPoints); reasons.add(new RequirementResult.Reason(UNKNOWN, "skin-missing", "Skin not captured; exalted-skin points unknown.")); }
             else for (int id : exaltedSkinIds) if (id == skin.statValue) { points += exaltSkinPoints; break; }
         }
         for (int slot = 0; slot < 4; slot++) {
@@ -96,34 +99,44 @@ public class SecurityFilter {
             String label = Player.equipmentNames[slot]; Integer tier = minTier.get(slot);
             if (captured == null) {
                 if (tier != null || isWhitelistFilter || !itemPoint.isEmpty()) {
-                    completeScore = false; reasons.add(new RequirementResult.Reason(UNKNOWN, "equipment-missing", label + ": not captured."));
+                    reasons.add(new RequirementResult.Reason(UNKNOWN, "equipment-missing", label + ": not captured."));
                 }
+                if (variableItemScore) { completeScore = false; possibleExtra += Math.max(0, maximumItemScore); }
                 continue;
             }
             if (captured.statValue < 0) {
                 if (tier != null) reasons.add(new RequirementResult.Reason(FAILURE, "slot-empty", label + ": captured empty; requires tier " + tier + "."));
                 continue;
             }
+            Integer award = isWhitelistFilter ? itemPoint.get(captured.statValue) : null;
+            boolean disallowed = isWhitelistFilter ? !itemPoint.containsKey(captured.statValue) : itemPoint.containsKey(captured.statValue);
+            boolean scoreNeedsDefinition = award != null && award != 0;
+            // If neither tier, policy outcome nor points can depend on metadata, do not require it.
+            if (tier == null && !disallowed && !scoreNeedsDefinition) continue;
             RosterDefinitions.Item item = definitions.item(captured.statValue);
             if (item == null || item.labels == null) {
-                completeScore = false; reasons.add(new RequirementResult.Reason(UNKNOWN, "item-definition-missing", label + " #" + captured.statValue + ": item definition unavailable.")); continue;
+                if (scoreNeedsDefinition) { completeScore = false; possibleExtra += Math.max(0, award); }
+                reasons.add(new RequirementResult.Reason(UNKNOWN, "item-definition-missing", label + " #" + captured.statValue + ": required item definition unavailable.")); continue;
             }
             if (tier != null) {
                 if (item.special()) reasons.add(new RequirementResult.Reason(INFO, "special-tier", label + ": UT/ST uses the preset's legacy tier exemption."));
                 else if (item.tier == null || !item.labels.contains("TIERED")) reasons.add(new RequirementResult.Reason(UNKNOWN, "tier-unknown", label + ": tier applicability/definition unavailable."));
                 else if (item.tier < tier) reasons.add(new RequirementResult.Reason(FAILURE, "tier-below", label + ": T" + item.tier + " below T" + tier + "."));
             }
+            if (!disallowed && !scoreNeedsDefinition) continue;
             Boolean parsable = item.parsable();
-            if (parsable == null) { completeScore = false; reasons.add(new RequirementResult.Reason(UNKNOWN, "item-policy-unknown", label + ": item-policy applicability unknown.")); }
+            if (parsable == null) {
+                if (scoreNeedsDefinition) { completeScore = false; possibleExtra += Math.max(0, award); }
+                reasons.add(new RequirementResult.Reason(UNKNOWN, "item-policy-unknown", label + ": item-policy/points applicability unknown."));
+            }
             else if (parsable) {
-                Integer award = itemPoint.get(captured.statValue);
-                if (isWhitelistFilter && award == null || !isWhitelistFilter && award != null)
+                if (disallowed)
                     reasons.add(new RequirementResult.Reason(FAILURE, "item-disallowed", label + " #" + captured.statValue + ": " + (isWhitelistFilter ? "not whitelisted" : "blacklisted") + "."));
                 else if (award != null) points += award;
             }
         }
-        if (completeScore && required != null && points < required)
-            reasons.add(new RequirementResult.Reason(FAILURE, "points-below", "Points " + points + " below required " + required + "."));
+        if (required != null && points + possibleExtra < required)
+            reasons.add(new RequirementResult.Reason(FAILURE, "points-below", (completeScore ? "Points " + points : "At most " + (points + possibleExtra) + " points") + " below required " + required + "."));
         boolean below = reasons.stream().anyMatch(r -> r.kind == FAILURE), unknown = reasons.stream().anyMatch(r -> r.kind == UNKNOWN);
         if (reasons.isEmpty()) reasons.add(new RequirementResult.Reason(INFO, "requirements-met", "All applicable requirements are satisfied by captured evidence."));
         return new RequirementResult(below ? RequirementResult.Verdict.BELOW : unknown ? RequirementResult.Verdict.UNKNOWN : RequirementResult.Verdict.PASS,

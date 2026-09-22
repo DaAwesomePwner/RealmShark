@@ -62,4 +62,35 @@ public class RequirementResultTest {
         put(p.playerEntity, StatType.SEASONAL.get(), 0);
         assertEquals(Boolean.FALSE, Player.seasonal(p.playerEntity));
     }
+    @Test public void missingTierEvidenceDoesNotHideDefinitiveZeroScoreFailure() throws Exception {
+        Player p = player(1); p.playerEntity.stat.set(StatType.INVENTORY_0_STAT, null);
+        SecurityFilter rules = new SecurityFilter(); rules.isWhitelistFilter = false; rules.classPoint.put(782, 10); rules.minTier.put(0, 4);
+        RequirementResult result = rules.evaluate(p, definitions());
+        assertEquals(RequirementResult.Verdict.BELOW, result.verdict); assertTrue(result.scoreComplete); assertEquals(0, result.knownPoints);
+        assertTrue(result.reasons.stream().anyMatch(r -> r.code.equals("points-below")));
+        assertTrue(result.reasons.stream().anyMatch(r -> r.kind == RequirementResult.Kind.UNKNOWN && r.code.equals("equipment-missing")));
+        rules.itemPoint.put(42, 500); // Blacklist entries exclude items; they cannot award points.
+        assertTrue(rules.evaluate(p, definitions()).scoreComplete);
+    }
+    @Test public void unknownDefinitionsMatterOnlyToApplicableRules() {
+        Player p = player(1); put(p.playerEntity, 8, 99999);
+        SecurityFilter rules = new SecurityFilter(); rules.isWhitelistFilter = false;
+        RequirementResult result = rules.evaluate(p, RosterDefinitions.empty());
+        assertEquals(RequirementResult.Verdict.PASS, result.verdict); assertTrue(result.scoreComplete);
+        assertFalse(result.reasons.stream().anyMatch(r -> r.kind == RequirementResult.Kind.UNKNOWN));
+        rules.itemPoint.put(42, 10); assertEquals(RequirementResult.Verdict.PASS, rules.evaluate(p, RosterDefinitions.empty()).verdict);
+        rules.minTier.put(0, 5); assertEquals(RequirementResult.Verdict.UNKNOWN, rules.evaluate(p, RosterDefinitions.empty()).verdict);
+    }
+    @Test public void unknownPositiveAwardsRemainUnknownUnlessEvenTheirUpperBoundFails() throws Exception {
+        Player p = player(1); p.playerEntity.stat.set(StatType.INVENTORY_0_STAT, null);
+        SecurityFilter rules = new SecurityFilter(); rules.itemPoint.put(42, 20); rules.classPoint.put(782, 10);
+        RequirementResult result = rules.evaluate(p, definitions());
+        assertFalse(result.scoreComplete); assertEquals(RequirementResult.Verdict.UNKNOWN, result.verdict);
+        rules.classPoint.put(782, 30);
+        result = rules.evaluate(p, definitions()); assertEquals(RequirementResult.Verdict.BELOW, result.verdict);
+        assertTrue(result.reasons.stream().anyMatch(r -> r.message.contains("At most 20 points")));
+        put(p.playerEntity, 8, 42); result = rules.evaluate(p, RosterDefinitions.empty());
+        assertEquals(RequirementResult.Verdict.BELOW, result.verdict); assertFalse(result.scoreComplete);
+        rules.classPoint.put(782, 10); assertEquals(RequirementResult.Verdict.UNKNOWN, rules.evaluate(p, RosterDefinitions.empty()).verdict);
+    }
 }
