@@ -97,13 +97,9 @@ public final class ActivityQueries {
             if(mode==ActivityPanel.Mode.TIMELINE) {
                 if(!f.kinds.isEmpty()&&!f.kinds.contains(r.kind))return false;
                 if(f.assignment==Assignment.ASSIGNED&&!r.assigned||f.assignment==Assignment.UNASSIGNED&&r.assigned)return false;
-            } else {
-                if(!f.outcomes.isEmpty()&&!f.outcomes.contains(r.outcome)||!f.evidence.isEmpty()&&!f.evidence.contains(r.evidence))return false;
-                if(f.minimumDurationMillis!=null&&(r.durationMillis==null||r.durationMillis<f.minimumDurationMillis)
-                        ||f.maximumDurationMillis!=null&&(r.durationMillis==null||r.durationMillis>f.maximumDurationMillis))return false;
-                if(!presence(f.captureIssues,r.issues)||!presence(f.timingGaps,r.gaps))return false;
-            }
-            String text=(r.map+" "+r.kind+" "+r.summary+" "+r.detail+" "+r.completionEvidence+" "+r.outcome).toLowerCase(Locale.ROOT);
+            } else if(!matchesVisit(r,f))return false;
+            String text=(r.map+" "+r.kind+" "+r.summary+" "+r.detail+" "+r.completionEvidence+" "+r.outcome
+                    +(mode==ActivityPanel.Mode.TIMELINE?" "+SessionStore.JSON.toJson(r.values):"")).toLowerCase(Locale.ROOT);
             return text.contains(q.text().trim().toLowerCase(Locale.ROOT));
         }
         public Comparator<Row> comparator(Sort field) {
@@ -132,6 +128,13 @@ public final class ActivityQueries {
     }
     private static boolean presence(Presence filter,long value) {
         return filter==Presence.ANY||filter==Presence.PRESENT&&value>0||filter==Presence.ABSENT&&value==0;
+    }
+    /** Shared pure facet predicate for both the complete saved query and the retained live snapshot. */
+    public static boolean matchesVisit(Row r,Filters f) {
+        return (f.outcomes.isEmpty()||f.outcomes.contains(r.outcome))&&(f.evidence.isEmpty()||f.evidence.contains(r.evidence))
+                &&(f.minimumDurationMillis==null||r.durationMillis!=null&&r.durationMillis>=f.minimumDurationMillis)
+                &&(f.maximumDurationMillis==null||r.durationMillis!=null&&r.durationMillis<=f.maximumDurationMillis)
+                &&presence(f.captureIssues,r.issues)&&presence(f.timingGaps,r.gaps);
     }
     public static Row visit(ActivityJournal.Visit v) {
         Row r=new Row();r.visitId=v.id;r.recordId=v.id;r.map=v.map;r.time=knownTime(v.started);r.end=knownTime(v.lastSeen);

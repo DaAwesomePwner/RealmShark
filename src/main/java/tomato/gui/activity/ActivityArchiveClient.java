@@ -32,13 +32,28 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
     public ArchiveAdapter<Row,Filters,Sort> adapter(ArchiveQuery<Filters,Sort> q) { return ActivityQueries.adapter(mode); }
     public int pageSize() { return mode==ActivityPanel.Mode.TIMELINE?1000:100; }
     public List<ArchiveExport.Column<Row>> exportColumns() {
+        if(mode==ActivityPanel.Mode.TIMELINE)return Arrays.asList(
+                new ArchiveExport.Column<>("Time (epoch ms)",r->r.time),new ArchiveExport.Column<>("Area",r->r.map),
+                new ArchiveExport.Column<>("Event ID",r->r.recordId),new ArchiveExport.Column<>("Kind",r->r.kind),
+                new ArchiveExport.Column<>("Assignment",r->r.assigned?"Assigned":"Unassigned"),new ArchiveExport.Column<>("Visit ID",r->r.visitId),
+                new ArchiveExport.Column<>("Summary",r->r.summary),new ArchiveExport.Column<>("Detail",r->r.detail),
+                new ArchiveExport.Column<>("Values JSON",r->tomato.history.SessionStore.JSON.toJson(r.values)));
         return Arrays.asList(new ArchiveExport.Column<>("Time (epoch ms)",r->r.time),new ArchiveExport.Column<>("Area",r->r.map),
                 new ArchiveExport.Column<>("Visit ID",r->r.visitId),new ArchiveExport.Column<>("Summary",r->r.summary),
                 new ArchiveExport.Column<>("Duration ms",r->r.durationMillis),new ArchiveExport.Column<>("Outcome",r->r.outcome),
                 new ArchiveExport.Column<>("Evidence",r->r.completionEvidence),new ArchiveExport.Column<>("Capture issues",r->r.issues),
                 new ArchiveExport.Column<>("Timing gaps",r->r.gaps));
     }
-    /** Ready for the shared-toolbar export hook; caller owns the already captured lease. */
+    @Override public String previewExport(ArchiveResult.Lease<Row> lease,ExportSelection selection,Cancellation cancel)throws IOException {
+        if(mode!=ActivityPanel.Mode.TIMELINE&&selection.kind==ExportSelection.Kind.SELECTED) {
+            if(selection.refs.size()!=1)throw new IllegalArgumentException("Select exactly one visit for linked evidence export");
+            return SelectedRunExport.preview(lease,selection.refs.iterator().next(),cancel).description()
+                    +"\nVisit query, bounds and ordering: "+lease.manifest().get("query")+"\nSource issues: "+lease.manifest().get("issues");
+        }
+        return ArchiveClient.super.previewExport(lease,selection,cancel);
+    }
+    /** Shared-toolbar export hook; caller owns the already captured lease. */
+    @Override
     public Path writeExport(ArchiveResult.Lease<Row> lease,ExportSelection selection,ArchiveExport.Format format,
                             Path folder,String base,Cancellation cancel)throws IOException {
         if(mode!=ActivityPanel.Mode.TIMELINE&&selection.kind==ExportSelection.Kind.SELECTED) {

@@ -92,14 +92,14 @@ clears its visit-local row selection, including when visit IDs are equal. Its
 capture/live owner is never registered by this saved renderer. `ParsePanelGUI`,
 Player, SecurityFilter, TomatoGUI and DpsGUI are not modified by this package.
 
-### Foundation hook request: shared selected export
+### Shared selected export (integrated review follow-up)
 
 The module's **Export selected visit + Timeline** action is functional at this
 base, including asynchronous count preview, JSON/CSV, cancellation and Open folder.
 It acquires the displayed page's lease before scheduling any work. The preview and
 write keep that lease through modal dialogs; source changes cannot alter the report.
 
-For the foundation owner, the ready shared-toolbar entry point is:
+The shared toolbar dispatches the module's implemented writer:
 
 ```java
 Path ActivityArchiveClient.writeExport(
@@ -108,23 +108,31 @@ Path ActivityArchiveClient.writeExport(
     Path directory, String base, Cancellation cancellation) throws IOException;
 ```
 
-Add the equivalent default method to `ArchiveClient`, delegating to
-`ArchiveExport.write` with `exportColumns()` for ordinary clients. Have the shared
-workspace writer call this hook instead of calling `ArchiveExport.write` directly.
-For selected visits the override calls `SelectedRunExport`; page/all matches and
-Timeline still use the foundation exporter. Its selected population is exactly one
-visit (the table uses single selection), with arbitrary linked-event count.
-The shared preview should use `SelectedRunExport.preview(held, ref, cancel)` off
-the EDT to show its actual event count and expanded scope, or expose an equivalent
-client preview hook. The preview's `description()`, `events` and `revision` are
-public; it freezes private selected/full-visit payloads. Both paths use the same
-manifest and pinned sources. The caller owns the lease.
+At primary base `7f50b99`, foundation dispatches both `writeExport` and
+`previewExport`. The Activity client overrides the preview for selected non-Timeline
+visits: it calls `SelectedRunExport.preview(held, ref, cancel).description()` and
+includes the visit query/source issues. Other populations use the default preview.
+The caller owns the same lease through preview and writing. The selected population
+is exactly one visit plus all of its linked Timeline events; page/all matches and
+Timeline still use the foundation exporter. A changed journal/checkpoint after
+preview cannot change that lease's count or report.
 
-**At base `c5d9381` the shared toolbar has no override/preview hook:** its generic
-Export selected still exports a summary row. The module-local linked action and
-`writeExport` API provide the full report now; routing the shared selected action
-through the hook remains required integration work. No shared foundation file was
-edited to bypass its owner.
+## Primary review fixes, based on `7f50b99`
+
+- Timeline literal text now searches retained values' keys and values as well as
+  the readable summary and raw detail. A field omitted from the human summary
+  remains discoverable across the complete saved query.
+- Timeline CSV has event-specific columns: epoch time, area, event ID, kind,
+  assignment, visit ID, summary, detail and values JSON. Visit-only duration,
+  outcome and capture/gap counts are omitted rather than exported as false zeroes.
+- The pure `ActivityQueries.matchesVisit(row, filters)` predicate is reusable by
+  the retained live snapshot and the global archive adapter.
+
+First bounded fix validation: **10 ActivityArchiveTest cases passed**, zero
+failures/errors/skips. New evidence includes raw-key/value matches beyond 1,000
+events, capture-issue CSV preserving true raw flags without unrelated visit metrics,
+and interface-dispatched linked preview count/revision unchanged after source edits.
+Build/cache roots: `build/w2-activity-fixes` / `build/w2-activity-fixes-cache`.
 
 ## Actual scope and limits
 

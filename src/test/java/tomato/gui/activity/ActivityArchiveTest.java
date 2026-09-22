@@ -71,6 +71,37 @@ public class ActivityArchiveTest {
             try(ArchiveResult<Row> result=open(store,query.withFacets(f).withText("incomplete"),ActivityPanel.Mode.TIMELINE)){assertEquals(653,result.matches);}
         }
     }
+    @Test public void timelineSearchIncludesRetainedRawKeysAndValuesBeyondAThousandEvents()throws Exception {
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {
+            for(int i=0;i<1300;i++) {
+                ActivityJournal.Entry e=event("v",i);e.kind="Party activity";
+                if(i==1101){e.values.put("partyId",4321);e.values.put("futureField","Literal [needle]");}
+                store.append("timeline",e);
+            }
+            store.flush();
+            for(String text:Arrays.asList("4321","partyId","literal [needle]","futureField"))try(ArchiveResult<Row> result=open(store,initial().withText(text),ActivityPanel.Mode.TIMELINE)) {
+                assertEquals(text,1,result.matches);Row row=result.page(0,1000,new Cancellation()).rows.get(0).value;
+                assertEquals("event-1101",row.recordId);assertFalse(row.summary.contains("4321"));
+            }
+        }
+    }
+    @Test public void timelineCsvExportsEventEvidenceWithoutInventedVisitMetrics()throws Exception {
+        Path scratch=temp.newFolder().toPath(),output=temp.newFolder().toPath();
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {
+            ActivityJournal.Entry e=event("",0);e.kind="Capture issue";e.detail="Decoder rejected packet";e.values.put("captureFailed",true);e.values.put("partyId",4321);
+            store.append("timeline",e);store.flush();
+            try(ArchiveResult<Row> result=open(store,initial(),ActivityPanel.Mode.TIMELINE);ArchiveResult.Lease<Row> held=result.lease()) {
+                ActivityArchiveClient client=new ActivityArchiveClient(ActivityPanel.Mode.TIMELINE,scratch);
+                Path file=client.writeExport(held,ExportSelection.all(),ArchiveExport.Format.CSV,output,"events",new Cancellation());
+                String[] lines=new String(Files.readAllBytes(file),StandardCharsets.UTF_8).split("\r\n");
+                assertTrue(lines[1].contains("Kind"));assertTrue(lines[1].contains("Assignment"));assertTrue(lines[1].contains("Detail"));assertTrue(lines[1].contains("Values JSON"));
+                for(String visitMetric:Arrays.asList("Duration","Outcome","Capture issues","Timing gaps"))assertFalse(lines[1],lines[1].contains(visitMetric));
+                assertTrue(lines[2].contains("\"Capture issue\""));assertTrue(lines[2].contains("\"Unassigned\""));assertTrue(lines[2].contains("Decoder rejected packet"));
+                assertTrue(lines[2],lines[2].contains("\"\"captureFailed\"\":true"));assertTrue(lines[2].contains("4321"));
+                assertTrue(client.previewExport(held,ExportSelection.all(),new Cancellation()).startsWith("1 events"));
+            }
+        }
+    }
     @Test public void linkedExportUsesIndependentTimelineExactSessionAndVisitAndSurvivesPinChanges()throws Exception {
         Path root=temp.newFolder().toPath(),output=temp.newFolder().toPath(),scratch=temp.newFolder().toPath();String first;
         try(SessionStore store=new SessionStore(root,true,"synthetic-a")) {
@@ -87,9 +118,13 @@ public class ActivityArchiveTest {
             ArchiveRow<Row> b=page.rows.stream().filter(r->r.ref.session.equals(store.currentId())).findFirst().get();assertNotEquals(a.ref,b.ref);
             try(ArchiveResult.Lease<Row> held=result.lease()) {
                 SelectedRunExport.Preview preview=SelectedRunExport.preview(held,a.ref,new Cancellation());assertEquals(1007,preview.events);
+                tomato.gui.history.ArchiveClient<Row,Filters,Sort> client=new ActivityArchiveClient(ActivityPanel.Mode.RUNS,scratch);
+                ExportSelection selection=ExportSelection.selected(Collections.singleton(a.ref));
+                String before=client.previewExport(held,selection,new Cancellation());assertTrue(before.contains("1 selected visit + 1007 linked Timeline events"));assertTrue(before.contains(page.revision));
                 result.close();
                 store.put("runs","same",visit("same",40));store.append("timeline",event("same",9001));store.flush();
                 Files.write(root.resolve(first).resolve("timeline.jsonl"),(SessionStore.JSON.toJson(event("same",10000))+"\n").getBytes(StandardCharsets.UTF_8),StandardOpenOption.APPEND);
+                assertEquals(before,client.previewExport(held,selection,new Cancellation()));
                 Path file=SelectedRunExport.write(held,preview,ArchiveExport.Format.JSON,output,"same",new Cancellation());
                 JsonObject report=json(file);assertEquals(1008,report.getAsJsonArray("rows").size());
                 JsonObject manifest=report.getAsJsonObject("manifest");assertEquals(1007,manifest.get("linkedEventCount").getAsInt());assertEquals(1008,manifest.get("exportCount").getAsInt());
