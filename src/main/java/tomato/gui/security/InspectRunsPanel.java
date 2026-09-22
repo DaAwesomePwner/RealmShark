@@ -8,6 +8,11 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.CollectionControl;
 import tomato.realmshark.ParseDungeon;
+import tomato.gui.history.HistoryTables;
+import tomato.gui.history.ViewState;
+import tomato.gui.history.ViewStateStore;
+import tomato.gui.roster.RosterViewState;
+import tomato.history.SessionStore;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -74,6 +79,9 @@ final class InspectRunsPanel extends JPanel {
     private String selectedId = "";
     private String loadedId = "";
     private boolean applying;
+    private RosterViewState liveState;
+    private final JPanel stateHost=new JPanel(new BorderLayout());
+    private boolean restoringState, restorePending, selectionRequired;
 
     InspectRunsPanel(DiscoveryLog log, ParsePanelGUI roster) {
         super(new BorderLayout(0, 8));
@@ -106,7 +114,7 @@ final class InspectRunsPanel extends JPanel {
             });
         }
         int[] widths = {160, 190, 70, 220, 110, 100, 130};
-        for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        for (int i = 0; i < widths.length; i++){table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);table.getColumnModel().getColumn(i).setIdentifier("column-"+i);}
         JPanel controls = ContentStyle.controls();
         JLabel label = new JLabel("Search runs"); label.setLabelFor(search);
         search.setName("inspect-runs-search"); search.getAccessibleContext().setAccessibleName("Search dungeon runs");
@@ -115,11 +123,12 @@ final class InspectRunsPanel extends JPanel {
         durationUnit.setName("inspect-run-duration-unit");durationUnit.getAccessibleContext().setAccessibleName("Run duration units");
         controls.add(durationUnit);
         durationUnit.addActionListener(e -> {
-            table.getColumnModel().getColumn(table.convertColumnIndexToView(6)).setHeaderValue(unit().column());table.getTableHeader().repaint();
+            int view=table.convertColumnIndexToView(6);if(view>=0)table.getColumnModel().getColumn(view).setHeaderValue(unit().column());table.getTableHeader().repaint();
             applying = true;
             try { model.fireTableDataChanged(); restoreSelection(); }
             finally { applying = false; }
             showSelection();
+            rememberLiveState();
         });
         JPanel runs = new JPanel(new BorderLayout(0, 6));
         runs.add(controls, BorderLayout.NORTH);
@@ -133,6 +142,7 @@ final class InspectRunsPanel extends JPanel {
         split.setBorder(null); split.setResizeWeight(0);
         runs.setMinimumSize(new Dimension(0, 100)); rosterHost.setMinimumSize(new Dimension(0, 150));
         add(split);
+        add(stateHost,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); }
             public void removeUpdate(DocumentEvent e) { filter(); }
@@ -156,11 +166,43 @@ final class InspectRunsPanel extends JPanel {
         requestRefresh();
     }
     void readOnly() { record.setVisible(false); }
+    void bindViewState(ViewStateStore store){
+        if(liveState!=null||log.isHistorical())return;
+        liveState=new RosterViewState(store,"inspect-live-runs",this::captureLiveState,this::prepareLiveState);
+        stateHost.add(liveState.controls());RosterViewState.listenTable(table,this::rememberLiveState);
+    }
+    java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState(){
+        if(liveState==null)throw new IllegalStateException("Inspect Runs live state is not bound");return liveState.save();
+    }
+    private void rememberLiveState(){if(liveState!=null&&!applying&&!restoringState)liveState.changed();}
+    private Map<String,String> captureLiveState(){
+        Map<String,String> values=new LinkedHashMap<>();values.put("runsVersion","1");values.put("search",search.getText());
+        values.put("unit",unit().name());values.put("visit",selectedId);values.put("requireSelection",Boolean.toString(selectionRequired));
+        RosterViewState.captureTable(values,table);values.put("layout",SessionStore.JSON.toJson(HistoryTables.columnState(table,"Live")));return values;
+    }
+    private Runnable prepareLiveState(Map<String,String> values){
+        RosterViewState.number(values,"runsVersion",1,1,1);String text=values.getOrDefault("search",""),id=values.getOrDefault("visit","");
+        RunDurationUnit unit=RunDurationUnit.valueOf(values.getOrDefault("unit",RunDurationUnit.values()[0].name()));
+        int required=RosterViewState.option(values,"requireSelection",0,"false","true");Runnable columns=RosterViewState.prepareTable(values,table);
+        ViewState.Table layout=values.containsKey("layout")?SessionStore.JSON.fromJson(values.get("layout"),ViewState.Table.class):null;
+        if(layout!=null){layout=new ViewState.Table(layout.preset,layout.columns);Set<String> ids=new HashSet<>();for(ViewState.Column c:layout.columns)ids.add(c.id);
+            for(int c=0;c<model.getColumnCount();c++)if(!ids.remove("column-"+c))throw new IllegalArgumentException("Missing run column");if(!ids.isEmpty())throw new IllegalArgumentException("Unknown run column");
+            if(layout.columns.stream().noneMatch(c->c.visible))throw new IllegalArgumentException("Keep a visible column");}
+        final ViewState.Table restoredLayout=layout;
+        return ()->{restoringState=true;applying=true;try{
+            search.setText(text);durationUnit.setSelectedItem(unit);columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
+            selectedId=id;restorePending=!id.isEmpty();selectionRequired=required==1;
+        }finally{applying=false;restoringState=false;}};
+    }
+    @Override public void removeNotify(){if(liveState!=null)liveState.save();timer.stop();refresh.invalidate();super.removeNotify();}
+    /** Same model refresh used on showing; usable without a native peer in bounded EDT checks. */
+    void refresh(){requestRefresh();}
 
     private void filter() {
         String text = search.getText().trim();
         sorter.setRowFilter(text.isEmpty() ? null : RowFilter.regexFilter("(?i)" + Pattern.quote(text)));
-        if (!applying) selectionChanged();
+        if (!applying&&!restoringState) selectionChanged();
+        rememberLiveState();
     }
 
     private ActivityJournal.Visit selectedVisit() {
@@ -170,9 +212,10 @@ final class InspectRunsPanel extends JPanel {
 
     private void selectionChanged() {
         ActivityJournal.Visit visit = selectedVisit();
-        if (visit != null) selectedId = visit.id;
+        if (visit != null) {selectedId = visit.id;selectionRequired=false;restorePending=false;}
         showSelection();
         if (visit != null) requestRefresh();
+        rememberLiveState();
     }
 
     private void showSelection() {
@@ -193,7 +236,7 @@ final class InspectRunsPanel extends JPanel {
     }
 
     private void requestRefresh() {
-        if (!isShowing()) return;
+        if (isDisplayable()&&!isShowing()) return;
         record.refresh();
         String id = selectedId;
         DiscoveryLog.ActivityRevision known = revision;
@@ -206,7 +249,6 @@ final class InspectRunsPanel extends JPanel {
         try {
             revision = snapshot.revision;
             loadedId = snapshot.view.selectedVisit;
-            selectedId = loadedId;
             record.refresh();
             table.clearSelection();
             visits.clear();
@@ -214,6 +256,10 @@ final class InspectRunsPanel extends JPanel {
                 ActivityJournal.Visit visit = snapshot.view.data.visits.get(i);
                 if (ParseDungeon.isDungeon(visit.map)) visits.add(visit);
             }
+            if(restorePending){
+                boolean found=false;for(ActivityJournal.Visit visit:visits)if(visit.id.equals(selectedId)){found=true;break;}
+                selectionRequired=!found;if(!found)selectedId="";restorePending=false;
+            }else if(!selectionRequired)selectedId=loadedId;
             model.fireTableDataChanged();
             restoreSelection();
             showSelection();

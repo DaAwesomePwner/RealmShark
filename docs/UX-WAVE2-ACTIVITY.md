@@ -134,6 +134,55 @@ events, capture-issue CSV preserving true raw flags without unrelated visit metr
 and interface-dispatched linked preview count/revision unchanged after source edits.
 Build/cache roots: `build/w2-activity-fixes` / `build/w2-activity-fixes-cache`.
 
+### Live Runs and independent container-state fixes
+
+Current/live Runs now exposes multi-outcome and multi-evidence facets, inclusive
+minimum/maximum seconds, and Any / Present / Absent capture issues and timing gaps.
+It calls the same pure `ActivityQueries.matchesVisit` predicate as the archive.
+Filters cover **all visits in the retained displayed snapshot**, also while frozen;
+the scope label explicitly directs users to Browse saved for persisted history.
+Changing filters never requests capture or replaces the displayed frozen revision.
+
+The live table's model/view priority is now Dungeon, Entered, Duration, Outcome,
+Coverage, Progress increase, Use requests, Capture issues, Timing gaps, Evidence
+source, Damage, DPS. The default Outcome column ends before 680 logical pixels.
+Numeric/date values stay typed. The owned formatting/observer regression tests
+were updated to these intentional column indices with their original assertions
+preserved. `ActivityPanel.setRunFilters(Filters)` is an EDT API, and `runFilters()`
+returns a detached copy suitable for a preset editor.
+
+`ActivityPanel.bindViewState(ViewStateStore)` and `SecurityGUI.bindViewState(...)`
+use the existing versioned `RosterViewState`/`ViewStateStore` persistence helper.
+Production workspace factories and the public Inspect constructor bind them;
+injected callers may bind their isolated store before the first refresh.
+`saveViewState()` returns the asynchronous save result and visible Save/Reset
+controls expose retry or unsupported-state recovery. Independent keys are:
+
+- `activity-live-runs`, `activity-live-timeline`, `activity-live-combat`;
+- `inspect-live-container` (Current Area / Runs / Ability Use tab);
+- `inspect-live-runs` (run-list search, duration unit, sorting, layout, selection).
+
+Activity saves its text/type/typed run facets, units, Resources chart/uptime tab,
+column layout/sort and exact retained record/visit IDs. Uptime row selection is
+scoped to its retained visit. The first snapshot validates restored IDs before
+selecting anything. Missing Resources/Inspect visit IDs leave selection empty
+until an explicit choice; same map/timestamp/new-capture IDs never substitute.
+New current capture controls and frozen snapshot tokens are not serialized.
+Inspect container state does not capture or replace roster-owned facets or notes.
+Live Timeline literal search also includes retained values, matching saved search.
+
+Final review-fix validation: **40 headless tests passed, zero failures/errors/skips**
+with JDK 17 / Gradle 7.6.4 and main `--release 8`. The selector set is the initial
+package's bounded set below (ActivityArchiveTest now has 10 cases), plus
+`ActivityLiveStateTest` (4), `InspectContainerStateTest` (1),
+`ArchiveExportHookTest` (3), and `InspectViewStateTest` (1). Reports:
+`build/w2-activity-fixes/reports/tests/test` and `test-results/test`.
+The live fixtures cover 140 retained visits, Completed + gaps + more than five
+minutes, real preference-file shutdown/reload, stable producer-created retained
+IDs, identical map/time with a different capture's IDs, Resources uptime selection,
+independent module filters, reordered/resized columns and restored Inspect roster.
+No native window/focus/scaling tests were run for these review fixes.
+
 ## Actual scope and limits
 
 - Whole saved scope is filtered/sorted before paging. Saved means persisted source
@@ -158,7 +207,7 @@ Build/cache roots: `build/w2-activity-fixes` / `build/w2-activity-fixes-cache`.
   not the new archive contract. Roster facet persistence beyond the selected-run
   widget remains with the roster owner; this package persists the visit query/view.
 
-## Bounded validation
+## Initial package bounded validation (before the primary review fixes)
 
 Final bounded run: **29 tests passed, zero failures/errors/skips; shadowJar passed**.
 JDK 17 / Gradle 7.6.4, main `--release 8`, isolated build
