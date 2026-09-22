@@ -43,7 +43,8 @@ public final class ArchiveResult<R> implements AutoCloseable {
             ArchiveAdapter<R,F,S> adapter,Path scratch,Cancellation cancel) throws IOException {
         ArchiveIO.offEdt(); Path directory=null;
         try {
-            cancel.check();adapter.validate(query);Files.createDirectories(scratch);directory=Files.createTempDirectory(scratch,"archive-result-");
+            cancel.check();adapter.validate(query);pin.bindQuery(adapter,query);
+            Files.createDirectories(scratch);directory=Files.createTempDirectory(scratch,"archive-result-");
             Comparator<ArchiveRow<R>> order=(a,b)->0;
             for(ArchiveQuery.Order<S> item:query.order()) {
                 Comparator<R> values=Objects.requireNonNull(adapter.comparator(item.field),"Unsupported sort field");
@@ -55,6 +56,9 @@ public final class ArchiveResult<R> implements AutoCloseable {
             Builder<R> builder=new Builder<>(directory,adapter.rowType(),order,cancel);
             long[] scanned={0};
             adapter.scan(pin,query,row->{
+                String scope=pin.resolveScope(query.scope());
+                if(!SessionStore.ALL.equals(scope)&&row.ref.session.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")&&!scope.equals(row.ref.session))
+                    throw new IOException("Adapter emitted a record outside the selected query session");
                 cancel.check();scanned[0]++;
                 if(adapter.inBounds(row,query) && adapter.matches(row,query))builder.add(row);
             },cancel);
@@ -63,6 +67,7 @@ public final class ArchiveResult<R> implements AutoCloseable {
             manifest.addProperty("capturedFrom",pin.started);manifest.addProperty("capturedUntil",pin.finished());
             manifest.addProperty("captureSemantics","Fixed source cuts; saved data, not a cross-process transaction");
             manifest.add("query",query.toJson());manifest.addProperty("matchingCount",count);manifest.addProperty("unit",adapter.unit());
+            manifest.addProperty("resolvedScope",pin.resolveScope(query.scope()));
             manifest.addProperty("scannedCount",scanned[0]);manifest.add("dependencies",SessionStore.JSON.toJsonTree(new TreeMap<>(adapter.dependencies())));
             manifest.add("issues",SessionStore.JSON.toJsonTree(pin.issues()));
             JsonArray sessions=new JsonArray();for(String id:pin.sessionIds())sessions.add(SessionStore.JSON.toJsonTree(pin.session(id)));

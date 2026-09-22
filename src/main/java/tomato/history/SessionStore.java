@@ -125,7 +125,10 @@ public final class SessionStore implements AutoCloseable {
     /** Called by readers on a worker, never on Swing's event thread. */
     public List<Session> sessions() throws IOException {
         List<Session> result = new ArrayList<>();
-        for (SessionEntry entry : catalog()) if (entry.readable()) result.add(entry.session());
+        for (SessionEntry entry : catalog()) {
+            if(!entry.readable())throw new IOException("Unreadable session "+entry.id+": "+entry.error);
+            result.add(entry.session());
+        }
         return result;
     }
     /** Metadata failures belong to one entry, not the entire library. No payloads are loaded. */
@@ -175,8 +178,13 @@ public final class SessionStore implements AutoCloseable {
     }
     public <T> void read(String scope, String module, Class<T> type, BiConsumer<Session,T> consumer) throws IOException {
         checkModule(module);
-        for (Session session : sessions()) {
-            if (!ALL.equals(scope) && !session.id.equals(scope)) continue;
+        List<Session> selected=new ArrayList<>();
+        for(SessionEntry entry:catalog()) {
+            if(!ALL.equals(scope)&&!entry.id.equals(scope))continue;
+            if(!entry.readable())throw new IOException("Unreadable session "+entry.id+": "+entry.error);
+            selected.add(entry.session());
+        }
+        for (Session session : selected) {
             Path directory = sessionPath(session.id), file = directory.resolve(module + ".jsonl");
             if (Files.isRegularFile(file)) try (BufferedReader reader = journalReader(file)) {
                 String line;

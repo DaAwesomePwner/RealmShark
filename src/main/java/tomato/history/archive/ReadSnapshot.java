@@ -33,16 +33,23 @@ public final class ReadSnapshot implements AutoCloseable {
     public final long started = System.currentTimeMillis();
     private long finished;
     private final Path directory;
+    private final SessionStore origin;
+    private final String currentId;
+    private final List<Source> declarations;
     private final List<Cut> cuts = new ArrayList<>();
     private final Map<String, SessionStore.Session> sessions = new LinkedHashMap<>();
     private final Map<String, Set<String>> included = new LinkedHashMap<>();
     private final List<String> issues = new ArrayList<>();
     private boolean closed;
+    private boolean bound;
 
-    private ReadSnapshot(Path directory) { this.directory=directory; }
+    private ReadSnapshot(Path directory,SessionStore origin,List<Source> sources) {
+        this.directory=directory;this.origin=origin;this.currentId=origin.currentId();
+        this.declarations=Collections.unmodifiableList(new ArrayList<>(sources));
+    }
     public static ReadSnapshot capture(SessionStore store, List<Source> sources, Path scratch, Cancellation cancel) throws IOException {
         ArchiveIO.offEdt(); cancel.check(); Files.createDirectories(scratch);
-        ReadSnapshot result = new ReadSnapshot(Files.createTempDirectory(scratch, "archive-pin-"));
+        ReadSnapshot result = new ReadSnapshot(Files.createTempDirectory(scratch, "archive-pin-"),store,sources);
         try {
             List<SessionStore.SessionEntry> catalog = store.catalog(cancel);
             Set<String> seen = new HashSet<>();
@@ -121,6 +128,35 @@ public final class ReadSnapshot implements AutoCloseable {
         } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
     public long finished() { return finished; }
+    /** Current means the session of the store that captured this pin, not a later application launch. */
+    public String resolveScope(String scope) { return ArchiveQuery.CURRENT.equals(scope)?currentId:scope; }
+    /** Ownership has transferred to one result. Restrict even unscoped custom-adapter reads to its declarations. */
+    <R,F,S extends Enum<S>> void bindQuery(ArchiveAdapter<R,F,S> adapter,ArchiveQuery<F,S> query)throws IOException {
+        if(closed||bound)throw new IOException("Archive snapshot is closed or already bound to a result");
+        String scope=resolveScope(query.scope());
+        List<Source> requested=adapter.sources(origin,query.withScope(scope));
+        Map<String,Set<String>> selected=new LinkedHashMap<>();boolean primary=SessionStore.ALL.equals(scope),all=false;
+        for(Source source:requested) {
+            Set<String> available=included.get(source.module);
+            if(available==null)throw new IOException("Required module was not captured: "+source.module);
+            Set<String> ids=selected.computeIfAbsent(source.module,key->new LinkedHashSet<>());
+            if(SessionStore.ALL.equals(source.scope)) {
+                if(declarations.stream().noneMatch(d->d.module.equals(source.module)&&SessionStore.ALL.equals(d.scope)))
+                    throw new IOException("All-session source was not captured: "+source.module);
+                ids.addAll(available);all=true;
+            } else {
+                if(!SessionStore.ALL.equals(scope)&&!scope.equals(source.scope))throw new IOException("Adapter source disagrees with query scope");
+                if(!available.contains(source.scope))throw new IOException("Query session was not captured for "+source.module);
+                ids.add(source.scope);if(scope.equals(source.scope))primary=true;
+            }
+        }
+        if(!primary)throw new IOException("Adapter must declare the selected query session");
+        Set<String> selectedSessions=new LinkedHashSet<>();for(Set<String> ids:selected.values())selectedSessions.addAll(ids);
+        cuts.removeIf(c->!selected.containsKey(c.module)||!selected.get(c.module).contains(c.session));
+        sessions.keySet().retainAll(selectedSessions);
+        if(!all)issues.removeIf(issue->selectedSessions.stream().noneMatch(issue::startsWith));
+        included.clear();included.putAll(selected);bound=true;
+    }
     public List<Cut> cuts() { return Collections.unmodifiableList(cuts); }
     public List<String> issues() { return Collections.unmodifiableList(issues); }
     public Set<String> sessionIds() { return Collections.unmodifiableSet(sessions.keySet()); }
@@ -132,11 +168,12 @@ public final class ReadSnapshot implements AutoCloseable {
     }
     public <T> void read(String scope, String module, Class<T> type, ArchiveAdapter.Sink<T> rows, Cancellation cancel) throws IOException {
         ArchiveIO.offEdt(); if (closed) throw new IOException("Archive snapshot is closed");
+        scope=resolveScope(scope);
         Set<String> allowed=included.get(module);
         if(allowed==null || (!SessionStore.ALL.equals(scope)&&!allowed.contains(scope)))
             throw new IOException("Requested source was not included in this archive snapshot");
         for (Cut cut : cuts) {
-            if (!cut.module.equals(module) || (!SessionStore.ALL.equals(scope) && !cut.session.equals(scope))) continue;
+            if (!cut.module.equals(module) || !allowed.contains(cut.session) || (!SessionStore.ALL.equals(scope) && !cut.session.equals(scope))) continue;
             cancel.check();
             if (!cut.journal) {
                 emit(cut,new String(Files.readAllBytes(cut.copy),StandardCharsets.UTF_8),cut.locator,type,rows);

@@ -13,8 +13,13 @@ public final class ArchiveRow<R> {
     public static final class Ref implements Comparable<Ref> {
         public final String session, module, locator, child;
         public Ref(String session, String module, String locator, String child) {
-            this.session = Objects.requireNonNull(session); this.module = Objects.requireNonNull(module);
-            this.locator = Objects.requireNonNull(locator); this.child = Objects.requireNonNull(child);
+            if(session==null||session.isEmpty()||module==null||module.isEmpty()||locator==null||locator.isEmpty()||child==null)
+                throw new IllegalArgumentException("Record reference requires session, module, locator and child");
+            this.session=session;this.module=module;this.locator=locator;this.child=child;
+        }
+        public static Ref copyOf(Ref value) {
+            if(value==null)throw new IllegalArgumentException("Null selected record reference");
+            return new Ref(value.session,value.module,value.locator,value.child);
         }
         public Ref child(String key) { Objects.requireNonNull(key);return new Ref(session, module, locator, child + "/" + key.length() + ":" + key); }
         @Override public int compareTo(Ref other) {

@@ -44,7 +44,7 @@ public interface ArchiveAdapter<R,F,S extends Enum<S>> {
                 return Collections.singletonList(new ReadSnapshot.Source(query.resolvedScope(store), module));
             }
             public void scan(ReadSnapshot pin, ArchiveQuery<F,S> query, Sink<R> rows, Cancellation cancel) throws IOException {
-                pin.read(module, type, rows, cancel);
+                pin.read(pin.resolveScope(query.scope()), module, type, rows, cancel);
             }
             public boolean matches(ArchiveRow<R> row, ArchiveQuery<F,S> query) { return matches.test(row.value, query); }
             public Long time(ArchiveRow<R> row) { return time.apply(row.value); }

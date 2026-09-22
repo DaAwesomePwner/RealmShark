@@ -17,7 +17,8 @@ public class ArchiveCatalogTest {
         Files.write(root.resolve(bad).resolve("session.json"),"{broken".getBytes(StandardCharsets.UTF_8));
         try(SessionStore store=new SessionStore(root,false,"test")){
             List<SessionStore.SessionEntry> entries=store.catalog();assertEquals(501,entries.size());
-            assertEquals(1,entries.stream().filter(e->!e.readable()).count());assertEquals(500,store.sessions().size());
+            assertEquals(1,entries.stream().filter(e->!e.readable()).count());
+            try{store.sessions();fail("Legacy enumeration cannot report partial metadata");}catch(java.io.IOException expected){ }
             for(SessionStore.SessionEntry entry:entries)assertEquals(SessionStore.ModuleAvailability.State.UNKNOWN,entry.availability("loot").state);
             try(ArchiveResult<Event> result=ArchiveResult.open(store,query(SessionStore.ALL),adapter(),scratch,new Cancellation())){
                 assertEquals(499,result.matches);assertEquals(1,result.page(0,1000,new Cancellation()).issues.size());

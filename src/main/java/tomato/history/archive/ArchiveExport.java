@@ -42,7 +42,7 @@ public final class ArchiveExport {
                     output.write("\r\n");
                     lease.stream(selection,row->{output.write(csv(row.ref.session)+","+csv(row.ref.module)+","+csv(row.ref.locator)+","+csv(row.ref.child));
                         if(columns.isEmpty())output.write(","+csv(SessionStore.JSON.toJson(row.value)));
-                        else for(Column<R> column:columns)output.write(","+csv(Objects.toString(column.value.apply(row.value),"")));
+                        else for(Column<R> column:columns)output.write(","+csv(column.value.apply(row.value)));
                         output.write("\r\n");},cancel);
                 }
             }
@@ -59,5 +59,7 @@ public final class ArchiveExport {
             }
         }finally{Files.deleteIfExists(staged);}
     }
-    private static String csv(String value){String trimmed=value.trim();if(!trimmed.isEmpty()&&"=+-@".indexOf(trimmed.charAt(0))>=0)value="'"+value;return "\""+value.replace("\"","\"\"")+"\"";}
+    private static String csv(Object cell){String value=Objects.toString(cell,""),trimmed=value.trim();
+        if(!(cell instanceof Number)&&!trimmed.isEmpty()&&"=+-@".indexOf(trimmed.charAt(0))>=0)value="'"+value;
+        return "\""+value.replace("\"","\"\"")+"\"";}
 }
