@@ -1,0 +1,115 @@
+package tomato.gui.stats;
+
+import java.awt.*;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.*;
+import java.util.*;
+import java.util.List;
+import javax.swing.*;
+import tomato.gui.history.*;
+import tomato.gui.modern.ContentStyle;
+import tomato.gui.stats.LootQuery.*;
+import tomato.gui.stats.session.*;
+import tomato.history.*;
+import tomato.history.archive.*;
+
+/** One independently persisted workspace; every inner archive filter sends query intent upstream. */
+public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
+    private final Path scratch;private final boolean statistics;
+    public LootArchiveClient(Path scratch,boolean statistics){this.scratch=scratch;this.statistics=statistics;}
+    public ArchiveQuery<Facets,Sort> initialQuery(){return LootQuery.initial(statistics);}
+    public Path scratchDirectory(){return scratch;}
+    public int pageSize(){return 100;}
+    public ArchiveAdapter<Row,Facets,Sort> adapter(ArchiveQuery<Facets,Sort> q){return q.facets().view.loot()?new LootArchiveAdapter(q):new StatisticsArchiveAdapter(q);}
+    public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){return new Render(page,state,binding);}
+    public List<ArchiveExport.Column<Row>> exportColumns(){
+        List<ArchiveExport.Column<Row>> result=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns())result.add(new ArchiveExport.Column<>(column.label,column.value));return result;
+    }
+    private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value){return new HistoryTables.Column<>(id,label,type,value,null);}
+    static List<HistoryTables.Column<Row,?>> columns(){return Arrays.asList(
+        col("type","Row unit/type",String.class,r->r.type),col("time","Timestamp (epoch ms)",Long.class,r->r.time),col("name","Name",String.class,r->r.name),
+        col("session","Source session",String.class,r->r.session),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId),col("dungeon","Dungeon",String.class,r->r.dungeon),col("bag","Bag",String.class,r->r.bag),col("dropper","Dropper",String.class,r->r.dropper),
+        col("item","Item ID",Integer.class,r->r.itemId),col("tier","Tier",String.class,r->r.tier),col("rarity","Rarity",String.class,r->r.rarity),col("slots","Slots",Integer.class,r->r.slots),col("applied","Applied enchants",Integer.class,r->r.applied),
+        col("count","Occurrences / count",Long.class,r->r.count),col("bags","Bags",Long.class,r->r.bags),col("items","Items",Long.class,r->r.items),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs),col("millis","Observed / finalized milliseconds",Long.class,r->r.millis),col("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis),
+        col("whites","White bags",Long.class,r->r.whites),col("uts","UT gear",Long.class,r->r.uts),col("sts","ST gear",Long.class,r->r.sts),col("potions","Stat potions",Long.class,r->r.potions),col("completed","Completed",Long.class,r->r.completed),col("unknown","Excluded unknown visits",Long.class,r->r.unknownRuns),col("imports","Excluded imported visits",Long.class,r->r.importedRuns),
+        col("rate","Items / hour",Double.class,r->r.perHour),col("perRun","Items / run",Double.class,r->r.perRun),col("utHour","UT / hour",Double.class,r->r.utPerHour),col("whiteRun","Whites / run",Double.class,r->r.whitesPerRun),col("utRun","UT / run",Double.class,r->r.utPerRun),col("stRun","ST / run",Double.class,r->r.stPerRun),col("potionRun","Potions / run",Double.class,r->r.potionsPerRun),
+        col("character","Character ID (within session)",Integer.class,r->r.character),col("class","Class",String.class,r->r.className),col("first","First fame",Double.class,r->r.firstFame),col("last","Last fame",Double.class,r->r.lastFame),col("gain","Fame change",Double.class,r->r.gain),col("enemy","Enemy ID",Integer.class,r->r.enemyId),col("hits","Hit events",Long.class,r->r.hits),col("damage","Damage",Long.class,r->r.damage),col("build","Build",String.class,r->r.build),col("ongoing","Ongoing contribution at counter snapshot",String.class,r->"COUNTERS".equals(r.type)?r.ongoingActivity==null?"Not captured":r.ongoingActivity?"Included; time not finalized":"None at snapshot":null),col("evidence","Calculation / coverage",String.class,r->r.evidence));}
+    private static Map<String,Sort> sorts(){Map<String,Sort> m=new HashMap<>();String[] ids={"time","name","dungeon","bag","item","slots","applied","count","bags","items","runs","millis","rate","gain","hits","first","last","perRun","utHour","whiteRun","utRun","stRun","potionRun","whites","uts","sts","potions","completed","unknown","imports","damage","character","enemy","tier","rarity","average"};Sort[] values=Sort.values();for(int i=0;i<ids.length;i++)m.put(ids[i],values[i]);return m;}
+    private final class Render extends JPanel {
+        private ViewState<Facets,Sort> current;
+        private final Binding<Facets,Sort> binding;
+        private final ArchivePage<Row> page;
+        private final JTextArea details=ContentStyle.wrappingText("Select a row for complete values and evidence.");
+        private final JTable table;
+        private final JScrollPane scroll;
+        private boolean restoring=true;
+        Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
+            super(new BorderLayout(0,5));this.page=page;this.current=state;this.binding=binding;View view=state.query.facets().view;
+            JTabbedPane tabs=new JTabbedPane();tabs.setName("loot-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+            List<View> views=new ArrayList<>();for(View candidate:View.values())if(statistics||candidate!=View.FAME&&!candidate.counters())views.add(candidate);
+            if(!views.contains(view))views.add(view);for(View v:views)tabs.addTab(v.toString(),new JPanel());tabs.setSelectedIndex(views.indexOf(view));
+            JPanel body=new JPanel(new BorderLayout(0,4));tabs.setComponentAt(tabs.getSelectedIndex(),body);add(tabs);
+            JPanel top=new JPanel(new BorderLayout(0,4));
+            if(view.loot())top.add(new LootFacetControls(state.query.facets(),choices("facet.bag."),choices("facet.dungeon."),f->query(current.query.withFacets(f))),BorderLayout.NORTH);
+            else top.add(analyticalFilters(view),BorderLayout.NORTH);
+            top.add(dateControls(),BorderLayout.CENTER);top.add(ContentStyle.wrappingText(description(view)+"\n"+countDescription(page)),BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
+            table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);
+            ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
+            HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
+            scroll=new JScrollPane(table);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
+            JScrollPane detailScroll=new JScrollPane(details);detailScroll.setPreferredSize(new Dimension(300,130));JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,detailScroll);split.setResizeWeight(.75);body.add(split);
+            JPanel actions=new JPanel(new BorderLayout());Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("Compact",visible(compact));presets.put("All analytical columns",visible(defaults));
+            actions.add(HistoryTables.controls(table,defaults,presets,layout->{current=current.withTable(view.name(),layout);savePosition();}),BorderLayout.CENTER);
+            if(view==View.SESSIONS||view==View.FAME){JButton graph=new JButton("Open selected session's full fame graph");graph.setName("archive-open-fame");graph.addActionListener(e->openFame(graph));actions.add(graph,BorderLayout.SOUTH);}
+            body.add(actions,BorderLayout.SOUTH);
+            table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!restoring){savePosition();int r=table.getSelectedRow();if(r>=0)detail(page.rows.get(r));}});
+            scroll.getViewport().addChangeListener(e->{if(!restoring)savePosition();});HistoryTables.restorePosition(table,scroll,page,current);
+            tabs.addChangeListener(e->{if(restoring)return;View selected=views.get(tabs.getSelectedIndex());Facets f=current.query.facets();f.view=selected;current=current.withPosition(selected.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(f));});
+            restoring=false;
+        }
+        private void query(ArchiveQuery<Facets,Sort> q){binding.queryChanged(q);}
+        private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
+        private Set<String> choices(String prefix){Set<String> values=new TreeSet<>();for(String key:page.counts.keySet())if(key.startsWith(prefix))values.add(key.substring(prefix.length()));return values;}
+        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append('\n');}details.setText(text.toString());details.setCaretPosition(0);}
+        private JComponent analyticalFilters(View view){
+            JPanel p=ContentStyle.controls();Facets f=current.query.facets();JTextField dungeon=new JTextField(String.join(";",f.dungeons),16),identity=new JTextField(view==View.FAME?f.character:f.enemy,8);
+            dungeon.getAccessibleContext().setAccessibleName("Exact dungeons separated by semicolons");identity.getAccessibleContext().setAccessibleName(view==View.FAME?"Exact character ID":"Exact enemy ID");
+            p.add(new JLabel("Dungeons (semicolon-separated)"));p.add(dungeon);if(view==View.FAME||view==View.ENEMIES||view==View.SOURCES){p.add(new JLabel(view==View.FAME?"Character ID":"Enemy ID"));p.add(identity);}
+            JButton apply=new JButton("Apply analytical filters");p.add(apply);apply.addActionListener(e->{Facets next=current.query.facets();next.dungeons=new LinkedHashSet<>();for(String name:dungeon.getText().split(";"))if(!name.trim().isEmpty())next.dungeons.add(name.trim());if(view==View.FAME)next.character=identity.getText().trim();else next.enemy=identity.getText().trim();query(current.query.withFacets(next));});return p;
+        }
+        private JComponent dateControls(){
+            JPanel p=ContentStyle.controls();ArchiveQuery.Bounds b=current.query.bounds();JTextField from=new JTextField(b.from==null?"":Instant.ofEpochMilli(b.from).toString(),16),until=new JTextField(b.until==null?"":Instant.ofEpochMilli(b.until).toString(),16),zone=new JTextField(b.zone,10);
+            from.setName("loot-date-from");until.setName("loot-date-until");zone.setName("loot-date-zone");from.getAccessibleContext().setAccessibleName("From inclusive ISO timestamp");until.getAccessibleContext().setAccessibleName("Until exclusive ISO timestamp");zone.getAccessibleContext().setAccessibleName("Resolved time zone");
+            JCheckBox unknown=new JCheckBox("Include unknown times",b.includeUnknown);JComboBox<ArchiveQuery.TimeMode> mode=new JComboBox<>(ArchiveQuery.TimeMode.values());mode.setSelectedItem(b.mode);mode.getAccessibleContext().setAccessibleName("Visit time inclusion");
+            p.add(new JLabel("From ["));p.add(from);p.add(new JLabel("Until )"));p.add(until);p.add(zone);p.add(unknown);p.add(mode);JButton apply=new JButton("Apply dates"),clear=new JButton("All time");p.add(apply);p.add(clear);JLabel error=new JLabel();p.add(error);
+            apply.addActionListener(e->{try{ZoneId z=ZoneId.of(zone.getText().trim());query(current.query.withBounds(new ArchiveQuery.Bounds(LootQuery.resolveTime(from.getText(),z),LootQuery.resolveTime(until.getText(),z),z,(ArchiveQuery.TimeMode)mode.getSelectedItem(),unknown.isSelected())));}catch(RuntimeException failure){error.setText(failure.getMessage());}});
+            clear.addActionListener(e->query(current.query.withBounds(ArchiveQuery.Bounds.all())));return p;
+        }
+        private void openFame(JButton button){
+            int selected=table.getSelectedRow();if(selected<0){details.setText("Select a session or character first.");return;}String session=page.rows.get(selected).value.session;
+            try{ArchiveResult.Lease<Row> lease=page.lease();button.setEnabled(false);new SwingWorker<FameSession,Void>(){
+                protected FameSession doInBackground()throws Exception{try(ArchiveResult.Lease<Row> held=lease){return readFame(held,session,new Cancellation());}}
+                protected void done(){button.setEnabled(true);try{FameSession fame=get();if(!Render.this.isShowing())return;if(fame.getCharacterFameData().isEmpty())details.setText("No fame samples captured for this pinned session.");else new FameSessionViewer(fame);}catch(Exception failure){details.setText("Fame graph unavailable: "+failure.getMessage());}}
+            }.execute();}catch(IOException failure){details.setText(failure.getMessage());}
+        }
+    }
+    static String description(View view){return view.loot()?"All saved occurrences are queried before grouping and paging. Recent Drops is globally paged, not the live 1,000-bag window. Unknown enchant values are not zero. Text: item ID/name, bag, dungeon, dropper, tier, rarity."
+        :view.counters()?"Undated counters: custom periods unsupported. Text searches dungeon / enemy / item labels for this tab. Item facets are not applied."
+        :view==View.FAME?"Text searches session, character ID and class; bounds select fame samples. Loot facets and dungeon selection do not filter fame (map association not captured). Open graph uses the whole pinned session."
+        :"Whole-visit analytical cohort: scope, dungeon and visit entry/overlap bounds. Item/bag/enchant facets are not applied. Text searches "+(view==View.SESSIONS?"session label/build/ID":"dungeon names")+". Saved bag evidence establishes eligibility per session; unknown sessions remain excluded.";}
+    private static String countDescription(ArchivePage<Row> page){StringJoiner s=new StringJoiner(" · ");page.counts.forEach((key,value)->{if(!key.startsWith("facet."))s.add(key+": "+value.value+" "+value.unit+" ["+value.population+"]");});return s.toString();}
+    private static List<String> visible(ViewState.Table layout){List<String> ids=new ArrayList<>();for(ViewState.Column c:layout.columns)if(c.visible)ids.add(c.id);return ids;}
+    private static ViewState.Table compact(ViewState.Table defaults,View view){
+        Set<String> ids=new LinkedHashSet<>(view==View.OCCURRENCES?Arrays.asList("time","name","dungeon","bag","slots","applied"):view==View.RECENT?Arrays.asList("time","name","bag","dungeon","items"):view==View.RATES?Arrays.asList("name","items","runs","millis","perRun","rate","unknown","imports"):view==View.SESSIONS?Arrays.asList("name","runs","millis","items","gain"):view==View.FAME?Arrays.asList("name","first","last","gain"):view==View.COUNTERS?Arrays.asList("name","runs","millis","average","hits","items","ongoing"):view==View.ENEMIES?Arrays.asList("name","dungeon","hits","items"):view==View.SOURCES?Arrays.asList("name","dungeon","dropper","item","count"):Arrays.asList("name","count","bags","items","slots","applied"));
+        List<ViewState.Column> columns=new ArrayList<>();for(ViewState.Column c:defaults.columns)columns.add(new ViewState.Column(c.id,c.width,ids.contains(c.id)));return new ViewState.Table("Compact",columns);
+    }
+    /** Whole-session graph from the same pin; bounded points, never a fresh live file read. */
+    static FameSession readFame(ArchiveResult.Lease<Row> lease,String session,Cancellation cancel)throws IOException{
+        FameSession result=new FameSession("Pinned saved session · "+session);Map<Integer,TreeMap<Long,Fame>> samples=new TreeMap<>();int[] count={0};
+        lease.readSource(session,"fame-snapshots",FameSession.class,row->{FameSession old=row.value;if(old.getCharacterClassNames()!=null)result.getCharacterClassNames().putAll(old.getCharacterClassNames());if(old.getCharacterMapFameData()!=null)result.setCharacterMapFameData(old.getCharacterMapFameData());if(old.getCharacterFameData()!=null)for(Map.Entry<Integer,List<Fame>> e:old.getCharacterFameData().entrySet())for(Fame f:e.getValue()){cancel.check();graphPoint(samples,e.getKey(),f,count);}},cancel);
+        for(String module:Arrays.asList("fame","fame-latest"))lease.readSource(session,module,AppHistory.FameSample.class,row->{AppHistory.FameSample f=row.value;result.getCharacterClassNames().put(f.character,f.className);graphPoint(samples,f.character,new Fame(f.fame,f.time),count);},cancel);
+        samples.forEach((id,points)->result.getCharacterFameData().put(id,new ArrayList<>(points.values())));return result;
+    }
+    private static void graphPoint(Map<Integer,TreeMap<Long,Fame>> samples,int character,Fame sample,int[] count)throws IOException{TreeMap<Long,Fame> points=samples.computeIfAbsent(character,k->new TreeMap<>());if(points.put(sample.getTime(),sample)==null&&++count[0]>100000)throw new IOException("Graph exceeds 100000 samples; use the paged fame summaries. No samples were truncated.");}
+}
