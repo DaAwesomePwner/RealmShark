@@ -101,7 +101,10 @@ Wave 1 rules are retained:
 rows. It reads the same pin through a lease on a worker, then opens the existing
 viewer. It includes available legacy map data, without inventing missing joins.
 Legacy snapshots, fame journals and latest checkpoints are combined; equal-time
-samples prefer latest checkpoint, then journal, then legacy snapshot. The graph
+dated samples prefer latest checkpoint, then journal, then legacy snapshot. Undated
+observations remain separate and are never plotted at epoch zero. A single pinned
+snapshot retains its original name, creation/modification dates and description;
+synthesized graphs label projection generation separately from historical dates. The graph
 is explicitly the full pinned session, rather than the summary's filtered period.
 Saved fame control parity remains Wave 3 work.
 
@@ -128,7 +131,9 @@ Published asset-generation changes invalidate a scan before a mixed result can
 be applied; normalized labels and generation description are frozen in the result.
 
 Live Loot uses the same item predicates, with exact matching bag counts from
-composition aggregates. Tabs, multi-facets, search, ordering, selection, scroll
+composition aggregates. Literal search uses explicit item ID/name, dungeon, bag,
+dropper, tier and rarity fields rather than decorated item descriptions. Tabs,
+multi-facets, search, ordering, selection, scroll
 and columns persist separately from archive intent. Existing fame graph range,
 measure and delayed character selection, fame table filters/layout and overall
 Statistics tab state also persist. These live selection keys are local UI keys,
@@ -147,16 +152,88 @@ failure and offer Retry view save; unreadable state requires explicit reset.
 - Labels retained by archive reducers: at most **512 characters**; a saved bag
   supports at most **1,024 item positions**. Oversized/malformed records fail
   explicitly. Foundation 16 MiB raw-record and 1 MiB projected-row limits also apply.
-- Opening one full fame graph: at most **100,000 distinct character/time samples**.
+- Opening one full fame graph: at most **100,000 retained observations** (distinct
+  positive character/time samples plus separately retained undated observations).
   An oversized graph reports unavailable; summary queries remain available.
 - Live filtered bag accounting: **25,000 distinct bag compositions**. If exceeded,
   affected filtered bag counts show unavailable with an explanation; complete
   item totals and unfiltered bag totals remain intact. Saved queries provide exact
   bag accounting without retaining compositions. No capture records are deleted.
 
-## Focused validation
+## Primary review corrections — starting head `7f50b99`
 
-Final worker source: **43 tests passed, 0 failures/errors/skips**, forced headless,
+Three independently confirmed module blockers were corrected in the primary
+`feat/ux-wave-2-evidence` checkout:
+
+1. **Literal live search.** The generated ` [rarity, slots, enchants]` display suffix
+   is no longer searchable. Bag-composition counts, item totals and recent rows use
+   one predicate over the same explicit fields as the archive. Live accumulators
+   retain raw name/classification/dropper context so two observations of the same
+   item variant cannot borrow each other's matching text. A real bracket in a name
+   or dropper still matches literally.
+2. **Fame chronology.** `FameSession.Chronology` separates positive-timestamp samples
+   from undated observations. Character rows retain known endpoints when available,
+   but included undated observations make gain and elapsed interval unavailable.
+   Any such character also makes the combined session gain unavailable. Undated
+   counts appear in row evidence, whole-query counts and exports. One dated timestamp
+   alone has a labelled same-sample zero delta, not measured session growth; its
+   elapsed interval is unavailable. Two dated equal values still establish zero
+   change over their measured sample span. Finite date queries may explicitly
+   exclude unknown times before this calculation.
+3. **Graph provenance.** Graphs plot only dated samples and disclose undated counts.
+   A single snapshot is returned from its pin with stored dates/description/name
+   preserved; missing dates stay unknown rather than inheriting constructor time.
+   Multi-source graphs have unknown historical created/modified dates and separate
+   `ArchiveProvenance` containing projection generation time, revision, source session
+   and source-record count. The viewer distinguishes these labels. Ordinary manual
+   sessions retain their existing constructors, metadata and raw sample round-trip.
+
+### Correction validation
+
+**50 focused tests passed** using JDK 17/JUnit 4.13.2, forced headless, isolated
+history/preferences and worker-owned output. Main sources compiled successfully
+through Gradle 7.6.4 with the existing Java 8 target. At this validation point the
+normal Gradle test compile was blocked by concurrent social work:
+`ChatVisibilityStateTest` attempted to subclass final `ChatExplorer`.
+That failed compile is not a test pass. The reporting test closure was instead
+compiled directly with JDK 17 `javac --release 17` against the successful main
+output and cached project dependencies, then executed with `JUnitCore`:
+
+| Test class (`tomato.gui.stats.` prefix) | Count |
+| --- | ---: |
+| `ReportingReviewFixTest` | 7 |
+| `LootArchiveQueryTest` | 11 |
+| `LootArchiveStateTest` | 6 |
+| `ReportingStatisticsTest` | 14 |
+| `session.FameSessionPersistenceTest` | 4 |
+| `session.FameFormatExportTest` | 1 |
+| `FameAutosaveStateTest` | 7 |
+
+New source cases verify:
+- `literalBracketAndRawDropperSearchAgreeAcrossLiveBagsItemsAndArchive`: PlainSword
+  does not match `[`, genuine raw brackets do, and bag/item counts agree with archive.
+- `undatedHundredAndDatedOneFiftyNeverProduceEpochEndpointsOrFiftyGain`: known
+  endpoint 150 at its recorded timestamp, null gain/span in rows and CSV/JSON,
+  null session gain, and only the dated point sent to the graph.
+- `undatedOnlyFlatDatedAndSingleDatedObservationsRemainDistinct` and
+  `finiteBoundsCanExcludeUndatedSamplesWithoutInventingTheirOrder`: unknown versus
+  confirmed zero, multiple undated values retained, and explicit bounds behavior.
+- `singleImportedSnapshotRetainsMetadataAndUndatedEvidenceFromItsPin`: stored
+  creation/modification/description survive a post-pin source-file replacement.
+- `synthesizedGraphHasGenerationProvenanceAndNoInventedHistoricalDates` and
+  `absentSnapshotDatesAreUnknownAndOrdinaryManualSessionsKeepTheirMetadataContract`:
+  generation versus historical metadata, missing dates, and manual compatibility.
+
+Output: `build/ux-w2-report-review/`; project cache:
+`build/ux-w2-report-review-cache/`; directly compiled test closure:
+`build/ux-w2-report-review/focused-tests/`. The direct run used the in-memory
+PreferencesFactory and `focused-history/` under the same output. Console evidence:
+`OK (50 tests)`. No native viewer, GUI/focus/scaling run, capture or real bridge
+delivery was performed. Integrated Gradle/native gates remain coordinator-owned.
+
+## Original worker focused validation
+
+Original worker source: **43 tests passed, 0 failures/errors/skips**, forced headless,
 JDK 17.0.20.1 / Gradle 7.6.4, main Java 8 API/bytecode targeting. Test history,
 preferences, output and scratch are synthetic and isolated. No capture, bridge
 delivery, native window, focus, screenshot or scaled validation was run.

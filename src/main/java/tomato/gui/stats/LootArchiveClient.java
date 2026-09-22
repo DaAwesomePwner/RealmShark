@@ -1,5 +1,6 @@
 package tomato.gui.stats;
 
+import com.google.gson.JsonObject;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -31,7 +32,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         col("type","Row unit/type",String.class,r->r.type),col("time","Timestamp (epoch ms)",Long.class,r->r.time),col("name","Name",String.class,r->r.name),
         col("session","Source session",String.class,r->r.session),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId),col("dungeon","Dungeon",String.class,r->r.dungeon),col("bag","Bag",String.class,r->r.bag),col("dropper","Dropper",String.class,r->r.dropper),
         col("item","Item ID",Integer.class,r->r.itemId),col("tier","Tier",String.class,r->r.tier),col("rarity","Rarity",String.class,r->r.rarity),col("slots","Slots",Integer.class,r->r.slots),col("applied","Applied enchants",Integer.class,r->r.applied),
-        col("count","Occurrences / count",Long.class,r->r.count),col("bags","Bags",Long.class,r->r.bags),col("items","Items",Long.class,r->r.items),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs),col("millis","Observed / finalized milliseconds",Long.class,r->r.millis),col("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis),
+        col("count","Occurrences / sample observations / count",Long.class,r->r.count),col("bags","Bags",Long.class,r->r.bags),col("items","Items",Long.class,r->r.items),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs),col("millis","Observed / finalized milliseconds",Long.class,r->r.millis),col("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis),
         col("whites","White bags",Long.class,r->r.whites),col("uts","UT gear",Long.class,r->r.uts),col("sts","ST gear",Long.class,r->r.sts),col("potions","Stat potions",Long.class,r->r.potions),col("completed","Completed",Long.class,r->r.completed),col("unknown","Excluded unknown visits",Long.class,r->r.unknownRuns),col("imports","Excluded imported visits",Long.class,r->r.importedRuns),
         col("rate","Items / hour",Double.class,r->r.perHour),col("perRun","Items / run",Double.class,r->r.perRun),col("utHour","UT / hour",Double.class,r->r.utPerHour),col("whiteRun","Whites / run",Double.class,r->r.whitesPerRun),col("utRun","UT / run",Double.class,r->r.utPerRun),col("stRun","ST / run",Double.class,r->r.stPerRun),col("potionRun","Potions / run",Double.class,r->r.potionsPerRun),
         col("character","Character ID (within session)",Integer.class,r->r.character),col("class","Class",String.class,r->r.className),col("first","First fame",Double.class,r->r.firstFame),col("last","Last fame",Double.class,r->r.lastFame),col("gain","Fame change",Double.class,r->r.gain),col("enemy","Enemy ID",Integer.class,r->r.enemyId),col("hits","Hit events",Long.class,r->r.hits),col("damage","Damage",Long.class,r->r.damage),col("build","Build",String.class,r->r.build),col("ongoing","Ongoing contribution at counter snapshot",String.class,r->"COUNTERS".equals(r.type)?r.ongoingActivity==null?"Not captured":r.ongoingActivity?"Included; time not finalized":"None at snapshot":null),col("evidence","Calculation / coverage",String.class,r->r.evidence));}
@@ -96,7 +97,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     }
     static String description(View view){return view.loot()?"All saved occurrences are queried before grouping and paging. Recent Drops is globally paged, not the live 1,000-bag window. Unknown enchant values are not zero. Text: item ID/name, bag, dungeon, dropper, tier, rarity."
         :view.counters()?"Undated counters: custom periods unsupported. Text searches dungeon / enemy / item labels for this tab. Item facets are not applied."
-        :view==View.FAME?"Text searches session, character ID and class; bounds select fame samples. Loot facets and dungeon selection do not filter fame (map association not captured). Open graph uses the whole pinned session."
+        :view==View.FAME?"Text searches session, character ID and class; bounds select fame samples. Undated observations are counted separately, never ordered as epoch zero; incomplete chronology has no gain/elapsed interval. Loot facets and dungeon selection do not filter fame (map association not captured). Open graph uses the whole pinned session."
         :"Whole-visit analytical cohort: scope, dungeon and visit entry/overlap bounds. Item/bag/enchant facets are not applied. Text searches "+(view==View.SESSIONS?"session label/build/ID":"dungeon names")+". Saved bag evidence establishes eligibility per session; unknown sessions remain excluded.";}
     private static String countDescription(ArchivePage<Row> page){StringJoiner s=new StringJoiner(" · ");page.counts.forEach((key,value)->{if(!key.startsWith("facet."))s.add(key+": "+value.value+" "+value.unit+" ["+value.population+"]");});return s.toString();}
     private static List<String> visible(ViewState.Table layout){List<String> ids=new ArrayList<>();for(ViewState.Column c:layout.columns)if(c.visible)ids.add(c.id);return ids;}
@@ -106,10 +107,29 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     }
     /** Whole-session graph from the same pin; bounded points, never a fresh live file read. */
     static FameSession readFame(ArchiveResult.Lease<Row> lease,String session,Cancellation cancel)throws IOException{
-        FameSession result=new FameSession("Pinned saved session · "+session);Map<Integer,TreeMap<Long,Fame>> samples=new TreeMap<>();int[] count={0};
-        lease.readSource(session,"fame-snapshots",FameSession.class,row->{FameSession old=row.value;if(old.getCharacterClassNames()!=null)result.getCharacterClassNames().putAll(old.getCharacterClassNames());if(old.getCharacterMapFameData()!=null)result.setCharacterMapFameData(old.getCharacterMapFameData());if(old.getCharacterFameData()!=null)for(Map.Entry<Integer,List<Fame>> e:old.getCharacterFameData().entrySet())for(Fame f:e.getValue()){cancel.check();graphPoint(samples,e.getKey(),f,count);}},cancel);
-        for(String module:Arrays.asList("fame","fame-latest"))lease.readSource(session,module,AppHistory.FameSample.class,row->{AppHistory.FameSample f=row.value;result.getCharacterClassNames().put(f.character,f.className);graphPoint(samples,f.character,new Fame(f.fame,f.time),count);},cancel);
-        samples.forEach((id,points)->result.getCharacterFameData().put(id,new ArrayList<>(points.values())));return result;
+        Map<Integer,TreeMap<Long,Fame>> dated=new TreeMap<>();Map<Integer,List<Fame>> undated=new TreeMap<>();Map<Integer,String> names=new HashMap<>();
+        List<HashMap<Integer,List<tomato.gui.stats.data.MapFameData>>> maps=new ArrayList<>();maps.add(new HashMap<>());
+        FameSession[] single={null};long[] sourceRecords={0},storedDates={0,0};int[] count={0};
+        lease.readSource(session,"fame-snapshots",JsonObject.class,row->{
+            FameSession old=SessionStore.JSON.fromJson(row.value,FameSession.class);sourceRecords[0]++;
+            if(sourceRecords[0]==1){single[0]=old;storedDates[0]=storedTime(row.value,"createdTimestamp");storedDates[1]=storedTime(row.value,"lastModifiedTimestamp");}
+            if(old.getCharacterClassNames()!=null)names.putAll(old.getCharacterClassNames());LootArchiveAdapter.bounded(names.size(),100000,"Graph character labels");
+            if(old.getCharacterMapFameData()!=null)maps.set(0,old.getCharacterMapFameData());
+            if(old.getCharacterFameData()!=null)for(Map.Entry<Integer,List<Fame>> e:old.getCharacterFameData().entrySet())for(Fame f:e.getValue()){cancel.check();graphPoint(dated,undated,e.getKey(),f,count);}
+        },cancel);
+        for(String module:Arrays.asList("fame","fame-latest"))lease.readSource(session,module,AppHistory.FameSample.class,row->{
+            sourceRecords[0]++;AppHistory.FameSample f=row.value;names.put(f.character,f.className);graphPoint(dated,undated,f.character,new Fame(f.fame,f.time),count);
+        },cancel);
+        String revision=lease.manifest().get("revision").getAsString();
+        if(sourceRecords[0]==1&&single[0]!=null)return FameSession.pinnedSnapshot(single[0],revision,session,storedDates[0],storedDates[1]);
+        FameSession result=FameSession.archiveProjection("Pinned saved session · "+session,revision,session,sourceRecords[0]);
+        result.getCharacterClassNames().putAll(names);result.getCharacterMapFameData().putAll(maps.get(0));
+        dated.forEach((id,points)->result.getCharacterFameData().put(id,new ArrayList<>(points.values())));
+        undated.forEach((id,points)->result.getCharacterFameData().computeIfAbsent(id,key->new ArrayList<>()).addAll(points));return result;
     }
-    private static void graphPoint(Map<Integer,TreeMap<Long,Fame>> samples,int character,Fame sample,int[] count)throws IOException{TreeMap<Long,Fame> points=samples.computeIfAbsent(character,k->new TreeMap<>());if(points.put(sample.getTime(),sample)==null&&++count[0]>100000)throw new IOException("Graph exceeds 100000 samples; use the paged fame summaries. No samples were truncated.");}
+    private static long storedTime(JsonObject snapshot,String field){return snapshot.has(field)&&!snapshot.get(field).isJsonNull()?snapshot.get(field).getAsLong():0;}
+    private static void graphPoint(Map<Integer,TreeMap<Long,Fame>> dated,Map<Integer,List<Fame>> undated,int character,Fame sample,int[] count)throws IOException{
+        if(sample.getTime()<=0){if(++count[0]>100000)throw new IOException("Graph exceeds 100000 dated/undated observations; no samples were truncated.");undated.computeIfAbsent(character,key->new ArrayList<>()).add(sample);return;}
+        TreeMap<Long,Fame> points=dated.computeIfAbsent(character,k->new TreeMap<>());if(points.put(sample.getTime(),sample)==null&&++count[0]>100000)throw new IOException("Graph exceeds 100000 dated/undated observations; use the paged fame summaries. No samples were truncated.");
+    }
 }
