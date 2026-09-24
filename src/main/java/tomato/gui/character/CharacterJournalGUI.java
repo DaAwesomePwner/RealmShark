@@ -446,13 +446,15 @@ public final class CharacterJournalGUI extends JPanel {
                                                                     boolean selected, boolean focused) {
                 putClientProperty("html.disable", true);
                 super.getListCellRendererComponent(list, value, index, selected, focused);
-                setToolTipText(Objects.toString(value, ""));
+                // JToolTip has its own HTML parser; a fixed plain-text prefix keeps
+                // captured labels beginning with <html> literal in the popup too.
+                setToolTipText("Full label: " + Objects.toString(value, ""));
                 return this;
             }
         });
         box.addActionListener(e -> {
             String label = Objects.toString(box.getSelectedItem(), "");
-            box.setToolTipText(label); box.getAccessibleContext().setAccessibleDescription(label);
+            box.setToolTipText("Full label: " + label); box.getAccessibleContext().setAccessibleDescription(label);
         });
     }
     private static <T> T choice(JComboBox<Choice<T>> box) { Choice<T> c = (Choice<T>)box.getSelectedItem(); return c == null ? null : c.value; }
