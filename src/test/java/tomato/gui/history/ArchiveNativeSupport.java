@@ -145,6 +145,13 @@ public final class ArchiveNativeSupport {
         return false;
     }
 
+    /** Capture the actual failure message after scrolling it into the native viewport. */
+    public static void failureStatus(Container root, String text) {
+        JTextArea message = find(root, JTextArea.class, area -> area.isShowing() && area.getText().contains(text));
+        completeText(message);
+        if (activeEvidence != null) activeEvidence.capture(activeCapture + "-failure-message");
+    }
+
     public static void failExport(ArchiveWorkspace<?,?,?> workspace) throws Exception {
         Path blocked = Files.createTempFile(Paths.get("."), "synthetic-export-blocked-", ".tmp");
         try {

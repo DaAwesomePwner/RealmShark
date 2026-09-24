@@ -74,6 +74,7 @@ public class StatisticsArchiveNativeTest {
                 failExport(workspace);
                 matrix(evidence,layouts,shell,"loot-export-error",() -> ready(workspace),() -> {
                     assertTrue(textPresent(workspace,"Export failed:")); archiveControls(workspace,"loot","loot-archive-table","loot-archive-details");
+                    failureStatus(workspace,"Export failed:");
                 });
                 Path file = edt(() -> workspace.exportTo(output,"occurrences",ExportSelection.all(),ArchiveExport.Format.JSON)).get(15,TimeUnit.SECONDS);
                 assertEquals(130,json(file).getAsJsonArray("rows").size());

@@ -517,8 +517,9 @@ public class ParsePanelRefreshTest {
             pageScroll.getVerticalScrollBar().setValue(start.y);
             assertTrue("Rows must be reachable by scrolling the page", table.getVisibleRect().height >= table.getRowHeight());
             assertLastRowReachable(table);
-            pageScroll.getVerticalScrollBar().setValue(pageScroll.getVerticalScrollBar().getMaximum());
-            assertTrue("Actions remain reachable at large text sizes", button(panel, "Actions…").getVisibleRect().height > 0);
+            // Container state controls may add an outer page scroll; reveal every ancestor.
+            ui.VisualEvidence.completeButton(button(panel, "Actions…"));
+            new ui.VisualEvidence("wave2").capture(frame, "inspect-live-large-actions");
         });
     }
 

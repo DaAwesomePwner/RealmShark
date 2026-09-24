@@ -78,11 +78,13 @@ public class SocialArchiveNativeTest {
                 matrix(evidence,layouts,shell,"chat-save-error",() -> ready(workspace),() -> {
                     assertEquals(1200,workspace.displayedPage().matches); assertTrue(textPresent(workspace,"save failed"));
                     archiveControls(workspace,"chat","chat-archive-messages","chat-archive-detail");
+                    failureStatus(workspace,"save failed");
                 });
                 memory.failSaves = false; assertTrue(edt(() -> workspace.saveNamed("Retry guild view")).toCompletableFuture().get(5,TimeUnit.SECONDS).isSuccess());
                 failExport(workspace);
                 matrix(evidence,layouts,shell,"chat-export-error",() -> ready(workspace),() -> {
                     assertTrue(textPresent(workspace,"Export failed:")); archiveControls(workspace,"chat","chat-archive-messages","chat-archive-detail");
+                    failureStatus(workspace,"Export failed:");
                 });
                 Path file = edt(() -> workspace.exportTo(output,"guild",ExportSelection.all(),ArchiveExport.Format.JSON)).get(15,TimeUnit.SECONDS);
                 assertEquals(1200,json(file).getAsJsonArray("rows").size());
