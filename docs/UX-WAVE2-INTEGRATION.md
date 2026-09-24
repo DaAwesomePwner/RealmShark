@@ -1,5 +1,32 @@
 # Wave 2 shell integration
 
+## Resumed integration status (2026-09-24)
+
+The original bounded handoff below records its earlier integration base. The later
+Wave 2 commits now adopt the shared selected-visit export preview/writer hooks and
+persist Activity, Inspect, Character, encounter-library, and Logging view state.
+`ArchiveClient.previewExport` and `writeExport` use the same pinned export lease;
+the common toolbar therefore includes a selected visit's linked Timeline population.
+The actual production factories retain independent live and saved state.
+
+Inactive Inspect Runs no longer writes into the shared Current Area roster, and
+cached archive compound controls restore parent-first. Independent production
+source review through `c1ccedb` found no blocking issue in the reviewed paths.
+Native validation is still in progress: fresh queried-screen fixtures exposed
+compact/enlarged layout defects, so no full/scaled/native pass is claimed here.
+
+Build-contract checks on the resumed production head passed output isolation,
+source cleanliness, generation/version invalidation, and fresh Java 8 JAR contracts
+under JDK 17 / Gradle 7.6.4. Evidence:
+`build/build-maintenance-0fd8d9295ccd4cac9a66847a44ad6327/`.
+An earlier sandboxed attempt could not read a cached dependency and is superseded
+by this successful run. Final PR-head validation and CI remain required.
+
+The availability/recording-interval producer hook below is still outstanding for
+Wave 3. Missing recording metadata remains UNKNOWN, including for empty modules.
+
+## Original bounded integration handoff
+
 Integration base: `feat/ux-wave-2-evidence` at `f604e78`, primary checkout.
 This bounded package owns `TomatoGUI`, shell integration tests and the scaling
 allowlist. Foundation and roster fixes are concurrent, separately owned work.
