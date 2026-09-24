@@ -67,6 +67,18 @@ public class InspectArchiveNativeTest {
                     completeButton(button(roster,"Reset display filters")); completeButton(button(roster,"Actions…"));
                     archiveControls(workspace,"inspect","saved-activity-table",null);
                 });
+                JToggleButton filters = edt(() -> named(cached,"inspect-display-filters",JToggleButton.class));
+                key(filters, java.awt.event.KeyEvent.VK_SPACE);
+                await(filters::isSelected);
+                edt(() -> {
+                    JComboBox<?> season = named(cached,"inspect-facet-2",JComboBox.class);
+                    reachable(season); season.setSelectedIndex(1); return null;
+                });
+                await(() -> "Display filters (1)".equals(filters.getText()));
+                edt(() -> { filters.doClick(); assertFalse(filters.isSelected()); assertEquals("Display filters (1)",filters.getText());
+                    assertTrue(filters.getAccessibleContext().getAccessibleDescription().contains("1 active"));
+                    button(cached,"Reset display filters").doClick(); return null; });
+                await(() -> "Display filters (0)".equals(filters.getText()) && find(cached,JTable.class,c -> true).getRowCount() == 1);
                 String preview = preview(workspace,evidence,"inspect-linked-preview");
                 assertTrue(preview.contains(sources.get(1))); assertTrue(preview.contains("8 linked Timeline events"));
             } finally { edt(() -> { workspace.close(); evidence.closeWindow(); ParsePanelGUI.clear(); return null; }); }
