@@ -70,8 +70,9 @@ public class SecurityGUI extends JPanel {
             } else if (tabbedPane.getSelectedComponent() == runs) runs.showRoster();
             if(liveState!=null)liveState.changed();
         });
-        add(tabbedPane);
-        add(stateHost,BorderLayout.SOUTH);
+        // Container-state actions share the page's scroll fallback instead of taking
+        // a fixed slice from the roster viewport in a compact workspace.
+        add(ContentStyle.page(null, tabbedPane, stateHost));
 
         abilityUse.setLayout(new BorderLayout());
         text = new tomato.gui.modern.EmptyLogArea("No ability activity yet", "Ability usage will appear here during capture.");
