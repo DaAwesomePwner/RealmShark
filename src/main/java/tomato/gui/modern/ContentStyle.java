@@ -344,7 +344,19 @@ public final class ContentStyle {
         private void configureCaret() {
             // Background metadata publications must not scroll the page to this control. Explicit
             // keyboard caret movement still scrolls normally; theme changes may install a new caret.
-            if (getCaret() instanceof DefaultCaret) ((DefaultCaret) getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+            if (!(getCaret() instanceof DefaultCaret)) return;
+            DefaultCaret current = (DefaultCaret) getCaret();
+            if (!(current instanceof MetadataCaret) && !(current instanceof FlatMetadataCaret)) {
+                int dot = current.getDot(), mark = current.getMark(), blink = current.getBlinkRate();
+                DefaultCaret passive = current instanceof com.formdev.flatlaf.ui.FlatCaret
+                        ? new FlatMetadataCaret() : new MetadataCaret();
+                passive.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+                passive.setBlinkRate(blink);
+                setCaret(passive);
+                passive.setDot(mark); passive.moveDot(dot);
+                current = passive;
+            }
+            current.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         }
 
         @Override public Dimension getPreferredSize() {
@@ -384,6 +396,23 @@ public final class ContentStyle {
             boolean changed = width != getWidth();
             super.setBounds(x, y, width, height);
             if (changed) WidthRelayout.request(this, false);
+        }
+    }
+
+    /** Suppress only automatic caret reveals; Find and explicit scroll requests remain unchanged. */
+    private static final class MetadataCaret extends DefaultCaret implements UIResource {
+        @Override protected void adjustVisibility(Rectangle bounds) {
+            if (getComponent() != null && (getComponent().isEditable() || getComponent().isFocusOwner()))
+                super.adjustVisibility(bounds);
+        }
+    }
+
+    /** Match FlatTextAreaUI's caret policy and mouse behavior while keeping unfocused metadata passive. */
+    private static final class FlatMetadataCaret extends com.formdev.flatlaf.ui.FlatCaret {
+        FlatMetadataCaret() { super(null, false); }
+        @Override protected void adjustVisibility(Rectangle bounds) {
+            if (getComponent() != null && (getComponent().isEditable() || getComponent().isFocusOwner()))
+                super.adjustVisibility(bounds);
         }
     }
 
