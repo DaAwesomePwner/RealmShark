@@ -42,6 +42,7 @@ public class ParsePanelGUI extends JPanel {
     private SecurityFilter selectedFilter;
     private long requirementsRevision;
     private final JTextField rosterSearch = new JTextField(16);
+    private final JToggleButton displayFilters = new JToggleButton("Display filters (0)");
     private final JComboBox<Choice<Integer>> classFacet = new JComboBox<>();
     private final JComboBox<Choice<String>> guildFacet = new JComboBox<>();
     private final JComboBox<String> seasonalFacet = new JComboBox<>(new String[]{"Any season", "Seasonal", "Non-seasonal", "Season unknown"});
@@ -171,14 +172,20 @@ public class ParsePanelGUI extends JPanel {
         top.add(filterRow, BorderLayout.NORTH);
         top.add(options, BorderLayout.CENTER);
         JPanel facets = ContentStyle.controls();
+        JPanel searchActions = ContentStyle.controls();
         rosterSearch.setName("inspect-roster-search"); rosterSearch.getAccessibleContext().setAccessibleName("Search displayed roster");
-        facets.add(rosterSearch);
+        searchActions.add(rosterSearch);
+        displayFilters.setName("inspect-display-filters");
+        displayFilters.setToolTipText("Expand display filters; the count shows active advanced filters even while collapsed.");
+        searchActions.add(displayFilters);
+        facets.setVisible(false);
+        displayFilters.addActionListener(e -> { facets.setVisible(displayFilters.isSelected()); updateDisplayFilterSummary(); page.revalidate(); });
         classFacet.addItem(new Choice<>(null, "All classes"));
         guildFacet.addItem(new Choice<>(null, "All guilds")); guildFacet.addItem(new Choice<>(null, "No guild (captured)")); guildFacet.addItem(new Choice<>(null, "Guild not captured"));
         JComponent[] controls = {classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed};
         String[] facetNames = {"Class", "Guild", "Season", "Crucible", "Requirements result", "Maxed count", "Minimum maxed", "Maximum maxed"};
         for (int i = 0; i < controls.length; i++) { controls[i].setName("inspect-facet-" + i); controls[i].getAccessibleContext().setAccessibleName(facetNames[i]); facets.add(controls[i]); }
-        JButton reset = new JButton("Reset display filters"); facets.add(reset);
+        JButton reset = new JButton("Reset display filters"); searchActions.add(reset);
         reset.addActionListener(e -> {
             guiUpdateSuppression = true; rosterSearch.setText("");
             for (JComboBox<?> combo : new JComboBox<?>[]{classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet}) combo.setSelectedIndex(0);
@@ -193,7 +200,9 @@ public class ParsePanelGUI extends JPanel {
             public void removeUpdate(javax.swing.event.DocumentEvent e) { insertUpdate(e); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { insertUpdate(e); }
         });
-        top.add(facets, BorderLayout.SOUTH);
+        JPanel displayControls = new JPanel(new BorderLayout(0, 2));
+        displayControls.add(searchActions, BorderLayout.NORTH); displayControls.add(facets);
+        top.add(displayControls, BorderLayout.SOUTH);
         page.add(top, BorderLayout.NORTH);
 
         JPopupMenu actions = new JPopupMenu("Roster actions");
@@ -247,7 +256,7 @@ public class ParsePanelGUI extends JPanel {
         JPanel bottom = new JPanel(new BorderLayout(0, 4)); bottom.add(buttons, BorderLayout.NORTH); bottom.add(stateHost, BorderLayout.SOUTH); stateHost.setVisible(false);
         footer.add(rosterCount, BorderLayout.NORTH); footer.add(resultDetails, BorderLayout.CENTER); footer.add(bottom, BorderLayout.SOUTH);
         page.add(footer, BorderLayout.SOUTH);
-        for (JComponent control : new JComponent[]{rosterSearch, classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed, reset, explain}) {
+        for (JComponent control : new JComponent[]{rosterSearch, displayFilters, classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed, reset, explain}) {
             JComponent focus = control instanceof JSpinner ? ((JSpinner.DefaultEditor)((JSpinner)control).getEditor()).getTextField() : control;
             focus.addFocusListener(new FocusAdapter() { public void focusGained(FocusEvent e) { ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight())); } });
         }
@@ -529,6 +538,7 @@ public class ParsePanelGUI extends JPanel {
         }
         Row selected = selectedRow();
         rebuildDisplayChoices(players);
+        updateDisplayFilterSummary();
         SecurityFilter rules = selectedFilter == null ? null : selectedFilter.snapshot();
         InspectRosterQuery query = displayQuery();
         Map<String, Row> previous = new HashMap<>();
@@ -556,6 +566,15 @@ public class ParsePanelGUI extends JPanel {
         rosterCount.setText(players.isEmpty() ? "No captured players in this roster." : rows.isEmpty() ? "No matching players. Reset display filters."
             : rows.size() + " of " + players.size() + " players shown · " + (historicalPlayers == null ? "Current area" : "Selected run")
                 + " · Display filters do not change bulk-copy scope.");
+    }
+
+    private void updateDisplayFilterSummary() {
+        int activeFilters = 0;
+        for (JComboBox<?> facet : new JComboBox<?>[]{classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet})
+            if (facet.getSelectedIndex() > 0) activeFilters++;
+        displayFilters.setText("Display filters (" + activeFilters + ")");
+        displayFilters.getAccessibleContext().setAccessibleDescription(activeFilters + " active advanced display filters; "
+                + (displayFilters.isSelected() ? "expanded" : "collapsed") + ". Search and Reset remain available.");
     }
 
     void showCurrentArea() {

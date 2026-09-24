@@ -30,7 +30,7 @@ public final class LoggingGUI extends JPanel {
         "FOR_RECONNECT", "RECONNECT", "HELLO", "QUEUE_INFORMATION", "FAILURE", "MAPINFO", "LOAD", "CREATE_SUCCESS"));
     private final DiscoveryLog log;
     private final JLabel summary = new JLabel(), losses = new JLabel(), exportStatus = new JLabel(" ");
-    private final JTextField search = new JTextField(22);
+    private final JTextField search = new JTextField(18);
     private final JCheckBox observedOnly = new JCheckBox("Observed packets only");
     private final JCheckBox issuesOnly = new JCheckBox("Packet issues only");
     private final JCheckBox freeze = new JCheckBox("Pause this view");
