@@ -270,7 +270,16 @@ public final class ContentStyle {
             public int getScrollableUnitIncrement(Rectangle r, int axis, int direction) { return 32; }
             public int getScrollableBlockIncrement(Rectangle r, int axis, int direction) { return Math.max(32, r.height - 32); }
         }
-        JScrollPane scroll = new JScrollPane(new Page());
+        Page page = new Page();
+        JScrollPane scroll = new JScrollPane(page) {
+            @Override public Dimension getMinimumSize() {
+                // Archive clients may themselves be pages inside a workspace page.
+                // Preserve their content floor through the nested scroll pane so the
+                // outer page scrolls instead of reducing the inner viewport to zero.
+                Insets border = getInsets();
+                return new Dimension(0, page.getPreferredSize().height + border.top + border.bottom);
+            }
+        };
         scroll.setBorder(null); scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         return scroll;
     }
