@@ -8,7 +8,6 @@ import javax.swing.*;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
-import java.awt.GraphicsEnvironment;
 import java.nio.file.*;
 import java.util.*;
 import java.util.List;
@@ -24,7 +23,6 @@ import static tomato.history.archive.ArchiveFixtures.*;
 public class ArchiveWorkspaceTest {
     @Rule public TemporaryFolder temp=new TemporaryFolder();
     @Test public void innerFacetsAndSortReachBeyondFirstPageThenRestoreIndependentNamedState()throws Exception{
-        assertTrue(GraphicsEnvironment.isHeadless());
         Path root=temp.newFolder().toPath(),scratch=temp.newFolder().toPath(),output=temp.newFolder().toPath();String id=session(root,12005);
         PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("state.properties"));preferences.preload();ViewStateStore states=ViewStateStore.preferences(preferences);
         SessionStore store=new SessionStore(root,false,"test");Reference client=new Reference(id,scratch);

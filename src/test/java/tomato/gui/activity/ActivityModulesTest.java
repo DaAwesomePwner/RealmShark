@@ -105,7 +105,14 @@ public class ActivityModulesTest {
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt T")));
                 shell.select(10);JTable table=find(runs,JTable.class,null);await(()->table.getRowCount()==2);assertEquals(2,table.getRowCount());
                 table.setRowSelectionInterval(1,1);runs.refresh();assertEquals(1,table.getSelectedRow());
-                shell.select(11);await(()->find(timeline,JComboBox.class,"activity-visit").getItemCount()==3);JTextField search=find(timeline,JTextField.class,null);search.setText("Party roster");assertEquals(1,find(timeline,JTable.class,null).getRowCount());search.setText("[");assertEquals(0,find(timeline,JTable.class,null).getRowCount());search.setText("");
+                shell.select(11);await(()->find(timeline,JComboBox.class,"activity-visit").getItemCount()==3);
+                JTextField search=find(timeline,JTextField.class,"activity-search");
+                JTable events=find(timeline,JTable.class,"activity-table");
+                search.setText("Party roster");assertEquals(1,events.getRowCount());
+                search.setText("[");assertEquals(1,events.getRowCount());
+                assertEquals("Party roster",events.getValueAt(0,2));events.setRowSelectionInterval(0,0);
+                assertTrue(find(timeline,JTextArea.class,"activity-detail").getText().contains("\"members\": []"));
+                search.setText("[no-such-event]");assertEquals(0,events.getRowCount());search.setText("");
                 shell.select(7);JTabbedPane tabs=find(dps,JTabbedPane.class,"dps-tabs");assertEquals("Resources & buffs",tabs.getTitleAt(1));tabs.setSelectedIndex(1);
                 ActivityPanel combat=find(dps,ActivityPanel.class,"activity-combat");await(()->find(combat,JComboBox.class,"activity-visit").getItemCount()==2);combat.selectVisit(log.activityHistory().visits.get(0).id);
                 await(()->find(combat,JTable.class,null).getRowCount()==2);

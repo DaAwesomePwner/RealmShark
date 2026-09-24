@@ -435,7 +435,9 @@ public class ParsePanelRefreshTest {
         for (int i = 0; i < 300; i++) expected.append("Ability ").append(i).append('\n');
         SwingUtilities.invokeAndWait(() -> {
             SecurityGUI security = new SecurityGUI();
-            log.set(find(security, JTextArea.class));
+            JTabbedPane tabs = named(security, "inspect-tabs", JTabbedPane.class);
+            log.set(find((Container)tabs.getComponentAt(tabs.indexOfTab("Ability Use")), JTextArea.class));
+            assertEquals("Ability usage log", log.get().getAccessibleContext().getAccessibleName());
             log.get().getDocument().addDocumentListener(new DocumentListener() {
                 public void insertUpdate(DocumentEvent e) {
                     assertTrue(SwingUtilities.isEventDispatchThread());

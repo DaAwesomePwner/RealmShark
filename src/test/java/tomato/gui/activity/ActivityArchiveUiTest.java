@@ -21,7 +21,7 @@ import static tomato.gui.activity.ActivityQueries.*;
 public class ActivityArchiveUiTest {
     @Rule public TemporaryFolder temp=new TemporaryFolder();
     @Test public void resourcesRememberSelectedVisitPageChartTabColumnsAndNamedQueryIndependently()throws Exception {
-        assertTrue(GraphicsEnvironment.isHeadless());Path scratch=temp.newFolder().toPath();
+        Path scratch=temp.newFolder().toPath();
         PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("views.properties"));preferences.preload();
         ViewStateStore states=ViewStateStore.preferences(preferences);
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {

@@ -38,7 +38,7 @@ public class LoggingGuiTest {
                 assertTrue(detail.getText().contains("serverNameCount")); assertFalse(detail.getText().contains("USSouth"));
                 tabs.setSelectedIndex(2); JTable table=find((Container)tabs.getSelectedComponent(),JTable.class);
                 JCheckBox observed=checkbox(panel,"Observed packets only"); observed.doClick(); assertEquals(3,table.getRowCount());
-                JTextField search=find(panel,JTextField.class); search.setText("REALM_SCORE"); assertEquals(1,table.getRowCount());
+                JTextField search=named(panel,"logging-search",JTextField.class); search.setText("REALM_SCORE"); assertEquals(1,table.getRowCount());
                 table.setRowSelectionInterval(0,0); panel.refresh(); assertEquals(0,table.getSelectedRow());
                 assertTrue(detail.getText().contains("2500"));
                 search.setText("["); assertEquals(0,table.getRowCount()); search.setText("");

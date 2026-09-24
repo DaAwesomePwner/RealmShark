@@ -158,7 +158,9 @@ public class CharacterJournalLayoutTest {
             if (populated) {
                 assertTrue(roster.getValueAt(0, 1).toString().contains(LONG_NAME));
                 assertEquals(roster.getValueAt(0, 1), ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 1), 0, 1)).getToolTipText());
-                assertEquals("Unknown", roster.getValueAt(0, 5));
+                assertEquals(Integer.class, roster.getColumnClass(5));
+                assertNull(roster.getValueAt(0, 5));
+                assertEquals("Unknown", ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 5), 0, 5)).getText());
                 assertEquals(Formatters.formatTimestamp((Long)roster.getValueAt(0, 7)),
                         ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 7), 0, 7)).getText());
                 roster.getRowSorter().toggleSortOrder(0);
