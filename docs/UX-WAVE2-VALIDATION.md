@@ -1,6 +1,37 @@
 # Wave 2 validation and review
 
-Status on 2026-09-24: final validation in progress; not a merge authorization.
+Status on 2026-09-24: stopped at the user's request after completing the current
+validation task. One scaled failure remains; this is not a merge authorization.
+
+## Final stopping-task results
+
+Integrated code commit: `ad21a1fe3091324a7d773b69a326b2566071e0eb`.
+Verifier worker `0b6fe5c` has identical `src`, `scripts` and `build.gradle` content.
+The complete sequential command used JDK 17 / Gradle 7.6.4, isolated build/cache
+directories, synthetic fixtures and isolated preferences; it continued through
+all tasks and exited **1** after 8 minutes 4 seconds.
+
+| Task | Tests | Failures | Errors | Skipped | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `test` | 800 | 0 | 0 | 0 | Passed |
+| `shadowJar` | — | — | — | — | Passed |
+| `testUi150` | 174 | 1 | 0 | 0 | Failed |
+| `testUi200` | 174 | 0 | 0 | 0 | Passed |
+
+The sole failure is
+`ui.WorkspaceShellNavigationTest.realFrameFocusPaintDiffersFromSelectionAndReproducesTheOldEmptyBorderDefect`:
+`awaitFocus` at line 329, called from line 186, timed out after five seconds waiting
+for keyboard focus following `requestFocusInWindow`. It failed before the focus
+paint comparison. XML does not identify the failing theme/font loop variant.
+The cause is unestablished; do not label it infrastructure-only or waive the gate.
+
+Local evidence in the verifier worktree: `build/ux-wave2-gate/validation.log`,
+`validation.exit`, `test-results/`, `reports/`, `ui-test/`, `ui-Ui150/` and `ui-Ui200/`.
+The coordinator checked the XML totals and exit marker against the verifier report.
+No retry or repair cycle was started after this result, in accordance with the
+user's stop instruction. No owned Gradle/test JVM remained after completion.
+Raw reports/screenshots are not part of the portable checkout; regenerate needed
+artifacts on resumption. An earlier interrupted attempt produced no results.
 
 ## Recovered baseline
 
@@ -44,6 +75,8 @@ not claimed by the replacement check.
 
 Independent source review through `904ece4` found no remaining blocking issue. A P2
 tooltip literal-safety finding was repaired and re-reviewed at `6d0e94f`.
+The final test-only delta through `ad21a1f` and portable handoff/contracts were
+also independently reviewed with no blockers. This is not final PR-head approval.
 The reviewer inspected actual archive query/revision/export and state code, recent
 layout changes, passive caret behavior, Inspect ownership and regression validity.
 
@@ -57,7 +90,14 @@ were captured separately. Ellipsized cells retain full detail paths.
 
 These images support unchanged archive surfaces, not final-head live Inspect or
 scaled validation. Some initial files named "error" showed surrounding controls
-rather than the error message; explicit error-message captures are still required.
+rather than the error message. The reviewer subsequently inspected three explicit
+Chat save/export and Loot export failure-message captures from `native-wrapper`;
+the complete messages, synthetic paths and recovery controls were visible/readable.
+
+Final focused wrapper checks passed 4/4 at worker `0b6fe5c`: initial live Inspect
+rows and enlarged actions, archived Inspect, and actual Chat/Loot failure messages.
+That worker's source, scripts and build configuration exactly match integrated
+commit `ad21a1fe3091324a7d773b69a326b2566071e0eb`.
 
 ## Build contract
 
@@ -70,6 +110,7 @@ not read a cached dependency and is superseded by the successful run.
 
 ## Remaining gates
 
-Final live Inspect focus/layout checks; full tests and shadow JAR; applicable 150%
-and 200% suites; explicit error-message and final Inspect/scaled image review;
-independent final PR-head review; Windows CI, normal merge, and main CI verification.
+Resolve the 150% keyboard-focus failure and refresh affected validation; independently
+review final Inspect/scaled images and the final PR head; create the Wave 2 PR,
+pass required Windows CI, merge normally, and verify main CI. Waves 3 and 4 remain
+unimplemented. See [the handoff](UX-HANDOFF.md) and [checkpoint](UX-CHECKPOINT.json).

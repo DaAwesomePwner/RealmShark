@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "repository": "DaAwesomePwner/RealmShark",
+  "recordedDate": "2026-09-24",
+  "phase": "wave-2",
+  "status": "stopped-at-user-request; validation complete with one unresolved scaled failure",
+  "stopRequestedByUser": true,
+  "branch": "feat/ux-wave-2-evidence",
+  "testedCodeCommit": "ad21a1fe3091324a7d773b69a326b2566071e0eb",
+  "testedWorkerCommit": "0b6fe5c",
+  "equivalence": "No diff between tested worker and integrated code commit in src, scripts or build.gradle.",
+  "mainCommit": "64d58d0606a82a956e082fa0dcc07aa18d8fbbfa",
+  "mainCi": {
+    "run": "https://github.com/DaAwesomePwner/RealmShark/actions/runs/35696825491",
+    "conclusion": "success"
+  },
+  "trackingIssue": "https://github.com/DaAwesomePwner/RealmShark/issues/9",
+  "wave2PullRequest": null,
+  "waves": [
+    {
+      "wave": 1,
+      "status": "merged",
+      "pullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/11"
+    },
+    {
+      "wave": 2,
+      "status": "implemented; validation gate failed; not merged"
+    },
+    {
+      "wave": 3,
+      "status": "not implemented; provisional contracts preserved",
+      "document": "docs/UX-WAVE3-CONTRACTS.md"
+    },
+    {
+      "wave": 4,
+      "status": "not implemented; provisional contracts preserved",
+      "document": "docs/UX-WAVE4-CONTRACTS.md"
+    }
+  ],
+  "validation": {
+    "command": ".\\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/ux-handoff-cache -PrealmSharkBuildDir=build/ux-handoff -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200",
+    "commandNote": "Portable equivalent; original worker used its own unique build/cache directories.",
+    "runtime": "JDK 17, Gradle 7.6.4, main Java 8 API/bytecode targeting",
+    "exitCode": 1,
+    "test": {
+      "tests": 800,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "shadowJar": "passed",
+    "testUi150": {
+      "tests": 174,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    "testUi200": {
+      "tests": 174,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "failures": [
+      {
+        "task": "testUi150",
+        "test": "ui.WorkspaceShellNavigationTest.realFrameFocusPaintDiffersFromSelectionAndReproducesTheOldEmptyBorderDefect",
+        "message": "Timed out waiting for keyboard focus",
+        "location": "src/test/java/ui/WorkspaceShellNavigationTest.java:329 (called from line 186)",
+        "cause": "Not established. Do not assume infrastructure-only or waive the gate."
+      }
+    ],
+    "buildContract": {
+      "result": "passed earlier in this resumption",
+      "codeCommit": "c1ccedb",
+      "isolatedJarHelpExitCode": 0
+    },
+    "limits": [
+      "Earlier interrupted run produced no test result and is not a pass.",
+      "Raw build reports and screenshots are local-only; regenerate needed artifacts in the next workspace.",
+      "History keyboard fixture verifies native focus and posted Swing dispatch, not OS keystroke delivery."
+    ]
+  },
+  "review": {
+    "sourceThrough": "904ece4",
+    "finalTestDeltaThrough": "ad21a1f",
+    "result": "No remaining blockers in independently reviewed source/test deltas.",
+    "visuals": "22 archive screenshots plus 3 explicit failure-message screenshots independently reviewed; no blockers in this sample.",
+    "pending": [
+      "Independent final Inspect/scaled screenshot review",
+      "Independent review of final PR head"
+    ]
+  },
+  "nextAction": "Investigate and resolve the scaled keyboard-focus failure(s), then refresh affected validation and independently review final Inspect/scaled evidence. Do not start Wave 3.",
+  "remainingGates": [
+    "Scaled tests must pass with actual XML/exit evidence",
+    "Final native/scaled visual review",
+    "Independent final PR-head review",
+    "Create Wave 2 PR and pass required Windows CI",
+    "Normal merge and verify main CI before Wave 3"
+  ],
+  "recovery": {
+    "entrypoint": "docs/UX-HANDOFF.md",
+    "validationRecord": "docs/UX-WAVE2-VALIDATION.md",
+    "coverageLedger": "docs/UX-EXECUTION.md",
+    "productBacklog": "docs/UX-ROADMAP-2026-09-21.md",
+    "localStateOptional": ".omc/ux/checkpoint.json and old worktrees are machine-local conveniences, not required recovery inputs.",
+    "workers": "All production/test changes integrated; create fresh isolated worker worktrees when resuming.",
+    "historicalCopies": [
+      "docs/UX-EXECUTION (1).md",
+      "docs/UX-ROADMAP-2026-09-21 (1).md"
+    ]
+  }
+}
