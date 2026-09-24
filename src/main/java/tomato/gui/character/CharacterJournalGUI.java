@@ -93,6 +93,8 @@ public final class CharacterJournalGUI extends JPanel {
         search.setName("character-search"); search.getAccessibleContext().setAccessibleName("Search saved characters");
         life.getAccessibleContext().setAccessibleName("Character life state"); season.getAccessibleContext().setAccessibleName("Character season");
         filters.add(search); filters.add(life); filters.add(season);
+        boundChoiceWidth(accountFilter, "Account name · 000000");
+        boundChoiceWidth(classFilter, "Class name (#00000)");
         accountFilter.addItem(new Choice<>(null, "All accounts")); classFilter.addItem(new Choice<>(null, "All classes"));
         filters.add(accountFilter); filters.add(classFilter); filters.add(needsLife); filters.add(missing); filters.add(maxedFilter);
         filters.add(new JLabel("Maxed from")); filters.add(minMaxed); filters.add(new JLabel("to")); filters.add(maxMaxed);
@@ -434,6 +436,24 @@ public final class CharacterJournalGUI extends JPanel {
         for (String key : seenAccounts) { Choice<String> c = new Choice<>(key, accountName(key)); accountFilter.addItem(c); if (key.equals(account)) accountFilter.setSelectedItem(c); }
         for (Integer id : classes) { Choice<Integer> c = new Choice<>(id, className(id) + " (#" + id + ")"); classFilter.addItem(c); if (id.equals(clazz)) classFilter.setSelectedItem(c); }
         refreshing = false;
+    }
+    private static <T> void boundChoiceWidth(JComboBox<Choice<T>> box, String prototype) {
+        // Names from captured records must not widen a FlowLayout row beyond the page.
+        // The model and accessible selected value keep the complete label.
+        box.setPrototypeDisplayValue(new Choice<>(null, prototype));
+        box.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                    boolean selected, boolean focused) {
+                putClientProperty("html.disable", true);
+                super.getListCellRendererComponent(list, value, index, selected, focused);
+                setToolTipText(Objects.toString(value, ""));
+                return this;
+            }
+        });
+        box.addActionListener(e -> {
+            String label = Objects.toString(box.getSelectedItem(), "");
+            box.setToolTipText(label); box.getAccessibleContext().setAccessibleDescription(label);
+        });
     }
     private static <T> T choice(JComboBox<Choice<T>> box) { Choice<T> c = (Choice<T>)box.getSelectedItem(); return c == null ? null : c.value; }
     private static final class Choice<T> { final T value; final String label; Choice(T value, String label) { this.value = value; this.label = label; } public String toString() { return label; } }
