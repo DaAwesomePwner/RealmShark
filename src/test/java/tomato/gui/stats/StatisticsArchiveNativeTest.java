@@ -52,8 +52,9 @@ public class StatisticsArchiveNativeTest {
                 edt(() -> { named(workspace,"loot-history-search",JTextField.class).setText("Needle"); named(workspace,"loot-history-search",JTextField.class).postActionEvent(); return null; });
                 await(() -> ready(workspace) && workspace.displayedPage().matches == 130);
                 edt(() -> {
-                    named(workspace,"loot-kind",JComboBox.class).setSelectedItem(Kind.UT_EQUIPMENT);
-                    named(workspace,"loot-apply-facets",JButton.class).doClick(); return null;
+                    find(workspace,AbstractButton.class,c -> c.isShowing() && "Multi-select loot facets…".equals(c.getText())).doClick();
+                    find(workspace,JComboBox.class,c -> c.isShowing() && "loot-kind".equals(c.getName())).setSelectedItem(Kind.UT_EQUIPMENT);
+                    find(workspace,JButton.class,c -> c.isShowing() && "loot-apply-facets".equals(c.getName())).doClick(); return null;
                 });
                 await(() -> ready(workspace) && workspace.state().query.facets().kind == Kind.UT_EQUIPMENT);
                 edt(() -> { workspace.selectPage(1); return null; }); await(() -> ready(workspace) && workspace.displayedPage().page == 1);

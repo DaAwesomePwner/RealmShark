@@ -53,6 +53,13 @@ allprojects {
                     includeTestsMatching 'tomato.gui.stats.LootLayoutEvidenceTest'
                     includeTestsMatching 'ui.SetupLayoutEvidenceTest'
                     // Wave 2 queried views and retained live controls. Large query/model stress stays in test.
+                    includeTestsMatching 'tomato.gui.activity.ActivityArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.chat.SocialArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.security.InspectArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.stats.StatisticsArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.history.HistoryLibraryNativeTest'
+                    includeTestsMatching 'tomato.gui.dps.EncounterLibraryNativeTest'
+                    includeTestsMatching 'tomato.gui.logging.LoggingNativeTest'
                     includeTestsMatching 'tomato.gui.history.ArchiveWorkspaceTest.typedColumnsPresetsNamesCopyAndKeyboardDetailsAreUsableHeadlessly'
                     includeTestsMatching 'tomato.gui.history.ArchiveWorkspaceTest.libraryShowsBadEntryAndRetainsSelectionAcrossRefresh'
                     includeTestsMatching 'tomato.gui.chat.ChatArchiveClientTest.realWorkspaceRestoresNamedStateAndRejectsOldRendererCallbacks'

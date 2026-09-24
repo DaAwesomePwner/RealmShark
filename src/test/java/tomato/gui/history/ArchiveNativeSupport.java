@@ -59,6 +59,18 @@ public final class ArchiveNativeSupport {
         return !workspace.loading() && workspace.displayedPage() != null;
     }
 
+    /** Real keyboard dispatch, reserved for the serialized native validation slot. */
+    public static void key(JComponent target, int keyCode) throws Exception {
+        edt(() -> {
+            if (target instanceof JTable) {
+                JTable table = (JTable)target; reachable(table, table.getCellRect(Math.max(0, table.getSelectedRow()), 0, true));
+            } else reachable(target);
+            SwingUtilities.getWindowAncestor(target).toFront(); target.requestFocusInWindow(); return null;
+        });
+        await(target::hasFocus);
+        Robot robot = new Robot(); robot.keyPress(keyCode); robot.keyRelease(keyCode); robot.waitForIdle();
+    }
+
     public static WorkspaceShell shell(JComponent content, int page) {
         JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
         pages[page] = content;
@@ -98,7 +110,7 @@ public final class ArchiveNativeSupport {
         reachable(named(workspace, module + "-history-search", JTextField.class));
         for (String label : new String[]{"Current live view", "Previous page", "Next page", "Save view", "Load view",
                 "Export selected…", "Export page…", "Export all matches…"}) completeButton(button(workspace, label));
-        completeButton(button(workspace, "Columns…"));
+        completeButton(find(workspace, AbstractButton.class, b -> b.isShowing() && "Columns…".equals(b.getText())));
         if (detail != null) completeText(named(workspace, detail, JTextArea.class));
     }
 
