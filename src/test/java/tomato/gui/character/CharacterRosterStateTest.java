@@ -12,6 +12,27 @@ import static org.junit.Assert.*;
 
 public class CharacterRosterStateTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    @Test @SuppressWarnings({"rawtypes", "unchecked"}) public void capturedMarkupLabelsStayLiteralInBoundedChoiceTooltips() throws Exception {
+        String name = "<html><img src='https://invalid.example/image'>Account & <b>name</b>";
+        try (CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("markup.json"))) {
+            Entity player = CharacterJournalTest.player("markup-account", 782);
+            player.stat.get(packets.data.enums.StatType.NAME_STAT).stringStatValue = name;
+            journal.observe(player, 1);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterJournalGUI view = new CharacterJournalGUI(journal);
+                JComboBox box = named(view, "character-facet-0", JComboBox.class); box.setSelectedIndex(1);
+                String label = box.getSelectedItem().toString(); assertTrue(label.startsWith(name));
+                assertEquals(label, box.getAccessibleContext().getAccessibleDescription());
+                assertNotNull(box.getPrototypeDisplayValue());
+                assertEquals("Full label: " + label, box.getToolTipText());
+                assertFalse(javax.swing.plaf.basic.BasicHTML.isHTMLString(box.getToolTipText()));
+                JLabel rendered = (JLabel)box.getRenderer().getListCellRendererComponent(new JList(), box.getSelectedItem(), 1, false, false);
+                assertEquals(label, rendered.getText()); assertEquals(Boolean.TRUE, rendered.getClientProperty("html.disable"));
+                assertEquals("Full label: " + label, rendered.getToolTipText());
+                assertFalse(javax.swing.plaf.basic.BasicHTML.isHTMLString(rendered.getToolTipText()));
+            });
+        }
+    }
     @Test public void composedControlsUseAccountIdentityAndNumericNullablePotionColumn() throws Exception {
         CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
         String a = CharacterJournal.accountKey("A"), b = CharacterJournal.accountKey("B");

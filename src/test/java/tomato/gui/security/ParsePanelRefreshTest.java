@@ -481,6 +481,13 @@ public class ParsePanelRefreshTest {
         SwingUtilities.invokeAndWait(() -> {
             JTable table = find(panel, JTable.class);
             assertEquals(30, table.getRowCount());
+            JScrollPane initialPage = named(panel, "security-page-scroll", JScrollPane.class);
+            JScrollPane initialRoster = named(panel, "security-roster-scroll", JScrollPane.class);
+            System.out.println("Initial live Inspect page position=" + initialPage.getViewport().getViewPosition()
+                    + ", extent=" + initialPage.getViewport().getExtentSize() + ", roster=" + initialRoster.getBounds()
+                    + ", roster extent=" + initialRoster.getViewport().getExtentSize()
+                    + ", table position=" + initialRoster.getViewport().getViewPosition());
+            new ui.VisualEvidence("wave2").capture(frame, "inspect-live-minimum-initial");
             assertTrue("The populated in-shell viewport must show at least three full rows: " + table.getVisibleRect(),
                     table.getVisibleRect().height >= table.getRowHeight() * 3);
             assertLastRowReachable(table);

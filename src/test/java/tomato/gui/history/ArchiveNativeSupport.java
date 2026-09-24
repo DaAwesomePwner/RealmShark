@@ -24,6 +24,8 @@ import static tomato.gui.chat.SocialArchiveTestSupport.edt;
 
 /** Shared native checks use the production query/state/export controls and isolated storage. */
 public final class ArchiveNativeSupport {
+    private static VisualEvidence activeEvidence;
+    private static String activeCapture;
     private ArchiveNativeSupport() {}
 
     public static final class Memory {
@@ -59,16 +61,33 @@ public final class ArchiveNativeSupport {
         return !workspace.loading() && workspace.displayedPage() != null;
     }
 
-    /** Real keyboard dispatch, reserved for the serialized native validation slot. */
+    /** Posted Swing key dispatch after native focus; this does not synthesize OS keyboard input. */
     public static void key(JComponent target, int keyCode) throws Exception {
+        Window window = edt(() -> SwingUtilities.getWindowAncestor(target));
+        edt(() -> { window.toFront(); window.requestFocus(); return null; });
+        await(() -> KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow() == window);
         edt(() -> {
             if (target instanceof JTable) {
                 JTable table = (JTable)target; reachable(table, table.getCellRect(Math.max(0, table.getSelectedRow()), 0, true));
             } else reachable(target);
-            SwingUtilities.getWindowAncestor(target).toFront(); target.requestFocusInWindow(); return null;
+            target.requestFocusInWindow(); return null;
         });
-        await(target::hasFocus);
-        Robot robot = new Robot(); robot.keyPress(keyCode); robot.keyRelease(keyCode); robot.waitForIdle();
+        await(() -> target.isFocusOwner() && KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow() == window);
+        CompletableFuture<Void> delivered = new CompletableFuture<>();
+        KeyEventDispatcher observer = event -> {
+            if (event.getID() == java.awt.event.KeyEvent.KEY_PRESSED && event.getKeyCode() == keyCode) {
+                if (event.getComponent() == target && target.isFocusOwner()) delivered.complete(null);
+                else delivered.completeExceptionally(new AssertionError("Key reached a different focus owner"));
+            }
+            return false;
+        };
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(observer);
+        try {
+            long when = System.currentTimeMillis(); EventQueue queue = Toolkit.getDefaultToolkit().getSystemEventQueue();
+            queue.postEvent(new java.awt.event.KeyEvent(target, java.awt.event.KeyEvent.KEY_PRESSED, when, 0, keyCode, java.awt.event.KeyEvent.CHAR_UNDEFINED));
+            queue.postEvent(new java.awt.event.KeyEvent(target, java.awt.event.KeyEvent.KEY_RELEASED, when, 0, keyCode, java.awt.event.KeyEvent.CHAR_UNDEFINED));
+            delivered.get(5, TimeUnit.SECONDS);
+        } finally { KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(observer); }
     }
 
     public static WorkspaceShell shell(JComponent content, int page) {
@@ -86,7 +105,9 @@ public final class ArchiveNativeSupport {
             edt(() -> {
                 String file = name + "-" + width + "-" + font;
                 evidence.capture(file);
-                errors.checkSucceeds(() -> { assertions.run(); return null; });
+                activeEvidence = evidence; activeCapture = file;
+                try { errors.checkSucceeds(() -> { assertions.run(); return null; }); }
+                finally { activeEvidence = null; activeCapture = null; }
                 evidence.capture(file + "-targets");
                 return null;
             });
@@ -100,6 +121,7 @@ public final class ArchiveNativeSupport {
         System.out.println(table.getName() + " viewport=" + viewport.getExtentSize() + ", rowHeight=" + table.getRowHeight());
         assertTrue("Usable matching rows: " + table.getName(), viewport.getHeight() >= rows * table.getRowHeight());
         reachable(table, new Rectangle(0, 0, Math.min(viewport.getWidth(), table.getWidth()), rows * table.getRowHeight()));
+        if (activeEvidence != null) activeEvidence.capture(activeCapture + "-" + table.getName() + "-table");
     }
 
     public static void archiveControls(ArchiveWorkspace<?,?,?> workspace, String module, String table, String detail) {

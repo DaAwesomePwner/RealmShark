@@ -23,6 +23,7 @@ public class LoggingGuiTest {
             DiscoveryLog log = new DiscoveryLog(null); log.setSampleMillis(0);
             RealmScoreUpdatePacket score=new RealmScoreUpdatePacket(); score.score=2500;
             log.observe(169,9,score,"decoded",0); log.observe(255,9,null,"unknown-id",0);
+            log.observe(255,9,null,"decode-error",0);
             ForReconnectPacket reconnect=new ForReconnectPacket(); reconnect.reconnectInfo=":USSouth:EUWest"; emit(log,reconnect);
             LoggingGUI panel=new LoggingGUI(log,LoggingStateTestSupport.memoryStore());
             JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages,i->new JPanel()); pages[9]=panel;
@@ -43,6 +44,7 @@ public class LoggingGuiTest {
                 assertTrue(detail.getText().contains("2500"));
                 search.setText("["); assertEquals(0,table.getRowCount()); search.setText("");
                 checkbox(panel,"Packet issues only").doClick(); assertEquals(1,table.getRowCount());
+                assertEquals(255, table.getValueAt(0,0));
                 checkbox(panel,"Packet issues only").doClick();
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt 0")));
                 for(int width:new int[]{1240,760}) {

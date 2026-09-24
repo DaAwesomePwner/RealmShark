@@ -36,6 +36,7 @@ public class HistoryLibraryNativeTest {
                     completeText(find(library, JTextArea.class, area -> area.getText().contains("unreadable")));
                 });
                 key(edt(() -> named(library, "history-library-table", JTable.class)), java.awt.event.KeyEvent.VK_ENTER);
+                await(() -> valid.equals(opened.get()));
                 edt(() -> { library.reload(); return null; });
                 await(() -> valid.equals(library.selectedId())); assertEquals(valid, opened.get());
                 edt(() -> { library.select(bad); assertFalse(button(library, "Open session").isEnabled()); return null; });

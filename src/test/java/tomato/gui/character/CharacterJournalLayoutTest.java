@@ -326,7 +326,12 @@ public class CharacterJournalLayoutTest {
         assertNotNull(control);
         assertTrue("Control height fits text: " + control, control.getHeight() >= control.getPreferredSize().height);
         revealRegion(control, new Rectangle(0, 0, control.getWidth(), control.getHeight()));
-        assertEquals("Whole control must be contained or scroll reachable", new Rectangle(0, 0, control.getWidth(), control.getHeight()), control.getVisibleRect());
+        if (control.isShowing() && !control.getVisibleRect().equals(new Rectangle(0, 0, control.getWidth(), control.getHeight())))
+            new ui.VisualEvidence("wave2").capture(SwingUtilities.getWindowAncestor(control),
+                    "character-clipped-" + control.getName() + "-" + control.getFont().getSize());
+        assertEquals("Whole control must be contained or scroll reachable: " + control.getName()
+                + " / " + control.getAccessibleContext().getAccessibleName(),
+                new Rectangle(0, 0, control.getWidth(), control.getHeight()), control.getVisibleRect());
     }
 
     /** Exercise the real viewport scroll routes, from the inner table/notes to the outer page. */
