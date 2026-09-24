@@ -73,7 +73,12 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private final Binding<Filters,Sort> binding;
         private final JTable table;
         private final JScrollPane scroll;
-        private final JPanel details=new JPanel(new BorderLayout());
+        private final JPanel details=new JPanel(new BorderLayout()) {
+            @Override public Dimension getMinimumSize() {
+                Dimension size=super.getMinimumSize();
+                return new Dimension(size.width,Math.max(100,size.height));
+            }
+        };
         private final JTextArea message=ContentStyle.wrappingText("");
         private final JTabbedPane tabs=new JTabbedPane();
         private final CombatTimelineChart chart=new CombatTimelineChart();
@@ -122,7 +127,9 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 tabs.addChangeListener(e->{if(!restoring){this.state=this.state.withPosition(tab(),this.state.selected,this.state.anchor,this.state.anchorOffset);remember();}});
                 details.add(tabs);
             } else details.add(new JScrollPane(message));
-            details.setMinimumSize(new Dimension(0,100));scroll.setMinimumSize(new Dimension(0,100));
+            // Selected Inspect visits embed a roster with its own scrollable controls.
+            // Let its minimum height propagate instead of squeezing it beneath the evidence header.
+            details.setMinimumSize(null);
             JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,details);split.setResizeWeight(mode==ActivityPanel.Mode.COMBAT?.3:.55);
             scroll.setPreferredSize(new Dimension(650,mode==ActivityPanel.Mode.COMBAT?140:230));split.setBorder(null);add(split);
             JPanel bottom=ContentStyle.controls();
@@ -241,7 +248,8 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 uptime.removeAll();uptime.add(HistoryTables.page(table,"Local character only. Uptime denominator is observed coverage, not the entire visit."));uptime.revalidate();uptime.repaint();
             } else if(visitRenderer!=null) {
                 JPanel host=new JPanel(new BorderLayout());message.append("\nRoster facets apply only to this selected visit.");
-                JScrollPane evidence=new JScrollPane(message);evidence.setPreferredSize(new Dimension(600,90));host.add(evidence,BorderLayout.NORTH);
+                JScrollPane evidence=new JScrollPane(message);evidence.setPreferredSize(new Dimension(600,90));
+                evidence.setMinimumSize(new Dimension(0,90));host.add(evidence,BorderLayout.NORTH);
                 host.add(visitRenderer.render(visit,row.ref));details.removeAll();details.add(host);details.revalidate();details.repaint();
             }
         }

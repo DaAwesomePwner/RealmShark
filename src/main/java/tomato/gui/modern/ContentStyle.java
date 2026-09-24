@@ -560,6 +560,11 @@ public final class ContentStyle {
     /** A wrapping control row whose preferred height follows its available width. */
     public static JPanel controls() {
         return new WidthAwarePanel(new FlowLayout(FlowLayout.LEADING, 6, 2) {
+            @Override public Dimension minimumLayoutSize(Container target) {
+                // Page bodies are sized from their minimum height. Wrapped controls need
+                // the same number of rows there as in their preferred layout.
+                return new Dimension(0, preferredLayoutSize(target).height);
+            }
             @Override public Dimension preferredLayoutSize(Container target) {
                 synchronized (target.getTreeLock()) {
                     int width = availableWidth(target);

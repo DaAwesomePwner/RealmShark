@@ -125,12 +125,6 @@ public final class LoggingGUI extends JPanel {
         for (JLabel label : new JLabel[]{summary, losses, exportStatus}) label.setFont(ContentStyle.metadata(ContentStyle.body()));
         summary.setBorder(BorderFactory.createEmptyBorder(4, 8, 2, 8)); top.add(summary);
         losses.setBorder(BorderFactory.createEmptyBorder(2, 8, 6, 8)); top.add(losses);
-        JScrollPane header=new JScrollPane(top,JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,JScrollPane.HORIZONTAL_SCROLLBAR_NEVER) {
-            @Override public Dimension getPreferredSize() {
-                Dimension size=super.getPreferredSize(); size.height=Math.min(size.height,Math.max(120,LoggingGUI.this.getHeight()/2-20)); return size;
-            }
-        };
-        header.setBorder(null); header.getAccessibleContext().setAccessibleName("Logging view and collection controls"); add(header,BorderLayout.NORTH);
         tabs.addTab("Discovery", discoveries.scroll()); tabs.addTab("Re-entry trace", reentry.scroll()); tabs.addTab("Packets", packets.scroll());
         tabs.addTab("Stat explorer", stats.scroll()); tabs.addTab("Event samples", events.scroll()); tabs.addTab("Field catalog", fields.scroll());
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -162,13 +156,17 @@ public final class LoggingGUI extends JPanel {
             }
         };
         split.setResizeWeight(.60); split.setBorder(null);
-        add(split, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new BorderLayout());
         JTextArea privacy = new JTextArea("Bounded, sanitized local samples. Field definitions do not prove live availability.");
         privacy.setToolTipText("Payloads, credentials, chat, string-stat values and opaque/unknown values are withheld. Counters cover traffic observed while gameplay & diagnostics collection is on.");
         privacy.setEditable(false); privacy.setOpaque(false); privacy.setLineWrap(true); privacy.setWrapStyleWord(true); privacy.setRows(1);
         privacy.setFont(ContentStyle.metadata(ContentStyle.body()));
-        bottom.add(exportActions, BorderLayout.NORTH); bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH); add(bottom, BorderLayout.SOUTH);
+        bottom.add(exportActions, BorderLayout.NORTH); bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH);
+        // Scroll the complete workspace when controls and detail actions no longer fit.
+        // A capped header alone can still consume every table row at large text sizes.
+        JScrollPane page = ContentStyle.page(top, split, bottom);
+        page.getAccessibleContext().setAccessibleName("Logging workspace; scroll for controls and details");
+        add(page);
         for (DiscoveryCatalog.SchemaField field : catalog) fields.add(new Object[] {field.packet, field.path, field.type, field.retention}, field);
         fields.changed();
         search.getDocument().addDocumentListener(new DocumentListener() {

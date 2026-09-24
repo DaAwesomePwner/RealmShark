@@ -116,7 +116,17 @@ public class ParsePanelGUI extends JPanel {
         rosterScroll.getVerticalScrollBar().setUnitIncrement(40);
         RosterPage page = new RosterPage();
         page.add(rosterScroll, BorderLayout.CENTER);
-        JScrollPane pageScroll = new JScrollPane(page);
+        JScrollPane pageScroll = new JScrollPane(page) {
+            @Override public Dimension getMinimumSize() {
+                // A nested Inspect archive must retain a useful viewport even when its
+                // filter controls scroll above the roster at compact sizes.
+                Insets border = getInsets();
+                return new Dimension(0, table.getRowHeight() * 3
+                        + table.getTableHeader().getPreferredSize().height
+                        + rosterScroll.getHorizontalScrollBar().getPreferredSize().height
+                        + border.top + border.bottom + 4);
+            }
+        };
         pageScroll.setName("security-page-scroll");
         pageScroll.setBorder(null);
         pageScroll.getVerticalScrollBar().setUnitIncrement(40);

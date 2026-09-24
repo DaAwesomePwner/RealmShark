@@ -58,7 +58,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
-            scroll=new JScrollPane(table);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
+            scroll=ContentStyle.tableScroll(table,3);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
             JScrollPane detailScroll=new JScrollPane(details);detailScroll.setPreferredSize(new Dimension(300,130));JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,detailScroll);split.setResizeWeight(.75);body.add(split);
             JPanel actions=new JPanel(new BorderLayout());Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("Compact",visible(compact));presets.put("All analytical columns",visible(defaults));
             actions.add(HistoryTables.controls(table,defaults,presets,layout->{current=current.withTable(view.name(),layout);savePosition();}),BorderLayout.CENTER);
