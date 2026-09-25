@@ -24,11 +24,19 @@ Incoming rankings include represented outgoing contributors plus the captured lo
 
 Packet decoding and damage reconstruction retain their existing behavior. Step 1 adds an optional historical local-player context to saved encounters while preserving the previous Java serialization identifier; existing recordings remain readable.
 
+## Encounter library
+
+Click the encounter button between **Previous** and **Next** (labeled **Live** while live) to open the **Encounter library** for retained captured encounters and imported `.dps` files. **Search encounters** finds dungeon names, source filenames, IDs and recorded dates; combine it with **Captured / Imported** source and local-context availability filters. Sort by recorded start, elapsed duration, contributors or damage, then select a row to view it.
+
+Selection and export checks are independent. Use Space on an exportable row to toggle its check, then **Save checked**. Checks survive sorting and filtering; the count reports checks hidden by the current filters. Live is not exportable. **Load** imports a file and **View imported encounter** opens that exact entry. Importing identical bytes again reuses the existing entry, even under a renamed file; different files claiming the same recording ID stay separate and show a variant notice.
+
+Recorded start is the first captured tick, not guaranteed map entry. Elapsed is the retained encounter duration, not the DPS hit window. Contributors are represented damage-owner objects, not a complete roster. Historical local context is available, partial or unavailable; current live values do not fill missing history. The library remembers filters and exact selection/check references, but does not automatically reopen files after restart. Save wanted encounters as `.dps` files before closing; this local library is separate from the automatic [app-session archive](SESSION-HISTORY.md).
+
 ## Saved context and safe exports
 
 - **My Class / My Guild** use the selected encounter's recorded local context consistently in Meters and Legacy text/icon views. Switching the live character does not change those historical matches.
 - Older files infer context only from consistent, recorded local-player markers. If a relative predicate cannot be evaluated, a visible notice explains why. Explicit names/classes/guilds still apply; a relative-only preset with no usable context leaves all players visible.
-- Dungeon List exports preserve existing files and use numbered suffixes for collisions, including repeated exports. Turning **Save Debug Data** off creates a separate recording rather than replacing a richer file.
+- Encounter library exports preserve existing files and use numbered suffixes for collisions, including repeated exports. Turning **Save Debug Data** off creates a separate recording rather than replacing a richer file.
 - Serialization completes in a temporary file before a destination is exclusively created. Normal write failures remove the new partial file; an abrupt process termination can leave a new partial export, but cannot overwrite an existing recording.
 
 If capture misses the local player's spawn data, outgoing hit packets alone cannot supply the player's missing damage inputs. Live meters display a warning while the local character is unresolved. Saved encounters with retained combat diagnostics display an incomplete-personal-damage warning when local shots precede the captured spawn record. Recordings without those diagnostics cannot be checked for this particular gap. Changing areas or reconnecting provides a new opportunity to capture full character data; it does not repair an incomplete earlier encounter. The warning update passed all 44 Java tests.

@@ -2,13 +2,17 @@
 
 The **Characters → Roster** tab remembers your own characters as capture sees them. Start capture, then enter the game on a character. The existing character-list response, when available from the Pet Yard or Daily Quest Room, also adds characters. Nearby players are not added. Characters missing from a later response are retained.
 
-The roster supports literal-text search (class, account, character ID, item name/ID, or notes), alive/dead and seasonal filters, and sortable columns. Select a character for:
+The roster supports literal-text search (class, account, character ID, item name/ID, or notes), task filters and sortable columns. Equipment search accepts decimal and hexadecimal IDs as well as names. Select a character for:
 
 - Base stats, class caps, maxed-stat count such as **6/8**, and remaining standard potions.
 - Last observed weapon, ability, armor, ring, inventory and backpack, with local item names and icons where available.
 - Account/class exalt levels, completion counts and the next threshold.
 - Editable notes, first/last seen dates, level and fame.
 - Field source/receipt evidence in stats and equipment, plus a **Snapshot evidence** tab for character metadata.
+
+Combine account, class, manual life state and season with **Needs Life**, stat coverage, maxed-count range and snapshot age. For example, select an account, **Needs Life** and **All base stats captured** to find known deficits; use **Life need unknown** or **Missing cap definitions** to find records that need better evidence. **Maxed** and **Potions remaining** sort numerically. A total needs all eight base stats and cap definitions: unknown is not zero.
+
+Age filters refer to **Last snapshot update**, not the last time every field was observed or proof that the character is alive. **Reset filters** clears display predicates without deleting records. Filters, sorting, columns and character selection are remembered; notes remain attached to the exact account/character. These filters cover the retained character journal, independently of app-session history pickers.
 
 **Mark dead** preserves the character's last snapshot. **Restore alive** reverses the mark. Death is a manual annotation; disappearing from capture or losing a connection never marks a character dead. If the character is reported again, **Observed again—restore?** offers explicit restoration before accepting updates. Notes survive restoration. Pending new snapshot data is memory-only: after restarting, restore the character and capture it again to refresh its values. Exalts belong to the account/class and survive character death.
 

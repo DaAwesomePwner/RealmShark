@@ -1,12 +1,16 @@
 # Runs, Timeline, and Resources & buffs
 
-Start capture and enable **Record** in any activity module. Record is the same shared collection switch as Collect in Logging. Runs and timeline events now save automatically in the shared app-session archive, independently of diagnostic Save logs. Freeze pauses the selected view; Export history saves a local JSON snapshot. Session pickers expose previous launches; see [Session history](SESSION-HISTORY.md).
+Start capture and enable **Gameplay & diagnostics collection** in any activity module. This is the same shared collection switch as in Logging. Runs and timeline events save automatically in the shared app-session archive, independently of **Save diagnostic samples**. **Pause this view** holds the live display; **Export displayed history (unfiltered)** saves a local JSON snapshot. Session pickers and **Browse saved** expose persisted history; see [Session history](SESSION-HISTORY.md).
 
 Activity export uses the last displayed history revision, including while frozen. Changing the Resources & buffs visit while frozen reads that frozen history; unfreezing catches up with current capture. Full export materialization and file writing run on a background worker. Runs/Timeline refreshes omit chart samples, and Resources & buffs reads only the selected visit's chart data. Hidden views defer automatic refreshes.
 
 ## Runs
 
-Runs has its own sidebar entry and Alt+R shortcut. It lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, status, captured damage, and DPS. Durations default to minutes (90 seconds displays as 1.5); the **Time** selector switches between minutes and seconds without changing saved timestamps or numeric sorting. Select a run for completion evidence, HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; Export history includes all retained dungeon runs and their linked events regardless of search.
+Runs has its own sidebar entry and Alt+R shortcut. It lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, status, captured damage, and DPS. Live durations default to minutes (90 seconds displays as 1.5); the **Time** selector switches between minutes and seconds without changing saved timestamps or numeric sorting. Select a run for completion evidence, HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; the live **Export displayed history (unfiltered)** includes all retained dungeon runs and their linked events regardless of search.
+
+Combine outcomes and completion-evidence sources with minimum/maximum duration in seconds, capture issues and timing gaps. Live filters cover the retained displayed snapshot, including while paused. Saved filters and sorting cover the full selected session scope before paging. **Date bounds…** uses entry time by default; choose **OVERLAP** for observed-interval overlap. Missing duration does not satisfy a numeric range. Named views remember these queries.
+
+In saved Runs, Inspect and Resources, select one visit and choose **Export selected visit + Timeline…** for its full saved record and exactly session/visit-linked Timeline events. The preview states the linked count; events are not clipped to the visit query's dates. Shared page/all-match exports contain visit summaries. See [export populations](SESSION-HISTORY.md#export-the-intended-population).
 
 Nexus, Vault, Guild Halls, Pet Yard, Bazaar, daily rooms, the Realm overworld, Court of Oryx, tutorials, and known test maps are excluded from Runs. Their visits remain available in Timeline and Resources & buffs. Classification uses exact catalogued names, so content such as Battle for the Nexus still counts as a dungeon.
 
@@ -24,11 +28,17 @@ The **Runs** section lists the same dungeon visits as the standalone Runs module
 
 Run rosters add sortable **Damage** and **DPS** columns; the first click ranks highest first. Damage comes from the existing damage recorder, including resolved summon ownership, and excludes incoming player damage. DPS divides each player's captured damage by the same first-to-last attributed hit interval for the dungeon; it is not divided by minutes spent in the area or by each player's individual hit interval. Gear remains the last captured loadout, so it may differ from equipment worn earlier in the run. Older recordings without damage tracking show **—**, and a single hit timestamp has no measurable DPS. Run-list Damage/DPS columns summarize the tracked players in that visit.
 
+Roster search and class, exact guild, seasonal/crucible, maxed-count and requirements-result filters apply to the **current area or selected visit's roster**. They do not search every historical player. Guild and character-mode unknowns remain separate from observed no-guild/non-seasonal values. With a requirements preset active, **Pass**, **Below requirements** and **Unknown** distinguish satisfied rules, confirmed failures and missing evidence; without a preset the result is **Not evaluated**. Select a row for its reasons.
+
+Roster display filters do not narrow bulk copy/export, which uses the complete current-area or selected-run roster. **Only copy below or unknown requirements** is the separate restriction for that operation. Current-area filters are remembered independently when you browse recorded rosters.
+
 Snapshots update while a player is observed and remain after they leave the area. Repeat visits to the same dungeon stay separate. Record controls collection; the session archive automatically retains captured visits across launches and builds. Existing runs without player snapshots display an empty-state explanation; previous gear and stats cannot be reconstructed. Up to 300 player loadouts are retained per visit. The live journal shows up to 200 visits; older runs remain accessible in saved-history pages. These are observed world players, not inferred party membership. Normalized player names collapse metadata/case/class changes and returning object IDs into the last captured build.
 
 ## Timeline
 
 Timeline has its own sidebar entry and Alt+T shortcut. Filter by visit and activity type, or search literal text. Select an event for its values and interpretation. All visits includes unassigned events.
+
+Saved Timeline supports multiple event types and Assigned / Unassigned filters across the full query. Readable summaries precede raw details; literal search also includes retained value keys and values. Assigned means a recorded visit ID is present, not an inferred link from a matching map name or timestamp. Unknown event kinds remain visible and searchable.
 
 The timeline includes observed party changes, progression, equipment, inventory activity, resources, and capture events. Item/ability requests do not prove that the action succeeded.
 

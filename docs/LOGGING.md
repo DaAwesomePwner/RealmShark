@@ -13,9 +13,23 @@ Gameplay history now has dedicated views: **Runs** (Alt+R), **Timeline** (Alt+T)
 - **Event samples** displays bounded examples and numeric changes for inspection.
 - **Field catalog** explains existing consumers, candidate uses, and known coverage limits.
 
-**Gameplay & diagnostics collection** controls the shared collector for Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. The capture connection must also be running. Turning collection off does not stop the sniffer or independent Chat, loot and DPS processing. **Pause this view** holds displayed data while collection status remains current; saved views are labeled **Saved history**. Sampled mode limits routine examples; detailed mode retains more examples within the same bounds. **Clear data** resets diagnostic counters and examples while preserving gameplay history. **Export report** writes a local JSON report.
+**Gameplay & diagnostics collection** controls the shared collector for Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. The capture connection must also be running. Turning collection off does not stop the sniffer or independent Chat, loot and DPS processing. **Pause this view** holds displayed diagnostics while collection status remains current. Sampled mode limits routine examples; detailed mode retains more examples within the same bounds. **Clear data** resets diagnostic counters and examples while preserving gameplay history.
 
-Logging export acquires **current capture data**, even while its view is paused. This differs from Activity's displayed-revision export. Snapshot acquisition and serialization run off the Swing event thread. Automatic Logging refreshes request diagnostics without copying activity timelines; unchanged revisions avoid replacement work, and hidden views catch up when shown.
+### Find a retained example
+
+1. In **Packets**, select a packet and choose **View retained samples**. In **Stat explorer**, the same action narrows samples to the selected stat ID.
+2. In **Event samples**, combine literal search with packet, stat ID, retained stat object ID, diagnostic area, outcome and **Changed values only**. Stat/object/change filters must match the same retained delta. An initial observation has no prior value and is not a confirmed change.
+3. Select an event to read named changes before raw JSON. When an exact decoder field path is available, choose it and use **Open field definition**. Unmapped evidence does not get a guessed definition link. **Enter** opens full details; **Copy full detail** copies them.
+
+Each tab retains its own search and applicable filters. Removable chips show active predicates; **Reset filters** resets the active tab. Packet issue filters refer to cumulative issues, while the packet outcome filter describes the latest outcome. Event and trace filters apply to individual retained examples. A missing sample does not negate an aggregate observation: sampling and retention bounds still apply.
+
+The **Views** controls offer named **Save / Load / Delete**, **Reset saved** and **Retry save**. They remember tab queries, sorting, columns and detail layout, not diagnostic payloads. Pause is temporary: loading a named view or recreating the workspace resumes fresh diagnostics. Saved object/area filters remain tied to their diagnostic capture, so a reused numeric ID in another capture does not silently match.
+
+## Export a diagnostic report
+
+Choose **Current fresh diagnostics** to acquire current diagnostics, or **Displayed diagnostic revision** to export the snapshot you are reading, including while paused. Then use **Export report** and review its source, retained interval and counts before confirmation. Both options export **all retained diagnostics in that snapshot**; display filters are recorded as context and are **not applied** to the report. Saved gameplay activity is not included.
+
+The previewed snapshot stays fixed through export even if capture advances. JSON reports include source/revision, coverage, counts and display context; existing reports are preserved. **Open report folder** is enabled after success. Snapshot acquisition and serialization run in the background. Automatic Logging refreshes request diagnostics without copying activity timelines, and hidden views catch up when shown.
 
 ## Storage and privacy
 
