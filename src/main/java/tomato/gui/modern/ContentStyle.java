@@ -270,7 +270,16 @@ public final class ContentStyle {
             public int getScrollableUnitIncrement(Rectangle r, int axis, int direction) { return 32; }
             public int getScrollableBlockIncrement(Rectangle r, int axis, int direction) { return Math.max(32, r.height - 32); }
         }
-        JScrollPane scroll = new JScrollPane(new Page());
+        Page page = new Page();
+        JScrollPane scroll = new JScrollPane(page) {
+            @Override public Dimension getMinimumSize() {
+                // Archive clients may themselves be pages inside a workspace page.
+                // Preserve their content floor through the nested scroll pane so the
+                // outer page scrolls instead of reducing the inner viewport to zero.
+                Insets border = getInsets();
+                return new Dimension(0, page.getPreferredSize().height + border.top + border.bottom);
+            }
+        };
         scroll.setBorder(null); scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         return scroll;
     }
@@ -335,7 +344,19 @@ public final class ContentStyle {
         private void configureCaret() {
             // Background metadata publications must not scroll the page to this control. Explicit
             // keyboard caret movement still scrolls normally; theme changes may install a new caret.
-            if (getCaret() instanceof DefaultCaret) ((DefaultCaret) getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+            if (!(getCaret() instanceof DefaultCaret)) return;
+            DefaultCaret current = (DefaultCaret) getCaret();
+            if (!(current instanceof MetadataCaret) && !(current instanceof FlatMetadataCaret)) {
+                int dot = current.getDot(), mark = current.getMark(), blink = current.getBlinkRate();
+                DefaultCaret passive = current instanceof com.formdev.flatlaf.ui.FlatCaret
+                        ? new FlatMetadataCaret() : new MetadataCaret();
+                passive.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+                passive.setBlinkRate(blink);
+                setCaret(passive);
+                passive.setDot(mark); passive.moveDot(dot);
+                current = passive;
+            }
+            current.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         }
 
         @Override public Dimension getPreferredSize() {
@@ -375,6 +396,23 @@ public final class ContentStyle {
             boolean changed = width != getWidth();
             super.setBounds(x, y, width, height);
             if (changed) WidthRelayout.request(this, false);
+        }
+    }
+
+    /** Suppress only automatic caret reveals; Find and explicit scroll requests remain unchanged. */
+    private static final class MetadataCaret extends DefaultCaret implements UIResource {
+        @Override protected void adjustVisibility(Rectangle bounds) {
+            if (getComponent() != null && (getComponent().isEditable() || getComponent().isFocusOwner()))
+                super.adjustVisibility(bounds);
+        }
+    }
+
+    /** Match FlatTextAreaUI's caret policy and mouse behavior while keeping unfocused metadata passive. */
+    private static final class FlatMetadataCaret extends com.formdev.flatlaf.ui.FlatCaret {
+        FlatMetadataCaret() { super(null, false); }
+        @Override protected void adjustVisibility(Rectangle bounds) {
+            if (getComponent() != null && (getComponent().isEditable() || getComponent().isFocusOwner()))
+                super.adjustVisibility(bounds);
         }
     }
 
@@ -560,6 +598,11 @@ public final class ContentStyle {
     /** A wrapping control row whose preferred height follows its available width. */
     public static JPanel controls() {
         return new WidthAwarePanel(new FlowLayout(FlowLayout.LEADING, 6, 2) {
+            @Override public Dimension minimumLayoutSize(Container target) {
+                // Page bodies are sized from their minimum height. Wrapped controls need
+                // the same number of rows there as in their preferred layout.
+                return new Dimension(0, preferredLayoutSize(target).height);
+            }
             @Override public Dimension preferredLayoutSize(Container target) {
                 synchronized (target.getTreeLock()) {
                     int width = availableWidth(target);

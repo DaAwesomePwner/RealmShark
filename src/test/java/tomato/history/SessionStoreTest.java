@@ -68,6 +68,35 @@ public class SessionStoreTest {
             assertEquals("",store.error());assertEquals("must survive",store.read(store.currentId(),"chat",Event.class).get(0).text);
         }finally{store.close();}
     }
+    @Test public void catalogKeepsCurrentSessionReadableUntilInitialMetadataIsPublished()throws Exception{
+        Path root=temp.getRoot().toPath().resolve("starting-profile");Files.write(root,new byte[]{1});
+        SessionStore store=new SessionStore(root,true,"test");
+        CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try{
+            store.append("chat",new Event("pending"));
+            try{store.flush();fail("Expected blocked initial publication");}catch(java.io.IOException expected){ }
+            store.collect("hold-startup",()->{entered.countDown();try{release.await();}catch(InterruptedException e){Thread.currentThread().interrupt();}});
+            Future<?> flush=executor.submit(()->{try{store.flush();}catch(Exception e){throw new RuntimeException(e);}});
+            assertTrue(entered.await(3,TimeUnit.SECONDS));
+            Files.delete(root);Files.createDirectory(root);
+            // The observable filesystem prefix of ensureCurrent: directory exists, atomic metadata move has not run.
+            Path current=Files.createDirectory(root.resolve(store.currentId()));
+            String broken=UUID.randomUUID().toString();Files.createDirectory(root.resolve(broken));
+            SessionStore.SessionEntry starting=store.catalog().stream().filter(s->s.id.equals(store.currentId())).findFirst().get();
+            assertTrue("Starting current session uses its known in-memory metadata",starting.readable());
+            assertFalse("Pending metadata is not persisted evidence",starting.persisted);
+            assertTrue(store.read(store.currentId(),"chat",Event.class).isEmpty());
+            assertFalse("An unrelated missing archive remains an error",store.catalog().stream().filter(s->s.id.equals(broken)).findFirst().get().readable());
+            release.countDown();flush.get(10,TimeUnit.SECONDS);
+            SessionStore.SessionEntry published=store.catalog().stream().filter(s->s.id.equals(store.currentId())).findFirst().get();
+            assertTrue(published.readable());assertTrue(published.persisted);
+            assertEquals("pending",store.read(store.currentId(),"chat",Event.class).get(0).text);
+            // Stop the writer so it cannot repair the deliberate post-publication corruption.
+            store.close();Files.delete(current.resolve("session.json"));
+            assertFalse("Published current metadata corruption must remain visible",store.catalog().stream().filter(s->s.id.equals(store.currentId())).findFirst().get().readable());
+        }finally{release.countDown();executor.shutdownNow();store.close();}
+    }
     @Test public void deletionProtectsActiveSessionsAndImportsDoNotReturnAfterBeingDeleted()throws Exception{
         Path root=temp.newFolder().toPath();SessionStore first=new SessionStore(root,true,"one");first.flush();
         SessionStore second=new SessionStore(root,true,"two");

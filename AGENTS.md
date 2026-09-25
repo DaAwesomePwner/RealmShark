@@ -3,6 +3,9 @@
 ## Active UX implementation
 
 Before editing, read `docs/UX-EXECUTION.md` and, if present, `.omc/ux/checkpoint.json`.
+For cross-machine recovery also read `docs/UX-HANDOFF.md` and
+`docs/UX-CHECKPOINT.json`; these tracked files preserve the last published handoff
+when the machine-local checkpoint and worktrees are absent.
 Reconcile their recorded branch, worktrees, commits, PRs and checks with actual Git/GitHub
 state. Never reset or overwrite unfamiliar work. An interrupted check is not a pass.
 `docs/UX-ROADMAP-2026-09-21.md` is the product backlog and evidence source.

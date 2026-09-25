@@ -40,6 +40,20 @@ public class DpsGUI extends JPanel {
     private DisplayFrame displayed;
     private boolean liveUpdates = true;
     private int index = 0;
+    private final EncounterCatalog encounterCatalog = new EncounterCatalog();
+    private EncounterCatalog.Entry selectedEncounter;
+    private boolean selectionChosen;
+    boolean hasSelectionIntent() { return selectionChosen; }
+    private final JTabbedPane combatTabs = new JTabbedPane();
+    private final JComponent resourcesWorkspace;
+    public EncounterCatalog encounters() { return encounterCatalog; }
+    public String currentEncounterId() { return liveUpdates || selectedEncounter == null ? null : selectedEncounter.id; }
+    /** EDT action: select the exact local library entry; a missing ID leaves the current view intact. */
+    public boolean showEncounter(String entryId) {
+        EncounterCatalog.Entry entry = encounterCatalog.find(entryId);
+        if (entry == null) return false;
+        paused.setSelected(false); selectedEncounter = entry; selectionChosen = true; liveUpdates = false; updateEncounterLabel(); updateGui(); return true;
+    }
     private JComboBox<String> filterComboBox;
     private HashMap<String, String> filterList = new HashMap<>();
 
@@ -47,7 +61,12 @@ public class DpsGUI extends JPanel {
         this(data, packets.packetcapture.logger.DiscoveryLog.INSTANCE);
     }
     public DpsGUI(TomatoData data, packets.packetcapture.logger.DiscoveryLog history) {
+        this(data, history, tomato.gui.activity.ActivityPanel.workspace(history, tomato.gui.activity.ActivityPanel.Mode.COMBAT));
+    }
+    DpsGUI(TomatoData data, packets.packetcapture.logger.DiscoveryLog history, JComponent resourcesWorkspace) {
         this.data = data;
+        this.resourcesWorkspace = resourcesWorkspace;
+        encounterCatalog.capture(() -> data.dpsData.toArray(new DpsData[0]));
         latest = DpsSnapshot.capture(data);
 
         next = new JButton("Next");
@@ -125,10 +144,12 @@ public class DpsGUI extends JPanel {
         center = new JPanel();
         center.setLayout(new BorderLayout());
         damagePage.add(center, BorderLayout.CENTER);
-        JTabbedPane combatTabs = new JTabbedPane(); combatTabs.setName("dps-tabs");
+        combatTabs.setName("dps-tabs");
         combatTabs.addTab("Damage meters", damagePage);
-        combatTabs.addTab("Resources & buffs", tomato.gui.history.SessionPanel.wrap("combat",
-                new tomato.gui.activity.ActivityPanel(history, tomato.gui.activity.ActivityPanel.Mode.COMBAT), tomato.gui.activity.ActivityPanel::combatHistory));
+        combatTabs.addTab("Resources & buffs", resourcesWorkspace);
+        JButton savedResources = new JButton("Saved resources"); savedResources.setName("dps-open-saved-resources");
+        savedResources.setEnabled(resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel);
+        savedResources.addActionListener(e -> browseSavedResources()); dpsTopPanel.add(savedResources);
         add(combatTabs, BorderLayout.CENTER);
 
         displayString = new StringDpsGUI(data);
@@ -141,6 +162,17 @@ public class DpsGUI extends JPanel {
         });
         combatTabs.addChangeListener(e -> refreshLiveView());
         INSTANCE = this;
+    }
+
+    /** History-open callback for the Resources workspace; never routes a saved request into live data. */
+    public boolean browseSavedResources() {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open saved resources on the EDT");
+        if (resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace)
+            ((tomato.gui.history.ArchiveWorkspace<?, ?, ?>)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
+        else if (resourcesWorkspace instanceof tomato.gui.history.SessionPanel)
+            ((tomato.gui.history.SessionPanel)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
+        else return false;
+        combatTabs.setSelectedComponent(resourcesWorkspace); return true;
     }
 
     @Override public void addNotify() { super.addNotify(); refreshTimer.start(); }
@@ -220,6 +252,7 @@ public class DpsGUI extends JPanel {
         if(view==null || view.data!=data) return;
         long now=System.nanoTime();
         if(!force && now-view.lastSnapshotNanos<1_000_000_000L && view.latest.map==data.map) return;
+        view.encounterCatalog.capture(() -> data.dpsData.toArray(new DpsData[0]));
         view.latest=DpsSnapshot.capture(data);
         view.lastSnapshotNanos=now;
     }
@@ -227,7 +260,7 @@ public class DpsGUI extends JPanel {
     private void renderData(MapInfoPacket map, Entity[] entityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean b) {
         if(paused.isSelected()&&displayed!=null){present(displayed);return;}
         entityHitList = Arrays.stream(entityHitList).filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
-        DpsData saved = b ? null : data.dpsData.get(index);
+        DpsData saved = b ? null : selectedEncounter.data;
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
         displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context);
         present(displayed);
@@ -302,6 +335,7 @@ public class DpsGUI extends JPanel {
      */
     public static void clearDpsLogs() {
         INSTANCE.data.dpsData.clear();
+        INSTANCE.encounterCatalog.clear(); INSTANCE.selectedEncounter = null; INSTANCE.selectionChosen = true;
         INSTANCE.paused.setSelected(false);
         INSTANCE.liveUpdates = true;
         INSTANCE.dList.setText("Live");
@@ -323,7 +357,7 @@ public class DpsGUI extends JPanel {
     }
 
     private void setLive() {
-        INSTANCE.scrollData(1000000000);
+        INSTANCE.setIndex(-1);
     }
 
     /**
@@ -333,8 +367,11 @@ public class DpsGUI extends JPanel {
         DpsGUI view=INSTANCE;
         if(view==null) return;
         SwingUtilities.invokeLater(() -> {
-            if (!view.liveUpdates) view.dList.setText((view.index + 1) + "/" + view.data.dpsData.size());
+            view.updateEncounterLabel();
         });
+    }
+    private void updateEncounterLabel() {
+        dList.setText(liveUpdates ? "Live" : (getIndex() + 1) + "/" + encounterCatalog.entries().size());
     }
 
     /**
@@ -389,7 +426,8 @@ public class DpsGUI extends JPanel {
             rendered=latest;
             renderData(rendered.map, rendered.targets, rendered.notifications, rendered.elapsed, true);
         } else {
-            DpsData dpsData = data.dpsData.get(index);
+            if (selectedEncounter == null) { setIndex(-1); return; }
+            DpsData dpsData = selectedEncounter.data;
             Entity[] entityHitList = dpsData.hitList.values().toArray(new Entity[0]);
             renderData(dpsData.map, entityHitList, dpsData.deathNotifications, dpsData.totalDungeonPcTime, false);
         }
@@ -397,7 +435,7 @@ public class DpsGUI extends JPanel {
 
     public int getIndex() {
         if (liveUpdates) return -1;
-        return index;
+        return encounterCatalog.entries().indexOf(selectedEncounter);
     }
 
     public void setIndex(int index) {
@@ -406,47 +444,34 @@ public class DpsGUI extends JPanel {
 
         if (index == -1) {
             liveUpdates = true;
+            selectionChosen = true;
+            selectedEncounter = null;
             dList.setText("Live");
             updateGui();
             return;
-        } else {
-            liveUpdates = false;
-            int size = data.dpsData.size();
-            dList.setText((index + 1) + "/" + size);
         }
-
-        setCenterDisplay();
-        DpsData dpsData = data.dpsData.get(index);
-        Entity[] entityHitList = dpsData.hitList.values().toArray(new Entity[0]);
-        renderData(dpsData.map, entityHitList, dpsData.deathNotifications, dpsData.totalDungeonPcTime, false);
+        List<EncounterCatalog.Entry> entries = encounterCatalog.entries();
+        if (index < 0 || index >= entries.size()) { setIndex(-1); return; }
+        showEncounter(entries.get(index).id);
     }
 
     private void scrollData(int a) {
         paused.setSelected(false);
-        int size = data.dpsData.size();
-        index += a;
+        int size = encounterCatalog.entries().size();
+        index = getIndex() + a;
         if (liveUpdates) {
             if (a > 0 || size == 0) {
                 updateGui();
                 return;
             }
             index = size - 1;
-            liveUpdates = false;
-            setCenterDisplay();
         } else if (index >= size) {
-            liveUpdates = true;
-            dList.setText("Live");
-            setCenterDisplay();
-            updateGui();
+            setIndex(-1);
             return;
         } else if (index < 0) {
             index = 0;
             return;
         }
-        dList.setText((index + 1) + "/" + size);
-
-        DpsData dpsData = data.dpsData.get(index);
-        Entity[] entityHitList = dpsData.hitList.values().toArray(new Entity[0]);
-        renderData(dpsData.map, entityHitList, dpsData.deathNotifications, dpsData.totalDungeonPcTime, false);
+        setIndex(index);
     }
 }

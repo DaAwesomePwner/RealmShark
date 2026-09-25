@@ -77,14 +77,18 @@ public class WorkspaceUiTest {
         });
     }
 
-    @Test public void allOriginalSectionsRemainReachableAtBothSizes() throws Exception {
+    @Test public void allOriginalSectionsRemainReachableAtRealizedNativeSizes() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             for (int width : new int[] {1240, 760, 680}) {
                 frame.setSize(width, width == 680 ? 520 : 800); frame.validate();
                 // Deliver the same layout event used when the user resizes the window.
                 shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
                 frame.validate();
-                assertEquals(width < 1000, shell.isCompact());
+                System.out.println("Native workspace requested=" + width + ", frame=" + frame.getSize()
+                    + ", client=" + shell.getSize() + ", screen=" + frame.getGraphicsConfiguration().getBounds()
+                    + ", transform=" + frame.getGraphicsConfiguration().getDefaultTransform());
+                // The native peer may clamp the requested outer size at high display scaling.
+                assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
                 for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                     AbstractButton button = findButton(shell, "nav-" + i);
                     assertTrue(button.isShowing()); button.doClick();
@@ -92,9 +96,47 @@ public class WorkspaceUiTest {
                     assertTrue(button.isSelected());
                     assertTrue(button.getWidth() >= 32);
                     assertTrue(button.getHeight() >= 32);
+                    button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
+                    assertEquals("Native destination must be reachable", button.getHeight(), button.getVisibleRect().height);
                 }
             }
         });
+    }
+
+    @Test public void allOriginalSectionsRemainReachableAtExactClientSizes() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            // Use the actual application's panels, detached from the native size-constrained peer.
+            frame.setContentPane(new JPanel());
+            try {
+                for (int width : new int[] {1240, 1000, 999, 760, 680}) {
+                    Dimension size = new Dimension(width, width == 680 ? 520 : 800);
+                    shell.setSize(size);
+                    shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
+                    layoutTree(shell);
+                    assertEquals("Exact offscreen client size", size, shell.getSize());
+                    assertEquals("Exact compact breakpoint", width < 1000, shell.isCompact());
+                    for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
+                        AbstractButton button = findButton(shell, "nav-" + i);
+                        button.doClick(); layoutTree(shell);
+                        assertEquals(i, shell.getSelectedPage());
+                        assertTrue(button.isVisible()); assertTrue(button.isSelected());
+                        assertTrue(button.getWidth() >= 32); assertTrue(button.getHeight() >= 32);
+                        assertEquals(width < 1000 ? "" : WorkspaceShell.TITLES[i], button.getText());
+                    }
+                    System.out.println("Exact application client=" + size + ", compact=" + shell.isCompact());
+                }
+            } finally {
+                frame.setContentPane(shell); frame.validate();
+                shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
+                frame.validate();
+            }
+        });
+    }
+
+    private static void layoutTree(Container root) {
+        root.doLayout();
+        for (Component child : root.getComponents())
+            if (child instanceof Container && child.isVisible()) layoutTree((Container) child);
     }
 
     @Test public void originalMenusAndPreviewCaptureGuardRemain() throws Exception {

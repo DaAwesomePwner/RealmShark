@@ -23,8 +23,9 @@ public class LoggingGuiTest {
             DiscoveryLog log = new DiscoveryLog(null); log.setSampleMillis(0);
             RealmScoreUpdatePacket score=new RealmScoreUpdatePacket(); score.score=2500;
             log.observe(169,9,score,"decoded",0); log.observe(255,9,null,"unknown-id",0);
+            log.observe(255,9,null,"decode-error",0);
             ForReconnectPacket reconnect=new ForReconnectPacket(); reconnect.reconnectInfo=":USSouth:EUWest"; emit(log,reconnect);
-            LoggingGUI panel=new LoggingGUI(log);
+            LoggingGUI panel=new LoggingGUI(log,LoggingStateTestSupport.memoryStore());
             JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages,i->new JPanel()); pages[9]=panel;
             WorkspaceShell shell=new WorkspaceShell(pages,()->{},true); shell.select(9);
             JFrame frame=new JFrame("Logging · synthetic validation sample"); frame.setContentPane(shell); frame.setSize(1240,800); frame.setVisible(true);
@@ -38,11 +39,12 @@ public class LoggingGuiTest {
                 assertTrue(detail.getText().contains("serverNameCount")); assertFalse(detail.getText().contains("USSouth"));
                 tabs.setSelectedIndex(2); JTable table=find((Container)tabs.getSelectedComponent(),JTable.class);
                 JCheckBox observed=checkbox(panel,"Observed packets only"); observed.doClick(); assertEquals(3,table.getRowCount());
-                JTextField search=find(panel,JTextField.class); search.setText("REALM_SCORE"); assertEquals(1,table.getRowCount());
+                JTextField search=named(panel,"logging-search",JTextField.class); search.setText("REALM_SCORE"); assertEquals(1,table.getRowCount());
                 table.setRowSelectionInterval(0,0); panel.refresh(); assertEquals(0,table.getSelectedRow());
                 assertTrue(detail.getText().contains("2500"));
                 search.setText("["); assertEquals(0,table.getRowCount()); search.setText("");
                 checkbox(panel,"Packet issues only").doClick(); assertEquals(1,table.getRowCount());
+                assertEquals(255, table.getValueAt(0,0));
                 checkbox(panel,"Packet issues only").doClick();
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt 0")));
                 for(int width:new int[]{1240,760}) {
@@ -64,7 +66,7 @@ public class LoggingGuiTest {
         java.util.concurrent.atomic.AtomicReference<SwingWorker<java.nio.file.Path,Void>> export=new java.util.concurrent.atomic.AtomicReference<>();
         try {
             MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";emit(log,map);
-            SwingUtilities.invokeAndWait(()->{panel[0]=new LoggingGUI(log);find(panel[0],JTabbedPane.class).setSelectedIndex(4);panel[0].refresh();});
+            SwingUtilities.invokeAndWait(()->{panel[0]=new LoggingGUI(log,LoggingStateTestSupport.memoryStore());find(panel[0],JTabbedPane.class).setSelectedIndex(4);panel[0].refresh();});
             await(()->find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount()==1);
             SwingUtilities.invokeAndWait(()->{checkbox(panel[0],"Pause this view").setSelected(true);checkbox(panel[0],"Pause this view").setSelected(true);});
             map.name="Ocean Trench";emit(log,map);
@@ -80,7 +82,9 @@ public class LoggingGuiTest {
             }
             java.nio.file.Path file=export.get().get(5,java.util.concurrent.TimeUnit.SECONDS);
             com.google.gson.JsonObject document=new com.google.gson.Gson().fromJson(new String(java.nio.file.Files.readAllBytes(file),java.nio.charset.StandardCharsets.UTF_8),com.google.gson.JsonObject.class);
-            assertEquals(2,document.getAsJsonObject("observations").getAsJsonObject("activity").getAsJsonArray("visits").size());
+            assertEquals(2,document.getAsJsonObject("observations").getAsJsonArray("events").size());
+            assertTrue(document.getAsJsonObject("observations").get("activity").isJsonNull());
+            assertEquals("CURRENT",document.getAsJsonObject("manifest").get("source").getAsString());
             await(()->find((Container)find(panel[0],JTabbedPane.class).getSelectedComponent(),JTable.class).getRowCount()==2);
         } finally {log.close();}
     }

@@ -12,23 +12,40 @@ import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.FieldCapture;
+import tomato.backend.data.RosterDefinitions;
 import tomato.realmshark.enums.CharacterClass;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.stats.Formatters;
+import tomato.gui.history.ViewStateStore;
+import tomato.gui.roster.RosterViewState;
 
 /** Searchable persistent roster, with explicit unknowns and reversible life-state annotations. */
 public final class CharacterJournalGUI extends JPanel {
     private final CharacterJournal journal;
     private final java.util.function.LongSupplier clock;
+    private final java.util.function.Supplier<RosterDefinitions> definitionsSource;
+    private RosterDefinitions definitions = RosterDefinitions.empty();
+    private final Map<String, CharacterRosterQuery.Row> projected = new LinkedHashMap<>();
     private final JTextField search = new JTextField(18);
     private final JComboBox<String> life = new JComboBox<>(new String[]{"All characters", "Not marked dead", "Marked dead manually"});
-    private final JComboBox<String> season = new JComboBox<>(new String[]{"All seasons", "Seasonal", "Regular"});
+    private final JComboBox<String> season = new JComboBox<>(new String[]{"All seasons", "Seasonal", "Regular", "Unknown season"});
+    private final JComboBox<Choice<String>> accountFilter = new JComboBox<>();
+    private final JComboBox<Choice<Integer>> classFilter = new JComboBox<>();
+    private final JComboBox<String> needsLife = new JComboBox<>(new String[]{"Any Life need", "Needs Life", "Life maxed", "Life need unknown"});
+    private final JComboBox<String> missing = new JComboBox<>(new String[]{"Any stat coverage", "Missing base stats", "All base stats captured", "Missing cap definitions"});
+    private final JComboBox<String> maxedFilter = new JComboBox<>(new String[]{"Any maxed count", "Known maxed range", "Unknown maxed count"});
+    private final JSpinner minMaxed = new JSpinner(new SpinnerNumberModel(0, 0, 8, 1)), maxMaxed = new JSpinner(new SpinnerNumberModel(8, 0, 8, 1));
+    private final JComboBox<String> ageFilter = new JComboBox<>(new String[]{"Any snapshot age", "Newer than hours", "At least hours", "Unknown snapshot age"});
+    private final JSpinner ageHours = new JSpinner(new SpinnerNumberModel(24, 0, 1000000, 1));
     private final JLabel heading = new JLabel("Select a character");
     private final JTextArea summary = ContentStyle.wrappingText(""), status = ContentStyle.wrappingText(""), seen = ContentStyle.wrappingText(" ");
     private final JButton death = new JButton("Mark dead"), saveNotes = new JButton("Save notes");
     private final JTextArea notes = new JTextArea(3, 30);
-    private final DefaultTableModel rosterModel = model("Character", "Account", "State", "Season", "Level", "Maxed", "Fame", "Last snapshot update");
+    private final DefaultTableModel rosterModel = new DefaultTableModel(new String[]{"Character", "Account", "State", "Season", "Level", "Maxed", "Fame", "Last snapshot update", "Potions remaining"}, 0) {
+        public boolean isCellEditable(int row, int col) { return false; }
+        public Class<?> getColumnClass(int col) { return col == 4 || col == 5 ? Integer.class : col >= 6 ? Long.class : String.class; }
+    };
     private final JTable roster = table(rosterModel);
     private final DefaultTableModel statModel = model("Stat", "Base", "Cap", "Potions to max", "Field evidence");
     private final DefaultTableModel gearModel = model("Slot", "Item", "Item ID", "Field evidence");
@@ -46,13 +63,24 @@ public final class CharacterJournalGUI extends JPanel {
     private boolean refreshing;
     private boolean rosterDirty = true, exaltsDirty = true;
     private final javax.swing.Timer timer;
+    private RosterViewState viewState;
+    private final JPanel stateHost = new JPanel(new BorderLayout());
+    private final JTabbedPane tabs = new JTabbedPane();
+    private JScrollPane pageScroll;
+    private String pendingSelectionKey;
+    private boolean restoringState;
 
     public CharacterJournalGUI(CharacterJournal journal) {
         this(journal, System::currentTimeMillis);
+        bindViewState(ViewStateStore.application());
     }
 
     CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock) {
-        super(new BorderLayout(0, 8)); this.journal = journal; this.clock = Objects.requireNonNull(clock);
+        this(journal, clock, RosterDefinitions::current);
+    }
+
+    CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock, java.util.function.Supplier<RosterDefinitions> definitionsSource) {
+        super(new BorderLayout(0, 8)); this.journal = journal; this.clock = Objects.requireNonNull(clock); this.definitionsSource = definitionsSource;
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel top = new JPanel(new BorderLayout(0, 6));
         summary.setName("character-summary");
@@ -64,11 +92,26 @@ public final class CharacterJournalGUI extends JPanel {
         search.setToolTipText("Search class, account name, character ID, item names or notes");
         search.setName("character-search"); search.getAccessibleContext().setAccessibleName("Search saved characters");
         life.getAccessibleContext().setAccessibleName("Character life state"); season.getAccessibleContext().setAccessibleName("Character season");
-        filters.add(search); filters.add(life); filters.add(season); top.add(filters);
+        filters.add(search); filters.add(life); filters.add(season);
+        boundChoiceWidth(accountFilter, "Account name · 000000");
+        boundChoiceWidth(classFilter, "Class name (#00000)");
+        accountFilter.addItem(new Choice<>(null, "All accounts")); classFilter.addItem(new Choice<>(null, "All classes"));
+        filters.add(accountFilter); filters.add(classFilter); filters.add(needsLife); filters.add(missing); filters.add(maxedFilter);
+        filters.add(new JLabel("Maxed from")); filters.add(minMaxed); filters.add(new JLabel("to")); filters.add(maxMaxed);
+        filters.add(ageFilter); filters.add(ageHours);
+        JButton reset = new JButton("Reset filters"); filters.add(reset); top.add(filters);
+        String[] facetNames = {"Account", "Class", "Life need", "Stat coverage", "Maxed count", "Minimum maxed stats", "Maximum maxed stats", "Snapshot update age", "Age in hours"};
+        JComponent[] facets = {accountFilter, classFilter, needsLife, missing, maxedFilter, minMaxed, maxMaxed, ageFilter, ageHours};
+        for (int i = 0; i < facets.length; i++) { facets[i].setName("character-facet-" + i); facets[i].getAccessibleContext().setAccessibleName(facetNames[i]); }
+        reset.addActionListener(e -> {
+            refreshing = true;
+            search.setText(""); for (JComboBox<?> box : new JComboBox<?>[]{life, season, accountFilter, classFilter, needsLife, missing, maxedFilter, ageFilter}) box.setSelectedIndex(0);
+            minMaxed.setValue(0); maxMaxed.setValue(8); ageHours.setValue(24); refreshing = false; filter();
+        });
         roster.setName("character-roster");
         roster.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); roster.setAutoCreateRowSorter(true);
         roster.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        int[] widths = {150, 130, 65, 85, 55, 70, 80, 150};
+        int[] widths = {150, 130, 165, 85, 55, 70, 80, 150, 140};
         for (int i = 0; i < widths.length; i++) roster.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         roster.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
             @Override protected void setValue(Object value) { super.setValue(value); setToolTipText(getText()); }
@@ -79,6 +122,13 @@ public final class CharacterJournalGUI extends JPanel {
             }
         });
         roster.getColumnModel().getColumn(7).setCellRenderer(dateRenderer());
+        roster.getColumnModel().getColumn(5).setCellRenderer(new ContentStyle.Cell() {
+            @Override protected void setValue(Object value) { setText(value == null ? "Unknown" : value + "/8"); }
+        });
+        roster.getColumnModel().getColumn(8).setCellRenderer(new ContentStyle.Cell() {
+            @Override protected void setValue(Object value) { setText(value == null ? "Unknown" : DisplayFormat.formatInteger(((Number)value).longValue())); }
+        });
+        roster.getTableHeader().setToolTipText("Potions remaining: complete known base stats and caps; +5 Life/Mana and +1 other stats. Unknown totals are not zero.");
         JPanel detail = new JPanel(new BorderLayout(0, 8)) {
             @Override public Dimension getMinimumSize() {
                 BorderLayout layout = (BorderLayout) getLayout();
@@ -94,7 +144,7 @@ public final class CharacterJournalGUI extends JPanel {
         JPanel title = new JPanel(new BorderLayout(8, 3)); heading.setFont(ContentStyle.emphasis(ContentStyle.body()));
         JPanel titleActions = ContentStyle.controls(); titleActions.add(heading); titleActions.add(death);
         title.add(titleActions); title.add(seen, BorderLayout.SOUTH); detail.add(title, BorderLayout.NORTH);
-        JTabbedPane tabs = new JTabbedPane(); tabs.setName("character-detail-tabs"); tabs.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
+        tabs.setName("character-detail-tabs"); tabs.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
         JTable stats = table(statModel);
         stats.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell() {
             @Override public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
@@ -146,12 +196,14 @@ public final class CharacterJournalGUI extends JPanel {
         };
         split.setName("character-roster-detail-split");
         split.setResizeWeight(.48); split.setDividerLocation(235); split.setBorder(null);
-        JScrollPane page = ContentStyle.page(top, split, status);
+        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH); footer.add(stateHost, BorderLayout.CENTER); stateHost.setVisible(false);
+        JScrollPane page = ContentStyle.page(top, split, footer); pageScroll = page;
         page.setName("character-page-scroll");
         page.getAccessibleContext().setAccessibleName("Characters; scroll for roster, details and actions at large text sizes");
         add(page, BorderLayout.CENTER);
-        for (JComponent control : new JComponent[]{search, life, season, death, saveNotes}) {
-            control.addFocusListener(new java.awt.event.FocusAdapter() {
+        for (JComponent control : new JComponent[]{search, life, season, death, saveNotes, accountFilter, classFilter, needsLife, missing, maxedFilter, minMaxed, maxMaxed, ageFilter, ageHours, reset}) {
+            JComponent focus = control instanceof JSpinner ? ((JSpinner.DefaultEditor)((JSpinner)control).getEditor()).getTextField() : control;
+            focus.addFocusListener(new java.awt.event.FocusAdapter() {
                 @Override public void focusGained(java.awt.event.FocusEvent event) {
                     // JTextField.scrollRectToVisible scrolls its text horizontally, not the page.
                     reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight()));
@@ -169,7 +221,9 @@ public final class CharacterJournalGUI extends JPanel {
             public void changedUpdate(DocumentEvent e) { filter(); }
         });
         life.addActionListener(e -> filter()); season.addActionListener(e -> filter());
-        roster.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) select(); });
+        for (JComboBox<?> facet : new JComboBox<?>[]{accountFilter, classFilter, needsLife, missing, maxedFilter, ageFilter}) facet.addActionListener(e -> filter());
+        minMaxed.addChangeListener(e -> filter()); maxMaxed.addChangeListener(e -> filter()); ageHours.addChangeListener(e -> filter());
+        roster.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) select(!restoringState); });
         death.addActionListener(e -> { CharacterRecord r = selected(); if (r != null) { journal.markDead(r.key, !r.dead); refresh(); } });
         saveNotes.addActionListener(e -> { if (selectedKey != null) { journal.notes(selectedKey, notes.getText()); refresh(); } });
         timer = new javax.swing.Timer(1000, e -> { if (isShowing() || exalts.isShowing()) refresh(); });
@@ -179,24 +233,34 @@ public final class CharacterJournalGUI extends JPanel {
         addHierarchyListener(visibility); exalts.addHierarchyListener(visibility); refresh();
     }
     @Override public void addNotify() { super.addNotify(); timer.start(); refresh(); }
-    @Override public void removeNotify() { super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
+    @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
     public JPanel exaltPanel() { return exalts; }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
+        boolean project = false;
+        RosterDefinitions nextDefinitions = definitionsSource.get();
+        if (nextDefinitions != definitions) { definitions = nextDefinitions; project = true; rosterDirty = true; }
         synchronized (journal) {
             if (revision != journal.revision()) {
                 records = journal.characters(); accounts = journal.accounts(); revision = journal.revision();
                 rosterDirty = exaltsDirty = true;
+                project = true;
             }
+        }
+        if (project) {
+            projected.clear(); for (CharacterRecord record : records) projected.put(record.key, new CharacterRosterQuery.Row(record, definitions));
+            rebuildFacets();
         }
         // The Exalts page can be mounted independently of the roster in the workspace.
         boolean detached = !isDisplayable() && !exalts.isDisplayable();
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
+        else if ((isShowing() || detached) && ageFilter.getSelectedIndex() != 0 && !matchingKeys().equals(filteredKeys())) filter();
         if (isShowing() || detached) refreshTimeEvidence(selected());
         String storageStatus = journal.storageStatus();
         if (records.isEmpty() && storageStatus.startsWith("Saved"))
             storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
+        else if (!records.isEmpty() && filtered.isEmpty()) storageStatus = "No matching characters. Reset filters to show the retained roster. · " + storageStatus;
         if (!status.getText().equals(storageStatus)) status.setText(storageStatus);
     }
     private void refreshExalts() {
@@ -211,45 +275,46 @@ public final class CharacterJournalGUI extends JPanel {
         }
     }
     private void filter() {
+        if (refreshing) return;
         rosterDirty = false;
         refreshing = true;
-        String oldKey = selectedKey;
+        String oldKey = pendingSelectionKey != null ? pendingSelectionKey : selectedKey;
         filtered = new ArrayList<>(); rosterModel.setRowCount(0);
-        String query = search.getText().trim().toLowerCase(Locale.ROOT);
+        CharacterRosterQuery query = query(); long now = clock.getAsLong();
         int alive = 0, deadCount = 0, maxed = 0;
         for (CharacterRecord r : records) {
-            if (r.dead) deadCount++; else { alive++; if (CharacterJournal.maxed(r, CharacterClass.getStats(r.classId)) == 8) maxed++; }
-            if (life.getSelectedIndex() == 1 && r.dead || life.getSelectedIndex() == 2 && !r.dead) continue;
-            if (season.getSelectedIndex() == 1 && !Boolean.TRUE.equals(r.seasonal)
-                || season.getSelectedIndex() == 2 && !Boolean.FALSE.equals(r.seasonal)) continue;
-            StringBuilder haystack = new StringBuilder(className(r.classId) + " " + r.characterId + " " + accountName(r.account) + " " + r.notes);
-            for (Integer item : r.equipment) if (item != null && item >= 0) haystack.append(' ').append(itemName(item));
-            if (!haystack.toString().toLowerCase(Locale.ROOT).contains(query)) continue;
+            CharacterRosterQuery.Row row = projected.get(r.key);
+            if (r.dead) deadCount++; else { alive++; if (Integer.valueOf(8).equals(row.maxed)) maxed++; }
+            if (!query.matches(row, now, accountName(r.account), CharacterJournalGUI::itemName, CharacterJournalGUI::className)) continue;
             filtered.add(r);
-            int count = CharacterJournal.maxed(r, CharacterClass.getStats(r.classId));
             rosterModel.addRow(new Object[]{className(r.classId) + " #" + r.characterId, accountName(r.account), lifeLabel(r),
                 r.seasonal == null ? "Unknown" : r.seasonal ? "Seasonal" : "Regular", r.level,
-                count < 0 ? "Unknown" : count + "/8", r.fame, r.lastSeen});
+                row.maxed, r.fame, r.lastSeen, row.potions});
         }
         summary.setText(records.isEmpty() ? "Your saved characters will appear here" : DisplayFormat.formatInteger(alive) + " not marked dead  •  "
                 + DisplayFormat.formatInteger(deadCount) + " marked dead manually  •  " + DisplayFormat.formatInteger(maxed) + " at 8/8  •  "
                 + DisplayFormat.formatInteger(filtered.size()) + " shown");
         if (records.isEmpty() && journal.storageStatus().startsWith("Saved")) status.setText("Start capture and enter the game on a character. Account identity is required before saving.");
+        else if (filtered.isEmpty()) status.setText("No matching characters. Reset filters to show the retained roster.");
         for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key.equals(oldKey)) {
             int view = roster.convertRowIndexToView(i); roster.setRowSelectionInterval(view, view); break;
         }
-        if (roster.getSelectedRow() < 0 && !filtered.isEmpty()) roster.setRowSelectionInterval(0, 0);
-        refreshing = false; select();
+        if (roster.getSelectedRow() < 0 && !filtered.isEmpty() && pendingSelectionKey == null) roster.setRowSelectionInterval(0, 0);
+        refreshing = false; select(false);
+        rememberViewState();
     }
     private CharacterRecord selected() { int row = roster.getSelectedRow(); return row < 0 ? null : filtered.get(roster.convertRowIndexToModel(row)); }
-    private void select() {
+    private void select(boolean explicitSelection) {
         CharacterRecord r = selected(); String newKey = r == null ? null : r.key;
+        if (explicitSelection && r != null) pendingSelectionKey = null;
         boolean changed = !Objects.equals(selectedKey, newKey);
         if (changed && selectedKey != null) {
-            journal.notes(selectedKey, notes.getText());
-            for (CharacterRecord previous : records) if (previous.key.equals(selectedKey)) previous.notes = notes.getText();
+            for (CharacterRecord previous : records) if (previous.key.equals(selectedKey) && !Objects.equals(previous.notes, notes.getText())) {
+                journal.notes(selectedKey, notes.getText()); previous.notes = notes.getText();
+            }
         }
         selectedKey = newKey;
+        if (Objects.equals(selectedKey, pendingSelectionKey)) pendingSelectionKey = null;
         statModel.setRowCount(0); gearModel.setRowCount(0); charExaltModel.setRowCount(0); metadataModel.setRowCount(0);
         death.setEnabled(r != null); saveNotes.setEnabled(r != null); notes.setEnabled(r != null);
         if (r == null) { heading.setText("Select a character"); heading.setIcon(null); seen.setText(" "); seen.setToolTipText(null); notes.setText(""); return; }
@@ -262,9 +327,11 @@ public final class CharacterJournalGUI extends JPanel {
         Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
         for (int i = 0; i < fields.length; i++) metadataModel.addRow(new Object[]{fields[i], unknown(values[i]), evidence(r, fields[i], values[i] != null)});
         if (changed) notes.setText(r.notes);
-        int[] caps = CharacterClass.getStats(r.classId);
-        for (int i = 0; i < 8; i++) statModel.addRow(new Object[]{CharacterJournal.STATS[i], unknown(r.stats[i]), caps == null ? "Unknown" : caps[i],
-            caps == null || r.stats[i] == null ? "Unknown" : CharacterJournal.potions(r.stats[i], caps[i], i), evidence(r, "stat." + i, r.stats[i] != null)});
+        for (int i = 0; i < 8; i++) {
+            Integer cap = definitions.cap(r.classId, i);
+            statModel.addRow(new Object[]{CharacterJournal.STATS[i], unknown(r.stats[i]), unknown(cap),
+                cap == null || r.stats[i] == null ? "Unknown" : CharacterJournal.potions(r.stats[i], cap, i), evidence(r, "stat." + i, r.stats[i] != null)});
+        }
         String[] slots = {"Weapon", "Ability", "Armor", "Ring"};
         for (int i = 0; i < r.equipment.length; i++) gearModel.addRow(new Object[]{i < 4 ? slots[i] : i < 12 ? "Inventory " + (i - 3) : "Backpack " + (i - 11), itemName(r.equipment[i]), r.equipment[i], evidence(r, "equipment." + i, r.equipment[i] != null)});
         int[] exalt = null;
@@ -273,6 +340,65 @@ public final class CharacterJournalGUI extends JPanel {
             Integer count = exalt == null ? null : exalt[CharacterJournal.EXALT_ORDER[i]];
             charExaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
         }
+        rememberViewState();
+    }
+    public void bindViewState(ViewStateStore store) {
+        if (viewState != null) return;
+        viewState = new RosterViewState(store, "characters-live-roster", this::captureViewState, this::prepareViewState);
+        stateHost.add(viewState.controls()); stateHost.setVisible(true);
+        RosterViewState.listenTable(roster, this::rememberViewState);
+        tabs.addChangeListener(e -> rememberViewState());
+        pageScroll.getViewport().addChangeListener(e -> { if (isShowing()) rememberViewState(); });
+    }
+    public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
+        if (viewState == null) throw new IllegalStateException("View state is not bound"); return viewState.save();
+    }
+    private void rememberViewState() { if (viewState != null && !refreshing && !restoringState) viewState.changed(); }
+    private Map<String, String> captureViewState() {
+        Map<String, String> values = new LinkedHashMap<>(); CharacterRosterQuery q = query();
+        values.put("text", search.getText()); values.put("account", Objects.toString(q.account, "")); values.put("class", Objects.toString(q.classId, ""));
+        values.put("life", new String[]{"ANY", "NOT_MARKED", "MANUAL_DEAD"}[life.getSelectedIndex()]);
+        values.put("season", new String[]{"ANY", "SEASONAL", "REGULAR", "UNKNOWN"}[season.getSelectedIndex()]);
+        values.put("needsLife", q.life.name()); values.put("missing", q.missing.name()); values.put("maxed", q.maxed.name()); values.put("age", q.age.name());
+        values.put("minimum", minMaxed.getValue().toString()); values.put("maximum", maxMaxed.getValue().toString()); values.put("hours", ageHours.getValue().toString());
+        values.put("selected", Objects.toString(pendingSelectionKey != null ? pendingSelectionKey : selectedKey, ""));
+        values.put("tab", Integer.toString(tabs.getSelectedIndex())); values.put("pageY", Integer.toString(pageScroll.getViewport().getViewPosition().y));
+        RosterViewState.captureTable(values, roster); return values;
+    }
+    private Runnable prepareViewState(Map<String, String> values) {
+        int savedLife = RosterViewState.option(values, "life", life.getSelectedIndex(), "ANY", "NOT_MARKED", "MANUAL_DEAD");
+        int savedSeason = RosterViewState.option(values, "season", season.getSelectedIndex(), "ANY", "SEASONAL", "REGULAR", "UNKNOWN");
+        CharacterRosterQuery.NeedLife need = CharacterRosterQuery.NeedLife.valueOf(values.getOrDefault("needsLife", query().life.name()));
+        CharacterRosterQuery.Missing coverage = CharacterRosterQuery.Missing.valueOf(values.getOrDefault("missing", query().missing.name()));
+        CharacterRosterQuery.Maxed maxed = CharacterRosterQuery.Maxed.valueOf(values.getOrDefault("maxed", query().maxed.name()));
+        CharacterRosterQuery.Age age = CharacterRosterQuery.Age.valueOf(values.getOrDefault("age", query().age.name()));
+        int minimum = RosterViewState.number(values, "minimum", (Integer)minMaxed.getValue(), 0, 8), maximum = RosterViewState.number(values, "maximum", (Integer)maxMaxed.getValue(), 0, 8);
+        int hours = RosterViewState.number(values, "hours", (Integer)ageHours.getValue(), 0, 1000000), tab = RosterViewState.number(values, "tab", tabs.getSelectedIndex(), 0, tabs.getTabCount() - 1);
+        int y = RosterViewState.number(values, "pageY", 0, 0, Integer.MAX_VALUE);
+        String account = values.getOrDefault("account", Objects.toString(choice(accountFilter), ""));
+        if (!account.isEmpty() && !account.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("Invalid account reference");
+        String classText = values.getOrDefault("class", Objects.toString(choice(classFilter), "")); Integer clazz = classText.isEmpty() ? null : Integer.valueOf(classText);
+        String selected = values.getOrDefault("selected", Objects.toString(selectedKey, ""));
+        if (!selected.isEmpty() && !selected.matches("[0-9a-f]{64}:[0-9]+")) throw new IllegalArgumentException("Invalid character reference");
+        Runnable tableState = RosterViewState.prepareTable(values, roster);
+        return () -> {
+            restoringState = refreshing = true;
+            try {
+                search.setText(values.getOrDefault("text", search.getText())); life.setSelectedIndex(savedLife); season.setSelectedIndex(savedSeason);
+                selectChoice(accountFilter, account.isEmpty() ? null : account, account.isEmpty() ? "All accounts" : accountName(account));
+                selectChoice(classFilter, clazz, clazz == null ? "All classes" : className(clazz));
+                needsLife.setSelectedIndex(need.ordinal()); missing.setSelectedIndex(coverage.ordinal()); maxedFilter.setSelectedIndex(maxed.ordinal()); ageFilter.setSelectedIndex(age.ordinal());
+                minMaxed.setValue(minimum); maxMaxed.setValue(maximum); ageHours.setValue(hours); tabs.setSelectedIndex(tab);
+                pendingSelectionKey = selected.isEmpty() ? null : selected;
+                refreshing = false; filter(); tableState.run();
+                SwingUtilities.invokeLater(() -> pageScroll.getViewport().setViewPosition(new Point(0, Math.min(y,
+                    Math.max(0, pageScroll.getViewport().getViewSize().height - pageScroll.getViewport().getExtentSize().height)))));
+            } finally { refreshing = restoringState = false; }
+        };
+    }
+    private static <T> void selectChoice(JComboBox<Choice<T>> box, T value, String label) {
+        for (int i = 0; i < box.getItemCount(); i++) if (Objects.equals(box.getItemAt(i).value, value)) { box.setSelectedIndex(i); return; }
+        Choice<T> choice = new Choice<>(value, label); box.addItem(choice); box.setSelectedItem(choice);
     }
     /** Time advances even after capture stops; refresh just this text, not selection or editable drafts. */
     private void refreshTimeEvidence(CharacterRecord r) {
@@ -286,7 +412,54 @@ public final class CharacterJournalGUI extends JPanel {
                 + (r.observedAgainAt > 0 ? " Reported again " + date(r.observedAgainAt) + ". Restore explicitly to accept updates." : "") : "");
         if (!seen.getText().equals(text)) seen.setText(text);
     }
-    private String accountName(String key) { for (AccountRecord a : accounts) if (a.key.equals(key)) return (a.name == null ? "Account" : a.name) + " · " + key.substring(0, 6); return "Account · " + key.substring(0, 6); }
+    private CharacterRosterQuery query() {
+        return new CharacterRosterQuery(search.getText(), choice(accountFilter), choice(classFilter), life.getSelectedIndex() == 0 ? null : life.getSelectedIndex() == 2,
+            season.getSelectedIndex() == 1 ? Boolean.TRUE : season.getSelectedIndex() == 2 ? Boolean.FALSE : null, season.getSelectedIndex() == 3,
+            CharacterRosterQuery.NeedLife.values()[needsLife.getSelectedIndex()], CharacterRosterQuery.Missing.values()[missing.getSelectedIndex()],
+            CharacterRosterQuery.Maxed.values()[maxedFilter.getSelectedIndex()], (Integer)minMaxed.getValue(), (Integer)maxMaxed.getValue(),
+            CharacterRosterQuery.Age.values()[ageFilter.getSelectedIndex()], ((Number)ageHours.getValue()).longValue() * 3600000L);
+    }
+    private List<String> matchingKeys() {
+        List<String> keys = new ArrayList<>(); CharacterRosterQuery q = query(); long now = clock.getAsLong();
+        for (CharacterRosterQuery.Row row : projected.values()) if (q.matches(row, now, accountName(row.record.account), CharacterJournalGUI::itemName, CharacterJournalGUI::className)) keys.add(row.record.key);
+        return keys;
+    }
+    private List<String> filteredKeys() { List<String> keys = new ArrayList<>(); for (CharacterRecord r : filtered) keys.add(r.key); return keys; }
+    private void rebuildFacets() {
+        refreshing = true;
+        String account = choice(accountFilter); Integer clazz = choice(classFilter);
+        accountFilter.removeAllItems(); classFilter.removeAllItems();
+        accountFilter.addItem(new Choice<>(null, "All accounts")); classFilter.addItem(new Choice<>(null, "All classes"));
+        Set<String> seenAccounts = new LinkedHashSet<>(); Set<Integer> classes = new TreeSet<>();
+        for (CharacterRecord r : records) { seenAccounts.add(r.account); classes.add(r.classId); }
+        if (account != null) seenAccounts.add(account); if (clazz != null) classes.add(clazz);
+        for (String key : seenAccounts) { Choice<String> c = new Choice<>(key, accountName(key)); accountFilter.addItem(c); if (key.equals(account)) accountFilter.setSelectedItem(c); }
+        for (Integer id : classes) { Choice<Integer> c = new Choice<>(id, className(id) + " (#" + id + ")"); classFilter.addItem(c); if (id.equals(clazz)) classFilter.setSelectedItem(c); }
+        refreshing = false;
+    }
+    private static <T> void boundChoiceWidth(JComboBox<Choice<T>> box, String prototype) {
+        // Names from captured records must not widen a FlowLayout row beyond the page.
+        // The model and accessible selected value keep the complete label.
+        box.setPrototypeDisplayValue(new Choice<>(null, prototype));
+        box.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                                    boolean selected, boolean focused) {
+                putClientProperty("html.disable", true);
+                super.getListCellRendererComponent(list, value, index, selected, focused);
+                // JToolTip has its own HTML parser; a fixed plain-text prefix keeps
+                // captured labels beginning with <html> literal in the popup too.
+                setToolTipText("Full label: " + Objects.toString(value, ""));
+                return this;
+            }
+        });
+        box.addActionListener(e -> {
+            String label = Objects.toString(box.getSelectedItem(), "");
+            box.setToolTipText("Full label: " + label); box.getAccessibleContext().setAccessibleDescription(label);
+        });
+    }
+    private static <T> T choice(JComboBox<Choice<T>> box) { Choice<T> c = (Choice<T>)box.getSelectedItem(); return c == null ? null : c.value; }
+    private static final class Choice<T> { final T value; final String label; Choice(T value, String label) { this.value = value; this.label = label; } public String toString() { return label; } }
+    private String accountName(String key) { for (AccountRecord a : accounts) if (a.key.equals(key)) return (a.name == null ? "Account" : a.name) + " · " + key.substring(0, Math.min(6, key.length())); return "Account · " + key.substring(0, Math.min(6, key.length())); }
     private static String lifeLabel(CharacterRecord r) {
         return r.dead ? "Marked dead manually" : r.lastObservedAlive > 0 ? "Last observed alive" : r.rosterReceivedAt > 0 ? "Reported in roster" : "Legacy life state";
     }

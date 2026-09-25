@@ -14,6 +14,7 @@ import org.junit.rules.TemporaryFolder;
 import packets.incoming.MapInfoPacket;
 import tomato.backend.data.*;
 import static org.junit.Assert.*;
+import static tomato.gui.activity.SnapshotTestSupport.await;
 
 public class DungeonListTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
@@ -23,20 +24,22 @@ public class DungeonListTest {
             TomatoData data = new TomatoData();
             data.dpsData.add(encounter("First")); data.dpsData.add(encounter("Second"));
             DpsGUI dps = new DpsGUI(data); dps.setIndex(0);
-            DungeonListGUI chooser = new DungeonListGUI(dps, data);
+            DungeonListGUI chooser = new DungeonListGUI(dps, data, null);
             JTable table = table(chooser);
+            await(() -> table.getRowCount() == 3);
             assertEquals("First", table.getValueAt(table.getSelectedRow(), 2));
             table.getActionMap().get("toggle-export").actionPerformed(new ActionEvent(table, 0, "SPACE"));
-            assertEquals(Boolean.TRUE, table.getValueAt(2, 0));
-            table.setRowSelectionInterval(1, 1);
+            assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
+            table.setRowSelectionInterval(row(table, "Second"), row(table, "Second"));
             assertEquals(1, dps.getIndex());
-            data.dpsData.add(encounter("Third")); chooser.refreshEncounters();
+            data.dpsData.add(encounter("Third")); DpsGUI.updateMapPacket(data); chooser.refreshEncounters();
+            await(() -> table.getRowCount() == 4);
             assertEquals("Second", table.getValueAt(table.getSelectedRow(), 2));
-            assertEquals(Boolean.TRUE, table.getValueAt(3, 0));
+            assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setFont(table.getFont().deriveFont(30f));
             assertTrue(table.getRowHeight() > table.getFontMetrics(table.getFont()).getHeight());
-            table.setRowSelectionInterval(0, 0); assertEquals(-1, dps.getIndex());
-            assertFalse(table.isCellEditable(0, 0));
+            int live = row(table, "Live"); table.setRowSelectionInterval(live, live); assertEquals(-1, dps.getIndex());
+            assertFalse(table.isCellEditable(live, 0));
         });
     }
 
@@ -54,16 +57,18 @@ public class DungeonListTest {
         BlockingMap.wroteOffEdt.set(false); BlockingMap.readOffEdt.set(false);
         try {
             SwingUtilities.invokeAndWait(() -> {
-                chooser[0] = new DungeonListGUI(new DpsGUI(data), data);
-                table(chooser[0]).setValueAt(true, 1, 0);
+                chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
+                await(() -> table(chooser[0]).getRowCount() == 2);
+                table(chooser[0]).setValueAt(true, row(table(chooser[0]), "Saved"), 0);
                 job[0] = chooser[0].exportFiles(folder, false);
                 onDone(job[0], exported);
             });
             assertTrue(BlockingMap.started.await(5, TimeUnit.SECONDS));
             SwingUtilities.invokeAndWait(() -> {
                 // File serialization is blocked, yet selection and encounter history remain usable.
-                table(chooser[0]).setValueAt(false, 1, 0);
+                table(chooser[0]).setValueAt(false, row(table(chooser[0]), "Saved"), 0);
                 data.dpsData.clear(); data.dpsData.add(encounter("Replacement"));
+                DpsGUI.updateMapPacket(data);
                 chooser[0].refreshEncounters();
             });
             BlockingMap.release.countDown();
@@ -83,7 +88,8 @@ public class DungeonListTest {
             assertEquals("Saved", loaded.map.name); assertNull(loaded.debugPackets);
             assertEquals(1, saved.debugPackets.size());
             SwingUtilities.invokeAndWait(() -> {
-                assertEquals(2, data.dpsData.size());
+                assertEquals("Imports no longer mutate the capture-owned history list", 1, data.dpsData.size());
+                await(() -> table(chooser[0]).getRowCount() == 3);
                 assertEquals(3, table(chooser[0]).getRowCount());
                 assertEquals("Live", table(chooser[0]).getValueAt(table(chooser[0]).getSelectedRow(), 2));
             });
@@ -106,8 +112,9 @@ public class DungeonListTest {
         data.dpsData.add(first); data.dpsData.add(second);
         DungeonListGUI[] chooser = new DungeonListGUI[1];
         SwingUtilities.invokeAndWait(() -> {
-            chooser[0] = new DungeonListGUI(new DpsGUI(data), data);
-            table(chooser[0]).setValueAt(true, 1, 0); table(chooser[0]).setValueAt(true, 2, 0);
+            chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
+            await(() -> table(chooser[0]).getRowCount() == 3);
+            for (int row = 0; row < table(chooser[0]).getRowCount(); row++) if (table(chooser[0]).isCellEditable(row, 0)) table(chooser[0]).setValueAt(true, row, 0);
         });
         export(chooser[0], folder, true);
         Map<File, byte[]> originals = new HashMap<>();
@@ -148,6 +155,10 @@ public class DungeonListTest {
             if (child instanceof Container) { JTable table = table((Container)child); if (table != null) return table; }
         }
         return null;
+    }
+    private static int row(JTable table, String dungeon) {
+        for (int row = 0; row < table.getRowCount(); row++) if (dungeon.equals(table.getValueAt(row, 2))) return row;
+        throw new AssertionError("Missing encounter " + dungeon);
     }
     private static final class BlockingMap extends MapInfoPacket {
         static CountDownLatch started, release;

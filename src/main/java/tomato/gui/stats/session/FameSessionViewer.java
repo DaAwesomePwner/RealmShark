@@ -3,7 +3,6 @@ package tomato.gui.stats.session;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.TreeSet;
 import javax.swing.*;
@@ -96,9 +95,10 @@ public class FameSessionViewer extends JFrame {
             "Start Fame",
             "End Fame",
             "Fame Gained",
+            "Undated Entries",
         };
         DefaultTableModel model = model(columnNames,
-            Integer.class, String.class, Integer.class, Double.class, Double.class, Double.class);
+            Integer.class, String.class, Integer.class, Double.class, Double.class, Double.class, Long.class);
         characterFameTable = new JTable(model);
         characterFameTable.setName("saved-fame-characters");
         characterFameTable.setAutoCreateRowSorter(true);
@@ -106,6 +106,7 @@ public class FameSessionViewer extends JFrame {
         numberColumn(characterFameTable, 3, -1);
         numberColumn(characterFameTable, 4, -1);
         numberColumn(characterFameTable, 5, 1);
+        numberColumn(characterFameTable, 6, -1);
 
         panel.add(new JScrollPane(characterFameTable), BorderLayout.CENTER);
         characterStatus.setName("saved-fame-character-status");
@@ -184,12 +185,11 @@ public class FameSessionViewer extends JFrame {
         try {
             characterSelector.removeAllItems();
             for (Integer charId : characterIds()) {
-                List<Fame> entries = fameSamples(charId);
+                FameSession.Chronology chronology = session.chronology(charId);
                 String className = getClassNameForCharacter(charId);
-                Double startFame = entries.isEmpty() ? null : entries.get(0).getFame();
-                Double endFame = entries.isEmpty() ? null : entries.get(entries.size() - 1).getFame();
-                model.addRow(new Object[]{charId, className, entries.size(), startFame, endFame,
-                    entries.isEmpty() ? null : endFame - startFame});
+                int entries = (int)(chronology.datedCount()+chronology.undatedCount());
+                model.addRow(new Object[]{charId, className, entries, chronology.firstFame(), chronology.lastFame(),
+                    chronology.gain(), chronology.undatedCount()});
                 CharacterChoice choice = new CharacterChoice(charId, className);
                 characterSelector.addItem(choice);
                 if (Integer.valueOf(charId).equals(selectedId)) characterSelector.setSelectedItem(choice);
@@ -198,7 +198,7 @@ public class FameSessionViewer extends JFrame {
             updatingFilters = false;
         }
         characterStatus.setText(model.getRowCount() == 0 ? "No saved character or map records."
-            : DisplayFormat.formatInteger(model.getRowCount()) + " saved characters · All session records · — means no saved fame samples");
+            : DisplayFormat.formatInteger(model.getRowCount()) + " saved characters · All session records · — means missing/incomplete chronology; a single dated sample has a same-sample zero delta");
     }
 
     private void populateDungeonFilter() {
@@ -245,14 +245,7 @@ public class FameSessionViewer extends JFrame {
             .append(session.getSessionName())
             .append("\n\n");
         info.append("Time zone: ").append(DisplayFormat.timestampZoneLabel()).append("\n");
-        info
-            .append("Created: ")
-            .append(formatTimestamp(session.getCreatedTimestamp()))
-            .append("\n");
-        info
-            .append("Last Modified: ")
-            .append(formatTimestamp(session.getLastModifiedTimestamp()))
-            .append("\n\n");
+        info.append(metadataText(session)).append("\n");
         info
             .append("Entire saved session (unfiltered)\n")
             .append("Characters Tracked: ")
@@ -262,6 +255,8 @@ public class FameSessionViewer extends JFrame {
             .append("Total Fame Entries: ")
             .append(DisplayFormat.formatInteger(getTotalFameEntries()))
             .append("\n");
+        long undated=0;for(Integer id:characterIds())undated+=session.chronology(id).undatedCount();
+        info.append("Undated Fame Entries (not plotted): ").append(DisplayFormat.formatInteger(undated)).append("\n");
         info
             .append("Total Map Fame Entries: ")
             .append(DisplayFormat.formatInteger(getTotalMapFameEntries()))
@@ -270,7 +265,7 @@ public class FameSessionViewer extends JFrame {
             .append("Character Rows: ").append(DisplayFormat.formatInteger(characterFameTable.getRowCount())).append("\n")
             .append("Selected Character: ").append(characterSelector.getSelectedItem() == null
                 ? "None" : characterSelector.getSelectedItem()).append("\n")
-            .append("Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
+            .append(session.chronology(getSelectedCharacterId()).undatedCount()>0?"Graph Samples (dated only for selected character): ":"Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
             .append("Map Visits Shown: ").append(DisplayFormat.formatInteger(mapFameTable.getRowCount())).append(" of ")
             .append(DisplayFormat.formatInteger(mapVisits(getSelectedCharacterId()).size())).append(" for selected character\n")
             .append("Dungeon: ").append(dungeonFilter.getSelectedItem()).append("\n")
@@ -292,6 +287,8 @@ public class FameSessionViewer extends JFrame {
             : samples.isEmpty() ? "No saved fame samples for this character. Map visits are available separately."
             : samples.size() == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
             : DisplayFormat.formatInteger(samples.size()) + " saved samples · Selected character, entire session · Map filters do not affect the graph");
+        FameSession.Chronology chronology=session.chronology(selectedCharId);
+        if(selectedCharId!=null&&chronology.undatedCount()>0)graphStatus.setText(DisplayFormat.formatInteger(samples.size())+" dated samples plotted · "+DisplayFormat.formatInteger(chronology.undatedCount())+" undated observations not plotted · Gain and elapsed interval unavailable");
         populateDungeonFilter();
         updateMapFameData();
     }
@@ -308,10 +305,7 @@ public class FameSessionViewer extends JFrame {
     }
 
     private ArrayList<Fame> fameSamples(Integer id) {
-        List<Fame> saved = session.getCharacterFameData().get(id);
-        ArrayList<Fame> samples = saved == null ? new ArrayList<>() : new ArrayList<>(saved);
-        samples.sort(Comparator.comparingLong(Fame::getTime));
-        return samples;
+        return session.datedSamples(id);
     }
 
     private List<MapFameData> mapVisits(Integer id) {
@@ -355,9 +349,17 @@ public class FameSessionViewer extends JFrame {
         return total;
     }
 
-    private String formatTimestamp(long timestamp) {
-        return Formatters.formatTimestamp(timestamp);
+    /** Also usable headlessly to verify metadata without creating a native viewer. */
+    public static String metadataText(FameSession session) {
+        FameSession.ArchiveProvenance source=session.getArchiveProvenance();StringBuilder text=new StringBuilder();
+        if(source!=null&&"SYNTHESIZED".equals(source.kind))text.append("Historical Created / Last Modified: Not captured (synthesized projection)\n");
+        else text.append("Created: ").append(storedTimestamp(session.getCreatedTimestamp())).append("\nLast Modified: ").append(storedTimestamp(session.getLastModifiedTimestamp())).append("\n");
+        if(source!=null)text.append("Archive view: ").append(source.kind).append("\nProjection generated: ").append(storedTimestamp(source.generatedTimestamp))
+            .append("\nArchive revision: ").append(source.revision).append("\nSource session: ").append(source.sourceSession)
+            .append("\nPinned source records: ").append(DisplayFormat.formatInteger(source.sourceRecords)).append("\n");
+        return text.toString();
     }
+    private static String storedTimestamp(long timestamp){return timestamp>0?Formatters.formatTimestamp(timestamp):"Not captured";}
 
     private static DefaultTableModel model(String[] names, Class<?>... types) {
         return new DefaultTableModel(names, 0) {

@@ -40,7 +40,7 @@ public class LoggingFormattingTest {
             Locale.setDefault(Locale.Category.FORMAT, Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             LoggingGUI[] view = new LoggingGUI[1];
             SwingUtilities.invokeAndWait(() -> {
-                view[0] = new LoggingGUI(log);
+                view[0] = new LoggingGUI(log,LoggingStateTestSupport.memoryStore());
                 try { Field f = LoggingGUI.class.getDeclaredField("snapshot"); f.setAccessible(true); f.set(view[0], snapshot); }
                 catch (ReflectiveOperationException error) { throw new AssertionError(error); }
                 JTabbedPane tabs = named(view[0], null, JTabbedPane.class); tabs.setSelectedIndex(2);
@@ -99,7 +99,7 @@ public class LoggingFormattingTest {
         try {
             ForReconnectPacket packet = new ForReconnectPacket(); packet.reconnectInfo = ":USSouth";
             log.observe(PacketType.byClass(packet).getIndex(), 1234, packet, "decoded", 0);
-            SwingUtilities.invokeAndWait(() -> panel[0] = new LoggingGUI(log));
+            SwingUtilities.invokeAndWait(() -> panel[0] = new LoggingGUI(log,LoggingStateTestSupport.memoryStore()));
             String original = null;
             for (Locale locale : Arrays.asList(Locale.US, Locale.GERMANY)) {
                 Locale.setDefault(Locale.Category.FORMAT, locale);
@@ -109,12 +109,13 @@ public class LoggingFormattingTest {
                 String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
                 JsonObject document = new Gson().fromJson(content, JsonObject.class);
                 JsonObject observations = document.getAsJsonObject("observations");
-                // These two values are generated afresh on every export, independently of the locale.
+                // Snapshot references are generated afresh, independently of the presentation locale.
                 String exported = observations.get("exportedAt").getAsString();
-                String checkpoint = observations.getAsJsonObject("activity").get("checkpointTime").getAsString();
-                assertNotNull(Instant.parse(exported)); assertNotNull(Instant.parse(checkpoint));
-                content = content.replace("\"exportedAt\": \"" + exported + "\"", "\"exportedAt\": \"SNAPSHOT_TIME\"")
-                    .replace("\"checkpointTime\": \"" + checkpoint + "\"", "\"checkpointTime\": \"SNAPSHOT_TIME\"");
+                assertNotNull(Instant.parse(exported)); assertTrue(observations.get("activity").isJsonNull());
+                // The manifest deliberately records the display zone; raw evidence remains locale independent.
+                document.getAsJsonObject("manifest").getAsJsonObject("displayContext").remove("displayTimeZone");
+                content=new Gson().toJson(document);
+                content = content.replace(exported, "SNAPSHOT_TIME");
                 if (original == null) original = content; else assertEquals(original, content);
                 assertTrue(content.contains("1234"));
                 await(() -> !field(panel[0], "exporting", Boolean.class));
@@ -130,7 +131,7 @@ public class LoggingFormattingTest {
             Locale.setDefault(Locale.Category.FORMAT, Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             ForReconnectPacket packet = new ForReconnectPacket(); packet.reconnectInfo = ":USSouth";
             for (int i = 0; i < 1234; i++) log.observe(PacketType.byClass(packet).getIndex(), 1234, packet, "decoded", 0);
-            SwingUtilities.invokeAndWait(() -> { view[0] = new LoggingGUI(log); view[0].refresh(); });
+            SwingUtilities.invokeAndWait(() -> { view[0] = new LoggingGUI(log,LoggingStateTestSupport.memoryStore()); view[0].refresh(); });
             await(() -> field(view[0], "snapshot", DiscoveryLog.Snapshot.class) != null && loggingIdle(view[0]));
             DiscoveryLog.Snapshot retained = field(view[0], "snapshot", DiscoveryLog.Snapshot.class);
             Gson json = new Gson(); String raw = json.toJson(retained);

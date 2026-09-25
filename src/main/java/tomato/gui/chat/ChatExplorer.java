@@ -14,6 +14,8 @@ import javax.swing.table.*;
 import javax.swing.text.DefaultHighlighter;
 import tomato.gui.modern.ContentStyle;
 import util.PropertiesManager;
+import tomato.gui.history.*;
+import tomato.history.archive.*;
 
 /** Session-local, bounded chat history. All model and Swing changes happen on the EDT. */
 final class ChatExplorer extends JPanel {
@@ -36,6 +38,7 @@ final class ChatExplorer extends JPanel {
     private final ChatFilters spamFilters;
     private final boolean archive;
     private tomato.history.SessionStore bookmarkStore = tomato.history.AppHistory.store();
+    private ChatBookmarkIntents bookmarkIntents;
     private final java.util.function.Supplier<String> ignoreStatus;
     private final Map<ChatMessage, String> reasons = new IdentityHashMap<>();
     private long filterRevision = -1;
@@ -78,6 +81,24 @@ final class ChatExplorer extends JPanel {
     private final javax.swing.Timer debounce;
     private final JMenuItem copyView = new JMenuItem("Copy filtered messages"), exportView = new JMenuItem("Export filtered messages…");
     private boolean columnSizingPending;
+    private final Set<ChatMessage> unseen = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final JButton arrivals = new JButton();
+    private ArchiveQuery.Bounds timeBounds = ArchiveQuery.Bounds.all();
+    private final JComboBox<ChatArchiveClient.Sort> sort = new JComboBox<>(ChatArchiveClient.Sort.values());
+    private final JCheckBox descending = new JCheckBox("Descending");
+    private final JPanel extra = new JPanel(new BorderLayout(0, 6)), dates = new JPanel(new BorderLayout());
+    private final JTextArea liveStateStatus = ContentStyle.wrappingText("");
+    private ViewStateStore stateStore;
+    private boolean restoringState, rebuilding;
+    private long stateSave;
+    private long bookmarkRevision;
+    private String bookmarkStatus = "";
+    private final List<Runnable> bookmarkListeners = new ArrayList<>();
+    private final javax.swing.Timer remember = new javax.swing.Timer(300, e -> persistLiveState());
+    static final class LiveFacets extends ChatArchiveClient.Facets {
+        boolean follow = true;
+        Set<String> unseenIds = new TreeSet<>();
+    }
     private final java.util.concurrent.atomic.AtomicBoolean policyRefreshPending = new java.util.concurrent.atomic.AtomicBoolean();
     private final Runnable policyChanged = () -> {
         if (policyRefreshPending.compareAndSet(false, true)) SwingUtilities.invokeLater(() -> {
@@ -87,7 +108,7 @@ final class ChatExplorer extends JPanel {
     };
 
     @Override public void addNotify() { super.addNotify(); spamFilters.addListener(policyChanged); refreshPolicy(); }
-    @Override public void removeNotify() { spamFilters.removeListener(policyChanged); debounce.stop(); super.removeNotify(); }
+    @Override public void removeNotify() { spamFilters.removeListener(policyChanged); debounce.stop(); remember.stop(); persistLiveState(); super.removeNotify(); }
 
     private void refreshPolicy() {
         boolean following = follow.isSelected(); follow.setSelected(false);
@@ -105,6 +126,9 @@ final class ChatExplorer extends JPanel {
         super(new BorderLayout(0, 8));
         this.archive = archive;
         this.spamFilters = spamFilters; this.ignoreStatus = ignoreStatus;
+        remember.setRepeats(false);
+        copyView.setText(archive ? "Copy matching retained messages" : "Copy matching loaded-page messages");
+        exportView.setText(archive ? "Export matching retained messages…" : "Export matching loaded-page messages…");
         setMinimumSize(new Dimension(0, 0));
         JButton actions = new JButton("Actions");
         JPopupMenu menu = new JPopupMenu();
@@ -143,12 +167,18 @@ final class ChatExplorer extends JPanel {
         player.setColumns(12);
         playerRow.add(playerLabel, BorderLayout.WEST); playerRow.add(player, BorderLayout.CENTER);
         filterRow.add(playerRow); filterRow.add(starredOnly); filterRow.add(follow); filterRow.add(showIgnoredPlayers);
+        JButton advanced = new JButton("Dates / view state"); filterRow.add(advanced);
+        extra.setVisible(false); advanced.addActionListener(e -> { extra.setVisible(!extra.isVisible()); revalidate(); });
+        arrivals.setName("chat-new-messages"); arrivals.setVisible(false);
+        arrivals.addActionListener(e -> { follow.setSelected(true); unseen.clear(); updateArrivals(); scrollToLatest(); rememberState(); });
+        filterRow.add(arrivals);
         showIgnoredPlayers.setName("chat-show-ignored-players");
         showIgnoredPlayers.setSelected(Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS)));
         showIgnoredPlayers.setToolTipText("Show captured messages from locally or in-game ignored players in All and their original channels. Still logged and silent; spam-only matches stay in Ignored.");
         showIgnoredPlayers.getAccessibleContext().setAccessibleDescription(showIgnoredPlayers.getToolTipText());
         showIgnoredPlayers.addActionListener(e -> {
-            PropertiesManager.setProperties(SHOW_IGNORED_PLAYERS, Boolean.toString(showIgnoredPlayers.isSelected()));
+            // The old key is only the compatibility source until live ViewState is attached.
+            if (stateStore == null) PropertiesManager.setProperties(SHOW_IGNORED_PLAYERS, Boolean.toString(showIgnoredPlayers.isSelected()));
             refresh(false);
         });
         starredOnly.setToolTipText("Show starred messages retained in this session");
@@ -182,7 +212,10 @@ final class ChatExplorer extends JPanel {
         editFilters.addActionListener(e -> openFilters());
         menu.insert(editFilters, 3);
         actions.setToolTipText("Copy, export, chat filters and alert rules");
-        header.add(filterStatus, BorderLayout.SOUTH);
+        JPanel context = new JPanel(new BorderLayout()); context.add(filterStatus, BorderLayout.NORTH); context.add(extra);
+        rebuildDates(); extra.add(dates); extra.add(liveStateStatus, BorderLayout.SOUTH);
+        JPanel sorting = ContentStyle.controls(); sorting.add(SocialQueryControls.labeled("Sort retained messages", sort, "chat-live-sort")); sorting.add(descending);
+        extra.add(sorting, BorderLayout.NORTH); header.add(context, BorderLayout.SOUTH);
 
         table.setName("chat-messages"); ContentStyle.table(table);
         table.setIntercellSpacing(new Dimension(0, 0)); table.setFillsViewportHeight(true);
@@ -209,13 +242,16 @@ final class ChatExplorer extends JPanel {
             }
         });
         sizeColumns();
+        String[] columnIds = {"star", "time", "channel", "player", "message"};
+        for (int i = 0; i < columnIds.length; i++) table.getColumnModel().getColumn(i).setIdentifier(columnIds[i]);
         table.addPropertyChangeListener(e -> {
             if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
         });
         table.getTableHeader().addPropertyChangeListener(e -> {
             if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
         });
-        table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) showDetail(); });
+        table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) { showDetail(); rememberState(); } });
+        scroll.getViewport().addChangeListener(e -> rememberState());
         table.addMouseListener(new MouseAdapter() { public void mousePressed(MouseEvent e) { follow.setSelected(false); } });
         table.addKeyListener(new KeyAdapter() {
             public void keyPressed(KeyEvent e) {
@@ -274,7 +310,10 @@ final class ChatExplorer extends JPanel {
                 spamFilters.togglePlayer(m.sender); refresh(false);
             }
         });
+        follow.addItemListener(e -> { if (follow.isSelected()) { unseen.clear(); updateArrivals(); } rememberState(); });
         follow.addActionListener(e -> { if (follow.isSelected()) scrollToLatest(); });
+        sort.addActionListener(e -> { if (!restoringState) refresh(false); });
+        descending.addActionListener(e -> refresh(false));
         starredOnly.addActionListener(e -> refresh(false));
         debounce = new javax.swing.Timer(150, e -> refresh(false)); debounce.setRepeats(false);
         DocumentListener listener = new DocumentListener() {
@@ -290,13 +329,15 @@ final class ChatExplorer extends JPanel {
         bind(table, WHEN_FOCUSED, "control C", "copy-messages", () -> copyText(selectedTranscript()));
         bind(table, WHEN_FOCUSED, "SPACE", "star-message", this::toggleStar);
         addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
-                boolean show = Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS));
-                if (showIgnoredPlayers.isSelected() != show) { showIgnoredPlayers.setSelected(show); refresh(false); }
-                else if (viewDirty || filterRevision != spamFilters.revision()) refreshPolicy();
-            }
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshShownState();
         });
         refresh(false);
+    }
+
+    void refreshShownState() {
+        boolean show = stateStore == null ? Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS)) : showIgnoredPlayers.isSelected();
+        if (showIgnoredPlayers.isSelected() != show) { showIgnoredPlayers.setSelected(show); refresh(false); }
+        else if (viewDirty || filterRevision != spamFilters.revision()) refreshPolicy();
     }
 
     @Override public void updateUI() {
@@ -318,7 +359,7 @@ final class ChatExplorer extends JPanel {
         }
     }
     void loadHistory(List<ChatMessage> messages, Set<String> stars, tomato.history.SessionStore store) {
-        bookmarkStore=store;
+        useBookmarkIntents(store, ChatBookmarkIntents.forStore(store));
         for(ChatMessage message:messages)if(stars.contains(message.id))starred.add(message);
         append(messages,0);
     }
@@ -333,21 +374,23 @@ final class ChatExplorer extends JPanel {
     }
 
     private void append(List<ChatMessage> batch, long dropped) {
+        if (archive && !follow.isSelected()) unseen.addAll(batch);
         history.addAll(batch); evicted += dropped;
         int excess = history.size() - HISTORY_LIMIT;
         if (excess > 0) {
-            for (ChatMessage message : history.subList(0, excess)) reasons.remove(message);
+            for (ChatMessage message : history.subList(0, excess)) { reasons.remove(message); unseen.remove(message); }
             starred.removeAll(history.subList(0, excess));
             history.subList(0, excess).clear(); evicted += excess;
         }
         if (isDisplayable() && !isShowing()) viewDirty = true;
         else refresh(true);
+        rememberState();
     }
 
     void clear() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::clear); return; }
         synchronized (pending) { pending.clear(); pendingEvicted = 0; }
-        history.clear(); starred.clear(); reasons.clear(); evicted = 0; refresh(false);
+        history.clear(); starred.clear(); reasons.clear(); unseen.clear(); evicted = 0; refresh(false);
     }
 
     void editFont(Font font) {
@@ -363,32 +406,34 @@ final class ChatExplorer extends JPanel {
     }
 
     private void sizeColumns() {
-        for (int index = 0; index < table.getColumnCount(); index++) {
-            TableColumn column = table.getColumnModel().getColumn(index);
+        for (int viewColumn = 0; viewColumn < table.getColumnCount(); viewColumn++) {
+            TableColumn column = table.getColumnModel().getColumn(viewColumn);
+            int index = column.getModelIndex();
             TableCellRenderer header = column.getHeaderRenderer();
             if (header == null) header = table.getTableHeader().getDefaultRenderer();
-            Component heading = header.getTableCellRendererComponent(table, column.getHeaderValue(), false, false, -1, index);
+            Component heading = header.getTableCellRendererComponent(table, column.getHeaderValue(), false, false, -1, viewColumn);
             int minimum = heading.getPreferredSize().width;
-            if (index == 0) minimum = Math.max(minimum, STAR_ICON.getIconWidth() + cellWidth(index, ""));
+            if (index == 0) minimum = Math.max(minimum, STAR_ICON.getIconWidth() + cellWidth(viewColumn, ""));
             if (index == 1) {
                 // Include the widest digit in proportional fonts, as well as the end-of-day clock.
-                minimum = Math.max(minimum, cellWidth(index, "23:59:59"));
+                minimum = Math.max(minimum, cellWidth(viewColumn, "23:59:59"));
                 for (char digit = '0'; digit <= '9'; digit++)
-                    minimum = Math.max(minimum, cellWidth(index, "" + digit + digit + ':' + digit + digit + ':' + digit + digit));
+                    minimum = Math.max(minimum, cellWidth(viewColumn, "" + digit + digit + ':' + digit + digit + ':' + digit + digit));
             }
             if (index == 2) for (ChatMessage.Channel value : ChatMessage.Channel.values()) {
-                minimum = Math.max(minimum, cellWidth(index, value.label));
+                minimum = Math.max(minimum, cellWidth(viewColumn, value.label));
                 if (value != ChatMessage.Channel.ALL && value != ChatMessage.Channel.SYSTEM && value != ChatMessage.Channel.IGNORED)
-                    minimum = Math.max(minimum, cellWidth(index, value.label + " · Ignored"));
+                    minimum = Math.max(minimum, cellWidth(viewColumn, value.label + " · Ignored"));
             }
-            if (index == 3) minimum = Math.max(minimum, cellWidth(index, "From: Wren"));
-            if (index == 4) minimum = Math.max(minimum, cellWidth(index, "Message text"));
+            if (index == 3) minimum = Math.max(minimum, cellWidth(viewColumn, "From: Wren"));
+            if (index == 4) minimum = Math.max(minimum, cellWidth(viewColumn, "Message text"));
             // Start semantic columns at their measured size; users may still widen them.
             column.setMaxWidth(Integer.MAX_VALUE);
             column.setMinWidth(minimum);
             column.setMaxWidth(index == 0 ? minimum : Integer.MAX_VALUE);
-            column.setPreferredWidth(index == 3 ? Math.max(minimum, cellWidth(index, "From: LongPlayerName"))
-                : index == 4 ? Math.max(minimum, cellWidth(index, "Meet at the portal when everyone is ready.")) : minimum);
+            int preferred = index == 3 ? Math.max(minimum, cellWidth(viewColumn, "From: LongPlayerName"))
+                : index == 4 ? Math.max(minimum, cellWidth(viewColumn, "Meet at the portal when everyone is ready.")) : minimum;
+            column.setPreferredWidth(stateStore == null ? preferred : Math.max(minimum, column.getPreferredWidth()));
         }
         table.revalidate();
     }
@@ -404,6 +449,8 @@ final class ChatExplorer extends JPanel {
     }
 
     void refresh(boolean arriving) {
+        if (restoringState) return;
+        rebuilding = true;
         viewDirty = false;
         if (!arriving && debounce != null) debounce.stop();
         int revision = ++viewRevision;
@@ -424,8 +471,18 @@ final class ChatExplorer extends JPanel {
             boolean inChannels = !ignored || (showIgnoredPlayers.isSelected() && classification.ignoresPlayer(message));
             if (inChannels) { counts[0]++; counts[message.channel.ordinal()]++; }
             if ((channel == ChatMessage.Channel.IGNORED ? ignored : inChannels && (channel == ChatMessage.Channel.ALL || message.channel == channel))
-                    && (!starredOnly.isSelected() || starred.contains(message)) && message.matchesNormalized(query, playerQuery)) filtered.add(message);
+                    && (!starredOnly.isSelected() || starred.contains(message)) && message.matchesNormalized(query, playerQuery)
+                    && timeBounds.contains(message.received == null ? null : message.received.atZone(java.time.ZoneId.of(timeBounds.zone)).toInstant().toEpochMilli(), null)) filtered.add(message);
         }
+        Comparator<ChatMessage> order;
+        switch ((ChatArchiveClient.Sort)sort.getSelectedItem()) {
+            case PLAYER: order = Comparator.comparing(m -> m.player, String.CASE_INSENSITIVE_ORDER); break;
+            case CHANNEL: order = Comparator.comparing(m -> m.channel.name()); break;
+            case MESSAGE: order = Comparator.comparing(m -> m.text, String.CASE_INSENSITIVE_ORDER); break;
+            case STARRED: order = Comparator.comparing(starred::contains); break;
+            default: order = Comparator.comparing(m -> m.received, Comparator.nullsLast(Comparator.naturalOrder()));
+        }
+        filtered.sort(descending.isSelected() ? order.reversed() : order);
         visible = filtered;
         table.getSelectionModel().setValueIsAdjusting(true);
         model.fireTableDataChanged();
@@ -446,7 +503,8 @@ final class ChatExplorer extends JPanel {
         emptyTitle.setText(history.isEmpty() ? "Your Realm conversations, together" : "No matching messages");
         emptyHint.setText(history.isEmpty() ? "Start capture and join the game to begin." : "Try another channel or reset your filters.");
         summary.setText(visible.size() + " shown · " + history.size() + " / 10,000 retained · " + starred.size() + " starred"
-                + (evicted > 0 ? " · " + evicted + " older messages in saved history" : archive ? " · Current session" : " · Historical page"));
+                + (evicted > 0 ? " · " + evicted + " older messages in saved history" : archive ? " · Current session" : " · Historical page")
+                + (bookmarkStatus.isEmpty() ? "" : " · " + bookmarkStatus));
         summary.setToolTipText("Live view keeps the latest 10,000 messages. Session history retains all captured messages; use Browse saved for older pages. Actions exports the filtered view.");
         copyView.setEnabled(!visible.isEmpty()); exportView.setEnabled(!visible.isEmpty()); showDetail();
         if (arriving && follow.isSelected()) SwingUtilities.invokeLater(() -> {
@@ -456,6 +514,13 @@ final class ChatExplorer extends JPanel {
             int row = visible.indexOf(anchor);
             if (row >= 0) scroll.getViewport().setViewPosition(new Point(0, row * table.getRowHeight() + offset));
         } else if (!arriving) scroll.getViewport().setViewPosition(new Point(0, 0));
+        updateArrivals(); rebuilding = false; rememberState();
+    }
+
+    int unseenMatchingCount() { int count = 0; for (ChatMessage message : visible) if (unseen.contains(message)) count++; return count; }
+    private void updateArrivals() { int count = unseenMatchingCount(); arrivals.setText(count + " new matching messages · Jump to latest"); arrivals.setVisible(count > 0 && !follow.isSelected()); }
+    private void rebuildDates() {
+        dates.removeAll(); dates.add(SocialQueryControls.dates(timeBounds, true, bounds -> { timeBounds = bounds; rebuildDates(); refresh(false); })); dates.revalidate();
     }
 
     private void updateChannelLabels() {
@@ -476,6 +541,7 @@ final class ChatExplorer extends JPanel {
 
     private void resetFilters() {
         search.setText(""); player.setText(""); starredOnly.setSelected(false);
+        timeBounds = ArchiveQuery.Bounds.all(); rebuildDates(); sort.setSelectedItem(ChatArchiveClient.Sort.TIME); descending.setSelected(false);
         channel = ChatMessage.Channel.ALL; channels[0].setSelected(true); refresh(false);
     }
 
@@ -513,19 +579,102 @@ final class ChatExplorer extends JPanel {
 
     private void toggleStar() {
         ChatMessage message = selected(); if (message == null) return;
-        if (!starred.remove(message)) starred.add(message);
-        if(bookmarkStore!=null&&message.id!=null)bookmarkStore.put("chat-stars",message.id,new Bookmark(message.id,starred.contains(message)));
-        boolean following = follow.isSelected(); follow.setSelected(false);
-        refresh(true);
-        follow.setSelected(following);
+        if (bookmarkStore != null && bookmarkStore.writable() && message.id != null && !message.id.isEmpty()) {
+            if (bookmarkIntents == null) bookmarkIntents = ChatBookmarkIntents.forStore(bookmarkStore);
+            try {
+                ChatBookmarkIntents.Intent intent = bookmarkIntents.toggle(message.id, starred.contains(message), 0);
+                bookmarkIntentAccepted(intent);
+                intent.saved.whenComplete((ignored, failure) -> bookmarkIntentFinished(intent, failure));
+            } catch (RuntimeException failure) { bookmarkStatus = "Star not changed: " + failure.getMessage(); refreshPolicy(); }
+        } else {
+            if (!starred.remove(message)) starred.add(message);
+            refreshPolicy();
+        }
     }
     static final class Bookmark {
-        final String id;final boolean starred;final long changed=System.currentTimeMillis();
-        Bookmark(String id,boolean starred){this.id=id;this.starred=starred;}
+        final String id;final boolean starred;final long changed;
+        Bookmark(String id,boolean starred){this(id,starred,System.currentTimeMillis());}
+        Bookmark(String id,boolean starred,long changed){this.id=id;this.starred=starred;this.changed=changed;}
     }
 
+    void useBookmarkIntents(tomato.history.SessionStore store, ChatBookmarkIntents intents) {
+        bookmarkStore = store; bookmarkIntents = intents;
+    }
+    void bookmarkIntentAccepted(ChatBookmarkIntents.Intent intent) {
+        if (!bookmarkIntents.current(intent)) return;
+        Bookmark bookmark = intent.bookmark;
+        for (ChatMessage message : history) if (bookmark.id.equals(message.id)) {
+            if (bookmark.starred) starred.add(message); else starred.remove(message);
+        }
+        bookmarkStatus = "Saving star…"; refreshPolicy();
+    }
+    void bookmarkIntentFinished(ChatBookmarkIntents.Intent intent, Throwable failure) {
+        if (!bookmarkIntents.current(intent)) return;
+        bookmarkStatus = failure == null ? "Star saved" : "Star active locally; disk save not confirmed.";
+        if (failure == null) notifyBookmarks();
+        refreshPolicy();
+    }
+    boolean showsIgnoredPlayers() { return showIgnoredPlayers.isSelected(); }
+    long bookmarkRevision() { return bookmarkRevision; }
+    void addBookmarkListener(Runnable listener) { bookmarkListeners.add(listener); }
+    void removeBookmarkListener(Runnable listener) { bookmarkListeners.remove(listener); }
+    private void notifyBookmarks() { bookmarkRevision++; for (Runnable listener : new ArrayList<>(bookmarkListeners)) listener.run(); }
+
     private void scrollToLatest() {
-        if (!visible.isEmpty()) table.scrollRectToVisible(table.getCellRect(visible.size() - 1, 0, true));
+        for (int i = history.size() - 1; i >= 0; i--) { int row = visible.indexOf(history.get(i)); if (row >= 0) { table.scrollRectToVisible(table.getCellRect(row, 0, true)); break; } }
+    }
+
+    void enableLiveState(ViewStateStore store) {
+        if (stateStore != null) return; stateStore = store;
+        ViewState<LiveFacets,ChatArchiveClient.Sort> defaults = captureLiveState();
+        try { applyLiveState(store.load("chat-live", defaults)); } catch (RuntimeException failure) { liveStateStatus.setText("Live state not applied: " + failure.getMessage()); }
+        // Keep all persistent actions in the expandable section; the archive toolbar owns archive views.
+        JPanel controls = new JPanel(new BorderLayout());
+        Component previousControls = ((BorderLayout)extra.getLayout()).getLayoutComponent(BorderLayout.NORTH);
+        if (previousControls != null) extra.remove(previousControls);
+        JPanel sortRow = ContentStyle.controls(); sortRow.add(SocialQueryControls.labeled("Sort retained messages", sort, "chat-live-sort")); sortRow.add(descending);
+        controls.add(sortRow, BorderLayout.NORTH); controls.add(SocialQueryControls.liveViews("chat-live", store, this::captureLiveState, this::applyLiveState, defaults, liveStateStatus));
+        extra.add(controls, BorderLayout.NORTH);
+        Map<String,List<String>> presets = new LinkedHashMap<>(); presets.put("Conversation", Arrays.asList("star", "time", "player", "message"));
+        controls.add(HistoryTables.controls(table, defaults.tables.get("messages"), presets, layout -> rememberState()), BorderLayout.SOUTH);
+    }
+    ViewState<LiveFacets,ChatArchiveClient.Sort> captureLiveState() {
+        LiveFacets f = new LiveFacets(); f.channel = channel.name(); f.player = player.getText(); f.starredOnly = starredOnly.isSelected();
+        f.showIgnoredPlayers = showIgnoredPlayers.isSelected(); f.follow = follow.isSelected();
+        for (ChatMessage message : unseen) if (message.id != null) f.unseenIds.add(message.id);
+        ArchiveQuery<LiveFacets,ChatArchiveClient.Sort> query = ArchiveQuery.of(ArchiveQuery.CURRENT, f, LiveFacets.class, (ChatArchiveClient.Sort)sort.getSelectedItem())
+            .withText(search.getText()).withBounds(timeBounds).withOrder(Collections.singletonList(new ArchiveQuery.Order<>((ChatArchiveClient.Sort)sort.getSelectedItem(),
+                descending.isSelected() ? ArchiveQuery.Direction.DESCENDING : ArchiveQuery.Direction.ASCENDING)));
+        List<ArchiveRow.Ref> selected = new ArrayList<>(); for (int row : table.getSelectedRows()) if (row < visible.size() && visible.get(row).id != null) selected.add(liveRef(visible.get(row)));
+        int row = table.rowAtPoint(scroll.getViewport().getViewPosition()); ArchiveRow.Ref anchor = row < 0 || row >= visible.size() || visible.get(row).id == null ? null : liveRef(visible.get(row));
+        int offset = row < 0 ? 0 : scroll.getViewport().getViewPosition().y - row * table.getRowHeight();
+        return new ViewState<>(query, false, 0, channel.name(), selected, anchor, offset, Collections.singletonMap("messages", HistoryTables.columnState(table, "Custom")));
+    }
+    void applyLiveState(ViewState<LiveFacets,ChatArchiveClient.Sort> state) {
+        LiveFacets f = state.query.facets(); ChatMessage.Channel next = ChatMessage.Channel.valueOf(f.channel);
+        Objects.requireNonNull(f.player); Objects.requireNonNull(f.unseenIds);
+        restoringState = true;
+        try { search.setText(state.query.text()); player.setText(f.player); channel = next; channels[next.ordinal()].setSelected(true);
+            starredOnly.setSelected(f.starredOnly); showIgnoredPlayers.setSelected(f.showIgnoredPlayers); follow.setSelected(f.follow); timeBounds = state.query.bounds();
+            if (!state.query.order().isEmpty()) { sort.setSelectedItem(state.query.order().get(0).field); descending.setSelected(state.query.order().get(0).direction == ArchiveQuery.Direction.DESCENDING); }
+            unseen.clear(); for (ChatMessage message : history) if (f.unseenIds.contains(message.id)) unseen.add(message);
+            if (state.tables.containsKey("messages")) HistoryTables.applyColumns(table, state.tables.get("messages")); rebuildDates();
+        } finally { restoringState = false; }
+        refresh(false); rebuilding = true;
+        table.clearSelection(); for (int i = 0; i < visible.size(); i++) if (state.selected.contains(liveRef(visible.get(i)))) table.addRowSelectionInterval(i, i);
+        if (state.anchor != null) for (int i = 0; i < visible.size(); i++) if (state.anchor.equals(liveRef(visible.get(i)))) scroll.getViewport().setViewPosition(new Point(0, Math.max(0, i * table.getRowHeight() + state.anchorOffset)));
+        rebuilding = false; rememberState();
+    }
+    private static ArchiveRow.Ref liveRef(ChatMessage message) { return new ArchiveRow.Ref("@live", "chat", Objects.toString(message.id, "missing"), ""); }
+    private void rememberState() { if (stateStore != null && !restoringState && !rebuilding) {
+        stateSave++; if (!"Live view changes awaiting save…".equals(liveStateStatus.getText())) liveStateStatus.setText("Live view changes awaiting save…"); remember.restart();
+    } }
+    private void persistLiveState() {
+        if (stateStore == null || restoringState || rebuilding) return;
+        long request = ++stateSave;
+        try { stateStore.save("chat-live", captureLiveState()).whenComplete((result, failure) -> SwingUtilities.invokeLater(() -> {
+            if (request == stateSave) liveStateStatus.setText(failure == null && result.isSuccess() ? "Live view state saved." : "Live view active; state save failed. Retry through Save live view.");
+        })); } catch (RuntimeException failure) { liveStateStatus.setText(failure.getMessage()); }
     }
 
     String filteredTranscript() { if (viewDirty) refresh(true); return transcript(visible); }
@@ -586,7 +735,7 @@ final class ChatExplorer extends JPanel {
     private void exportFiltered() {
         // Snapshot before opening a modal chooser: new packets must not change the export underneath it.
         String text = filteredTranscript();
-        JFileChooser chooser = new JFileChooser(); chooser.setDialogTitle("Export filtered chat as UTF-8 text");
+        JFileChooser chooser = new JFileChooser(); chooser.setDialogTitle(archive ? "Export matching retained Chat as UTF-8 text" : "Export matching loaded-page Chat as UTF-8 text");
         chooser.setSelectedFile(new File("realmshark-chat.txt"));
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File file = chooser.getSelectedFile();
@@ -636,6 +785,7 @@ final class ChatExplorer extends JPanel {
     private final class MessageRenderer extends ContentStyle.Cell {
         @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int row, int column) {
             super.getTableCellRendererComponent(table, value, selected, focus, row, column);
+            column = table.convertColumnIndexToModel(column);
             boolean hasRow = row >= 0 && row < visible.size();
             setIcon(column == 0 && hasRow && starred.contains(visible.get(row)) ? STAR_ICON : null);
             if (column == 0) setText("");

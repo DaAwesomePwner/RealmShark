@@ -1,0 +1,6 @@
+// Use with explicit --tests selectors; native/focus suites remain the coordinator's gate.
+allprojects {
+    tasks.withType(Test).configureEach {
+        systemProperty 'java.awt.headless', 'true'
+    }
+}

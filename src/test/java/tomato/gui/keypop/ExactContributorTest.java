@@ -4,9 +4,42 @@ import java.awt.event.*;
 import java.time.Instant;
 import javax.swing.*;
 import org.junit.Test;
+import tomato.gui.history.HistoryTables;
+import tomato.gui.history.ViewState;
+import java.util.*;
 import static org.junit.Assert.*;
 
 public class ExactContributorTest {
+    @Test public void hiddenOrReorderedIdentityColumnsDoNotChangeKeyboardOrMouseDrilldown() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (boolean player : new boolean[]{true,false}) for (boolean hidden : new boolean[]{true,false}) for (boolean mouse : new boolean[]{true,false}) {
+                KeyPopHistory history = new KeyPopHistory(); Instant now = Instant.now();
+                history.add(new KeyPopEvent(now,"Ann","Halls",KeyPopEvent.Kind.KEY));
+                history.add(new KeyPopEvent(now.plusSeconds(1),"Anna","Shatters",KeyPopEvent.Kind.KEY));
+                history.add(new KeyPopEvent(now.plusSeconds(2),"ANN","Halls",KeyPopEvent.Kind.KEY));
+                KeyPopDashboard ui = new KeyPopDashboard(history); JTable table = player ? ui.players : ui.items;
+                ui.tabs.setSelectedIndex(player ? 1 : 2);
+                table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0,SortOrder.DESCENDING)));
+                if (hidden) {
+                    ViewState.Table before = HistoryTables.columnState(table,"Default"); java.util.List<ViewState.Column> columns = new ArrayList<>();
+                    for (ViewState.Column column : before.columns) columns.add(new ViewState.Column(column.id,column.width,!"column-0".equals(column.id)));
+                    HistoryTables.applyColumns(table,new ViewState.Table("Hidden identity",columns));
+                } else table.moveColumn(0,table.getColumnCount()-1);
+                assertTrue("The first displayed column is now numeric",table.getValueAt(0,0) instanceof Integer);
+                String target = player ? "Ann" : "Halls"; int selected = -1;
+                for (int model = 0; model < table.getModel().getRowCount(); model++)
+                    if (target.equals(table.getModel().getValueAt(model,0))) selected = table.convertRowIndexToView(model);
+                assertTrue(selected >= 0);table.setRowSelectionInterval(selected,selected);
+                if (mouse) {
+                    java.awt.Rectangle cell = table.getCellRect(selected,0,true);
+                    MouseEvent click = new MouseEvent(table,MouseEvent.MOUSE_CLICKED,0,0,cell.x+2,cell.y+2,2,false);
+                    for (MouseListener listener : table.getMouseListeners()) listener.mouseClicked(click);
+                } else table.getActionMap().get("show-events").actionPerformed(new ActionEvent(table,0,"Enter"));
+                assertEquals(0,ui.tabs.getSelectedIndex());assertEquals(2,ui.events.getRowCount());
+                for (KeyPopEvent event : ui.filteredEvents()) { assertTrue(event.player.equalsIgnoreCase("Ann"));assertEquals("Halls",event.item); }
+            }
+        });
+    }
     @Test public void sortedKeyboardAndMouseDrilldownsKeepAnExactIndependentPredicate() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             KeyPopHistory history = new KeyPopHistory(); Instant now = Instant.now();

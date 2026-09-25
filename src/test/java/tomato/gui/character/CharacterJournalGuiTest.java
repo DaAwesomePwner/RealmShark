@@ -39,6 +39,7 @@ public class CharacterJournalGuiTest {
     }
     @Test public void rosterSearchSortDeathNotesAndResponsiveScreens() throws Exception {
         CharacterJournal j = new CharacterJournal(Files.createTempDirectory("character-ui-").resolve("journal.json"));
+        tomato.backend.data.RosterDefinitions definitions = CharacterRosterQueryTest.definitions();
         String account = j.observe(CharacterJournalTest.player("sample-account",782), 101);
         ArrayList<RealmCharacter> chars = new ArrayList<>();
         int[] classes = {782,768,775,784,800,801};
@@ -47,7 +48,7 @@ public class CharacterJournalGuiTest {
             c.level = 20; c.seasonal = i % 2 == 0; c.fame = i == 0 ? 900 : 10000 + i;
             for (String field : new String[]{"class", "level", "seasonal", "fame"}) c.supplied(field);
             c.receivedAt = System.currentTimeMillis();
-            int[] cap = CharacterClass.getStats(c.classNum); if (cap == null) cap = new int[]{670,385,75,25,50,75,40,60};
+            int[] cap = new int[]{670,385,75,25,50,75,40,60};
             c.hp = cap[0]; c.mp = cap[1]; c.atk = cap[2]; c.def = cap[3]; c.spd = cap[4]; c.dex = cap[5]; c.vit = cap[6]; c.wis = cap[7];
             if (i == 0) { c.hp -= 20; c.wis -= 10; }
             c.capturedStatMask = 255; c.equipment = new int[]{12345, -1, 9999, -1, -1}; chars.add(c);
@@ -55,12 +56,12 @@ public class CharacterJournalGuiTest {
         j.mergeRoster(account, chars); j.markDead(account+":104",true);
         Map<Integer,int[]> ex = new HashMap<>(); ex.put(782,new int[]{75,50,30,15,5,1,0,74}); j.exalts(account,ex);
         SwingUtilities.invokeAndWait(() -> {
-            VioletTheme.install(); CharacterJournalGUI panel = new CharacterJournalGUI(j);
+            VioletTheme.install(); CharacterJournalGUI panel = new CharacterJournalGUI(j, System::currentTimeMillis, () -> definitions);
             JTable roster = find(panel,JTable.class); assertEquals(6,roster.getRowCount());
             JTextField search = find(panel,JTextField.class);
             search.setText("["); assertEquals(0,roster.getRowCount());
             search.setText("12345"); assertEquals(6,roster.getRowCount()); search.setText("101"); assertEquals(1,roster.getRowCount());
-            assertEquals(CharacterClass.getStats(782) == null ? "Unknown" : "6/8", roster.getValueAt(0,5));
+            assertEquals(Integer.valueOf(6), roster.getValueAt(0,5));
             button(panel,"Mark dead").doClick(); assertEquals("Marked dead manually",roster.getValueAt(0,2));
             button(panel,"Restore alive").doClick(); assertEquals("Last observed alive",roster.getValueAt(0,2));
             JTextArea notes = notes(panel); notes.setText("Finish Life and Wisdom"); button(panel,"Save notes").doClick();

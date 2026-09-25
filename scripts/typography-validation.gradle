@@ -31,7 +31,7 @@ allprojects {
                     includeTestsMatching 'tomato.gui.myinfo.MyInfoGuiTest'
                     // Wave 1 trust, scoped publication and editor surfaces. Pure model suites stay in test.
                     includeTestsMatching 'tomato.SetupWorkspaceTest'
-                    includeTestsMatching 'tomato.gui.chat.ShellHookIntegrationTest'
+                    includeTestsMatching 'tomato.gui.chat.ShellHookIntegrationTest' // Also covers Wave 2 production registrations and disposal.
                     includeTestsMatching 'tomato.gui.myinfo.MyInfoEvidenceTest'
                     includeTestsMatching 'tomato.gui.logging.LoggingGuiTest'
                     includeTestsMatching 'tomato.gui.logging.CollectionEvidenceTest.sharedCollectionStateChangesWhileBothDisplaysRemainPaused'
@@ -52,6 +52,34 @@ allprojects {
                     includeTestsMatching 'tomato.gui.myinfo.MyInfoLayoutEvidenceTest'
                     includeTestsMatching 'tomato.gui.stats.LootLayoutEvidenceTest'
                     includeTestsMatching 'ui.SetupLayoutEvidenceTest'
+                    // Wave 2 queried views and retained live controls. Large query/model stress stays in test.
+                    includeTestsMatching 'tomato.gui.activity.ActivityArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.chat.SocialArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.security.InspectArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.stats.StatisticsArchiveNativeTest'
+                    includeTestsMatching 'tomato.gui.history.HistoryLibraryNativeTest'
+                    includeTestsMatching 'tomato.gui.dps.EncounterLibraryNativeTest'
+                    includeTestsMatching 'tomato.gui.logging.LoggingNativeTest'
+                    includeTestsMatching 'tomato.gui.history.ArchiveWorkspaceTest.typedColumnsPresetsNamesCopyAndKeyboardDetailsAreUsableHeadlessly'
+                    includeTestsMatching 'tomato.gui.history.ArchiveWorkspaceTest.libraryShowsBadEntryAndRetainsSelectionAcrossRefresh'
+                    includeTestsMatching 'tomato.gui.chat.ChatArchiveClientTest.realWorkspaceRestoresNamedStateAndRejectsOldRendererCallbacks'
+                    includeTestsMatching 'tomato.gui.chat.ChatArchiveClientTest.displayedPolicyChangesCreateNewPinsWhileAnOldExportLeaseKeepsItsReasons'
+                    includeTestsMatching 'tomato.gui.chat.ChatArrivalStateTest'
+                    includeTestsMatching 'tomato.gui.keypop.KeyPopArchiveClientTest.queriedTabsUseGlobalPopulationAndCurrentSummaryExportSurvivesRestart'
+                    includeTestsMatching 'tomato.gui.keypop.KeyPopLiveStateTest'
+                    includeTestsMatching 'tomato.gui.activity.ActivityArchiveUiTest.compactRunColumnsHaveVisibleOutcomeAndKeyboardSortChangesGlobalQuery'
+                    includeTestsMatching 'tomato.gui.activity.ActivityArchiveUiTest.resourceDetailsUseOldPinUntilRefreshAndClientExportIncludesTimeline'
+                    includeTestsMatching 'tomato.gui.security.InspectArchiveClientTest'
+                    includeTestsMatching 'tomato.gui.security.InspectFacetStateTest'
+                    includeTestsMatching 'tomato.gui.character.CharacterRosterStateTest'
+                    includeTestsMatching 'tomato.gui.dps.EncounterLibraryStateTest'
+                    includeTestsMatching 'tomato.gui.dps.DungeonListTest'
+                    includeTestsMatching 'tomato.gui.logging.LoggingWorkflowTest'
+                    includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.queriedWorkspacePreservesNamedTabQuerySortSelectionColumnsAndIndependentScopes'
+                    includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveMultiFacetsFilterAllAggregatedItemsAndRestoreWithoutAWindow'
+                    includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveFameRangeMeasureAndDelayedCharacterChoiceRestore'
+                    includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveStateSaveFailureRetainsActiveFacetsAndCanRetryWithoutChangingThem'
+                    includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.arrivingFacetChoicesPreserveTheUnappliedLiveDraft'
                 }
                 testLogging { events 'failed'; exceptionFormat 'full' }
             }

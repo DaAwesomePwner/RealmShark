@@ -410,6 +410,8 @@ public class ContentStyleTest {
                     assertFalse("Metadata must not own focus", footer[0].isFocusOwner());
                     footer[0].setText("Updated metadata\nAnother line");
                     footer[0].append("\nUnavailable identity: 東京 ★\nBackground capture update");
+                    // FlatCaret queues explicit programmatic moves even with NEVER_UPDATE.
+                    footer[0].setCaretPosition(footer[0].getDocument().getLength());
                 });
                 settleMetadataLayout();
                 SwingUtilities.invokeAndWait(() -> assertEquals("Background document edits must preserve the reading position after " + laf.getName(),

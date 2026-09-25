@@ -50,10 +50,10 @@ public class ActivityFormattingTest {
                 && named(combat[0], "activity-table", JTable.class).getRowCount() == 3);
             SwingUtilities.invokeAndWait(() -> {
                 JTable table = named(runs[0], "activity-table", JTable.class);
-                assertEquals(Instant.class, table.getColumnClass(0)); assertEquals(Long.class, table.getColumnClass(4));
-                assertEquals("2026-01-02 03:04:05", cell(table, 0, 0));
-                assertEquals("9,007,199,254,740,993", cell(table, 0, 4));
-                assertEquals("-1,234", cell(table, 0, 3));
+                assertEquals(Instant.class, table.getColumnClass(1)); assertEquals(Long.class, table.getColumnClass(6));
+                assertEquals("2026-01-02 03:04:05", cell(table, 0, 1));
+                assertEquals("9,007,199,254,740,993", cell(table, 0, 6));
+                assertEquals("-1,234", cell(table, 0, 5));
                 JTable buffs = named(combat[0], "activity-table", JTable.class);
                 assertEquals("10.5%", cell(buffs, 0, 3)); assertEquals("0.0%", cell(buffs, 1, 3));
                 assertEquals("—", cell(buffs, 2, 3));
@@ -68,9 +68,9 @@ public class ActivityFormattingTest {
             Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY); TimeZone.setDefault(TimeZone.getTimeZone("Europe/Berlin"));
             SwingUtilities.invokeAndWait(() -> {
                 JTable table = named(runs[0], "activity-table", JTable.class);
-                assertEquals("2026-01-02 04:04:05", cell(table, 0, 0));
-                assertEquals("9.007.199.254.740.993", cell(table, 0, 4));
-                assertEquals("-1.234", cell(table, 0, 3));
+                assertEquals("2026-01-02 04:04:05", cell(table, 0, 1));
+                assertEquals("9.007.199.254.740.993", cell(table, 0, 6));
+                assertEquals("-1.234", cell(table, 0, 5));
                 table.setRowSelectionInterval(0, 0);
                 String details = named(runs[0], "activity-detail", JTextArea.class).getText();
                 assertTrue(details.contains("Europe/Berlin")); assertTrue(details.contains("party 12345, 1.234 observed members"));
@@ -160,7 +160,7 @@ public class ActivityFormattingTest {
                 assertEquals("Observed minutes", table.getColumnName(2));
                 table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.DESCENDING)));
                 assertEquals(1.5, table.getValueAt(0, 2)); assertEquals("1.5", cell(table, 0, 2));
-                assertEquals("Completed", table.getValueAt(0, 6));
+                assertEquals("Completed", table.getValueAt(0, 3));
                 table.setRowSelectionInterval(0, 0);
                 JCheckBox freeze = field(panel[0], "freeze", JCheckBox.class); freeze.setSelected(true);
                 JComboBox<?> units = named(panel[0], "run-duration-unit", JComboBox.class);
@@ -228,12 +228,12 @@ public class ActivityFormattingTest {
                 activitySearch(panels[2]).setText("10,5%"); assertEquals(1, activityTable(panels[2]).getRowCount());
                 activitySearch(panels[2]).setText("10.5"); assertEquals(1, activityTable(panels[2]).getRowCount());
                 JTable runs = activityTable(panels[0]); activitySearch(panels[0]).setText("");
-                runs.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
-                assertEquals(Instant.class, runs.getColumnClass(0));
-                assertEquals(Instant.parse("2026-10-25T00:50:00Z"), runs.getValueAt(1, 0));
-                assertEquals(Instant.parse("2026-10-25T01:10:00Z"), runs.getValueAt(2, 0));
-                assertEquals("2026-10-25 02:50:00", cell(runs, 1, 0)); assertEquals("2026-10-25 02:10:00", cell(runs, 2, 0));
-                assertEquals(Long.class, runs.getColumnClass(4)); assertEquals(Double.class, activityTable(panels[2]).getColumnClass(3));
+                runs.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(1, SortOrder.ASCENDING)));
+                assertEquals(Instant.class, runs.getColumnClass(1));
+                assertEquals(Instant.parse("2026-10-25T00:50:00Z"), runs.getValueAt(1, 1));
+                assertEquals(Instant.parse("2026-10-25T01:10:00Z"), runs.getValueAt(2, 1));
+                assertEquals("2026-10-25 02:50:00", cell(runs, 1, 1)); assertEquals("2026-10-25 02:10:00", cell(runs, 2, 1));
+                assertEquals(Long.class, runs.getColumnClass(6)); assertEquals(Double.class, activityTable(panels[2]).getColumnClass(3));
                 activitySearch(panels[0]).setText("Lost Halls"); activitySearch(panels[1]).setText("12345"); activitySearch(panels[2]).setText("Damaging");
                 for (ActivityPanel panel : panels) activityTable(panel).setRowSelectionInterval(0, 0);
             });
@@ -295,7 +295,7 @@ public class ActivityFormattingTest {
             assertTrue(named(panels[i], "activity-detail", JTextArea.class).getText().contains("2026-01-02 " + time + " (" + zone + ")"));
             if (i > 0) assertTrue(named(panels[i], "activity-visit", JComboBox.class).getSelectedItem().toString().startsWith("2026-01-02 " + time + " · Lost Halls"));
         }
-        assertEquals("2026-01-02 " + time, cell(activityTable(panels[0]), activityTable(panels[0]).getSelectedRow(), 0));
+        assertEquals("2026-01-02 " + time, cell(activityTable(panels[0]), activityTable(panels[0]).getSelectedRow(), 1));
         assertTrue(named(panels[0], "activity-detail", JTextArea.class).getText().contains(german ? "party 12345, 1.234 observed members" : "party 12345, 1,234 observed members"));
         assertTrue(named(panels[1], "activity-summary", JLabel.class).getText().contains(german ? "1.000 retained events" : "1,000 retained events"));
         assertEquals("Party 12345 · " + (german ? "1.234" : "1,234") + " observed members", activityTable(panels[1]).getValueAt(activityTable(panels[1]).getSelectedRow(), 3));

@@ -16,6 +16,17 @@ import java.util.List;
 
 /** Worker-built projections of durable sessions. Rates retain zero-loot runs in their denominators. */
 public final class HistoricalStatistics {
+    /** Coordinator shell hook: independent persisted Loot and Statistics scope/state keys. */
+    public static ArchiveWorkspace<LootQuery.Row,LootQuery.Facets,LootQuery.Sort> lootWorkspace(
+            SessionStore store,LootDashboard live,java.nio.file.Path scratch,ViewStateStore states){
+        live.bindViewState(states,"loot-live");
+        return SessionPanel.queried(store,"loot",live,new LootArchiveClient(scratch,false),states);
+    }
+    public static ArchiveWorkspace<LootQuery.Row,LootQuery.Facets,LootQuery.Sort> statisticsWorkspace(
+            SessionStore store,StatisticsGUI live,java.nio.file.Path scratch,ViewStateStore states){
+        live.bindViewState(states);
+        return SessionPanel.queried(store,"statistics",live,new LootArchiveClient(scratch,true),states);
+    }
     private final LootDashboard.Archive loot = new LootDashboard.Archive();
     private final Map<String, Profile> dungeons = new TreeMap<>(), profiles = new LinkedHashMap<>();
     private final Map<String, SessionStore.Session> sessions = new LinkedHashMap<>();

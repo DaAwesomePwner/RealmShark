@@ -31,6 +31,23 @@ import java.util.regex.Pattern;
  * GUI class for popping dungeons.
  */
 public class KeypopGUI extends JPanel {
+    private JComponent queriedWorkspace;
+    /** Coordinator shell registration: keypopPanel.workspace(). */
+    public JComponent workspace() {
+        tomato.history.SessionStore store = tomato.history.AppHistory.store();
+        return workspace(store, store == null ? null : store.directory().resolve(".query-scratch/keypops"), tomato.gui.history.ViewStateStore.application());
+    }
+    /** Explicit writable scratch injection for a read-only archive; default stays beneath user history. */
+    public JComponent workspace(tomato.history.SessionStore store, java.nio.file.Path scratch, tomato.gui.history.ViewStateStore states) {
+        if (queriedWorkspace != null) return queriedWorkspace;
+        if (store != null && (scratch == null || !scratch.isAbsolute())) throw new IllegalArgumentException("Use an absolute, explicitly chosen archive scratch directory.");
+        dashboard.enableLiveState(states);
+        if (store == null) return this;
+        KeyPopArchiveClient client = new KeyPopArchiveClient(scratch.normalize());
+        tomato.gui.history.ArchiveWorkspace<KeyPopArchiveClient.Row,KeyPopArchiveClient.Facets,KeyPopArchiveClient.Sort> workspace =
+            tomato.gui.history.SessionPanel.queried(store, "keypops", this, client, states);
+        client.bind(workspace); queriedWorkspace = workspace; return workspace;
+    }
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
         tomato.gui.history.HistoryPage<KeyPopEvent> events = tomato.gui.history.HistoryPage.read(store, scope, "keypops", KeyPopEvent.class, page, query,
                 event -> event.time + " " + event.player + " " + event.kind + " " + event.item);
@@ -76,9 +93,10 @@ public class KeypopGUI extends JPanel {
         });
         south.add(logCheckbox);
 
-        JButton exportButton = new JButton("Export CSV");
+        JButton exportButton = new JButton("Export events (retained CSV)");
         exportButton.addActionListener(e -> dashboard.exportCsv());
         south.add(exportButton);
+        JButton summaryExport = new JButton("Export current tab (retained CSV)"); summaryExport.addActionListener(e -> dashboard.exportCurrentTab()); south.add(summaryExport);
         south.add(clearButton);
 
         add(south, BorderLayout.SOUTH);

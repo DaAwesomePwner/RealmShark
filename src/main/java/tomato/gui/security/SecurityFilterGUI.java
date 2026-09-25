@@ -179,6 +179,7 @@ public class SecurityFilterGUI extends JPanel {
                 sf.statMaxed[i] = c.isSelected();
             }
 
+            if (!sf.valid()) { JOptionPane.showMessageDialog(this, "Requirements are invalid. Minimum tiers must be nonnegative; correct the draft before saving."); return; }
             Gson gson = new Gson();
             sf.json = gson.toJson(sf);
             jsonField.setText(sf.json);
@@ -229,6 +230,7 @@ public class SecurityFilterGUI extends JPanel {
     }
 
     private void loadSF(SecurityFilter sf) {
+        if (!sf.valid()) { JOptionPane.showMessageDialog(this, "This preset has invalid or incomplete requirements. Correct its JSON before loading."); return; }
         nameField.setText(sf.name);
         filterComboBox.setSelectedItem(sf.name);
 
@@ -307,7 +309,7 @@ public class SecurityFilterGUI extends JPanel {
             return;
         }
         SecurityFilter sf = SecurityFilter.loadJson(json);
-        if (sf == null) return;
+        if (sf == null || !sf.valid()) { JOptionPane.showMessageDialog(this, "The pasted preset has invalid or incomplete requirements."); return; }
         saveSF(sf);
         loadSF(sf);
     }
@@ -687,8 +689,8 @@ public class SecurityFilterGUI extends JPanel {
 //        dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
 
         // Load the currently-active filter (if there is one)
-        if (ParsePanelGUI.currentFilter != null) {
-            filter.loadSF(ParsePanelGUI.currentFilter);
+        if (parsePanelGUI.selectedFilter() != null) {
+            filter.loadSF(parsePanelGUI.selectedFilter());
         }
 
         dialog.setVisible(true);

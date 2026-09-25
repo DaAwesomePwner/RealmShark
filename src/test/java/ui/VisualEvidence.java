@@ -17,6 +17,10 @@ public final class VisualEvidence extends ExternalResource {
     private JFrame frame;
     private Font previousFont;
     private LookAndFeel previousTheme;
+    private final String folder;
+
+    public VisualEvidence() { this("wave1"); }
+    public VisualEvidence(String folder) { this.folder = folder; }
 
     @Override protected void before() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
@@ -44,7 +48,8 @@ public final class VisualEvidence extends ExternalResource {
         ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font));
         ContentStyle.applyFontDefaults(); ContentStyle.refreshFonts(content);
         if (frame == null) frame = new JFrame();
-        frame.setTitle(title + " - synthetic validation"); frame.setContentPane(content);
+        frame.setTitle(title + " - synthetic validation");
+        if (frame.getContentPane() != content) frame.setContentPane(content);
         frame.setSize(width, height); frame.setVisible(true); UiTestLayout.settle(frame);
         System.out.println(title + " requested outer=" + width + "x" + height + ", actual outer=" + frame.getSize()
             + ", client=" + content.getSize() + ", font=" + font + ", transform=" + frame.getGraphicsConfiguration().getDefaultTransform());
@@ -57,15 +62,24 @@ public final class VisualEvidence extends ExternalResource {
     }
 
     public void capture(String name) {
+        capture(frame, name);
+    }
+
+    public void capture(Window window, String name) {
         assertTrue(SwingUtilities.isEventDispatchThread());
-        UiTestLayout.settle(frame);
-        BufferedImage image = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = image.createGraphics(); frame.printAll(graphics); graphics.dispose();
+        UiTestLayout.settle(window);
+        BufferedImage image = new BufferedImage(window.getWidth(), window.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics(); window.printAll(graphics); graphics.dispose();
         try {
-            File folder = new File("screenshots/wave1");
-            assertTrue("Evidence directory", folder.isDirectory() || folder.mkdirs());
-            assertTrue("PNG writer", ImageIO.write(image, "png", new File(folder, name + ".png")));
+            File directory = new File("screenshots", folder);
+            assertTrue("Evidence directory", directory.isDirectory() || directory.mkdirs());
+            assertTrue("PNG writer", ImageIO.write(image, "png", new File(directory, name + ".png")));
         } catch (Exception e) { throw new AssertionError(e); }
+    }
+
+    public void closeWindow() {
+        assertTrue(SwingUtilities.isEventDispatchThread());
+        if (frame != null) frame.dispose();
     }
 
     public static void reachable(JComponent component) {

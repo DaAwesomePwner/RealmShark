@@ -23,15 +23,37 @@ quantities separate from observations; versioned metadata; no guessed historical
 
 ## Current milestone
 
-Wave 1 implementation, local validation and Windows package complete; PR gates pending.
+Wave 1 is merged. Wave 2 implementation is integrated and explicitly resumed on
+2026-09-24 from the clean, published `6f7d007` handoff. PR #12 is open. Native width
+and focus-fixture repairs, a session-startup metadata-publication race fix, and
+updated user guides are integrated through `9923bea`. Final local validation at
+equivalent worker `66fc750` passed **803 full / 176 at 150% / 176 at 200%**, with
+zero failures/errors/skips; JAR and isolated help passed. Independent source,
+test/guide and startup-repair reviews found no blockers. Independent visual review
+covered 46 baseline plus 24 final-run images with no blockers. Final local
+build-maintenance passed. Exact-head review and final-head CI remain merge gates.
+Earlier PR CI passed at
+`fefdaa6` and `202741b`; these precede the startup repair. Waves 3 and 4
+implementation has not started; their tracked
+contract notes are provisional preparation only. Read [the handoff](UX-HANDOFF.md),
+[portable checkpoint](UX-CHECKPOINT.json) and [validation record](UX-WAVE2-VALIDATION.md)
+for the tested code, completed checks, remaining gates and exact next action.
+Live GitHub reconciliation on 2026-09-24 confirmed Wave 1 PR #11 merged as
+`64d58d0606a82a956e082fa0dcc07aa18d8fbbfa`, with successful main CI `35696825491`.
+Wave 2 resumed from local `c1ccedb` and remote `18e3c4f`. All recovered production,
+native test and fixture changes are now integrated through `ad21a1f` on
+`feat/ux-wave-2-evidence`; no Wave 2 PR exists at handoff. Source review through the
+final test delta found no blockers. Earlier failed/interrupted checks remain
+diagnostic history and are not validation passes.
 Baseline PR #10 merged as `835e178c56381a16a5414f3ca9791a9d1ea7f174`; final-head AI
 review and PR CI passed, followed by successful main CI run `35681691854`.
 Initial main/live remote SHA:
 `d57456d955f5c942ab0a2eb5d5a586752d2cff9b`.
 Pre-existing work: Chat ignored-player visibility feature, associated tests and docs,
 untracked UX roadmap, and unused Npcap duplicate. No other pre-existing source changes.
-See the local checkpoint and tracking issue for live status; this committed document is
-a milestone record, not a claim that subsequent checks or merges have happened.
+See the tracked checkpoint and tracking issue for published status, and the local
+checkpoint when available. These are milestone records; reconcile subsequent
+checks and merges with actual Git/GitHub state before resuming.
 Tracking issue: https://github.com/DaAwesomePwner/RealmShark/issues/9.
 
 Baseline local evidence: 519 tests, 76 UI checks at 150%, and 76 at 200%, all with
@@ -60,6 +82,14 @@ ZIP SHA-256: `AF4F8FD3D02690DB4585F8FA01AC55F5C1777EADDF43961036D2377CA42489B3`.
 The package builder's fresh 624 tests passed; packaged guides match their sources.
 Immutable-runtime staging checks also passed in
 `build/runtime-test-6c6f3b26a6bc471e83af6ac2de43c7a1/`.
+
+Wave 2 package handoffs: [foundation](UX-WAVE2-FOUNDATION.md),
+[social](UX-WAVE2-SOCIAL.md), [rosters](UX-WAVE2-ROSTERS.md),
+[activity](UX-WAVE2-ACTIVITY.md), [loot/statistics](UX-WAVE2-LOOT.md),
+[Logging](UX-WAVE2-LOGGING.md), and [shell integration](UX-WAVE2-INTEGRATION.md).
+Their bounded checks do not replace the integrated native/scaled/final-head gates.
+Recording-interval availability remains unknown until actual producer transitions
+are instrumented in Wave 3; an empty archive is not proof of collection coverage.
 
 ## Sequence and work packages
 
@@ -123,64 +153,68 @@ provenance stays separate; old records remain usable; ambiguous run links are ex
 ## Coverage ledger
 
 States: pending, implementing, implemented, verified, reviewed, merged, blocked.
+Wave 2 has verified **803/176/176** local tests at integrated `9923bea`, including
+native geometry/focus and startup-publication regressions. Its slices below are
+verified locally; final review/CI/merge gates remain pending. Earlier failed runs
+remain diagnostic history. No Wave 2 merge or Wave 3/4 implementation is claimed.
 An ID with multiple slices closes only when all slices meet their acceptance criteria.
 
 | ID | Package(s) | State |
 | --- | --- | --- |
-| UX-01 | 2A | pending |
-| UX-02 | 2A state; 3A routing | pending |
-| UX-03 | 1A; adopted throughout | 1A verified; later adoption tracked |
-| UX-04 | 2A and module adapters; 3 linked extensions | pending |
-| UX-05 | 2A | pending |
-| UX-06 | 1A | verified; PR gate pending |
-| UX-07 | 2A onward; 4D audit | pending |
+| UX-01 | 2A | verified; Wave 2 merge gates pending |
+| UX-02 | 2A state; 3A routing | state verified; Wave 2 merge gates pending; routing pending |
+| UX-03 | 1A; adopted throughout | 1A merged; later adoption tracked |
+| UX-04 | 2A and module adapters; 3 linked extensions | Wave 2 verified; merge gates pending; linked extensions pending |
+| UX-05 | 2A library; 3A recording intervals | library verified; Wave 2 merge gates pending; recording intervals pending |
+| UX-06 | 1A | merged |
+| UX-07 | 2A onward; 4D audit | Wave 2 verified; merge gates pending; final audit pending |
 | UX-08 | 4D | pending |
-| CHAT-1 | 1C | verified; PR gate pending |
-| CHAT-2 | 2B | pending |
-| CHAT-3 | 2B saved views; 3D drafts | pending |
-| KEY-1 | 1C | verified; PR gate pending |
-| KEY-2 | 2B | pending |
+| CHAT-1 | 1C | merged |
+| CHAT-2 | 2B | verified; Wave 2 merge gates pending |
+| CHAT-3 | 2B saved views; 3D drafts | saved views verified; Wave 2 merge gates pending; drafts pending |
+| KEY-1 | 1C | merged |
+| KEY-2 | 2B | verified; Wave 2 merge gates pending |
 | KEY-3 | 3D | pending |
-| INS-1 | 2C | pending |
-| INS-2 | 1A honesty; 3B metadata | 1A verified; 3B pending |
+| INS-1 | 2C | verified; Wave 2 merge gates pending |
+| INS-2 | 1A honesty; 3B metadata | 1A merged; 3B pending |
 | INS-3 | 3B | pending |
 | INS-4 | 4B | pending |
-| CHAR-1 | 1B | verified; PR gate pending |
-| CHAR-2 | 2C | pending |
+| CHAR-1 | 1B | merged |
+| CHAR-2 | 2C | verified; Wave 2 merge gates pending |
 | CHAR-3 | 4A | pending |
 | CHAR-4 | 4B | pending |
-| CHAR-5 | 1B | verified; PR gate pending |
-| STAT-1 | 1D | verified; PR gate pending |
+| CHAR-5 | 1B | merged |
+| STAT-1 | 1D | merged |
 | STAT-2 | 3C | pending |
 | STAT-3 | 3C | pending |
-| QUEST-1 | 1B | verified; PR gate pending |
+| QUEST-1 | 1B | merged |
 | QUEST-2 | 4A | pending |
 | QUEST-3 | 4A | pending |
-| INFO-1 | 1A | verified; PR gate pending |
+| INFO-1 | 1A | merged |
 | INFO-2 | 3B | pending |
-| COMBAT-1 | 1D | verified; PR gate pending |
-| COMBAT-2 | 2C | pending |
+| COMBAT-1 | 1D | merged |
+| COMBAT-2 | 2C | verified; Wave 2 merge gates pending |
 | COMBAT-3 | 3B | pending |
 | COMBAT-4 | 3B | pending |
 | COMBAT-5 | 3B | pending |
-| LOOT-1 | 1D recency; 2D deep search | recency verified; deep search pending |
-| LOOT-2 | 2D | pending |
+| LOOT-1 | 1D recency; 2D deep search | recency merged; deep search verified; Wave 2 merge gates pending |
+| LOOT-2 | 2D | verified; Wave 2 merge gates pending |
 | LOOT-3 | 3C | pending |
 | LOOT-4 | 4C | pending |
-| LOG-1 | 2B | pending |
-| LOG-2 | 1A honesty; 3A metadata | 1A verified; 3A pending |
-| LOG-3 | 2B | pending |
-| RUN-1 | 2D | pending |
+| LOG-1 | 2B | verified; Wave 2 merge gates pending |
+| LOG-2 | 1A honesty; 3A metadata | 1A merged; 3A pending |
+| LOG-3 | 2B | verified; Wave 2 merge gates pending |
+| RUN-1 | 2D | verified; Wave 2 merge gates pending |
 | RUN-2 | 3A | pending |
-| TIME-1 | 2D | pending |
+| TIME-1 | 2D | verified; Wave 2 merge gates pending |
 | TIME-2 | 3A | pending |
-| BRIDGE-1 | 1D | verified; PR gate pending |
-| BRIDGE-2 | 1D | verified; PR gate pending |
+| BRIDGE-1 | 1D | merged |
+| BRIDGE-2 | 1D | merged |
 | BRIDGE-3 | 3D | pending |
 | BRIDGE-4 | 3D | pending |
-| ALERT-1 | 1C | verified; PR gate pending |
-| ALERT-2 | 1C | verified; PR gate pending |
-| ALERT-3 | 1C | verified; PR gate pending |
+| ALERT-1 | 1C | merged |
+| ALERT-2 | 1C | merged |
+| ALERT-3 | 1C | merged |
 | ALERT-4 | 3D | pending |
 
 ## Validation and merge gates
@@ -216,12 +250,13 @@ Publish sanitized milestone state in a GitHub tracking issue and wave PRs; local
 state is not sufficient for recovery on another machine. Commit ledger milestones.
 
 On resume:
-1. Read AGENTS, this plan, roadmap and local checkpoint.
+1. Read AGENTS, this plan, roadmap, UX-HANDOFF.md, UX-CHECKPOINT.json and any local checkpoint.
 2. Verify cwd, status/branch, worktrees, local commits and live remote main.
 3. Reconcile PR/head/review/CI/merge state with GitHub; actual state wins.
 4. Inspect unfamiliar/uncommitted work; never reset it automatically.
 5. Invalidate checks for changed source. Incomplete/interrupted checks are not passes.
 6. Resume the earliest incomplete gate; do not start the next wave early.
 
-Resume prompt: "Resume RealmShark UX execution; read AGENTS.md, docs/UX-EXECUTION.md and
-.omc/ux/checkpoint.json, reconcile GitHub, then continue the earliest incomplete gate."
+Resume prompt: "Resume RealmShark UX execution; read AGENTS.md, docs/UX-HANDOFF.md,
+docs/UX-CHECKPOINT.json, docs/UX-EXECUTION.md and any .omc/ux/checkpoint.json;
+reconcile GitHub, then continue the earliest incomplete gate."

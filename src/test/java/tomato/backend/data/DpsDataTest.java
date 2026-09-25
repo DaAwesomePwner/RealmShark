@@ -20,6 +20,7 @@ public class DpsDataTest {
             saved = (DpsData) input.readObject();
         }
         assertEquals("Baseline encounter", saved.map.name);
+        assertNull("Old recordings must not receive a guessed recording identity", saved.getRecordingId());
         assertEquals(5000, saved.totalDungeonPcTime); assertEquals(123456, saved.dungeonStartTime);
         Entity target = saved.hitList.get(99);
         assertEquals(1000, target.maxHp()); assertEquals(321, target.getDamageList().get(0).damage);
@@ -30,6 +31,7 @@ public class DpsDataTest {
         assertNotNull(saved.debugPackets);
 
         DpsData exported = roundTrip(saved.getSaveFile(false));
+        assertNull(exported.getRecordingId());
         assertNull(exported.debugPackets);
         assertEquals("HistoricGuild", exported.getLocalPlayerContext().guild);
         assertEquals(321, exported.hitList.get(99).getDamageList().get(0).damage);

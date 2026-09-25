@@ -16,6 +16,7 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.LootBags;
+import tomato.gui.history.ViewStateStore;
 
 /** Session summaries shared by Statistics and the Loot workspace; filters are view-local. */
 public final class LootDashboard extends JPanel {
@@ -26,7 +27,7 @@ public final class LootDashboard extends JPanel {
     private final JLabel results = new JLabel();
     private final JTextArea enchantTotals = StatsUi.note("");
     private final JTextArea scopeNote = StatsUi.note(scopeDescription());
-    private final JTextField search = StatsUi.search("loot-search", "Search items, bags or dungeons", 22);
+    private final JTextField search = StatsUi.search("loot-search", "Search item ID/name, bag, dungeon or dropper", 22);
     private final JComboBox<String> bagFilter = new JComboBox<>(new String[]{"All bags"});
     private final JComboBox<String> dungeonFilter = new JComboBox<>(new String[]{"All dungeons"});
     private final JComboBox<String> recentRange = new JComboBox<>(new String[]{"All retained drops", "Last 5 minutes", "Last 15 minutes", "Last hour"});
@@ -39,6 +40,14 @@ public final class LootDashboard extends JPanel {
     private final boolean[] dirty = new boolean[VIEW_NAMES.length];
     private Summary summary;
     private List<Drop> recent = Collections.emptyList();
+    private LootQuery.Facets facets=new LootQuery.Facets();
+    private final JPanel facetControls=new JPanel(new BorderLayout());
+    private final JTable[] tables=new JTable[VIEW_NAMES.length];
+    private final JScrollPane[] scrolls=new JScrollPane[VIEW_NAMES.length];
+    private final List<List<String>> rowKeys=new ArrayList<>();
+    private final Map<Drop,String> recentKeys=new IdentityHashMap<>();
+    private StatisticsLiveState viewState;
+    private LootFacetControls facetEditor;
 
     public LootDashboard() { this(new State()); }
     LootDashboard(LootDashboard shared) { this(shared.state); }
@@ -53,11 +62,12 @@ public final class LootDashboard extends JPanel {
         dungeonFilter.setPrototypeDisplayValue("All dungeons / Lost Halls");
         JPanel controls = StatsUi.controls(); controls.add(search); controls.add(bagFilter); controls.add(dungeonFilter);
         JButton reset = new JButton("Reset filters"); controls.add(reset);
-        add(StatsUi.stack(StatsUi.heading("Loot explorer", (historical ? "Saved drops in the selected session scope. " : "Observed drops this app session. ") + "Summary cards follow bag and dungeon filters; search narrows each table."),
-            StatsUi.metrics(metrics, "Bags observed", "Items observed", "Stat potions", "White bags"), controls), BorderLayout.NORTH);
+        add(StatsUi.stack(StatsUi.heading("Loot explorer", (historical ? "Saved drops in the selected session scope. " : "Observed drops this app session. ") + "Facets/search filter full aggregates; tab categories narrow the displayed rows."),
+            StatsUi.metrics(metrics, "Matching bags", "Matching items", "Matching stat potions", "Matching white bags"), controls,facetControls), BorderLayout.NORTH);
         enchantTotals.setName("loot-enchant-totals");
         views.setName("loot-views");
         for (int i = 0; i < models.length; i++) {
+            rowKeys.add(new ArrayList<>());
             String[] columns = i == 3 ? new String[]{"Bag type", "Bags", "Items"}
                 : i == 4 ? new String[]{"Time", "Bag type", "Items", "Dungeon", "Dropper"}
                 : i == 5 ? new String[]{"Dungeon", "Bags", "Items"}
@@ -67,6 +77,7 @@ public final class LootDashboard extends JPanel {
                 : new Class<?>[]{Icon.class, String.class, Integer.class, String.class, String.class, String.class, Integer.class, Integer.class};
             models[i] = new BulkModel(columns, types);
             JTable table = StatsUi.table(models[i], "loot-view-" + i);
+            tables[i]=table;scrolls[i]=StatsUi.tableScroll(table);
             @SuppressWarnings("unchecked") TableRowSorter<DefaultTableModel> sorter = (TableRowSorter<DefaultTableModel>)table.getRowSorter();
             sorters.add(sorter);
             if (itemView(i)) {
@@ -85,8 +96,8 @@ public final class LootDashboard extends JPanel {
                 StatsUi.timestampColumn(table, 0);
                 JPanel recent = new JPanel(new BorderLayout(0, 6));
                 JPanel filter = StatsUi.controls(); filter.add(recentRange); filter.add(new JLabel("Relative to latest captured drop"));
-                recent.add(filter, BorderLayout.NORTH); recent.add(StatsUi.tableScroll(table), BorderLayout.CENTER); views.addTab(VIEW_NAMES[i], recent);
-            } else views.addTab(VIEW_NAMES[i], StatsUi.tableScroll(table));
+                recent.add(filter, BorderLayout.NORTH); recent.add(scrolls[i], BorderLayout.CENTER); views.addTab(VIEW_NAMES[i], recent);
+            } else views.addTab(VIEW_NAMES[i], scrolls[i]);
         }
         views.setToolTipTextAt(6, "UT weapons, abilities, armor and rings; excludes potions, runes and other consumables");
         views.setToolTipTextAt(7, "Only items labeled ST, regardless of bag color");
@@ -94,15 +105,39 @@ public final class LootDashboard extends JPanel {
         views.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); add(views, BorderLayout.CENTER);
         results.setFont(ContentStyle.metadata(ContentStyle.body()));
         add(StatsUi.stack(results, enchantTotals, scopeNote), BorderLayout.SOUTH);
-        StatsUi.onSearch(search, this::filter);
-        bagFilter.addActionListener(e -> { if (!rebuilding) invalidateScope(); }); dungeonFilter.addActionListener(e -> { if (!rebuilding) invalidateScope(); });
+        StatsUi.onSearch(search, this::invalidateScope);
+        bagFilter.addActionListener(e -> { if (!rebuilding){facets.bags.clear();if(bagFilter.getSelectedIndex()>0)facets.bags.add((String)bagFilter.getSelectedItem());rememberFacets();invalidateScope();rebuildFacetControls();} });
+        dungeonFilter.addActionListener(e -> { if (!rebuilding){facets.dungeons.clear();if(dungeonFilter.getSelectedIndex()>0)facets.dungeons.add((String)dungeonFilter.getSelectedItem());rememberFacets();invalidateScope();rebuildFacetControls();} });
         recentRange.addActionListener(e -> { dirty[4] = true; refresh(); });
-        views.addChangeListener(e -> refresh());
+        views.addChangeListener(e -> {facets.view=liveView(views.getSelectedIndex());rememberFacets();invalidateScope();});
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refresh();
         });
         reset.addActionListener(e -> { search.setText(""); bagFilter.setSelectedIndex(0); dungeonFilter.setSelectedIndex(0); recentRange.setSelectedIndex(0); });
+        reset.addActionListener(e -> {facets=new LootQuery.Facets();facets.view=liveView(views.getSelectedIndex());rememberFacets();invalidateScope();rebuildFacetControls();});
+        rebuildFacetControls();
         refresh();
+    }
+    public void bindViewState(ViewStateStore store,String key){
+        viewState=new StatisticsLiveState(store,key).attach(this);String saved=viewState.value("facets","");
+        if(!saved.isEmpty())try{LootQuery.Facets restored=tomato.history.SessionStore.JSON.fromJson(saved,LootQuery.Facets.class);restored.validate();facets=restored;}catch(RuntimeException failure){viewState.reject("Invalid live loot facets");viewState.put("facets",tomato.history.SessionStore.JSON.toJson(facets));}
+        viewState.text(search);viewState.tabs(views);viewState.combo(recentRange);
+        facets.view=liveView(views.getSelectedIndex());
+        for(int i=0;i<tables.length;i++){final int view=i;viewState.table(tables[i],scrolls[i],row->row<rowKeys.get(view).size()?rowKeys.get(view).get(row):"");}
+        rebuildFacetControls();invalidateScope();
+    }
+    void bindSiblingViewState(ViewStateStore store,String key){List<LootDashboard> siblings;synchronized(state){siblings=new ArrayList<>(state.views);}for(LootDashboard sibling:siblings)if(sibling!=this)sibling.bindViewState(store,key);}
+    private void rememberFacets(){if(viewState!=null)viewState.put("facets",tomato.history.SessionStore.JSON.toJson(facets));}
+    private static LootQuery.View liveView(int index){LootQuery.View[] live={LootQuery.View.ITEMS,LootQuery.View.POTIONS,LootQuery.View.WHITES,LootQuery.View.BAGS,LootQuery.View.RECENT,LootQuery.View.DUNGEONS,LootQuery.View.UTS,LootQuery.View.STS,LootQuery.View.TIERED};return index<0?LootQuery.View.ITEMS:live[index];}
+    void applyFacets(LootQuery.Facets next){
+        next.validate();facets=tomato.history.SessionStore.JSON.fromJson(tomato.history.SessionStore.JSON.toJson(next),LootQuery.Facets.class);facets.view=liveView(views.getSelectedIndex());
+        rebuilding=true;try{bagFilter.setSelectedIndex(0);dungeonFilter.setSelectedIndex(0);}finally{rebuilding=false;}
+        rememberFacets();invalidateScope();rebuildFacetControls();
+    }
+    int[] matchingTotals(){synchronized(state){Summary s=summarize((String)bagFilter.getSelectedItem(),(String)dungeonFilter.getSelectedItem());return new int[]{s.bagsKnown?s.bags:-1,s.items,s.potions};}}
+    private void rebuildFacetControls(){
+        Set<String> bags=new TreeSet<>(),dungeons=new TreeSet<>();synchronized(state){dungeons.addAll(state.buckets.keySet());for(Map<String,Bucket> bucket:state.buckets.values())bags.addAll(bucket.keySet());}
+        facetControls.removeAll();facetEditor=new LootFacetControls(facets,bags,dungeons,this::applyFacets);facetControls.add(facetEditor);facetControls.revalidate();
     }
 
     public void receive(MapInfoPacket map, Entity bag, Entity dropper, long time) {
@@ -142,7 +177,6 @@ public final class LootDashboard extends JPanel {
             if (drops.isEmpty()) return;
             for (Drop drop : drops) accumulate(state, drop, "", state.sequence++);
             state.version++;
-            state.summaries.clear();
             if (state.refreshQueued) return;
             state.refreshQueued = true;
         }
@@ -163,9 +197,17 @@ public final class LootDashboard extends JPanel {
         String name = tomato.backend.data.DungeonStatData.Snapshot.canonicalName(drop.dungeon);
         Map<String, Bucket> dungeon=state.buckets.computeIfAbsent(name,key->new LinkedHashMap<>());
         Bucket bucket=dungeon.computeIfAbsent(drop.bag,key->new Bucket());bucket.bags++;
+        List<String> shapeKey=new ArrayList<>();shapeKey.add("dropper:"+drop.dropper);
+        for(Item item:drop.items)shapeKey.add(tomato.history.SessionStore.JSON.toJson(itemContext(item,drop.dropper)));Collections.sort(shapeKey);
+        BagShape shape=bucket.shapes.get(shapeKey);
+        if(shape==null){
+            if(state.shapeKeys<LootArchiveAdapter.MAX_KEYS){shape=new BagShape(drop.items,drop.dropper);bucket.shapes.put(shapeKey,shape);state.shapeKeys++;}
+            else state.bagFacetsUnavailable=true;
+        }
+        if(shape!=null)shape.count++;
         state.totalBags++;state.totalItems+=drop.items.size();
         for(Item item:drop.items){bucket.items++;if(item.potion)bucket.potions++;
-            ItemCount count=bucket.counts.computeIfAbsent(item.key,key->new ItemCount(item));count.count++;count.lastTime=Math.max(count.lastTime,drop.time);}
+            ItemCount count=bucket.counts.computeIfAbsent(itemContext(item,drop.dropper),key->new ItemCount(item,drop.dropper));count.count++;count.lastTime=Math.max(count.lastTime,drop.time);}
         state.recent.add(new Recent(drop, session, ordinal));
         if(state.recent.size()>RECENT_LIMIT)state.recent.pollFirst();
     }
@@ -192,8 +234,9 @@ public final class LootDashboard extends JPanel {
             if (renderedVersion != state.version) {
                 dungeons = new ArrayList<>(state.buckets.keySet());
                 for (Map<String, Bucket> dungeon : state.buckets.values()) bags.addAll(dungeon.keySet());
-                summary = state.summaries.computeIfAbsent(key, scope -> summarize(scope.get(0), scope.get(1)));
+                summary = summarize(key.get(0), key.get(1));
                 recent = recentDrops(state);
+                recentKeys.clear();for(Recent entry:state.recent)recentKeys.put(entry.drop,entry.session+"/bag-"+entry.ordinal+"/"+entry.drop.time);
                 renderedVersion = state.version;
                 Arrays.fill(dirty, true);
             }
@@ -203,10 +246,11 @@ public final class LootDashboard extends JPanel {
             for (String dungeon : dungeons) addOption(dungeonFilter, dungeon);
             for (String bag : bags) addOption(bagFilter, bag);
             rebuilding = false;
+            if(facetEditor!=null)facetEditor.updateChoices(bags,dungeons);
         }
         if (summary != null) {
-            metrics[0].setText(DisplayFormat.formatInteger(summary.bags)); metrics[1].setText(DisplayFormat.formatInteger(summary.items));
-            metrics[2].setText(DisplayFormat.formatInteger(summary.potions)); metrics[3].setText(DisplayFormat.formatInteger(summary.whites));
+            metrics[0].setText(summary.bagsKnown?DisplayFormat.formatInteger(summary.bags):DisplayFormat.UNAVAILABLE); metrics[1].setText(DisplayFormat.formatInteger(summary.items));
+            metrics[2].setText(DisplayFormat.formatInteger(summary.potions)); metrics[3].setText(summary.bagsKnown?DisplayFormat.formatInteger(summary.whites):DisplayFormat.UNAVAILABLE);
         }
         int view = views.getSelectedIndex();
         if (view >= 0 && dirty[view]) {
@@ -218,36 +262,59 @@ public final class LootDashboard extends JPanel {
 
     private Summary summarize(String bagSelection, String dungeonSelection) {
         Summary result = new Summary();
+        boolean itemQuery=facets.itemRestricted()||!search.getText().trim().isEmpty();
+        result.bagsKnown=!itemQuery||!state.bagFacetsUnavailable;
         for (Map.Entry<String, Map<String, Bucket>> dungeon : state.buckets.entrySet()) {
             if (!"All dungeons".equals(dungeonSelection) && !dungeon.getKey().equals(dungeonSelection)) continue;
+            if(!facets.dungeon(dungeon.getKey()))continue;
             for (Map.Entry<String, Bucket> bag : dungeon.getValue().entrySet()) {
                 if (!"All bags".equals(bagSelection) && !bag.getKey().equals(bagSelection)) continue;
-                Bucket bucket = bag.getValue(); result.bags += bucket.bags; result.items += bucket.items; result.potions += bucket.potions;
-                if (white(bag.getKey())) result.whites += bucket.bags;
-                accumulate(result.byBag, bag.getKey(), bucket); accumulate(result.byDungeon, dungeon.getKey(), bucket);
+                if(!facets.bags.isEmpty()&&!facets.bags.contains(bag.getKey()))continue;
+                if(facets.view==LootQuery.View.WHITES&&!white(bag.getKey()))continue;
+                Bucket bucket = bag.getValue();int matchingBags=0;
+                if(!itemQuery)matchingBags=bucket.bags;
+                else for(BagShape shape:bucket.shapes.values()){
+                    boolean match=shape.items.isEmpty()&&matchesEmptyBag(bag.getKey(),dungeon.getKey(),shape.dropper);
+                    for(Item item:shape.items)if(matchesItem(item,bag.getKey(),dungeon.getKey(),shape.dropper)){match=true;break;}
+                    if(match)matchingBags+=shape.count;
+                }
+                result.bags+=matchingBags;if(white(bag.getKey()))result.whites+=matchingBags;
+                int matching=0;
                 for (ItemCount item : bucket.counts.values()) {
+                    if(!matchesItem(item.item,bag.getKey(),dungeon.getKey(),item.dropper))continue;
+                    matching+=item.count;result.items+=item.count;if(item.item.potion)result.potions+=item.count;
                     result.allItems.computeIfAbsent(item.item.key, key -> new Aggregate(item.item)).add(item, dungeon.getKey());
                     if (white(bag.getKey())) result.whiteItems.computeIfAbsent(item.item.key, key -> new Aggregate(item.item)).add(item, dungeon.getKey());
                 }
+                if(matchingBags>0||matching>0){int[] byBag=result.byBag.computeIfAbsent(bag.getKey(),k->new int[2]),byDungeon=result.byDungeon.computeIfAbsent(dungeon.getKey(),k->new int[2]);
+                    byBag[0]+=matchingBags;byBag[1]+=matching;byDungeon[0]+=matchingBags;byDungeon[1]+=matching;}
             }
         }
         return result;
     }
+    private static List<Object> itemContext(Item item,String dropper){return Arrays.asList(item.key,item.name,item.tier,item.ut,item.st,item.potion,item.highTier,dropper);}
+    /** Search the same explicit fields as saved occurrences, never display punctuation. */
+    private boolean matchesItem(Item item,String bag,String dungeon,String dropper){
+        return facets.item(item)&&LootQuery.contains(item.id+" "+item.name+" "+dungeon+" "+bag+" "+dropper+" "+LootQuery.tier(item)+" "+LootQuery.rarity(item),search.getText());
+    }
+    private boolean matchesEmptyBag(String bag,String dungeon,String dropper){return !facets.itemRestricted()&&LootQuery.contains(dungeon+" "+bag+" "+dropper,search.getText());}
 
     private List<Object[]> rows(int view) {
         List<Object[]> rows = new ArrayList<>();
+        List<String> keys=new ArrayList<>();
         if (itemView(view)) {
             for (Aggregate item : (view == 2 ? summary.whiteItems : summary.allItems).values()) {
                 if (view == 1 && !item.item.potion) continue;
                 if (view == 6 && !item.item.ut || view == 7 && !item.item.st || view == 8 && !item.item.highTier) continue;
                 Icon icon = iconForItem(item.item.id);
                 ParseEnchants.Summary enchants = item.item.enchants;
+                keys.add(item.item.key.toString());
                 rows.add(new Object[]{icon, item.item.name, item.count, item.dungeon, item.item.tier,
                     enchants.slots == 0 ? "Common / Unenchanted" : enchants.rarity(),
                     enchants.slots < 0 ? null : enchants.slots, enchants.applied < 0 ? null : enchants.applied});
             }
         } else if (view == 3 || view == 5) {
-            (view == 3 ? summary.byBag : summary.byDungeon).forEach((name, totals) -> rows.add(new Object[]{name, totals[0], totals[1]}));
+            (view == 3 ? summary.byBag : summary.byDungeon).forEach((name, totals) -> {keys.add(name);rows.add(new Object[]{name, summary.bagsKnown?totals[0]:null, totals[1]});});
         } else {
             String bagSelection = (String)bagFilter.getSelectedItem(), dungeonSelection = (String)dungeonFilter.getSelectedItem();
             long[] windows = {0, 300000, 900000, 3600000}; long window = windows[recentRange.getSelectedIndex()];
@@ -256,27 +323,26 @@ public final class LootDashboard extends JPanel {
                 if (!"All bags".equals(bagSelection) && !drop.bag.equals(bagSelection)) continue;
                 String canonical = tomato.backend.data.DungeonStatData.Snapshot.canonicalName(drop.dungeon);
                 if (!"All dungeons".equals(dungeonSelection) && !canonical.equals(dungeonSelection)) continue;
+                if(!facets.location(drop.bag,canonical))continue;
                 if (window > 0 && drop.time < latest - window) continue;
-                StringJoiner names = new StringJoiner(", "); for (Item item : drop.items) names.add(item.description());
+                StringJoiner names = new StringJoiner(", "); for (Item item : drop.items) if(matchesItem(item,drop.bag,canonical,drop.dropper))names.add(item.description());
+                if(names.length()==0&&(!drop.items.isEmpty()||!matchesEmptyBag(drop.bag,canonical,drop.dropper)))continue;
+                keys.add(recentKeys.get(drop));
                 rows.add(new Object[]{drop.time, drop.bag,
                     drop.items.isEmpty() ? "No visible items" : names.toString(), drop.dungeon, drop.dropper});
             }
         }
-        return rows;
+        rowKeys.set(view,keys);return rows;
     }
     Icon iconForItem(int id) { return state.icons.computeIfAbsent(id, key -> ImageBuffer.liveOutlinedIcon(key, 24)); }
     private static void addOption(JComboBox<String> combo, String value) {
         for (int i = 0; i < combo.getItemCount(); i++) if (value.equals(combo.getItemAt(i))) return;
         combo.addItem(value);
     }
-    private static void accumulate(Map<String, int[]> groups, String key, Bucket bucket) {
-        int[] totals = groups.computeIfAbsent(key, name -> new int[2]); totals[0] += bucket.bags; totals[1] += bucket.items;
-    }
     private void filter() {
         if (!isShowing()) return;
-        String query = search.getText().trim();
         int view = views.getSelectedIndex();
-        if (view >= 0) sorters.get(view).setRowFilter(query.isEmpty() ? null : RowFilter.regexFilter("(?iu)" + java.util.regex.Pattern.quote(query)));
+        if (view >= 0) sorters.get(view).setRowFilter(null);
         updateResults();
     }
     private void updateResults() {
@@ -295,8 +361,9 @@ public final class LootDashboard extends JPanel {
                 + " · Uncommon (1): " + DisplayFormat.formatInteger(counts[1]) + " · Rare (2): " + DisplayFormat.formatInteger(counts[2])
                 + " · Legendary (3): " + DisplayFormat.formatInteger(counts[3]) + " · Divine (4): " + DisplayFormat.formatInteger(counts[4]) + " · Unknown: " + DisplayFormat.formatInteger(counts[5]));
         }
-        results.setText(summary == null || summary.bags == 0 ? (historical ? "No saved loot in this scope; recording coverage may be unknown. Adjust the filters or inspect Session comparison." : "No loot in this scope. Start capture or adjust the filters.")
-            : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + views.getTitleAt(view) + " · Filters remain active as drops arrive");
+        results.setText(summary!=null&&!summary.bagsKnown?"Live filtered bag counts unavailable: more than 25,000 bag compositions. Item totals remain complete; query saved occurrences for exact bag counts."
+            :summary == null || summary.bags == 0 ? (historical ? "No saved loot in this scope; recording coverage may be unknown. Adjust the filters or inspect Session comparison." : "No matching live loot. Adjust filters; capture records future observations.")
+            : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + views.getTitleAt(view) + " · Tab/facets/search cover full live aggregates. Recent Drops rows/range use 1,000 retained bags; cards remain full-session facet totals.");
     }
     static final class Item {
         final int id; final String name, tier; final boolean potion, ut, st, highTier;
@@ -342,19 +409,19 @@ public final class LootDashboard extends JPanel {
         final NavigableSet<Recent> recent = new TreeSet<>(Comparator.comparingLong((Recent r) -> r.drop.time)
             .thenComparing(r -> r.session).thenComparingLong(r -> r.ordinal));
         final List<LootDashboard> views = new ArrayList<>();
-        final Map<List<String>, Summary> summaries = new HashMap<>();
         long version, sequence;
-        int totalBags, totalItems;
-        boolean refreshQueued;
+        int totalBags, totalItems,shapeKeys;
+        boolean refreshQueued,bagFacetsUnavailable;
     }
     private static final class Recent {
         final Drop drop; final String session; final long ordinal;
         Recent(Drop drop, String session, long ordinal) { this.drop=drop;this.session=session;this.ordinal=ordinal; }
     }
-    private static final class Bucket { int bags, items, potions; final Map<List<Integer>, ItemCount> counts = new LinkedHashMap<>(); }
+    private static final class Bucket { int bags, items, potions; final Map<List<Object>, ItemCount> counts = new LinkedHashMap<>();final Map<List<String>,BagShape> shapes=new HashMap<>(); }
+    private static final class BagShape {final List<Item> items;final String dropper;int count;BagShape(List<Item> items,String dropper){this.items=new ArrayList<>(items);this.dropper=dropper;}}
     private static final class ItemCount {
-        final Item item; int count; long lastTime = Long.MIN_VALUE;
-        ItemCount(Item item) { this.item = item; }
+        final Item item; final String dropper; int count; long lastTime = Long.MIN_VALUE;
+        ItemCount(Item item,String dropper) { this.item = item; this.dropper=dropper; }
     }
     private static final class Aggregate {
         final Item item; int count; long lastTime = Long.MIN_VALUE; String dungeon = "";
@@ -363,6 +430,7 @@ public final class LootDashboard extends JPanel {
     }
     private static final class Summary {
         int bags, items, potions, whites;
+        boolean bagsKnown=true;
         final Map<List<Integer>, Aggregate> allItems = new LinkedHashMap<>(), whiteItems = new LinkedHashMap<>();
         final Map<String, int[]> byBag = new TreeMap<>(), byDungeon = new TreeMap<>();
     }

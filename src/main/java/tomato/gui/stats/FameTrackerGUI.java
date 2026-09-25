@@ -33,9 +33,17 @@ public class FameTrackerGUI extends JPanel {
     private final java.util.LinkedHashMap<String, Integer> characterIds = new java.util.LinkedHashMap<>();
     private boolean updatingCharacters;
     private long renderedGeneration = -1;
+    private Integer restoredCharacter;
 
     public FameTrackerGUI() {
         this(FameSessionManager::saveSessionAsync);
+    }
+    void bindViewState(tomato.gui.history.ViewStateStore store){
+        StatisticsLiveState state=new StatisticsLiveState(store,"statistics-live-fame-graph").attach(this);
+        state.combo(range);state.combo(measure);
+        String saved=state.value(character.getName(),"Follow current character");
+        if(saved.startsWith("Character #"))try{restoredCharacter=Integer.valueOf(saved.substring(11));}catch(NumberFormatException ignored){ }
+        character.addActionListener(e->{if(!updatingCharacters){restoredCharacter=characterIds.get(character.getSelectedItem());state.put(character.getName(),String.valueOf(character.getSelectedItem()));}});
     }
 
     FameTrackerGUI(BiConsumer<FameSession, Consumer<Boolean>> sessionSaver) {
@@ -160,6 +168,7 @@ public class FameTrackerGUI extends JPanel {
         if (selectedId != null && (newHistory || !snapshot.characterIds.contains(selectedId))) {
             selectedId = null; snapshot = tracking.graph(null, minutes[range.getSelectedIndex()] * 60000);
         }
+        if(restoredCharacter!=null&&snapshot.characterIds.contains(restoredCharacter)){selectedId=restoredCharacter;snapshot=tracking.graph(selectedId,minutes[range.getSelectedIndex()]*60000);}
         updatingCharacters = true;
         try {
             if (newHistory || !new ArrayList<>(characterIds.values()).equals(snapshot.characterIds)) {

@@ -55,8 +55,10 @@ public class ParsePanelRefreshTest {
     private boolean hadId;
     private LookAndFeel oldLookAndFeel;
     private Font oldFont;
+    private static tomato.backend.data.RosterDefinitions fixtureDefinitions;
 
     @Before @SuppressWarnings("unchecked") public void isolatePreferences() throws Exception {
+        fixtureDefinitions = tomato.gui.character.CharacterRosterQueryTest.definitions();
         oldLookAndFeel = UIManager.getLookAndFeel();
         oldFont = ContentStyle.body();
         oldFilters = PropertiesManager.getProperty("securityFilters");
@@ -129,7 +131,7 @@ public class ParsePanelRefreshTest {
         AtomicInteger events = new AtomicInteger();
         AtomicReference<Throwable> captureFailure = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> {
-            panel = new ParsePanelGUI();
+            panel = new ParsePanelGUI(true, () -> fixtureDefinitions);
             frame = new JFrame();
             frame.setContentPane(panel);
             frame.setSize(800, 600);
@@ -193,6 +195,10 @@ public class ParsePanelRefreshTest {
             find(actions, JCheckBox.class).setSelected(true);
             Entity below = player(1, "Below", "");
             Entity meets = player(2, "Meets", "");
+            for (int slot = 0; slot < 4; slot++) {
+                for (StatType type : StatType.values()) if (type.get() == 8 + slot) { stat(below, type, -1, ""); stat(meets, type, -1, ""); }
+            }
+            stat(below, StatType.SKIN_ID, 0, "");
             stat(meets, StatType.SKIN_ID, SecurityFilter.exaltedSkinIds[0], "");
             ParsePanelGUI.addPlayer(1, below);
             ParsePanelGUI.addPlayer(2, meets);
@@ -373,7 +379,7 @@ public class ParsePanelRefreshTest {
             JLabel missing = (JLabel)table.prepareRenderer(table.getCellRenderer(0, 10), 0, 10);
             assertEquals("—", missing.getText());
             actions.showCurrentArea();
-            assertEquals(9, table.getColumnCount());
+            assertEquals(10, table.getColumnCount());
             assertTrue(table.getRowSorter().getSortKeys().stream().allMatch(key -> key.getColumn() < 9));
         });
     }
@@ -383,7 +389,7 @@ public class ParsePanelRefreshTest {
         CountDownLatch refreshed = new CountDownLatch(1);
         AtomicInteger events = new AtomicInteger();
         SwingUtilities.invokeAndWait(() -> {
-            panel = new ParsePanelGUI();
+            panel = new ParsePanelGUI(true, () -> fixtureDefinitions);
             frame = new JFrame();
             frame.setContentPane(panel);
             frame.setSize(800, 600);
@@ -429,7 +435,9 @@ public class ParsePanelRefreshTest {
         for (int i = 0; i < 300; i++) expected.append("Ability ").append(i).append('\n');
         SwingUtilities.invokeAndWait(() -> {
             SecurityGUI security = new SecurityGUI();
-            log.set(find(security, JTextArea.class));
+            JTabbedPane tabs = named(security, "inspect-tabs", JTabbedPane.class);
+            log.set(find((Container)tabs.getComponentAt(tabs.indexOfTab("Ability Use")), JTextArea.class));
+            assertEquals("Ability usage log", log.get().getAccessibleContext().getAccessibleName());
             log.get().getDocument().addDocumentListener(new DocumentListener() {
                 public void insertUpdate(DocumentEvent e) {
                     assertTrue(SwingUtilities.isEventDispatchThread());
@@ -473,6 +481,13 @@ public class ParsePanelRefreshTest {
         SwingUtilities.invokeAndWait(() -> {
             JTable table = find(panel, JTable.class);
             assertEquals(30, table.getRowCount());
+            JScrollPane initialPage = named(panel, "security-page-scroll", JScrollPane.class);
+            JScrollPane initialRoster = named(panel, "security-roster-scroll", JScrollPane.class);
+            System.out.println("Initial live Inspect page position=" + initialPage.getViewport().getViewPosition()
+                    + ", extent=" + initialPage.getViewport().getExtentSize() + ", roster=" + initialRoster.getBounds()
+                    + ", roster extent=" + initialRoster.getViewport().getExtentSize()
+                    + ", table position=" + initialRoster.getViewport().getViewPosition());
+            new ui.VisualEvidence("wave2").capture(frame, "inspect-live-minimum-initial");
             assertTrue("The populated in-shell viewport must show at least three full rows: " + table.getVisibleRect(),
                     table.getVisibleRect().height >= table.getRowHeight() * 3);
             assertLastRowReachable(table);
@@ -502,8 +517,9 @@ public class ParsePanelRefreshTest {
             pageScroll.getVerticalScrollBar().setValue(start.y);
             assertTrue("Rows must be reachable by scrolling the page", table.getVisibleRect().height >= table.getRowHeight());
             assertLastRowReachable(table);
-            pageScroll.getVerticalScrollBar().setValue(pageScroll.getVerticalScrollBar().getMaximum());
-            assertTrue("Actions remain reachable at large text sizes", button(panel, "Actions…").getVisibleRect().height > 0);
+            // Container state controls may add an outer page scroll; reveal every ancestor.
+            ui.VisualEvidence.completeButton(button(panel, "Actions…"));
+            new ui.VisualEvidence("wave2").capture(frame, "inspect-live-large-actions");
         });
     }
 
@@ -512,7 +528,7 @@ public class ParsePanelRefreshTest {
         CountDownLatch themed = new CountDownLatch(1);
         SwingUtilities.invokeAndWait(() -> {
             setLookAndFeel(new VioletTheme());
-            panel = new ParsePanelGUI();
+            panel = new ParsePanelGUI(true, () -> fixtureDefinitions);
             Entity enchanted = player(1, "Enchanted", "Guild");
             // Header, enchant record type 1026, one enchant ID (little endian).
             stat(enchanted, StatType.UNIQUE_DATA_STRING, 0, Base64.getUrlEncoder().encodeToString(new byte[]{0, 2, 4, 1, 0}));
@@ -557,7 +573,7 @@ public class ParsePanelRefreshTest {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 setLookAndFeel(new VioletTheme());
-                panel = new ParsePanelGUI();
+                panel = new ParsePanelGUI(true, () -> fixtureDefinitions);
                 Entity source = player(1, "Selected", "Guild");
                 stat(source, StatType.INVENTORY_0_STAT, itemId, "");
                 stat(source, StatType.UNIQUE_DATA_STRING, 0, Base64.getUrlEncoder().encodeToString(new byte[]{0, 2, 4, 1, 0}) + ",,,");
@@ -664,7 +680,7 @@ public class ParsePanelRefreshTest {
             if (frame != null) frame.dispose();
             ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 24));
             setLookAndFeel(theme);
-            panel = new ParsePanelGUI();
+            panel = new ParsePanelGUI(true, () -> fixtureDefinitions);
             producer.set(player(1, "PlayerWithALongUnbrokenName_ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Guild"));
             ParsePanelGUI.addPlayer(1, producer.get());
             frame = new JFrame(); frame.setContentPane(panel); frame.setSize(680, 520); frame.setVisible(true);
@@ -881,6 +897,7 @@ public class ParsePanelRefreshTest {
     }
 
     private static class ActionPanel extends ParsePanelGUI {
+        ActionPanel() { super(true, () -> fixtureDefinitions); }
         String last;
         String detailsPlayer, details;
         List<Player> exported;

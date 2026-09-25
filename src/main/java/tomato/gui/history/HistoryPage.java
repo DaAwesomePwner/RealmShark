@@ -13,6 +13,12 @@ public final class HistoryPage<T> {
     public final int page;
     private final int size;
     private HistoryPage(int page,int size){this.page=page;this.size=size;}
+    /** Opt-in global query path. Existing loader lambdas retain their original signatures. */
+    public static <R,F,S extends Enum<S>> tomato.history.archive.ArchiveResult<R> open(SessionStore store,
+            tomato.history.archive.ArchiveQuery<F,S> query,tomato.history.archive.ArchiveAdapter<R,F,S> adapter,
+            java.nio.file.Path scratch,tomato.history.archive.Cancellation cancel)throws IOException {
+        return tomato.history.archive.ArchiveResult.open(store,query,adapter,scratch,cancel);
+    }
     public static <T> HistoryPage<T> read(SessionStore store,String scope,String module,Class<T> type,int page,String query,Function<T,String> text)throws IOException{
         return read(store,scope,module,type,page,SIZE,query,text);
     }

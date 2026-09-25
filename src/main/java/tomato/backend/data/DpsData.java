@@ -25,6 +25,8 @@ public class DpsData implements Serializable {
     public long dungeonStartTime;
     public ArrayList<Packet> debugPackets;
     private LocalPlayerContext localPlayerContext;
+    // Optional in old streams. This identifies a recording, never a dungeon name/time match.
+    private String recordingId;
 
     public DpsData(MapInfoPacket m, HashMap<Integer, Entity> entityHitList, ArrayList<NotificationPacket> deathNotifications, long totalDungeonPcTime, long timePcFirst, ArrayList<Packet> dpsPacketLog) {
         this(m, entityHitList, deathNotifications, totalDungeonPcTime, timePcFirst, dpsPacketLog,
@@ -45,13 +47,18 @@ public class DpsData implements Serializable {
         this.dungeonStartTime = timePcFirst;
         debugPackets = dpsPacketLog;
         localPlayerContext = context;
+        recordingId = java.util.UUID.randomUUID().toString();
     }
 
     public DpsData getSaveFile(boolean saveDebugData) {
-        return new DpsData(map, new HashMap<>(hitList), new ArrayList<>(deathNotifications),
+        DpsData copy = new DpsData(map, new HashMap<>(hitList), new ArrayList<>(deathNotifications),
             totalDungeonPcTime, dungeonStartTime,
             saveDebugData && debugPackets != null ? new ArrayList<>(debugPackets) : null, localPlayerContext);
+        copy.recordingId = recordingId;
+        return copy;
     }
+
+    public String getRecordingId() { return recordingId; }
 
     public LocalPlayerContext getLocalPlayerContext() { return localPlayerContext; }
 
