@@ -1,11 +1,12 @@
 # Four-wave UX implementation handoff
 
 Wave 2 was explicitly resumed on 2026-09-24 from the clean, published `6f7d007`
-handoff. The earlier stop is superseded. The latest workstation baseline passed
-800 full tests and 174 checks at 150%; 200% failed a native window-width assertion.
-Resolve this and the previously recorded focus failure, then finish independent
-visual/final-head review and the PR/CI/merge gates. Main and its successful Wave 1
-CI were reconciled live; no Wave 2 PR exists at this resumption checkpoint.
+handoff. The earlier stop is superseded. Native geometry/focus test repairs and
+user guides are integrated at `fefdaa6`. PR #12 required Windows CI passed 802
+tests plus JAR/build-contract/help. Independent source/test/guide reviews and a
+46-image native/scaled visual review found no blockers. Final local full/scaled
+validation, exact-head approval and merge/main verification remain pending.
+Main and its successful Wave 1 CI were reconciled live.
 
 ## Start here on another computer
 

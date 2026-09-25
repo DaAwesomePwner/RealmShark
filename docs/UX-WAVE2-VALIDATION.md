@@ -1,7 +1,57 @@
 # Wave 2 validation and review
 
 Status on 2026-09-24: explicitly resumed from published handoff `6f7d007`.
-Scaled validation and independent final-head/visual review remain merge gates.
+Local full/scaled validation and independent exact-head review remain merge gates;
+the sampled final Inspect/scaled visual review is complete.
+
+## Resumed review and CI
+
+Wave 2 PR: [#12](https://github.com/DaAwesomePwner/RealmShark/pull/12).
+User-facing guides are updated at `2c57f4e`. The native/scaled test repair is
+integrated at `fefdaa6`, equivalent to validation worker `bbebfe0` for source/tests.
+No production code changed during this resumption.
+
+The native shell test now asserts the realized client-width breakpoint and
+destination reachability. A separate exact-client test detaches the actual app
+shell from its native peer and exercises widths 1240, 1000, 999, 760 and 680.
+The focus fixture explicitly waits for native window activation before in-window
+requests, tests the inactive-window precondition, and records request acceptance
+and detailed focus state. Permanent-focus paint and the old-border negative
+control remain. This repairs an unchecked precondition without asserting that it
+was the proven cause of the earlier workstation's timeout.
+
+Fresh independent source review at `6f7d007` found no blockers in query/pin/export,
+metadata isolation, module semantics, asynchronous persistence, EDT/state ownership
+and shell registration/disposal. Independent review of `bbebfe0`, the guide delta
+and resumed records also found no blockers. Exact final PR-head disposition remains
+pending completed local evidence and the final milestone-document delta.
+
+An independent reviewer inspected **46** workstation-setup images at unchanged
+production source `6f7d007`, finding no blockers:
+
+- At 100%, 150% and 200%: live Inspect minimum initial roster and enlarged actions;
+  archived Inspect compact 24pt visit-table/actions; explicit Chat save/export and
+  Loot export failure messages (21 images).
+- At 150% and 200%: archived Inspect compact 24pt roster (2 images).
+- Compact 24pt action images at 150% and corresponding tables at 200% for Chat,
+  Key-pops, Runs, Timeline, Loot, Statistics sessions, History, encounter library,
+  Logging and Resources (20 images).
+- At 200%: enlarged archived Inspect requested at 1240, compact Loot overview and
+  compact fame controls (3 images).
+
+These are `window.printAll` renders at **realized native dimensions**, not OS
+framebuffer screenshots. In particular, the 200% Inspect image requested at 1240
+is actually 970×610. Separate scrolled views support action/row reachability;
+they do not establish OS keystroke delivery. Some compact banners/footer text
+clips and the Resources title is close to PREVIEW, without obscuring sampled
+primary actions or evidence scope. Exact native 1240×800 coverage is not claimed
+where the host clamps it.
+
+Required Windows CI passed at `9fc8a0d` in run `36078122066` (800 tests), then at
+`fefdaa6` in run `36078756953` (**802 tests, zero failures/errors/skips**). The
+coordinator downloaded and summed the XML. Both runs also passed JAR generation,
+build-contract checks and runnable-JAR `--help`. A final documentation head still
+requires its own green required check before merging.
 
 ## New workstation baseline
 
@@ -125,7 +175,9 @@ not read a cached dependency and is superseded by the successful run.
 
 ## Remaining gates
 
-Resolve the 150% keyboard-focus failure and refresh affected validation; independently
-review final Inspect/scaled images and the final PR head; create the Wave 2 PR,
-pass required Windows CI, merge normally, and verify main CI. Waves 3 and 4 remain
+Reconcile completed local full/scaled XML and command exits; review the final
+milestone delta and exact PR head; pass required Windows CI at that head, merge
+normally, and verify main CI. Earlier failures remain historical diagnostics;
+PR #12 exists and the sampled final Inspect/scaled visual review is complete.
+Waves 3 and 4 remain
 unimplemented. See [the handoff](UX-HANDOFF.md) and [checkpoint](UX-CHECKPOINT.json).

@@ -24,12 +24,12 @@ quantities separate from observations; versioned metadata; no guessed historical
 ## Current milestone
 
 Wave 1 is merged. Wave 2 implementation is integrated and explicitly resumed on
-2026-09-24 from the clean, published `6f7d007` handoff. Live GitHub reconciliation
-confirmed the same Wave 1 main/CI and no Wave 2 PR. The new workstation's full
-800-test and 174-test 150% runs passed; its 200% run failed a native window-width
-assertion. That failure and the earlier focus timeout are under investigation in
-an isolated validation worktree, alongside independent source review and user-guide
-updates. Waves 3 and 4 implementation has not started; their tracked
+2026-09-24 from the clean, published `6f7d007` handoff. PR #12 is open. Native width
+and focus-fixture repairs are integrated at `fefdaa6`, with updated user guides.
+Required Windows CI `36078756953` passed 802 tests plus JAR/build-contract/help.
+Independent source/test/guide reviews and a 46-image native/scaled visual review
+found no blockers. Final local full/scaled validation and exact-head approval
+remain pending. Waves 3 and 4 implementation has not started; their tracked
 contract notes are provisional preparation only. Read [the handoff](UX-HANDOFF.md),
 [portable checkpoint](UX-CHECKPOINT.json) and [validation record](UX-WAVE2-VALIDATION.md)
 for the tested code, completed checks, remaining gates and exact next action.
@@ -148,9 +148,10 @@ provenance stays separate; old records remain usable; ambiguous run links are ex
 ## Coverage ledger
 
 States: pending, implementing, implemented, verified, reviewed, merged, blocked.
-At the 2026-09-24 handoff, Wave 2 full tests (800), JAR and 200% checks (174)
-passed; 150% checks had one keyboard-focus failure out of 174. Its rows remain
-implemented with gates pending. No Wave 2 merge or Wave 3/4 implementation is claimed.
+Wave 2 has integrated test repairs and independent source/visual reviews, with
+802 passing tests and build-contract/help in PR CI at `fefdaa6`. Local full/scaled
+and final-head gates remain pending; earlier failed handoff/setup runs remain
+diagnostic history. No Wave 2 merge or Wave 3/4 implementation is claimed.
 An ID with multiple slices closes only when all slices meet their acceptance criteria.
 
 | ID | Package(s) | State |
