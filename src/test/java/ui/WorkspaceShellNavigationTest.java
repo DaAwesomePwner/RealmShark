@@ -42,6 +42,7 @@ public class WorkspaceShellNavigationTest {
             JMenuBar menu = new JMenuBar(); menu.add(new JMenu("File")); frame.setJMenuBar(menu);
             frame.setSize(1240, 800); frame.setVisible(true); resize(1240, 800);
         });
+        activateWindow(frame);
     }
 
     @After public void closeShell() throws Exception {
@@ -183,7 +184,9 @@ public class WorkspaceShellNavigationTest {
                 });
                 for (int index : new int[] {0, 1}) {
                     AbstractButton target = button("nav-" + index);
-                    awaitFocus(target, () -> target.requestFocusInWindow());
+                    awaitFocus(target, () -> System.out.println("Focus request: theme=" + laf.getName() + ", font=" + font
+                        + ", target=" + target.getName() + ", accepted=" + target.requestFocusInWindow()
+                        + ", active=" + frame.isActive() + ", focused=" + frame.isFocused()));
                     SwingUtilities.invokeAndWait(() -> {
                         assertEquals(index == 0, target.isSelected());
                         assertTrue(FlatUIUtils.isPermanentFocusOwner(target));
@@ -210,6 +213,27 @@ public class WorkspaceShellNavigationTest {
                     });
                 }
             }
+        }
+    }
+
+    @Test public void nativeActivationPrecedesInWindowFocusRequests() throws Exception {
+        JFrame[] other = new JFrame[1];
+        SwingUtilities.invokeAndWait(() -> {
+            other[0] = new JFrame("Synthetic focus precondition");
+            other[0].add(new JTextField("Synthetic focus target"));
+            other[0].setSize(320, 160); other[0].setVisible(true);
+        });
+        try {
+            activateWindow(other[0]);
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(frame.isFocused());
+                assertFalse("requestFocusInWindow cannot activate an inactive native window",
+                    button("nav-1").requestFocusInWindow());
+            });
+            activateWindow(frame);
+            awaitFocus(button("nav-1"), () -> assertTrue(button("nav-1").requestFocusInWindow()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> other[0].dispose());
         }
     }
 
@@ -326,11 +350,41 @@ public class WorkspaceShellNavigationTest {
                 trigger.run();
                 if (component.isFocusOwner()) focused.countDown();
             });
-            assertTrue("Timed out waiting for keyboard focus", focused.await(5, TimeUnit.SECONDS));
+            boolean arrived = focused.await(5, TimeUnit.SECONDS);
+            SwingUtilities.invokeAndWait(() -> {
+                KeyboardFocusManager manager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+                assertTrue("Timed out waiting for keyboard focus: target=" + component + ", showing=" + component.isShowing()
+                    + ", focusable=" + component.isFocusable() + ", owner=" + manager.getFocusOwner()
+                    + ", permanent=" + manager.getPermanentFocusOwner() + ", activeWindow=" + manager.getActiveWindow()
+                    + ", focusedWindow=" + manager.getFocusedWindow() + ", theme=" + UIManager.getLookAndFeel().getName()
+                    + ", font=" + component.getFont(), arrived);
+            });
             SwingUtilities.invokeAndWait(() -> assertSame("Keyboard focus owner", component,
                 KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()));
         } finally {
             SwingUtilities.invokeAndWait(() -> component.removeFocusListener(listener));
+        }
+    }
+
+    private static void activateWindow(Window window) throws Exception {
+        CountDownLatch focused = new CountDownLatch(1);
+        WindowFocusListener listener = new WindowAdapter() {
+            @Override public void windowGainedFocus(WindowEvent event) { focused.countDown(); }
+        };
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                window.addWindowFocusListener(listener);
+                window.toFront(); window.requestFocus();
+                if (window.isFocused()) focused.countDown();
+            });
+            boolean arrived = focused.await(5, TimeUnit.SECONDS);
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue("Native window activation timed out: window=" + window + ", focusedWindow="
+                    + KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow(), arrived);
+                assertTrue("Native window must be focused before in-window requests", window.isFocused());
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> window.removeWindowFocusListener(listener));
         }
     }
     private void assertSelectedPage(int selected) {
