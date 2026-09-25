@@ -33,6 +33,7 @@ public final class SessionStore implements AutoCloseable {
     private volatile String importError = "";
     private volatile boolean closing;
     private volatile Thread ioThread;
+    private volatile boolean currentMetadataPublished;
     private FileChannel lockChannel;
     private FileLock fileLock;
 
@@ -74,6 +75,7 @@ public final class SessionStore implements AutoCloseable {
             if (fileLock == null) throw new IOException("Session is already open");
         }
         if (!Files.exists(sessionPath(current.id).resolve("session.json"))) atomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(current));
+        currentMetadataPublished = true;
     }
     private void drain() {
         if (!writable) return;
@@ -144,6 +146,10 @@ public final class SessionStore implements AutoCloseable {
                 cancel.check();
                 if (!validId(folder.getFileName().toString()) || !Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) continue;
                 String id = folder.getFileName().toString();
+                // Startup creates the directory before atomically publishing metadata. Until that
+                // publication, retain the same in-memory current entry used before the directory exists.
+                // After publication, missing/corrupt metadata must still be reported as an error.
+                if (writable && id.equals(current.id) && !currentMetadataPublished) continue;
                 try {
                     Path meta = folder.resolve("session.json");
                     if (!Files.isRegularFile(meta, LinkOption.NOFOLLOW_LINKS) || Files.size(meta) > 1024 * 1024)
