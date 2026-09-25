@@ -3,8 +3,8 @@
   "repository": "DaAwesomePwner/RealmShark",
   "recordedDate": "2026-09-24",
   "phase": "wave-2",
-  "status": "stopped-at-user-request; validation complete with one unresolved scaled failure",
-  "stopRequestedByUser": true,
+  "status": "resumed from clean published 6f7d007; scaled validation and independent reviews in progress",
+  "stopRequestedByUser": false,
   "branch": "feat/ux-wave-2-evidence",
   "testedCodeCommit": "ad21a1fe3091324a7d773b69a326b2566071e0eb",
   "testedWorkerCommit": "0b6fe5c",
@@ -91,7 +91,7 @@
       "Independent review of final PR head"
     ]
   },
-  "nextAction": "Investigate and resolve the scaled keyboard-focus failure(s), then refresh affected validation and independently review final Inspect/scaled evidence. Do not start Wave 3.",
+  "nextAction": "Resolve latest workstation testUi200 WorkspaceUiTest native width assertion and investigate historical scaled focus timeout, then refresh validation and independently review final Inspect/scaled evidence and PR head.",
   "remainingGates": [
     "Scaled tests must pass with actual XML/exit evidence",
     "Final native/scaled visual review",

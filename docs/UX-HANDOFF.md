@@ -1,9 +1,11 @@
 # Four-wave UX implementation handoff
 
-The user requested a stop after the current Wave 2 validation task on 2026-09-24,
-with all work committed and pushed for another computer/workspace. Do not start
-Wave 3 as part of this stopping task. A later explicit resume can continue the
-approved sequential plan from the earliest incomplete gate.
+Wave 2 was explicitly resumed on 2026-09-24 from the clean, published `6f7d007`
+handoff. The earlier stop is superseded. The latest workstation baseline passed
+800 full tests and 174 checks at 150%; 200% failed a native window-width assertion.
+Resolve this and the previously recorded focus failure, then finish independent
+visual/final-head review and the PR/CI/merge gates. Main and its successful Wave 1
+CI were reconciled live; no Wave 2 PR exists at this resumption checkpoint.
 
 ## Start here on another computer
 

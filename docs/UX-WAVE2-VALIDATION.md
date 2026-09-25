@@ -1,7 +1,22 @@
 # Wave 2 validation and review
 
-Status on 2026-09-24: stopped at the user's request after completing the current
-validation task. One scaled failure remains; this is not a merge authorization.
+Status on 2026-09-24: explicitly resumed from published handoff `6f7d007`.
+Scaled validation and independent final-head/visual review remain merge gates.
+
+## New workstation baseline
+
+Before this implementation resumption, workstation preparation tested the same
+production/test code at `6f7d007`: full tests **800/800**, 150% **174/174**, and
+200% **173/174**, with no errors or skips. The combined command exited **1**.
+`WorkspaceUiTest.allOriginalSectionsRemainReachableAtBothSizes` failed at line 87:
+expected wide layout, observed compact. Requested versus realized native geometry
+must be established before changing that assertion. The prior workstation's focus
+timeout below remains diagnostic history; a later pass alone does not establish
+its cause. Local setup evidence is under `build/workstation-setup/`.
+
+The standard JAR, isolated `--help`, build-maintenance and immutable-runtime setup
+checks passed. Fresh serialized validation and independent reviews are in progress
+in isolated worktrees. These baseline results do not authorize merging.
 
 ## Final stopping-task results
 

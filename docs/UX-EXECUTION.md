@@ -23,9 +23,13 @@ quantities separate from observations; versioned metadata; no guessed historical
 
 ## Current milestone
 
-Wave 1 is merged. Wave 2 implementation is integrated. The user requested a stop
-after the current validation task on 2026-09-24, with a committed/pushed handoff
-for another workspace. Waves 3 and 4 implementation has not started; their tracked
+Wave 1 is merged. Wave 2 implementation is integrated and explicitly resumed on
+2026-09-24 from the clean, published `6f7d007` handoff. Live GitHub reconciliation
+confirmed the same Wave 1 main/CI and no Wave 2 PR. The new workstation's full
+800-test and 174-test 150% runs passed; its 200% run failed a native window-width
+assertion. That failure and the earlier focus timeout are under investigation in
+an isolated validation worktree, alongside independent source review and user-guide
+updates. Waves 3 and 4 implementation has not started; their tracked
 contract notes are provisional preparation only. Read [the handoff](UX-HANDOFF.md),
 [portable checkpoint](UX-CHECKPOINT.json) and [validation record](UX-WAVE2-VALIDATION.md)
 for the tested code, completed checks, remaining gates and exact next action.
