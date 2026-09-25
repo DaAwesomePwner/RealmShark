@@ -3,12 +3,12 @@
   "repository": "DaAwesomePwner/RealmShark",
   "recordedDate": "2026-09-24",
   "phase": "wave-2",
-  "status": "resumed; PR12 code and test repair CI passed; final local validation and exact-head approval pending",
+  "status": "Wave2 local validation passed; final independent review and final-head CI/merge gates pending",
   "stopRequestedByUser": false,
   "branch": "feat/ux-wave-2-evidence",
-  "testedCodeCommit": "fefdaa6",
-  "testedWorkerCommit": "bbebfe0af57f43e7781fb49c128498d39d1eb895",
-  "equivalence": "Integrated test repair is cherry-picked from bbebfe0. Production code unchanged since ad21a1f; guide and milestone changes are documentation only.",
+  "testedCodeCommit": "9923bea",
+  "testedWorkerCommit": "66fc750349376ee8e3b1acfce969d362cf04538d",
+  "equivalence": "No differences in src, scripts or build.gradle between tested worker and integrated code. Guide/milestone changes are documentation only.",
   "mainCommit": "64d58d0606a82a956e082fa0dcc07aa18d8fbbfa",
   "mainCi": {
     "run": "https://github.com/DaAwesomePwner/RealmShark/actions/runs/35696825491",
@@ -34,7 +34,7 @@
     },
     {
       "wave": 2,
-      "status": "implemented; scaled test repairs integrated; final local gates pending; not merged"
+      "status": "verified locally; final independent approval and final-head CI/merge gates pending"
     },
     {
       "wave": 3,
@@ -47,6 +47,19 @@
       "document": "docs/UX-WAVE4-CONTRACTS.md"
     }
   ],
+  "validation": {
+    "command": ".\\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/scaled-final-pass-cache -PrealmSharkBuildDir=build/scaled-final-pass -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200",
+    "runtime": "JDK17, Gradle7.6.4, Java8 main API/bytecode targeting",
+    "exitCode": 0,
+    "test": {"tests": 803, "failures": 0, "errors": 0, "skipped": 0},
+    "testUi150": {"tests": 176, "failures": 0, "errors": 0, "skipped": 0},
+    "testUi200": {"tests": 176, "failures": 0, "errors": 0, "skipped": 0},
+    "shadowJar": "passed",
+    "buildContract": "passed at9923bea; build/build-maintenance-56cb21cc7b6046adaa0ae048fa39ea16",
+    "isolatedJarHelpExitCode": 0,
+    "evidence": "Validation worktree build/scaled-final-pass; coordinator independently summed XML and checked exits",
+    "limits": "Native screenshots use realized host-clamped geometry; exact detached-client layout is separately tested. Historical focus timeout cause remains unestablished; activation precondition is now verified. No OS keyboard delivery claim."
+  },
   "historicalHandoffValidation": {
     "testedCodeCommit": "ad21a1fe3091324a7d773b69a326b2566071e0eb",
     "command": ".\\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/ux-handoff-cache -PrealmSharkBuildDir=build/ux-handoff -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200",
@@ -94,16 +107,15 @@
   },
   "review": {
     "sourceThrough": "6f7d007",
-    "finalTestDeltaThrough": "bbebfe0 (integrated fefdaa6)",
-    "result": "Fresh independent source review and test/guide delta review found no blockers.",
-    "visuals": "46 workstation-setup images independently inspected at unchanged production6f7d007: final live/archived Inspect, explicit failures, compact24pt archives at100/150/200 as detailed in validation record. No blockers; realized native geometry, not exact host-clamped requested sizes or OS keyboard delivery.",
+    "finalTestDeltaThrough": "66fc750 (integrated9923bea)",
+    "result": "Fresh independent source, test/guide delta and startup-publication repair reviews found no blockers. Final milestone/exact-head disposition pending.",
+    "visuals": "46 workstation-setup images plus24 fresh final-run images at66fc750 independently inspected; no blockers. Final live/archived Inspect, explicit failures and compact24pt archives at100/150/200. Realized native geometry, not exact host-clamped requested sizes or OS keyboard delivery.",
     "pending": [
       "Independent review of final PR head"
     ]
   },
-  "nextAction": "Finish serialized local full/scaled validation at worker bbebfe0, reconcile XML/exits, finalize evidence/ledger and obtain independent final-head approval. Require final-head Windows CI then normal merge and verify main.",
+  "nextAction": "Complete independent final milestone/exact-head review and final-head Windows CI, then merge PR12 normally and verify actual main SHA/CI. Publish merge state in issue9 and local checkpoint; this tracked file is the premerge evidence snapshot.",
   "remainingGates": [
-    "Scaled tests must pass with actual XML/exit evidence",
     "Independent final PR-head review",
     "Pass required Windows CI at final PR head",
     "Normal merge and verify main CI before Wave 3"

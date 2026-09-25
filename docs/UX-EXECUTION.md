@@ -25,11 +25,16 @@ quantities separate from observations; versioned metadata; no guessed historical
 
 Wave 1 is merged. Wave 2 implementation is integrated and explicitly resumed on
 2026-09-24 from the clean, published `6f7d007` handoff. PR #12 is open. Native width
-and focus-fixture repairs are integrated at `fefdaa6`, with updated user guides.
-Required Windows CI `36078756953` passed 802 tests plus JAR/build-contract/help.
-Independent source/test/guide reviews and a 46-image native/scaled visual review
-found no blockers. Final local full/scaled validation and exact-head approval
-remain pending. Waves 3 and 4 implementation has not started; their tracked
+and focus-fixture repairs, a session-startup metadata-publication race fix, and
+updated user guides are integrated through `9923bea`. Final local validation at
+equivalent worker `66fc750` passed **803 full / 176 at 150% / 176 at 200%**, with
+zero failures/errors/skips; JAR and isolated help passed. Independent source,
+test/guide and startup-repair reviews found no blockers. Independent visual review
+covered 46 baseline plus 24 final-run images with no blockers. Final local
+build-maintenance passed. Exact-head review and final-head CI remain merge gates.
+Earlier PR CI passed at
+`fefdaa6` and `202741b`; these precede the startup repair. Waves 3 and 4
+implementation has not started; their tracked
 contract notes are provisional preparation only. Read [the handoff](UX-HANDOFF.md),
 [portable checkpoint](UX-CHECKPOINT.json) and [validation record](UX-WAVE2-VALIDATION.md)
 for the tested code, completed checks, remaining gates and exact next action.
@@ -148,34 +153,34 @@ provenance stays separate; old records remain usable; ambiguous run links are ex
 ## Coverage ledger
 
 States: pending, implementing, implemented, verified, reviewed, merged, blocked.
-Wave 2 has integrated test repairs and independent source/visual reviews, with
-802 passing tests and build-contract/help in PR CI at `fefdaa6`. Local full/scaled
-and final-head gates remain pending; earlier failed handoff/setup runs remain
-diagnostic history. No Wave 2 merge or Wave 3/4 implementation is claimed.
+Wave 2 has verified **803/176/176** local tests at integrated `9923bea`, including
+native geometry/focus and startup-publication regressions. Its slices below are
+verified locally; final review/CI/merge gates remain pending. Earlier failed runs
+remain diagnostic history. No Wave 2 merge or Wave 3/4 implementation is claimed.
 An ID with multiple slices closes only when all slices meet their acceptance criteria.
 
 | ID | Package(s) | State |
 | --- | --- | --- |
-| UX-01 | 2A | implemented; Wave 2 gates pending |
-| UX-02 | 2A state; 3A routing | state implemented; routing pending |
+| UX-01 | 2A | verified; Wave 2 merge gates pending |
+| UX-02 | 2A state; 3A routing | state verified; Wave 2 merge gates pending; routing pending |
 | UX-03 | 1A; adopted throughout | 1A merged; later adoption tracked |
-| UX-04 | 2A and module adapters; 3 linked extensions | Wave 2 implemented; linked extensions pending |
-| UX-05 | 2A library; 3A recording intervals | library implemented; recording intervals pending |
+| UX-04 | 2A and module adapters; 3 linked extensions | Wave 2 verified; merge gates pending; linked extensions pending |
+| UX-05 | 2A library; 3A recording intervals | library verified; Wave 2 merge gates pending; recording intervals pending |
 | UX-06 | 1A | merged |
-| UX-07 | 2A onward; 4D audit | Wave 2 implemented; final audit pending |
+| UX-07 | 2A onward; 4D audit | Wave 2 verified; merge gates pending; final audit pending |
 | UX-08 | 4D | pending |
 | CHAT-1 | 1C | merged |
-| CHAT-2 | 2B | implemented; Wave 2 gates pending |
-| CHAT-3 | 2B saved views; 3D drafts | saved views implemented; drafts pending |
+| CHAT-2 | 2B | verified; Wave 2 merge gates pending |
+| CHAT-3 | 2B saved views; 3D drafts | saved views verified; Wave 2 merge gates pending; drafts pending |
 | KEY-1 | 1C | merged |
-| KEY-2 | 2B | implemented; Wave 2 gates pending |
+| KEY-2 | 2B | verified; Wave 2 merge gates pending |
 | KEY-3 | 3D | pending |
-| INS-1 | 2C | implemented; Wave 2 gates pending |
+| INS-1 | 2C | verified; Wave 2 merge gates pending |
 | INS-2 | 1A honesty; 3B metadata | 1A merged; 3B pending |
 | INS-3 | 3B | pending |
 | INS-4 | 4B | pending |
 | CHAR-1 | 1B | merged |
-| CHAR-2 | 2C | implemented; Wave 2 gates pending |
+| CHAR-2 | 2C | verified; Wave 2 merge gates pending |
 | CHAR-3 | 4A | pending |
 | CHAR-4 | 4B | pending |
 | CHAR-5 | 1B | merged |
@@ -188,20 +193,20 @@ An ID with multiple slices closes only when all slices meet their acceptance cri
 | INFO-1 | 1A | merged |
 | INFO-2 | 3B | pending |
 | COMBAT-1 | 1D | merged |
-| COMBAT-2 | 2C | implemented; Wave 2 gates pending |
+| COMBAT-2 | 2C | verified; Wave 2 merge gates pending |
 | COMBAT-3 | 3B | pending |
 | COMBAT-4 | 3B | pending |
 | COMBAT-5 | 3B | pending |
-| LOOT-1 | 1D recency; 2D deep search | recency merged; deep search implemented; Wave 2 gates pending |
-| LOOT-2 | 2D | implemented; Wave 2 gates pending |
+| LOOT-1 | 1D recency; 2D deep search | recency merged; deep search verified; Wave 2 merge gates pending |
+| LOOT-2 | 2D | verified; Wave 2 merge gates pending |
 | LOOT-3 | 3C | pending |
 | LOOT-4 | 4C | pending |
-| LOG-1 | 2B | implemented; Wave 2 gates pending |
+| LOG-1 | 2B | verified; Wave 2 merge gates pending |
 | LOG-2 | 1A honesty; 3A metadata | 1A merged; 3A pending |
-| LOG-3 | 2B | implemented; Wave 2 gates pending |
-| RUN-1 | 2D | implemented; Wave 2 gates pending |
+| LOG-3 | 2B | verified; Wave 2 merge gates pending |
+| RUN-1 | 2D | verified; Wave 2 merge gates pending |
 | RUN-2 | 3A | pending |
-| TIME-1 | 2D | implemented; Wave 2 gates pending |
+| TIME-1 | 2D | verified; Wave 2 merge gates pending |
 | TIME-2 | 3A | pending |
 | BRIDGE-1 | 1D | merged |
 | BRIDGE-2 | 1D | merged |

@@ -1,15 +1,56 @@
 # Wave 2 validation and review
 
 Status on 2026-09-24: explicitly resumed from published handoff `6f7d007`.
-Local full/scaled validation and independent exact-head review remain merge gates;
-the sampled final Inspect/scaled visual review is complete.
+Local full/scaled validation passed at integrated `9923bea` (worker `66fc750`).
+Final independent approval and required final-head CI remain merge gates.
+
+## Final local gate
+
+JDK 17 / Gradle 7.6.4, Java 8 main targeting, synthetic history and isolated
+preferences. The sequential command completed in **10m49s**, exit **0**:
+
+```powershell
+.\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/scaled-final-pass-cache -PrealmSharkBuildDir=build/scaled-final-pass -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200
+```
+
+| Task | Tests | Failures | Errors | Skipped | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `test` | 803 | 0 | 0 | 0 | Passed |
+| `shadowJar` | — | — | — | — | Passed |
+| `testUi150` | 176 | 0 | 0 | 0 | Passed |
+| `testUi200` | 176 | 0 | 0 | 0 | Passed |
+
+The coordinator independently summed XML and checked `validation.exit` and
+`jar-help.exit` (both 0). Evidence is in the validation worktree under
+`build/scaled-final-pass/`: logs/exits, test-results, reports, and native/150%/200%
+screenshots. JAR SHA-256:
+`133D2515B8F5ACD3F9FEDEDE4418A78E3BE3F7B335BC0A8E87D3B4C3AA828D7F`.
+Isolated JAR `--help` passed. Source/scripts/build configuration match the
+integrated commit; coordinator guide/milestone changes are documentation only.
+
+The diagnostic run established the 200% geometry: a requested 1240×800 native
+window realized as **970×610**, with **962×575** client on a **960×600** logical
+screen. The compact layout was correct for that actual client width. Focused
+native/150%/200% workspace runs passed 17 tests each after fixture repair.
+
+The first full repaired-fixture run still failed (802 tests, one failure; both
+scaled suites passed). A saved-Chat all-session read exposed a startup race:
+`SessionStore` creates its current directory before publishing metadata atomically.
+Readers could therefore classify the starting current session as corrupt. Fix
+`66fc750` / integrated `9923bea` retains the known in-memory current entry until
+initial publication, while unrelated corruption and missing metadata after
+publication still fail explicitly. A deterministic regression failed before the
+repair; 34 focused persistence/Chat/archive tests then passed. The original
+temporary fixture was removed at teardown, so no retained original filesystem
+trace is claimed. Earlier failures remain diagnostic history, not passes.
 
 ## Resumed review and CI
 
 Wave 2 PR: [#12](https://github.com/DaAwesomePwner/RealmShark/pull/12).
 User-facing guides are updated at `2c57f4e`. The native/scaled test repair is
 integrated at `fefdaa6`, equivalent to validation worker `bbebfe0` for source/tests.
-No production code changed during this resumption.
+The later metadata-publication repair at `9923bea` is the only production-source
+change during this resumption.
 
 The native shell test now asserts the realized client-width breakpoint and
 destination reachability. A separate exact-client test detaches the actual app
@@ -23,8 +64,10 @@ was the proven cause of the earlier workstation's timeout.
 Fresh independent source review at `6f7d007` found no blockers in query/pin/export,
 metadata isolation, module semantics, asynchronous persistence, EDT/state ownership
 and shell registration/disposal. Independent review of `bbebfe0`, the guide delta
-and resumed records also found no blockers. Exact final PR-head disposition remains
-pending completed local evidence and the final milestone-document delta.
+and resumed records also found no blockers. Independent review of startup repair
+`66fc750` found no blockers and inspected the preserved red regression and final
+passing XML. Exact final PR-head disposition remains pending the final
+milestone-document review.
 
 An independent reviewer inspected **46** workstation-setup images at unchanged
 production source `6f7d007`, finding no blockers:
@@ -46,6 +89,20 @@ they do not establish OS keystroke delivery. Some compact banners/footer text
 clips and the Resources title is close to PREVIEW, without obscuring sampled
 primary actions or evidence scope. Exact native 1240×800 coverage is not claimed
 where the host clamps it.
+
+The independent visual reviewer refreshed approval at worker `66fc750` by
+inspecting **24 final-run images**: at every scale, live Inspect initial/enlarged
+actions, archived Inspect compact visit table/actions and Loot failure messages;
+native Chat save failure/rows and Runs rows; 150% Chat export failure/details and
+Loot rows; 200% Chat save failure/rows and Loot details. No blocker or new visual
+regression was found. Together with the earlier 46-image sample, this closes the
+sampled final native/scaled visual gate for the equivalent integrated source.
+
+Final local build-maintenance at integrated `9923bea` also passed: output
+isolation/rejections, clean source tree, repeat/version invalidation and fresh
+Java 8 JAR identity/classes/license checks. Evidence:
+`build/build-maintenance-56cb21cc7b6046adaa0ae048fa39ea16/` and
+`build/ux-wave2-final-build-contract.log`.
 
 Required Windows CI passed at `9fc8a0d` in run `36078122066` (800 tests), then at
 `fefdaa6` in run `36078756953` (**802 tests, zero failures/errors/skips**). The
@@ -175,8 +232,7 @@ not read a cached dependency and is superseded by the successful run.
 
 ## Remaining gates
 
-Reconcile completed local full/scaled XML and command exits; review the final
-milestone delta and exact PR head; pass required Windows CI at that head, merge
+Review the final milestone delta and exact PR head; pass required Windows CI at that head, merge
 normally, and verify main CI. Earlier failures remain historical diagnostics;
 PR #12 exists and the sampled final Inspect/scaled visual review is complete.
 Waves 3 and 4 remain
