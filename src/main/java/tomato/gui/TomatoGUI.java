@@ -111,14 +111,16 @@ public class TomatoGUI {
             store, statistics.getLootDashboard(), scratch.resolve("loot"), states);
         runsWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.RUNS);
         tomato.gui.logging.LoggingGUI logging = new tomato.gui.logging.LoggingGUI(DiscoveryLog.INSTANCE);
+        JComponent inspectWorkspace = SecurityGUI.workspace(securityPanel);
+        JComponent timelineWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE);
         shell = new WorkspaceShell(new JComponent[] {
-            chatPanel.workspace(), keypopPanel.workspace(), SecurityGUI.workspace(securityPanel),
+            chatPanel.workspace(), keypopPanel.workspace(), inspectWorkspace,
             characterPanel, statisticsWorkspace,
             questPanel, myDmg, dpsPanel,
             lootWorkspace,
             logging,
             runsWorkspace,
-            ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE),
+            timelineWorkspace,
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
@@ -133,6 +135,12 @@ public class TomatoGUI {
         navigator.register(tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
             () -> shell.select(WorkspaceShell.pageOf(Destination.NOTIFICATIONS))));
         navigator.register(tomato.gui.notifications.AlertRouteTargets.alertDraft());
+        // Investigation targets resolve exact visits and windows; null for live-only (no saved history) views.
+        registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.RUNS, runsWorkspace));
+        registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.TIMELINE, timelineWorkspace));
+        registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.INSPECT, inspectWorkspace));
+        registerIfPresent(navigator, ((DpsGUI) dpsPanel).resourcesRouteTarget());
+        registerIfPresent(navigator, ((DpsGUI) dpsPanel).encounterRouteTarget());
         Navigator.install(navigator);
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.
@@ -145,6 +153,9 @@ public class TomatoGUI {
         return mainPanel;
     }
 
+    private static void registerIfPresent(ShellNavigator navigator, RouteTarget target) {
+        if (target != null) navigator.register(target);
+    }
     /** Query-only generic target; module-specific targets registered later take precedence. */
     private static void registerArchive(ShellNavigator navigator, Destination destination, JComponent workspace) {
         if (workspace instanceof ArchiveWorkspace) navigator.register(archiveTarget(destination, (ArchiveWorkspace<?, ?, ?>) workspace));

@@ -91,6 +91,12 @@ allprojects {
                     includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.liveTrackerShowsTheSameTextDelta'
                     includeTestsMatching 'tomato.gui.stats.FameVisitAssociationTest.viewerShowsRecordedRunsAndGatesOpeningOnTheNavigator'
                     // Wave 3 alerts and Bridge: contextual drafts, Key-pop handoff, decisions, Bridge settings/review.
+                    // Wave 3 investigation: run workbench/routes, resource windows, event explorer, comparison, My Info.
+                    includeTestsMatching 'tomato.gui.activity.ActivityRouteTest'
+                    includeTestsMatching 'tomato.gui.activity.ResourceWindowTest'
+                    includeTestsMatching 'tomato.gui.dps.DpsInvestigationTest'
+                    includeTestsMatching 'tomato.gui.security.InspectComparisonTest'
+                    includeTestsMatching 'tomato.gui.myinfo.RecordedDpsHandoffTest'
                     includeTestsMatching 'tomato.gui.maingui.AlertDraftContractTest'
                     includeTestsMatching 'tomato.gui.chat.ChatAlertDraftTest'
                     includeTestsMatching 'tomato.gui.keypop.KeyPopNotificationHandoffTest'
