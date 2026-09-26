@@ -108,6 +108,22 @@ public final class DiscoveryLog implements AutoCloseable {
         String active = activity.currentVisitId();
         return active.isEmpty() || !active.equals(visitPacketId) ? null : new tomato.history.link.VisitRef(historySession, active);
     }
+    /**
+     * The exact visit active right now in this collector's history session, or null when collection is
+     * paused, no history is attached or no visit is active (for example after a boundary). Producers call
+     * this synchronously at their own observation time; it is never reconstructed later.
+     */
+    public synchronized CurrentVisit currentVisit() {
+        String active = activity.currentVisitId();
+        if (!enabled || historySession == null || historySession.isEmpty() || active.isEmpty()) return null;
+        return new CurrentVisit(new tomato.history.link.VisitRef(historySession, active), activity.currentVisitMap());
+    }
+    public static final class CurrentVisit {
+        public final tomato.history.link.VisitRef visit;
+        /** Canonical map name recorded by the journal; may be null. */
+        public final String map;
+        CurrentVisit(tomato.history.link.VisitRef visit, String map) { this.visit = visit; this.map = map; }
+    }
     private void forgetVisitPacket() { visitPacket = null; visitPacketId = null; }
     public synchronized void inspectPlayer(tomato.backend.data.Entity entity) {
         if (enabled && activity.inspectPlayer(new tomato.backend.data.InspectSnapshot(entity))) markActivityChanged();

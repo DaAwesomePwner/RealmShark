@@ -62,6 +62,7 @@ public final class ActivityJournal {
     void archiveEventsTo(java.util.function.Consumer<Entry> consumer) { archiveEvents = consumer; }
     Visit activeVisit() { return current == null ? null : new Visit(current); }
     String currentVisitId() { return current == null ? "" : current.id; }
+    String currentVisitMap() { return current == null ? null : current.map; }
 
     public void boundary(long now, String reason) {
         finish(now, reason);
