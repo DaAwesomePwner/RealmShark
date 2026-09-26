@@ -71,6 +71,7 @@ Outline:
 5. Dungeons cards (dungeon totals plus runs); session comparison and cohorts in Analyst.
 6. Live meter restyle; Recordings list (auto-saved and imported `.dps`).
 7. Statistics and DPS Logger leave the sidebar. Their pages stay reachable by route until P6.
+8. FilterBar for the DPS meter, the encounter library and the remaining Statistics sub-pages (deferred from P1c).
 
 ## P6 Loot and cleanup
 
@@ -78,6 +79,6 @@ Outline:
 
 Outline:
 1. Loot: Highlights (notable drops grid, tiles, per-dungeon strip) and Explore (a view selector replacing the 9–12 tabs; analytical views in Analyst).
-2. Restyle the Advanced pages (Party, Timeline, Key-pops, Logging, Bridge review) with kit components; condense `HistoryTables.controls` into the overflow menu. Add drag-to-reorder for sidebar rows (deferred from P1b, where the context menu and Ctrl+Shift+Up/Down cover reordering).
+2. Restyle the Advanced pages (Party, Timeline, Key-pops, Logging, Bridge review) with kit components; condense `HistoryTables.controls` into the overflow menu. Add drag-to-reorder for sidebar rows (deferred from P1b, where the context menu and Ctrl+Shift+Up/Down cover reordering). FilterBar for Logging and Bridge review, `NotificationsGUI` tabs and the per-render tab sets (loot archive views, key-pop archive modes) as customizable or view-selector controls, relative-time columns and Analyst-only column hiding (all deferred from P1c).
 3. Replace the numeric shell API (`TITLES`, `select(int)`, `pageOf`, page-keyed `ShellNavigator`) with destination IDs, and migrate the ~40 page-number tests in one pass; remove retired pages (My Info, Statistics shell, DPS Logger shell) and unused styles (`StatsUi.metrics`, ad-hoc KPI cards).
 4. Update README, `docs/UI-REDESIGN.md` and the module docs; take a final screenshot set of every page in both variants.
