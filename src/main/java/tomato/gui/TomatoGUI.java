@@ -36,6 +36,11 @@ import util.PropertiesManager;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.route.ArchiveRouteTarget;
+import tomato.gui.route.Destination;
+import tomato.gui.route.Navigator;
+import tomato.gui.route.RouteTarget;
+import tomato.gui.route.ShellNavigator;
 
 /**
  * Example GUI for Tomato mod.
@@ -60,6 +65,7 @@ public class TomatoGUI {
     private static TomatoData data;
     private static WorkspaceShell shell;
     private static JComponent runsWorkspace;
+    private static ShellNavigator navigator;
     private static tomato.gui.notifications.NotificationsGUI notifications;
 
     public TomatoGUI(TomatoData data) {
@@ -113,6 +119,11 @@ public class TomatoGUI {
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
+        navigator = shell.createNavigator();
+        registerArchive(navigator, Destination.RUNS, runsWorkspace);
+        registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
+        registerArchive(navigator, Destination.LOOT, lootWorkspace);
+        Navigator.install(navigator);
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.
         ContentStyle.refreshFonts(shell);
@@ -122,6 +133,14 @@ public class TomatoGUI {
         ContentStyle.refreshFonts(jMenuBar);
         refreshContentFonts();
         return mainPanel;
+    }
+
+    /** Query-only generic target; module-specific targets registered later take precedence. */
+    private static void registerArchive(ShellNavigator navigator, Destination destination, JComponent workspace) {
+        if (workspace instanceof ArchiveWorkspace) navigator.register(archiveTarget(destination, (ArchiveWorkspace<?, ?, ?>) workspace));
+    }
+    private static <R, F, S extends Enum<S>> RouteTarget archiveTarget(Destination destination, ArchiveWorkspace<R, F, S> workspace) {
+        return new ArchiveRouteTarget<>(destination, workspace);
     }
 
     /**
@@ -233,7 +252,10 @@ public class TomatoGUI {
     /** Releases saved readers, including nested Resources, without closing capture or history writers. */
     public void closeWorkspace() {
         // AppHistory's shutdown hook still checkpoints DiscoveryLog before closing SessionStore.
-        onEdt(() -> closeArchiveWorkspaces(mainPanel));
+        onEdt(() -> {
+            if (navigator != null && Navigator.current() == navigator) Navigator.install(null);
+            closeArchiveWorkspaces(mainPanel);
+        });
     }
 
     private static void closeArchiveWorkspaces(Component component) {
