@@ -245,8 +245,9 @@ public final class BridgeReviewGUI extends JPanel {
         protected Void doInBackground()throws Exception{bridge.configure(next,true,true);return null;}
         protected void done(){saving=false;try{get();feedback.setText(next.enabled&&next.send?"Saved and active. The confirmation result is shown in Settings.":"Settings saved and active.");saveResult.setText("Saved and active: "+next.modeLabel()+".");styleResult(false);}
             catch(Exception ex){Throwable cause=ex.getCause()==null?ex:ex.getCause();String message=cause.getMessage()==null?cause.getClass().getSimpleName():cause.getMessage();if(!next.token.isEmpty())message=message.replace(next.token,"[redacted]");
-                feedback.setText("Not saved. The previous settings remain active; your draft is kept.");
-                saveResult.setText("Not saved: "+sentence(message)+" The previous settings remain active ("+bridge.config().modeLabel()+"). Your draft is still in the form; correct it and Save again, or Revert.");styleResult(true);}
+                String previous=notApplied()?"Nothing is active; the saved settings were not applied.":"The previous settings remain active ("+bridge.config().modeLabel()+").";
+                feedback.setText(notApplied()?"Not saved. Nothing is active; your draft is kept.":"Not saved. The previous settings remain active; your draft is kept.");
+                saveResult.setText("Not saved: "+sentence(message)+" "+previous+" Your draft is still in the form; correct it and Save again, or Revert.");styleResult(true);}
             refresh();updateDraftState();}
     }.execute();}
     private void revert(){if(saving)return;BridgeConfig active=snapshot==null?bridge.config():snapshot.config;editedFields.clear();load(active);saveResult.setText(notApplied()?"Draft reverted to the saved settings, which are not in effect.":"Draft reverted to the active settings.");styleResult(false);updateDraftState();}
@@ -267,7 +268,7 @@ public final class BridgeReviewGUI extends JPanel {
         if(!draft.token.isEmpty())problem=problem.replace(draft.token,"[redacted]");
         text(validation,problem.isEmpty()?"":"Fix before saving: "+problem);validation.setVisible(!problem.isEmpty());
         boolean loading=snapshot==null||snapshot.loading;
-        text(activeSummary,loading?"Active now: loading saved settings…":notApplied()?"Active now: nothing. The saved settings ("+active.modeLabel()+") were not applied: "+snapshot.state+". Correct them and Save.":"Active now: "+active.modeLabel()+(active.enabled?" · CSV items: "+snapshot.catalogSize:"")+(active.enabled&&active.send?" · Endpoint: "+host(active.endpoint):"")+" · Review log: "+(active.reviewLog.isEmpty()?"off":"on"));
+        text(activeSummary,loading?"Active now: loading saved settings…":notApplied()?(bridge.isPreview()?"Active now: nothing. Preview shows the saved settings ("+active.modeLabel()+") but never applies or sends them.":"Active now: nothing. The saved settings ("+active.modeLabel()+") were not applied: "+snapshot.state+". Correct them and Save."):"Active now: "+active.modeLabel()+(active.enabled?" · CSV items: "+snapshot.catalogSize:"")+(active.enabled&&active.send?" · Endpoint: "+host(active.endpoint):"")+" · Review log: "+(active.reviewLog.isEmpty()?"off":"on"));
         text(confirmation,snapshot==null?"":snapshot.confirmation.label());
         saveResult.setVisible(!saveResult.getText().isEmpty());
     }

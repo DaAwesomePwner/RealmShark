@@ -60,6 +60,12 @@ public class BridgeDraftActiveTest {
             String active = edt(() -> text(panel, "active"));
             assertTrue(active, active.startsWith("Active now: nothing. The saved settings") && active.contains("were not applied"));
             assertEquals("The form matches the saved settings.", edt(() -> text(panel, "draft-state")));
+            // Saving while the CSV is still missing fails; the result must not claim anything remains active.
+            edt(() -> { ((JButton)find(panel, "bridge-save")).doClick(); return null; });
+            awaitIdle(panel);
+            String result = edt(() -> text(panel, "save-result"));
+            assertTrue(result, result.startsWith("Not saved:") && result.contains("Nothing is active; the saved settings were not applied."));
+            assertFalse(result, result.contains("remain active"));
         }
     }
 
