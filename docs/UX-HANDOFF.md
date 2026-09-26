@@ -1,5 +1,9 @@
 # Four-wave UX implementation handoff
 
+Current policy (user approved 2026-09-26): CI is manual-only, not required for
+merges. Follow AGENTS.md for focused local validation; historical CI gates below
+are superseded. Wave 4 PR #15 merged as `337c7f0` with PR/main CI passing.
+
 ## Current Wave 4 resumption
 
 Latest: Wave 4 implementation is complete in PR #15. The user approved the shortest

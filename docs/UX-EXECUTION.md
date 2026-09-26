@@ -1,5 +1,10 @@
 # UX implementation execution and recovery
 
+Current policy (user approved 2026-09-26): CI is manual-only, not a merge gate.
+Use focused local checks and relevant build/launch smoke checks; no routine full
+suite/scaled/package cycles. This supersedes historical CI requirements below.
+Wave 4 PR #15 is merged as `337c7f0`; its PR/main CI passed. All waves are complete.
+
 Wave 4 completion update (2026-09-26): all Wave 4 coverage rows below are implemented
 in PR #15. The user approved the shortest finish: final required PR CI and independent
 head review, then normal merge/main verification; no repeated local full/scaled/package
