@@ -71,6 +71,19 @@ public class WaveThreeEvidenceTest {
         return chart != null && chart.getVisit() != null;
     }
 
+    /**
+     * The Condition table keeps at least {@link ResourceWindowPanel#MINIMUM_LANE_ROWS} rows of realized height, and
+     * the whole table can be scrolled into view (the enclosing page scrolls rather than squeezing it).
+     */
+    private static void assertLaneRowsVisible(ResourceWindowPanel panel) {
+        JTable lanes = named(panel, "resource-window-lanes", JTable.class);
+        JScrollPane scroll = named(panel, "resource-window-lanes-scroll", JScrollPane.class);
+        int rows = scroll.getViewport().getHeight() / lanes.getRowHeight();
+        assertTrue("Condition table viewport " + scroll.getViewport().getSize() + " = " + rows + " rows", rows >= ResourceWindowPanel.MINIMUM_LANE_ROWS);
+        reveal(scroll, scroll.getHeight());
+        assertEquals("Whole Condition table reachable", scroll.getHeight(), scroll.getVisibleRect().height);
+    }
+
     private static boolean ready(ArchiveWorkspace<?,?,?> workspace) { return !workspace.loading() && workspace.displayedPage() != null; }
 
     @Test public void runWorkbenchLinkedVisitAndUnavailableVisit() throws Exception {
@@ -100,7 +113,7 @@ public class WaveThreeEvidenceTest {
                     && ActivityArchiveUiTest.named(runs, JPanel.class, "run-workbench") != null && detail(runs).contains("visit " + second.id));
                 for (boolean compact : new boolean[]{false, true}) {
                     frame(evidence, shell, "run-workbench-linked", compact,
-                        () -> ActivityArchiveUiTest.named(runs, JPanel.class, "run-workbench") != null && detail(runs).contains("visit " + second.id), () -> {
+                        () -> ready(runs) && ActivityArchiveUiTest.named(runs, JPanel.class, "run-workbench") != null && detail(runs).contains("visit " + second.id), () -> {
                         JTextArea detail = named(runs, "activity-archive-detail", JTextArea.class);
                         assertTrue(detail.getText(), detail.getText().contains("OUTCOME") && detail.getText().contains("visit " + second.id));
                         assertTrue(detail.getText(), detail.getText().contains(RunWorkbench.OBSERVED_LATER));
@@ -230,6 +243,7 @@ public class WaveThreeEvidenceTest {
                     for (int r = 0; r < lanes.getRowCount(); r++) zeroActive |= Double.valueOf(0).equals(lanes.getModel().getValueAt(r, 2));
                     assertTrue("A zero-active lane stays listed", zeroActive);
                     assertShows(panel, "zero-active lanes remain listed");
+                    assertLaneRowsVisible(panel);
                 });
                 // Unobserved window: coverage is unknown, not 0% uptime.
                 wideAndCompact(evidence, shell, "resources-selected-window-unobserved", () -> chartLoaded(resources), () -> {
@@ -237,6 +251,15 @@ public class WaveThreeEvidenceTest {
                     ResourceWindowPanel panel = named(resources, "resource-window", ResourceWindowPanel.class);
                     reveal(panel, 400);
                     for (ResourceWindow.Lane lane : panel.analysis().lanes) assertNull(lane.name, lane.observedUptime());
+                    // Active time is unknown (shown as the unavailable dash), not 0, where nothing was observed.
+                    JTable lanes = named(panel, "resource-window-lanes", JTable.class);
+                    assertTrue(lanes.getRowCount() > 0);
+                    for (int r = 0; r < lanes.getRowCount(); r++) {
+                        assertNull("Active s unknown", lanes.getModel().getValueAt(r, 2));
+                        java.awt.Component cell = lanes.prepareRenderer(lanes.getCellRenderer(r, 2), r, 2);
+                        assertEquals(tomato.gui.modern.DisplayFormat.UNAVAILABLE, ((JLabel) cell).getText());
+                    }
+                    assertLaneRowsVisible(panel);
                 });
             } finally { run(() -> { resources.close(); timeline.close(); evidence.closeWindow(); }); }
         }

@@ -44,6 +44,31 @@ public class DpsGUI extends JPanel {
     private final JTextArea pauseNotice = ContentStyle.wrappingText("",1);
     private final JTextArea linkStatus = ContentStyle.wrappingText("",1);
     private final JButton openRun = new JButton("Open run"), openTimeline = new JButton("Open Timeline"), openResources = new JButton("Open Resources");
+    private final JLabel statusLine = new JLabel(" ");
+    private final JToggleButton linkDetails = new JToggleButton("Details");
+    private JComponent damageHeader;
+    /** Legacy text displays need less room than the meter; this keeps a few lines visible. */
+    private static final int LEGACY_MINIMUM_HEIGHT = 160;
+
+    /**
+     * Damage meters page: fills the tab while the header plus the meter's usable minimum fit, and otherwise scrolls
+     * vertically at exactly that height, so the enemy list, damage table and hit details never collapse to zero.
+     */
+    private final class DamagePage extends JPanel implements Scrollable {
+        DamagePage() { super(new BorderLayout()); setName("dps-damage-page"); }
+        int required() {
+            int meter = centerDisplay == displayMeter && displayMeter != null ? displayMeter.usableHeight() : LEGACY_MINIMUM_HEIGHT;
+            return (damageHeader == null ? 0 : damageHeader.getPreferredSize().height) + meter;
+        }
+        @Override public Dimension getPreferredSize() { return new Dimension(super.getPreferredSize().width, required()); }
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() {
+            return getParent() instanceof JViewport && getParent().getHeight() >= required();
+        }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 24; }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) { return Math.max(24, visible.height - 24); }
+    }
     private EncounterLink shownLink = EncounterLink.live();
     private DisplayFrame displayed;
     private boolean liveUpdates = true;
@@ -136,7 +161,7 @@ public class DpsGUI extends JPanel {
         dpsTopPanel.add(paused);
 
         setLayout(new BorderLayout());
-        JPanel damagePage = new JPanel(new BorderLayout());
+        JPanel damagePage = new DamagePage();
         filterNotice.setEditable(false); filterNotice.setFocusable(false);
         filterNotice.setLineWrap(true); filterNotice.setWrapStyleWord(true); filterNotice.setOpaque(false);
         filterNotice.setName("dps-relative-filter-notice");
@@ -154,16 +179,43 @@ public class DpsGUI extends JPanel {
         openRun.addActionListener(e->openLinked(tomato.gui.route.Destination.RUNS));
         openTimeline.addActionListener(e->openLinked(tomato.gui.route.Destination.TIMELINE));
         openResources.addActionListener(e->openLinked(tomato.gui.route.Destination.RESOURCES));
-        JPanel linkActions=ContentStyle.controls();linkActions.add(openRun);linkActions.add(openTimeline);linkActions.add(openResources);
-        JPanel notices=new JPanel(new BorderLayout(0,2));notices.add(pauseNotice,BorderLayout.NORTH);notices.add(linkStatus,BorderLayout.CENTER);notices.add(linkActions,BorderLayout.SOUTH);
-        header.add(notices,BorderLayout.SOUTH);
+        // One compact status row (source, pause and link state, ellipsized with the full text as a tooltip) with the
+        // link actions and a Details toggle; the full wrapping explanations are collapsed by default so the meter
+        // below keeps its height in short and scaled windows.
+        for (JButton action : new JButton[]{openRun, openTimeline, openResources}) {
+            action.getAccessibleContext().setAccessibleName(action.getText());
+            action.setMargin(new Insets(2, 6, 2, 6));
+        }
+        openRun.setText("Run"); openTimeline.setText("Timeline"); openResources.setText("Resources");
+        statusLine.setName("dps-status-line"); statusLine.putClientProperty("html.disable", true);
+        statusLine.getAccessibleContext().setAccessibleName("Damage view source, pause and encounter link summary");
+        ContentStyle.font(statusLine, ContentStyle.metadata(ContentStyle.body()));
+        statusLine.setMinimumSize(new Dimension(0, 0));
+        linkDetails.setName("dps-link-details"); linkDetails.setMargin(new Insets(2, 6, 2, 6));
+        linkDetails.getAccessibleContext().setAccessibleName("Show encounter source and link details");
+        linkDetails.setToolTipText("Show the full source, pause and encounter link explanation");
+        JPanel linkActions = new JPanel(new FlowLayout(FlowLayout.TRAILING, 4, 0));
+        JLabel openLabel = new JLabel("Open"); ContentStyle.font(openLabel, ContentStyle.metadata(ContentStyle.body()));
+        linkActions.add(openLabel); linkActions.add(openRun); linkActions.add(openTimeline); linkActions.add(openResources); linkActions.add(linkDetails);
+        JPanel statusRow = new JPanel(new BorderLayout(6, 0)); statusRow.setName("dps-status-row");
+        statusRow.add(statusLine, BorderLayout.CENTER); statusRow.add(linkActions, BorderLayout.EAST);
+        JPanel notices = new JPanel(new BorderLayout(0, 2)); notices.setName("dps-link-notices");
+        notices.add(pauseNotice, BorderLayout.NORTH); notices.add(linkStatus, BorderLayout.CENTER);
+        notices.setVisible(false);
+        linkDetails.addActionListener(e -> { notices.setVisible(linkDetails.isSelected()); damagePage.revalidate(); damagePage.repaint(); });
+        JPanel status = new JPanel(new BorderLayout(0, 2)); status.add(statusRow, BorderLayout.NORTH); status.add(notices, BorderLayout.CENTER);
+        header.add(status,BorderLayout.SOUTH);
         damagePage.add(header, BorderLayout.NORTH);
+        damageHeader = header;
 
         center = new JPanel();
         center.setLayout(new BorderLayout());
         damagePage.add(center, BorderLayout.CENTER);
+        JScrollPane damageScroll = new JScrollPane(damagePage, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        damageScroll.setName("dps-damage-scroll"); damageScroll.setBorder(BorderFactory.createEmptyBorder());
+        damageScroll.getVerticalScrollBar().setUnitIncrement(24);
         combatTabs.setName("dps-tabs");
-        combatTabs.addTab("Damage meters", damagePage);
+        combatTabs.addTab("Damage meters", damageScroll);
         combatTabs.addTab("Resources & buffs", resourcesWorkspace);
         JButton savedResources = new JButton("Saved resources"); savedResources.setName("dps-open-saved-resources");
         savedResources.setEnabled(resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel);
@@ -297,6 +349,7 @@ public class DpsGUI extends JPanel {
         filterNotice.setText(notice); filterNotice.setVisible(!notice.isEmpty());
         pauseNotice.setText((paused.isSelected()?"Paused this view · ":"")+(frame.live?"Live encounter":"Saved encounter")+" · "+(frame.map==null?"No map":frame.map.name)
             +(paused.isSelected()?" · snapshot displayed at "+frame.displayedAt+". Capture continues; uncheck Pause to show the latest data. Switching display modes uses this same snapshot.":" · Pause freezes both Meters and Legacy; choosing another encounter resumes the view."));
+        updateStatusLine();
         List<Entity> sortedEntityHitList = centerDisplay == displayMeter ? Arrays.asList(frame.targets) : getSortedEntityList(frame.targets);
         centerDisplay.renderData(frame.map, sortedEntityHitList, frame.notes, frame.elapsed, frame.live);
     }
@@ -317,7 +370,18 @@ public class DpsGUI extends JPanel {
         String text = "Encounter link: " + link.label() + " · " + link.description();
         if (link.linked() && !reasons.isEmpty()) text += "\n" + String.join("\n", reasons);
         linkStatus.setText(text);
+        updateStatusLine();
     }
+    /** One-line summary of the collapsed source/pause/link explanation; the full text stays in Details and the tooltip. */
+    private void updateStatusLine() {
+        DisplayFrame frame = displayed;
+        String source = frame == null ? "Live encounter" : (frame.live ? "Live encounter" : "Saved encounter") + " · " + (frame.map == null ? "No map" : frame.map.name);
+        boolean blocked = shownLink.linked() && !(openRun.isEnabled() && openTimeline.isEnabled() && openResources.isEnabled());
+        String text = (paused.isSelected() ? "Paused · " : "") + source + " · Link: " + shownLink.label() + (blocked ? " · some views unavailable (Details)" : "");
+        statusLine.setText(text);
+        statusLine.setToolTipText(pauseNotice.getText() + "\n" + linkStatus.getText());
+    }
+    String statusLineText() { return statusLine.getText(); }
     private static void linkButton(JButton button, String label, Destination destination, EncounterLink link, List<String> reasons) {
         String reason;
         if (!link.linked()) reason = label + " unavailable: " + link.label().toLowerCase(Locale.ROOT) + " encounter";
@@ -332,8 +396,10 @@ public class DpsGUI extends JPanel {
     }
     private void openLinked(Destination destination) {
         EncounterLink link = shownLink;
-        if (!link.linked() || !Navigator.current().open(Route.to(destination).withVisit(link.visit)))
+        if (!link.linked() || !Navigator.current().open(Route.to(destination).withVisit(link.visit))) {
             linkStatus.setText("Encounter link: " + link.label() + " · the linked view could not be opened; nothing was changed. " + link.description());
+            statusLine.setText("Link: " + link.label() + " · the linked view could not be opened; nothing was changed (Details)");
+        }
     }
     EncounterLink shownLink() { return shownLink; }
 
@@ -345,9 +411,20 @@ public class DpsGUI extends JPanel {
         for (EncounterCatalog.Entry entry : view.encounterCatalog.entries()) {
             DpsData data = entry.data;
             String map = data.map == null ? null : Objects.toString(data.map.displayName, "").isEmpty() ? data.map.name : data.map.displayName;
+            EncounterLink link = EncounterLink.of(data, entry.origin != null);
+            Long localDamage = null; Double window = null;
+            if (link.localObjectId != null) {
+                // Same projection as the meter's "All enemies" scope, without player filter presets.
+                List<Entity> targets = new ArrayList<>();
+                for (Entity e : data.hitList.values().toArray(new Entity[0])) if (!e.isPlayerCharacter()) targets.add(e);
+                CombatMeterData meter = new CombatMeterData(targets, null, true);
+                localDamage = 0L;
+                for (CombatMeterData.Row row : meter.rows) if (row.player.id == link.localObjectId) localDamage = row.damage;
+                window = meter.seconds;
+            }
             result.add(new RecordedEncounter(data.getRecordingId(), map == null || map.isEmpty() ? "Unknown encounter" : map,
                 data.dungeonStartTime > 0 ? data.dungeonStartTime : null, data.totalDungeonPcTime > 0 ? data.totalDungeonPcTime : null,
-                EncounterLink.of(data, entry.origin != null)));
+                link, localDamage, window));
         }
         return result;
     }

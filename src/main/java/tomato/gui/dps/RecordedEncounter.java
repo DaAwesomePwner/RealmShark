@@ -12,9 +12,35 @@ public final class RecordedEncounter {
     /** Recorded encounter duration (ms), or null when unknown. */
     public final Long elapsed;
     public final EncounterLink link;
+    /**
+     * Recorded outgoing damage of the verified local row over all enemies (unfiltered), or null when the local row is
+     * not verified. Zero means the verified row dealt no recorded damage; it is never a substitute for unknown.
+     */
+    public final Long localDamage;
+    /** First-to-last recorded hit window on all enemies in seconds, or null when no hit window was recorded. */
+    public final Double windowSeconds;
 
     public RecordedEncounter(String recordingId, String map, Long started, Long elapsed, EncounterLink link) {
+        this(recordingId, map, started, elapsed, link, null, null);
+    }
+    public RecordedEncounter(String recordingId, String map, Long started, Long elapsed, EncounterLink link, Long localDamage, Double windowSeconds) {
         this.recordingId = recordingId; this.map = map; this.started = started; this.elapsed = elapsed; this.link = link;
+        this.localDamage = link.localObjectId == null ? null : localDamage;
+        this.windowSeconds = windowSeconds != null && windowSeconds > 0 ? windowSeconds : null;
+    }
+
+    /**
+     * The verified local row's recorded damage and DPS with its window, or null when the value is not attributable
+     * to the local player (legacy, unverified or not captured).
+     */
+    public String recordedValue() {
+        if (link.localObjectId == null || localDamage == null) return null;
+        String dps = windowSeconds == null ? DisplayFormat.UNAVAILABLE + " DPS (no recorded hit window)"
+            : DisplayFormat.formatRate(localDamage / windowSeconds, 1) + " DPS";
+        return "Recorded (verified local row, object #" + link.localObjectId + "): " + dps + " · "
+            + DisplayFormat.formatInteger(localDamage) + " damage over "
+            + (windowSeconds == null ? "an unknown window" : DisplayFormat.formatNumber(windowSeconds, 1) + " s first-to-last hit window")
+            + " · all enemies, no DPS filter preset";
     }
 
     /** Scope and window text: which recording, when it was entered, how long it lasted and its link. */

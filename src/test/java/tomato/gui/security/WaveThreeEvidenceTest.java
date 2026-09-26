@@ -64,6 +64,13 @@ public class WaveThreeEvidenceTest {
                     assertTrue(saved.selectedOrigin(), saved.selectedOrigin().contains("session " + store.currentId() + " · visit journal:2"));
                     assertShows(inspect, "Recorded run: session " + store.currentId());
                     assertShows(shell, "Back to Runs");
+                    // The players table keeps at least three rows of height in the run workbench (realized size), and all
+                    // of it can be scrolled into view: it never collapses to a bare horizontal scroll bar.
+                    JScrollPane players = named(saved, "security-roster-scroll", JScrollPane.class);
+                    int rows = players.getViewport().getHeight() / saved.rosterTable().getRowHeight();
+                    assertTrue("Players table viewport " + players.getViewport().getSize() + " = " + rows + " rows", rows >= 3);
+                    reveal(players, players.getHeight());
+                    assertEquals("Whole players table reachable", players.getHeight(), players.getVisibleRect().height);
                 });
                 VisitRef absent = new VisitRef(UUID.randomUUID().toString(), "journal:2");
                 assertTrue(edt(() -> Navigator.current().open(Route.to(Destination.INSPECT).withVisit(absent))));

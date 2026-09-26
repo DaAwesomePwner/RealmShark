@@ -71,7 +71,10 @@ final class RecordedDpsPanel extends JPanel {
         if (reason == null && !Navigator.current().canOpen(route)) reason = "DPS Logger cannot open this recording here (it is no longer in the library or navigation is unavailable).";
         open.setEnabled(reason == null);
         open.setToolTipText(reason == null ? "Opens the verified local-player row of this historical recording" : reason);
-        explanation.setText(current + "\nHistorical recording: " + selected.scope() + (reason == null ? "" : "\nUnavailable: " + reason));
+        String value = selected.recordedValue();
+        explanation.setText(current + "\n" + (value != null ? value
+                : "Recorded DPS: not shown. This recording's damage is not attributable to you (no verified local-player row).")
+            + "\nHistorical recording: " + selected.scope() + (reason == null ? "" : "\nUnavailable: " + reason));
     }
 
     private void openSelected() {

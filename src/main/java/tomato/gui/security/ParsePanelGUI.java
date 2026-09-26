@@ -127,6 +127,10 @@ public class ParsePanelGUI extends JPanel {
                 // A nested Inspect archive must retain a useful viewport even when its
                 // filter controls scroll above the roster at compact sizes.
                 Insets border = getInsets();
+                // A saved-run roster sits beneath the run evidence inside an already scrolling archive page: keep its
+                // controls, footer and at least three player rows so that page scrolls instead of reducing the
+                // players table to a bare scroll bar.
+                if (!ParsePanelGUI.this.liveOwner) return new Dimension(0, page.getPreferredSize().height + border.top + border.bottom);
                 return new Dimension(0, table.getRowHeight() * 3
                         + table.getTableHeader().getPreferredSize().height
                         + rosterScroll.getHorizontalScrollBar().getPreferredSize().height
