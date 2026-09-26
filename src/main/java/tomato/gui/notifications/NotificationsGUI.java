@@ -48,6 +48,7 @@ public final class NotificationsGUI extends JPanel {
     private String focusedDungeon, priorSearch;
     private boolean priorSelectedOnly;
     private Runnable focusReturn;
+    final RecentDecisionsPanel decisions = new RecentDecisionsPanel(tomato.realmshark.AlertDecisions.INSTANCE, this);
 
     public NotificationsGUI() {
         super(new BorderLayout(0, 8));
@@ -86,6 +87,9 @@ public final class NotificationsGUI extends JPanel {
             scroll.getVerticalScrollBar().setUnitIncrement(24);
             tabs.addTab(group, scroll);
         }
+        JPanel decisionsWrapper = new WidthTrackingPanel(); decisionsWrapper.add(decisions, BorderLayout.NORTH);
+        JScrollPane decisionsScroll = new JScrollPane(decisionsWrapper); decisionsScroll.setBorder(BorderFactory.createEmptyBorder(6, 2, 0, 2));
+        decisionsScroll.getVerticalScrollBar().setUnitIncrement(24); tabs.addTab(DECISIONS, decisionsScroll);
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         status.setRows(2); status.setName("sound-status");
         JPanel sections = new JPanel(new BorderLayout()) {
@@ -131,6 +135,27 @@ public final class NotificationsGUI extends JPanel {
         return true;
     }
     String focusedDungeon() { return focusedDungeon; }
+    /** ALERT-4: selects a recorded decision in Recent decisions. Returns false when it is no longer retained. */
+    public boolean focusDecision(long id) { selectSection(DECISIONS); decisions.refresh(); return decisions.select(id, true); }
+    boolean focusRealmRule(String id) {
+        selectSection("Realm events");
+        for (Component c : realmList.getComponents()) {
+            JTextField phrase = find(c, "realm-phrase-" + id);
+            if (phrase != null) { phrase.scrollRectToVisible(new Rectangle(phrase.getSize())); phrase.requestFocusInWindow(); return true; }
+        }
+        return false;
+    }
+    boolean focusSound(String id) {
+        for (AlertRow row : rows) if (row.sound.id.equals(id)) {
+            selectSection(row.sound.group); row.enabled.scrollRectToVisible(new Rectangle(row.enabled.getSize())); row.enabled.requestFocusInWindow(); return true;
+        }
+        return false;
+    }
+    private static JTextField find(Component c, String name) {
+        if (c instanceof JTextField && name.equals(c.getName())) return (JTextField)c;
+        if (c instanceof Container) for (Component child : ((Container)c).getComponents()) { JTextField found = find(child, name); if (found != null) return found; }
+        return null;
+    }
     private void showFocus(String message, Runnable back) {
         focusText.setText(message); focusReturn = back; focusBack.setVisible(back != null);
         focusBanner.setVisible(true); focusBanner.revalidate();

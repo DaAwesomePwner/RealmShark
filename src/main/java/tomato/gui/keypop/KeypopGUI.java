@@ -168,8 +168,21 @@ public class KeypopGUI extends JPanel {
 
     public static void playDungeonSound(TomatoData data, String dungeonName) {
         if (Sound.keypop == null) return;
-        if (shouldNotify(dungeonName, data == null ? null : data.getCurrentDungeonStats())) {
-            Sound.keypop.play();
+        RealmCharacterStats stats = data == null ? null : data.getCurrentDungeonStats();
+        boolean selected = selectedDungeons.contains(dungeonName);
+        boolean missing = !selected && isMissingDungeonsSelected() && isMissingDungeon(stats, dungeonName);
+        tomato.realmshark.AlertDecisions.Entry entry = new tomato.realmshark.AlertDecisions.Entry(tomato.realmshark.AlertDecisions.Source.KEY_POP)
+            .ref(dungeonName).subject("Key pop · " + dungeonName);
+        if (selected || missing) {
+            long decision = tomato.realmshark.AlertDecisions.INSTANCE.record(entry.sound(Sound.keypop).explain(selected
+                ? dungeonName + " is selected in Notifications."
+                : "Missing dungeon completes is on and the current character has no " + dungeonName + " completes."));
+            Sound.keypop.play(decision);
+        } else {
+            tomato.realmshark.AlertDecisions.INSTANCE.record(entry.result(tomato.realmshark.AlertDecisions.Result.NO_MATCH).explain(dungeonName
+                + " is not selected in Notifications" + (isMissingDungeonsSelected()
+                    ? (stats == null ? "; character completes are unavailable, so the missing-completes option could not apply." : "; the current character already has completes.")
+                    : ".")));
         }
     }
 

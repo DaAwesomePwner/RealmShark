@@ -64,20 +64,51 @@ public final class RealmEventAlerts {
     public synchronized void resetCooldowns() { lastMatch.clear(); }
     public String getLastMatchLabel() { return lastMatchLabel; }
     public void accept(TextPacket packet, String mapName) {
-        for (Rule rule : matching(packet, mapName, System.nanoTime())) rule.sound.play();
+        for (Hit hit : evaluate(packet, mapName, System.nanoTime())) hit.rule.sound.play(hit.decision);
     }
     synchronized List<Rule> matching(TextPacket packet, String mapName, long now) {
+        List<Rule> result = new ArrayList<>();
+        for (Hit hit : evaluate(packet, mapName, now)) result.add(hit.rule);
+        return result;
+    }
+    private static final class Hit {
+        final Rule rule; final long decision;
+        Hit(Rule rule, long decision) { this.rule = rule; this.decision = decision; }
+    }
+    /** Decision point: records phrase matches, disabled rules, cooldown and defeat-message suppression. */
+    private synchronized List<Hit> evaluate(TextPacket packet, String mapName, long now) {
         if (!isRealmAnnouncement(packet, mapName)) return Collections.emptyList();
         String message = normalize(packet.text);
-        if (DEFEAT.matcher(message).find()) return Collections.emptyList();
-        List<Rule> matches = new ArrayList<>();
+        boolean defeat = DEFEAT.matcher(message).find();
+        List<Hit> matches = new ArrayList<>();
+        boolean phraseMatched = false;
         for (Rule rule : rules) {
-            if (!rule.sound.isEnabled() || !containsPhrase(message, normalize(rule.phrase))) continue;
+            if (!containsPhrase(message, normalize(rule.phrase))) continue;
+            phraseMatched = true;
+            AlertDecisions.Entry entry = new AlertDecisions.Entry(AlertDecisions.Source.REALM_EVENT).sound(rule.sound).ref(rule.id)
+                .subject(rule.name + " · announcement").sample(packet.text, null);
+            if (defeat) {
+                AlertDecisions.INSTANCE.record(entry.result(AlertDecisions.Result.NO_MATCH)
+                    .explain("Phrase “" + rule.phrase + "” matched, but defeat announcements are skipped."));
+                continue;
+            }
+            if (!rule.sound.isEnabled()) {
+                AlertDecisions.INSTANCE.record(entry.result(AlertDecisions.Result.SOUND_OFF)
+                    .explain("Phrase “" + rule.phrase + "” matched; this realm event alert is turned off."));
+                continue;
+            }
             Long last = lastMatch.get(rule.id);
-            if (last != null && now - last < COOLDOWN_NANOS) continue;
-            lastMatch.put(rule.id, now); matches.add(rule);
+            if (last != null && now - last < COOLDOWN_NANOS) {
+                AlertDecisions.INSTANCE.record(entry.result(AlertDecisions.Result.COOLDOWN).explain("Phrase “" + rule.phrase + "” matched "
+                    + Math.max(0, (now - last) / 1_000_000_000L) + " s after the previous match; repeats pause for 30 s."));
+                continue;
+            }
+            lastMatch.put(rule.id, now);
+            matches.add(new Hit(rule, AlertDecisions.INSTANCE.record(entry.explain("Phrase “" + rule.phrase + "” matched a public announcement."))));
             lastMatchLabel = "Last match: " + rule.name + " at " + java.time.LocalTime.now().withNano(0) + " (announcement).";
         }
+        if (!phraseMatched) AlertDecisions.INSTANCE.record(new AlertDecisions.Entry(AlertDecisions.Source.REALM_EVENT).result(AlertDecisions.Result.NO_MATCH)
+            .subject("Realm announcement").sample(packet.text, null).explain("No realm event phrase matched this announcement."));
         return matches;
     }
     static boolean isRealmAnnouncement(TextPacket packet, String mapName) {

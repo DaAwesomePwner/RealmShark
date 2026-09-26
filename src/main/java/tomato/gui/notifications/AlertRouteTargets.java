@@ -31,6 +31,7 @@ public final class AlertRouteTargets {
                 Runnable back = () -> { if (Navigator.current().canGoBack()) Navigator.current().back(); };
                 if (focus == null) return;
                 if (focus.dungeon != null) page.focusDungeon(focus.dungeon, back);
+                else if (focus.decision != null) page.focusDecision(focus.decision);
                 else page.selectSection(focus.section);
             }
             public void restoreState(Object state) { page.restoreViewState(state); }
