@@ -9,12 +9,12 @@ import tomato.backend.data.TomatoData;
  */
 public class CharacterPanelGUI extends JPanel {
     private final CharacterJournalGUI journal;
+    private final JTabbedPane tabs = new JTabbedPane();
 
     public CharacterPanelGUI(TomatoData data) {
         setLayout(new BorderLayout());
 
         journal = new CharacterJournalGUI(data.characterJournal());
-        JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Roster", journal);
         tabs.addTab("Exalts", journal.exaltPanel());
         tabs.addTab("Pets", new CharacterPetsGUI(data));
@@ -22,4 +22,5 @@ public class CharacterPanelGUI extends JPanel {
         add(tabs, BorderLayout.CENTER);
     }
     public void bindNavigator(tomato.gui.route.Navigator navigator) { journal.bindNavigator(navigator); }
+    public void openGoals() { tabs.setSelectedComponent(journal); journal.openGoals(); }
 }

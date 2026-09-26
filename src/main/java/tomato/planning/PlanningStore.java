@@ -10,6 +10,7 @@ import java.util.concurrent.*;
 /** Local manual plans. Disk publication is serialized; failed writes never replace durable state. */
 public final class PlanningStore implements AutoCloseable {
     private static final Gson JSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final int MAX_DOCUMENT_BYTES = 16 * 1024 * 1024;
     private static final class SavedAccount { long revision; PlanData.AccountPlan plan = new PlanData.AccountPlan(); }
     private static final class Document { int version = 1; Map<String, SavedAccount> accounts = new LinkedHashMap<>(); }
     public static final class Snapshot {
@@ -55,7 +56,7 @@ public final class PlanningStore implements AutoCloseable {
         boolean failed = false;
         try {
             if (path != null && Files.exists(path)) {
-                if (Files.size(path) > 16 * 1024 * 1024) throw new IOException("Planning document is too large");
+                if (Files.size(path) > MAX_DOCUMENT_BYTES) throw new IOException("Planning document is too large");
                 try (Reader in = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
                     JsonObject raw = JsonParser.parseReader(in).getAsJsonObject();
                     if (!raw.has("version") || raw.get("version").getAsInt() != 1 || !raw.has("accounts")) throw new IOException("Unsupported planning document");
@@ -102,7 +103,12 @@ public final class PlanningStore implements AutoCloseable {
             PlanData.validate(account, detached);
             SavedAccount saved = new SavedAccount(); saved.plan = detached; saved.revision = Math.addExact(revision, 1);
             next.accounts.put(account, saved);
-            if (path != null) fileWriter.write(path, JSON.toJson(next));
+            String json = JSON.toJson(next);
+            if (json.getBytes(StandardCharsets.UTF_8).length > MAX_DOCUMENT_BYTES) {
+                synchronized (this) { status = "Save failed; plans exceed 16 MiB. Shorten notes or remove entries; draft retained."; }
+                result.complete(new SaveResult(false, status, revision)); return;
+            }
+            if (path != null) fileWriter.write(path, json);
             synchronized (this) { document = next; status = path == null ? "Preview: plans stay in memory" : "Saved locally • Characters/plans.json"; }
             result.complete(new SaveResult(true, status, saved.revision));
         } catch (IOException | RuntimeException failure) {

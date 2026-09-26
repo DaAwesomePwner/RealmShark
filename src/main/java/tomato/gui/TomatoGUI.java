@@ -443,9 +443,9 @@ public class TomatoGUI {
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
             "Bridge settings and journal use their configured local paths", () -> shell.select(12));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
-            "Characters/plans.json; death notes in Characters/journal.json", () -> navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)));
+            "Characters/plans.json; death notes in Characters/journal.json", () -> { navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)); characterPanel.openGoals(); });
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Daily Quests",
-            "Characters/plans.json; legacy pins remain in Java Preferences", () -> navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)));
+            "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
             java.awt.event.InputEvent.CTRL_DOWN_MASK), "find-settings");
         shell.getActionMap().put("find-settings", new AbstractAction() {

@@ -83,6 +83,7 @@ public class QuestGUI extends JPanel {
 
     /** Supply detached known account keys from the character journal for offline selection. */
     public void knownPlanningAccounts(Collection<String> accounts) { plans.knownAccounts(accounts); }
+    public void openPlans() { tabs.setSelectedComponent(plans); tabs.requestFocusInWindow(); }
 
     private void listen() { if (source != null && !listening) { source.addListener(publicationListener); listening = true; } }
     @Override public void addNotify() { super.addNotify(); listen(); if (source != null) schedulePublication(); ageTimer.start(); }

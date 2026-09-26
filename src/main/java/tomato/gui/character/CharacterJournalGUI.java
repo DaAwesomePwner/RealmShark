@@ -236,6 +236,7 @@ public final class CharacterJournalGUI extends JPanel {
     @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
     public JPanel exaltPanel() { return exalts; }
     public void bindNavigator(tomato.gui.route.Navigator navigator) { deathPanel.bindNavigator(navigator); }
+    public void openGoals() { tabs.setSelectedComponent(planningPanel); tabs.requestFocusInWindow(); }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
         boolean project = false;

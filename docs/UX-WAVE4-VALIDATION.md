@@ -68,6 +68,14 @@ no repeated local full/scaled/package cycle is scheduled.
 
 ## Integrated audit
 
+PR CI 36264105262 passed at 41a2898. GitHub then blocked merge on two
+automated review threads: planning search did not select its nested tab, and a
+document over the loader's 16 MiB limit could be published. Both are corrected:
+search explicitly selects/focuses Goals or Saved plans, and UTF-8 serialized size
+is checked before disk or in-memory publication. Focused PlanningStoreTest passed
+all six tests, including oversized multibyte draft rejection, unchanged durable
+revision/file, retry and reload. Required CI must validate this final correction.
+
 All three production packages are integrated. Character goals, quest plans and
 reservations share one revision-checked account document; stale drafts cannot overwrite
 another panel's save. Exact character run links use the installed navigator.

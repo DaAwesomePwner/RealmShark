@@ -44,6 +44,26 @@ public class PlanningStoreTest {
             assertEquals(7, store.snapshot("A").plan().held.get(1).quantity);
         }
     }
+    @Test public void oversizedUtf8DraftPreservesFileRevisionAndCanRetry() throws Exception {
+        Path file = temp.getRoot().toPath().resolve("plans.json");
+        try (PlanningStore store = new PlanningStore(file)) {
+            assertTrue(store.update("A", 0, stock(4)).get().saved);
+            byte[] prior = Files.readAllBytes(file);
+            char[] chars = new char[6 * 1024 * 1024]; java.util.Arrays.fill(chars, '\u20ac');
+            PlanData.AccountPlan draft = stock(7);
+            draft.held.put(1, new PlanData.ManualHeld(7, 100, new String(chars)));
+            PlanningStore.SaveResult rejected = store.update("A", 1, draft).get();
+            assertFalse(rejected.saved); assertTrue(rejected.message.contains("16 MiB"));
+            assertEquals(1, store.snapshot("A").revision);
+            assertArrayEquals(prior, Files.readAllBytes(file));
+            assertTrue(store.update("A", 1, stock(7)).get().saved);
+        }
+        try (PlanningStore store = new PlanningStore(file)) {
+            assertFalse(store.update("A", 0, stock(9)).get().saved);
+            assertFalse(store.snapshot("A").readOnly);
+            assertEquals(7, store.snapshot("A").plan().held.get(1).quantity);
+        }
+    }
     @Test public void unsupportedAndMalformedFilesArePreserved() throws Exception {
         for (String json : new String[]{"{broken", "{\"version\":2,\"accounts\":{}}", "{\"accounts\":{}}"}) {
             Path path = temp.newFile().toPath(); byte[] bytes = json.getBytes(StandardCharsets.UTF_8); Files.write(path, bytes);
