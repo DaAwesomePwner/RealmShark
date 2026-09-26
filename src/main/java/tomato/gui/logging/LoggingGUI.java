@@ -157,11 +157,13 @@ public final class LoggingGUI extends JPanel {
         };
         split.setResizeWeight(.60); split.setBorder(null);
         JPanel bottom = new JPanel(new BorderLayout());
-        JTextArea privacy = new JTextArea("Bounded, sanitized local samples. Field definitions do not prove live availability.");
-        privacy.setToolTipText("Payloads, credentials, chat, string-stat values and opaque/unknown values are withheld. Counters cover traffic observed while gameplay & diagnostics collection is on.");
-        privacy.setEditable(false); privacy.setOpaque(false); privacy.setLineWrap(true); privacy.setWrapStyleWord(true); privacy.setRows(1);
-        privacy.setFont(ContentStyle.metadata(ContentStyle.body()));
-        bottom.add(exportActions, BorderLayout.NORTH); bottom.add(privacy, BorderLayout.CENTER); bottom.add(exportStatus, BorderLayout.SOUTH);
+        // Shares the export row when it fits (and wraps to its own row when it does not), so the page's last line
+        // is not left a few pixels below the fold in a standard-height window.
+        JLabel privacy = new JLabel("Bounded, sanitized local samples. Field definitions do not prove live availability.");
+        privacy.setName("logging-privacy");
+        privacy.setToolTipText("Payloads, credentials, chat, string-stat values and opaque/unknown values are withheld. Counters cover traffic observed while collection is on.");
+        privacy.setFont(ContentStyle.metadata(ContentStyle.body())); exportActions.add(privacy);
+        bottom.add(exportActions, BorderLayout.NORTH); bottom.add(exportStatus, BorderLayout.SOUTH);
         // Scroll the complete workspace when controls and detail actions no longer fit.
         // A capped header alone can still consume every table row at large text sizes.
         JScrollPane page = ContentStyle.page(top, split, bottom);
@@ -287,8 +289,13 @@ public final class LoggingGUI extends JPanel {
     private boolean presentationChanged() {
         return !Locale.getDefault(Locale.Category.FORMAT).equals(presentationLocale) || !ZoneId.systemDefault().equals(presentationZone);
     }
+    /** Logging's collection state line, using the same "Collection: on / paused" term as the coverage details. */
+    private String collectionStatus() {
+        if (log.isHistorical()) return CollectionControl.status(log, freeze.isSelected());
+        return "Collection: " + DiagnosticCoverage.state(log.isEnabled()) + (freeze.isSelected() ? " · View paused (collection state is current)" : "");
+    }
     private void updateSummary() {
-        summary.setText("<html>" + CollectionControl.status(log, freeze.isSelected())
+        summary.setText("<html>" + collectionStatus()
             + (snapshot == null ? " · No diagnostic revision displayed" : "<br>" + DisplayFormat.formatInteger(snapshot.total)
                 + " frames · " + DisplayFormat.formatInteger(snapshot.packets.size()) + " types · "
                 + DisplayFormat.formatInteger(snapshot.events.size()) + " retained samples · Partial coverage<br>Snapshot: " + snapshot.exportedAt) + "</html>");

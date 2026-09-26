@@ -64,7 +64,7 @@ public class NotificationsConsistencyTest {
                     SwingUtilities.invokeAndWait(() -> ui[0].tabs.setSelectedIndex(selected));
                     settle(shell[0]);
                     SwingUtilities.invokeAndWait(() -> {
-                        JScrollPane section = (JScrollPane) ui[0].tabs.getSelectedComponent();
+                        JScrollPane section = section(ui[0]);
                         assertTrue("A section viewport remains usable", section.getViewport().getHeight() >= ui[0].tabs.getFontMetrics(ui[0].tabs.getFont()).getHeight() * 4);
                         assertContentReachable((Container) section.getViewport().getView());
                         assertWrappingFits(status(ui[0]));
@@ -117,7 +117,7 @@ public class NotificationsConsistencyTest {
                     });
                     for (int turn = 0; turn < 10; turn++) SwingUtilities.invokeAndWait(() -> frame[0].validate());
                     SwingUtilities.invokeAndWait(() -> {
-                        JScrollPane section = (JScrollPane) ui[0].tabs.getSelectedComponent();
+                        JScrollPane section = section(ui[0]);
                         assertTrue(section.getViewport().getHeight() >= ui[0].tabs.getFontMetrics(ui[0].tabs.getFont()).getHeight() * 4);
                         assertContentReachable((Container) section.getViewport().getView());
                         assertWrappingFits(status(ui[0]));
@@ -213,5 +213,11 @@ public class NotificationsConsistencyTest {
     }
     private static void setLaf(LookAndFeel laf) {
         try { UIManager.setLookAndFeel(laf); } catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
+    }
+
+    /** The selected section's scrolling page; Recent decisions hosts its own page so its table can reveal rows itself. */
+    private static JScrollPane section(NotificationsGUI ui) {
+        java.awt.Component selected = ui.tabs.getSelectedComponent();
+        return selected instanceof RecentDecisionsPanel ? ((RecentDecisionsPanel) selected).page : (JScrollPane) selected;
     }
 }

@@ -34,6 +34,13 @@ final class RecentDecisionsPanel extends JPanel {
     final JTextArea detail = ContentStyle.wrappingText("Select a decision to see why it did or did not play.", 3);
     final JTextArea status = ContentStyle.wrappingText("");
     final JButton editRule = new JButton("Edit rule"), draftRule = new JButton("Draft rule from sample");
+    static final String NONE_RECORDED = "No decisions recorded yet", NONE_SHOWN = "No decisions match this view";
+    /** Shown in place of the rows when nothing is listed; never added to the table model. */
+    final JLabel empty = new JLabel(NONE_RECORDED, SwingConstants.CENTER);
+    private final JPanel rowsCard = new JPanel(new CardLayout());
+    /** Minimum rows the table keeps before the tab content scrolls instead. */
+    static final int MINIMUM_ROWS = 4;
+    final JScrollPane page;
     private List<Decision> shown = new ArrayList<>();
     private boolean rebuilding, stale;
     private final java.util.concurrent.atomic.AtomicBoolean pending = new java.util.concurrent.atomic.AtomicBoolean();
@@ -47,8 +54,12 @@ final class RecentDecisionsPanel extends JPanel {
 
     RecentDecisionsPanel(AlertDecisions decisions, NotificationsGUI owner) {
         super(new BorderLayout(0, 8)); this.decisions = decisions; this.owner = owner;
-        JTextArea note = ContentStyle.wrappingText("Latest " + AlertDecisions.CAPACITY + " alert decisions from this app session, newest first. No-match results keep their own latest "
+        // One short line keeps rows on screen in a compact window; the capacity details stay in tooltips.
+        JTextArea note = ContentStyle.wrappingText("This app session's latest " + AlertDecisions.CAPACITY + " decisions, newest first. Not saved; nothing is replayed.");
+        note.setToolTipText("Latest " + AlertDecisions.CAPACITY + " alert decisions from this app session, newest first. No-match results keep their own latest "
             + AlertDecisions.NO_MATCH_CAPACITY + ". Records are not saved and nothing is replayed; Edit rule opens the current rule when it still exists.");
+        includeNoMatch.setToolTipText("No-match results keep their own latest " + AlertDecisions.NO_MATCH_CAPACITY + ".");
+        editRule.setToolTipText("Opens the current rule when it still exists.");
         table.setName("decisions-table"); includeNoMatch.setName("decisions-include-no-match"); outcome.setName("decisions-outcome");
         detail.setName("decisions-detail"); status.setName("decisions-status"); editRule.setName("decisions-edit-rule"); draftRule.setName("decisions-draft-rule");
         outcome.getAccessibleContext().setAccessibleName("Decision outcome");
@@ -58,9 +69,21 @@ final class RecentDecisionsPanel extends JPanel {
         for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         JPanel controls = ContentStyle.controls(); controls.add(outcome); controls.add(includeNoMatch);
         JPanel actions = ContentStyle.controls(); actions.add(editRule); actions.add(draftRule);
+        note.setName("decisions-intro");
         JPanel top = new JPanel(new BorderLayout(0, 6)); top.add(note, BorderLayout.NORTH); top.add(controls);
         JPanel lower = new JPanel(new BorderLayout(0, 6)); lower.add(detail, BorderLayout.NORTH); lower.add(actions); lower.add(status, BorderLayout.SOUTH);
-        add(top, BorderLayout.NORTH); add(ContentStyle.tableScroll(table, 6)); add(lower, BorderLayout.SOUTH);
+        JScrollPane rows = ContentStyle.tableScroll(table, MINIMUM_ROWS); rows.setName("decisions-rows");
+        empty.setName("decisions-empty"); empty.setFont(ContentStyle.metadata(ContentStyle.body()));
+        JPanel emptyCard = new JPanel(new BorderLayout()) {
+            @Override public Dimension getMinimumSize() { return rows.getMinimumSize(); }
+            @Override public Dimension getPreferredSize() { return rows.getMinimumSize(); }
+        };
+        emptyCard.setBorder(rows.getBorder()); emptyCard.add(empty);
+        rowsCard.add(rows, "rows"); rowsCard.add(emptyCard, "empty");
+        // The page fills the tab when it fits (the table takes the spare height) and otherwise scrolls, keeping the
+        // intro, filter, column headers and at least MINIMUM_ROWS rows in normal flow instead of overlapping.
+        page = ContentStyle.page(top, rowsCard, lower); page.setName("decisions-page");
+        add(page);
         includeNoMatch.addActionListener(e -> refresh()); outcome.addActionListener(e -> { if (outcome.getSelectedIndex() == 5) includeNoMatch.setSelected(true); refresh(); });
         table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !rebuilding) showDetail(); });
         editRule.addActionListener(e -> editRule()); draftRule.addActionListener(e -> draftRule());
@@ -82,6 +105,8 @@ final class RecentDecisionsPanel extends JPanel {
             d.result.label, d.ruleLabel(), d.subject});
         if (selected != null) select(selected.id, false);
         rebuilding = false;
+        empty.setText(decisions.snapshot(true).isEmpty() ? NONE_RECORDED : NONE_SHOWN + (includeNoMatch.isSelected() ? "." : ". No-match results are hidden; select Include no match to list them."));
+        ((CardLayout) rowsCard.getLayout()).show(rowsCard, shown.isEmpty() ? "empty" : "rows");
         showDetail();
     }
     private boolean included(Decision d) {
@@ -96,12 +121,31 @@ final class RecentDecisionsPanel extends JPanel {
     }
     /** Selects a recorded decision, widening filters when needed. Returns false when it has been evicted. */
     boolean select(long id, boolean widen) {
-        for (int i = 0; i < shown.size(); i++) if (shown.get(i).id == id) { table.setRowSelectionInterval(i, i); table.scrollRectToVisible(table.getCellRect(i, 0, true)); return true; }
+        for (int i = 0; i < shown.size(); i++) if (shown.get(i).id == id) { table.setRowSelectionInterval(i, i); revealRow(i); return true; }
         Decision d = decisions.find(id);
         if (d == null || !widen) { if (widen) status.setText("Decision #" + id + " is no longer retained."); return false; }
         outcome.setSelectedIndex(0); includeNoMatch.setSelected(true); refresh();
         return select(id, false);
     }
+    /**
+     * Scrolls only the table's own viewport to {@code row}. JTable.scrollRectToVisible would also scroll every
+     * enclosing page, hiding the intro, filter and column headers. Repeated after layout for a page not yet shown.
+     */
+    private void revealRow(int row) {
+        scrollTableTo(row);
+        SwingUtilities.invokeLater(() -> { if (table.getSelectedRow() == row) scrollTableTo(row); });
+    }
+    private void scrollTableTo(int row) {
+        if (!(table.getParent() instanceof JViewport) || row < 0 || row >= table.getRowCount()) return;
+        JViewport viewport = (JViewport) table.getParent();
+        Rectangle cell = table.getCellRect(row, 0, true), view = viewport.getViewRect();
+        if (view.height <= 0 || cell.y >= view.y && cell.y + cell.height <= view.y + view.height) return;
+        int y = cell.y + cell.height > view.y + view.height ? cell.y + cell.height - view.height : cell.y;
+        y = Math.max(0, Math.min(y, table.getHeight() - view.height));
+        viewport.setViewPosition(new Point(view.x, y));
+    }
+    /** Shows the top of the page: intro, outcome filter and column headers. */
+    void scrollPageToTop() { page.getViewport().setViewPosition(new Point(0, 0)); }
     Decision selected() { int row = table.getSelectedRow(); return row < 0 || row >= shown.size() ? null : shown.get(row); }
 
     private void showDetail() {
@@ -143,7 +187,7 @@ final class RecentDecisionsPanel extends JPanel {
         if (d.domain != null && d.ruleMode != null) { editorOpener.accept(editorFor(d)); return; }
         switch (d.source) {
             case REALM_EVENT: status.setText(owner.focusRealmRule(d.ruleRef) ? "Showing the realm event rule." : "That realm event rule was removed after this decision."); return;
-            case KEY_POP: owner.focusDungeon(d.ruleRef, null); status.setText("Showing " + d.ruleRef + " in Key pops."); return;
+            case KEY_POP: owner.focusDungeon(d.ruleRef, null); status.setText("Showing " + d.ruleRef + " in Key-pops."); return;
             default:
                 if (d.sound != null) { status.setText(owner.focusSound(d.sound) ? "Showing the " + d.soundLabel + " sound settings." : "That sound is no longer available."); return; }
                 if (d.domain != null) editorOpener.accept(editorFor(d));

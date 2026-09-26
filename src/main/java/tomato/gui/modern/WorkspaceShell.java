@@ -11,6 +11,8 @@ import util.PropertiesManager;
 
 /** Responsive navigation around the original feature panels; no data is duplicated. */
 public final class WorkspaceShell extends JPanel {
+    /** Back label when the routed origin is the page already shown. */
+    public static final String BACK_TO_PREVIOUS_VIEW = "Back to previous view";
     public static final String[] TITLES = {"Chat", "Key-pops", "Inspect", "Characters", "Statistics", "Daily Quests", "My Info", "DPS Logger", "Loot", "Logging", "Runs", "Timeline", "Bridge Review", "Notifications"};
     private static final String[] DESCRIPTIONS = {
         "Your conversations across the Realm, in one place.",
@@ -380,6 +382,7 @@ public final class WorkspaceShell extends JPanel {
             styleNavigation(i);
         }
         scrollSelected(); scrollSelectedLater();
+        if (navigator != null) refreshBack(); // The label depends on whether Back returns to this page.
     }
     public int getSelectedPage() { return selected; }
 
@@ -413,7 +416,9 @@ public final class WorkspaceShell extends JPanel {
     private void refreshBack() {
         boolean available = navigator != null && navigator.canGoBack();
         int page = available ? navigator.backPage() : -1;
-        String label = page >= 0 && page < TITLES.length ? "Back to " + TITLES[page] : "Back";
+        // A route within the current page (for example Runs to a filtered Runs view) returns to that page's earlier
+        // view; naming the page the user is already on would read as a no-op.
+        String label = page == selected ? BACK_TO_PREVIOUS_VIEW : page >= 0 && page < TITLES.length ? "Back to " + TITLES[page] : "Back";
         back.setText(label); back.getAccessibleContext().setAccessibleName(label);
         back.setToolTipText("Return to the view you came from, with its filters and selection (Alt+Left)");
         if (back.isVisible() != available) { back.setVisible(available); revalidate(); repaint(); }

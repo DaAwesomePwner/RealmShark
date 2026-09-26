@@ -7,7 +7,7 @@ import tomato.gui.keypop.KeypopGUI;
  * Opening a focus only changes what Notifications shows; it never changes an alert choice.
  */
 public final class NotificationFocus {
-    /** Tab title such as "Key pops", or null to keep the current tab. */
+    /** Tab title such as "Key-pops", or null to keep the current tab. */
     public final String section;
     /** Exact notification dungeon name to focus, or null. */
     public final String dungeon;
@@ -19,7 +19,7 @@ public final class NotificationFocus {
     }
     public static NotificationFocus section(String section) { return new NotificationFocus(section, null, null); }
     /** Focus an exact dungeon; resolve it first with {@link #resolveDungeon(String)}. */
-    public static NotificationFocus dungeon(String exactName) { return new NotificationFocus("Key pops", exactName, null); }
+    public static NotificationFocus dungeon(String exactName) { return new NotificationFocus(NotificationsGUI.KEY_POPS, exactName, null); }
     public static NotificationFocus decision(long id) { return new NotificationFocus(NotificationsGUI.DECISIONS, null, id); }
 
     /**

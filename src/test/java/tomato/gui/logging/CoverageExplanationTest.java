@@ -38,7 +38,7 @@ public class CoverageExplanationTest {
             assertTrue(text.contains("Delta-cache evictions: 0 (comparison baseline lost; not an event-retention count"));
             assertTrue(text.contains("Decode failures: 1 (packet could not be decoded"));
             assertTrue(text.contains("Collection: paused; frames are not observed while paused, which is not zero activity"));
-            assertTrue(text.contains("not collecting · Collection paused"));
+            assertTrue(text.contains("Collection: paused · Collection paused"));
             assertTrue(text.contains("Views affected by decode issues: Resources & buffs (1 frames); Inspect (1 frames); Loot (1 frames)"));
             assertTrue(text.contains("Diagnostic disk drops: 0 (writer lifetime"));
             assertTrue(text.contains("Sampled-out events: 0"));

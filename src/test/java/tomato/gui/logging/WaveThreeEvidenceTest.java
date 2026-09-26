@@ -20,6 +20,7 @@ import static ui.WaveThreeEvidence.*;
 /** Wave 3 visual evidence for LOG-2: separate coverage counters and the routed packet-issues view. Synthetic frames only. */
 public class WaveThreeEvidenceTest {
     @Rule public VisualEvidence evidence = new VisualEvidence(FOLDER);
+    @Rule public FixtureZone zone = new FixtureZone();
 
     @After public void restore() throws Exception { run(() -> Navigator.install(Navigator.NONE)); }
 
@@ -50,6 +51,14 @@ public class WaveThreeEvidenceTest {
                     assertEquals(9, shell.getSelectedPage());
                     assertTrue(logging.captureViewState().tabs.get("packets").query.issues);
                     assertShows(shell, "Back to Runs");
+                    assertShows(logging, "Collection: paused");
+                    assertFalse("one collection-state term", shows(logging, "collection: off"));
+                    JLabel privacy = named(logging, "logging-privacy", JLabel.class);
+                    if (shell.getWidth() >= WIDE_WIDTH - 40 && shell.getHeight() >= WIDE_HEIGHT - 120) {
+                        JScrollPane page = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, VisualEvidence.find(logging, JTabbedPane.class, t -> true));
+                        assertEquals("the logging page opens at the top", 0, page.getViewport().getViewPosition().y);
+                        assertTrue("the last status line is not clipped at a standard wide size", fullyVisible(privacy));
+                    } else { reveal(privacy, privacy.getHeight()); assertTrue(fullyVisible(privacy)); }
                 });
                 run(() -> {
                     VisualEvidence.find(logging, AbstractButton.class, b -> "Diagnostic coverage details".equals(b.getAccessibleContext().getAccessibleName())).doClick();
@@ -63,6 +72,9 @@ public class WaveThreeEvidenceTest {
                     assertTrue(text, text.contains("Delta-cache evictions: 0 (comparison baseline lost; not an event-retention count"));
                     assertTrue(text, text.contains("Decode failures: 1"));
                     assertTrue(text, text.contains("Collection: paused"));
+                    assertTrue(text, text.contains("Collection at this revision: paused"));
+                    assertFalse(text, text.contains("Collection at this revision: off") || text.contains("not collecting"));
+                    assertFalse("fixture zone, not the workstation's", text.contains("America/"));
                 });
             } finally { run(() -> { if (coverage[0] != null) coverage[0].dispose(); evidence.closeWindow(); }); }
         }

@@ -37,7 +37,7 @@ final class KeyPopDashboard extends JPanel {
     private final JLabel[] metricCaptions = new JLabel[4];
     final JLabel status = new JLabel();
     private final JTextArea resolvedPeriod = ContentStyle.wrappingText("");
-    final JLabel empty = new JLabel("Waiting for key pops", SwingConstants.CENTER);
+    final JLabel empty = new JLabel("Waiting for key-pops", SwingConstants.CENTER);
     private final KeyPopHistory history;
     private final DefaultTableModel eventsModel = model(new String[] {"Time", "Player", "Type", "Dungeon / item"}, Instant.class, String.class, String.class, String.class);
     private final DefaultTableModel playersModel = model(new String[] {"Player", "Pops", "Keys", "Runes", "Vials", "Incs", "Share %", "Last pop"}, String.class, Integer.class, Integer.class, Integer.class, Integer.class, Integer.class, Double.class, Instant.class);
@@ -106,7 +106,7 @@ final class KeyPopDashboard extends JPanel {
         constraints.gridy++; top.add(cards, constraints);
         JPanel searchRow = new JPanel(new BorderLayout(8, 0));
         search.setName("keypop-search"); search.putClientProperty("JTextField.placeholderText", "Search player, dungeon or item…");
-        search.getAccessibleContext().setAccessibleName("Search key pops");
+        search.getAccessibleContext().setAccessibleName("Search key-pops");
         search.setToolTipText("Case-insensitive search; every word must match the event.");
         searchRow.add(search); searchRow.add(button("Reset filters", this::resetFilters), BorderLayout.EAST);
         constraints.gridy++; top.add(searchRow, constraints);

@@ -56,7 +56,9 @@ public final class BridgeReviewGUI extends JPanel {
         super(new BorderLayout(0,8));this.bridge=bridge;setName("bridge-review-panel");
         JPanel summary=new JPanel(new BorderLayout(0,5));
         state.setFont(ContentStyle.emphasis(ContentStyle.body()));
-        totals.setName("bridge-totals");totals.getAccessibleContext().setAccessibleName("Lifetime and shown delivery outcome counts");summary.add(state,BorderLayout.NORTH);summary.add(totals);add(summary,BorderLayout.NORTH);
+        // The lifetime/shown counters describe the live Review table only, so they live on that tab instead of
+        // taking height from Settings, Logs and Saved review in short windows.
+        totals.setName("bridge-totals");totals.getAccessibleContext().setAccessibleName("Lifetime and shown delivery outcome counts");summary.add(state,BorderLayout.NORTH);add(summary,BorderLayout.NORTH);
         setupTable(review,ContentStyle.Density.COMFORTABLE);setupTable(logs,ContentStyle.Density.DENSE);review.setName("bridge-review-table");logs.setName("bridge-log-table");
         review.getColumnModel().getColumn(6).setCellRenderer(new ContentStyle.Badge(){
             @Override protected Color badgeColor(Object value){
@@ -82,12 +84,13 @@ public final class BridgeReviewGUI extends JPanel {
         tools.add(labeled("Search",search));tools.add(outcome);tools.add(status);tools.add(character);tools.add(dungeon);tools.add(enchantFilter);tools.add(reset);tools.add(export);
         alertDraft.setName("bridge-alert-draft");alertDraft.setEnabled(false);alertDraft.setToolTipText("Draft an exact item-ID alert from the selected drop. Opens silently; nothing is saved, enabled or sent.");
         alertDraft.addActionListener(e->draftFromSelected());tools.add(alertDraft);
-        reviewPage.add(tools,BorderLayout.NORTH);
+        JPanel reviewTop=new JPanel(new BorderLayout(0,6));reviewTop.add(totals,BorderLayout.NORTH);reviewTop.add(tools);
         details.setName("bridge-details");details.setOpaque(true);details.setFont(ContentStyle.report(ContentStyle.body()));details.setMargin(new Insets(6,8,6,8));
         details.getAccessibleContext().setAccessibleName("Selected drop delivery details");
         JScrollPane detailScroll=new JScrollPane(details);detailScroll.setMinimumSize(new Dimension(0,100));detailScroll.setPreferredSize(new Dimension(700,175));
         JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(review,3),detailScroll);split.setResizeWeight(.68);split.setBorder(null);
-        reviewPage.add(split);reviewPage.add(note("CSV controls what can be sent. Drops are observed in bags; pickup is not verified. Review retains the latest 1,000 items."),BorderLayout.SOUTH);
+        // Short windows scroll the tab content instead of squeezing the table and details to nothing.
+        reviewPage.add(ContentStyle.page(reviewTop,split,note("CSV controls what can be sent. Drops are observed in bags; pickup is not verified. Review retains the latest 1,000 items.")));
         tabs.addTab("Review",reviewPage);tabs.addTab("Settings",settings());
         JPanel logPage=new JPanel(new BorderLayout(0,8));JPanel logTools=ContentStyle.controls();
         JTextField logSearch=new JTextField(18);logSearch.setDocument(search.getDocument());logSearch.getAccessibleContext().setAccessibleName("Search bridge logs and review");
@@ -128,7 +131,9 @@ public final class BridgeReviewGUI extends JPanel {
         JPanel status=new JPanel(new BorderLayout(0,4));status.add(savedSummary,BorderLayout.NORTH);status.add(savedProblems);top.add(status,BorderLayout.SOUTH);
         JScrollPane detailScroll=new JScrollPane(savedDetails);detailScroll.setMinimumSize(new Dimension(0,90));detailScroll.setPreferredSize(new Dimension(700,150));
         JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(saved,3),detailScroll);split.setResizeWeight(.68);split.setBorder(null);
-        page.add(top,BorderLayout.NORTH);page.add(split);
+        // Explanation, actions and skipped lines keep their full height; below that the records and details keep a
+        // usable floor and the tab content scrolls when the window is short.
+        JScrollPane scroll=ContentStyle.page(top,split,null);scroll.setName("bridge-saved-scroll");page.add(scroll);
         openConfigured.addActionListener(e->{List<Path> paths=BridgeJournal.configured(bridge.config());
             if(paths.isEmpty()){savedSummary.setText("No review log is set in the active settings. Choose a journal file instead.");return;}openJournals(paths);});
         openFile.addActionListener(e->{JFileChooser chooser=new JFileChooser();chooser.setDialogTitle("Open saved Bridge review journals");chooser.setMultiSelectionEnabled(true);
@@ -174,6 +179,7 @@ public final class BridgeReviewGUI extends JPanel {
         JPanel status=new JPanel();status.setLayout(new BoxLayout(status,BoxLayout.Y_AXIS));saveResult.setVisible(false);validation.setVisible(false);
         activeSummary.setName("bridge-active");draftState.setName("bridge-draft-state");validation.setName("bridge-validation");confirmation.setName("bridge-confirmation");saveResult.setName("bridge-save-result");revert.setName("bridge-revert");
         activeSummary.setFont(ContentStyle.emphasis(ContentStyle.metadata(ContentStyle.body())));validation.setForeground(ContentStyle.color("rose"));
+        saveResult.addPropertyChangeListener("UI",e->{if(saveResultIsError())saveResult.setForeground(ContentStyle.color("rose"));});
         for(JTextArea area:new JTextArea[]{activeSummary,draftState,validation,saveResult,confirmation}){area.setAlignmentX(Component.LEFT_ALIGNMENT);area.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));status.add(area);}
         JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File > Start Sniffer. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
         page.add(intro,BorderLayout.NORTH);
@@ -235,15 +241,21 @@ public final class BridgeReviewGUI extends JPanel {
      * BRIDGE-3: the service validates, loads the CSV and saves before switching, so a failure leaves the
      * previous settings active. The draft stays in the form and the result is reported inline.
      */
-    private void save(){if(saving||!save.isEnabled())return;BridgeConfig next=edited();saving=true;save.setEnabled(false);revert.setEnabled(false);feedback.setText("Validating CSV and saving…");saveResult.setText("Saving… the current settings stay active until this succeeds.");new SwingWorker<Void,Void>(){
+    private void save(){if(saving||!save.isEnabled())return;BridgeConfig next=edited();saving=true;save.setEnabled(false);revert.setEnabled(false);feedback.setText("Validating CSV and saving…");saveResult.setText("Saving… the current settings stay active until this succeeds.");styleResult(false);new SwingWorker<Void,Void>(){
         protected Void doInBackground()throws Exception{bridge.configure(next,true,true);return null;}
-        protected void done(){saving=false;try{get();feedback.setText(next.enabled&&next.send?"Saved and active. The confirmation result is shown in Settings.":"Settings saved and active.");saveResult.setText("Saved and active: "+next.modeLabel()+".");}
+        protected void done(){saving=false;try{get();feedback.setText(next.enabled&&next.send?"Saved and active. The confirmation result is shown in Settings.":"Settings saved and active.");saveResult.setText("Saved and active: "+next.modeLabel()+".");styleResult(false);}
             catch(Exception ex){Throwable cause=ex.getCause()==null?ex:ex.getCause();String message=cause.getMessage()==null?cause.getClass().getSimpleName():cause.getMessage();if(!next.token.isEmpty())message=message.replace(next.token,"[redacted]");
                 feedback.setText("Not saved. The previous settings remain active; your draft is kept.");
-                saveResult.setText("Not saved: "+message+" The previous settings remain active ("+bridge.config().modeLabel()+"). Your draft is still in the form; correct it and Save again, or Revert.");}
+                saveResult.setText("Not saved: "+sentence(message)+" The previous settings remain active ("+bridge.config().modeLabel()+"). Your draft is still in the form; correct it and Save again, or Revert.");styleResult(true);}
             refresh();updateDraftState();}
     }.execute();}
-    private void revert(){if(saving)return;BridgeConfig active=snapshot==null?bridge.config():snapshot.config;editedFields.clear();load(active);saveResult.setText("Draft reverted to the active settings.");updateDraftState();}
+    private void revert(){if(saving)return;BridgeConfig active=snapshot==null?bridge.config():snapshot.config;editedFields.clear();load(active);saveResult.setText("Draft reverted to the active settings.");styleResult(false);updateDraftState();}
+    /** A failed save uses the same error style as the invalid-draft message; other results use the default text colour. */
+    private void styleResult(boolean error){saveResult.putClientProperty("bridge.error",error);saveResult.setForeground(error?ContentStyle.color("rose"):UIManager.getColor("TextArea.foreground"));}
+    /** True while the save result reports a failure (shown in the error style). */
+    public boolean saveResultIsError(){return Boolean.TRUE.equals(saveResult.getClientProperty("bridge.error"));}
+    /** Ends a service message as a sentence so the explanation that follows reads correctly. */
+    static String sentence(String message){String text=message.trim();if(text.isEmpty())return "Unknown error.";char last=text.charAt(text.length()-1);return last=='.'||last=='!'||last=='?'?text:text+".";}
     private void updateDraftState(){
         if(loadingFields)return;
         BridgeConfig active=snapshot==null?bridge.config():snapshot.config,draft=edited();
