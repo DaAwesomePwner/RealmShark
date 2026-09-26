@@ -230,6 +230,15 @@ public class QuestConsistencyTest {
                     assertSame("Posted Tab must traverse into the first filter", type, KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner());
                     fullyVisible(type);
                 });
+                for (String name : new String[]{"quest-repeat-mode", "quest-reward-mode", "quest-expiration-mode",
+                        "quest-requirement-item", "quest-requirement-count", "quest-add-plan"}) {
+                    JComponent control = named(quest, name, JComponent.class);
+                    JComponent focusTarget = control instanceof JSpinner
+                        ? ((JSpinner.DefaultEditor) ((JSpinner) control).getEditor()).getTextField() : control;
+                    SwingUtilities.invokeAndWait(() -> scroll("quest-page-scroll").getVerticalScrollBar().setValue(Integer.MAX_VALUE));
+                    awaitFocus(focusTarget);
+                    SwingUtilities.invokeAndWait(() -> fullyVisible(focusTarget));
+                }
                 awaitFocus(table()); postKey(table(), KeyEvent.VK_DOWN, 0);
                 settle(frame);
                 SwingUtilities.invokeAndWait(() -> {

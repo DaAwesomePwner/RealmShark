@@ -137,6 +137,8 @@ public class QuestGUI extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         summary.setName("quest-summary"); count.setName("quest-count");
         search.setName("quest-search"); type.setName("quest-type"); reward.setName("quest-reward"); sort.setName("quest-sort");
+        repeatMode.setName("quest-repeat-mode"); rewardMode.setName("quest-reward-mode"); expirationMode.setName("quest-expiration-mode");
+        requirementItem.setName("quest-requirement-item"); requirementCount.setName("quest-requirement-count");
         onlyPinned.setName("quest-pinned-only"); completed.setName("quest-completed"); pin.setName("quest-pin");
         details.setName("quest-details"); table.setName("quest-table");
         table.getAccessibleContext().setAccessibleName("Captured quests");
@@ -242,7 +244,10 @@ public class QuestGUI extends JPanel {
         page.setName("quest-page-scroll");
         page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
         tabs.addTab("Captured quests", page); tabs.addTab("Saved plans", plans); add(tabs, BorderLayout.CENTER);
-        for (JComponent control : new JComponent[]{search, type, reward, sort, onlyPinned, completed, labels, reset, pin, removeGlobal}) revealOnFocus(control);
+        for (JComponent control : new JComponent[]{search, type, reward, sort, repeatMode, rewardMode, expirationMode,
+                requirementItem, requirementCount, onlyPinned, completed, labels, reset, pin, removeGlobal, plan}) revealOnFocus(control);
+        // Swing transfers spinner keyboard focus to its editor, not to the spinner itself.
+        revealOnFocus(((JSpinner.DefaultEditor) requirementCount.getEditor()).getTextField());
         table.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override public void focusGained(java.awt.event.FocusEvent event) {
                 ContentStyle.reveal(table, table.getCellRect(Math.max(0, table.getSelectedRow()), 1, true));
