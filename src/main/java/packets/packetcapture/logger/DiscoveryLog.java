@@ -44,7 +44,8 @@ public final class DiscoveryLog implements AutoCloseable {
     // Observed collection interval: first and latest frame recorded since collection last (re)started.
     private tomato.history.SessionStore history;
     private long intervalStart, intervalLast, intervalPersisted;
-    private volatile String coverageError = "";
+    // Latest coverage-persistence failure per module; a module's error clears only when that module's next write succeeds.
+    private final java.util.concurrent.ConcurrentHashMap<String, String> coverageErrors = new java.util.concurrent.ConcurrentHashMap<>();
     private long intervalGapMillis = INTERVAL_GAP_MILLIS;
     /** Test hook: a shorter split threshold, so gap handling is testable without real 30-second waits. */
     synchronized void intervalGapMillis(long value) { if (value < 1) throw new IllegalArgumentException("Positive gap required"); intervalGapMillis = value; }
@@ -199,10 +200,23 @@ public final class DiscoveryLog implements AutoCloseable {
         tomato.history.SessionStore target = history;
         if (target == null || !target.writable() || historical) return;
         long from = intervalStart, until = intervalLast;
-        for (String module : RECORDED_MODULES) target.recordInterval(module, from, until, end).whenComplete((ignored, failure) -> {
-            coverageError = failure == null ? "" : "Recording coverage could not be saved: " + failure.getClass().getSimpleName();
-        });
+        for (String module : RECORDED_MODULES)
+            target.recordInterval(module, from, until, end).whenComplete((ignored, failure) -> coverageWriteCompleted(module, failure));
         intervalPersisted = until;
+    }
+    /** Records one module's coverage write outcome; another module's success never clears this module's failure. */
+    synchronized void coverageWriteCompleted(String module, Throwable failure) {
+        String before = coverageError();
+        if (failure == null) coverageErrors.remove(module);
+        else coverageErrors.put(module, failure.getClass().getSimpleName());
+        if (!before.equals(coverageError())) diagnosticsRevision++; // Logging refreshes only on a new revision.
+    }
+    /** Empty when every recorded module's latest coverage write succeeded; otherwise names each failing module. */
+    private String coverageError() {
+        if (coverageErrors.isEmpty()) return "";
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, String> error : new TreeMap<>(coverageErrors).entrySet()) parts.add(error.getKey() + " (" + error.getValue() + ")");
+        return "Recording coverage could not be saved for " + String.join(", ", parts);
     }
     private void activityBoundary(String reason) {
         long before=activity.revision(); activity.boundary(System.currentTimeMillis(),reason);
@@ -337,7 +351,7 @@ public final class DiscoveryLog implements AutoCloseable {
             activityStore == null ? "" : activityStore.error(), retentionEvictions,
             events.isEmpty() ? null : Instant.parse(events.peekFirst().timestamp).toEpochMilli(),
             events.isEmpty() ? null : Instant.parse(events.peekLast().timestamp).toEpochMilli(),
-            intervalStart == 0 ? null : intervalStart, new ArrayList<>(transitions), coverageError);
+            intervalStart == 0 ? null : intervalStart, new ArrayList<>(transitions), coverageError());
     }
     /** A collection-state change; transitions are bounded to the most recent {@link #TRANSITION_LIMIT}. */
     public static final class Transition {
