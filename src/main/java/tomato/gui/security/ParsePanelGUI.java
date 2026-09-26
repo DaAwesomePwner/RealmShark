@@ -229,7 +229,13 @@ public class ParsePanelGUI extends JPanel {
         playerActions.add(pinBaseline);
         addMenuAction(actions, pinBaseline, KeyStroke.getKeyStroke(KeyEvent.VK_B, InputEvent.CTRL_DOWN_MASK));
         addMenuAction(actions, compareBaseline, KeyStroke.getKeyStroke(KeyEvent.VK_B, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
-        table.getSelectionModel().addListSelectionListener(e -> updateSelectionActions());
+        table.getSelectionModel().addListSelectionListener(e -> {
+            updateSelectionActions();
+            if (!e.getValueIsAdjusting()) revealFocusedRosterSelection();
+        });
+        table.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent event) { revealFocusedRosterSelection(); }
+        });
 
         JPanel buttons = ContentStyle.controls();
         JButton names = new JButton(action("Copy names", e -> {
@@ -355,6 +361,15 @@ public class ParsePanelGUI extends JPanel {
         if (row < 0 || row >= table.getRowCount()) return null;
         int index = table.convertRowIndexToModel(row);
         return index < model.rows.size() ? model.rows.get(index) : null;
+    }
+
+    /** Keyboard movement must cross both the table and the outer compact-page viewport. */
+    private void revealFocusedRosterSelection() {
+        if (!table.hasFocus()) return;
+        int row=table.getSelectedRow();
+        if (row<0 || row>=table.getRowCount() || table.getColumnCount()==0) return;
+        int column=Math.max(0,table.getSelectedColumn());
+        ContentStyle.reveal(table,table.getCellRect(row,column,true));
     }
 
     private void updateSelectionActions() {
