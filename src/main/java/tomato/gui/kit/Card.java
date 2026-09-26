@@ -28,6 +28,7 @@ public class Card extends JPanel {
     };
     private final ContainerListener adoption = new ContainerAdapter() {
         @Override public void componentAdded(ContainerEvent e) { if (open != null) listen(e.getChild()); }
+        @Override public void componentRemoved(ContainerEvent e) { unlisten(e.getChild()); }
     };
 
     public Card() { this(DisplayModeModel.application()); }
@@ -60,8 +61,18 @@ public class Card extends JPanel {
         return header;
     }
 
-    public Card body(JComponent body) { center.add(body, BorderLayout.CENTER); return this; }
-    public Card footer(JComponent footer) { add(footer, BorderLayout.SOUTH); return this; }
+    public Card body(JComponent body) { replace(center, BorderLayout.CENTER, body); return this; }
+    public Card footer(JComponent footer) { replace(this, BorderLayout.SOUTH, footer); return this; }
+
+    private void replace(JPanel parent, String slot, JComponent replacement) {
+        Objects.requireNonNull(replacement, "replacement");
+        Component previous = ((BorderLayout) parent.getLayout()).getLayoutComponent(slot);
+        if (previous == replacement) return;
+        if (previous != null) parent.remove(previous);
+        parent.add(replacement, slot);
+        revalidate();
+        repaint();
+    }
 
     /**
      * Makes the whole card a drill-down target: click (including on labels, tiles and slots inside it),
@@ -113,6 +124,15 @@ public class Card extends JPanel {
             Container container = (Container) component;
             if (!Arrays.asList(container.getContainerListeners()).contains(adoption)) container.addContainerListener(adoption);
             for (Component child : container.getComponents()) listen(child);
+        }
+    }
+
+    private void unlisten(Component component) {
+        component.removeMouseListener(clicks);
+        if (component instanceof Container) {
+            Container container = (Container) component;
+            container.removeContainerListener(adoption);
+            for (Component child : container.getComponents()) unlisten(child);
         }
     }
 

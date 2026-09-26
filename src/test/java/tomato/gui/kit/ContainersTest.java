@@ -7,6 +7,34 @@ import org.junit.*;
 import static org.junit.Assert.*;
 
 public class ContainersTest {
+    @Test public void replacedContentDetachesAndStopsOpeningTheOldCard() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            int[] opens = {0};
+            JPanel oldBody = new JPanel();
+            JLabel oldLabel = new JLabel("Old body");
+            oldBody.add(oldLabel);
+            JLabel oldFooter = new JLabel("Old footer");
+            Card card = new Card(new DisplayModeModel(k -> null, (k, v) -> {}))
+                    .body(oldBody).footer(oldFooter).onOpen("Open", () -> opens[0]++);
+            JPanel newBody = new JPanel();
+            JLabel newFooter = new JLabel("New footer");
+            card.body(newBody).footer(newFooter);
+            assertNull(oldBody.getParent());
+            assertNull(oldFooter.getParent());
+            assertEquals(1, newBody.getParent().getComponentCount());
+            assertEquals(3, card.getComponentCount());
+            JPanel elsewhere = new JPanel();
+            elsewhere.add(oldBody);
+            JLabel later = new JLabel("Added after removal");
+            oldBody.add(later);
+            for (JLabel label : new JLabel[] {oldLabel, oldFooter, later, newFooter}) {
+                label.dispatchEvent(new java.awt.event.MouseEvent(label, java.awt.event.MouseEvent.MOUSE_CLICKED,
+                        System.currentTimeMillis(), 0, 1, 1, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            }
+            assertEquals("Only the current footer opens the card", 1, opens[0]);
+        });
+    }
+
     @Test public void editingAFieldInsideACardDoesNotNavigate() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             int[] opens = {0}; JTextField field = new JTextField("Editable");
