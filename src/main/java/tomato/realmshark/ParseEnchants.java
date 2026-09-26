@@ -340,27 +340,7 @@ public class ParseEnchants {
      */
     public static List<Short> extractEnchantIds(String code) {
         List<Short> ids = new ArrayList<>();
-        if (code == null || code.isEmpty()) return ids;
-
-        byte[] rawBytes = PcStatsDecoder.sixBitStringToBytes(code);
-        int expectedSize = 1 + 2 + 8;
-        if (rawBytes.length > expectedSize) {
-            rawBytes = Arrays.copyOfRange(rawBytes, 0, expectedSize);
-        }
-
-        BufferReader byteBuffer = new BufferReader(
-            ByteBuffer.wrap(rawBytes).order(ByteOrder.LITTLE_ENDIAN)
-        );
-        byteBuffer.readByte();
-        if (byteBuffer.readShort() != 1026) {
-            return ids;
-        }
-        while (!byteBuffer.isBufferFullyParsed()) {
-            short enchantId = byteBuffer.readShort();
-            if (enchantId == -3) break;
-            if (enchantId == -2 || enchantId == -1) continue;
-            ids.add(enchantId);
-        }
+        for (Integer id : evidence(code).orderedSlotIds) if (id >= 0) ids.add(id.shortValue());
         return ids;
     }
 

@@ -33,11 +33,6 @@ public class SecurityGUI extends JPanel {
         }, visits.more(), visits.description());
     }
 
-    private static volatile SecurityGUI INSTANCE;
-
-    private JTextArea text;
-    private final StringBuilder pending = new StringBuilder();
-    private boolean appendScheduled;
     private final JTabbedPane tabbedPane=new JTabbedPane();
     private InspectRunsPanel runs;
     private RosterViewState liveState;
@@ -75,7 +70,6 @@ public class SecurityGUI extends JPanel {
         add(ContentStyle.page(null, tabbedPane, stateHost));
 
         ContentStyle.refreshFonts(this);
-        INSTANCE = this;
     }
 
     /** The container's tab/run-list state is independent of ParsePanelGUI's roster facets and notes. */
@@ -97,20 +91,4 @@ public class SecurityGUI extends JPanel {
         tomato.ability.AbilityObservationStore.application().omit();
     }
 
-    private void appendText(String s) {
-        synchronized (pending) {
-            pending.append(s).append('\n');
-            if (appendScheduled) return;
-            appendScheduled = true;
-        }
-        SwingUtilities.invokeLater(() -> {
-            String batch;
-            synchronized (pending) {
-                batch = pending.toString();
-                pending.setLength(0);
-                appendScheduled = false;
-            }
-            text.append(batch);
-        });
-    }
 }

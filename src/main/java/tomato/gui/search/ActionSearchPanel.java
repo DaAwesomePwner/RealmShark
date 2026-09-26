@@ -20,6 +20,7 @@ public final class ActionSearchPanel extends JPanel {
         super(new BorderLayout(8,8));this.registry=registry;this.beforeOpen=beforeOpen;
         JPanel header=new JPanel(new BorderLayout(6,6));JLabel label=new JLabel("Find settings and actions");label.setLabelFor(query);header.add(label,BorderLayout.NORTH);header.add(query);
         query.getAccessibleContext().setAccessibleName("Find settings and actions");results.getAccessibleContext().setAccessibleName("Matching controls");
+        query.setName("action-search");results.setName("action-results");details.setName("action-details");open.setName("action-open");
         details.setEditable(false);details.getAccessibleContext().setAccessibleName("Control location and persistence");results.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,new JScrollPane(results),new JScrollPane(details));split.setResizeWeight(.55);
         JPanel footer=new JPanel(new BorderLayout());footer.add(status);footer.add(open,BorderLayout.EAST);

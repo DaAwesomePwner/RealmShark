@@ -27,7 +27,9 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     public ArchiveAdapter<Row,Facets,Sort> adapter(ArchiveQuery<Facets,Sort> q){View view=q.facets().view;return view.loot()?new LootArchiveAdapter(q):view==View.COHORTS?new CohortArchiveAdapter(q):new StatisticsArchiveAdapter(q);}
     public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){return new Render(page,state,binding);}
     public List<ArchiveExport.Column<Row>> exportColumns(){
-        List<ArchiveExport.Column<Row>> result=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns())result.add(new ArchiveExport.Column<>(column.label,column.value));return result;
+        List<ArchiveExport.Column<Row>> result=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns())result.add(new ArchiveExport.Column<>(column.label,column.value));
+        result.add(new ArchiveExport.Column<>("Exact enchantment evidence",r->r.enchantEvidence));
+        result.add(new ArchiveExport.Column<>("Captured drop context",r->r.dropContext));return result;
     }
     private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value){return new HistoryTables.Column<>(id,label,type,value,null);}
     static List<HistoryTables.Column<Row,?>> columns(){return Arrays.asList(
