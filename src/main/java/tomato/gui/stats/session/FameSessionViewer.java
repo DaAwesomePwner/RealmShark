@@ -37,6 +37,9 @@ public class FameSessionViewer extends JFrame {
     private final JComboBox<String> range = new JComboBox<>(new String[]{"All samples", "1 min", "5 min", "15 min", "30 min", "60 min"});
     private final JComboBox<String> measure = new JComboBox<>(new String[]{"Total fame", "Gain in range"});
     private Integer graphedCharacter;
+    private final JComboBox<FameSession.SampleVisit> recordedRuns = new JComboBox<>();
+    private final JButton openRun = new JButton("Open recorded run");
+    private final JLabel runStatus = new JLabel(" ");
     /** Shown when a saved history has no map association for the selected character. */
     public static final String MAP_NOT_RECORDED = "Map association: Not recorded";
     private GraphPanel graphPanel;
@@ -89,6 +92,23 @@ public class FameSessionViewer extends JFrame {
         mapAssociation.setName("saved-fame-map-association"); mapAssociation.putClientProperty("html.disable", true);
         graphPanel.addPropertyChangeListener(GraphPanel.SUMMARY_PROPERTY, e -> showDelta());
         graphFooter.add(graphDelta); graphFooter.add(graphStatus); graphFooter.add(mapAssociation);
+        recordedRuns.setName("saved-fame-recorded-runs"); openRun.setName("saved-fame-open-run"); runStatus.setName("saved-fame-run-status");
+        recordedRuns.getAccessibleContext().setAccessibleName("Recorded runs of the selected character's fame samples");
+        recordedRuns.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                super.getListCellRendererComponent(list, value, index, selected, focus); putClientProperty("html.disable", true);
+                setText(value instanceof FameSession.SampleVisit ? ((FameSession.SampleVisit)value).label() : "No recorded runs"); return this;
+            }
+        });
+        recordedRuns.addActionListener(e -> updateRunAction());
+        openRun.addActionListener(e -> {
+            FameSession.SampleVisit chosen = (FameSession.SampleVisit)recordedRuns.getSelectedItem();
+            if (chosen != null && chosen.visit() != null && !tomato.gui.route.Navigator.current().open(runRoute(chosen)))
+                runStatus.setText("The Runs workspace did not accept run " + chosen.visit() + "; nothing was opened.");
+        });
+        runStatus.putClientProperty("html.disable", true);
+        JPanel runs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0)); runs.add(recordedRuns); runs.add(openRun); runs.add(runStatus);
+        graphFooter.add(runs);
         graph.add(graphFooter, BorderLayout.SOUTH);
         graphStatus.setName("saved-fame-graph-status");
         tabbedPane.addTab("Fame Graph", graph);
@@ -253,7 +273,8 @@ public class FameSessionViewer extends JFrame {
                 visit.getFameGained(), timeSpent,
                 timeSpent > 0 ? visit.getFameGained() * 60000.0 / timeSpent : null});
         }
-        mapStatus.setText(visits.isEmpty() ? MAP_NOT_RECORDED + " for this character · this saved history has no map visits (fame samples never carry a map)"
+        mapStatus.setText(visits.isEmpty() ? MAP_NOT_RECORDED + " for this character · this saved history has no map visits"
+            + (session.sampleVisits(selectedCharId).isEmpty() ? "" : " (some fame samples carry recorded runs; see Fame Graph)")
             : DisplayFormat.formatInteger(model.getRowCount()) + " of " + DisplayFormat.formatInteger(visits.size())
             + " saved visits shown · Selected character · Dungeon and gain filters affect visits only");
         populateSessionInfo();
@@ -314,6 +335,12 @@ public class FameSessionViewer extends JFrame {
         }
         graphPanel.setScores(samples);
         mapAssociation.setText(mapAssociationText(selectedCharId));
+        updatingFilters = true;
+        try {
+            recordedRuns.removeAllItems(); java.util.Set<tomato.history.link.VisitRef> seen = new java.util.HashSet<>();
+            for (FameSession.SampleVisit visit : session.sampleVisits(selectedCharId)) if (visit.visit() != null && seen.add(visit.visit())) recordedRuns.addItem(visit);
+        } finally { updatingFilters = false; }
+        updateRunAction();
         showDelta();
     }
     private void showDelta() {
@@ -321,11 +348,30 @@ public class FameSessionViewer extends JFrame {
         graphDelta.setText(text.isEmpty() ? " " : text);
         graphDelta.getAccessibleContext().setAccessibleName(text);
     }
-    /** Samples never carry a map; only separately saved map visits establish an association. */
+    private static tomato.gui.route.Route runRoute(FameSession.SampleVisit visit) {
+        return tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS).withVisit(visit.visit());
+    }
+    private void updateRunAction() {
+        FameSession.SampleVisit chosen = (FameSession.SampleVisit)recordedRuns.getSelectedItem();
+        boolean navigable = chosen != null && chosen.visit() != null && tomato.gui.route.Navigator.current().canOpen(runRoute(chosen));
+        openRun.setEnabled(navigable); recordedRuns.setEnabled(recordedRuns.getItemCount() > 0);
+        runStatus.setText(chosen == null ? "No sample of this character carries a recorded run (legacy samples: Not recorded)."
+            : navigable ? "Opens verified run " + chosen.visit() + "."
+            : "Verified run " + chosen.visit() + "; opening runs is unavailable in this window (Runs navigation not registered).");
+        runStatus.getAccessibleContext().setAccessibleName(runStatus.getText());
+    }
+    /** Per-sample associations come only from recorded visits; tracker map visits are separate records. */
     String mapAssociationText(Integer id) {
         int visits = mapVisits(id).size();
-        return visits == 0 ? MAP_NOT_RECORDED + " (no saved map visits for this character; fame samples carry no map)"
-            : "Map association: " + DisplayFormat.formatInteger(visits) + " saved map visits (tracker records); individual fame samples carry no map";
+        java.util.List<Fame> all = session.getCharacterFameData().get(id);
+        int samples = all == null ? 0 : all.size(), associated = session.sampleVisits(id).size();
+        java.util.TreeMap<String, Integer> maps = new java.util.TreeMap<>();
+        for (FameSession.SampleVisit visit : session.sampleVisits(id)) maps.merge(visit.map == null || visit.map.isEmpty() ? "map not captured" : visit.map, 1, Integer::sum);
+        StringBuilder list = new StringBuilder(); for (java.util.Map.Entry<String, Integer> e : maps.entrySet()) list.append(list.length() == 0 ? "" : ", ").append(e.getKey()).append(" ×").append(e.getValue());
+        String tracker = visits == 0 ? "no saved map visits" : DisplayFormat.formatInteger(visits) + " saved map visits (tracker records)";
+        if (associated == 0) return MAP_NOT_RECORDED + " for fame samples (" + tracker + "; no sample carries a recorded visit)";
+        return "Map association: " + DisplayFormat.formatInteger(associated) + " of " + DisplayFormat.formatInteger(samples)
+            + " samples with a recorded visit (" + list + "); " + DisplayFormat.formatInteger(Math.max(0, samples - associated)) + " Not recorded · " + tracker;
     }
 
     private void updateCharacterData() {
