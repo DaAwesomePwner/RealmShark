@@ -44,7 +44,7 @@ Earlier failed or interrupted runs are diagnostic history, not passes. Notable o
   saved review was unreachable at compact width. Nine should-fix items and notes were
   also raised. All were addressed in three disjoint fix lanes, each reproduced before
   fixing and asserted with realized sizes at 100/150/200%.
-- Visual review, round 2 on fresh final-head captures: __VISUAL2__.
+- Visual review, round 2 on fresh final-head captures (105 images x 3 scales): PASS. Both blockers and all nine should-fix findings confirmed fixed; no new blocker or should-fix defect. Remaining cosmetic notes are listed under known limitations.
 
 ## Acceptance fixtures covered by tests
 
@@ -89,3 +89,13 @@ Earlier failed or interrupted runs are diagnostic history, not passes. Notable o
   "collection: off".
 - `KeyPopEvent` formatters capture the default zone at class load (pre-existing
   order-dependence shared with older formatting tests).
+- Cosmetic visual notes accepted from review round 2: the last footer line is cut in
+  some wide pages at 100% (Runs workbench, Timeline unavailable, Loot occurrences;
+  the pages scroll). Bridge saved review (not opened) and the Loot rate table at
+  compact open scrolled past their first content. The selected row highlight is faint
+  in Recent decisions and Loot occurrences. The legacy DPS status line truncates at
+  680 px (100%), and Details shows the full text. The Logging coverage dialog repeats
+  "Collection: paused". The saved-fame "Not recorded · no saved map visits" wording
+  sits beside a recorded-visit count. An audio-error footer appears in several
+  Notifications fixtures; it is expected to be shared test sound state, to be
+  confirmed not to be a sticky app status.
