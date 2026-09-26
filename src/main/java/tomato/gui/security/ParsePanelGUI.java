@@ -369,21 +369,27 @@ public class ParsePanelGUI extends JPanel {
     }
 
     /** Opens the same Inspect details for a detached player from another view or saved encounter. */
-    public static void inspectPlayer(Component owner, InspectSnapshot captured) {
+    public static void inspectPlayer(Component owner, InspectSnapshot captured) { inspectPlayer(owner, captured, null); }
+
+    /** As {@link #inspectPlayer(Component, InspectSnapshot)}, naming the source view/recording and its link, when known. */
+    public static void inspectPlayer(Component owner, InspectSnapshot captured, String origin) {
         if (captured == null) return;
-        Row row = detachedRow(captured);
+        Row row = detachedRow(captured, origin);
         showEquipmentDetails(owner, inspectionName(row), inspectionDetails(row));
     }
 
     static String detachedDetails(InspectSnapshot captured) {
-        return inspectionDetails(detachedRow(captured));
+        return inspectionDetails(detachedRow(captured, null));
+    }
+    static String detachedDetails(InspectSnapshot captured, String origin) {
+        return inspectionDetails(detachedRow(captured, origin));
     }
 
-    private static Row detachedRow(InspectSnapshot captured) {
+    private static Row detachedRow(InspectSnapshot captured, String origin) {
         Entity entity = captured.toEntity();
         CapturedPlayer player = snapshot(entity.id, entity);
         player.className = captured.className();
-        player.origin = "Detached recorded build · Source session/run not supplied";
+        player.origin = "Detached recorded build · " + (origin == null || origin.isEmpty() ? "Source session/run not supplied" : origin);
         player.currentArea = false;
         return new Row(player, 0, null);
     }

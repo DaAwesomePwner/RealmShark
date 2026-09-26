@@ -39,13 +39,29 @@ final class RunWorkbenchPanel extends JPanel {
         add(controls, "Open Loot", "run-open-loot", ActivityRoutes.visit(Destination.LOOT, ref), reasons);
         unavailable.setName("run-workbench-unavailable");
         unavailable.getAccessibleContext().setAccessibleName("Unavailable run actions and reasons");
-        unavailable.setText(String.join("\n", reasons));
+        unavailable.setText(reasons.isEmpty() ? "" : "Unavailable here: " + String.join("; ", reasons)
+            + ". Nothing is matched by dungeon name or time; a disabled action's tooltip repeats its reason.");
         unavailable.setVisible(!reasons.isEmpty());
+        // One scrollable column: evidence first, then actions, so compact or enlarged layouts keep every line reachable.
+        Column column = new Column();
+        column.add(evidence, BorderLayout.NORTH);
         JPanel south = new JPanel(new BorderLayout(0, 4));
         south.add(controls, BorderLayout.NORTH); south.add(unavailable, BorderLayout.CENTER);
-        JScrollPane scroll = new JScrollPane(evidence);
+        column.add(south, BorderLayout.CENTER);
+        JScrollPane scroll = new JScrollPane(column);
+        scroll.setName("run-workbench-scroll"); scroll.getVerticalScrollBar().setUnitIncrement(24);
         scroll.setPreferredSize(new Dimension(600, 190));
-        add(scroll, BorderLayout.CENTER); add(south, BorderLayout.SOUTH);
+        add(scroll, BorderLayout.CENTER);
+    }
+
+    /** Tracks the viewport width so wrapped evidence lines stay readable without horizontal scrolling. */
+    private static final class Column extends JPanel implements Scrollable {
+        Column() { super(new BorderLayout(0, 6)); }
+        public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        public int getScrollableUnitIncrement(Rectangle r, int o, int d) { return 24; }
+        public int getScrollableBlockIncrement(Rectangle r, int o, int d) { return Math.max(24, o == SwingConstants.VERTICAL ? r.height - 24 : r.width - 24); }
+        public boolean getScrollableTracksViewportWidth() { return true; }
+        public boolean getScrollableTracksViewportHeight() { return false; }
     }
 
     private void add(JPanel controls, String label, String name, Route route, List<String> reasons) {

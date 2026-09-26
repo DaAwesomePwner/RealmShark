@@ -157,7 +157,7 @@ public class ActivityRouteTest {
                 assertEquals("The same query yields identical displayed and exported events", displayed, written);
                 assertEquals(edt(() -> timeline.displayedPage().revision), document.getAsJsonObject("manifest").get("revision").getAsString());
                 String banner = edt(() -> named(timeline, JTextArea.class, "timeline-window").getText());
-                assertTrue(banner, banner.contains(RunWorkbench.OBSERVED_LATER) && banner.contains("3.5 s after the visit ended"));
+                assertTrue(banner, banner.contains(RunWorkbench.OBSERVED_LATER) && banner.contains(tomato.gui.modern.DisplayFormat.formatDurationSeconds(3500, 1) + " s after the visit ended"));
                 assertTrue(banner, banner.contains("half-open"));
                 // The window can be adjusted without changing display/export agreement.
                 edt(() -> { named(timeline, JButton.class, "timeline-widen-window").doClick(); return null; });

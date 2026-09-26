@@ -15,6 +15,11 @@ import java.awt.event.ActionEvent;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
+import tomato.gui.route.Destination;
+import tomato.gui.route.Navigator;
+import tomato.gui.route.Route;
+import tomato.gui.route.RouteTarget;
+import tomato.history.link.EncounterContext;
 
 public class DpsGUI extends JPanel {
 
@@ -37,6 +42,9 @@ public class DpsGUI extends JPanel {
     private final JTextArea filterNotice = new JTextArea();
     private final JCheckBox paused = new JCheckBox("Pause this view");
     private final JTextArea pauseNotice = ContentStyle.wrappingText("",1);
+    private final JTextArea linkStatus = ContentStyle.wrappingText("",1);
+    private final JButton openRun = new JButton("Open run"), openTimeline = new JButton("Open Timeline"), openResources = new JButton("Open Resources");
+    private EncounterLink shownLink = EncounterLink.live();
     private DisplayFrame displayed;
     private boolean liveUpdates = true;
     private int index = 0;
@@ -138,7 +146,17 @@ public class DpsGUI extends JPanel {
         header.add(dpsTopPanel, BorderLayout.NORTH); header.add(filterNotice, BorderLayout.CENTER);
         pauseNotice.setEditable(false);pauseNotice.setOpaque(false);pauseNotice.setLineWrap(true);pauseNotice.setWrapStyleWord(true);
         pauseNotice.setName("dps-pause-notice");pauseNotice.getAccessibleContext().setAccessibleName("Damage view source and pause state");
-        ContentStyle.font(pauseNotice,ContentStyle.metadata(ContentStyle.body()));header.add(pauseNotice,BorderLayout.SOUTH);
+        ContentStyle.font(pauseNotice,ContentStyle.metadata(ContentStyle.body()));
+        linkStatus.setEditable(false);linkStatus.setOpaque(false);linkStatus.setName("dps-encounter-link");
+        linkStatus.getAccessibleContext().setAccessibleName("Encounter link status: linked, unlinked, legacy or live");
+        ContentStyle.font(linkStatus,ContentStyle.metadata(ContentStyle.body()));
+        openRun.setName("dps-open-run");openTimeline.setName("dps-open-timeline");openResources.setName("dps-open-resources");
+        openRun.addActionListener(e->openLinked(tomato.gui.route.Destination.RUNS));
+        openTimeline.addActionListener(e->openLinked(tomato.gui.route.Destination.TIMELINE));
+        openResources.addActionListener(e->openLinked(tomato.gui.route.Destination.RESOURCES));
+        JPanel linkActions=ContentStyle.controls();linkActions.add(openRun);linkActions.add(openTimeline);linkActions.add(openResources);
+        JPanel notices=new JPanel(new BorderLayout(0,2));notices.add(pauseNotice,BorderLayout.NORTH);notices.add(linkStatus,BorderLayout.CENTER);notices.add(linkActions,BorderLayout.SOUTH);
+        header.add(notices,BorderLayout.SOUTH);
         damagePage.add(header, BorderLayout.NORTH);
 
         center = new JPanel();
@@ -262,7 +280,8 @@ public class DpsGUI extends JPanel {
         entityHitList = Arrays.stream(entityHitList).filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
         DpsData saved = b ? null : selectedEncounter.data;
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
-        displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context);
+        EncounterLink link=b?EncounterLink.live():EncounterLink.of(saved,selectedEncounter.origin!=null);
+        displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context,link);
         present(displayed);
     }
     private void present(DisplayFrame frame){
@@ -270,6 +289,10 @@ public class DpsGUI extends JPanel {
         displayMeter.setContext(frame.key, frame.player, frame.context);
         displayString.setPlayerContext(frame.context);
         displayIcon.setPlayerContext(frame.context);
+        showLink(frame.link);
+        displayMeter.setInspectOrigin((frame.live ? "Live DPS encounter" : "Saved DPS encounter") + " · " + (frame.map == null ? "No map" : frame.map.name)
+            + " · " + frame.link.label() + (frame.link.linked() ? " · session " + frame.link.visit.sessionId + " · visit " + frame.link.visit.visitId : "")
+            + " · player copy displayed in this encounter view");
         String notice = Filter.unavailableReason(frame.context);
         filterNotice.setText(notice); filterNotice.setVisible(!notice.isEmpty());
         pauseNotice.setText((paused.isSelected()?"Paused this view · ":"")+(frame.live?"Live encounter":"Saved encounter")+" · "+(frame.map==null?"No map":frame.map.name)
@@ -279,10 +302,133 @@ public class DpsGUI extends JPanel {
     }
     private static final class DisplayFrame {
         final MapInfoPacket map;final Entity[] targets;final ArrayList<NotificationPacket> notes;
-        final long elapsed;final boolean live;final Object key;final Entity player;final DpsData.LocalPlayerContext context;
+        final long elapsed;final boolean live;final Object key;final Entity player;final DpsData.LocalPlayerContext context;final EncounterLink link;
         final String displayedAt=java.time.Instant.now().toString();
-        DisplayFrame(MapInfoPacket map,Entity[] targets,ArrayList<NotificationPacket> notes,long elapsed,boolean live,Object key,Entity player,DpsData.LocalPlayerContext context){this.map=map;this.targets=targets;this.notes=notes;this.elapsed=elapsed;this.live=live;this.key=key;this.player=player;this.context=context;}
+        DisplayFrame(MapInfoPacket map,Entity[] targets,ArrayList<NotificationPacket> notes,long elapsed,boolean live,Object key,Entity player,DpsData.LocalPlayerContext context,EncounterLink link){this.map=map;this.targets=targets;this.notes=notes;this.elapsed=elapsed;this.live=live;this.key=key;this.player=player;this.context=context;this.link=link;}
     }
+
+    /** COMBAT-3: link status plus Open run / Timeline / Resources only for a linked encounter the navigator accepts. */
+    private void showLink(EncounterLink link) {
+        shownLink = link;
+        List<String> reasons = new ArrayList<>();
+        linkButton(openRun, "Open run", Destination.RUNS, link, reasons);
+        linkButton(openTimeline, "Open Timeline", Destination.TIMELINE, link, reasons);
+        linkButton(openResources, "Open Resources", Destination.RESOURCES, link, reasons);
+        String text = "Encounter link: " + link.label() + " · " + link.description();
+        if (link.linked() && !reasons.isEmpty()) text += "\n" + String.join("\n", reasons);
+        linkStatus.setText(text);
+    }
+    private static void linkButton(JButton button, String label, Destination destination, EncounterLink link, List<String> reasons) {
+        String reason;
+        if (!link.linked()) reason = label + " unavailable: " + link.label().toLowerCase(Locale.ROOT) + " encounter";
+        else {
+            Route route = Route.to(destination).withVisit(link.visit);
+            reason = Navigator.current().canOpen(route) ? null : label + " unavailable: that view cannot open this exact visit here";
+            if (reason != null) reasons.add(reason);
+        }
+        button.setEnabled(reason == null);
+        button.setToolTipText(reason == null ? label + " for the visit verified at encounter entry" : reason);
+        button.getAccessibleContext().setAccessibleDescription(button.getToolTipText());
+    }
+    private void openLinked(Destination destination) {
+        EncounterLink link = shownLink;
+        if (!link.linked() || !Navigator.current().open(Route.to(destination).withVisit(link.visit)))
+            linkStatus.setText("Encounter link: " + link.label() + " · the linked view could not be opened; nothing was changed. " + link.description());
+    }
+    EncounterLink shownLink() { return shownLink; }
+
+    /** Detached library entries for other modules (EDT). Live data is never included. */
+    public static List<RecordedEncounter> recordedEncounters() {
+        DpsGUI view = INSTANCE;
+        List<RecordedEncounter> result = new ArrayList<>();
+        if (view == null) return result;
+        for (EncounterCatalog.Entry entry : view.encounterCatalog.entries()) {
+            DpsData data = entry.data;
+            String map = data.map == null ? null : Objects.toString(data.map.displayName, "").isEmpty() ? data.map.name : data.map.displayName;
+            result.add(new RecordedEncounter(data.getRecordingId(), map == null || map.isEmpty() ? "Unknown encounter" : map,
+                data.dungeonStartTime > 0 ? data.dungeonStartTime : null, EncounterLink.of(data, entry.origin != null)));
+        }
+        return result;
+    }
+
+    /** Detached origin/destination state of the DPS Logger page for Back. */
+    private static final class RouteState {
+        final int tab; final boolean live; final String entry; final Object resources;
+        RouteState(int tab, boolean live, String entry, Object resources) { this.tab = tab; this.live = live; this.entry = entry; this.resources = resources; }
+    }
+    private RouteState captureRouteState(RouteTarget resources) {
+        return new RouteState(combatTabs.getSelectedIndex(), liveUpdates, selectedEncounter == null ? null : selectedEncounter.id,
+            resources == null ? null : resources.captureState());
+    }
+    private void restoreRouteState(Object value, RouteTarget resources) {
+        if (!(value instanceof RouteState)) throw new IllegalArgumentException("Not a DPS Logger route state");
+        RouteState state = (RouteState) value;
+        if (resources != null && state.resources != null) resources.restoreState(state.resources);
+        if (state.live || state.entry == null || !showEncounter(state.entry)) { if (!liveUpdates) setIndex(-1); }
+        if (state.tab >= 0 && state.tab < combatTabs.getTabCount()) combatTabs.setSelectedIndex(state.tab);
+    }
+
+    /** Resolves exactly one library recording; an ambiguous recording or unverified local object is rejected. */
+    private EncounterCatalog.Entry routedEncounter(Route route) {
+        if (route.recordingId == null || route.visit != null || route.record != null || route.query != null
+            || route.from != null || route.until != null || route.payload != null) return null;
+        EncounterCatalog.Entry match = null;
+        for (EncounterCatalog.Entry entry : encounterCatalog.entries()) if (route.recordingId.equals(entry.data.getRecordingId())) {
+            if (match != null) return null; // Duplicate claimed IDs (for example re-imports) are ambiguous.
+            match = entry;
+        }
+        if (match == null || route.localObjectId == null) return match;
+        EncounterContext context = match.data.getEncounterContext();
+        return context != null && route.localObjectId.equals(context.localPlayerObjectId) ? match : null;
+    }
+
+    /**
+     * ENCOUNTER destination (page shared with Resources): opens one exact recording in Meters and, when the
+     * route carries the verified local object ID, selects that row with a historical-recording notice.
+     */
+    public RouteTarget encounterRouteTarget() {
+        RouteTarget resources = resourcesRouteTarget();
+        return new RouteTarget() {
+            public Destination destination() { return Destination.ENCOUNTER; }
+            public boolean accepts(Route route) { return route.destination == destination() && routedEncounter(route) != null; }
+            public Object captureState() { return captureRouteState(resources); }
+            public void open(Route route) {
+                EncounterCatalog.Entry entry = routedEncounter(route);
+                if (entry == null) throw new IllegalArgumentException("Recording is not in this library");
+                viewMode.setSelectedIndex(0);
+                if (!showEncounter(entry.id)) throw new IllegalArgumentException("Recording is not in this library");
+                combatTabs.setSelectedIndex(0);
+                if (route.localObjectId != null) {
+                    String notice = historicalNotice(entry, route.localObjectId);
+                    if (!displayMeter.focusPlayer(route.localObjectId, notice))
+                        displayMeter.focusPlayer(-1, notice + " The local row is not shown: clear the DPS filter preset, or it dealt no recorded damage in this encounter.");
+                }
+            }
+            public void restoreState(Object state) { restoreRouteState(state, resources); }
+        };
+    }
+    static String historicalNotice(EncounterCatalog.Entry entry, int objectId) {
+        DpsData data = entry.data;
+        return "Historical recorded DPS · " + (data.map == null ? "Unknown encounter" : data.map.name) + " · entered "
+            + (data.dungeonStartTime > 0 ? tomato.gui.modern.DisplayFormat.formatTimestamp(data.dungeonStartTime) : "at an unknown time")
+            + ". Selected: the verified local player's row for this encounter only (object #" + objectId + "). Its DPS uses this recording's "
+            + "first-to-last hit window and the build recorded then; it is not your current-build estimate.";
+    }
+
+    /** RESOURCES destination: the saved Resources workspace with an exact visit, on its tab; null without saved history. */
+    public RouteTarget resourcesRouteTarget() {
+        tomato.gui.activity.ActivityRouteTarget delegate = tomato.gui.activity.ActivityRouteTarget.of(Destination.RESOURCES, resourcesWorkspace);
+        if (delegate == null) return null;
+        return new RouteTarget() {
+            public Destination destination() { return Destination.RESOURCES; }
+            public boolean accepts(Route route) { return delegate.accepts(route); }
+            public Object captureState() { return captureRouteState(delegate); }
+            public void open(Route route) { delegate.open(route); combatTabs.setSelectedComponent(resourcesWorkspace); }
+            public void restoreState(Object state) { restoreRouteState(state, delegate); }
+        };
+    }
+    MeterDpsGUI meter() { return displayMeter; }
+    JTabbedPane combatTabs() { return combatTabs; }
 
     private List<Entity> getSortedEntityList(Entity[] entityHitList) {
         if (DpsDisplayOptions.sortOption == 1) {

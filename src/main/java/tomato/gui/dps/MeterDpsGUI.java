@@ -33,6 +33,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private final JTextArea captureWarning = new JTextArea() {
         @Override public void updateUI() { super.updateUI(); setForeground(ContentStyle.color("amber")); }
     };
+    private final JButton explore = new JButton("Explore all events…");
+    private final JTextArea routeNotice = new JTextArea() {
+        @Override public void updateUI() { super.updateUI(); setForeground(ContentStyle.color("violet")); }
+    };
     private final MeterModel model = new MeterModel();
     private final JTable table = new JTable(model);
     private List<Entity> targets = new ArrayList<>();
@@ -41,6 +45,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private Entity localPlayer;
     private DpsData.LocalPlayerContext playerContext;
     private Object encounter;
+    private String inspectOrigin;
     private boolean updating;
     private String mapName = "No encounter";
     private boolean live;
@@ -68,7 +73,9 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         captureWarning.setOpaque(false); ContentStyle.font(captureWarning, ContentStyle.body());
         captureWarning.setVisible(false);
         JPanel header = new JPanel(new BorderLayout(0, 5));
-        header.add(controls, BorderLayout.CENTER); header.add(captureWarning, BorderLayout.SOUTH);
+        JPanel notices = new JPanel(new BorderLayout(0, 4));
+        notices.add(captureWarning, BorderLayout.NORTH); notices.add(routeNotice, BorderLayout.SOUTH);
+        header.add(controls, BorderLayout.CENTER); header.add(notices, BorderLayout.SOUTH);
         add(header, BorderLayout.NORTH);
         JPanel left = new JPanel(new BorderLayout(4, 4));
         left.add(enemySort, BorderLayout.NORTH);
@@ -99,7 +106,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         ContentStyle.table(table); table.setAutoCreateRowSorter(true);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setName("dps-player-table");
-        PlayerInspectMenu.install(table, row -> visible.get(row).player);
+        PlayerInspectMenu.install(table, row -> visible.get(row).player, () -> inspectOrigin);
         rank();
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         for (int i = 0; i < model.getColumnCount(); i++) table.getColumnModel().getColumn(i).setPreferredWidth(i == 0 ? 230 : 110);
@@ -129,7 +136,17 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         table.setDefaultRenderer(Long.class, numeric); table.setDefaultRenderer(Double.class, numeric);
         details.setEditable(false); ContentStyle.font(details, ContentStyle.report(ContentStyle.body()));
         details.setMargin(new Insets(6, 8, 6, 8));
-        JSplitPane right = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(table), new JScrollPane(details));
+        explore.setName("dps-explore-events"); explore.setEnabled(false);
+        explore.setToolTipText("Page through every retained hit of the selected player with filters and event-time loadouts");
+        explore.addActionListener(e -> exploreSelected());
+        routeNotice.setName("dps-route-notice"); routeNotice.setEditable(false); routeNotice.setFocusable(true);
+        routeNotice.setLineWrap(true); routeNotice.setWrapStyleWord(true); routeNotice.setOpaque(false); routeNotice.setVisible(false);
+        routeNotice.getAccessibleContext().setAccessibleName("Historical recorded DPS notice");
+        ContentStyle.font(routeNotice, ContentStyle.body());
+        JPanel detailTools = ContentStyle.controls(); detailTools.add(explore);
+        JPanel detailPane = new JPanel(new BorderLayout(0, 4));
+        detailPane.add(detailTools, BorderLayout.NORTH); detailPane.add(new JScrollPane(details), BorderLayout.CENTER);
+        JSplitPane right = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(table), detailPane);
         right.setResizeWeight(.72); right.setDividerLocation(320);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
         left.setMinimumSize(new Dimension(150, 80)); right.setMinimumSize(new Dimension(260, 80));
@@ -155,6 +172,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     void setContext(Object key, Entity player, DpsData.LocalPlayerContext context) {
         if (encounter != key) {
             encounter = key;
+            routeNotice.setText(""); routeNotice.setVisible(false);
             updating = true; enemyList.clearSelection(); updating = false;
             missingLocalSpawn = key instanceof DpsData && missingLocalSpawn((DpsData)key);
         }
@@ -258,8 +276,40 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private void rank() {
         table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(metricColumn(), SortOrder.DESCENDING)));
     }
+    private void exploreSelected() {
+        int index = table.getSelectedRow();
+        if (index < 0) return;
+        DamageEventExplorer.open(this, explorer(visible.get(table.convertRowIndexToModel(index))));
+    }
+    /** Detached explorer over the row's retained hits in the current enemy scope. */
+    DamageEventExplorer explorer(CombatMeterData.Row row) {
+        String scope = mapName + " · " + (enemyList.getSelectedValue() == null ? "all enemies" : "selected enemy")
+            + " · incoming: " + (wholeEncounter ? "full dungeon" : "inclusive fight window");
+        return new DamageEventExplorer(row.player.name(), row.outgoing, row.incoming, row.incomingAvailable, snapshot.first, scope);
+    }
+    /**
+     * Routed handoff: shows every enemy and class, then selects the row whose object ID is {@code objectId}
+     * (verified for this encounter by the caller) and shows {@code notice}. Returns false when no such row exists.
+     */
+    boolean focusPlayer(int objectId, String notice) {
+        updating = true;
+        try { search.setText(""); if (enemySort.getSelectedIndex() == 3) enemySort.setSelectedIndex(0); enemyList.setSelectedIndex(0); classes.setSelectedItem("All classes"); }
+        finally { updating = false; }
+        rebuildScope();
+        routeNotice.setText(notice == null ? "" : notice); routeNotice.setVisible(notice != null && !notice.isEmpty());
+        for (int i = 0; i < visible.size(); i++) if (visible.get(i).player.id == objectId) {
+            int view = table.convertRowIndexToView(i); if (view < 0) return false;
+            table.setRowSelectionInterval(view, view); table.scrollRectToVisible(table.getCellRect(view, 0, true)); return true;
+        }
+        return false;
+    }
+    Integer selectedObjectId() { return selectedPlayer(); }
+    /** Provenance shown by Inspect for a row of this encounter (source encounter and its link status). */
+    void setInspectOrigin(String origin) { inspectOrigin = origin; }
+    String routeNoticeText() { return routeNotice.isVisible() ? routeNotice.getText() : ""; }
     private void showDetails() {
         int index = table.getSelectedRow();
+        explore.setEnabled(index >= 0);
         if (index < 0) { details.setText((visible.isEmpty() ? "No players match this view. Clear filters or choose another enemy." : "Select a player for hit details. Right-click a player and choose Inspect for their captured build.")+"\n"+CombatMeterData.WINDOW_DEFINITION+"\nRecorded damage share = player damage / all recorded damage on selected enemies; player filters do not change the denominator. Legacy uses enemy max HP instead.\n"+CombatMeterData.POPULATION); return; }
         CombatMeterData.Row row = visible.get(table.convertRowIndexToModel(index));
         boolean incoming = metric.getSelectedIndex() >= 3;
