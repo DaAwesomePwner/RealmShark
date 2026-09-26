@@ -8,11 +8,12 @@ import tomato.backend.data.TomatoData;
  * Character GUI class to display character data in the character tab.
  */
 public class CharacterPanelGUI extends JPanel {
+    private final CharacterJournalGUI journal;
 
     public CharacterPanelGUI(TomatoData data) {
         setLayout(new BorderLayout());
 
-        CharacterJournalGUI journal = new CharacterJournalGUI(data.characterJournal());
+        journal = new CharacterJournalGUI(data.characterJournal());
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Roster", journal);
         tabs.addTab("Exalts", journal.exaltPanel());
@@ -20,4 +21,5 @@ public class CharacterPanelGUI extends JPanel {
         tabs.addChangeListener(e -> journal.refresh());
         add(tabs, BorderLayout.CENTER);
     }
+    public void bindNavigator(tomato.gui.route.Navigator navigator) { journal.bindNavigator(navigator); }
 }
