@@ -86,7 +86,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         exportPage.addActionListener(e->{if(displayed!=null)chooseExport(ExportSelection.page(displayed.page,displayed.size));});
         exportSelected.addActionListener(e->chooseExport(ExportSelection.selected(state.selected)));cancelExport.addActionListener(e->exportCancel.cancel());
         addHierarchyListener(e->{if((e.getChangeFlags()&HierarchyEvent.SHOWING_CHANGED)!=0){
-            if(isShowing()){if(!closed)request(false);}else{invalidateView();cancel.cancel();refresh.invalidate();loading=false;updateActions();}
+            // A load started while hidden (for example an atomic restore before its page is shown) continues.
+            if(isShowing()){if(!closed&&!loading)request(false);}else{invalidateView();cancel.cancel();refresh.invalidate();loading=false;updateActions();}
         }});
         reloadNames();syncControls();reloadCatalog();request(false);
     }
@@ -101,6 +102,17 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     public void showSaved(){requireEdt();state=state.withArchive(true);persist();request(false);}
     public void changeQuery(ArchiveQuery<F,S> query){
         requireEdt();if(restoring||closed)return;state=state.withQuery(query).withArchive(true);persist();syncControls();request(false);
+    }
+    /**
+     * Atomically applies a complete detached state once (Back and routed opens): scope, query, mode, page,
+     * selection, scroll anchor and layouts. In-flight reads are invalidated so their completions are inert,
+     * and exactly one load starts for the restored state. A query of other facet/sort types is rejected.
+     */
+    public void restore(ViewState<F,S> value){
+        requireEdt();Objects.requireNonNull(value,"state");if(closed)return;
+        ArchiveQuery<F,S> typed=client.initialQuery().restore(value.query.toJson());
+        if(!typed.equals(value.query))throw new IllegalArgumentException("State belongs to a different workspace");
+        state=value;persist();syncControls();request(false);
     }
     public void selectPage(long page){requireEdt();if(page<0)throw new IllegalArgumentException("Negative page");state=state.withPage(page);persist();request(false);}
     public void refresh(){requireEdt();request(true);}
