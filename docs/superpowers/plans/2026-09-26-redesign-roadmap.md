@@ -27,7 +27,7 @@ Read AGENTS.md, the spec, this roadmap and the plan for the earliest phase not m
 **Entry:** P1c merged. **Exit:** spec S1 and S9; My Info removed from the sidebar.
 
 Outline:
-1. Home page as shell page 14 (appended; indices stay stable), `Destination.HOME`, `Alt+H`, landing entry at the top of Core.
+1. Home page as shell page 14 (appended; indices stay stable), `Destination.HOME`, `Alt+H`, landing entry at the top of Core. `NavLayout` appends unknown entries to a saved `ui.nav.order`, so P2 performs a one-time prepend of `home` to existing saved orders.
 2. `HomeModel` view models built off the EDT by one 1 Hz refresher that polls revision counters while Home is showing (`DiscoveryLog.activityView`, `KeyPopHistory.revision`, `LootDashboard` state version, the MyInfo snapshot, the journal). No event bus.
 3. Hero card from the live MyInfo snapshot and journal: skin sprite, level, fame, maxed (base = total − boost vs `CharacterClass.getStats`), four `ItemSlot`s, eight `StatBar`s, and weapon DPS / MP-sec estimate tiles (`DisplayValue.estimate`). A stale state appears when out of game; an `EmptyState` appears before any capture.
 4. Now card: area and elapsed time (`DiscoveryLog.currentVisit`), the top three live meter rows (add a read-only `DpsGUI.latestSnapshot()` accessor), and the last key pop as its own fact.
@@ -78,6 +78,6 @@ Outline:
 
 Outline:
 1. Loot: Highlights (notable drops grid, tiles, per-dungeon strip) and Explore (a view selector replacing the 9–12 tabs; analytical views in Analyst).
-2. Restyle the Advanced pages (Party, Timeline, Key-pops, Logging, Bridge review) with kit components; condense `HistoryTables.controls` into the overflow menu.
+2. Restyle the Advanced pages (Party, Timeline, Key-pops, Logging, Bridge review) with kit components; condense `HistoryTables.controls` into the overflow menu. Add drag-to-reorder for sidebar rows (deferred from P1b, where the context menu and Ctrl+Shift+Up/Down cover reordering).
 3. Replace the numeric shell API (`TITLES`, `select(int)`, `pageOf`, page-keyed `ShellNavigator`) with destination IDs, and migrate the ~40 page-number tests in one pass; remove retired pages (My Info, Statistics shell, DPS Logger shell) and unused styles (`StatsUi.metrics`, ad-hoc KPI cards).
 4. Update README, `docs/UI-REDESIGN.md` and the module docs; take a final screenshot set of every page in both variants.
