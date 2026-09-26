@@ -147,6 +147,7 @@ public class TomatoGUI {
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).resourcesRouteTarget());
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).encounterRouteTarget());
         Navigator.install(navigator);
+        characterPanel.bindNavigator(navigator);
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.
         ContentStyle.refreshFonts(shell);
