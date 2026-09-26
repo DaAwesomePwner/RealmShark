@@ -21,6 +21,7 @@ public class DpsDataTest {
         }
         assertEquals("Baseline encounter", saved.map.name);
         assertNull("Old recordings must not receive a guessed recording identity", saved.getRecordingId());
+        assertNull("Old recordings must not receive a manufactured visit or local identity", saved.getEncounterContext());
         assertEquals(5000, saved.totalDungeonPcTime); assertEquals(123456, saved.dungeonStartTime);
         Entity target = saved.hitList.get(99);
         assertEquals(1000, target.maxHp()); assertEquals(321, target.getDamageList().get(0).damage);
@@ -32,6 +33,7 @@ public class DpsDataTest {
 
         DpsData exported = roundTrip(saved.getSaveFile(false));
         assertNull(exported.getRecordingId());
+        assertNull(exported.getEncounterContext());
         assertNull(exported.debugPackets);
         assertEquals("HistoricGuild", exported.getLocalPlayerContext().guild);
         assertEquals(321, exported.hitList.get(99).getDamageList().get(0).damage);
@@ -49,6 +51,24 @@ public class DpsDataTest {
             assertEquals("Original guild", exported.getLocalPlayerContext().guild);
             assertEquals(debug, exported.debugPackets != null);
         }
+    }
+
+    @Test public void encounterContextSurvivesSerializationAndEverySaveCopy() throws Exception {
+        tomato.history.link.VisitRef visit = new tomato.history.link.VisitRef("11111111-2222-3333-4444-555555555555", "journal:3");
+        DpsData linked = new DpsData(new MapInfoPacket(), new HashMap<>(), new ArrayList<>(), 0, 0, new ArrayList<>(), null,
+            new tomato.history.link.EncounterContext(visit, 21, 1234L));
+        DpsData unlinked = new DpsData(new MapInfoPacket(), new HashMap<>(), new ArrayList<>(), 0, 0, null, null,
+            new tomato.history.link.EncounterContext(null, null, 99L));
+        for (boolean debug : new boolean[]{false, true}) {
+            tomato.history.link.EncounterContext copy = roundTrip(linked.getSaveFile(debug)).getEncounterContext();
+            assertEquals(visit, copy.visit); assertEquals(Integer.valueOf(21), copy.localPlayerObjectId); assertEquals(1234L, copy.capturedAt);
+            assertEquals(linked.getRecordingId(), linked.getSaveFile(debug).getRecordingId());
+            tomato.history.link.EncounterContext none = roundTrip(unlinked.getSaveFile(debug)).getEncounterContext();
+            assertNotNull(none); assertNull("Unlinked recordings stay unlinked through export", none.visit);
+            assertNull(none.localPlayerObjectId); assertEquals(99L, none.capturedAt);
+        }
+        assertNotSame("Readers receive detached values", linked.getEncounterContext(), linked.getEncounterContext());
+        assertNull("Constructors without context remain legacy-shaped", saved(new HashMap<>()).getEncounterContext());
     }
 
     @Test public void inferenceSupportsLocalEntityRawHitsAndAggregateOnlyHistory() {

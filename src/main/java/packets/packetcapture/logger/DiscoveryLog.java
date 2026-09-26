@@ -33,6 +33,11 @@ public final class DiscoveryLog implements AutoCloseable {
     private final Map<Integer, StatRow> stats = new TreeMap<>();
     private final ArrayDeque<Event> events = new ArrayDeque<>();
     private final LinkedHashMap<Long, Long> previous = new LinkedHashMap<>();
+    // Ephemeral MAPINFO provenance: the exact clean packet object that established the active visit.
+    // Only the object identity and the journal's visit ID are held; no packet bytes or fields are kept.
+    private String historySession;
+    private MapInfoPacket visitPacket;
+    private String visitPacketId;
     // Positive gameplay-only allowlist. Strings, identifiers and unknown stat values are withheld.
     private static final Set<Integer> SAFE_STATS = new HashSet<>();
     static {
@@ -51,6 +56,7 @@ public final class DiscoveryLog implements AutoCloseable {
         }
     }
     public synchronized void attachHistory(tomato.history.SessionStore history) {
+        historySession = history.currentId();
         activity.archiveTo(visit -> history.put("runs", visit.id, visit));
         activity.archiveEventsTo(entry -> history.append("timeline", entry));
         history.collect("run", () -> {
@@ -69,7 +75,7 @@ public final class DiscoveryLog implements AutoCloseable {
     public boolean isSaving() { return saveToDisk; }
     public boolean isHistorical() { return historical; }
     public synchronized void setEnabled(boolean value) {
-        if (enabled != value) { previous.clear(); area++; diagnosticsRevision++; collectionRevision++; activityBoundary("Collection paused / resumed"); checkpoint(); }
+        if (enabled != value) { previous.clear(); area++; diagnosticsRevision++; collectionRevision++; forgetVisitPacket(); activityBoundary("Collection paused / resumed"); checkpoint(); }
         enabled = value;
     }
     public synchronized void setSaving(boolean value) { if (saveToDisk != value) { saveToDisk = value; diagnosticsRevision++; } }
@@ -82,7 +88,7 @@ public final class DiscoveryLog implements AutoCloseable {
         total = sampledOut = deltaOmitted = evictions = internalErrors = area = 0;
         runId = UUID.randomUUID().toString();
         diagnosticsRevision++; collectionRevision++;
-        activity.clear(); markActivityChanged(); checkpoint();
+        forgetVisitPacket(); activity.clear(); markActivityChanged(); checkpoint();
     }
     public synchronized void clearDiagnostics() {
         if (!packets.isEmpty() || !stats.isEmpty() || !events.isEmpty() || internalErrors != 0) diagnosticsRevision++;
@@ -91,6 +97,18 @@ public final class DiscoveryLog implements AutoCloseable {
     }
     public synchronized ActivityJournal.State activityHistory() { return activitySnapshot(); }
     public synchronized String currentVisitId() { return activity.currentVisitId(); }
+    /**
+     * The exact visit that this MAPINFO object established, or null. A reference is only returned
+     * while that visit is still active, collection is enabled and a history session is attached;
+     * paused collection, boundaries, clears, partial or failed MAPINFO and unrelated packets yield
+     * none. Producers call this synchronously after {@link #observe} for the same packet.
+     */
+    public synchronized tomato.history.link.VisitRef visitForMap(MapInfoPacket packet) {
+        if (packet == null || packet != visitPacket || !enabled || historySession == null || historySession.isEmpty()) return null;
+        String active = activity.currentVisitId();
+        return active.isEmpty() || !active.equals(visitPacketId) ? null : new tomato.history.link.VisitRef(historySession, active);
+    }
+    private void forgetVisitPacket() { visitPacket = null; visitPacketId = null; }
     public synchronized void inspectPlayer(tomato.backend.data.Entity entity) {
         if (enabled && activity.inspectPlayer(new tomato.backend.data.InspectSnapshot(entity))) markActivityChanged();
     }
@@ -106,7 +124,7 @@ public final class DiscoveryLog implements AutoCloseable {
             if (activity.revision() != before) markActivityChanged();
         }
     }
-    public synchronized void boundary() { if (enabled) { area++; diagnosticsRevision++; previous.clear(); activityBoundary("Connection boundary; completion unknown"); checkpoint(); } }
+    public synchronized void boundary() { forgetVisitPacket(); if (enabled) { area++; diagnosticsRevision++; previous.clear(); activityBoundary("Connection boundary; completion unknown"); checkpoint(); } }
     private void activityBoundary(String reason) {
         long before=activity.revision(); activity.boundary(System.currentTimeMillis(),reason);
         if (before!=activity.revision()) markActivityChanged();
@@ -114,6 +132,7 @@ public final class DiscoveryLog implements AutoCloseable {
     private void markActivityChanged() { activityChanged=true; activityGeneration++; }
 
     public synchronized void decodeFailure(int id, int bytes, packets.reader.BufferReader reader, Exception error) {
+        if (id == PacketType.MAPINFO.getIndex()) forgetVisitPacket();
         if (!enabled) return;
         Map<String, Object> diagnostic = new LinkedHashMap<>();
         diagnostic.put("field", reader.field()); diagnostic.put("fieldStart", reader.fieldStart());
@@ -124,6 +143,8 @@ public final class DiscoveryLog implements AutoCloseable {
     }
 
     public synchronized void observe(int id, int bytes, Packet packet, String outcome, int remaining) {
+        // Any MAPINFO supersedes the previous provenance; only a clean one that starts a visit replaces it.
+        if (id == PacketType.MAPINFO.getIndex() || packet instanceof MapInfoPacket) forgetVisitPacket();
         if (!enabled) return;
         try { record(id, bytes, packet, outcome, remaining, Collections.emptyMap()); }
         catch (RuntimeException ignored) { internalErrors++; diagnosticsRevision++; } // Optional logging must not stop capture.
@@ -144,7 +165,12 @@ public final class DiscoveryLog implements AutoCloseable {
         row.lastOutcome = outcome;
         List<Delta> deltas = new ArrayList<>();
         boolean clean = "decoded".equals(outcome);
+        String visitBefore = activity.currentVisitId();
         activity.observe(packet, type, outcome, now, diagnostic); markActivityChanged();
+        if (clean && packet instanceof MapInfoPacket) {
+            String established = activity.currentVisitId();
+            if (!established.isEmpty() && !established.equals(visitBefore)) { visitPacket = (MapInfoPacket)packet; visitPacketId = established; }
+        }
         if (clean && packet instanceof MapInfoPacket) { area++; previous.clear(); }
         // Partial decodes are metadata only; their fields are not trusted as gameplay evidence.
         if (clean && packet instanceof UpdatePacket) {
@@ -285,7 +311,7 @@ public final class DiscoveryLog implements AutoCloseable {
         DiscoveryWriter closingWriter;
         synchronized (this) {
             if (enabled) { enabled=false; diagnosticsRevision++; collectionRevision++; }
-            activityBoundary("App closed; completion unknown"); checkpoint(); closingWriter=writer;
+            forgetVisitPacket(); activityBoundary("App closed; completion unknown"); checkpoint(); closingWriter=writer;
         }
         // Never join filesystem workers while holding the monitor used by capture or snapshots.
         if (closingWriter != null) closingWriter.close(); if (activityStore != null) activityStore.close();
