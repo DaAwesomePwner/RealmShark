@@ -36,6 +36,13 @@ public class QuestGUI extends JPanel {
     private final JTextField search = new JTextField();
     private final JComboBox<String> type = new JComboBox<>();
     private final JComboBox<String> reward = new JComboBox<>();
+    private final JComboBox<String> repeatMode = new JComboBox<>(new String[]{"Any repeatability", "Repeatable", "One-time"});
+    private final JComboBox<String> rewardMode = new JComboBox<>(new String[]{"Any reward mode", "All rewards", "Choose one", "Rewards not captured"});
+    private final JComboBox<String> expirationMode = new JComboBox<>(new String[]{"Any expiration", "Expiration supplied", "Expiration not supplied"});
+    private final JTextField requirementItem = new JTextField(12);
+    private final JSpinner requirementCount = new JSpinner(new SpinnerNumberModel(0, 0, Integer.MAX_VALUE, 1));
+    private QuestPlanPanel plans;
+    private final JTabbedPane tabs = new JTabbedPane();
     private final JComboBox<String> sort = new JComboBox<>(new String[] {
         "Pinned first", "Reward name", "Quest type", "Fewest required items", "Quest name"
     });
@@ -70,8 +77,12 @@ public class QuestGUI extends JPanel {
     }
     private void bind(TomatoData data) {
         source = Objects.requireNonNull(data).progression();
+        plans.verification(() -> publication != null && publication.currentQuests() && source.scope() == publication.scope);
         listen(); applyPublication();
     }
+
+    /** Supply detached known account keys from the character journal for offline selection. */
+    public void knownPlanningAccounts(Collection<String> accounts) { plans.knownAccounts(accounts); }
 
     private void listen() { if (source != null && !listening) { source.addListener(publicationListener); listening = true; } }
     @Override public void addNotify() { super.addNotify(); listen(); if (source != null) schedulePublication(); ageTimer.start(); }
@@ -92,6 +103,8 @@ public class QuestGUI extends JPanel {
         captured = next.quests != null;
         if (captured) for (QuestData q : next.quests.rows()) quests.add(new Quest(q));
         loadPreferences(); rebuildFilters(); refresh();
+        plans.observations(pinAccount(), next.currentQuests() && source.scope() == next.scope, quests,
+            next.quests == null ? 0 : next.quests.capturedAt, next.scope.generation);
     }
     private String pinAccount() {
         return publication == null || publication.quests == null ? null : publication.quests.scope.account;
@@ -145,6 +158,9 @@ public class QuestGUI extends JPanel {
         });
         sizeRewardChoice();
         selects.add(field("Quest type", type)); selects.add(field("Reward", reward)); selects.add(field("Sort by", sort));
+        selects.add(field("Repeatability", repeatMode)); selects.add(field("Reward mode", rewardMode));
+        selects.add(field("Expiration", expirationMode)); selects.add(field("Required item name / ID", requirementItem));
+        selects.add(field("Minimum quantity of item", requirementCount));
         filters.add(selects, BorderLayout.NORTH);
         JPanel options = ContentStyle.controls();
         JButton labels = new JButton("Name types…");
@@ -156,6 +172,8 @@ public class QuestGUI extends JPanel {
         reset.addActionListener(e -> {
             refreshing = true; search.setText(""); type.setSelectedIndex(0); reward.setSelectedIndex(0);
             completed.setSelected(false); onlyPinned.setSelected(false); sort.setSelectedIndex(0);
+            repeatMode.setSelectedIndex(0); rewardMode.setSelectedIndex(0); expirationMode.setSelectedIndex(0);
+            requirementItem.setText(""); requirementCount.setValue(0);
             refreshing = false; refresh();
         });
         options.add(onlyPinned); options.add(completed); options.add(labels); options.add(reset);
@@ -217,10 +235,13 @@ public class QuestGUI extends JPanel {
             new QuestPins(preferences).removeGlobal(key(q)); globalPinned.remove(key(q)); refresh();
         });
         JPanel pinActions = ContentStyle.controls(); pinActions.add(removeGlobal); pinActions.add(pin); footer.add(pinActions, BorderLayout.EAST);
+        JButton plan = new JButton("Add to account plan"); plan.setName("quest-add-plan"); pinActions.add(plan);
+        plans = new QuestPlanPanel(tomato.planning.PlanningStore.shared(), this::itemName);
+        plan.addActionListener(e -> { Quest q = selected(); tabs.setSelectedIndex(1); if (q != null) plans.importQuest(q, globalPinned.contains(key(q)) ? key(q) : null); });
         JScrollPane page = ContentStyle.page(header, split, footer);
         page.setName("quest-page-scroll");
         page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
-        add(page, BorderLayout.CENTER);
+        tabs.addTab("Captured quests", page); tabs.addTab("Saved plans", plans); add(tabs, BorderLayout.CENTER);
         for (JComponent control : new JComponent[]{search, type, reward, sort, onlyPinned, completed, labels, reset, pin, removeGlobal}) revealOnFocus(control);
         table.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override public void focusGained(java.awt.event.FocusEvent event) {
@@ -234,6 +255,11 @@ public class QuestGUI extends JPanel {
             public void changedUpdate(DocumentEvent e) { refresh(); }
         });
         for (JComboBox<String> combo : Arrays.asList(type, reward)) combo.addActionListener(e -> refresh());
+        for (JComboBox<String> combo : Arrays.asList(repeatMode, rewardMode, expirationMode)) combo.addActionListener(e -> refresh());
+        requirementCount.addChangeListener(e -> refresh());
+        requirementItem.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { refresh(); } public void removeUpdate(DocumentEvent e) { refresh(); } public void changedUpdate(DocumentEvent e) { refresh(); }
+        });
         sort.addActionListener(e -> { table.getRowSorter().setSortKeys(null); refresh(); });
         completed.addActionListener(e -> refresh()); onlyPinned.addActionListener(e -> refresh());
         rebuildFilters(); showDetails();
@@ -338,8 +364,22 @@ public class QuestGUI extends JPanel {
             if (onlyPinned.isSelected() && !pinned.contains(key(q)) && !globalPinned.contains(key(q))) continue;
             if (type.getSelectedIndex() > 0 && !typeName(q).equals(type.getSelectedItem())) continue;
             if (!matchesReward(q, (String) reward.getSelectedItem())) continue;
-            String haystack = q.name + " " + q.description + " " + typeName(q) + " "
-                + itemsText(q.requirements) + " " + itemsText(q.rewards);
+            if (repeatMode.getSelectedIndex() == 1 && !q.repeatable || repeatMode.getSelectedIndex() == 2 && q.repeatable) continue;
+            if (rewardMode.getSelectedIndex() == 1 && (!q.rewardsKnown || q.choice)
+                || rewardMode.getSelectedIndex() == 2 && (!q.rewardsKnown || !q.choice)
+                || rewardMode.getSelectedIndex() == 3 && q.rewardsKnown) continue;
+            if (expirationMode.getSelectedIndex() == 1 && q.expiration.isEmpty() || expirationMode.getSelectedIndex() == 2 && !q.expiration.isEmpty()) continue;
+            String required = requirementItem.getText().trim().toLowerCase(Locale.ROOT);
+            int min = ((Number) requirementCount.getValue()).intValue();
+            if (!required.isEmpty() || min > 0) {
+                boolean found = false;
+                for (Map.Entry<Integer, Integer> entry : quantities(q.requirements).entrySet())
+                    if ((required.isEmpty() || String.valueOf(entry.getKey()).equals(required) || itemName(entry.getKey()).toLowerCase(Locale.ROOT).contains(required)) && entry.getValue() >= min) found = true;
+                if (!q.requirementsKnown || !found) continue;
+            }
+            String haystack = q.id + " " + q.name + " " + q.description + " " + typeName(q) + " "
+                + (q.requirementsKnown ? itemsText(q.requirements) : "Requirements not captured unknown") + " "
+                + (q.rewardsKnown ? itemsText(q.rewards) : "Rewards not captured unknown");
             if (!haystack.toLowerCase(Locale.ROOT).contains(query)) continue;
             visible.add(q);
         }
@@ -349,7 +389,7 @@ public class QuestGUI extends JPanel {
             case 1: order = Comparator.comparing(q -> Arrays.stream(q.rewards).mapToObj(this::itemName)
                 .sorted(String.CASE_INSENSITIVE_ORDER).findFirst().orElse("~").toLowerCase(Locale.ROOT)); break;
             case 2: order = Comparator.comparing(this::typeName); break;
-            case 3: order = Comparator.comparingInt(q -> q.requirements.length); break;
+            case 3: order = Comparator.comparingInt(q -> q.requirementsKnown ? q.requirements.length : Integer.MAX_VALUE); break;
             case 4: order = byName; break;
             default: order = Comparator.comparingInt(q -> pinned.contains(key(q)) ? 0 : 1);
         }
@@ -410,13 +450,14 @@ public class QuestGUI extends JPanel {
             JTextArea title = text(q.name); title.setName("quest-detail-title");
             ContentStyle.font(title, ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 16f / ContentStyle.FONT_SIZE));
             body.add(title); body.add(Box.createVerticalStrut(6));
-            body.add(text(typeName(q) + " • " + status(q) + " • " + q.requirements.length + " required items"));
+            body.add(text(typeName(q) + " • " + status(q) + " • " + (q.requirementsKnown ? q.requirements.length + " required items" : "Requirements not captured")));
+            body.add(text(q.id.isEmpty() ? "Stable ID unavailable · provisional interest only" : "Stable quest ID: " + q.id));
             if (!q.description.isEmpty()) body.add(text(q.description));
-            if (!q.expiration.isEmpty()) body.add(text("Expiration: " + q.expiration));
+            body.add(text("Expiration (raw server value): " + (q.expiration.isEmpty() ? "Not supplied" : q.expiration)));
             body.add(Box.createVerticalStrut(8));
             JPanel exchange = ContentStyle.responsiveGrid(2, 220, 8);
-            exchange.add(itemPanel("BRING • all required items", q.requirements));
-            exchange.add(itemPanel(q.choice ? "CHOOSE ONE • reward options" : "RECEIVE • all rewards", q.rewards));
+            exchange.add(itemPanel("BRING • all required items", q.requirements, q.requirementsKnown));
+            exchange.add(itemPanel(q.choice ? "CHOOSE ONE • reward options" : "RECEIVE • all rewards", q.rewards, q.rewardsKnown));
             exchange.setAlignmentX(Component.LEFT_ALIGNMENT);
             body.add(exchange);
             body.add(Box.createVerticalStrut(8));
@@ -429,12 +470,13 @@ public class QuestGUI extends JPanel {
         details.revalidate(); details.repaint();
     }
 
-    private JPanel itemPanel(String heading, int[] items) {
+    private JPanel itemPanel(String heading, int[] items, boolean known) {
         JPanel panel = new JPanel(); panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         JTextArea label = labelText(heading);
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(label); panel.add(Box.createVerticalStrut(6));
-        if (items.length == 0) panel.add(text("No items listed by the server."));
+        if (!known) panel.add(text("Not captured; requirements/rewards unknown."));
+        else if (items.length == 0) panel.add(text("No items listed by the server."));
         for (Map.Entry<Integer, Integer> entry : quantities(items).entrySet()) {
             JPanel row = new JPanel(new BorderLayout(8, 0));
             row.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -591,8 +633,8 @@ public class QuestGUI extends JPanel {
                 case 0: return pinned.contains(key(q)) ? "Yes" : globalPinned.contains(key(q)) ? "Global interest" : "";
                 case 1: return q.name;
                 case 2: return typeName(q);
-                case 3: return (q.choice ? "Choose: " : "") + itemsText(q.rewards);
-                case 4: return q.requirements.length;
+                case 3: return q.rewardsKnown ? (q.choice ? "Choose: " : "") + itemsText(q.rewards) : "Not captured";
+                case 4: return q.requirementsKnown ? q.requirements.length : null;
                 default: return status(q);
             }
         }
@@ -602,9 +644,10 @@ public class QuestGUI extends JPanel {
         final String id, name, description, expiration;
         final int[] requirements, rewards;
         final int category;
-        final boolean completed, repeatable, choice;
+        final boolean completed, repeatable, choice, requirementsKnown, rewardsKnown;
         Quest(QuestData q) {
             id = safe(q.id); name = safe(q.name); description = safe(q.description); expiration = safe(q.expiration);
+            requirementsKnown = q.requirements != null; rewardsKnown = q.rewards != null;
             requirements = q.requirements == null ? new int[0] : q.requirements.clone();
             rewards = q.rewards == null ? new int[0] : q.rewards.clone();
             category = q.category; completed = q.completed; repeatable = q.repeatable; choice = q.itemOfChoice;
