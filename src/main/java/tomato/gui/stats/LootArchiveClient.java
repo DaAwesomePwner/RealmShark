@@ -113,6 +113,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
             scroll=ContentStyle.tableScroll(table,3);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
+            details.setMargin(new Insets(0,0,0,20));
             JScrollPane detailScroll=new JScrollPane(details) {
                 @Override public Dimension getMinimumSize() {
                     Insets border=getInsets(),text=details.getInsets();

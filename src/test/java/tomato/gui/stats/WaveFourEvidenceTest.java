@@ -23,7 +23,18 @@ public class WaveFourEvidenceTest {
     private void screens(JComponent panel,String name,Runnable check)throws Exception{
         for(int[] size:new int[][]{{1240,800,13},{680,520,13},{680,520,18}}){
             run(()->evidence.show(panel,name,size[0],size[1],size[2]));evidence.settle();
-            run(()->{check.run();evidence.capture(name+"-"+size[0]+"-font"+size[2]);});
+            run(()->{check.run();evidence.capture(name+"-"+size[0]+"-font"+size[2]);
+                if(name.equals("loot-captured-exact")||name.equals("loot-legacy")){
+                    JTextArea details=named(panel,"loot-archive-details",JTextArea.class);
+                    try{
+                        for(int offset=0;offset<details.getDocument().getLength();offset++){
+                            java.awt.Rectangle glyph=details.modelToView(offset);
+                            assertNotNull(glyph);
+                            assertTrue("Detail glyph fits viewport: glyph="+glyph+", text="+details.getSize()+", viewport="+details.getParent().getSize(),glyph.x+glyph.width<=details.getParent().getWidth());
+                        }
+                    }catch(javax.swing.text.BadLocationException failure){throw new AssertionError(failure);}
+                }
+            });
         }
     }
     @Test public void abilityPopulatedEmptyAndOmissions()throws Exception{
@@ -54,9 +65,14 @@ public class WaveFourEvidenceTest {
         registry.register(new ActionDescriptor("font","Font size and family","appearance typography","Appearance → Font","Local realmShark.properties","Changes stay in preview",()->true,"",()->{}));
         registry.register(new ActionDescriptor("capture","Capture options","network","File → Capture options","Local realmShark.properties","Unavailable during preview",()->false,"Preview does not allow capture",()->fail("must not execute")));
         ActionSearchPanel panel=edt(()->new ActionSearchPanel(registry,()->{}));
-        screens(panel,"settings-search",()->assertEquals(2,named(panel,"action-results",JList.class).getModel().getSize()));
+        screens(panel,"settings-search",()->assertEquals("Unfiltered results; query="+named(panel,"action-search",JTextField.class).getText(),2,named(panel,"action-results",JList.class).getModel().getSize()));
         run(()->named(panel,"action-search",JTextField.class).setText("capture"));
-        screens(panel,"settings-search-disabled",()->{assertFalse(named(panel,"action-open",JButton.class).isEnabled());assertTrue(named(panel,"action-details",JTextArea.class).getText().contains("Preview does not allow capture"));assertTrue(named(panel,"action-details",JTextArea.class).getParent().getHeight()>=120);});
+        screens(panel,"settings-search-disabled",()->{
+            assertFalse("Unavailable actions stay disabled",named(panel,"action-open",JButton.class).isEnabled());
+            JTextArea details=named(panel,"action-details",JTextArea.class);
+            assertTrue("Unavailable reason is shown",details.getText().contains("Preview does not allow capture"));
+            assertTrue("Details viewport retains 120px: actual="+details.getParent().getSize()+", font="+details.getFont(),details.getParent().getHeight()>=120);
+        });
         run(()->named(panel,"action-search",JTextField.class).setText("missing-control"));
         screens(panel,"settings-search-empty",()->assertEquals(0,named(panel,"action-results",JList.class).getModel().getSize()));
     }

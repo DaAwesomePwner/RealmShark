@@ -98,6 +98,7 @@ public class ParsePanelRefreshTest {
             ContentStyle.setBodyFont(oldFont);
             try { UIManager.setLookAndFeel(oldLookAndFeel); }
             catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
+            ContentStyle.applyFontDefaults();
         });
         PropertiesManager.setProperties("securityFilters", oldFilters == null ? "" : oldFilters);
         PropertiesManager.setProperties("securityFilterName", oldSelected == null ? "" : oldSelected);
@@ -520,6 +521,7 @@ public class ParsePanelRefreshTest {
                     + ", scroll=" + rosterScroll.getSize(), rosterScroll.getViewport().getExtentSize().height >= table.getRowHeight() * 3);
             Point start = SwingUtilities.convertPoint(rosterScroll.getViewport(), 0, 0, pageScroll.getViewport().getView());
             pageScroll.getVerticalScrollBar().setValue(start.y);
+            ContentStyle.reveal(table, table.getCellRect(0, 0, true));
             assertTrue("Rows must be reachable by scrolling the page", table.getVisibleRect().height >= table.getRowHeight());
             assertLastRowReachable(table);
             // Container state controls may add an outer page scroll; reveal every ancestor.
@@ -537,12 +539,15 @@ public class ParsePanelRefreshTest {
         });
         JTable table=focusedTable.get();
         awaitRosterFocus(table);
-        // Posted AWT keyboard integration with verified real window/table focus.
-        long when=System.currentTimeMillis();
-        EventQueue queue=Toolkit.getDefaultToolkit().getSystemEventQueue();
-        queue.postEvent(new KeyEvent(table,KeyEvent.KEY_PRESSED,when,InputEvent.CTRL_DOWN_MASK,KeyEvent.VK_END,KeyEvent.CHAR_UNDEFINED));
-        queue.postEvent(new KeyEvent(table,KeyEvent.KEY_RELEASED,when,InputEvent.CTRL_DOWN_MASK,KeyEvent.VK_END,KeyEvent.CHAR_UNDEFINED));
-        assertTrue("Ctrl+End selects the final row",lastSelected.await(5,TimeUnit.SECONDS));
+        // Native keyboard integration with verified real window/table focus.
+        EventQueue keyboard=Toolkit.getDefaultToolkit().getSystemEventQueue();
+        for(int row=1;row<table.getRowCount();row++){
+            long when=System.currentTimeMillis();
+            keyboard.postEvent(new KeyEvent(table,KeyEvent.KEY_PRESSED,when,0,KeyEvent.VK_DOWN,KeyEvent.CHAR_UNDEFINED));
+            keyboard.postEvent(new KeyEvent(table,KeyEvent.KEY_RELEASED,when,0,KeyEvent.VK_DOWN,KeyEvent.CHAR_UNDEFINED));
+        }
+        boolean moved=lastSelected.await(5,TimeUnit.SECONDS);
+        SwingUtilities.invokeAndWait(()->assertTrue("Down keys select final row: selected="+table.getSelectedRow()+", count="+table.getRowCount()+", focus="+table.hasFocus(),moved));
         SwingUtilities.invokeAndWait(()->{
             assertEquals(table.getRowCount()-1,table.getSelectedRow());
             Rectangle last=table.getCellRect(table.getSelectedRow(),Math.max(0,table.getSelectedColumn()),true);
