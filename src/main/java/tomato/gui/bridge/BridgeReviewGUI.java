@@ -249,7 +249,7 @@ public final class BridgeReviewGUI extends JPanel {
                 saveResult.setText("Not saved: "+sentence(message)+" The previous settings remain active ("+bridge.config().modeLabel()+"). Your draft is still in the form; correct it and Save again, or Revert.");styleResult(true);}
             refresh();updateDraftState();}
     }.execute();}
-    private void revert(){if(saving)return;BridgeConfig active=snapshot==null?bridge.config():snapshot.config;editedFields.clear();load(active);saveResult.setText("Draft reverted to the active settings.");styleResult(false);updateDraftState();}
+    private void revert(){if(saving)return;BridgeConfig active=snapshot==null?bridge.config():snapshot.config;editedFields.clear();load(active);saveResult.setText(notApplied()?"Draft reverted to the saved settings, which are not in effect.":"Draft reverted to the active settings.");styleResult(false);updateDraftState();}
     /** A failed save uses the same error style as the invalid-draft message; other results use the default text colour. */
     private void styleResult(boolean error){saveResult.putClientProperty("bridge.error",error);saveResult.setForeground(error?ContentStyle.color("rose"):UIManager.getColor("TextArea.foreground"));}
     /** True while the save result reports a failure (shown in the error style). */
@@ -260,16 +260,19 @@ public final class BridgeReviewGUI extends JPanel {
         if(loadingFields)return;
         BridgeConfig active=snapshot==null?bridge.config():snapshot.config,draft=edited();
         java.util.List<String> changed=draft.differences(active);
-        text(draftState,changed.isEmpty()?"The form matches the active settings.":"Unsaved changes: "+String.join(", ",changed)+". Save applies them; Revert restores the active settings.");
+        String basis=notApplied()?"saved settings":"active settings";
+        text(draftState,changed.isEmpty()?"The form matches the "+basis+".":"Unsaved changes: "+String.join(", ",changed)+". Save applies them; Revert restores the "+basis+".");
         revert.setEnabled(!changed.isEmpty()&&!saving);
         String problem="";try{draft.validate();}catch(RuntimeException invalid){problem=invalid.getMessage()==null?"Check the paths and endpoint.":invalid.getMessage();}
         if(!draft.token.isEmpty())problem=problem.replace(draft.token,"[redacted]");
         text(validation,problem.isEmpty()?"":"Fix before saving: "+problem);validation.setVisible(!problem.isEmpty());
         boolean loading=snapshot==null||snapshot.loading;
-        text(activeSummary,loading?"Active now: loading saved settings…":"Active now: "+active.modeLabel()+(active.enabled?" · CSV items: "+snapshot.catalogSize:"")+(active.enabled&&active.send?" · Endpoint: "+host(active.endpoint):"")+" · Review log: "+(active.reviewLog.isEmpty()?"off":"on"));
+        text(activeSummary,loading?"Active now: loading saved settings…":notApplied()?"Active now: nothing. The saved settings ("+active.modeLabel()+") were not applied: "+snapshot.state+". Correct them and Save.":"Active now: "+active.modeLabel()+(active.enabled?" · CSV items: "+snapshot.catalogSize:"")+(active.enabled&&active.send?" · Endpoint: "+host(active.endpoint):"")+" · Review log: "+(active.reviewLog.isEmpty()?"off":"on"));
         text(confirmation,snapshot==null?"":snapshot.confirmation.label());
         saveResult.setVisible(!saveResult.getText().isEmpty());
     }
+    /** Saved settings that failed validation at startup are shown as saved, never as active. */
+    private boolean notApplied(){return snapshot!=null&&!snapshot.loading&&!snapshot.applied;}
     private static void text(JTextArea area,String value){if(!value.equals(area.getText()))area.setText(value);}
     private static String host(String endpoint){try{String host=java.net.URI.create(endpoint).getHost();return host==null?"not set":host;}catch(RuntimeException e){return "invalid";}}
     public void refresh(){

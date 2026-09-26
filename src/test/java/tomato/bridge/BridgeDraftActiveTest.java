@@ -49,6 +49,20 @@ public class BridgeDraftActiveTest {
         fail("Save did not finish");
     }
 
+    @Test public void savedSettingsRejectedAtStartupAreShownAsNotAppliedRatherThanActive() throws Exception {
+        Storage storage = new Storage();
+        Files.delete(csv); // Enabled saved settings whose CSV is missing fail startup validation.
+        storage.initial = config("rejected", true);
+        try (BridgeService service = new BridgeService(settings, false, (url, json) -> { throw new AssertionError("No delivery expected"); }, 8, storage)) {
+            service.awaitReady(3000);
+            assertFalse("Rejected startup settings are never applied", service.snapshot().applied);
+            BridgeReviewGUI panel = edt(() -> new BridgeReviewGUI(service)); edt(() -> { panel.refresh(); return null; });
+            String active = edt(() -> text(panel, "active"));
+            assertTrue(active, active.startsWith("Active now: nothing. The saved settings") && active.contains("were not applied"));
+            assertEquals("The form matches the saved settings.", edt(() -> text(panel, "draft-state")));
+        }
+    }
+
     @Test public void failedSaveKeepsPreviousActiveSettingsAndEditableDraft() throws Exception {
         Storage storage = new Storage(); AtomicInteger sends = new AtomicInteger();
         BridgeConfig old = config("old", false); storage.initial = old;

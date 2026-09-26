@@ -90,10 +90,12 @@ public final class BridgeService implements AutoCloseable {
         public final String state;
         public final boolean loading,closed;
         public final BridgeConfig config;
+        /** False when {@code config} was loaded but never applied (e.g. saved settings failed startup validation); it is then not in effect. */
+        public final boolean applied;
         public final Map<Outcome,Long> outcomes;
         /** Actual confirmation result for the active settings; never inferred from a successful save. */
         public final Confirmation confirmation;
-        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,Map<Outcome,Long> counts,long revision,String state,boolean loading,boolean closed,BridgeConfig config,Confirmation confirmation){this.confirmation=confirmation;reviews=r;logs=l;queued=q;catalogSize=c;observed=o;outcomes=Collections.unmodifiableMap(new EnumMap<>(counts));accepted=count(Outcome.LOGGED)+count(Outcome.RECEIVED);skipped=count(Outcome.LOCAL);failed=count(Outcome.FAILED);this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
+        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,Map<Outcome,Long> counts,long revision,String state,boolean loading,boolean closed,BridgeConfig config,boolean applied,Confirmation confirmation){this.confirmation=confirmation;this.applied=applied;reviews=r;logs=l;queued=q;catalogSize=c;observed=o;outcomes=Collections.unmodifiableMap(new EnumMap<>(counts));accepted=count(Outcome.LOGGED)+count(Outcome.RECEIVED);skipped=count(Outcome.LOCAL);failed=count(Outcome.FAILED);this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
         public long count(Outcome outcome){return outcomes.getOrDefault(outcome,0L);}
     }
     private static final class Holder { static final BridgeService INSTANCE = create(); }
@@ -113,6 +115,8 @@ public final class BridgeService implements AutoCloseable {
     private volatile BridgeConfig config=new BridgeConfig(new Properties());
     private volatile BridgeCatalog catalog=BridgeCatalog.empty();
     private volatile boolean active,closed;
+    // True once the current config has been validated and applied; stays false after a startup validation failure.
+    private volatile boolean applied;
     private boolean loading=true;
     private long generation,sequence,observed,revision;
     private final Map<Outcome,Long> outcomes=new EnumMap<>(Outcome.class);
@@ -173,7 +177,7 @@ public final class BridgeService implements AutoCloseable {
             if(persist)storage.save(next,settings);
             synchronized(this) {
                 checkOpen();
-                generation++;config=next;catalog=loaded;active=next.enabled;
+                generation++;config=next;catalog=loaded;active=next.enabled;applied=true;
                 state=active?(next.send?"Ready to send detected drops":"Local review only"):"Disabled";
                 log("INFO",state+". CSV items: "+loaded.size()+". Waiting requests from previous settings will be cancelled.");
                 if(active&&next.send&&ping)enqueuePing(next,generation);
@@ -289,7 +293,7 @@ public final class BridgeService implements AutoCloseable {
         if(!config.token.isEmpty())message=message.replace(config.token,"[redacted]");
         logs.addLast(new Log(level,message));while(logs.size()>500)logs.removeFirst();revision++;
     }
-    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,outcomes,revision,state,loading,closed,config,confirmation);}
+    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,outcomes,revision,state,loading,closed,config,applied,confirmation);}
     public synchronized void clearLogs(){logs.clear();revision++;}
     private static void requireBackgroundWait(){if(SwingUtilities.isEventDispatchThread())throw new IllegalStateException("Do not wait for bridge workers on the EDT.");}
     /** Startup has settled (possibly with an error in snapshot().state), or close has invalidated it. */
