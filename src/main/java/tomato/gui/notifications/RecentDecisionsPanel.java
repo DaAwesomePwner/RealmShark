@@ -35,13 +35,15 @@ final class RecentDecisionsPanel extends JPanel {
     final JTextArea status = ContentStyle.wrappingText("");
     final JButton editRule = new JButton("Edit rule"), draftRule = new JButton("Draft rule from sample");
     private List<Decision> shown = new ArrayList<>();
-    private boolean refreshQueued, rebuilding;
+    private boolean rebuilding, stale;
+    private final java.util.concurrent.atomic.AtomicBoolean pending = new java.util.concurrent.atomic.AtomicBoolean();
     /** Seams: tests replace the rule service and the modal openers. */
     AlertRules rules = AlertRules.application();
     Consumer<AlertRuleEditor> editorOpener = AlertRuleEditor::open;
     Consumer<AlertRules.Draft> draftOpener = draft -> AlertRuleEditor.openDraft(draft, null);
     Runnable enchantOpener = tomato.gui.TomatoGUI::openEnchantPing;
-    private final Runnable listener = () -> SwingUtilities.invokeLater(this::queued);
+    // Coalesced: at most one queued EDT task, and hidden tabs only mark themselves stale (busy chat must not rebuild a hidden table).
+    private final Runnable listener = () -> { if (pending.compareAndSet(false, true)) SwingUtilities.invokeLater(this::queued); };
 
     RecentDecisionsPanel(AlertDecisions decisions, NotificationsGUI owner) {
         super(new BorderLayout(0, 8)); this.decisions = decisions; this.owner = owner;
@@ -62,13 +64,15 @@ final class RecentDecisionsPanel extends JPanel {
         includeNoMatch.addActionListener(e -> refresh()); outcome.addActionListener(e -> { if (outcome.getSelectedIndex() == 5) includeNoMatch.setSelected(true); refresh(); });
         table.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !rebuilding) showDetail(); });
         editRule.addActionListener(e -> editRule()); draftRule.addActionListener(e -> draftRule());
+        addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing() && stale) refresh(); });
         refresh();
     }
     @Override public void addNotify() { super.addNotify(); decisions.addListener(listener); refresh(); }
     @Override public void removeNotify() { decisions.removeListener(listener); super.removeNotify(); }
-    private void queued() { if (refreshQueued) return; refreshQueued = true; SwingUtilities.invokeLater(() -> { refreshQueued = false; refresh(); }); }
+    private void queued() { pending.set(false); if (isShowing()) refresh(); else stale = true; }
 
     void refresh() {
+        stale = false;
         Decision selected = selected();
         rebuilding = true;
         shown = new ArrayList<>();
