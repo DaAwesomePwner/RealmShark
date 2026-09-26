@@ -174,10 +174,15 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         });}catch(RuntimeException failure){update.discard();throw failure;}finally{restoring=false;}
         ArchiveResult<R> old=result;result=update.result;resultQuery=query;displayed=update.page;state=nextState;
         saved.removeAll();activeView=view;saved.add(view);restoreEnabled(saved);saved.revalidate();saved.repaint();loading=false;
-        List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(item.field.name()+" "+item.direction);
+        List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(sortLabel(item));
         String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; try Reset filters. "):"";
         status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
         if(old!=null&&old!=result)old.close();persist();updateActions();
+    }
+    /** Readable sort wording, e.g. "time (descending)", instead of raw enum names. */
+    static String sortLabel(ArchiveQuery.Order<?> item){
+        String field=item.field.name().toLowerCase(java.util.Locale.ROOT).replace('_',' ');
+        return field+" ("+(item.direction==ArchiveQuery.Direction.ASCENDING?"ascending":"descending")+")";
     }
     private void persist(){if(stateLoadFailed)return;try{watchSave(states.save(name,state));}catch(RuntimeException failure){saveStatus.setText(failure.getMessage());}}
     private void watchSave(CompletionStage<PreferencesStore.SaveResult> save){
