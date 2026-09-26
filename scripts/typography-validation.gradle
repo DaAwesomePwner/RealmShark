@@ -91,6 +91,8 @@ allprojects {
                     includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.liveTrackerShowsTheSameTextDelta'
                     includeTestsMatching 'tomato.gui.stats.FameVisitAssociationTest.viewerShowsRecordedRunsAndGatesOpeningOnTheNavigator'
                     // Wave 3 alerts and Bridge: contextual drafts, Key-pop handoff, decisions, Bridge settings/review.
+                    // Wave 3 visual evidence: populated/empty/unavailable captures of every new surface.
+                    includeTestsMatching '*.WaveThreeEvidenceTest'
                     // Wave 3 investigation: run workbench/routes, resource windows, event explorer, comparison, My Info.
                     includeTestsMatching 'tomato.gui.activity.ActivityRouteTest'
                     includeTestsMatching 'tomato.gui.activity.ResourceWindowTest'
