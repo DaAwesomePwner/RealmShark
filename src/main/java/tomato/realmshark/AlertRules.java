@@ -62,6 +62,47 @@ public final class AlertRules {
             return new Rule(object, next.mode, next.value);
         }
     }
+    /**
+     * Detached proposal for a rule plus the observation it came from. Holds only strings and
+     * numbers, never packets or live rows. Opening a draft evaluates the sample silently; a draft is
+     * never saved, enabled or played unless the user explicitly chooses Save rules or Test sound.
+     */
+    public static final class Draft {
+        public static final int MAX_VALUE = 160, MAX_SAMPLE = 2000;
+        public final Domain domain;
+        /** Proposed mode/value; {@code mode} may be null for a sample-only draft. */
+        public final Mode mode;
+        public final String value;
+        /** Sample item ID or entity type; null for chat. */
+        public final Integer sampleId;
+        /** Sample message or item name; null when unavailable. */
+        public final String sampleText;
+        /** Human description of the source record, e.g. "Chat · 12:03:04 · Ann". */
+        public final String source;
+        private Draft(Domain domain, Mode mode, String value, Integer sampleId, String sampleText, String source) {
+            this.domain = Objects.requireNonNull(domain, "domain");
+            if (mode != null && mode.domain != domain) throw new IllegalArgumentException("Rule mode belongs to another alert category.");
+            this.mode = mode; this.value = bound(value == null ? "" : value, MAX_VALUE);
+            this.sampleId = sampleId; this.sampleText = sampleText == null ? null : bound(sampleText, MAX_SAMPLE);
+            this.source = source == null || source.trim().isEmpty() ? "Selected record" : bound(source.trim(), 200);
+        }
+        /** Chat rule proposal; {@code mode} is TEXT_CONTAINS or SPACE_TOKEN (or null for sample only). */
+        public static Draft chat(Mode mode, String value, String sampleMessage, String source) {
+            return new Draft(Domain.CHAT, mode, value, null, sampleMessage, source);
+        }
+        /** Item rule proposal; {@code mode} is ITEM_ID or NAME_CONTAINS (or null). The sample name may be null. */
+        public static Draft item(Mode mode, String value, int sampleItemId, String sampleName, String source) {
+            return new Draft(Domain.ITEM, mode, value, sampleItemId, sampleName, source);
+        }
+        /** Exact entity-type rule proposal for an observed type. */
+        public static Draft entity(int sampleType, String source) {
+            return new Draft(Domain.ENTITY, Mode.ENTITY_TYPE, Integer.toString(sampleType), sampleType, null, source);
+        }
+        /** Validated proposed rule, or null for a sample-only draft. Throws IllegalArgumentException when invalid. */
+        public Rule proposedRule() { return mode == null ? null : Rule.of(mode, value); }
+        private static String bound(String text, int max) { return text.length() <= max ? text : text.substring(0, max); }
+        @Override public String toString() { return "Draft{" + domain + " " + mode + " from " + source + "}"; }
+    }
     public static final class Match {
         public final boolean matched;
         public final String explanation;
@@ -81,6 +122,12 @@ public final class AlertRules {
             this.envelope = envelope; this.rules = Collections.unmodifiableList(new ArrayList<>(rules)); this.problem = problem;
         }
         public boolean editable() { return problem.isEmpty(); }
+        /** Index of the first supported rule with this exact mode and value, or -1. Used to resolve recorded rules safely. */
+        public int indexOf(Mode mode, String value) {
+            if (mode == null || value == null) return -1;
+            for (int i = 0; i < rules.size(); i++) if (rules.get(i).mode == mode && value.equals(rules.get(i).value)) return i;
+            return -1;
+        }
         public Match matchItem(int id, String name) { return match(Domain.ITEM, id, name); }
         public Match matchEntityType(int type) { return match(Domain.ENTITY, type, null); }
         public Match matchChat(String text) { return match(Domain.CHAT, -1, text); }
@@ -152,6 +199,13 @@ public final class AlertRules {
         Mode mode = domain == Domain.ITEM ? Mode.LEGACY_ITEM : domain == Domain.ENTITY ? Mode.LEGACY_ENTITY : Mode.LEGACY_CHAT;
         if (legacy != null) for (String value : legacy) if (value != null) rules.add(Rule.of(mode, value));
         return new Snapshot(domain, null, legacySource, new JsonObject(), rules, "");
+    }
+    /** The stored pre-typed rule list for a domain (the same "§"-delimited preference TomatoData loads). Read only. */
+    public List<String> storedLegacy(Domain domain) {
+        String saved = read.apply(domain.legacyKey);
+        List<String> result = new ArrayList<>();
+        if (saved != null) for (String value : saved.split("§")) if (!value.isEmpty()) result.add(value);
+        return result;
     }
     public Match matchItem(Collection<String> legacy, int id, String name) { return snapshot(Domain.ITEM, legacy).matchItem(id, name); }
     public Match matchEntityType(Collection<String> legacy, int type) { return snapshot(Domain.ENTITY, legacy).matchEntityType(type); }

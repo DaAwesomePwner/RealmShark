@@ -9,8 +9,13 @@ import javax.swing.event.*;
 import javax.swing.table.AbstractTableModel;
 import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.AlertRules;
+import tomato.realmshark.Sound;
 
-/** A detached rule draft and a pure sample checker. Constructing this panel never opens a window. */
+/**
+ * A detached rule draft and a pure sample checker. Constructing this panel never opens a window,
+ * saves, enables an alert or plays audio. Contextual drafts ({@link #draft(AlertRules.Draft)}) add a
+ * proposed row and evaluate their detached sample silently; only Save rules and Test sound act.
+ */
 public class AlertRuleEditor extends JPanel {
     private final AlertRules service;
     private AlertRules.Snapshot base;
@@ -22,10 +27,21 @@ public class AlertRuleEditor extends JPanel {
     private final JTextArea sampleResult = ContentStyle.wrappingText("Check a sample silently; this does not test delivery or sound.");
     private final JButton save = new JButton("Save rules");
     private final DraftSaveStatus saving = new DraftSaveStatus(save, "rule-save-status");
+    private final JTextArea draftSummary = ContentStyle.wrappingText("");
     private JDialog dialog;
+    private Runnable returnAction;
 
     public AlertRuleEditor(AlertRules service, AlertRules.Domain domain, Collection<String> legacy, String title, Runnable testSound) {
+        this(service, domain, legacy, title, testSound, null);
+    }
+
+    /**
+     * Opens a contextual draft. The proposed rule is added as an unsaved row (or the identical existing
+     * rule is selected) and the detached sample is checked silently. Nothing is saved, enabled or played.
+     */
+    public AlertRuleEditor(AlertRules service, AlertRules.Domain domain, Collection<String> legacy, String title, Runnable testSound, AlertRules.Draft draft) {
         super(new BorderLayout(8, 8)); this.service = service; this.title = title; base = service.snapshot(domain, legacy);
+        if (draft != null && draft.domain != domain) throw new IllegalArgumentException("Draft belongs to another alert category.");
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         for (AlertRules.Rule rule : base.rules) rows.add(new Row(rule));
         JTextArea help = ContentStyle.wrappingText("Edit a draft, then Save rules. Save applies immediately; disk confirmation follows. "
@@ -78,7 +94,9 @@ public class AlertRuleEditor extends JPanel {
         check.addActionListener(e -> checkSample()); samples.add(sampleInputs, BorderLayout.NORTH); samples.add(sampleResult);
         JPanel body = new JPanel(new BorderLayout(0, 6)); body.add(ContentStyle.tableScroll(table, 5)); body.add(actions, BorderLayout.SOUTH);
         JPanel lower = new JPanel(new BorderLayout(0, 6)); lower.add(samples); lower.add(saving.status, BorderLayout.SOUTH);
-        add(ContentStyle.page(help, body, lower));
+        draftSummary.setName("rule-draft-source"); draftSummary.setVisible(false);
+        JPanel intro = new JPanel(new BorderLayout(0, 6)); intro.add(draftSummary, BorderLayout.NORTH); intro.add(help);
+        add(ContentStyle.page(intro, body, lower));
         JPanel bottom = ContentStyle.controls(); JButton cancel = new JButton("Cancel"), test = new JButton("Test sound");
         test.addActionListener(e -> testSound.run()); cancel.addActionListener(e -> closeDraft());
         bottom.add(test); bottom.add(cancel); bottom.add(save); add(bottom, BorderLayout.SOUTH);
@@ -91,8 +109,65 @@ public class AlertRuleEditor extends JPanel {
                 return submitted.completion;
             }, () -> service.isCurrent(accepted[0]));
         });
+        if (draft != null) applyDraft(draft);
         ContentStyle.refreshFonts(this);
     }
+
+    /** Application editor for a contextual draft: current rules, the category's sound for Test only. EDT only. */
+    public static AlertRuleEditor draft(AlertRules.Draft draft) {
+        AlertRules service = AlertRules.application();
+        Sound sound = soundFor(draft.domain);
+        return new AlertRuleEditor(service, draft.domain, service.storedLegacy(draft.domain), titleFor(draft.domain), () -> sound.preview(null), draft);
+    }
+    /** Opens {@link #draft(AlertRules.Draft)} in a dialog, then runs {@code onReturn} (restore the source record) when it closes. */
+    public static void openDraft(AlertRules.Draft draft, Runnable onReturn) {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> openDraft(draft, onReturn)); return; }
+        draft(draft).open(onReturn);
+    }
+    public static String titleFor(AlertRules.Domain domain) {
+        return domain == AlertRules.Domain.CHAT ? "Chat alert rules" : domain == AlertRules.Domain.ITEM ? "Item alert rules" : "Entity alert rules";
+    }
+    public static Sound soundFor(AlertRules.Domain domain) { return domain == AlertRules.Domain.CHAT ? Sound.keywords : Sound.custom; }
+
+    private void applyDraft(AlertRules.Draft draft) {
+        Sound sound = soundFor(draft.domain);
+        StringBuilder text = new StringBuilder("Draft from ").append(draft.source).append('.');
+        String problem = "";
+        if (!base.editable()) problem = " " + base.problem;
+        else {
+            AlertRules.Rule proposed = null;
+            try { proposed = draft.proposedRule(); } catch (IllegalArgumentException invalid) { problem = " Proposed rule not added: " + invalid.getMessage(); }
+            if (proposed != null) {
+                int existing = base.indexOf(proposed.mode, proposed.value);
+                if (existing >= 0) {
+                    text.append(" An identical rule already exists (rule ").append(existing + 1).append("); no row was added.");
+                    table.setRowSelectionInterval(existing, existing);
+                } else {
+                    rows.add(new Row(proposed.mode, proposed.value)); model.fireTableDataChanged(); saving.edited();
+                    int row = rows.size() - 1; table.setRowSelectionInterval(row, row);
+                    text.append(" Proposed rule ").append(row + 1).append(": ").append(proposed.mode.label).append(" \u201c").append(proposed.value).append("\u201d.");
+                }
+            }
+        }
+        text.append(problem).append(" Nothing is saved or enabled until you choose Save rules; Test sound is the only playback. The ")
+            .append(sound.label).append(" sound is currently ").append(sound.isEnabled() ? "on" : "off").append(" and saving a rule does not change it.");
+        draftSummary.setText(text.toString()); draftSummary.setVisible(true);
+        if (draft.sampleId != null) sampleId.setText(Integer.toString(draft.sampleId));
+        if (draft.sampleText != null) sampleText.setText(draft.sampleText);
+        checkSample();
+    }
+    /** Selects the saved rule with this exact mode and value. Returns false when the recorded rule is no longer present. */
+    public boolean focusRule(AlertRules.Mode mode, String value) {
+        for (int i = 0; i < rows.size(); i++) {
+            Row row = rows.get(i);
+            if (row.original != null && row.original.mode == mode && row.original.value.equals(value)) {
+                table.setRowSelectionInterval(i, i); table.scrollRectToVisible(table.getCellRect(i, 0, true)); return true;
+            }
+        }
+        table.clearSelection(); return false;
+    }
+    /** Shows an explanation above the rules, e.g. why a recorded rule could not be resolved. */
+    public void explain(String message) { draftSummary.setText(message); draftSummary.setVisible(!message.isEmpty()); }
     private List<AlertRules.Rule> draft() {
         List<AlertRules.Rule> result = new ArrayList<>();
         for (Row row : rows) {
@@ -118,15 +193,22 @@ public class AlertRuleEditor extends JPanel {
             sampleResult.setText(match.explanation);
         } catch (IllegalArgumentException invalid) { sampleResult.setText("Check input: " + invalid.getMessage()); }
     }
-    public void open() {
-        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::open); return; }
+    public void open() { open(null); }
+    /** Modal editor; {@code onReturn} runs once on the EDT after the dialog closes, e.g. to reselect the source record. */
+    public void open(Runnable onReturn) {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> open(onReturn)); return; }
+        returnAction = onReturn;
         dialog = new JDialog(tomato.gui.TomatoGUI.getFrame(), title, true);
         realmshark.branding.AppIdentity.apply(dialog); dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-        dialog.addWindowListener(new WindowAdapter() { @Override public void windowClosing(WindowEvent e) { closeDraft(); } });
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { closeDraft(); }
+            @Override public void windowClosed(WindowEvent e) { returned(); }
+        });
         dialog.setContentPane(this); dialog.pack();
         Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         dialog.setSize(Math.min(800, screen.width), Math.min(620, screen.height)); dialog.setLocationRelativeTo(dialog.getOwner()); dialog.setVisible(true);
     }
+    private void returned() { Runnable action = returnAction; returnAction = null; if (action != null) action.run(); }
     private void closeDraft() {
         if (dialog != null && JOptionPane.showConfirmDialog(this, saving.closeExplanation(), "Close rules", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dialog.dispose();
     }
@@ -144,7 +226,8 @@ public class AlertRuleEditor extends JPanel {
     private static final class Row {
         final AlertRules.Rule original; AlertRules.Mode mode; String value;
         Row(AlertRules.Rule rule) { original = rule; mode = rule.mode; value = rule.value; }
-        Row(AlertRules.Mode mode) { original = null; this.mode = mode; value = ""; }
+        Row(AlertRules.Mode mode) { this(mode, ""); }
+        Row(AlertRules.Mode mode, String value) { original = null; this.mode = mode; this.value = value; }
     }
     private final class RuleTable extends AbstractTableModel {
         public int getRowCount() { return rows.size(); }

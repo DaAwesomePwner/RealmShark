@@ -21,6 +21,9 @@ import java.util.List;
 
 /** Automatic sound controls and explicitly submitted rule drafts. */
 public final class NotificationsGUI extends JPanel {
+    /** Title of the Recent decisions tab (ALERT-4). */
+    public static final String DECISIONS = "Recent decisions";
+    private static volatile NotificationsGUI displayed;
     final JTabbedPane tabs = new JTabbedPane();
     final JSlider master = new JSlider(0, 100);
     final JCheckBox mute = new JCheckBox("Mute all");
@@ -39,6 +42,12 @@ public final class NotificationsGUI extends JPanel {
     private final TimerHolder timer = new TimerHolder();
     private boolean syncing;
     private long dungeonSaveRequest;
+    final JTextArea focusText = note("");
+    final JPanel focusBanner = new JPanel(new BorderLayout(8, 4));
+    private final JButton focusBack = new JButton("Back"), focusClear = new JButton("Done");
+    private String focusedDungeon, priorSearch;
+    private boolean priorSelectedOnly;
+    private Runnable focusReturn;
 
     public NotificationsGUI() {
         super(new BorderLayout(0, 8));
@@ -95,8 +104,53 @@ public final class NotificationsGUI extends JPanel {
         addComponentListener(new ComponentAdapter() { @Override public void componentShown(ComponentEvent e) { refreshDungeons(); refresh(); } });
         refresh();
     }
-    @Override public void addNotify() { super.addNotify(); Sound.addListener(update); timer.start(); refresh(); }
-    @Override public void removeNotify() { Sound.removeListener(update); timer.stop(); super.removeNotify(); }
+    @Override public void addNotify() { super.addNotify(); displayed = this; Sound.addListener(update); timer.start(); refresh(); }
+    @Override public void removeNotify() { if (displayed == this) displayed = null; Sound.removeListener(update); timer.stop(); super.removeNotify(); }
+    /** The Notifications page currently attached to a window, or null. EDT only. */
+    public static NotificationsGUI displayed() { return displayed; }
+
+    /**
+     * KEY-3: shows an exact known dungeon in Key pops with its current choice visible. No dungeon or
+     * alert choice changes; only the view filter is adjusted and restored by Back/Done. Unknown names
+     * are reported explicitly and nothing is focused. {@code back} (optional) returns to the source.
+     */
+    public boolean focusDungeon(String name, Runnable back) {
+        refreshDungeons();
+        selectSection("Key pops");
+        JCheckBox box = name == null ? null : dungeonChoices.get(name);
+        if (box == null) {
+            showFocus("\u201c" + name + "\u201d is not a known notification dungeon, so nothing was focused or changed.", back);
+            return false;
+        }
+        if (focusedDungeon == null) { priorSearch = dungeonSearch.getText(); priorSelectedOnly = dungeonSelectedOnly.isSelected(); }
+        focusedDungeon = name;
+        dungeonSelectedOnly.setSelected(false); dungeonSearch.setText(name); filterDungeons();
+        showFocus("From Key pops: " + name + " is currently " + (box.isSelected() ? "selected" : "not selected")
+            + " for key-pop alerts. Nothing was changed; use its checkbox to change it.", back);
+        box.scrollRectToVisible(new Rectangle(box.getSize())); box.requestFocusInWindow();
+        return true;
+    }
+    String focusedDungeon() { return focusedDungeon; }
+    private void showFocus(String message, Runnable back) {
+        focusText.setText(message); focusReturn = back; focusBack.setVisible(back != null);
+        focusBanner.setVisible(true); focusBanner.revalidate();
+    }
+    /** Hides the focus banner and restores the dungeon search and Selected-only filter used before the handoff. */
+    public void clearFocus() {
+        if (focusedDungeon != null) {
+            dungeonSelectedOnly.setSelected(priorSelectedOnly); dungeonSearch.setText(priorSearch == null ? "" : priorSearch); filterDungeons();
+        }
+        focusedDungeon = null; focusReturn = null; focusBanner.setVisible(false); focusBanner.revalidate();
+    }
+    /** Detached view state for Back navigation: tab, dungeon search/filter and focus. */
+    Object viewState() { return new Object[]{tabs.getSelectedIndex(), dungeonSearch.getText(), dungeonSelectedOnly.isSelected()}; }
+    void restoreViewState(Object state) {
+        if (!(state instanceof Object[])) return;
+        Object[] values = (Object[])state;
+        focusedDungeon = null; focusReturn = null; focusBanner.setVisible(false);
+        int tab = (Integer)values[0]; if (tab >= 0 && tab < tabs.getTabCount()) tabs.setSelectedIndex(tab);
+        dungeonSelectedOnly.setSelected((Boolean)values[2]); dungeonSearch.setText((String)values[1]); filterDungeons();
+    }
     private final class TimerHolder {
         final javax.swing.Timer value = new javax.swing.Timer(1000, e -> { if (isShowing()) realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); });
         void start() { value.start(); } void stop() { value.stop(); }
@@ -170,7 +224,16 @@ public final class NotificationsGUI extends JPanel {
     }
     private JPanel dungeons() {
         JPanel panel = new JPanel(new BorderLayout(0, 8));
-        JPanel header = stack(); header.add(note("Choose dungeons to hear their key pops and portal callouts. Unselected dungeons remain in Key Pops history."));
+        JPanel header = stack();
+        focusText.setName("sound-dungeon-focus"); focusBanner.setName("sound-dungeon-focus-banner"); focusBanner.setVisible(false);
+        focusBack.setName("sound-dungeon-focus-back"); focusClear.setName("sound-dungeon-focus-done");
+        focusBack.addActionListener(e -> { Runnable back = focusReturn; clearFocus(); if (back != null) back.run(); });
+        focusClear.addActionListener(e -> clearFocus());
+        JPanel focusActions = ContentStyle.controls(); focusActions.add(focusBack); focusActions.add(focusClear);
+        focusBanner.add(focusText); focusBanner.add(focusActions, BorderLayout.SOUTH);
+        focusBanner.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 3, 0, 0, ContentStyle.color("violet")), BorderFactory.createEmptyBorder(2, 6, 2, 2)));
+        header.add(focusBanner);
+        header.add(note("Choose dungeons to hear their key pops and portal callouts. Unselected dungeons remain in Key Pops history."));
         missing.setToolTipText("Dungeons with zero completes on the currently playing character"); missing.addActionListener(e -> saveDungeons()); header.add(missing);
         dungeonSearch.putClientProperty("JTextField.placeholderText", "Find a dungeon..."); dungeonSearch.setName("sound-dungeon-search");
         dungeonSearch.getAccessibleContext().setAccessibleName("Find notification dungeon"); header.add(dungeonSearch);

@@ -84,6 +84,11 @@ public class KeypopGUI extends JPanel {
         JButton notificationButton = new JButton("Notifications");
         notificationButton.addActionListener(e -> tomato.gui.TomatoGUI.openNotifications("Key pops"));
         south.add(notificationButton);
+        JButton dungeonAlert = new JButton("Dungeon alert…");
+        dungeonAlert.setName("keypop-notify-dungeon");
+        dungeonAlert.setToolTipText("Show the selected dungeon in Notifications with its current choice. Nothing changes until you toggle it there.");
+        dungeonAlert.addActionListener(e -> handoffStatus.setText(handoff(dashboard.selectedDungeon(), this)));
+        south.add(dungeonAlert);
 
         JCheckBox logCheckbox = new JCheckBox("Log to file");
         logCheckbox.setSelected(logToFile);
@@ -99,7 +104,34 @@ public class KeypopGUI extends JPanel {
         JButton summaryExport = new JButton("Export current tab (retained CSV)"); summaryExport.addActionListener(e -> dashboard.exportCurrentTab()); south.add(summaryExport);
         south.add(clearButton);
 
-        add(south, BorderLayout.SOUTH);
+        handoffStatus.setName("keypop-handoff-status");
+        JPanel footer = new JPanel(new BorderLayout()); footer.add(south); footer.add(handoffStatus, BorderLayout.SOUTH);
+        handoffStatus.setBorder(BorderFactory.createEmptyBorder(0, 12, 6, 12));
+        add(footer, BorderLayout.SOUTH);
+    }
+
+    private final JTextArea handoffStatus = ContentStyle.wrappingText("");
+
+    /**
+     * KEY-3 handoff. Resolves the observed name exactly; unknown names are reported and nothing opens.
+     * Uses the shell navigator when it accepts Notifications routes, otherwise selects the page directly
+     * and offers Back to this Key-pops view. Never changes a notification choice. Returns a status line.
+     */
+    static String handoff(String observed, Component source) {
+        if (observed == null) return "Select a key pop or dungeon row first.";
+        String exact = tomato.gui.notifications.NotificationFocus.resolveDungeon(observed);
+        if (exact == null) return "“" + observed + "” is not a known notification dungeon. Runes, vials, incs and unknown portals have no dungeon alert; nothing was opened or changed.";
+        tomato.gui.route.Route route = tomato.gui.route.Route.to(tomato.gui.route.Destination.NOTIFICATIONS)
+            .withPayload(tomato.gui.notifications.NotificationFocus.dungeon(exact));
+        tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+        if (navigator.canOpen(route) && navigator.open(route)) return "Showing " + exact + " in Notifications. No choice was changed.";
+        tomato.gui.modern.WorkspaceShell shell = source == null ? null : (tomato.gui.modern.WorkspaceShell)SwingUtilities.getAncestorOfClass(tomato.gui.modern.WorkspaceShell.class, source);
+        int origin = shell == null ? -1 : shell.getSelectedPage();
+        tomato.gui.TomatoGUI.openNotifications("Key pops");
+        tomato.gui.notifications.NotificationsGUI page = tomato.gui.notifications.NotificationsGUI.displayed();
+        if (page == null) return "Notifications is unavailable here, so " + exact + " was not shown. No choice was changed.";
+        page.focusDungeon(exact, origin < 0 ? null : () -> shell.select(origin));
+        return "Showing " + exact + " in Notifications. No choice was changed.";
     }
 
     /**
