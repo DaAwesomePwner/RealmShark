@@ -6,7 +6,7 @@
   "status": "Wave 3 implemented and locally validated; PR, final-head CI, merge and main verification pending",
   "branch": "feat/ux-wave-3-connected-analysis",
   "base": "6d71a5605b1f1ff2e5a5a00d5af43fe0da8eac1f",
-  "testedCodeCommit": "ab6f613",
+  "testedCodeCommit": "ca15196",
   "trackingIssue": "https://github.com/DaAwesomePwner/RealmShark/issues/9",
   "waves": [
     {"wave": 1, "status": "merged and main verified", "pullRequest": 11, "merge": "64d58d0606a82a956e082fa0dcc07aa18d8fbbfa"},
@@ -17,12 +17,12 @@
   "interWave": {"pullRequest": 13, "title": "Per-player damage-by-source breakdown", "merge": "6d71a56", "mainCi": "36223175267"},
   "validation": {
     "toolchain": "JDK 17 (Temurin 17.0.20.1), Gradle 7.6.4, Java 8 API/bytecode targets",
-    "test": {"tests": 913, "failures": 0, "errors": 0, "skipped": 0},
-    "testUi150": {"tests": 232, "failures": 0, "errors": 0, "skipped": 0},
-    "testUi200": {"tests": 232, "failures": 0, "errors": 0, "skipped": 0},
+    "test": {"tests": 916, "failures": 0, "errors": 0, "skipped": 0},
+    "testUi150": {"tests": 233, "failures": 0, "errors": 0, "skipped": 0},
+    "testUi200": {"tests": 233, "failures": 0, "errors": 0, "skipped": 0},
     "shadowJar": "passed",
     "isolatedHelpExitCode": 0,
-    "buildContract": "passed",
+    "buildContract": "passed at ab6f613; no build files changed since",
     "record": "docs/UX-WAVE3-VALIDATION.md"
   },
   "review": {

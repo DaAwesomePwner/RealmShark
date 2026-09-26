@@ -8,13 +8,13 @@ network Bridge deliveries or real audio.
 
 ## Final-head evidence
 
-Tested code head: `ab6f613 (later commits change docs only)`.
+Tested code head: `ca15196` (full, 150% and 200% suites, JAR and isolated help). The build-contract check passed at `ab6f613`; no build scripts or Gradle files changed afterwards. The final commit `5de781b` only changes Bridge settings wording; it was validated with the Bridge suites at 100/150/200% (55 tests, 0 failures) and by PR CI.
 
 | Check | Result |
 | --- | --- |
-| `test` (full suite) | 913 tests, 0 failures/errors/skips |
-| `testUi150` (allowlisted UI at 150%) | 232 tests, 0 failures/errors/skips |
-| `testUi200` (allowlisted UI at 200%) | 232 tests, 0 failures/errors/skips |
+| `test` (full suite) | 916 tests, 0 failures/errors/skips |
+| `testUi150` (allowlisted UI at 150%) | 233 tests, 0 failures/errors/skips |
+| `testUi200` (allowlisted UI at 200%) | 233 tests, 0 failures/errors/skips |
 | `shadowJar` | built (RealmShark-v1.2.3.jar) |
 | Isolated runnable-JAR `--help` | exit 0; wrote nothing to its isolated working directory |
 | `scripts/Test-BuildMaintenance.ps1` build contract | PASS: output isolation, source-tree cleanliness, generation/invalidation and fresh-build JAR contracts |
@@ -99,3 +99,14 @@ Earlier failed or interrupted runs are diagnostic history, not passes. Notable o
   sits beside a recorded-visit count. An audio-error footer appears in several
   Notifications fixtures; it is expected to be shared test sound state, to be
   confirmed not to be a sticky app status.
+
+## PR review follow-up
+
+A code-review bot on PR #14 raised four P2 findings, all verified as real and fixed
+with regression tests that fail without their fix. They cover Bridge settings rejected
+at startup shown as active (`6f3b8b9`), bag alerts with their sound off recording no
+decision (`80349a5`), one module's coverage-write success hiding another's failure
+(`5a3a7bd`), and the fame status and Session Info ignoring the selected range
+(`ca15196`). The independent reviewer approved `ca15196`. Its one should-fix, failed-save
+wording that contradicted "nothing active", and a preview wording note were fixed in
+the final commit.
