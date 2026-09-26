@@ -37,13 +37,15 @@ final class DiagnosticCoverage {
             + "\nObserver errors: " + n(snapshot.observerErrors)
             + "\nDiagnostic disk drops: " + n(snapshot.diskDropped) + " (writer lifetime; not reset by Clear data)"
             + "\nDiagnostic sample saving: " + (snapshot.saving ? "on" : "off")
-            + "\nCollection at this revision: " + (snapshot.enabled ? "on" : "off")
-            + "\nOther counters are since diagnostic clear. Collection-off intervals are unobserved, not zero activity."
+            + "\nCollection at this revision: " + state(snapshot.enabled)
+            + "\nOther counters are since diagnostic clear. Intervals while collection is paused are unobserved, not zero activity."
             + "\nSave diagnostic samples is separate from automatic session history. Queued writes can finish after disabling."
             + (snapshot.writerError.isEmpty() ? "" : "\nDiagnostic writer failed: " + snapshot.writerError)
             + (snapshot.activityWriterError.isEmpty() ? "" : "\nLegacy activity writer failed: " + snapshot.activityWriterError)
             + (snapshot.coverageError.isEmpty() ? "" : "\n" + snapshot.coverageError);
     }
+    /** The one collection-state term used in Logging: "on" or "paused". */
+    static String state(boolean collecting) { return collecting ? "on" : "paused"; }
     private static String collection(DiscoveryLog.Snapshot snapshot) {
         if (!snapshot.enabled) return "paused; frames are not observed while paused, which is not zero activity";
         return snapshot.observedSince == null ? "on; no frame observed since it started"
@@ -54,7 +56,7 @@ final class DiagnosticCoverage {
         StringBuilder text = new StringBuilder("\nRecent collection changes (latest " + DiscoveryLog.TRANSITION_LIMIT + " kept):");
         for (DiscoveryLog.Transition change : snapshot.transitions)
             text.append("\n  ").append(Instant.ofEpochMilli(change.time)).append(" · ")
-                .append(change.collecting ? "collecting" : "not collecting").append(" · ").append(change.reason);
+                .append("Collection: ").append(state(change.collecting)).append(" · ").append(change.reason);
         return text.toString();
     }
     /** Views whose inputs had decode or trailing-byte issues, via the catalog's reviewed allowlist. */
