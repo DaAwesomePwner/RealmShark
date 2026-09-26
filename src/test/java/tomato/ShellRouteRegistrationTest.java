@@ -46,6 +46,9 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.canOpen(Route.to(Destination.STATISTICS).withQuery(query)));
                 assertFalse("Statistics cannot resolve a visit and says so by rejecting it",
                     navigator.canOpen(Route.to(Destination.STATISTICS).withVisit(visit)));
+                assertTrue(navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.issuesFor(Destination.RUNS))));
+                assertFalse("Only allowlisted packets of the affected view are routable",
+                    navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.packetFor(Destination.RUNS, "TEXT"))));
             });
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> assertSame(Navigator.NONE, Navigator.current()));

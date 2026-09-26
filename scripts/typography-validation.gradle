@@ -84,6 +84,7 @@ allprojects {
                     includeTestsMatching 'tomato.gui.route.ShellBackActionTest'
                     includeTestsMatching 'tomato.gui.route.RouteBackRestoreTest'
                     includeTestsMatching 'tomato.ShellRouteRegistrationTest'
+                    includeTestsMatching 'tomato.gui.logging.CoverageExplanationTest.errorRouteFocusesAllowlistedPacketIssuesAndBackRestoresLogging'
                     includeTestsMatching 'tomato.gui.stats.LootDrillDownTest.workspaceDrillsVariantToOccurrenceToVerifiedRunAndExplainsUnavailableNavigation'
                     includeTestsMatching 'tomato.gui.stats.CohortComparisonTest.statisticsWorkspaceEditsCohortsThroughQueryIntent'
                     includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.savedViewerHasRangeGainControlsKeepsPinsAndSaysMapNotRecorded'

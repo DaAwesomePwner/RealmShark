@@ -110,12 +110,13 @@ public class TomatoGUI {
         JComponent lootWorkspace = store == null ? statistics.getLootDashboard() : HistoricalStatistics.lootWorkspace(
             store, statistics.getLootDashboard(), scratch.resolve("loot"), states);
         runsWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.RUNS);
+        tomato.gui.logging.LoggingGUI logging = new tomato.gui.logging.LoggingGUI(DiscoveryLog.INSTANCE);
         shell = new WorkspaceShell(new JComponent[] {
             chatPanel.workspace(), keypopPanel.workspace(), SecurityGUI.workspace(securityPanel),
             characterPanel, statisticsWorkspace,
             questPanel, myDmg, dpsPanel,
             lootWorkspace,
-            new tomato.gui.logging.LoggingGUI(DiscoveryLog.INSTANCE),
+            logging,
             runsWorkspace,
             ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE),
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
@@ -128,6 +129,7 @@ public class TomatoGUI {
         // Analytics targets resolve exact visit/variant routes; registered later, so they are tried first.
         registerLoot(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerLoot(navigator, Destination.LOOT, lootWorkspace);
+        navigator.register(new tomato.gui.logging.LoggingRouteTarget(logging));
         Navigator.install(navigator);
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.

@@ -511,7 +511,7 @@ public final class LoggingGUI extends JPanel {
         for (int i=0;i<table.model.getColumnCount();i++) if (table.model.getColumnName(i).equals(name)) return i;
         return -1;
     }
-    private void applyViewState(LoggingViewState.Fields state) {
+    void applyViewState(LoggingViewState.Fields state) {
         validateViewState(state); applyingState=true; snapshots.invalidate();
         try {
             freeze.setSelected(false); snapshot=null; revision=null;
