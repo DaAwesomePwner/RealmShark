@@ -172,3 +172,35 @@ the coordinator.
 - The distribution uses fixed integer buckets (0–9, 10+), not a chart.
 - Headless component tests only. Compact 680×520, keyboard-focus traversal at
   150%/200%, and screen-reader inspection are unverified.
+
+## Round 2: fame sample visit association (STAT-2)
+
+Base: wave head `e8657c7`, which contains the core lane's `AppHistory.FameSample`
+fields `visitSession`, `visitId` and `map` and the `visit()` accessor.
+
+- `LootArchiveClient.readFame` copies each journal sample's exact visit into
+  `FameSession.SampleVisit`. It does this only for samples that carry a `visit()`
+  and whose timestamp survives as a graph point. `FameSession.sampleVisits` is
+  `null` unless at least one sample has a visit, so legacy `.fame` JSON is
+  unchanged.
+- `StatisticsArchiveAdapter.fame` counts associated samples and their maps (up to
+  10 listed). Row evidence reads either "Map association: N sample(s) with a
+  recorded visit (…); M sample(s) Not recorded", or "Map association: Not
+  recorded" when no sample has a visit. Legacy snapshot and journal samples count
+  as Not recorded.
+- `FameSessionViewer` reports "N of M samples with a recorded visit (maps); K Not
+  recorded". Tracker map visits are listed separately.
+  - It lists the distinct recorded runs (`saved-fame-recorded-runs`).
+  - **Open recorded run** (`saved-fame-open-run`) calls
+    `Navigator.current().open(Route.to(RUNS).withVisit(visit))` and is enabled only
+    when `canOpen` accepts the route.
+  - `saved-fame-run-status` explains when it is unavailable. The RUNS target is
+    still pending in lane A.
+  - A legacy-only character still shows `Map association: Not recorded`.
+- Tests: `tomato.gui.stats.FameVisitAssociationTest` passed 2/2. It uses mixed
+  legacy and new samples, legacy JSON without the fields, and both an absent and a
+  fake navigator. Final run of `tomato.gui.stats.*` plus
+  `tomato.BrandPresentationTest`: **117 tests, 0 failures/errors/skips**. The full
+  suite and the scaled runs were not run.
+- Scaling allowlist candidate:
+  `tomato.gui.stats.FameVisitAssociationTest.viewerShowsRecordedRunsAndGatesOpeningOnTheNavigator`.

@@ -162,6 +162,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     }
     /** Whole-session graph from the same pin; bounded points, never a fresh live file read. */
     static FameSession readFame(ArchiveResult.Lease<Row> lease,String session,Cancellation cancel)throws IOException{
+        Map<Integer,TreeMap<Long,FameSession.SampleVisit>> associations=new TreeMap<>();
         Map<Integer,TreeMap<Long,Fame>> dated=new TreeMap<>();Map<Integer,List<Fame>> undated=new TreeMap<>();Map<Integer,String> names=new HashMap<>();
         List<HashMap<Integer,List<tomato.gui.stats.data.MapFameData>>> maps=new ArrayList<>();maps.add(new HashMap<>());
         FameSession[] single={null};long[] sourceRecords={0},storedDates={0,0};int[] count={0};
@@ -174,13 +175,17 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         },cancel);
         for(String module:Arrays.asList("fame","fame-latest"))lease.readSource(session,module,AppHistory.FameSample.class,row->{
             sourceRecords[0]++;AppHistory.FameSample f=row.value;names.put(f.character,f.className);graphPoint(dated,undated,f.character,new Fame(f.fame,f.time),count);
+            tomato.history.link.VisitRef visit=f.visit();if(visit!=null){LootArchiveAdapter.label(f.map);LootArchiveAdapter.label(f.visitId);associations.computeIfAbsent(f.character,k->new TreeMap<>()).put(f.time,new FameSession.SampleVisit(f.time,visit,f.map));}
         },cancel);
         String revision=lease.manifest().get("revision").getAsString();
         if(sourceRecords[0]==1&&single[0]!=null)return FameSession.pinnedSnapshot(single[0],revision,session,storedDates[0],storedDates[1]);
         FameSession result=FameSession.archiveProjection("Pinned saved session · "+session,revision,session,sourceRecords[0]);
         result.getCharacterClassNames().putAll(names);result.getCharacterMapFameData().putAll(maps.get(0));
         dated.forEach((id,points)->result.getCharacterFameData().put(id,new ArrayList<>(points.values())));
-        undated.forEach((id,points)->result.getCharacterFameData().computeIfAbsent(id,key->new ArrayList<>()).addAll(points));return result;
+        undated.forEach((id,points)->result.getCharacterFameData().computeIfAbsent(id,key->new ArrayList<>()).addAll(points));
+        // Only journal samples that carried an exact visit are associated; equal-time ties keep the journal/checkpoint that won the point.
+        associations.forEach((id,visits)->visits.forEach((time,visit)->{TreeMap<Long,Fame> points=dated.get(id);if(time<=0||points!=null&&points.containsKey(time))result.addSampleVisit(id,visit);}));
+        return result;
     }
     private static long storedTime(JsonObject snapshot,String field){return snapshot.has(field)&&!snapshot.get(field).isJsonNull()?snapshot.get(field).getAsLong():0;}
     private static void graphPoint(Map<Integer,TreeMap<Long,Fame>> dated,Map<Integer,List<Fame>> undated,int character,Fame sample,int[] count)throws IOException{
