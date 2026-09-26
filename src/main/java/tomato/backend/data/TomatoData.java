@@ -270,6 +270,11 @@ public class TomatoData {
     public EncounterContext currentEncounterContext() {
         return encounterEnteredAt <= 0 ? null : new EncounterContext(encounterVisit, encounterLocalObjectId(), encounterEnteredAt);
     }
+    /** New observations require the entry visit to still be active, including collection state. */
+    public VisitRef currentEvidenceVisit() {
+        VisitRef active = map == null ? null : visitSource.apply(map);
+        return java.util.Objects.equals(active, encounterVisit) ? active : null;
+    }
 
     /** The verified local object ID for the current encounter, or null when absent or ambiguous. */
     private Integer encounterLocalObjectId() {
@@ -521,7 +526,8 @@ public class TomatoData {
                     }
 
                     tomato.bridge.BridgeService.getInstance().receive(this, map, bag, player, timePc);
-                    LootGUI.update(map, bag, mob, player, timePc);
+                    LootGUI.update(map, bag, mob, player, timePc,
+                        tomato.gui.stats.DropContext.capture(map, player, timePc, currentEvidenceVisit()));
                 }
 
                 // Finish tick (decrement windows and reset if necessary)

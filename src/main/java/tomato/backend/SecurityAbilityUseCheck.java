@@ -65,7 +65,7 @@ public class SecurityAbilityUseCheck {
                         previousMana.statValue <=
                         sd.statValue
                     ) {
-                        publish(entity, ability.statValue, previousMana.statValue, sd.statValue, "Stasis candidate",
+                        publish(entity, ability.statValue, previousMana.statValue, sd.statValue, "stasis",
                             "Orb duration candidate followed by non-decreasing MP; not proof of a successful cast.");
                     }
                 }
@@ -97,7 +97,7 @@ public class SecurityAbilityUseCheck {
                         previousMana.statValue <=
                         sd.statValue
                     ) {
-                        publish(entity, ability.statValue, previousMana.statValue, sd.statValue, "Decoy candidate",
+                        publish(entity, ability.statValue, previousMana.statValue, sd.statValue, "decoy",
                             "Decoy timing candidate followed by non-decreasing MP; attribution may be ambiguous.");
                     }
                 }

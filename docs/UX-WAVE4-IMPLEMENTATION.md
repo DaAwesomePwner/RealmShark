@@ -1,14 +1,14 @@
 # Wave 4 implementation plan
 
 Prepared 2026-09-26 against main `dfceefb9ab87dd4d37a2429167d740b7ab0a33ee`.
-Status: planning only; no production changes or new validation runs. Wave 3 PR #14
+Status: implementation in progress; recommendations approved by the user on 2026-09-26. Wave 3 PR #14
 is merged; main CI `36245882529` passed. Its tracked checkpoint is a pre-merge
 snapshot; the live milestone in issue #9 and local checkpoint supersede that status.
 
 This plan reconciles `UX-WAVE4-CONTRACTS.md` with merged code. The roadmap remains
-the acceptance source. Recommendations below are proposed defaults, not new user
-decisions. Wave 4 remains one branch/PR, `feat/ux-wave-4-planning`, with bounded
-internal packages. Do not begin feature implementation as part of this planning task.
+the acceptance source. The recommended defaults below are approved: optional manual
+stock/reservations, session-only ability evidence and verified drop context. Wave 4
+remains one branch/PR, `feat/ux-wave-4-planning`, with bounded internal packages.
 
 ## Outcome and coverage
 
@@ -27,7 +27,7 @@ Captured observations, inferred evidence and manual quantities remain distinguis
 | UX-08 | Search settings and existing actions | Keyboard navigation to real controls; accurate persistence labels |
 | UX-07 | Final cross-module usability audit | Full values, focus, Back, compact/scaled and empty/error states |
 
-## Decisions to settle
+## Approved decisions
 
 | Decision | Recommended default | Alternative and consequence |
 | --- | --- | --- |
@@ -273,5 +273,5 @@ allowlist. Shared planning interfaces are frozen before workers add owned reduce
 Update `.omc/ux/checkpoint.json` after each package/check/review/commit/PR/merge and
 before long operations. Publish sanitized milestones through the approved execution
 workflow, commit the coverage ledger with the wave, and retain exact evidence SHAs.
-Planning deliverable is this file; feature implementation and external publication
-have not occurred in this task.
+Current execution state and exact validation evidence are recorded in the checkpoint
+and Wave 4 validation record; this plan is not itself a completion claim.
