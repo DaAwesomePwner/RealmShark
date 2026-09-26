@@ -33,6 +33,11 @@ public class NotificationsConsistencyTest {
         String[] states = {"", "Saved short.wav. Use Test to hear it.", "Saved " + filename + ". Use Test to hear it.",
             "Sound unchanged: could not open " + filename + "\nCheck the selected folder.\nこんにちは ★ e\u0301 😀",
             "Partial: the saved sound is unavailable.\n" + filename + "\nOther alert settings are retained."};
+        // Populate the app-global decision history so the Recent decisions table (and its scroll bar) is
+        // exercised deterministically, independent of which tests ran earlier in this JVM.
+        tomato.realmshark.AlertDecisions.INSTANCE.clear();
+        for (int i = 0; i < 40; i++) tomato.realmshark.AlertDecisions.INSTANCE.record(
+            new tomato.realmshark.AlertDecisions.Entry(tomato.realmshark.AlertDecisions.Source.CHAT).subject("Synthetic message " + i).explain("Matched"));
         SwingUtilities.invokeAndWait(() -> {
             theme(new VioletTheme(), 13); ui[0] = new NotificationsGUI();
             JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
@@ -165,6 +170,8 @@ public class NotificationsConsistencyTest {
     private static void assertContentReachable(Container root) {
         for (Component child : root.getComponents()) {
             if (!child.isVisible()) continue;
+            // Scroll bars are viewport chrome, not page actions; FlatLaf sizes their hidden arrow buttons to 0 height.
+            if (child instanceof JScrollBar) continue;
             if (child instanceof JTextArea && !((JTextArea) child).isEditable()) assertWrappingFits((JTextArea) child);
             else if (child instanceof AbstractButton && child.isEnabled()) {
                 AbstractButton button = (AbstractButton) child;
@@ -193,7 +200,7 @@ public class NotificationsConsistencyTest {
             JComponent view = (JComponent) ((JViewport) parent).getView();
             view.scrollRectToVisible(SwingUtilities.convertRectangle(component, region, view));
         }
-        assertTrue("Scroll-reachable " + component.getName() + ": " + region + " in " + component.getVisibleRect(), component.getVisibleRect().contains(region));
+        assertTrue("Scroll-reachable " + component.getClass().getSimpleName() + " " + component.getName() + ": " + region + " in " + component.getVisibleRect(), component.getVisibleRect().contains(region));
     }
     private static void settle(Container root) throws Exception {
         for (int turn = 0; turn < 10; turn++) SwingUtilities.invokeAndWait(() -> layoutTree(root));

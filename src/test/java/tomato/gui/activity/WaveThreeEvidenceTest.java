@@ -147,7 +147,7 @@ public class WaveThreeEvidenceTest {
                     reveal(detail);
                     String text = detail.getText();
                     assertTrue(text, text.contains("Linked visit unavailable") && text.contains("same dungeon name"));
-                    assertShows(shell, "Back to Runs");
+                    assertShows(shell, "Back to previous view"); // Runs -> Runs: same page, so the label names the prior view.
                 });
             } finally { run(() -> { runs.close(); timeline.close(); evidence.closeWindow(); }); }
         }
