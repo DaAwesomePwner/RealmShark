@@ -165,7 +165,7 @@ public class LootLogTest {
                 StatData item = new StatData(); item.statValue = 999991; bag.stat.set(StatType.INVENTORY_0_STAT, item);
                 AtomicBoolean alerted = new AtomicBoolean();
                 LootGUI.lootSharing(false);
-                view.notifyItems(bag, () -> alerted.set(true), () -> fail("Preview cannot share"));
+                view.notifyItems(bag, decision -> alerted.set(true), () -> fail("Preview cannot share"));
                 view.refreshDeliveryStatus();
                 assertTrue(alerted.get());
                 assertTrue(findStatus(view).getAccessibleContext().getAccessibleDescription().contains("Preview — sending disabled"));
