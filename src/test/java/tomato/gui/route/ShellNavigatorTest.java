@@ -138,6 +138,26 @@ public class ShellNavigatorTest {
         });
     }
 
+    @Test public void backTokensIdentifyEntriesSoStaleControlsCannotPopALaterOrigin() throws Exception {
+        edt(() -> {
+            Pages pages = new Pages();
+            ShellNavigator navigator = pages.navigator(5);
+            navigator.register(new Fake(Destination.RUNS, pages.log)); navigator.register(new Fake(Destination.LOOT, pages.log));
+            assertEquals(0, navigator.backToken()); assertEquals(0, Navigator.NONE.nextBackToken());
+            long expected = navigator.nextBackToken();
+            pages.selected = 10;
+            assertTrue(navigator.open(Route.to(Destination.LOOT)));
+            assertEquals(expected, navigator.backToken());
+            assertTrue(navigator.back());
+            assertTrue(navigator.open(Route.to(Destination.LOOT))); // Same depth as before, different entry.
+            assertEquals(1, navigator.depth());
+            assertNotEquals("A later entry at the same depth has a new token", expected, navigator.backToken());
+            assertFalse("A rejected route pushes nothing", navigator.open(Route.to(Destination.TIMELINE)));
+            assertEquals(1, navigator.depth());
+            return null;
+        });
+    }
+
     static final class Pages {
         int selected;
         final List<String> log = new ArrayList<>();

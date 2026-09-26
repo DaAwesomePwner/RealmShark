@@ -254,6 +254,10 @@ public final class NotificationsGUI extends JPanel {
         focusBack.setName("sound-dungeon-focus-back"); focusClear.setName("sound-dungeon-focus-done");
         focusBack.addActionListener(e -> { Runnable back = focusReturn; clearFocus(); if (back != null) back.run(); });
         focusClear.addActionListener(e -> clearFocus());
+        // A handoff focus belongs to the visit that opened it: leaving the page ends it and restores the filters.
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && !isShowing() && focusBanner.isVisible()) clearFocus();
+        });
         JPanel focusActions = ContentStyle.controls(); focusActions.add(focusBack); focusActions.add(focusClear);
         focusBanner.add(focusText); focusBanner.add(focusActions, BorderLayout.SOUTH);
         focusBanner.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 3, 0, 0, ContentStyle.color("violet")), BorderFactory.createEmptyBorder(2, 6, 2, 2)));

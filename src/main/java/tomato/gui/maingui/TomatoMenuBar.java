@@ -704,47 +704,47 @@ public class TomatoMenuBar implements ActionListener {
             boolean b = chatPingGuild.isSelected();
             PropertiesManager.setProperties("chatPingGuild", b ? "true" : "false");
             Sound.guild.setEnabled(b);
-            if (b) Sound.guild.play();
+            if (b) Sound.guild.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == whiteBagSound) { // white bag sound
             boolean b = whiteBagSound.isSelected();
             PropertiesManager.setProperties("whiteBagSound", b ? "true" : "false");
             Sound.whitebag.setEnabled(b);
-            if (b) Sound.whitebag.play();
+            if (b) Sound.whitebag.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == chatPingParty) { // sound chat ping party
             boolean b = chatPingParty.isSelected();
             PropertiesManager.setProperties("chatPingParty", b ? "true" : "false");
             Sound.party.setEnabled(b);
-            if (b) Sound.party.play();
+            if (b) Sound.party.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == orangeBagSound) { // orange bag sound
             boolean b = orangeBagSound.isSelected();
             PropertiesManager.setProperties("orangeBagSound", b ? "true" : "false");
             Sound.orangebag.setEnabled(b);
-            if (b) Sound.orangebag.play();
+            if (b) Sound.orangebag.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == redBagSound) { // red bag sound
             boolean b = redBagSound.isSelected();
             PropertiesManager.setProperties("redBagSound", b ? "true" : "false");
             Sound.redbag.setEnabled(b);
-            if (b) Sound.redbag.play();
+            if (b) Sound.redbag.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == goldBagSound) { // gold bag sound
             boolean b = goldBagSound.isSelected();
             PropertiesManager.setProperties("goldBagSound", b ? "true" : "false");
             Sound.goldbag.setEnabled(b);
-            if (b) Sound.goldbag.play();
+            if (b) Sound.goldbag.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == eggBagSound) { // egg bag sound
             boolean b = eggBagSound.isSelected();
             PropertiesManager.setProperties("eggBagSound", b ? "true" : "false");
             Sound.eggbag.setEnabled(b);
-            if (b) Sound.eggbag.play();
+            if (b) Sound.eggbag.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == blueBagSound) { // blue bag sound
             boolean b = blueBagSound.isSelected();
             PropertiesManager.setProperties("blueBagSound", b ? "true" : "false");
             Sound.bluebag.setEnabled(b);
-            if (b) Sound.bluebag.play();
+            if (b) Sound.bluebag.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == tradePing) { // trade sound
             boolean b = tradePing.isSelected();
             PropertiesManager.setProperties("tradePing", b ? "true" : "false");
             Sound.trade.setEnabled(b);
-            if (b) Sound.trade.play();
+            if (b) Sound.trade.preview(null); // Confirmation only: no alert decision is recorded.
         } else if (e.getSource() == clearChat) { // clears the text chat
             ChatGUI.clearTextAreaChat();
         } else if (e.getSource() == borders) { // Removes the boarder of the window

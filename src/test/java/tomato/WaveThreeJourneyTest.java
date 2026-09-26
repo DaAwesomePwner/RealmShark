@@ -201,6 +201,67 @@ public class WaveThreeJourneyTest {
         }
     }
 
+    @Test public void staleKeyPopFocusBackNeverPopsALaterNavigationsOrigin() throws Exception {
+        VisitRef second = new VisitRef(store.currentId(), V2);
+        tomato.gui.notifications.NotificationsGUI notifications = edt(() -> find(shell, tomato.gui.notifications.NotificationsGUI.class));
+        JTextField search = edt(() -> named(notifications, JTextField.class, "sound-dungeon-search"));
+        edt(() -> { search.setText("Shat"); shell.select(1); return null; });
+        assertTrue(open(Route.to(Destination.NOTIFICATIONS).withPayload(tomato.gui.notifications.NotificationFocus.dungeon("Lost Halls"))));
+        edt(() -> {
+            assertEquals(13, shell.getSelectedPage());
+            assertEquals("Lost Halls", search.getText());
+            assertTrue(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
+            assertTrue(Navigator.current().back()); // The user leaves with the shell Back, not the banner.
+            assertEquals(1, shell.getSelectedPage());
+            return null;
+        });
+        ArchiveWorkspace<?, ?, ?> runs = workspace("runs");
+        ViewState<?, ?> origin = reviewQueue(runs);
+        assertTrue(open(Route.to(Destination.LOOT).withVisit(second)));
+        edt(() -> {
+            assertEquals(8, shell.getSelectedPage());
+            shell.select(13); // Revisit Notifications from the sidebar; the old banner may still be up.
+            JButton stale = named(notifications, JButton.class, "sound-dungeon-focus-back");
+            if (named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible()) stale.doClick();
+            assertEquals("The stale banner Back did not navigate", 13, shell.getSelectedPage());
+            assertTrue("The Runs -> Loot origin is still available", Navigator.current().canGoBack());
+            assertFalse(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
+            assertEquals("Pre-focus filter restored", "Shat", search.getText());
+            return null;
+        });
+        backTo(runs, origin, 10);
+    }
+
+    @Test public void leavingTheNotificationsPageEndsTheHandoffFocusAndRestoresFilters() throws Exception {
+        JFrame frame = edt(() -> {
+            tomato.gui.notifications.NotificationsGUI page = new tomato.gui.notifications.NotificationsGUI();
+            JPanel cards = new JPanel(new CardLayout()); cards.add(page, "notifications"); cards.add(new JPanel(), "other");
+            JFrame window = new JFrame("Notifications focus"); window.setContentPane(cards); window.setSize(900, 600); window.setVisible(true);
+            named(page, JTextField.class, "sound-dungeon-search").setText("Shat");
+            assertTrue(page.focusDungeon("Lost Halls", () -> fail("Leaving the page must not navigate")));
+            return window;
+        });
+        try {
+            edt(() -> {
+                JPanel cards = (JPanel) frame.getContentPane();
+                tomato.gui.notifications.NotificationsGUI page = find(cards, tomato.gui.notifications.NotificationsGUI.class);
+                assertTrue(page.isShowing());
+                ((CardLayout) cards.getLayout()).show(cards, "other");
+                assertFalse(named(page, JPanel.class, "sound-dungeon-focus-banner").isVisible());
+                assertEquals("Shat", named(page, JTextField.class, "sound-dungeon-search").getText());
+                return null;
+            });
+        } finally { edt(() -> { frame.dispose(); return null; }); }
+    }
+
+    private static <T> T find(Container root, Class<T> type) {
+        for (Component child : root.getComponents()) {
+            if (type.isInstance(child)) return type.cast(child);
+            if (child instanceof Container) { T found = find((Container) child, type); if (found != null) return found; }
+        }
+        return null;
+    }
+
     /** Origin review queue: saved Runs in the current session with the third row selected. */
     private ViewState<?, ?> reviewQueue(ArchiveWorkspace<?, ?, ?> runs) throws Exception {
         edt(() -> { shell.select(10); runs.showSaved(); return null; });
