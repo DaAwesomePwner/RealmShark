@@ -45,4 +45,22 @@ only in the serialized desktop lane. Planning controls reveal on focus and long 
 text reveals the keyboard caret. The offscreen method passed with the 16 behavioral
 checks; native/scaled execution is still pending at this package handoff.
 
+## Native and scaled follow-up
+
+Standard, 150% and 200% runs each passed 9 checks: seven existing
+`QuestConsistencyTest` cases and both `QuestPlanEvidenceTest` cases. All XML reports
+show zero failures, errors and skips; both standard and scaled Gradle runs exited 0.
+The first native run found and fixed a partial button-height focus reveal and updated
+the older missing-array assertion to the new unknown-state contract. Final fresh
+native stock/error and compact populated/stale screenshots were inspected at all
+three scales. Controls and text are reachable by scrolling and keyboard; table status
+uses horizontal scrolling, with full selected values in the wrapping details.
+Unfocused row selection remains subtle in the shared theme and is recorded for the
+coordinator's final cross-module audit, rather than claimed as a contrast pass.
+
+Reports: `build/w4-quests-native/test-results/test` and
+`build/w4-quests-scaled/test-results/testUi150`, `testUi200`. Screenshots live below
+the corresponding `ui-test`, `ui-Ui150`, `ui-Ui200` directories in
+`screenshots/wave4/quests`. The native runs were serialized with the other lanes.
+
 No shared store, checkpoint, shell routing or producer files were modified in this lane.

@@ -248,7 +248,8 @@ public final class QuestPlanPanel extends JPanel {
             c.addFocusListener(new java.awt.event.FocusAdapter() {
                 @Override public void focusGained(java.awt.event.FocusEvent e) {
                     if (c instanceof JTable) ContentStyle.reveal(c, ((JTable)c).getCellRect(Math.max(0, ((JTable)c).getSelectedRow()), 0, true));
-                    else ContentStyle.reveal(c, new Rectangle(0, 0, c.getWidth(), Math.min(c.getHeight(), c.getFontMetrics(c.getFont()).getHeight() + 12)));
+                    else ContentStyle.reveal(c, new Rectangle(0, 0, c.getWidth(), c instanceof JTextArea
+                        ? Math.min(c.getHeight(), c.getFontMetrics(c.getFont()).getHeight() + 12) : c.getHeight()));
                 }
             });
             if (c instanceof JTextArea) ((JTextArea)c).addCaretListener(e -> {

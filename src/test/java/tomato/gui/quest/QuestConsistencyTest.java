@@ -174,8 +174,8 @@ public class QuestConsistencyTest {
             });
             settle(shell);
             SwingUtilities.invokeAndWait(() -> {
-                assertEquals(1, table().getRowCount()); assertEquals(0, table().getValueAt(0, 4));
-                assertTrue(text(quest).contains("No items listed by the server."));
+                assertEquals(1, table().getRowCount()); assertNull(table().getValueAt(0, 4));
+                assertTrue(text(quest).contains("Not captured; requirements/rewards unknown."));
                 assertFalse(text(quest).contains(DESCRIPTION)); assertFalse(text(quest).contains(EXPIRATION));
                 assertFalse(text(quest).contains("CHOOSE ONE"));
                 assertWrappedText(quest, true); assertUsableViewports();
