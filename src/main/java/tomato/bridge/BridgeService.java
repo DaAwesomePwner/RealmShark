@@ -40,6 +40,8 @@ public final class BridgeService implements AutoCloseable {
         private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload){this(id,time,drop,status,detail,payload,status+": "+detail);}
         private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload,String localChoice){this.id=id;this.time=time;this.drop=drop;this.status=status;this.detail=detail;this.payload=payload;this.localChoice=localChoice;}
         Review with(String status,String detail){return new Review(id,time,drop,status,detail,payload,localChoice);}
+        /** Detached review restored from a saved journal (BridgeJournal); never queued or sent. */
+        static Review restored(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload,String localChoice){return new Review(id,time,drop,status,detail,payload,localChoice);}
         public Outcome outcome(){return Outcome.of(status);}
         public String nextStep(){
             if("Uncertain".equals(status))return "Check the bot's log before resubmitting; delivery is uncertain and retries may duplicate loot.";
@@ -124,6 +126,7 @@ public final class BridgeService implements AutoCloseable {
     }
     BridgeService(Path settings,boolean preview,Transport transport,int queueCapacity,BridgeStorage storage) {
         this.settings=settings;this.preview=preview;this.transport=transport;this.storage=storage;
+        storage.serviceSession=UUID.randomUUID().toString();
         worker=worker("realmshark-guild-bridge",queueCapacity);
         configurationWorker=worker("realmshark-bridge-configuration",CONFIGURATION_CAPACITY);
         configurationWorker.execute(this::initialize);

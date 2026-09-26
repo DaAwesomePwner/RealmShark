@@ -34,6 +34,13 @@ public final class BridgeReviewGUI extends JPanel {
     private final JTabbedPane tabs=new JTabbedPane();
     private final JButton save=new JButton("Save settings"),export=new JButton("Export review CSV"),exportLogs=new JButton("Export logs"),revert=new JButton("Revert to active");
     private final JButton alertDraft=new JButton("Item alert from this drop…");
+    private final Rows savedModel=new Rows("Time (UTC)","Item","Outcome","Delivery status","Character","Dungeon","Session","Journal");
+    private final JTable saved=new JTable(savedModel);
+    private final JTextArea savedSummary=ContentStyle.wrappingText("No journal opened.",2),savedProblems=ContentStyle.wrappingText(""),savedDetails=note("Select a saved record to read its historical outcome.");
+    private final JButton openConfigured=new JButton("Open configured review log"),openFile=new JButton("Open journal file…"),exportSaved=new JButton("Export saved review CSV");
+    private List<BridgeJournal.Entry> savedEntries=Collections.emptyList();
+    private BridgeJournal.Result savedResult;
+    private long savedRequest;
     /** Opens a detached alert draft; replaced by tests. The Runnable restores the source row when the editor closes. */
     private java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft,Runnable> draftOpener=tomato.gui.maingui.AlertRuleEditor::openDraft;
     private final JTextArea activeSummary=ContentStyle.wrappingText(""),draftState=ContentStyle.wrappingText(""),validation=ContentStyle.wrappingText(""),confirmation=ContentStyle.wrappingText(""),saveResult=ContentStyle.wrappingText("");
@@ -93,7 +100,7 @@ public final class BridgeReviewGUI extends JPanel {
         JScrollPane logDetailScroll=new JScrollPane(logDetails);logDetailScroll.setMinimumSize(new Dimension(0,90));logDetailScroll.setPreferredSize(new Dimension(700,120));
         JSplitPane logSplit=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(logs,3),logDetailScroll);logSplit.setResizeWeight(.75);logSplit.setBorder(null);logPage.add(logSplit);
         logPage.add(note("Latest 500 diagnostic entries. Tokens and raw server responses are excluded. Search is shared with Review. No automatic retry: the bot cannot deduplicate a repeated submission."),BorderLayout.SOUTH);
-        tabs.addTab("Logs",logPage);tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);add(tabs);feedback.setName("bridge-feedback");feedback.setFont(ContentStyle.metadata(ContentStyle.body()));add(feedback,BorderLayout.SOUTH);
+        tabs.addTab("Logs",logPage);tabs.addTab("Saved review",savedReview());tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);add(tabs);feedback.setName("bridge-feedback");feedback.setFont(ContentStyle.metadata(ContentStyle.body()));add(feedback,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
         status.addActionListener(e->filter());level.addActionListener(e->filter());
         outcome.addActionListener(e->filter());character.addActionListener(e->{if(!rebuilding)filter();});dungeon.addActionListener(e->{if(!rebuilding)filter();});enchantFilter.addActionListener(e->filter());
@@ -106,6 +113,62 @@ public final class BridgeReviewGUI extends JPanel {
     }
     @Override public void addNotify(){super.addNotify();timer.start();}
     @Override public void removeNotify(){timer.stop();super.removeNotify();}
+    /** BRIDGE-4: historical evidence from local journals; no control here can send, retry or configure. */
+    private JComponent savedReview(){
+        JPanel page=new JPanel(new BorderLayout(0,8));page.setName("bridge-saved-panel");
+        JTextArea explain=note("Saved review reopens local review journals as historical evidence. It never sends, retries or changes Bridge settings. "+BridgeJournal.UNRECOVERABLE);
+        explain.setName("bridge-saved-note");
+        openConfigured.setName("bridge-saved-open-configured");openFile.setName("bridge-saved-open-file");exportSaved.setName("bridge-saved-export");exportSaved.setEnabled(false);
+        saved.setName("bridge-saved-table");savedSummary.setName("bridge-saved-summary");savedProblems.setName("bridge-saved-problems");savedDetails.setName("bridge-saved-details");
+        savedProblems.setVisible(false);
+        setupTable(saved,ContentStyle.Density.COMFORTABLE);saved.getAccessibleContext().setAccessibleName("Saved review records");
+        savedDetails.setOpaque(true);savedDetails.setMargin(new Insets(6,8,6,8));savedDetails.setFont(ContentStyle.report(ContentStyle.body()));savedDetails.getAccessibleContext().setAccessibleName("Selected saved record details");
+        JPanel tools=ContentStyle.controls();tools.add(openConfigured);tools.add(openFile);tools.add(exportSaved);
+        JPanel top=new JPanel(new BorderLayout(0,6));top.add(explain,BorderLayout.NORTH);top.add(tools);
+        JPanel status=new JPanel(new BorderLayout(0,4));status.add(savedSummary,BorderLayout.NORTH);status.add(savedProblems);top.add(status,BorderLayout.SOUTH);
+        JScrollPane detailScroll=new JScrollPane(savedDetails);detailScroll.setMinimumSize(new Dimension(0,90));detailScroll.setPreferredSize(new Dimension(700,150));
+        JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(saved,3),detailScroll);split.setResizeWeight(.68);split.setBorder(null);
+        page.add(top,BorderLayout.NORTH);page.add(split);
+        openConfigured.addActionListener(e->{List<Path> paths=BridgeJournal.configured(bridge.config());
+            if(paths.isEmpty()){savedSummary.setText("No review log is set in the active settings. Choose a journal file instead.");return;}openJournals(paths);});
+        openFile.addActionListener(e->{JFileChooser chooser=new JFileChooser();chooser.setDialogTitle("Open saved Bridge review journals");chooser.setMultiSelectionEnabled(true);
+            if(chooser.showOpenDialog(this)!=JFileChooser.APPROVE_OPTION)return;List<Path> paths=new ArrayList<>();for(java.io.File f:chooser.getSelectedFiles())paths.add(f.toPath());
+            if(paths.isEmpty()&&chooser.getSelectedFile()!=null)paths.add(chooser.getSelectedFile().toPath());openJournals(paths);});
+        exportSaved.addActionListener(e->chooseExport("bridge-saved-review.csv",savedCsv()));
+        saved.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting())showSavedDetails();});
+        return page;
+    }
+    /** Reads explicitly chosen journals off the EDT; a newer request replaces an older one. Never calls the service. */
+    public void openJournals(List<Path> journals){
+        long request=++savedRequest;List<Path> paths=new ArrayList<>(journals);savedSummary.setText("Reading "+paths.size()+(paths.size()==1?" journal…":" journals…"));openConfigured.setEnabled(false);openFile.setEnabled(false);
+        new SwingWorker<BridgeJournal.Result,Void>(){
+            protected BridgeJournal.Result doInBackground(){return BridgeJournal.read(paths);}
+            protected void done(){if(request!=savedRequest)return;openConfigured.setEnabled(true);openFile.setEnabled(true);
+                try{showSaved(get());}catch(Exception failure){savedSummary.setText("Could not read the selected journals ("+failure.getClass().getSimpleName()+").");}}
+        }.execute();
+    }
+    private void showSaved(BridgeJournal.Result result){
+        savedResult=result;savedEntries=new ArrayList<>(result.entries);Collections.reverse(savedEntries);savedModel.setRowCount(0);
+        for(BridgeJournal.Entry e:savedEntries){BridgeService.Review r=e.review;savedModel.addRow(new Object[]{r.time,r.drop.item.rawName,r.outcome().toString(),r.status,characterLabel(r),dungeonLabel(r),e.session,e.journal});}
+        savedSummary.setText(result.summary()+". Sources: "+String.join(", ",result.sources)+".");
+        StringBuilder problems=new StringBuilder();for(BridgeJournal.Problem p:result.problems){if(problems.length()>0)problems.append('\n');problems.append(p);}
+        if(result.malformed>result.problems.size())problems.append("\n…and ").append(result.malformed-result.problems.size()).append(" more unreadable lines.");
+        savedProblems.setText(problems.length()==0?"":"Skipped lines:\n"+problems);savedProblems.setVisible(problems.length()>0);
+        exportSaved.setEnabled(!savedEntries.isEmpty());showSavedDetails();
+    }
+    public BridgeJournal.Result savedResult(){return savedResult;}
+    /** Export of the saved rows currently shown, with journal/session identity. */
+    public String savedCsv(){List<BridgeJournal.Entry> shown=new ArrayList<>();for(int i=0;i<saved.getRowCount();i++)shown.add(savedEntries.get(saved.convertRowIndexToModel(i)));return BridgeJournal.csv(shown);}
+    private void showSavedDetails(){
+        int row=saved.getSelectedRow();
+        if(row<0){savedDetails.setText(savedEntries.isEmpty()?"No saved records loaded. "+BridgeJournal.UNRECOVERABLE:"Select a saved record to read its historical outcome.");return;}
+        BridgeJournal.Entry e=savedEntries.get(saved.convertRowIndexToModel(row));BridgeService.Review r=e.review;BridgePayload.Item i=r.drop.item;
+        savedDetails.setText("Saved record (historical; nothing here is sent or retried)\nIdentity: "+e.identity()+" · line "+e.line+"\nFormat: "+(e.legacy?"legacy journal without a session; restarts are inferred when the review counter restarts":"version "+BridgeJournal.VERSION)
+            +(e.appSession==null?"":"\nApp session: "+e.appSession)+"\n\nObservation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot
+            +"\nRarity: "+i.rarity+" | Enchants: "+(i.enchants==null||i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)
+            +"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail);
+        savedDetails.setCaretPosition(0);
+    }
     private JComponent settings() {
         JPanel page=new JPanel(new BorderLayout(0,8));page.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
         JPanel status=new JPanel(new GridLayout(0,1,0,4));
