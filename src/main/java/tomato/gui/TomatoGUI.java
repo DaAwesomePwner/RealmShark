@@ -95,6 +95,9 @@ public class TomatoGUI {
         characterPanel = new CharacterPanelGUI(data);
         statistics = new StatisticsGUI(data);
         questPanel = new QuestGUI(data);
+        java.util.List<String> planningAccounts = new java.util.ArrayList<>();
+        for (tomato.backend.data.CharacterJournal.AccountRecord account : data.characterJournal().accounts()) planningAccounts.add(account.key);
+        questPanel.knownPlanningAccounts(planningAccounts);
         myDmg = new MyInfoGUI(data);
         dpsPanel = new DpsGUI(data);
 
@@ -125,6 +128,8 @@ public class TomatoGUI {
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
+        registerRetainedPage(Destination.CHARACTERS);
+        registerRetainedPage(Destination.QUESTS);
         registerArchive(navigator, Destination.RUNS, runsWorkspace);
         registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerArchive(navigator, Destination.LOOT, lootWorkspace);
@@ -148,6 +153,7 @@ public class TomatoGUI {
         DpsGUI.loadFilterPreset();
         DpsDisplayOptions.loadProfileFilter();
         jMenuBar = menuBar.make();
+        registerSearchControls();
         ContentStyle.refreshFonts(jMenuBar);
         refreshContentFonts();
         return mainPanel;
@@ -283,6 +289,7 @@ public class TomatoGUI {
         // AppHistory's shutdown hook still checkpoints DiscoveryLog before closing SessionStore.
         onEdt(() -> {
             if (navigator != null && Navigator.current() == navigator) Navigator.install(null);
+            tomato.gui.search.ActionRegistry.application().clear();
             closeArchiveWorkspaces(mainPanel);
         });
     }
@@ -405,6 +412,62 @@ public class TomatoGUI {
      */
     public static JFrame getFrame() {
         return frame;
+    }
+    private void registerSearchControls() {
+        tomato.gui.search.ActionRegistry.application().clear();
+        registerSearch("appearance.font", "Font and text size", "font appearance typography size", "Edit > Font",
+            "App-folder realmShark.properties", () -> menuBar.focusSetting("font"));
+        registerSearch("appearance.theme", "Theme", "appearance dark violet contrast", "Edit > Theme",
+            "App-folder realmShark.properties", () -> menuBar.focusSetting("theme"));
+        registerSearch("capture.controls", "Capture connection controls", "capture start stop connection", "File > Capture",
+            "Capture request preference; the active connection belongs to this app session", () -> menuBar.focusSetting("capture"));
+        registerSearch("sharing.original", "Original loot sharing preference", "sharing opt out privacy", "File > Opt-out Loot Sharing",
+            "App-folder realmShark.properties; guild Bridge settings are separate", () -> menuBar.focusSetting("sharing"));
+        registerSearch("history.location", "History location", "history directory folder storage", "History storage",
+            "Configured realmshark.historyDir or the user-level RealmShark history folder", () -> {
+                JTextArea text = ContentStyle.wrappingText("History folder: " + AppHistory.directory().toAbsolutePath()
+                    + "\nConfigured at startup with realmshark.historyDir; otherwise uses the user-level history folder."
+                    + "\nManual plans: Characters/plans.json in the app folder. These survive history deletion.");
+                text.setEditable(false); text.setColumns(48); text.setRows(6);
+                JOptionPane.showMessageDialog(frame, new JScrollPane(text), "Local storage locations", JOptionPane.INFORMATION_MESSAGE);
+            });
+        registerSearch("notifications.open", "Sound and notifications", "volume mute alerts notification", "Notifications",
+            "Local notification settings; rule editors show their save state", TomatoGUI::openNotifications);
+        registerSearch("alerts.item", "Create or edit item alert", "item alert drop ping", "Notifications > Item rules",
+            "Local typed alert rules; changes require Save in the editor", TomatoGUI::openItemPing);
+        registerSearch("alerts.chat", "Chat message alerts", "chat pm whisper keyword ping", "Notifications > Chat rules",
+            "Local typed alert rules; changes require Save in the editor", TomatoGUI::openChatPingMessage);
+        registerSearch("alerts.enchant", "Enchantment alerts", "enchant alert slots effects", "Notifications > Enchant rules",
+            "Local typed alert rules; changes require Save in the editor", TomatoGUI::openEnchantPing);
+        registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
+            "Bridge settings and journal use their configured local paths", () -> shell.select(12));
+        registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
+            "Characters/plans.json; death notes in Characters/journal.json", () -> navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)));
+        registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Daily Quests",
+            "Characters/plans.json; legacy pins remain in Java Preferences", () -> navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)));
+        shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
+            java.awt.event.InputEvent.CTRL_DOWN_MASK), "find-settings");
+        shell.getActionMap().put("find-settings", new AbstractAction() {
+            public void actionPerformed(java.awt.event.ActionEvent e) { tomato.gui.search.ActionSearchPanel.show(frame); }
+        });
+    }
+    private void registerSearch(String id, String label, String keywords, String location, String persistence, Runnable action) {
+        tomato.gui.search.ActionRegistry.application().register(new tomato.gui.search.ActionDescriptor(id, label, keywords,
+            location, persistence, "Preview retains existing control restrictions; opening search does not save or enable anything.",
+            () -> shell != null, "Workspace is closed", action));
+    }
+    private static void registerRetainedPage(final Destination destination) {
+        navigator.register(new tomato.gui.route.RouteTarget() {
+            public Destination destination() { return destination; }
+            public boolean accepts(tomato.gui.route.Route route) {
+                return route.destination == destination && route.query == null && route.visit == null && route.record == null
+                    && route.recordingId == null && route.payload == null && route.from == null && route.until == null;
+            }
+            // These pages stay mounted; plain navigation does not change their selections, filters or drafts.
+            public Object captureState() { return null; }
+            public void open(tomato.gui.route.Route route) { }
+            public void restoreState(Object state) { }
+        });
     }
 
     /**

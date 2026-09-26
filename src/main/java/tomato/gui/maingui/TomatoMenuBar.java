@@ -44,6 +44,19 @@ public class TomatoMenuBar implements ActionListener {
     public static void togglePacketSniffer() {
         if (sniffer != null && sniffer.isEnabled()) sniffer.doClick();
     }
+    /** Focus existing controls without invoking a toggle or changing a preference. */
+    public void focusSetting(String key) {
+        if (jMenuBar == null) return;
+        JMenu root = "capture".equals(key) || "sharing".equals(key) ? file : edit;
+        JMenuItem item = "font".equals(key) ? fontMenu : "theme".equals(key) ? theme
+            : "sharing".equals(key) ? disableDataSending : sniffer;
+        if (item instanceof JMenu) {
+            JMenu menu = (JMenu)item;
+            MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[]{jMenuBar, root, root.getPopupMenu(), menu, menu.getPopupMenu()});
+        } else {
+            MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[]{jMenuBar, root, root.getPopupMenu(), item});
+        }
+    }
 
     /**
      * Main builder for menus for the Tomato GUI.
@@ -64,6 +77,11 @@ public class TomatoMenuBar implements ActionListener {
         JMenu filterBags = new JMenu("Filter Loot");
 
         edit = new JMenu("Edit");
+        JMenuItem find = new JMenuItem("Find settings and actions…");
+        find.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        find.addActionListener(e -> tomato.gui.search.ActionSearchPanel.show(TomatoGUI.getFrame()));
+        edit.add(find);
+        edit.addSeparator();
         edit.add(chat);
         edit.add(sound);
         edit.add(theme);

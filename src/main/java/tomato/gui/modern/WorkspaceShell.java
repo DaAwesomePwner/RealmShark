@@ -389,8 +389,10 @@ public final class WorkspaceShell extends JPanel {
     /** Shell page for a routed destination, or {@link ShellNavigator#NO_PAGE} for dialog destinations. */
     public static int pageOf(Destination destination) {
         switch (destination) {
-            case INSPECT: return 2;
-            case STATISTICS: return 4;
+              case INSPECT: return 2;
+              case CHARACTERS: return 3;
+              case STATISTICS: return 4;
+              case QUESTS: return 5;
             case MY_INFO: return 6;
             case ENCOUNTER: case RESOURCES: return 7;
             case LOOT: return 8;

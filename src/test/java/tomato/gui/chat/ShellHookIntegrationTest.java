@@ -97,6 +97,24 @@ public class ShellHookIntegrationTest {
         data.captureStopped();
         SwingUtilities.invokeAndWait(() -> assertTrue(named(shell, "quest-capture-context", JTextArea.class).getText().contains("Stale / unverified")));
     }
+    @Test public void planningSearchUsesRealRoutesAndDiscoveryDoesNotToggleCapture() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            assertFalse(registry.search("font").isEmpty());
+            assertFalse(registry.search("history location").isEmpty());
+            assertFalse(registry.search("item alert").isEmpty());
+            boolean capture = Tomato.isCaptureRunning();
+            shell.select(0);
+            assertEquals(1, registry.search("plans.characters").size());
+            assertEquals(0, shell.getSelectedPage());
+            assertTrue(registry.search("plans.characters").get(0).open());
+            assertEquals(3, shell.getSelectedPage());
+            assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(registry.search("plans.quests").get(0).open()); assertEquals(5, shell.getSelectedPage());
+            assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals(0, shell.getSelectedPage());
+            assertEquals(capture, Tomato.isCaptureRunning());
+        });
+    }
 
     @Test public void shellQueriedHistorySharesTheLiveChatPolicy() throws Exception {
         ChatMessage message = new ChatMessage(LocalDateTime.of(2026, 9, 1, 12, 0), ChatMessage.Channel.WORLD,
