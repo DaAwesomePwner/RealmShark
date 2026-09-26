@@ -231,3 +231,96 @@ Not run: full suite, `shadowJar`, UI150/UI200, screenshots.
   the next MAPINFO carry none.
 - Transitions and retention counters are in memory and cover the current launch only. Only the
   intervals are persisted.
+
+## Round 3: final integration (base `3be61d4`)
+
+Commits: `a5a8c76` (live DPS encounter link), `d64de4c` (export manifest coverage), `7bbd8a4`
+(loot unavailable-state fix), `68468b5` (journey tests), plus this doc update. Lane files were
+edited only where a test proved a defect (`gui/stats/LootRouteTarget`, `LootArchiveClient`,
+`LootDrillDownTest`) or where the requested hook required it (`gui/dps/DpsGUI`, `EncounterLink`).
+
+### Production-composition journeys (`tomato.WaveThreeJourneyTest`, 4 tests)
+Each test builds the real `TomatoGUI.createWorkspace()` in preview mode with a synthetic writable
+`SessionStore`. The tmpdir is isolated and every `ux.archive.*` workspace state is reset and restored
+afterwards. Fixtures:
+- two consecutive "Lost Halls" visits plus six others;
+- per-visit timeline events, including a first-visit event inside the second visit's ±30 s window
+  and a second-visit event at the exclusive upper bound;
+- one loot bag per visit;
+- a linked `DpsData` for visit 2 with a verified local object.
+
+1. **Same-name visits.** The visit-2 routes for Runs, Timeline (±30 s), Inspect, Loot and Resources
+   each show only visit 2's rows. Timeline shows `t2-a` and `t2-b` only. After every hop, Back returns
+   to Runs with `ViewState` JSON equal to the origin and the same selected row.
+2. **Absent session.** A `VisitRef` whose session is absent opens an explicit unavailable state:
+   "Linked visit unavailable … same dungeon name" in Runs, 0 matches in Timeline, and 0 matches plus
+   "Linked run unavailable here" in Loot.
+3. **Route shapes.** `canOpen` is true for every route shape the lanes emit:
+   - loot/fame Open recorded run;
+   - the five workbench visit routes;
+   - workbench ±30 s;
+   - the Resources window to Timeline;
+   - DPS Open run/Timeline/Resources;
+   - My Info recorded local row;
+   - Key pops to Notifications;
+   - alert draft;
+   - Logging issues.
+
+   An unverified local object or an unknown recording is rejected.
+4. **Stale loads.** For Runs, Loot and Timeline destinations, open immediately followed by Back in
+   the same EDT turn leaves the Runs state, match count and page equal to the origin after any stale
+   completion.
+
+### Defect found and fixed
+- **Loot route to an absent session never displayed a result.** `LootRouteTarget` scoped the query to
+  `route.visit.sessionId`. For an imported, deleted or unsaved session the pinned read failed, and the
+  workspace stayed without a result. It now uses All Sessions plus the exact session+visit facet
+  (`Facets.visit` already checks both), matching `ActivityRoutes.visitQuery`. The drill-down summary
+  adds "Linked run unavailable here … No other run is substituted." `LootDrillDownTest` had asserted
+  the old scope; it now asserts `SessionStore.ALL`.
+- No other integration defect was exposed: every other same-name, Back, route-shape and stale-load
+  assertion passed on the first run.
+
+### Live encounter link (lane A request 2)
+- `TomatoData.currentEncounterContext()` runs on the producer thread and returns the in-progress
+  encounter's entry-frozen visit, the local object ID verified so far, and the entry time. It returns
+  null when no map was entered through `setNewRealm`.
+- `DpsSnapshot.context` is copied in `capture`.
+- `EncounterLink.live(EncounterContext)` gives LINKED or UNLINKED with `inProgress = true`:
+  "Linked (live encounter)", or "Unlinked (live encounter)". A null context stays LIVE with the old
+  "shown once saved" text. `DpsGUI.renderData` uses it, so live DPS offers Open run/Timeline/Resources
+  under the same `canOpen` rules. The description notes that the run record is saved periodically and
+  shows as unavailable until it is.
+- Tests: `EncounterIdentityTest.liveSnapshotCarriesTheInProgressEncountersEntryFrozenContext` and
+  `tomato.gui.dps.LiveEncounterLinkTest`.
+
+### Export manifest coverage
+- Archive manifests add `recordingCoverage`: `{session: {module: evidence}}` for every pinned session
+  and every module read. The evidence is the session's declared `ModuleAvailability` (state, reason,
+  intervals, truncated). When nothing is declared, including in legacy sessions, it is
+  `{"state":"UNKNOWN","reason":"No recording evidence for this module in this session; coverage unknown"}`.
+- `coverage` stays a string for older readers and now points to `recordingCoverage`.
+  `ModuleAvailability.valid()` is public.
+- Test: `tomato.history.archive.ExportCoverageManifestTest`.
+
+### Round-3 test results (serialized runner, fresh results directory each run)
+
+| Run | Selectors | Result |
+| --- | --- | --- |
+| Items 2–3 | `EncounterIdentityTest`, `tomato.gui.dps.*`, `tomato.history.*` (includes archive), `RecordedDpsHandoffTest` | 96 tests, 0 failures |
+| First journey run | `WaveThreeJourneyTest` | 4 tests, 1 failure (the loot defect above) |
+| After fix | `WaveThreeJourneyTest`, `tomato.gui.stats.*` | 118 tests, 0 failures |
+| Consolidated | `WaveThreeJourneyTest`, `ShellRouteRegistrationTest`, `SetupWorkspaceTest`, `tomato.gui.route.*`, `tomato.gui.activity.*`, `tomato.gui.dps.*`, `tomato.gui.myinfo.*`, `tomato.gui.stats.*`, `tomato.history.*`, `EncounterIdentityTest`, `DpsDataTest`, `tomato.gui.logging.*` | 304 tests, 0 failures/errors/skipped |
+
+Not run: the full suite, `shadowJar`, UI150/UI200, screenshots. `WaveThreeJourneyTest` was not added to
+the scaling allowlist; it checks routing behaviour, not layout.
+
+### Round-3 limitations
+- The stale-load journey supersedes the destination load within one EDT turn. It shows that no stale
+  completion is applied, but it cannot force the stale read to finish after the restored one;
+  `RouteBackRestoreTest` covers that ordering with a blocked adapter.
+- A live linked encounter's run record appears in saved history only after the 2 s run collector has
+  checkpointed it. Before that, Runs shows its explicit unavailable state.
+- Loot visit routes now scan All Sessions with the exact facet, the same cost profile as Runs.
+- Loot fixtures in the journey test are written in `LootDashboard.Drop`'s JSON shape, because the
+  class and its constructors are package-private.

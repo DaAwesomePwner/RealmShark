@@ -343,7 +343,8 @@ public final class SessionStore implements AutoCloseable {
             for (Interval interval : intervals) if (interval.from <= time && time <= interval.until) return Boolean.TRUE;
             return Boolean.FALSE;
         }
-        boolean valid() {
+        /** Whether this evidence is well formed; malformed evidence is treated as unknown coverage. */
+        public boolean valid() {
             if (schemaVersion != 1 || state == null || reason == null) return false;
             if (intervals != null) for (Interval interval : intervals) if (interval == null || interval.until < interval.from || interval.end == null) return false;
             return true;

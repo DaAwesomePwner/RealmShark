@@ -280,7 +280,7 @@ public class DpsGUI extends JPanel {
         entityHitList = Arrays.stream(entityHitList).filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
         DpsData saved = b ? null : selectedEncounter.data;
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
-        EncounterLink link=b?EncounterLink.live():EncounterLink.of(saved,selectedEncounter.origin!=null);
+        EncounterLink link=b?EncounterLink.live(rendered.context):EncounterLink.of(saved,selectedEncounter.origin!=null);
         displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context,link);
         present(displayed);
     }

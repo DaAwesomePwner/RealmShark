@@ -148,7 +148,7 @@ public class LootDrillDownTest {
         target.open(route);
         Facets result = opened.get(0).facets();
         assertEquals(View.OCCURRENCES, result.view); assertEquals(session, result.visitSession); assertEquals("v", result.visitId);
-        assertNull(result.variant); assertEquals(session, opened.get(0).scope());
+        assertNull(result.variant); assertEquals("Exact facet over all sessions, so a missing session is unavailable, not a read failure", SessionStore.ALL, opened.get(0).scope());
         target.restoreState(origin); assertSame(origin, restored.get(0));
         assertFalse(target.accepts(Route.to(Destination.RUNS).withVisit(new VisitRef(session, "v"))));
         assertFalse(target.accepts(route.withRecording("recording", 7)));

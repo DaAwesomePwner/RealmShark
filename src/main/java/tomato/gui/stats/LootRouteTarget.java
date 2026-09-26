@@ -57,7 +57,9 @@ public final class LootRouteTarget implements RouteTarget {
         if (route.visit != null) {
             Facets f = q.facets(); f.view = View.OCCURRENCES; f.variant = null;
             f.visitSession = route.visit.sessionId; f.visitId = route.visit.visitId; f.validate();
-            q = q.withScope(route.visit.sessionId).withFacets(f);
+            // All Sessions + the exact session/visit facet: an absent (imported, deleted or unsaved) session yields
+            // an explicit zero-match state instead of a failed read of a missing session scope.
+            q = q.withScope(tomato.history.SessionStore.ALL).withFacets(f);
             if (route.from == null && route.until == null) q = q.withBounds(ArchiveQuery.Bounds.all());
         }
         q.facets().validate();
