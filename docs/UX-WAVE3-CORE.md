@@ -223,10 +223,12 @@ Not run: full suite, `shadowJar`, UI150/UI200, screenshots.
   assigned files.
 
 ### Round-2 limitations
-- An open interval is persisted at most every 60 s, so a crash can lose up to a minute of claimed
-  coverage. That time reads as not recorded, which undercounts rather than over-claims.
-- A recording interval is "frames observed while collecting". A gap between frames within one
-  interval is not split.
+- An open interval is persisted at most every 60 s, so a crash can lose up to a minute of real
+  coverage, which then reads as not recorded.
+- Corrected after review: as first shipped, intervals could also over-claim. A capture stop and a
+  later restart without a connection reset produced one interval spanning the unobserved time. The
+  review fixes below close intervals on capture stop, start and transport reopen, and split them after
+  more than 30 s without frames. Gaps shorter than that inside an interval still count as recorded.
 - The fame visit is the active visit when the sample is produced. Samples taken between a boundary and
   the next MAPINFO carry none.
 - Transitions and retention counters are in memory and cover the current launch only. Only the
@@ -324,3 +326,48 @@ the scaling allowlist; it checks routing behaviour, not layout.
 - Loot visit routes now scan All Sessions with the exact facet, the same cost profile as Runs.
 - Loot fixtures in the journey test are written in `LootDashboard.Drop`'s JSON shape, because the
   class and its constructors are package-private.
+
+## Review fixes (base `2ae070c`)
+
+The independent review of the wave head approved it with two should-fix findings. Both are fixed,
+along with the two optional items.
+
+1. **UX-05 over-claimed coverage across a capture stop and restart.**
+   - New `DiscoveryLog` hooks:
+     - `captureStopped()` closes the interval with "Capture stopped" and forgets MAPINFO provenance.
+     - `captureStarted()` closes any interval left open with "Capture restarted".
+     - `captureInterrupted()` closes it with "Capture interrupted or reopened". This runs on the
+       capture transport boundary and deliberately does not end the activity visit.
+   - `CapturePublication` calls them from `started`, `stopRequested` and `boundary`. The collector is
+     injectable through `CapturePublication(TomatoData, DiscoveryLog)` for tests.
+   - Defence in depth: `record()` splits the interval when more than `DiscoveryLog.INTERVAL_GAP_MILLIS`
+     (30 s) passes with no frames. A connected client receives several frames per second.
+   - Tests: `tomato.CaptureCoverageTest` (stop, gap, restart gives two intervals and the gap reads not
+     recorded) and `packets.packetcapture.logger.RecordingGapTest` (silence split plus transport hook).
+2. **A stale Key-pops focus banner Back could pop an unrelated origin.**
+   - `Navigator` has two default methods, `backToken()` and `nextBackToken()`, which return 0 when
+     entries are not tracked. `ShellNavigator` gives every pushed Back entry a unique token.
+   - `AlertRouteTargets.notifications` records the token its open pushes. The banner Back pops only
+     while that entry is still on top; otherwise it only clears the focus. An untracked navigator (0)
+     keeps the old behaviour.
+   - `NotificationsGUI` clears the focus and restores the pre-focus search and Selected-only filter
+     when the page stops showing.
+   - Tests:
+     - `WaveThreeJourneyTest.staleKeyPopFocusBackNeverPopsALaterNavigationsOrigin` runs the reported
+       sequence in the production composition. It fails with the old banner Back and passes with the fix.
+     - `WaveThreeJourneyTest.leavingTheNotificationsPageEndsTheHandoffFocusAndRestoresFilters` uses a
+       real window and a card switch.
+     - `ShellNavigatorTest.backTokensIdentifyEntriesSoStaleControlsCannotPopALaterOrigin`.
+3. **Optional items (both done).**
+   - `LootRouteTarget.forWorkspace` now opens through the atomic restore with a cleared selection and
+     scroll anchor, like the Activity targets.
+   - The menu toggle confirmation sounds in `TomatoMenuBar` use `Sound.preview(null)`. They still honour
+     mute and volume, and no longer record "Alert sound" decisions.
+
+### Review-fix test results
+| Run | Result |
+| --- | --- |
+| `WaveThreeJourneyTest`, `CaptureCoverageTest`, `packets.packetcapture.logger.*`, `tomato.history.*`, `KeyPopNotificationHandoffTest`, `tomato.gui.notifications.*`, `tomato.gui.route.*`, `tomato.gui.stats.*`, `CaptureHookIntegrationTest`, `AssetReadinessRecoveryTest`, `tomato.gui.logging.*`, `ShellRouteRegistrationTest` | 267 tests, 0 failures/errors/skipped |
+| Red check: `staleKeyPopFocusBackNeverPopsALaterNavigationsOrigin` with the old banner Back restored | 1 test, 1 failure, as expected; the fix was then restored |
+
+Not run: the full suite, `shadowJar`, UI150/UI200.
