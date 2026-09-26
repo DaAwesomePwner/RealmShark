@@ -100,8 +100,15 @@ public class FameGraphPinTest {
                 named(viewer, "saved-fame-range", JComboBox.class).setSelectedItem("1 min");
                 assertEquals(2, graph.getScores().size()); assertEquals(Long.valueOf(60000), graph.pinnedStart());
                 assertTrue(delta.getText().contains("not in the shown samples"));
+                // The status line and Session Info describe the plotted range, not the whole session.
+                String ranged = named(viewer, "saved-fame-graph-status", JLabel.class).getText();
+                assertTrue(ranged, ranged.startsWith("2 of 3 saved samples in the last 1 min"));
+                assertTrue(named(viewer, "saved-fame-session-info", JTextArea.class).getText().contains("Graph Samples (plotted in the last 1 min): 2"));
                 named(viewer, "saved-fame-range", JComboBox.class).setSelectedItem("All samples");
                 assertTrue(delta.getText().startsWith("Pinned"));
+                String whole = named(viewer, "saved-fame-graph-status", JLabel.class).getText();
+                assertTrue(whole, whole.startsWith("3 saved samples · Selected character, entire session"));
+                assertTrue(named(viewer, "saved-fame-session-info", JTextArea.class).getText().contains("Graph Samples (all for selected character): 3"));
                 character.setSelectedIndex(1);
                 assertNull(graph.pinnedStart());
                 assertTrue(map.getText(), map.getText().contains("1 saved map visits"));

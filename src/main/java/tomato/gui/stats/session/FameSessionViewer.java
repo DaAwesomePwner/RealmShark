@@ -95,8 +95,9 @@ public class FameSessionViewer extends JFrame {
         range.setName("saved-fame-range"); measure.setName("saved-fame-measure");
         range.getAccessibleContext().setAccessibleName("Range ending at the character's latest saved sample");
         measure.getAccessibleContext().setAccessibleName("Graph measure");
-        range.addActionListener(e -> { if (!updatingFilters) updateGraph(); });
-        measure.addActionListener(e -> { if (!updatingFilters) updateGraph(); });
+        // The status line and Session Info describe the plotted range, so both refresh with the graph.
+        range.addActionListener(e -> { if (!updatingFilters) { updateGraph(); populateSessionInfo(); } });
+        measure.addActionListener(e -> { if (!updatingFilters) { updateGraph(); populateSessionInfo(); } });
         graphControls.add(new JLabel("Range ending at latest sample")); graphControls.add(range); graphControls.add(measure);
         graph.add(graphControls, BorderLayout.NORTH);
         graph.add(graphPanel, BorderLayout.CENTER);
@@ -323,7 +324,7 @@ public class FameSessionViewer extends JFrame {
             .append("Character Rows: ").append(DisplayFormat.formatInteger(characterFameTable.getRowCount())).append("\n")
             .append("Selected Character: ").append(characterSelector.getSelectedItem() == null
                 ? "None" : characterSelector.getSelectedItem()).append("\n")
-            .append(session.chronology(getSelectedCharacterId()).undatedCount()>0?"Graph Samples (dated only for selected character): ":"Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
+            .append(range.getSelectedIndex()>0?"Graph Samples (plotted in the last "+range.getSelectedItem()+"): ":session.chronology(getSelectedCharacterId()).undatedCount()>0?"Graph Samples (dated only for selected character): ":"Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
             .append(mapAssociationText(getSelectedCharacterId())).append("\n")
             .append("Map Visits Shown: ").append(DisplayFormat.formatInteger(mapFameTable.getRowCount())).append(" of ")
             .append(DisplayFormat.formatInteger(mapVisits(getSelectedCharacterId()).size())).append(" for selected character\n")
@@ -343,7 +344,9 @@ public class FameSessionViewer extends JFrame {
         Integer selectedCharId = getSelectedCharacterId();
         if (!java.util.Objects.equals(selectedCharId, graphedCharacter)) { graphPanel.clearPin(); graphedCharacter = selectedCharId; }
         long[] minutes = {0, 1, 5, 15, 30, 60};
-        ArrayList<Fame> samples = GraphPanel.window(fameSamples(selectedCharId), minutes[range.getSelectedIndex()] * 60000);
+        ArrayList<Fame> all = fameSamples(selectedCharId);
+        ArrayList<Fame> samples = GraphPanel.window(all, minutes[range.getSelectedIndex()] * 60000);
+        updateGraphStatus(selectedCharId, all.size(), samples.size());
         if (measure.getSelectedIndex() == 1 && !samples.isEmpty()) {
             double baseline = samples.get(0).getFame(); ArrayList<Fame> relative = new ArrayList<>();
             for (Fame sample : samples) relative.add(new Fame(sample.getFame() - baseline, sample.getTime()));
@@ -390,16 +393,21 @@ public class FameSessionViewer extends JFrame {
             + " samples with a recorded visit (" + list + "); " + DisplayFormat.formatInteger(Math.max(0, samples - associated)) + " Not recorded · " + tracker;
     }
 
-    private void updateCharacterData() {
-        Integer selectedCharId = getSelectedCharacterId();
-        ArrayList<Fame> samples = fameSamples(selectedCharId);
-        updateGraph();
+    /** Describes what the graph plots: the whole session, or the selected range's share of the saved samples. */
+    private void updateGraphStatus(Integer selectedCharId, int total, int plotted) {
+        boolean ranged = range.getSelectedIndex() > 0;
+        String scope = ranged ? DisplayFormat.formatInteger(plotted) + " of " + DisplayFormat.formatInteger(total) + " saved samples in the last " + range.getSelectedItem()
+            : DisplayFormat.formatInteger(total) + " saved samples · Selected character, entire session";
         graphStatus.setText(selectedCharId == null ? "No saved character selected."
-            : samples.isEmpty() ? "No saved fame samples for this character. Map visits are available separately."
-            : samples.size() == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
-            : DisplayFormat.formatInteger(samples.size()) + " saved samples · Selected character, entire session · Map filters do not affect the graph");
+            : total == 0 ? "No saved fame samples for this character. Map visits are available separately."
+            : total == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
+            : scope + " · Map filters do not affect the graph");
         FameSession.Chronology chronology=session.chronology(selectedCharId);
-        if(selectedCharId!=null&&chronology.undatedCount()>0)graphStatus.setText(DisplayFormat.formatInteger(samples.size())+" dated samples plotted · "+DisplayFormat.formatInteger(chronology.undatedCount())+" undated observations not plotted · Gain and elapsed interval unavailable");
+        if(selectedCharId!=null&&chronology.undatedCount()>0)graphStatus.setText((ranged ? scope.replace("saved samples", "dated samples") : DisplayFormat.formatInteger(plotted)+" dated samples plotted")+" · "+DisplayFormat.formatInteger(chronology.undatedCount())+" undated observations not plotted · Gain and elapsed interval unavailable");
+    }
+
+    private void updateCharacterData() {
+        updateGraph();
         populateDungeonFilter();
         updateMapFameData();
     }
