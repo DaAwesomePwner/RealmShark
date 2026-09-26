@@ -130,6 +130,9 @@ public class TomatoGUI {
         registerLoot(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerLoot(navigator, Destination.LOOT, lootWorkspace);
         navigator.register(new tomato.gui.logging.LoggingRouteTarget(logging));
+        navigator.register(tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
+            () -> shell.select(WorkspaceShell.pageOf(Destination.NOTIFICATIONS))));
+        navigator.register(tomato.gui.notifications.AlertRouteTargets.alertDraft());
         Navigator.install(navigator);
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.

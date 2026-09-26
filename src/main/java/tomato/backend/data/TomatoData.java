@@ -461,9 +461,9 @@ public class TomatoData {
      * @param idType ID of sound alert entity
      */
     private void customSoundAlert(int idType) {
-        if (tomato.realmshark.AlertRules.application().matchEntityType(getEntityIdPings(), idType).matched) {
-            Sound.custom.play();
-        }
+        // Records the match decision (rule identity or no match) before any sound gate is applied.
+        long decision = tomato.realmshark.AlertDecisions.entityAlert(getEntityIdPings(), idType);
+        if (decision != 0) Sound.custom.play(decision);
     }
 
     /**
