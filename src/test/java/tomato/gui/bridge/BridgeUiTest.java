@@ -39,7 +39,7 @@ public class BridgeUiTest {
                     for(int width:new int[]{1240,680}){
                         frame.setSize(width,width==680?620:800);frame.validate();shell.dispatchEvent(new java.awt.event.ComponentEvent(shell,java.awt.event.ComponentEvent.COMPONENT_RESIZED));frame.validate();shell.select(pages.length-1);
                         // Native scaled runs clamp/scale the realized client, so compact mode follows the shell's actual width.
-                        assertEquals("Native compact mode follows the realized client",shell.getWidth()<1000,shell.isCompact());
+                        assertEquals("Native compact mode follows the realized client",shell.getWidth()<1000,shell.isCompact());if(width==680)assertTrue("The compact layout is exercised",shell.isCompact());
                         for(int tab=0;tab<tabs.getTabCount();tab++){
                             tabs.setSelectedIndex(tab);frame.validate();
                             if(tab==1){JTextField field=(JTextField)find(panel,"bridge-endpoint");assertTrue(field.getWidth()>140);}

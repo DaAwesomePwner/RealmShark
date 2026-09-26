@@ -222,7 +222,7 @@ public class WaveThreeJourneyTest {
             assertEquals(8, shell.getSelectedPage());
             shell.select(13); // Revisit Notifications from the sidebar; the old banner may still be up.
             JButton stale = named(notifications, JButton.class, "sound-dungeon-focus-back");
-            if (named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible()) stale.doClick();
+            assertTrue("The stale banner is still showing", named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible()); stale.doClick();
             assertEquals("The stale banner Back did not navigate", 13, shell.getSelectedPage());
             assertTrue("The Runs -> Loot origin is still available", Navigator.current().canGoBack());
             assertFalse(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
@@ -233,6 +233,7 @@ public class WaveThreeJourneyTest {
     }
 
     @Test public void leavingTheNotificationsPageEndsTheHandoffFocusAndRestoresFilters() throws Exception {
+        Assume.assumeFalse("Needs a real window to switch cards", GraphicsEnvironment.isHeadless());
         JFrame frame = edt(() -> {
             tomato.gui.notifications.NotificationsGUI page = new tomato.gui.notifications.NotificationsGUI();
             JPanel cards = new JPanel(new CardLayout()); cards.add(page, "notifications"); cards.add(new JPanel(), "other");

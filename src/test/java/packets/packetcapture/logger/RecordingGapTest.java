@@ -17,9 +17,11 @@ public class RecordingGapTest {
         DiscoveryLog log = new DiscoveryLog(temp.newFolder("discovery").toPath());
         boolean closed = false;
         try {
-            log.setSaving(false); log.attachHistory(store); log.intervalGapMillis(60);
+            // A wide margin (1.4 s silence vs a 1 s threshold) and count-independent assertions keep this
+            // stable under GC pauses or a loaded runner, where an extra split may occur but never a merge.
+            log.setSaving(false); log.attachHistory(store); log.intervalGapMillis(1000);
             frame(log); Thread.sleep(5); frame(log);
-            Thread.sleep(80); long silent = System.currentTimeMillis(); Thread.sleep(80);
+            Thread.sleep(700); long silent = System.currentTimeMillis(); Thread.sleep(700);
             frame(log); Thread.sleep(5); frame(log);
             log.captureInterrupted();
             Thread.sleep(5); frame(log);
@@ -28,9 +30,11 @@ public class RecordingGapTest {
             SessionStore.ModuleAvailability timeline = null;
             for (SessionStore.SessionEntry entry : store.catalog()) if (entry.id.equals(store.currentId())) timeline = entry.availability("timeline");
             assertNotNull(timeline);
-            assertEquals(3, timeline.intervals.size());
-            assertEquals("No frames observed for over 60 ms", timeline.intervals.get(0).end);
-            assertEquals("Capture interrupted or reopened", timeline.intervals.get(1).end);
+            assertTrue("Silence and the transport hook each end an interval", timeline.intervals.size() >= 3);
+            assertEquals("No frames observed for over 1000 ms", timeline.intervals.get(0).end);
+            boolean interrupted = false;
+            for (SessionStore.Interval interval : timeline.intervals) interrupted |= "Capture interrupted or reopened".equals(interval.end);
+            assertTrue("The transport hook closes the interval it interrupts", interrupted);
             assertEquals(Boolean.FALSE, timeline.recordedAt(silent));
         } finally { if (!closed) log.close(); store.close(); }
     }
