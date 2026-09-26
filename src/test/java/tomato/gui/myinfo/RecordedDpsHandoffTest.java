@@ -51,6 +51,7 @@ public class RecordedDpsHandoffTest {
             Navigator.install(created); created.register(dps.encounterRouteTarget()); return created;
         });
         RecordedDpsPanel panel = edt(() -> new RecordedDpsPanel(DpsGUI::recordedEncounters, () -> "1,234 weapon DPS (est.)"));
+        awaitLoaded(panel);
         edt(() -> {
             assertEquals(3, panel.choice().getItemCount());
             select(panel, linked.getRecordingId());
@@ -80,6 +81,11 @@ public class RecordedDpsHandoffTest {
             assertTrue(panel.explanationText().contains("Legacy recording"));
             return null;
         });
+    }
+    static void awaitLoaded(RecordedDpsPanel panel) throws Exception {
+        long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(8);
+        while (edt(panel::loading) && System.nanoTime() < end) Thread.sleep(10);
+        assertFalse("Recorded encounter refresh timed out", edt(panel::loading));
     }
     private static void select(RecordedDpsPanel panel, String recording) {
         for (int i = 0; i < panel.choice().getItemCount(); i++) {

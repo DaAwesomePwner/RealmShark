@@ -52,8 +52,15 @@ public class CharacterWaveFourEvidenceTest {
         }
     }
     private static void capture(JFrame frame, String name) throws Exception {
-        frame.validate(); BufferedImage image = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB); Graphics2D g = image.createGraphics(); frame.paint(g); g.dispose();
+        ui.UiTestLayout.settle(frame); assertWrappedControlsFit(frame);
+        BufferedImage image = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB); Graphics2D g = image.createGraphics(); frame.paint(g); g.dispose();
         Path path = Paths.get("screenshots/wave4/characters"); Files.createDirectories(path); ImageIO.write(image, "png", path.resolve(name + ".png").toFile());
+    }
+    private static void assertWrappedControlsFit(Container root) {
+        if (root.isShowing() && root.getLayout() instanceof FlowLayout) for (Component child : root.getComponents()) if (child.isVisible())
+            assertTrue("Wrapped control clipped: " + (child instanceof JButton ? ((JButton)child).getText() : child.getName()) + " " + child.getBounds() + " in " + root.getSize(),
+                child.getX() >= 0 && child.getY() >= 0 && child.getX() + child.getWidth() <= root.getWidth() && child.getY() + child.getHeight() <= root.getHeight());
+        for (Component child : root.getComponents()) if (child instanceof Container) assertWrappedControlsFit((Container)child);
     }
     private static <T extends Component> T named(Container root, String name, Class<T> type) {
         for (Component c : root.getComponents()) { if (name.equals(c.getName()) && type.isInstance(c)) return type.cast(c); if (c instanceof Container) { T found = named((Container)c, name, type); if (found != null) return found; } } return null;

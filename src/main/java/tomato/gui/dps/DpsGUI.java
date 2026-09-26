@@ -403,7 +403,7 @@ public class DpsGUI extends JPanel {
     }
     EncounterLink shownLink() { return shownLink; }
 
-    /** Detached library entries for other modules (EDT). Live data is never included. */
+    /** Project detached catalog entries on a background worker. Archived graphs are frozen; live data is never included. */
     public static List<RecordedEncounter> recordedEncounters() {
         DpsGUI view = INSTANCE;
         List<RecordedEncounter> result = new ArrayList<>();

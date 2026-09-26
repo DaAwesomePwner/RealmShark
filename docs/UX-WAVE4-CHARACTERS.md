@@ -55,3 +55,19 @@ recorded by the coordinator; this document does not claim unrun checks pass.
 enlarged-text captures in `screenshots/wave4/characters`. Add this suite to the scaled
 allowlist. Native checks/screenshots require serialized execution and independent
 visual inspection; no screen-reader pass is claimed by accessible labels alone.
+
+Targeted native character and affected My Info fixtures passed at 100/150/200%
+(two tests per task; zero failures/errors/skips). Visual inspection identified an
+unsettled screenshot resize artifact; the character fixture now uses the shared
+recursive layout settler and asserts wrapping-control bounds. A targeted 100%
+rerun passed and the compact Pin max control is confirmed visible after wrapping.
+Updated scaled assertions are included in the coordinator's integrated final gate.
+
+## P7 My Info follow-up
+
+Recorded DPS library projection now runs in a SwingWorker rather than on EDT.
+Refresh keeps selection by exact recording ID, disables opening while pending or
+failed, explains loading/error state, retains prior choices on failure, and rejects
+superseded/disposed completions. The synchronized catalog supplies detached archived
+entries; recorded graphs remain frozen. Four focused async race/disposal/selection/
+handoff tests passed. Existing native My Info evidence now awaits async loading.
