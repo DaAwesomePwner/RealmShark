@@ -200,7 +200,7 @@ public final class ActivityPanel extends JPanel {
             combatViews.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
             combatViews.addTab("Buff timeline & resources",plot); combatViews.addTab("Uptime summary",ContentStyle.tableScroll(table,3));
             // Live visits are not yet saved-session references: window analysis works, Timeline handoffs explain why not.
-            combatViews.addTab("Selected window",new JScrollPane(new ResourceWindowPanel(chart,()->null)));
+            combatViews.addTab("Selected window",ResourceWindowPanel.scroll(new ResourceWindowPanel(chart,()->null)));
             combatViews.setName("activity-resource-tabs");
             combatViews.addChangeListener(e->{if(!refreshing&&!restoringState){fill(false);rememberLiveState();}});
             add(split(combatViews,new JScrollPane(detail),.78),BorderLayout.CENTER);

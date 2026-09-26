@@ -133,7 +133,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 tabs.setName("saved-resource-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
                 resourceWindow=new ResourceWindowPanel(chart,()->shownRef);
                 tabs.addTab("Resources & buffs",plot);tabs.addTab("Uptime summary",uptime);tabs.addTab("Coverage",new JScrollPane(message));
-                tabs.addTab("Selected window",new JScrollPane(resourceWindow));
+                tabs.addTab("Selected window",ResourceWindowPanel.scroll(resourceWindow));
                 int index="uptime".equals(state.tab)?1:"coverage".equals(state.tab)?2:"window".equals(state.tab)?3:0;tabs.setSelectedIndex(index);
                 tabs.addChangeListener(e->{if(!restoring){this.state=this.state.withPosition(tab(),this.state.selected,this.state.anchor,this.state.anchorOffset);remember();}});
                 details.add(tabs);

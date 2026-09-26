@@ -57,6 +57,56 @@ final class ResourceWindowPanel extends JPanel implements Scrollable {
 
     ResourceWindow analysis() { return analysis; }
 
+    /** Condition rows the lanes table always keeps visible before its host scrolls; more rows grow it up to MAX. */
+    static final int MINIMUM_LANE_ROWS = 4, MAXIMUM_LANE_ROWS = 10;
+
+    /**
+     * Hosts this panel in a scroll pane whose minimum height is the panel's own minimum, so an enclosing page
+     * (for example the saved Resources split) scrolls instead of shrinking the lanes table to a row or two.
+     */
+    static JScrollPane scroll(ResourceWindowPanel panel) {
+        JScrollPane scroll = new JScrollPane(panel) {
+            @Override public Dimension getMinimumSize() {
+                Insets border = getInsets();
+                return new Dimension(super.getMinimumSize().width, panel.getMinimumSize().height + border.top + border.bottom);
+            }
+        };
+        scroll.setName("resource-window-scroll");
+        return scroll;
+    }
+
+    /** Summary, controls and handoff notes at their wrapped height plus {@value #MINIMUM_LANE_ROWS} lane rows. */
+    @Override public Dimension getMinimumSize() {
+        Component top = ((BorderLayout) getLayout()).getLayoutComponent(BorderLayout.NORTH);
+        int lanesHeight = 0;
+        for (Component c : lanes.getComponents()) lanesHeight = Math.max(lanesHeight, c.getMinimumSize().height);
+        return new Dimension(0, (top == null ? 0 : top.getPreferredSize().height) + ((BorderLayout) getLayout()).getVgap() + lanesHeight);
+    }
+
+    /** Lanes table scroll sized in whole rows: at least {@value #MINIMUM_LANE_ROWS}, up to {@value #MAXIMUM_LANE_ROWS} when there are more. */
+    private static JComponent lanesPage(JTable table, String note) {
+        JScrollPane scroll = new JScrollPane(table) {
+            private int height(int rows) {
+                Insets border = getInsets();
+                return table.getTableHeader().getPreferredSize().height + table.getRowHeight() * rows
+                    + getHorizontalScrollBar().getPreferredSize().height + border.top + border.bottom;
+            }
+            @Override public Dimension getMinimumSize() { return new Dimension(0, height(MINIMUM_LANE_ROWS)); }
+            @Override public Dimension getPreferredSize() {
+                return new Dimension(super.getPreferredSize().width, height(Math.max(MINIMUM_LANE_ROWS, Math.min(MAXIMUM_LANE_ROWS, table.getRowCount()))));
+            }
+        };
+        scroll.setName("resource-window-lanes-scroll");
+        JTextArea text = ContentStyle.wrappingText(note);
+        JPanel panel = new JPanel(new BorderLayout(0, 6)) {
+            @Override public Dimension getMinimumSize() {
+                return new Dimension(0, scroll.getMinimumSize().height + 6 + text.getPreferredSize().height);
+            }
+        };
+        panel.add(scroll); panel.add(text, BorderLayout.SOUTH);
+        return panel;
+    }
+
     // Hosted in a JScrollPane: track the viewport width so the summary and controls wrap instead of the
     // lanes table's natural width forcing a sideways page. The lanes table keeps its own horizontal scroll.
     @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
@@ -84,10 +134,11 @@ final class ResourceWindowPanel extends JPanel implements Scrollable {
             List<Object[]> rows = new ArrayList<>();
             for (ResourceWindow.Lane lane : analysis.lanes)
                 rows.add(new Object[]{CombatTimelineChart.label(lane.name), lane.extra ? "Extra flags" : "Primary flags",
-                    lane.active / 1000.0, lane.observed / 1000.0, lane.unknown / 1000.0, lane.observedUptime()});
+                    // Active time is unknown, not zero, where nothing in the window was observed (like uptime).
+                    lane.observed <= 0 ? null : lane.active / 1000.0, lane.observed / 1000.0, lane.unknown / 1000.0, lane.observedUptime()});
             JTable table = HistoryTables.table("resource-window-lanes", new String[]{"Condition", "Family", "Active s", "Observed s", "Unknown s", "Observed uptime %"},
                 new Class<?>[]{String.class, String.class, Double.class, Double.class, Double.class, Double.class}, rows);
-            lanes.add(HistoryTables.page(table, rows.isEmpty() ? "No condition flags were recorded for this visit; coverage of every flag is unknown."
+            lanes.add(lanesPage(table, rows.isEmpty() ? "No condition flags were recorded for this visit; coverage of every flag is unknown."
                 : "Local character only. Intervals are clipped to the window and unioned; zero-active lanes remain listed. Unknown is not inactive."));
         }
         updateHandoffs();
