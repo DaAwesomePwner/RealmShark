@@ -238,6 +238,35 @@ public class ParseEnchants {
      * empty, and every nonnegative ID is applied without a definition lookup.
      */
     public static Summary summarize(String code) {
+        return evidence(code).summary();
+    }
+
+    public enum EvidenceState { RECORDED, RECORDED_EMPTY, MISSING, INVALID, LEGACY_NOT_RECORDED }
+    public static final class Evidence {
+        public final int version = 1;
+        public final EvidenceState state;
+        public final List<Integer> orderedSlotIds;
+        public final int slots, applied;
+        private Evidence(EvidenceState state,List<Integer> ids,int slots,int applied){this.state=state;this.orderedSlotIds=java.util.Collections.unmodifiableList(new ArrayList<>(ids));this.slots=slots;this.applied=applied;}
+        public Summary summary(){return new Summary(slots,applied);}
+        public String describe(){return state+" · ordered IDs "+orderedSlotIds+" (-1 empty, -2 locked, -3 terminator); exact IDs are captured, names are not backfilled";}
+    }
+    public static Evidence legacyEvidence(){return new Evidence(EvidenceState.LEGACY_NOT_RECORDED,java.util.Collections.emptyList(),-1,-1);}
+    public static Evidence evidence(String code) {
+        if(code==null)return new Evidence(EvidenceState.MISSING,java.util.Collections.emptyList(),-1,-1);
+        if(code.isEmpty())return new Evidence(EvidenceState.RECORDED_EMPTY,java.util.Collections.emptyList(),0,0);
+        // A fixed upper bound prevents hostile strings allocating arbitrary decoded arrays.
+        if(code.length()>4096)return new Evidence(EvidenceState.INVALID,java.util.Collections.emptyList(),-1,-1);
+        Summary counts=summarizeLegacy(code);
+        if(counts.slots<0)return new Evidence(EvidenceState.INVALID,java.util.Collections.emptyList(),-1,-1);
+        byte[] bytes=Base64.getUrlDecoder().decode(code);
+        ByteBuffer buffer=ByteBuffer.wrap(bytes,3,Math.min(bytes.length,11)-3).order(ByteOrder.LITTLE_ENDIAN);
+        List<Integer> ids=new ArrayList<>();
+        while(buffer.hasRemaining()){int id=buffer.getShort();ids.add(id);if(id==-3)break;}
+        return new Evidence(counts.applied==0?EvidenceState.RECORDED_EMPTY:EvidenceState.RECORDED,ids,counts.slots,counts.applied);
+    }
+
+    private static Summary summarizeLegacy(String code) {
         if (code == null) return Summary.UNKNOWN;
         if (code.isEmpty()) return new Summary(0, 0);
 

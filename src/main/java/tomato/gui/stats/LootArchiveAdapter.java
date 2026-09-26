@@ -30,7 +30,7 @@ public final class LootArchiveAdapter implements ArchiveAdapter<Row,Facets,Sort>
     public Long time(ArchiveRow<Row> row){return row.value.time;}
     public Comparator<Row> comparator(Sort field){return LootQuery.comparator(field);}
     public Map<String,Count> counts(){return counts;}
-    public Map<String,String> dependencies(){Map<String,String> values=new LinkedHashMap<>();values.put("loot-projection","v2; saved item classifications; exact variant/visit facets before paging; run links require the same session, visit ID and canonical dungeon; summaries limited to 25000 distinct keys; observed, not owned");if(definitions!=null)values.put("asset-generation",definitions.description());return values;}
+    public Map<String,String> dependencies(){Map<String,String> values=new LinkedHashMap<>();values.put("loot-projection","v3; exact captured enchant IDs and optional map context; saved item classifications; exact variant/visit facets before paging; run links require the same session, visit ID and canonical dungeon; summaries limited to 25000 distinct keys; observed, not owned");if(definitions!=null)values.put("asset-generation",definitions.description());return values;}
     static void bounded(int size,int limit,String population)throws IOException{if(size>limit)throw new IOException(population+" exceeds "+limit+" distinct keys. Narrow the session scope or date/facets; nothing was truncated.");}
     static void label(String value)throws IOException{if(value!=null&&value.length()>512)throw new IOException("Archive label exceeds 512 characters; bounded summaries cannot retain it. No data was truncated.");}
     static void checkDrop(LootDashboard.Drop drop)throws IOException{

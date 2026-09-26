@@ -141,6 +141,9 @@ public final class LootDashboard extends JPanel {
     }
 
     public void receive(MapInfoPacket map, Entity bag, Entity dropper, long time) {
+        receive(map,bag,dropper,time,DropContext.capture(map,time,null));
+    }
+    public void receive(MapInfoPacket map, Entity bag, Entity dropper, long time, DropContext context) {
         List<Item> contents = new ArrayList<>();
         StatData unique = bag.stat.get(StatType.UNIQUE_DATA_STRING);
         String[] encoded = unique == null || unique.stringStatValue == null ? new String[0] : unique.stringStatValue.split(",", -1);
@@ -149,13 +152,13 @@ public final class LootDashboard extends JPanel {
             if (stat != null && stat.statValue > 0) {
                 int id = stat.statValue;
                 contents.add(new Item(id, name(id), IdToAsset.getIdLabel(id),
-                    ParseEnchants.summarize(slot < encoded.length ? encoded[slot] : null)));
+                    ParseEnchants.evidence(slot < encoded.length ? encoded[slot] : null)));
             }
         }
         String type = LootBags.lootBagName(bag.objectType);
         Drop drop = new Drop(type == null ? "Unknown (" + bag.objectType + ")" : type,
             map == null ? "Unknown" : tomato.realmshark.ParseDungeon.canonicalMapName(map), dropper == null ? "Unknown" : name(dropper.objectType), time, contents,
-            packets.packetcapture.logger.DiscoveryLog.INSTANCE.currentVisitId());
+            packets.packetcapture.logger.DiscoveryLog.INSTANCE.currentVisitId(),context);
         tomato.history.AppHistory.append("loot", drop);
         accept(drop);
     }
@@ -368,9 +371,15 @@ public final class LootDashboard extends JPanel {
     static final class Item {
         final int id; final String name, tier; final boolean potion, ut, st, highTier;
         final ParseEnchants.Summary enchants;
+        final ParseEnchants.Evidence enchantEvidence;
         final List<Integer> key;
         Item(int id, String name, boolean potion) { this(id, name, potion ? "STATPOTION" : "", ParseEnchants.summarize(null)); }
         Item(int id, String name, String labels, ParseEnchants.Summary enchants) {
+            this(id,name,labels,enchants,null);
+        }
+        Item(int id,String name,String labels,ParseEnchants.Evidence evidence){this(id,name,labels,evidence.summary(),evidence);}
+        Item(int id, String name, String labels, ParseEnchants.Summary enchants,ParseEnchants.Evidence evidence) {
+            this.enchantEvidence=evidence;
             this.id = id; this.name = name; this.enchants = enchants;
             List<String> tokens = Arrays.asList((labels == null ? "" : labels).toUpperCase(Locale.ROOT).split("\\s*,\\s*"));
             potion = tokens.contains("STATPOTION");
@@ -392,12 +401,17 @@ public final class LootDashboard extends JPanel {
         }
     }
     static final class Drop {
+        final DropContext context;
         final String visitId;
         final String bag, dungeon, dropper; final long time; final List<Item> items;
         Drop(String bag, String dungeon, String dropper, long time, List<Item> items) {
             this(bag,dungeon,dropper,time,items,"");
         }
         Drop(String bag, String dungeon, String dropper, long time, List<Item> items, String visitId) {
+            this(bag,dungeon,dropper,time,items,visitId,null);
+        }
+        Drop(String bag, String dungeon, String dropper, long time, List<Item> items, String visitId,DropContext context) {
+            this.context=context;
             this.visitId=visitId;
             this.bag = bag; this.dungeon = dungeon; this.dropper = dropper; this.time = time;
             this.items = Collections.unmodifiableList(new ArrayList<>(items));

@@ -165,7 +165,11 @@ public class LootGUI extends JPanel {
         Entity player,
         long time
     ) {
-        INSTANCE.updateGui(map, bag, dropper, player, time);
+        update(map,bag,dropper,player,time,DropContext.capture(map,player,time,null));
+    }
+
+    public static void update(MapInfoPacket map,Entity bag,Entity dropper,Entity player,long time,DropContext context){
+        INSTANCE.updateGui(map,bag,dropper,player,time,context);
     }
 
     public static void updateExaltStats() {
@@ -186,11 +190,11 @@ public class LootGUI extends JPanel {
         Entity bag,
         Entity dropper,
         Entity player,
-        long time
+        long time, DropContext context
     ) {
         if (player == null || !update) return;
 
-        dashboard.receive(map, bag, dropper, time);
+        dashboard.receive(map, bag, dropper, time,context);
         LootEntry entry = new LootEntry(map, bag, dropper, player, time);
         synchronized (pending) {
             entry.number = ++lootDrops;
