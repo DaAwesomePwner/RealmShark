@@ -10,6 +10,7 @@ import java.util.List;
 import javax.swing.*;
 import tomato.gui.history.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.route.*;
 import tomato.gui.stats.LootQuery.*;
 import tomato.gui.stats.session.*;
 import tomato.history.*;
@@ -45,6 +46,9 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private final JTable table;
         private final JScrollPane scroll;
         private boolean restoring=true;
+        private final JLabel linkStatus=new JLabel(" ");
+        private final JButton showOccurrences=new JButton("Occurrences of selected variant"),showVisit=new JButton("Loot from selected run"),
+            openRun=new JButton("Open recorded run"),rateDetails=new JButton("Dungeon rate calculation");
         Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
             super(new BorderLayout(0,5));this.page=page;this.current=state;this.binding=binding;View view=state.query.facets().view;
             JTabbedPane tabs=new JTabbedPane();tabs.setName("loot-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -69,17 +73,47 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             detailScroll.setPreferredSize(new Dimension(300,130));JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,detailScroll);split.setResizeWeight(.75);body.add(split);
             JPanel actions=new JPanel(new BorderLayout());Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("Compact",visible(compact));presets.put("All analytical columns",visible(defaults));
             actions.add(HistoryTables.controls(table,defaults,presets,layout->{current=current.withTable(view.name(),layout);savePosition();}),BorderLayout.CENTER);
+            if(view.loot()||view==View.RATES)actions.add(drillActions(view),BorderLayout.NORTH);
             if(view==View.SESSIONS||view==View.FAME){JButton graph=new JButton("Open selected session's full fame graph");graph.setName("archive-open-fame");graph.addActionListener(e->openFame(graph));actions.add(graph,BorderLayout.SOUTH);}
             body.add(actions,BorderLayout.SOUTH);
-            table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!restoring){savePosition();int r=table.getSelectedRow();if(r>=0)detail(page.rows.get(r));}});
+            table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!restoring){savePosition();int r=table.getSelectedRow();if(r>=0)detail(page.rows.get(r));updateDrill(selected());}});
             scroll.getViewport().addChangeListener(e->{if(!restoring)savePosition();});HistoryTables.restorePosition(table,scroll,page,current);
             tabs.addChangeListener(e->{if(restoring)return;View selected=views.get(tabs.getSelectedIndex());Facets f=current.query.facets();f.view=selected;current=current.withPosition(selected.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(f));});
             restoring=false;
+            ArchiveRow<Row> restored=selected();if(restored!=null)detail(restored);updateDrill(restored);
+        }
+        private ArchiveRow<Row> selected(){int r=table.getSelectedRow();return r<0||r>=page.rows.size()?null:page.rows.get(r);}
+        /** Exact drill-downs change query intent (applied before paging); none reads the visible rows as a population. */
+        private JComponent drillActions(View view){
+            JPanel panel=new JPanel(new BorderLayout(0,2));JPanel buttons=ContentStyle.controls();Facets f=current.query.facets();
+            showOccurrences.setName("loot-drill-occurrences");showVisit.setName("loot-drill-visit");openRun.setName("loot-open-run");rateDetails.setName("loot-drill-rate");
+            showOccurrences.getAccessibleContext().setAccessibleDescription("Show every saved occurrence of the selected exact item variant");
+            showVisit.getAccessibleContext().setAccessibleDescription("Show loot from the selected row's verified recorded run");
+            openRun.getAccessibleContext().setAccessibleDescription("Open the selected row's verified run in the Runs workspace");
+            rateDetails.getAccessibleContext().setAccessibleDescription("Show the dungeon's eligible-run rate calculation");
+            showOccurrences.addActionListener(e->{ArchiveRow<Row> row=selected();if(row==null||row.value.variantKey()==null)return;Facets next=current.query.facets();next.variant=row.value.variantKey();drill(next,View.OCCURRENCES);});
+            showVisit.addActionListener(e->{ArchiveRow<Row> row=selected();tomato.history.link.VisitRef ref=row==null?null:row.value.visitRef();if(ref==null)return;Facets next=current.query.facets();next.visitSession=ref.sessionId;next.visitId=ref.visitId;drill(next,View.OCCURRENCES);});
+            rateDetails.addActionListener(e->{ArchiveRow<Row> row=selected();if(row==null||row.value.dungeon==null||row.value.dungeon.isEmpty())return;Facets next=current.query.facets();next.variant=next.visitSession=next.visitId=null;next.dungeons=new LinkedHashSet<>(Collections.singleton(row.value.dungeon));drill(next,View.RATES);});
+            openRun.addActionListener(e->{ArchiveRow<Row> row=selected();tomato.history.link.VisitRef ref=row==null?null:row.value.visitRef();if(ref==null)return;
+                if(!Navigator.current().open(runRoute(ref)))linkStatus.setText("The Runs workspace did not accept run "+ref+"; nothing was opened.");});
+            if(view.loot()){buttons.add(showOccurrences);buttons.add(showVisit);buttons.add(openRun);}buttons.add(rateDetails);
+            if(f.drilled()){JLabel active=new JLabel(drillSummary(f));active.setName("loot-drill-summary");active.putClientProperty("html.disable",true);buttons.add(active);
+                JButton clear=new JButton("Clear drill-down");clear.setName("loot-clear-drill");clear.addActionListener(e->{Facets next=current.query.facets();next.variant=next.visitSession=next.visitId=null;query(current.query.withFacets(next));});buttons.add(clear);}
+            linkStatus.setName("loot-run-link-status");linkStatus.putClientProperty("html.disable",true);linkStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
+            panel.add(buttons,BorderLayout.CENTER);panel.add(linkStatus,BorderLayout.SOUTH);return panel;
+        }
+        private void drill(Facets next,View target){next.view=target;current=current.withPosition(target.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(next));}
+        private void updateDrill(ArchiveRow<Row> row){
+            Row r=row==null?null:row.value;tomato.history.link.VisitRef ref=r==null?null:r.visitRef();
+            showOccurrences.setEnabled(r!=null&&"variant".equals(r.type)&&r.variantKey()!=null);
+            showVisit.setEnabled(ref!=null);rateDetails.setEnabled(r!=null&&r.dungeon!=null&&!r.dungeon.isEmpty()&&!"rate".equals(r.type));
+            boolean navigable=ref!=null&&Navigator.current().canOpen(runRoute(ref));openRun.setEnabled(navigable);
+            linkStatus.setText(runLinkStatus(r,ref,navigable));linkStatus.getAccessibleContext().setAccessibleName(linkStatus.getText());
         }
         private void query(ArchiveQuery<Facets,Sort> q){binding.queryChanged(q);}
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
         private Set<String> choices(String prefix){Set<String> values=new TreeSet<>();for(String key:page.counts.keySet())if(key.startsWith(prefix))values.add(key.substring(prefix.length()));return values;}
-        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append('\n');}details.setText(text.toString());details.setCaretPosition(0);}
+        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"").append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append('\n');}details.setText(text.toString());details.setCaretPosition(0);}
         private JComponent analyticalFilters(View view){
             JPanel p=ContentStyle.controls();Facets f=current.query.facets();JTextField dungeon=new JTextField(String.join(";",f.dungeons),16),identity=new JTextField(view==View.FAME?f.character:f.enemy,8);
             dungeon.getAccessibleContext().setAccessibleName("Exact dungeons separated by semicolons");identity.getAccessibleContext().setAccessibleName(view==View.FAME?"Exact character ID":"Exact enemy ID");
@@ -101,6 +135,15 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
                 protected void done(){button.setEnabled(true);try{FameSession fame=get();if(!Render.this.isShowing())return;if(fame.getCharacterFameData().isEmpty())details.setText("No fame samples captured for this pinned session.");else new FameSessionViewer(fame);}catch(Exception failure){details.setText("Fame graph unavailable: "+failure.getMessage());}}
             }.execute();}catch(IOException failure){details.setText(failure.getMessage());}
         }
+    }
+    static Route runRoute(tomato.history.link.VisitRef ref){return Route.to(Destination.RUNS).withVisit(ref);}
+    static String drillSummary(Facets f){return "Drill-down:"+(f.variant==null?"":" exact variant "+f.variant+" (item ID/slots/applied)")+(f.visitSession==null?"":" · exact run "+f.visitSession+"/"+f.visitId);}
+    /** Explains exactly why a selected row can or cannot open its recorded run. */
+    static String runLinkStatus(Row r,tomato.history.link.VisitRef ref,boolean navigable){
+        if(r==null)return "Select an occurrence or bag to follow its recorded run; select a variant for its occurrences.";
+        if(r.runLinked==null)return "variant".equals(r.type)?"Variants combine many runs; open their occurrences to reach one exact run.":"This row is not a single drop; no single run applies.";
+        if(ref==null)return r.visitId==null||r.visitId.isEmpty()?"Run unavailable: no recorded visit ID (legacy or unlinked record).":"Run unavailable: visit "+r.visitId+" has no agreeing saved run in this session.";
+        return navigable?"Verified run "+ref+" can be opened.":"Verified run "+ref+"; opening runs is unavailable in this window (Runs navigation not registered).";
     }
     static String description(View view){return view.loot()?"All saved occurrences are queried before grouping and paging. Recent Drops is globally paged, not the live 1,000-bag window. Unknown enchant values are not zero. Text: item ID/name, bag, dungeon, dropper, tier, rarity."
         :view.counters()?"Undated counters: custom periods unsupported. Text searches dungeon / enemy / item labels for this tab. Item facets are not applied."

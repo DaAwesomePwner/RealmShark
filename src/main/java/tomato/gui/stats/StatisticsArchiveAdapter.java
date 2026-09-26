@@ -113,7 +113,8 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
     private static void addVisit(HistoricalStatistics.Profile p,ActivityJournal.Visit v){p.runs++;p.millis+=v.observedMillis();p.missingDuration|=v.observedMillis()<=0;p.damage+=v.totalDamage;p.damageKnown&=v.damageTracked;if(v.ended==0)p.ongoing++;if("Completed".equals(v.runStatus()))p.completed++;}
     private static Row profile(HistoricalStatistics.Profile p){
         Row r=new Row();r.items=p.lootValue(p.items);r.bags=p.lootValue(p.bags);r.runs=p.runs;r.millis=p.millis;r.whites=p.lootValue(p.whites);r.uts=p.lootValue(p.uts);r.sts=p.lootValue(p.sts);r.potions=p.lootValue(p.potions);r.completed=p.completed;r.unknownRuns=p.unknownRuns;r.importedRuns=p.excludedRuns;
-        r.perRun=p.perRun(p.items);r.perHour=p.perHour(p.items);r.utPerHour=p.perHour(p.uts);r.whitesPerRun=p.perRun(p.whites);r.utPerRun=p.perRun(p.uts);r.stPerRun=p.perRun(p.sts);r.potionsPerRun=p.perRun(p.potions);r.damage=p.damageKnown&&p.runs>0?p.damage:null;r.evidence=p.explanation();return r;
+        r.perRun=p.perRun(p.items);r.perHour=p.perHour(p.items);r.utPerHour=p.perHour(p.uts);r.whitesPerRun=p.perRun(p.whites);r.utPerRun=p.perRun(p.uts);r.stPerRun=p.perRun(p.sts);r.potionsPerRun=p.perRun(p.potions);r.damage=p.damageKnown&&p.runs>0?p.damage:null;r.evidence=p.explanation();
+        r.zeroLootRuns=p.lootEvidence?(long)(p.runs-p.lootRuns.size()):null;r.unassignedBags=p.lootEvidence?p.unassignedBags:null;return r;
     }
     private static final class FameRange {
         String session,className="Unknown";int character;
