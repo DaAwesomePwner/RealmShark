@@ -150,8 +150,9 @@ public final class VioletTheme extends FlatDarkLaf {
 
         color(d, "Table.selectionBackground", SELECTION);
         color(d, "Table.selectionForeground", SELECTION_TEXT);
-        color(d, "Table.selectionInactiveBackground", ACCENT_WASH);
-        color(d, "Table.selectionInactiveForeground", TEXT);
+        // Keep the selected record identifiable while its detail/editor controls own focus.
+        color(d, "Table.selectionInactiveBackground", SELECTION);
+        color(d, "Table.selectionInactiveForeground", SELECTION_TEXT);
         color(d, "List.selectionBackground", SELECTION);
         color(d, "List.selectionForeground", SELECTION_TEXT);
         color(d, "List.selectionInactiveBackground", ACCENT_WASH);
