@@ -132,7 +132,8 @@ Existing analyst panels stay where they are and adopt kit components.
 
 - **Advanced** is collapsed by default; its open state persists. Right-click any Advanced item → **Pin to top** (moves it into the core list). Core items can be hidden or reordered (right-click → Move up / Move down / Hide; drag-reorder with a drag handle). Persisted as `ui.nav.order`, `ui.nav.hidden`, `ui.nav.pinned`.
 - Compact mode (< 1000 px) keeps today's icon rail and hamburger popup, now grouped the same way.
-- Shortcuts: `Alt+1..6` core items in current order, `Alt+,` Settings, `Alt+M` compact menu, `Alt+Left` Back. Existing letter shortcuts (R, T, B, N) map to their new destinations.
+- Shortcuts stay bound to destinations, not positions, so muscle memory survives reordering: the existing `Alt+1…9`, `Alt+0`, `Alt+R`, `Alt+T`, `Alt+B` keep their pages, `Alt+N` and `Alt+,` open Settings, `Alt+H` opens Home (P2), `Alt+M` opens the compact menu and `Alt+Left` goes Back.
+- Internally, pages keep their current numeric indices through P5 (`select(int)`, `pageOf`, `ShellNavigator` are unchanged); a `NavEntry` gives each page a stable string ID, title, group and icon, and the sidebar renders entries in the user's order. New pages are appended (Home becomes page 14). P6, which removes the retired pages, replaces the numeric API with the IDs. This keeps the ~40 tests that address pages by number valid until then.
 
 ### 4.2 Old → new mapping
 
@@ -198,7 +199,7 @@ Game-meaning colors are a separate small map (`Tokens.bag(LootBags)`, `Tokens.ti
 
 ### 5.2 Type and spacing
 
-- Font stays Segoe UI (body 13 px default, user-scalable via Edit › Font). The scale is in **em of the body size** so everything grows with the font setting: caption 0.85, body 1.0, emphasis 1.0/500, title 1.15/500, page title 1.4/500, metric 1.35/500. Only two weights: regular and bold.
+- Font stays Segoe UI (body 13 px default, user-scalable via Edit › Font). The scale is in **em of the body size** so everything grows with the font setting: caption (the existing metadata role, 12/13), body 1.0, emphasis 1.0/500, title 1.15/500, page title 1.4/500, metric 1.35/500. Only two weights: regular and bold.
 - Spacing on a 4 px grid: 4, 8, 12, 16, 24. Card padding 12; gap between cards 10; section gap 16.
 - Radius: controls 6, cards 10, chips 4.
 
@@ -223,7 +224,7 @@ Game-meaning colors are a separate small map (`Tokens.bag(LootBags)`, `Tokens.ti
 | `EmptyState` | Title + one line + optional action. Used for zero-data and filtered-empty states. |
 | `DisplayValue` | See §5.7. |
 
-All components paint from `Tokens` roles, so they follow Violet Dark/Light and Increase contrast. Nothing relies on FlatLaf-only client properties for essential visuals.
+All components take their colors from `Tokens` roles and reapply them in `updateUI()`, so they follow Violet Dark/Light and Increase contrast. After P0 every supported theme is FlatLaf-based, so kit components may use FlatLaf style properties.
 
 ### 5.4 Icons
 
@@ -248,7 +249,7 @@ A `ColumnKind` registry gives every table the same widths, alignment and formatt
 | `PERCENT` | 5 em | Right, one decimal |
 | `STATUS` | 9 em | Badge renderer |
 | `ID` | 8 em | Monospace, Analyst only |
-| `TEXT` | fill | Takes remaining width |
+| `TEXT` | 20 em | Preferred width; fills the remainder only where the table already auto-resizes |
 
 - `KitTables.apply(table, kinds…)` sets widths, renderers, header alignment, and hides Analyst-only columns in Simple mode.
 - `HistoryTables` defaults switch to column kinds; saved user layouts (`ViewState.Table`) still win when present. **Reset columns** returns to kind defaults.
@@ -456,7 +457,7 @@ Per `AGENTS.md` (2026-09-26 policy): focused local checks, relevant build and la
 - **Unit:** `DisplayValue` formatting per state; `ColumnKind` widths scale with font; `CustomizableTabs` order/hide persistence and version-append rules; `FacetDescriber` chips round-trip; `QuestExpiry` parsing; journal v3 → v4 load; encounter summary serialization and exact-link joins; theme migration mapping.
 - **UI:** new synthetic-fixture evidence tests per glance screen at 1240 × 800 and 680 × 520, fonts 13 and 18, Simple and Analyst: populated, empty, unavailable, stale.
 - **Honesty regressions:** keep existing unknown-vs-zero, estimate, manual and exact-link tests passing through the new renderers.
-- **Brittle test migration:** tests that hard-code `TITLES.length == 14`, `shell.select(0..13)`, or exact button texts ("Current live view", "Previous page", "Export all matches…") move to stable component names and destination IDs, done once in the shell phase.
+- **Brittle test migration:** page-number tests stay valid through P5 (see §4.1). P1b updates the tests that assert sidebar/popup order and the archive toolbar layout (`ArchiveNativeSupport` and the few tests that click exports, saved views or History library, which move into the ⋯ menu). P6 migrates the remaining page-number tests to destination IDs when pages are removed.
 - **Performance:** a small timing harness for S8/S9 on the large synthetic history.
 
 ## 12. Delivery phases
@@ -466,7 +467,7 @@ Each phase is its own branch and PR from verified `main`, usable on its own. Old
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **P0 Platform** | Java 17 target; retire Darklaf; Violet Light + Increase contrast; theme migration | Build, tests and bundle scripts pass on Java 17; saved legacy themes migrate |
-| **P1 Kit + shell** | `tomato.gui.kit` components; tokens; `DisplayValue`; `ColumnKind` + `KitTables`; `FilterBar` + `ArchiveWorkspace` slot refactor; `OverflowMenu`; `CustomizableTabs`; Simple/Analyst mode; new sidebar with Advanced group and Settings page; header/setup banner; brittle-test migration. Existing pages adopt FilterBar, overflow, column kinds and kit buttons mechanically | S6, S7 met; every existing page reachable; filters collapsed by default; tab reorder/hide persists |
+| **P1 Kit + shell** (two PRs: P1a kit, P1b shell and adoption) | `tomato.gui.kit` components; tokens; `DisplayValue`; `ColumnKind` + `KitTables`; `FilterBar` + `ArchiveWorkspace` slot refactor; `OverflowMenu`; `CustomizableTabs`; Simple/Analyst mode; new sidebar with Advanced group and Settings page; header/setup banner; brittle-test migration. Existing pages adopt FilterBar, overflow, column kinds and kit buttons mechanically | S6, S7 met; every existing page reachable; filters collapsed by default; tab reorder/hide persists |
 | **P2 Home** | Home page + view models; hero, Now, Today, Recent runs, Quests cards; My Info content moved into a temporary Build panel reachable from the hero; journal v4 live fields (live exalt bonus, account fame/gold/stars) | S1, S9 met; My Info removed from sidebar |
 | **P3 Characters** | Gallery, sheet with tabs, Exalts grid, Pets gallery; journal v4 persisted fields (pet, completions, vault potions) | S2, S5 met |
 | **P4 Quests** | Board, cards, expiry countdown (after O1), Planner restyle | S3 met |
