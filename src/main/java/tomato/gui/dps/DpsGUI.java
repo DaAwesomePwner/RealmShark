@@ -346,7 +346,8 @@ public class DpsGUI extends JPanel {
             DpsData data = entry.data;
             String map = data.map == null ? null : Objects.toString(data.map.displayName, "").isEmpty() ? data.map.name : data.map.displayName;
             result.add(new RecordedEncounter(data.getRecordingId(), map == null || map.isEmpty() ? "Unknown encounter" : map,
-                data.dungeonStartTime > 0 ? data.dungeonStartTime : null, EncounterLink.of(data, entry.origin != null)));
+                data.dungeonStartTime > 0 ? data.dungeonStartTime : null, data.totalDungeonPcTime > 0 ? data.totalDungeonPcTime : null,
+                EncounterLink.of(data, entry.origin != null)));
         }
         return result;
     }

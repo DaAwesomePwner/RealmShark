@@ -9,10 +9,19 @@ public final class RecordedEncounter {
     public final String recordingId, map;
     /** Encounter entry time (epoch ms), or null when unknown. */
     public final Long started;
+    /** Recorded encounter duration (ms), or null when unknown. */
+    public final Long elapsed;
     public final EncounterLink link;
 
-    RecordedEncounter(String recordingId, String map, Long started, EncounterLink link) {
-        this.recordingId = recordingId; this.map = map; this.started = started; this.link = link;
+    public RecordedEncounter(String recordingId, String map, Long started, Long elapsed, EncounterLink link) {
+        this.recordingId = recordingId; this.map = map; this.started = started; this.elapsed = elapsed; this.link = link;
+    }
+
+    /** Scope and window text: which recording, when it was entered, how long it lasted and its link. */
+    public String scope() {
+        return map + " · entered " + (started == null ? "at an unknown time" : DisplayFormat.formatTimestamp(started))
+            + " · recorded for " + (elapsed == null ? "an unknown duration" : DisplayFormat.formatDurationSeconds(elapsed, 1) + " s")
+            + " · " + link.label() + ". Its DPS uses that recording's first-to-last recorded hit window and the build recorded then.";
     }
 
     /** Route to this encounter's verified local-player row, or null when that row is not verified. */

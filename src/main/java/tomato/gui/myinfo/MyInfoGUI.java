@@ -29,6 +29,7 @@ public class MyInfoGUI extends JPanel {
     private long latestGeneration = -1;
     private final JLabel status = new JLabel("Enter the game during capture to see your build.");
     private final JLabel[] summary = new JLabel[4];
+    private RecordedDpsPanel recordedDps;
     private final JLabel[] icons = new JLabel[4];
     private final JLabel[] equipmentNames = new JLabel[4];
     private final JCheckBox outOfCombatCheck = new JCheckBox("Estimate scenario: out of combat");
@@ -388,6 +389,11 @@ public class MyInfoGUI extends JPanel {
             slot.add(equipmentNames[i], BorderLayout.CENTER);
             equipment.add(slot);
         }
+        // INFO-2: historical recorded DPS stays separate from the current-build estimate cards above.
+        recordedDps = new RecordedDpsPanel(tomato.gui.dps.DpsGUI::recordedEncounters, () -> ("—".equals(summary[2].getText()) ? "weapon DPS (est.) unavailable" : summary[2].getText() + " weapon DPS (est.)")
+            + (outOfCombatCheck.isSelected() ? " · estimate scenario: out of combat" : " · estimate scenario: in combat"));
+        summary[2].addPropertyChangeListener("text", e -> recordedDps.explain());
+        outOfCombatCheck.addActionListener(e -> recordedDps.explain());
         header.add(equipment, BorderLayout.SOUTH);
 
         JPanel toolbar = ContentStyle.controls();
@@ -454,7 +460,7 @@ public class MyInfoGUI extends JPanel {
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, center, footer);
         split.setResizeWeight(.8); split.setBorder(null); split.setContinuousLayout(true);
         split.setOneTouchExpandable(true);
-        JScrollPane pageScroll = ContentStyle.page(header, split, null);
+        JScrollPane pageScroll = ContentStyle.page(header, split, recordedDps);
         pageScroll.setBorder(null); pageScroll.setName("myinfo-page-scroll");
         pageScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         add(pageScroll, BorderLayout.CENTER);
