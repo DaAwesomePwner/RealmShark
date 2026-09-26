@@ -132,7 +132,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private void cohortInputInvalid(){
             restoring=true;try{table.clearSelection();((javax.swing.table.DefaultTableModel)table.getModel()).setRowCount(0);}finally{restoring=false;}
             countText.setText(STALE_COHORT);countText.setForeground(ContentStyle.color("rose"));
-            details.setText("No comparison shown: the previous results were cleared because the cohort inputs are not valid.");details.setCaretPosition(0);
+            details.setText("No comparison shown: the previous results were cleared because the cohort inputs are not valid. Export still uses the last applied comparison, not these invalid inputs.");details.setCaretPosition(0);
             revalidate();repaint();
         }
         private ArchiveRow<Row> selected(){int r=table.getSelectedRow();return r<0||r>=page.rows.size()?null:page.rows.get(r);}
@@ -206,7 +206,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         return "";
     }
     static Route runRoute(tomato.history.link.VisitRef ref){return Route.to(Destination.RUNS).withVisit(ref);}
-    static final String STALE_COHORT="Previous comparison cleared. Correct the cohort input shown above, then choose Compare cohorts to see current results.";
+    static final String STALE_COHORT="Previous comparison cleared. Export still uses the last applied comparison, not these invalid inputs. Correct the cohort input shown above, then choose Compare cohorts to see current results.";
     static final String VISIT_UNAVAILABLE=" · Linked run unavailable here: no saved loot for this exact run (imported, deleted or unsaved session). No other run is substituted.";
     static String drillSummary(Facets f){StringJoiner parts=new StringJoiner(" · ");if(f.variant!=null)parts.add("exact variant "+f.variant+" (item ID/slots/applied)");if(f.visitSession!=null)parts.add("exact run "+f.visitSession+"/"+f.visitId);return "Drill-down: "+parts;}
     /** Explains exactly why a selected row can or cannot open its recorded run. */

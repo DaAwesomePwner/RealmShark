@@ -55,7 +55,15 @@ public final class AbilityEvidencePanel extends JPanel {
         rows=new ArrayList<>(sorted.subList(page*100,Math.min(sorted.size(),(page+1)*100)));model.setRowCount(0);
         for(int i=0;i<rows.size();i++){AbilityObservation r=rows.get(i);model.addRow(new Object[]{new Date(r.observedAt),r.player,r.ability,r.heuristic,r.previousMp+" → "+r.observedMp});if(r.id.equals(selected))table.setRowSelectionInterval(i,i);}
         if(table.getSelectedRow()<0)details.setText("Select evidence for complete captured values.");
-        status.setText(s.rows.size()+" matching inferred observations · page "+(page+1)+" · "+s.retained+" / "+s.limit+" retained\n"+s.evicted+" evicted · "+s.omitted+" omitted · session-only since "+new Date(s.resetAt)+". No rows does not mean no abilities were used; collection is heuristic and incomplete.");
+        String resetTime=java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            .withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(s.resetAt));
+        // Separate the coverage warning from counters so its words cannot straddle a
+        // clipped long line while Swing settles a narrow, enlarged-text layout.
+        status.setText(s.rows.size()+" matches · Page "+(page+1)+" · Retained "+s.retained+" / "+s.limit
+            +"\n"+s.evicted+" evicted · "+s.omitted+" omitted · Reset "+resetTime
+            +"\nSession-only · Inferred observations; incomplete coverage."
+            +"\nNo rows does not mean no abilities were used.");
+        status.setToolTipText("Evidence window reset at "+new Date(s.resetAt));
     }
     @Override public void addNotify(){super.addNotify();timer.start();}
     @Override public void removeNotify(){timer.stop();super.removeNotify();}

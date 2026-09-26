@@ -34,6 +34,15 @@ public class WaveFourEvidenceTest {
             JTable table=named(panel,"ability-table",JTable.class);assertEquals(10,table.getRowCount());table.setRowSelectionInterval(0,0);
             assertTrue(named(panel,"ability-details",JTextArea.class).getText().contains("not a confirmed cast"));
             assertTrue(named(panel,"ability-status",JTextArea.class).getText().contains("2 evicted · 1 omitted"));
+            JTextArea footer=named(panel,"ability-status",JTextArea.class);
+            try {
+                for(int offset=0;offset<footer.getDocument().getLength();offset++){
+                    java.awt.Rectangle glyph=footer.modelToView(offset);
+                    assertNotNull(glyph);
+                    assertTrue("Footer glyph must remain inside the allocated width",glyph.x+glyph.width<=footer.getWidth());
+                    assertTrue("Footer glyph must remain inside the allocated height",glyph.y+glyph.height<=footer.getHeight());
+                }
+            } catch(javax.swing.text.BadLocationException failure){throw new AssertionError(failure);}
             assertTrue(table.getParent().getHeight()>40);
             assertTrue(named(panel,"ability-details",JTextArea.class).getParent().getHeight()>=80);
         });
@@ -65,6 +74,11 @@ public class WaveFourEvidenceTest {
                 }));
                 // ArchiveWorkspace supplies this scroll fallback in production.
                 JComponent host=edt(()->tomato.gui.modern.ContentStyle.page(null,panel,null));
+                screens(host,"loot-initial-top",()->{
+                    JTabbedPane tabs=named(panel,"loot-archive-tabs",JTabbedPane.class);
+                    assertTrue("Initial tab header remains reachable",tabs.getVisibleRect().height>0);
+                    assertEquals("Initial archive view starts at its header",0,tabs.getVisibleRect().y);
+                });
                 screens(host,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("Exact enchantment evidence"));reveal(details);});
                 screens(host,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("LEGACY_NOT_RECORDED"));reveal(details);});
             }
