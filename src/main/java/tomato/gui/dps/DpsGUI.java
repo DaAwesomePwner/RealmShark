@@ -411,9 +411,20 @@ public class DpsGUI extends JPanel {
         for (EncounterCatalog.Entry entry : view.encounterCatalog.entries()) {
             DpsData data = entry.data;
             String map = data.map == null ? null : Objects.toString(data.map.displayName, "").isEmpty() ? data.map.name : data.map.displayName;
+            EncounterLink link = EncounterLink.of(data, entry.origin != null);
+            Long localDamage = null; Double window = null;
+            if (link.localObjectId != null) {
+                // Same projection as the meter's "All enemies" scope, without player filter presets.
+                List<Entity> targets = new ArrayList<>();
+                for (Entity e : data.hitList.values().toArray(new Entity[0])) if (!e.isPlayerCharacter()) targets.add(e);
+                CombatMeterData meter = new CombatMeterData(targets, null, true);
+                localDamage = 0L;
+                for (CombatMeterData.Row row : meter.rows) if (row.player.id == link.localObjectId) localDamage = row.damage;
+                window = meter.seconds;
+            }
             result.add(new RecordedEncounter(data.getRecordingId(), map == null || map.isEmpty() ? "Unknown encounter" : map,
                 data.dungeonStartTime > 0 ? data.dungeonStartTime : null, data.totalDungeonPcTime > 0 ? data.totalDungeonPcTime : null,
-                EncounterLink.of(data, entry.origin != null)));
+                link, localDamage, window));
         }
         return result;
     }

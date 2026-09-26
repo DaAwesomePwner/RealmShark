@@ -65,16 +65,22 @@ public class WaveThreeEvidenceTest {
                 RecordedDpsPanel panel = panel(view[0]);
                 assertTrue(panel.openButton().isEnabled());
                 assertTrue(panel.explanationText(), panel.explanationText().contains("not a recording") && panel.explanationText().contains("Historical recording: Lost Halls"));
+                // The verified local row's recorded value and its window from the saved encounter (Self: 25 damage over 1 s).
+                assertTrue(panel.explanationText(), panel.explanationText().contains("Recorded (verified local row, object #7): 25.0 DPS")
+                    && panel.explanationText().contains("25 damage over 1.0 s first-to-last hit window"));
             });
             run(() -> select(panel(view[0]), unverified.getRecordingId()));
             footer(shell, view[0], "myinfo-recorded-dps-unverified", () -> {
                 assertFalse(panel(view[0]).openButton().isEnabled());
                 assertTrue(panel(view[0]).explanationText().contains("not verified"));
+                assertTrue(panel(view[0]).explanationText().contains("not attributable to you"));
+                assertFalse(panel(view[0]).explanationText().contains("Recorded (verified local row"));
             });
             run(() -> select(panel(view[0]), legacy.getRecordingId()));
             footer(shell, view[0], "myinfo-recorded-dps-legacy", () -> {
                 assertFalse(panel(view[0]).openButton().isEnabled());
                 assertTrue(panel(view[0]).explanationText().contains("Legacy recording"));
+                assertTrue(panel(view[0]).explanationText().contains("not attributable to you"));
             });
             // An empty library (a fresh DPS Logger) says so rather than showing another recording.
             run(() -> { new DpsGUI(new TomatoData(), DiscoveryLog.historyView(new ActivityJournal.State())); panel(view[0]).reload(); });
