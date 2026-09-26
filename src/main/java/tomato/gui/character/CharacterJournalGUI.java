@@ -257,7 +257,7 @@ public final class CharacterJournalGUI extends JPanel {
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
         else if ((isShowing() || detached) && ageFilter.getSelectedIndex() != 0 && !matchingKeys().equals(filteredKeys())) filter();
-        if (isShowing() || detached) refreshTimeEvidence(selected());
+        if (isShowing() || detached) { refreshTimeEvidence(selected()); deathPanel.showRecord(selected()); }
         if (isShowing() || detached) planningPanel.refresh(records, accounts, definitions);
         String storageStatus = journal.storageStatus();
         if (records.isEmpty() && storageStatus.startsWith("Saved"))

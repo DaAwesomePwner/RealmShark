@@ -46,6 +46,7 @@ public final class CharacterEquipmentPanel extends JPanel {
         group.addActionListener(e -> render()); state.addActionListener(e -> render()); reset.addActionListener(e -> { group.setSelectedIndex(0); state.setSelectedIndex(0); });
         full.addActionListener(e -> details()); table.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "slot-details");
         table.getActionMap().put("slot-details", new AbstractAction() { public void actionPerformed(java.awt.event.ActionEvent e) { details(); } });
+        CharacterFocusSupport.install(this);
     }
     public void showRecord(CharacterRecord record, RosterDefinitions definitions) { slots = record == null ? Collections.emptyList() : project(record, definitions); render(); }
     public static List<Slot> project(CharacterRecord record, RosterDefinitions definitions) {

@@ -92,7 +92,7 @@ public final class CharacterPlanningPanel extends JPanel {
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { render(); } public void removeUpdate(DocumentEvent e) { render(); } public void changedUpdate(DocumentEvent e) { render(); }
         });
-        render();
+        CharacterFocusSupport.install(this); render();
     }
     public void refresh(List<CharacterRecord> records, List<AccountRecord> accounts, RosterDefinitions definitions) {
         PlanningMetadata nextMetadata = PlanningMetadata.current();

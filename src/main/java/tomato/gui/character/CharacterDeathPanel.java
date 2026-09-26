@@ -45,6 +45,7 @@ public final class CharacterDeathPanel extends JPanel {
             public void changedUpdate(javax.swing.event.DocumentEvent e) { draftStatus(); }
         };
         occurred.getDocument().addDocumentListener(edits); notes.getDocument().addDocumentListener(edits);
+        CharacterFocusSupport.install(this);
     }
     public void bindNavigator(Navigator navigator) { this.navigator = navigator; updateLink(); }
     public void showRecord(CharacterRecord next) {
@@ -109,6 +110,7 @@ public final class CharacterDeathPanel extends JPanel {
         Comparator<RunChoice> order = Comparator.comparingLong((RunChoice r) -> r.started).thenComparing(r -> r.reference.toString());
         PriorityQueue<RunChoice> retained = new PriorityQueue<>(order);
         history.read(SessionStore.ALL, "runs", ActivityJournal.Visit.class, (session, visit) -> {
+            if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
             if (visit.id == null || visit.id.isEmpty()) return;
             RunChoice row = new RunChoice(new VisitRef(session.id, visit.id), Objects.toString(visit.map, "Unknown map"), visit.started);
             String haystack = (row.map + " " + row.reference + " " + date(row.started)).toLowerCase(Locale.ROOT);
