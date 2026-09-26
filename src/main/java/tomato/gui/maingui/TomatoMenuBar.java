@@ -1,7 +1,5 @@
 package tomato.gui.maingui;
 
-import com.github.weisj.darklaf.LafManager;
-import com.github.weisj.darklaf.theme.*;
 import tomato.Tomato;
 import tomato.gui.TomatoGUI;
 import tomato.gui.chat.ChatGUI;
@@ -12,7 +10,7 @@ import tomato.gui.stats.LootGUI;
 import tomato.realmshark.Sound;
 import tomato.realmshark.enums.LootBags;
 import util.PropertiesManager;
-import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.Themes;
 import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
@@ -26,7 +24,8 @@ import java.awt.event.ActionListener;
 public class TomatoMenuBar implements ActionListener {
     private JMenuItem about, borders, clearChat, bandwidth, javav, clearDpsLogs, theme, fontMenu, dpsOptions, chat, sound, chatPingMessage, entityIdPingMessage, itemPingMessage, enchantPingMessage;
     private JRadioButtonMenuItem fontSize8, fontSize12, fontSize13, fontSize14, fontSize16, fontSize24, fontSize48, fontSizeCustom;
-    private JRadioButtonMenuItem themeDarcula, themeighContrastDark, themeHighContrastLight, themeIntelliJ, themeSolarizedDark, themeSolarizedLight;
+    private JRadioButtonMenuItem themeLight;
+    private JCheckBoxMenuItem increaseContrast;
     private JRadioButtonMenuItem fontNameMonospaced, fontNameDialog, fontNameDialogInput, fontNameSerif, fontNameSansSerif, fontNameSegoe;
     private JRadioButtonMenuItem dpsEquipmentNone, dpsEquipmentSimple, dpsEquipmentFull, dpsIcon;
     private JRadioButtonMenuItem dpsSortLastHit, dpsSortFirstHit, dpsSortMaxHp, dpsSortFightTimer, dpsSortBossOnly;
@@ -251,13 +250,13 @@ public class TomatoMenuBar implements ActionListener {
         theme.add(new JSeparator(SwingConstants.HORIZONTAL));
 
         ButtonGroup groupTheme = new ButtonGroup();
-        themeViolet = addRadioButtonMenuItem(groupTheme, theme, "RealmShark Violet");
-        themeDarcula = addRadioButtonMenuItem(groupTheme, theme, "Darcula Theme");
-        themeighContrastDark = addRadioButtonMenuItem(groupTheme, theme, "High Contrast Dark Theme");
-        themeHighContrastLight = addRadioButtonMenuItem(groupTheme, theme, "High Contrast Light Theme");
-        themeIntelliJ = addRadioButtonMenuItem(groupTheme, theme, "IntelliJ Theme");
-        themeSolarizedDark = addRadioButtonMenuItem(groupTheme, theme, "Solarized Dark Theme");
-        themeSolarizedLight = addRadioButtonMenuItem(groupTheme, theme, "Solarized Light Theme");
+        themeViolet = addRadioButtonMenuItem(groupTheme, theme, "Violet Dark");
+        themeLight = addRadioButtonMenuItem(groupTheme, theme, "Violet Light");
+        theme.add(new JSeparator(SwingConstants.HORIZONTAL));
+        increaseContrast = new JCheckBoxMenuItem("Increase contrast");
+        increaseContrast.setToolTipText("Stronger outlines, dividers and secondary text");
+        increaseContrast.addActionListener(this);
+        theme.add(increaseContrast);
         setThemeRadioButton();
 
         ButtonGroup groupFontSize = new ButtonGroup();
@@ -365,40 +364,12 @@ public class TomatoMenuBar implements ActionListener {
     }
 
     /**
-     * Selects the theme radio button from the preset.
+     * Selects the theme controls from the saved preference.
      */
     private void setThemeRadioButton() {
-        String theme = PropertiesManager.getProperty("theme");
-
-        if (theme == null) {
-            themeViolet.setSelected(true);
-            return;
-        }
-
-        switch (theme) {
-            case "violet":
-                themeViolet.setSelected(true);
-                break;
-            case "contrastDark":
-                themeighContrastDark.setSelected(true);
-                break;
-            case "contrastLight":
-                themeHighContrastLight.setSelected(true);
-                break;
-            case "intelliJ":
-                themeIntelliJ.setSelected(true);
-                break;
-            case "solarizedDark":
-                themeSolarizedDark.setSelected(true);
-                break;
-            case "solarizedLight":
-                themeSolarizedLight.setSelected(true);
-                break;
-            default:
-            case "darcula":
-                themeDarcula.setSelected(true);
-                break;
-        }
+        Themes.Choice saved = Themes.saved();
+        (saved.variant == Themes.Variant.LIGHT ? themeLight : themeViolet).setSelected(true);
+        increaseContrast.setSelected(saved.increaseContrast);
     }
 
     /**
@@ -769,34 +740,10 @@ public class TomatoMenuBar implements ActionListener {
             frame.dispose();
             frame.setUndecorated(!frame.isUndecorated());
             frame.setVisible(true);
-        } else if (e.getSource() == themeViolet) {
-            VioletTheme.install();
+        } else if (e.getSource() == themeViolet || e.getSource() == themeLight || e.getSource() == increaseContrast) {
+            Themes.select(new Themes.Choice(themeLight.isSelected() ? Themes.Variant.LIGHT : Themes.Variant.DARK,
+                increaseContrast.isSelected()));
             TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "violet");
-        } else if (e.getSource() == themeDarcula) { // theme
-            LafManager.install(new DarculaTheme());
-            TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "darcula");
-        } else if (e.getSource() == themeighContrastDark) { // theme
-            LafManager.install(new HighContrastDarkTheme());
-            TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "contrastDark");
-        } else if (e.getSource() == themeHighContrastLight) { // theme
-            LafManager.install(new HighContrastLightTheme());
-            TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "contrastLight");
-        } else if (e.getSource() == themeIntelliJ) { // theme
-            LafManager.install(new IntelliJTheme());
-            TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "intelliJ");
-        } else if (e.getSource() == themeSolarizedDark) { // theme
-            LafManager.install(new SolarizedDarkTheme());
-            TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "solarizedDark");
-        } else if (e.getSource() == themeSolarizedLight) { // theme
-            LafManager.install(new SolarizedLightTheme());
-            TomatoGUI.refreshContentFonts();
-            PropertiesManager.setProperties("theme", "solarizedLight");
         } else if (e.getSource() == fontSize8) { // font size
             TomatoGUI.fontSizeTextAreas(8);
             PropertiesManager.setProperties("fontSize", Integer.toString(8));

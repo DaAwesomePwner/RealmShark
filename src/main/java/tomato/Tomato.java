@@ -73,7 +73,7 @@ public class Tomato {
         if (preview) {
             tomato.history.AppHistory.start(true);
             SwingUtilities.invokeLater(() -> {
-                tomato.gui.modern.VioletTheme.install();
+                tomato.gui.modern.Themes.install(tomato.gui.modern.Themes.saved());
                 new TomatoGUI(new TomatoData()).create();
             });
             return;

@@ -232,7 +232,7 @@ My Info already labels ability damage as unimplemented and excludes it (`MyInfoG
 6. **Remove unused build settings.** `build.gradle:16–26` defines LWJGL/JOML versions and native classifiers with no corresponding dependency use in this build; the Shadow plugin is applied both at `4` and `113`.
 7. **Generate version code into a build source directory.** `build.gradle:83–100` writes generated Java into `src/main/java` on each compilation. Register a generated-source output under the build directory with declared inputs/outputs. Explicitly configure the JDK toolchain and intended runtime/API compatibility rather than relying only on source/target 1.8 while documenting JDK 17 development.
 
-Avoid package-wide renaming as an early cleanup. Legacy `tomato.*` classes participate in Java-serialized DPS history; any migration needs an explicit saved-file compatibility strategy. Similarly, keep FlatLaf/Darklaf dependencies while their selectable themes remain supported.
+Avoid package-wide renaming as an early cleanup. Legacy `tomato.*` classes participate in Java-serialized DPS history; any migration needs an explicit saved-file compatibility strategy. P0 update (2026-09-26): Darklaf is removed with migration of saved themes to Violet Dark/Light and Increase contrast; FlatLaf remains.
 
 ## Recommended delivery order and acceptance criteria
 

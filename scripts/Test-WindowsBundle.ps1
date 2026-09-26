@@ -191,7 +191,7 @@ try {
     $packagedJar = Join-Path $temporary 'RealmShark-v1.2.3.jar'
     [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entries['app/RealmShark-v1.2.3.jar'], $packagedJar)
     & "$JavaHome/bin/java.exe" '-Djava.awt.headless=true' '--source' '17' (Join-Path $PSScriptRoot 'validation/BuildContractProbe.java') $packagedJar $ExpectedJarVersion 'v1.9.2' 'v1.9.1' $sources['UNITYPY-LICENSE.txt']
-    Assert-RealmSharkPackage ($LASTEXITCODE -eq 0) 'Packaged JAR version, inlined identity, Java 8 classes or notice failed verification.'
+    Assert-RealmSharkPackage ($LASTEXITCODE -eq 0) 'Packaged JAR version, inlined identity, Java 17 classes or notice failed verification.'
     $executable = Join-Path $temporary 'RealmShark.exe'
     [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entries['RealmShark.exe'], $executable)
     $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($executable)

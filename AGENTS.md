@@ -28,7 +28,7 @@ merges and `.omc/ux/checkpoint.json`; workers must not alter either.
 
 ## Build and validation
 
-Use JDK 17, Gradle 7.6.4, and existing Java 8 API/bytecode targeting for main sources.
+Use JDK 17 and Gradle 7.6.4; main sources target Java 17 (`--release 17`).
 Main checks: `gradlew.bat test shadowJar`; scaled checks use
 `-I scripts/typography-validation.gradle test testUi150 testUi200`.
 Use unique `realmSharkBuildDir` and project-cache directories per worker. Serialize

@@ -23,7 +23,7 @@ public final class BuildContractProbe {
                     jar.getManifest().getMainAttributes().getValue("Main-Class")), "Incorrect JAR entrypoint");
             for (String name : List.of("realmshark/version/Version.class", "tomato/version/Version.class",
                     "realmshark/branding/AppIdentity.class", "realmshark/RealmShark.class")) {
-                verifyJava8Class(jar, name);
+                verifyJava17Class(jar, name);
             }
             String noticeName = "META-INF/licenses/UNITYPY-LICENSE.txt";
             JarEntry notice = uniqueEntry(jar, noticeName);
@@ -46,7 +46,7 @@ public final class BuildContractProbe {
             equal(args[3], upstream.getField("ASSET_CACHE_VERSION").get(null), "Asset-cache version");
         }
         System.out.println("PASS: " + jarPath + " product=" + args[1] + ", upstream=" + args[2] + ", cache=" + args[3]
-                + "; isolated identity, unique Java 8 classes, and UnityPy notice verified.");
+                + "; isolated identity, unique Java 17 classes, and UnityPy notice verified.");
     }
 
     private static JarEntry uniqueEntry(JarFile jar, String name) {
@@ -55,14 +55,14 @@ public final class BuildContractProbe {
         return entries.get(0);
     }
 
-    private static void verifyJava8Class(JarFile jar, String name) throws Exception {
+    private static void verifyJava17Class(JarFile jar, String name) throws Exception {
         JarEntry entry = uniqueEntry(jar, name);
         require(jar.stream().noneMatch(candidate -> candidate.getName().matches("META-INF/versions/[0-9]+/" + Pattern.quote(name))),
                 "Unexpected multi-release replacement for " + name);
         try (DataInputStream input = new DataInputStream(jar.getInputStream(entry))) {
             require(input.readInt() == 0xCAFEBABE, "Invalid class header: " + name);
             input.readUnsignedShort();
-            require(input.readUnsignedShort() == 52, "Expected Java 8 class version 52: " + name);
+            require(input.readUnsignedShort() == 61, "Expected Java 17 class version 61: " + name);
         }
     }
 

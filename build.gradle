@@ -51,7 +51,6 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.9.1'
     implementation 'net.java.dev.jna:jna:5.12.1'
     implementation 'com.google.flatbuffers:flatbuffers-java:23.5.26'
-    implementation 'com.github.weisj:darklaf-core:3.0.2'
     implementation 'com.formdev:flatlaf:3.5.4'
     implementation 'org.java-websocket:Java-WebSocket:1.5.3'
     runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
@@ -126,7 +125,7 @@ shadowJar {
     archiveFileName = "${applicationName}-${project.version}.jar"
 }
 
-// Gradle 7.6.4 toolchains select the tools; release separately limits main APIs/bytecode.
+// Gradle 7.6.4 toolchains select the tools; release pins main and test APIs/bytecode to Java 17.
 def compiler17 = javaToolchains.compilerFor(java.toolchain)
 def launcher17 = javaToolchains.launcherFor(java.toolchain)
 tasks.withType(JavaCompile).configureEach {
@@ -143,7 +142,7 @@ tasks.withType(JavaExec).configureEach {
     javaLauncher = launcher17
 }
 tasks.named('compileJava', JavaCompile) {
-    options.release = 8
+    options.release = 17
 }
 tasks.named('compileTestJava', JavaCompile) {
     options.release = 17

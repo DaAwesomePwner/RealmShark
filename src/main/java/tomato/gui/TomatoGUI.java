@@ -1,7 +1,5 @@
 package tomato.gui;
 
-import com.github.weisj.darklaf.LafManager;
-import com.github.weisj.darklaf.theme.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -35,7 +33,7 @@ import tomato.gui.stats.LootRouteTarget;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
 import util.PropertiesManager;
-import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.ArchiveRouteTarget;
@@ -211,38 +209,12 @@ public class TomatoGUI {
     }
 
     /**
-     * Loads the theme preset chosen by the user.
+     * Loads the theme preset chosen by the user, rewriting a retired theme value once.
      */
     public static void loadThemePreset() {
         if (!SwingUtilities.isEventDispatchThread()) { onEdt(TomatoGUI::loadThemePreset); return; }
         loadFontPreset();
-        String theme = PropertiesManager.getProperty("theme");
-        if (theme == null) theme = "violet";
-
-        switch (theme) {
-            case "violet":
-                VioletTheme.install();
-                break;
-            case "contrastDark":
-                LafManager.install(new HighContrastDarkTheme());
-                break;
-            case "contrastLight":
-                LafManager.install(new HighContrastLightTheme());
-                break;
-            case "intelliJ":
-                LafManager.install(new IntelliJTheme());
-                break;
-            case "solarizedDark":
-                LafManager.install(new SolarizedDarkTheme());
-                break;
-            case "solarizedLight":
-                LafManager.install(new SolarizedLightTheme());
-                break;
-            default:
-            case "darcula":
-                LafManager.install(new DarculaTheme());
-                break;
-        }
+        Themes.install(Themes.migrateSaved());
         refreshContentFonts();
     }
 
