@@ -32,3 +32,22 @@ This initial failed invocation is not represented as a pass.
 Final source review, native/scaled visual review, full/scaled suites, shadow JAR,
 isolated help, build/runtime/package checks, PR CI, normal merge and main verification.
 No live capture, real Bridge deliveries or workstation display-setting changes.
+
+## Integrated audit
+
+All three production packages are integrated. Character goals, quest plans and
+reservations share one revision-checked account document; stale drafts cannot overwrite
+another panel's save. Exact character run links use the installed navigator.
+
+The first independent visual pass found a clipped ability coverage footer and faint
+unfocused table selection. The footer now uses short semantic lines with full-text
+geometry assertions; inactive table rows retain the selected violet fill. Final
+integrated captures must verify these fixes. Loot enrichment captures intentionally
+reveal the selected detail; a separate initial-top capture now distinguishes initial
+scroll state from deliberate detail navigation.
+
+The Wave 3 cohort audit confirmed exports keep the last applied query while inputs
+are invalid. The stale notice now explicitly states this behavior. The My Info EDT
+library recomputation finding is being addressed with asynchronous, generation-checked
+reloads. Other accepted Wave 3 limitations remain subject to the final review record;
+this progress note does not claim they were all revalidated.
