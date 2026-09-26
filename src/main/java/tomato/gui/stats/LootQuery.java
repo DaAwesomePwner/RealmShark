@@ -11,7 +11,7 @@ public final class LootQuery {
         OCCURRENCES("Item occurrences"), ITEMS("All Items"), POTIONS("Stat Potions"), WHITES("Whites"),
         BAGS("By Bag"), RECENT("Recent Drops"), DUNGEONS("By Dungeon"), UTS("UTs"), STS("STs"), TIERED("Tiered"),
         RATES("Dungeon loot profile"), SESSIONS("Session comparison"), FAME("Character fame"),
-        COUNTERS("Dungeon statistics"), ENEMIES("Enemy hit events"), SOURCES("Loot by source");
+        COUNTERS("Dungeon statistics"), ENEMIES("Enemy hit events"), SOURCES("Loot by source"), COHORTS("A/B cohorts");
         final String label; View(String label){this.label=label;} public String toString(){return label;}
         boolean loot(){return ordinal()<=TIERED.ordinal();}
         boolean counters(){return this==COUNTERS||this==ENEMIES||this==SOURCES;}
@@ -20,6 +20,23 @@ public final class LootQuery {
         FIRST_FAME,LAST_FAME,PER_RUN,UT_HOUR,WHITE_RUN,UT_RUN,ST_RUN,POTION_RUN,WHITES,UTS,STS,POTIONS,COMPLETED,UNKNOWN_RUNS,IMPORTED_RUNS,DAMAGE,CHARACTER,ENEMY,TIER,RARITY,AVERAGE_MILLIS }
     public enum Kind { ANY, UT_EQUIPMENT, ST, STAT_POTION, HIGH_TIER }
     public enum Unknown { INCLUDE, EXCLUDE, ONLY }
+    /** Shared run-outcome predicate for A/B cohorts; null in saved facets means ANY. */
+    public enum Outcome { ANY("Any outcome"), COMPLETED("Completed"), NOT_COMPLETED("Not completed");
+        final String label; Outcome(String label){this.label=label;} public String toString(){return label;}
+        boolean matches(String status){return this==ANY||(this==COMPLETED)=="Completed".equals(status);} }
+    /** One explicit A/B cohort: chosen sessions (empty = every session in scope) and optional half-open visit-entry bounds. */
+    public static final class Cohort {
+        public Set<String> sessions=new LinkedHashSet<>();
+        public Long from,until;
+        public Cohort(){}
+        public Cohort(Collection<String> sessions,Long from,Long until){this.sessions=new LinkedHashSet<>(sessions);this.from=from;this.until=until;}
+        void validate(){if(sessions==null||sessions.size()>256||sessions.contains(null)||from!=null&&until!=null&&from>=until)throw new IllegalArgumentException("Invalid cohort: at most 256 sessions and from < until");}
+        boolean contains(String session,long started){
+            if(!sessions.isEmpty()&&!sessions.contains(session))return false;
+            if(from==null&&until==null)return true;
+            return started>0&&(from==null||started>=from)&&(until==null||started<until);
+        }
+    }
     public static final class Range {
         public Integer min,max;
         public Unknown unknown=Unknown.INCLUDE;
@@ -34,9 +51,12 @@ public final class LootQuery {
         public String character="",enemy="";
         /** Exact drill-down facets. Null by default, so saved query JSON without them restores unchanged. */
         public String variant,visitSession,visitId;
+        /** A/B cohorts share dungeon, outcome and coverage predicates. Null by default for saved-state compatibility. */
+        public Cohort baseline,candidate;
+        public Outcome outcome;
         public void validate(){
             if(view==null||kind==null||bags==null||dungeons==null||rarities==null||tiers==null||slots==null||applied==null||character==null||enemy==null)throw new IllegalArgumentException("Incomplete loot query");
-            slots.validate();applied.validate();
+            slots.validate();applied.validate();if(baseline!=null)baseline.validate();if(candidate!=null)candidate.validate();
             if(variant!=null&&!variant.matches("-?\\d{1,10}/(null|\\d{1,10})/(null|\\d{1,10})"))throw new IllegalArgumentException("An exact item variant is item ID/slots/applied");
             if(visitSession==null!=(visitId==null))throw new IllegalArgumentException("An exact visit requires both its session and visit ID");
             if(visitSession!=null&&(!visitSession.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")||visitId.isEmpty()||visitId.length()>512))throw new IllegalArgumentException("Invalid exact visit reference");
@@ -87,6 +107,9 @@ public final class LootQuery {
         public Boolean runLinked;
         /** Rate rows: eligible runs without linked bags, and bags that could not join an eligible run. */
         public Long zeroLootRuns,unassignedBags;
+        /** A/B cohorts: per-run distribution of observed items, and percentage changes (null when the baseline is zero or unavailable). */
+        public Long minPerRun,maxPerRun;
+        public Double medianPerRun,perRunChange,perHourChange;
         /** Exact drill-down key (item ID/slots/applied) for occurrence and variant rows. */
         public String variantKey(){return itemId==null?null:itemId+"/"+slots+"/"+applied;}
         /** Exact recorded visit reference, or null when the row has no verified run link. */

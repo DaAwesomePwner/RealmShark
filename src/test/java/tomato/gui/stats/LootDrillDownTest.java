@@ -220,7 +220,7 @@ public class LootDrillDownTest {
         } finally { prefs.shutdown(5, TimeUnit.SECONDS, message -> {}); }
     }
 
-    private interface Checked<T> { T get() throws Exception; }
+    interface Checked<T> { T get() throws Exception; }
     static <T> T edt(Checked<T> action) throws Exception {
         AtomicReference<T> value = new AtomicReference<>(); AtomicReference<Throwable> failure = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> { try { value.set(action.get()); } catch (Throwable t) { failure.set(t); } });
