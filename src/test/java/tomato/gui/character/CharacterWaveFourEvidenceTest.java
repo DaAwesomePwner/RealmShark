@@ -51,7 +51,7 @@ public class CharacterWaveFourEvidenceTest {
                     assertEquals("Read-only run evidence uses wrappingText's metadata role (12/13 of body)", metadataSize, named(panel, "death-run-link", JTextArea.class).getFont().getSize2D(), .05f);
                     ContentStyle.reveal(occurred, new Rectangle(0, 0, occurred.getWidth(), occurred.getHeight())); capture(frame, "death-enlarged-text");
                 } catch (Exception failure) { throw new RuntimeException(failure); }
-                finally { if (frame != null) frame.dispose(); ContentStyle.setBodyFont(previous); try { UIManager.setLookAndFeel(look); } catch (Exception failure) { throw new RuntimeException(failure); } }
+                finally { if (frame != null) frame.dispose(); ContentStyle.setBodyFont(previous); try { UIManager.setLookAndFeel(look); } catch (Exception failure) { throw new RuntimeException(failure); } finally { ContentStyle.applyFontDefaults(); } }
             });
         }
     }
