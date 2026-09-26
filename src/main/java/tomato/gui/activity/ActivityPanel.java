@@ -199,6 +199,8 @@ public final class ActivityPanel extends JPanel {
             plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspectionScroll,BorderLayout.SOUTH);
             combatViews.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
             combatViews.addTab("Buff timeline & resources",plot); combatViews.addTab("Uptime summary",ContentStyle.tableScroll(table,3));
+            // Live visits are not yet saved-session references: window analysis works, Timeline handoffs explain why not.
+            combatViews.addTab("Selected window",new JScrollPane(new ResourceWindowPanel(chart,()->null)));
             combatViews.setName("activity-resource-tabs");
             combatViews.addChangeListener(e->{if(!refreshing&&!restoringState){fill(false);rememberLiveState();}});
             add(split(combatViews,new JScrollPane(detail),.78),BorderLayout.CENTER);
@@ -417,7 +419,7 @@ public final class ActivityPanel extends JPanel {
             add(nextRows,nextItems,e,Instant.ofEpochMilli(e.time),e.map,e.kind,eventText(e),e.detail);}}
         else {
             ActivityJournal.Visit v=selectedVisit();
-            if(explicit||combatViews.getSelectedIndex()==0)chart.setVisit(v);
+            if(explicit||combatViews.getSelectedIndex()!=1)chart.setVisit(v);
             if(updateTable&&v!=null){uptimes(nextRows,nextItems,v.conditions,v.conditionObservedMillis,"");uptimes(nextRows,nextItems,v.extraConditions,v.extraConditionObservedMillis," (extra)");}
         }
         if(updateTable){

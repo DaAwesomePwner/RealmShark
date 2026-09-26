@@ -91,6 +91,8 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private boolean reading, restoring=true, removed, exporting;
         private long generation;
         private final boolean exact;
+        private tomato.history.link.VisitRef shownRef;
+        private ResourceWindowPanel resourceWindow;
         private final JTextArea window=ContentStyle.wrappingText("");
         View(ArchivePage<Row> page,ViewState<Filters,Sort> state,Binding<Filters,Sort> binding) {
             super(new BorderLayout(0,6));this.page=page;this.state=state;this.binding=binding;
@@ -129,8 +131,10 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 chart.addPropertyChangeListener("inspectionSummary",e->inspection.setText((String)e.getNewValue()));
                 plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspection,BorderLayout.SOUTH);
                 tabs.setName("saved-resource-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+                resourceWindow=new ResourceWindowPanel(chart,()->shownRef);
                 tabs.addTab("Resources & buffs",plot);tabs.addTab("Uptime summary",uptime);tabs.addTab("Coverage",new JScrollPane(message));
-                int index="uptime".equals(state.tab)?1:"coverage".equals(state.tab)?2:0;tabs.setSelectedIndex(index);
+                tabs.addTab("Selected window",new JScrollPane(resourceWindow));
+                int index="uptime".equals(state.tab)?1:"coverage".equals(state.tab)?2:"window".equals(state.tab)?3:0;tabs.setSelectedIndex(index);
                 tabs.addChangeListener(e->{if(!restoring){this.state=this.state.withPosition(tab(),this.state.selected,this.state.anchor,this.state.anchorOffset);remember();}});
                 details.add(tabs);
             } else details.add(new JScrollPane(message));
@@ -191,7 +195,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             return scope+"\nWindow ["+(b.from==null?"unbounded":RunWorkbench.time(b.from,zone))+", "+(b.until==null?"unbounded":RunWorkbench.time(b.until,zone))+") "+zone.getId()
                     +" · half-open; "+page.matches+" matching events. Displayed pages and every export use this same query and bounds.";
         }
-        private String tab() { return tabs.getSelectedIndex()==1?"uptime":tabs.getSelectedIndex()==2?"coverage":"resources"; }
+        private String tab() { int i=tabs.getSelectedIndex();return i==1?"uptime":i==2?"coverage":i==3?"window":"resources"; }
         private void remember() { if(!restoring&&!removed)binding.viewChanged(state); }
         private void position() { state=HistoryTables.position(table,scroll,page,state);remember(); }
         private JPanel queryControls() {
@@ -248,7 +252,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private void select(ArchiveRow<Row> row) {
             if(removed)return;generation++;detailCancel.cancel();selected=row;pending=row;
             linked.setEnabled(row!=null&&!exporting);
-            if(mode==ActivityPanel.Mode.COMBAT){chart.setVisit(null);uptime.removeAll();uptime.revalidate();uptime.repaint();}
+            if(mode==ActivityPanel.Mode.COMBAT){shownRef=null;chart.setVisit(null);uptime.removeAll();uptime.revalidate();uptime.repaint();}
             if(visitRenderer!=null||mode==ActivityPanel.Mode.RUNS){details.removeAll();details.add(new JScrollPane(message));details.revalidate();details.repaint();}
             if(row==null){pending=null;message.setText(page.matches==0?(exact&&mode!=ActivityPanel.Mode.TIMELINE?unavailable()
                     :exact?"No saved Timeline events for this exact visit"+(state.query.bounds().from!=null?" in this window":"")+". Recording coverage is unknown; an empty window is not proof that nothing happened."
@@ -294,6 +298,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                     +"\nTimeline samples omitted by retention: "+visit.timelineOmitted+". Old aggregate-only visits cannot reconstruct charts."
                     +"\nPage/all-match exports contain lightweight visit summaries. Export selected visit + Timeline includes full saved details and exact linked events.");
             if(mode==ActivityPanel.Mode.COMBAT) {
+                shownRef=ActivityRoutes.reference(row.ref.session,visit.id);
                 chart.setVisit(visit);List<Object[]> rows=new ArrayList<>();
                 uptimes(rows,visit.conditions,visit.conditionObservedMillis,"");uptimes(rows,visit.extraConditions,visit.extraConditionObservedMillis," (extra)");
                 JTable table=HistoryTables.table("saved-buff-uptime",new String[]{"Condition","Active ms","Observed ms","Uptime %"},
