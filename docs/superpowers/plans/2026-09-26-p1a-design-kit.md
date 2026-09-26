@@ -909,6 +909,7 @@ import assets.IdToAsset;
 import assets.ImageBuffer;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -943,8 +944,10 @@ public final class Sprites {
     private static Icon resolve(int objectId, int size) {
         if (objectId <= 0) return new Placeholder(size);
         try {
-            // getImage returns null for unknown objects; getOutlinedIcon would silently draw an empty image.
-            if (ImageBuffer.getImage(objectId) == null) return new Placeholder(size);
+            // getImage returns null for id <= 0 and the shared transparent image for unknown IDs or missing
+            // sprite data (ImageBuffer.getImage/getEmptyImg); either would otherwise draw a blank slot.
+            BufferedImage image = ImageBuffer.getImage(objectId);
+            if (image == null || image == ImageBuffer.getEmptyImg()) return new Placeholder(size);
             ImageIcon icon = ImageBuffer.getOutlinedIcon(objectId, size);
             return icon == null || icon.getIconWidth() <= 0 ? new Placeholder(size) : icon;
         } catch (IOException | RuntimeException e) {
@@ -1108,6 +1111,7 @@ Expected: FAIL — `cannot find symbol: class DisplayModeModel` / `class Motion`
 package tomato.gui.kit;
 
 import java.awt.event.HierarchyEvent;
+import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
@@ -1124,7 +1128,8 @@ public final class DisplayModeModel {
     private static DisplayModeModel application;
 
     private final BiConsumer<String, String> write;
-    private final List<Consumer<Mode>> listeners = new CopyOnWriteArrayList<>();
+    /** Weak: the owning component holds each listener strongly, so discarded, never-shown views are not leaked. */
+    private final List<WeakReference<Consumer<Mode>>> listeners = new CopyOnWriteArrayList<>();
     private volatile Mode mode;
 
     public DisplayModeModel(Function<String, String> read, BiConsumer<String, String> write) {
@@ -1145,30 +1150,42 @@ public final class DisplayModeModel {
         if (value == null || value == mode) return;
         mode = value;
         write.accept(KEY, value == Mode.ANALYST ? "analyst" : "simple");
-        for (Consumer<Mode> listener : listeners) listener.accept(value);
+        for (WeakReference<Consumer<Mode>> reference : listeners) {
+            Consumer<Mode> listener = reference.get();
+            if (listener == null) listeners.remove(reference); else listener.accept(value);
+        }
     }
 
     public void toggle() { set(analyst() ? Mode.SIMPLE : Mode.ANALYST); }
 
     /**
-     * Applies the current mode now and on every change while the owner is displayable. The listener is
-     * dropped when the owner leaves a displayable hierarchy, so disposed windows do not leak views.
+     * Applies the current mode now and on every change while the owner is alive and displayable. The owner
+     * holds the listener; the model holds it weakly and drops it when the owner leaves a displayable hierarchy.
      */
     public void bind(JComponent owner, Consumer<Mode> listener) {
+        owner.putClientProperty(listener, listener);
         listener.accept(mode);
-        listeners.add(listener);
+        register(listener);
         owner.addHierarchyListener(event -> {
             if ((event.getChangeFlags() & HierarchyEvent.DISPLAYABILITY_CHANGED) == 0) return;
             if (owner.isDisplayable()) {
-                if (!listeners.contains(listener)) listeners.add(listener);
+                register(listener);
                 listener.accept(mode);
             } else {
-                listeners.remove(listener);
+                listeners.removeIf(reference -> reference.get() == null || reference.get() == listener);
             }
         });
     }
 
-    public int listenerCount() { return listeners.size(); }
+    private void register(Consumer<Mode> listener) {
+        for (WeakReference<Consumer<Mode>> reference : listeners) if (reference.get() == listener) return;
+        listeners.add(new WeakReference<>(listener));
+    }
+
+    public int listenerCount() {
+        listeners.removeIf(reference -> reference.get() == null);
+        return listeners.size();
+    }
 }
 ```
 
@@ -1224,16 +1241,26 @@ public final class Motion {
         return timer;
     }
 
+    private static volatile long systemCheckedAt;
+    private static volatile boolean systemAllows = true;
+
+    /** Reads the Windows setting at most every five seconds; animations are rare, but this avoids a JNA call per frame burst. */
     private static boolean systemAnimations() {
         Boolean override = systemOverride;
         if (override != null) return override;
         if (!Platform.isWindows()) return true;
+        long now = System.nanoTime();
+        if (systemCheckedAt != 0 && now - systemCheckedAt < 5_000_000_000L) return systemAllows;
+        boolean allows;
         try {
             IntByReference value = new IntByReference(1);
-            return !User32.INSTANCE.SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, value, 0) || value.getValue() != 0;
+            allows = !User32.INSTANCE.SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, value, 0) || value.getValue() != 0;
         } catch (Throwable unavailable) {
-            return true;
+            allows = true;
         }
+        systemAllows = allows;
+        systemCheckedAt = now;
+        return allows;
     }
 
     private interface User32 extends StdCallLibrary {
@@ -1609,6 +1636,12 @@ public class OverflowMenu extends KitButton {
 
     public JPopupMenu menu() { return menu; }
 
+    /** The popup is not in the component tree until shown, so theme changes must reach it here. */
+    @Override public void updateUI() {
+        super.updateUI();
+        if (menu != null) SwingUtilities.updateComponentTreeUI(menu); // null during KitButton's constructor
+    }
+
     /** Finds a menu item by its exact text, including inside submenus; null when absent. */
     public JMenuItem item(String label) { return find(menu.getComponents(), label); }
 
@@ -1684,6 +1717,12 @@ public class ContainersTest {
             assertEquals("Open recent runs", card.getAccessibleContext().getAccessibleName());
             card.getActionMap().get("open-card").actionPerformed(null);
             assertEquals(1, opened[0]);
+            JLabel tipped = new JLabel("3.9k DPS");
+            tipped.setToolTipText("Linked recording");
+            card.footer(tipped);
+            tipped.dispatchEvent(new java.awt.event.MouseEvent(tipped, java.awt.event.MouseEvent.MOUSE_CLICKED,
+                System.currentTimeMillis(), 0, 1, 1, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            assertEquals("A click on a child with a tooltip still opens the card", 2, opened[0]);
             assertNotNull(card.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0)));
             assertEquals("Recent runs", card.header().title());
         });
@@ -1832,6 +1871,7 @@ package tomato.gui.kit;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.util.Arrays;
 import java.util.Objects;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -1847,6 +1887,17 @@ public class Card extends JPanel {
     private KitButton evidenceToggle;
     private Runnable open;
     private boolean hovered;
+    /** Children with tooltips receive their own mouse events, so clicks are listened for on every non-button descendant. */
+    private final MouseAdapter clicks = new MouseAdapter() {
+        @Override public void mouseClicked(MouseEvent e) { if (open != null && SwingUtilities.isLeftMouseButton(e)) open.run(); }
+        @Override public void mouseEntered(MouseEvent e) { setHovered(true); }
+        @Override public void mouseExited(MouseEvent e) {
+            setHovered(contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), Card.this)));
+        }
+    };
+    private final ContainerListener adoption = new ContainerAdapter() {
+        @Override public void componentAdded(ContainerEvent e) { if (open != null) listen(e.getChild()); }
+    };
 
     public Card() { this(DisplayModeModel.application()); }
 
@@ -1881,17 +1932,16 @@ public class Card extends JPanel {
     public Card body(JComponent body) { center.add(body, BorderLayout.CENTER); return this; }
     public Card footer(JComponent footer) { add(footer, BorderLayout.SOUTH); return this; }
 
-    /** Makes the whole card a drill-down target: click, Enter or Space. */
+    /**
+     * Makes the whole card a drill-down target: click (including on labels, tiles and slots inside it),
+     * Enter or Space. Buttons inside the card keep their own action.
+     */
     public Card onOpen(String accessibleName, Runnable action) {
         open = Objects.requireNonNull(action, "action");
         setFocusable(true);
         getAccessibleContext().setAccessibleName(accessibleName);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) { if (SwingUtilities.isLeftMouseButton(e)) open.run(); }
-            @Override public void mouseEntered(MouseEvent e) { hovered = true; repaint(); }
-            @Override public void mouseExited(MouseEvent e) { hovered = false; repaint(); }
-        });
+        listen(this);
         InputMap keys = getInputMap(WHEN_FOCUSED);
         keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "open-card");
         keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "open-card");
@@ -1922,6 +1972,22 @@ public class Card extends JPanel {
     }
 
     public boolean evidenceShown() { return evidence != null && evidence.isVisible(); }
+
+    private void listen(Component component) {
+        if (component instanceof AbstractButton) return;
+        if (!Arrays.asList(component.getMouseListeners()).contains(clicks)) component.addMouseListener(clicks);
+        if (component instanceof Container) {
+            Container container = (Container) component;
+            if (!Arrays.asList(container.getContainerListeners()).contains(adoption)) container.addContainerListener(adoption);
+            for (Component child : container.getComponents()) listen(child);
+        }
+    }
+
+    private void setHovered(boolean value) {
+        if (hovered == value) return;
+        hovered = value;
+        repaint();
+    }
 
     private void showEvidence(boolean shown) {
         evidence.setVisible(shown);
@@ -2031,6 +2097,8 @@ import tomato.gui.modern.ContentStyle;
 
 /** An invitation, not an apology: what belongs here and the next action. */
 public class EmptyState extends JPanel {
+    private final JTextArea text;
+
     public EmptyState(String title, String body, KitButton action) {
         super(new GridBagLayout());
         setOpaque(false);
@@ -2040,7 +2108,7 @@ public class EmptyState extends JPanel {
         };
         heading.putClientProperty("html.disable", true);
         ContentStyle.font(heading, Type.emphasis());
-        JTextArea text = ContentStyle.wrappingText(body);
+        text = ContentStyle.wrappingText(body);
         text.setForeground(Tokens.color(Tokens.Role.TEXT_MUTED));
         GridBagConstraints c = new GridBagConstraints();
         c.gridx = 0; c.gridy = 0; c.insets = new Insets(0, 0, Tokens.XS, 0);
@@ -2050,6 +2118,11 @@ public class EmptyState extends JPanel {
         if (action != null) { c.gridy = 2; c.fill = GridBagConstraints.NONE; c.weightx = 0; c.insets = new Insets(0, 0, 0, 0); add(action, c); }
         getAccessibleContext().setAccessibleName(title);
         getAccessibleContext().setAccessibleDescription(body);
+    }
+
+    @Override public void updateUI() {
+        super.updateUI();
+        if (text != null) text.setForeground(Tokens.color(Tokens.Role.TEXT_MUTED)); // null during JPanel's constructor
     }
 }
 ```
@@ -2086,7 +2159,8 @@ public class Collapsible extends JPanel {
 
     Collapsible(String id, String title, JComponent content, boolean expandedByDefault,
                 Function<String, String> read, BiConsumer<String, String> write) {
-        super(new BorderLayout(0, Tokens.XS));
+        // No layout gap: the content holder carries its own padding, so a closed section leaves no space.
+        super(new BorderLayout());
         this.id = Objects.requireNonNull(id, "id");
         this.content = Objects.requireNonNull(content, "content");
         this.write = write;
@@ -2099,11 +2173,14 @@ public class Collapsible extends JPanel {
             @Override public Dimension getPreferredSize() {
                 if (!content.isVisible()) return new Dimension(0, 0);
                 Dimension size = content.getPreferredSize();
-                return new Dimension(size.width, Math.round(size.height * fraction));
+                Insets padding = getInsets();
+                return new Dimension(size.width + padding.left + padding.right,
+                    Math.round((size.height + padding.top + padding.bottom) * fraction));
             }
             @Override public Dimension getMinimumSize() { return new Dimension(0, getPreferredSize().height); }
         };
         holder.setOpaque(false);
+        holder.setBorder(BorderFactory.createEmptyBorder(Tokens.XS, 0, 0, 0));
         holder.add(content);
         add(toggle, BorderLayout.NORTH);
         add(holder, BorderLayout.CENTER);
@@ -2253,11 +2330,14 @@ package tomato.gui.kit;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.LineIcon;
 import util.PropertiesManager;
@@ -2285,6 +2365,8 @@ public class FilterBar extends JPanel {
     private final OverflowMenu overflow;
     private final JPanel drawer = new JPanel(new BorderLayout());
     private final JPanel drawerHolder;
+    /** Components disabled by setDrawerEnabled(false) and their previous state, restored exactly. */
+    private final Map<Component, Boolean> disabledByLoad = new IdentityHashMap<>();
     private JComponent search, scope, drawerContent;
     private List<ActiveFilter> active = Collections.emptyList();
     private Runnable clearAll;
@@ -2295,7 +2377,8 @@ public class FilterBar extends JPanel {
     public FilterBar(String name) { this(name, PropertiesManager::getProperty, PropertiesManager::setProperties); }
 
     FilterBar(String name, Function<String, String> read, BiConsumer<String, String> write) {
-        super(new BorderLayout(0, Tokens.S));
+        // No layout gap: the drawer carries its own top padding, so a closed drawer leaves no space.
+        super(new BorderLayout());
         this.name = Objects.requireNonNull(name, "name");
         this.write = write;
         setOpaque(false);
@@ -2309,6 +2392,7 @@ public class FilterBar extends JPanel {
         leading.setOpaque(false);
         trailing.setOpaque(false);
         drawer.setOpaque(false);
+        drawer.setBorder(new EmptyBorder(Tokens.S, 0, 0, 0));
         drawer.setName(name + "-filter-drawer");
         JPanel row = new JPanel(new BorderLayout(Tokens.S, 0));
         row.setOpaque(false);
@@ -2333,8 +2417,22 @@ public class FilterBar extends JPanel {
 
     private String key() { return "ui.filters." + name + ".open"; }
 
-    public FilterBar search(JComponent field) { search = field; rebuild(); return this; }
-    public FilterBar scope(JComponent value) { scope = value; rebuild(); return this; }
+    /** Search and scope are added once and never re-parented by rebuild(), so typing keeps focus. */
+    public FilterBar search(JComponent field) {
+        if (search != null) leading.remove(search);
+        search = field;
+        if (field != null) leading.add(field, 0);
+        rebuild();
+        return this;
+    }
+
+    public FilterBar scope(JComponent value) {
+        if (scope != null) trailing.remove(scope);
+        scope = value;
+        if (value != null) trailing.add(value, 0);
+        rebuild();
+        return this;
+    }
 
     /** The module's facet controls; null removes the Filters toggle. Replacing content keeps the open state. */
     public FilterBar drawer(JComponent content) {
@@ -2365,35 +2463,50 @@ public class FilterBar extends JPanel {
         write.accept(key(), Boolean.toString(value));
         updateFiltersButton();
         if (animation != null) animation.stop();
-        if (value) drawer.setVisible(true);
+        if (value) { drawer.setVisible(true); drawerHolder.setVisible(true); }
         final boolean opening = value;
         animation = Motion.run(Motion.MAX_MILLIS,
             progress -> { fraction = (float) (opening ? progress : 1 - progress); drawerHolder.revalidate(); repaint(); },
-            () -> { fraction = 1f; drawer.setVisible(open && drawerContent != null); animation = null; drawerHolder.revalidate(); repaint(); });
+            () -> {
+                fraction = 1f;
+                drawer.setVisible(open && drawerContent != null);
+                drawerHolder.setVisible(drawer.isVisible());
+                animation = null;
+                revalidate();
+                repaint();
+            });
     }
 
-    /** Disables the facet controls while a query is loading, so edits cannot be silently discarded. */
+    /**
+     * Disables the facet controls, chips and Clear while a query is loading, so edits cannot be silently
+     * discarded; true restores each component's previous state. The Filters toggle stays usable.
+     */
     public void setDrawerEnabled(boolean enabled) {
-        if (drawerContent != null) setEnabledTree(drawerContent, enabled);
-        for (Component child : leading.getComponents()) if (child != search) setEnabledTree(child, enabled);
+        if (enabled) {
+            for (Map.Entry<Component, Boolean> entry : disabledByLoad.entrySet()) entry.getKey().setEnabled(entry.getValue());
+            disabledByLoad.clear();
+            return;
+        }
+        if (drawerContent != null) disableTree(drawerContent);
+        for (Component child : leading.getComponents()) if (child != search && child != filters) disableTree(child);
     }
 
-    private static void setEnabledTree(Component component, boolean enabled) {
-        component.setEnabled(enabled);
-        if (component instanceof Container) for (Component child : ((Container) component).getComponents()) setEnabledTree(child, enabled);
+    private void disableTree(Component component) {
+        if (!disabledByLoad.containsKey(component)) disabledByLoad.put(component, component.isEnabled());
+        component.setEnabled(false);
+        if (component instanceof Container) for (Component child : ((Container) component).getComponents()) disableTree(child);
     }
 
     private void rebuild() {
-        leading.removeAll();
-        if (search != null) leading.add(search);
+        for (Component child : leading.getComponents()) if (child != search) leading.remove(child);
         leading.add(filters);
         filters.setVisible(drawerContent != null);
         for (ActiveFilter filter : active) leading.add(Chip.removable(filter.label, filter.remove));
         leading.add(clear);
         clear.setVisible(!active.isEmpty() && clearAll != null);
-        trailing.removeAll();
-        if (scope != null) trailing.add(scope);
+        for (Component child : trailing.getComponents()) if (child != scope) trailing.remove(child);
         trailing.add(overflow);
+        drawerHolder.setVisible(drawer.isVisible());
         updateFiltersButton();
         revalidate();
         repaint();
@@ -2436,6 +2549,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - `CustomizableTabs add(String id, String title, Component)`, `addAnalyst(String id, String title, Component)`
   - `List<String> order()`, `List<String> visibleIds()`, `Set<String> hiddenIds()`, `String selectedId()`, `void select(String id)`
   - `void move(String id, int delta)`, `boolean hide(String id)`, `void show(String id)`, `void reset()`, `boolean isRebuilding()`
+  - `void onSelect(Consumer<String> listener)` — called once per settled selection change (never for rebuild churn); use it instead of a raw `ChangeListener` when persisting the selected tab
   - Keyboard: `ctrl shift LEFT/RIGHT` moves the selected tab; `shift F10` and `CONTEXT_MENU` open the tab menu (`<group>-tab-menu`)
   - Preference `ui.tabs.<group>` = `id,id,…|hiddenId,…`; IDs match `[a-z0-9][a-z0-9-]*`
 
@@ -2503,6 +2617,17 @@ public class CustomizableTabsTest {
         });
     }
 
+    @Test public void selectionIsReportedOnceAfterHidingTheSelectedTab() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CustomizableTabs tabs = tabs();
+            List<String> seen = new ArrayList<>();
+            tabs.onSelect(seen::add);
+            tabs.select("gear");
+            tabs.hide("gear");
+            assertEquals(Arrays.asList("gear", "overview"), seen);
+        });
+    }
+
     @Test public void invalidIdsAreRejected() {
         try { new CustomizableTabs("Bad Group", mode, store::get, store::put); fail(); } catch (IllegalArgumentException expected) { }
         try { tabs().add("gear", "Duplicate", new JPanel()); fail(); } catch (IllegalArgumentException expected) { }
@@ -2525,6 +2650,7 @@ import java.awt.event.*;
 import java.util.*;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.swing.*;
@@ -2554,8 +2680,9 @@ public class CustomizableTabs {
     private final Map<String, Entry> entries = new LinkedHashMap<>();
     private final List<String> savedOrder = new ArrayList<>();
     private final Set<String> hidden = new LinkedHashSet<>();
+    private final List<Consumer<String>> selectionListeners = new ArrayList<>();
     private boolean rebuilding;
-    private String dragging;
+    private String dragging, lastSelected;
 
     public CustomizableTabs(String group) {
         this(group, DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
@@ -2569,6 +2696,7 @@ public class CustomizableTabs {
         tabs.setName(group + "-tabs");
         load(read.apply(PREFIX + group));
         installGestures();
+        tabs.addChangeListener(e -> { if (!rebuilding) notifySelection(); });
         mode.bind(tabs, ignored -> rebuild());
     }
 
@@ -2670,20 +2798,45 @@ public class CustomizableTabs {
         write.accept(PREFIX + group, String.join(",", order()) + "|" + String.join(",", hiddenIds()));
     }
 
+    /**
+     * Brings the tab strip to the visible order touching only tabs that must change: hidden tabs are removed,
+     * moved tabs are re-inserted, untouched tabs keep their content, focus and bound listeners. The final
+     * selection is applied after rebuilding ends, so selection listeners see the settled tab once.
+     */
     private void rebuild() {
         List<String> visible = visibleIds();
         if (visible.equals(currentIds())) return;
         String selected = selectedId();
         rebuilding = true;
         try {
-            tabs.removeAll();
-            for (String id : visible) { Entry entry = entries.get(id); tabs.addTab(entry.title, entry.component); }
-            if (!visible.isEmpty()) tabs.setSelectedIndex(Math.max(0, selected == null ? 0 : visible.indexOf(selected)));
+            for (int i = tabs.getTabCount() - 1; i >= 0; i--) if (!visible.contains(idAt(i))) tabs.removeTabAt(i);
+            for (int i = 0; i < visible.size(); i++) {
+                String id = visible.get(i);
+                List<String> current = currentIds();
+                if (i < current.size() && id.equals(current.get(i))) continue;
+                int existing = current.indexOf(id);
+                if (existing >= 0) tabs.removeTabAt(existing);
+                Entry entry = entries.get(id);
+                tabs.insertTab(entry.title, null, entry.component, null, i);
+            }
         } finally {
             rebuilding = false;
         }
+        int index = selected == null ? -1 : visible.indexOf(selected);
+        if (!visible.isEmpty() && tabs.getSelectedIndex() != Math.max(0, index)) tabs.setSelectedIndex(Math.max(0, index));
+        notifySelection();
         tabs.revalidate();
         tabs.repaint();
+    }
+
+    /** Called once per settled selection change; rebuild churn is not reported. */
+    public void onSelect(Consumer<String> listener) { selectionListeners.add(listener); }
+
+    private void notifySelection() {
+        String id = selectedId();
+        if (Objects.equals(id, lastSelected)) return;
+        lastSelected = id;
+        for (Consumer<String> listener : selectionListeners) listener.accept(id);
     }
 
     private List<String> currentIds() {
@@ -2767,7 +2920,7 @@ public class CustomizableTabs {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `./gradlew.bat --offline --no-daemon --console=plain --project-cache-dir build/p1a-cache -PrealmSharkBuildDir=build/p1a test --tests "tomato.gui.kit.CustomizableTabsTest"`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2870,11 +3023,22 @@ Expected: FAIL — `cannot find symbol: class ItemSlot`.
 package tomato.gui.kit;
 
 import java.awt.*;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 
 /** One equipment or inventory slot. Empty and not-captured are drawn differently; items show their sprite and tier edge. */
-public class ItemSlot extends JComponent {
+public class ItemSlot extends JComponent implements Accessible {
     public enum State { ITEM, EMPTY, UNKNOWN }
+
+    /** Plain JComponent has no accessible context; without this, getAccessibleContext() returns null. */
+    @Override public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
+            @Override public AccessibleRole getAccessibleRole() { return AccessibleRole.LABEL; }
+        };
+        return accessibleContext;
+    }
 
     private final int size;
     private State state = State.UNKNOWN;
@@ -2939,12 +3103,22 @@ public class ItemSlot extends JComponent {
 package tomato.gui.kit;
 
 import java.awt.*;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.JComponent;
 import tomato.gui.modern.ContentStyle;
 
 /** N small squares, the first `filled` in color: exalt tiers, maxed stats. Scales with the body font. */
-public class PipMeter extends JComponent {
+public class PipMeter extends JComponent implements Accessible {
     private static final int GAP = 3;
+
+    @Override public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
+            @Override public AccessibleRole getAccessibleRole() { return AccessibleRole.PROGRESS_BAR; }
+        };
+        return accessibleContext;
+    }
     private final int total;
     private int filled;
     private Tokens.Role color = Tokens.Role.ACCENT;
@@ -2989,11 +3163,21 @@ public class PipMeter extends JComponent {
 package tomato.gui.kit;
 
 import java.awt.*;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.JComponent;
 
 /** Value toward a cap: mint when maxed, amber while short, an empty track when unknown. */
-public class StatBar extends JComponent {
+public class StatBar extends JComponent implements Accessible {
     private Integer value, cap;
+
+    @Override public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
+            @Override public AccessibleRole getAccessibleRole() { return AccessibleRole.PROGRESS_BAR; }
+        };
+        return accessibleContext;
+    }
 
     public StatBar() { setOpaque(false); set(null, null); }
 
@@ -3032,12 +3216,22 @@ package tomato.gui.kit;
 
 import java.awt.*;
 import java.awt.geom.Path2D;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.JComponent;
 import tomato.gui.modern.DisplayFormat;
 
 /** A tiny trend line with a tinted area. Fewer than two values draw nothing. */
-public class Sparkline extends JComponent {
+public class Sparkline extends JComponent implements Accessible {
     private double[] values = new double[0];
+
+    @Override public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
+            @Override public AccessibleRole getAccessibleRole() { return AccessibleRole.LABEL; }
+        };
+        return accessibleContext;
+    }
 
     public Sparkline() { setOpaque(false); }
 
@@ -3236,13 +3430,14 @@ public class KitGalleryEvidenceTest {
                 }
     }
 
+    /** Kit buttons only: Swing's own scroll-bar and combo arrow buttons are unnamed by design. */
     private static void assertIconButtonsAreNamed(Container root) {
         for (Component child : root.getComponents()) {
-            if (child instanceof AbstractButton) {
-                AbstractButton button = (AbstractButton) child;
-                boolean iconOnly = button.getText() == null || button.getText().isEmpty();
-                if (iconOnly) assertFalse("Icon-only button needs an accessible name: " + button.getName(),
-                    button.getAccessibleContext().getAccessibleName() == null || button.getAccessibleContext().getAccessibleName().isEmpty());
+            if (child instanceof KitButton) {
+                KitButton button = (KitButton) child;
+                String name = button.getAccessibleContext().getAccessibleName();
+                if (button.getText() == null || button.getText().isEmpty())
+                    assertFalse("Icon-only button needs an accessible name: " + button.getName(), name == null || name.isEmpty());
             }
             if (child instanceof Container) assertIconButtonsAreNamed((Container) child);
         }
