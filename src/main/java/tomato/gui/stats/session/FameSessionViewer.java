@@ -39,7 +39,7 @@ public class FameSessionViewer extends JFrame {
     private Integer graphedCharacter;
     private final JComboBox<FameSession.SampleVisit> recordedRuns = new JComboBox<>();
     private final JButton openRun = new JButton("Open recorded run");
-    private final JLabel runStatus = new JLabel(" ");
+    private final JTextArea runStatus = tomato.gui.modern.ContentStyle.wrappingText(" ");
     /** Shown when a saved history has no map association for the selected character. */
     public static final String MAP_NOT_RECORDED = "Map association: Not recorded";
     private GraphPanel graphPanel;
@@ -87,7 +87,7 @@ public class FameSessionViewer extends JFrame {
         graphControls.add(new JLabel("Range ending at latest sample")); graphControls.add(range); graphControls.add(measure);
         graph.add(graphControls, BorderLayout.NORTH);
         graph.add(graphPanel, BorderLayout.CENTER);
-        JPanel graphFooter = new JPanel(new GridLayout(0, 1));
+        JPanel graphFooter = new JPanel(new GridLayout(0, 1, 0, 2));
         graphDelta.setName("saved-fame-delta"); graphDelta.putClientProperty("html.disable", true);
         mapAssociation.setName("saved-fame-map-association"); mapAssociation.putClientProperty("html.disable", true);
         graphPanel.addPropertyChangeListener(GraphPanel.SUMMARY_PROPERTY, e -> showDelta());
@@ -106,10 +106,12 @@ public class FameSessionViewer extends JFrame {
             if (chosen != null && chosen.visit() != null && !tomato.gui.route.Navigator.current().open(runRoute(chosen)))
                 runStatus.setText("The Runs workspace did not accept run " + chosen.visit() + "; nothing was opened.");
         });
-        runStatus.putClientProperty("html.disable", true);
-        JPanel runs = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0)); runs.add(recordedRuns); runs.add(openRun); runs.add(runStatus);
-        graphFooter.add(runs);
-        graph.add(graphFooter, BorderLayout.SOUTH);
+        // The status gets its own wrapping line under the run controls so it stays readable at compact widths.
+        JPanel runControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0)); runControls.add(recordedRuns); runControls.add(openRun);
+        runStatus.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        JPanel runs = new JPanel(new BorderLayout(0, 2)); runs.add(runControls, BorderLayout.NORTH); runs.add(runStatus, BorderLayout.CENTER);
+        JPanel footer = new JPanel(new BorderLayout()); footer.add(graphFooter, BorderLayout.NORTH); footer.add(runs, BorderLayout.CENTER);
+        graph.add(footer, BorderLayout.SOUTH);
         graphStatus.setName("saved-fame-graph-status");
         tabbedPane.addTab("Fame Graph", graph);
 
