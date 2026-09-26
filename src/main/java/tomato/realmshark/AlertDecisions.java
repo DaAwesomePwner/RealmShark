@@ -11,7 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class AlertDecisions {
     public enum Source {
-        CHAT("Chat"), REALM_EVENT("Realm event"), ITEM("Item drop"), ENTITY("Entity"), KEY_POP("Key pop"), DIRECT("Alert sound");
+        CHAT("Chat"), REALM_EVENT("Realm event"), ITEM("Item drop"), ENTITY("Entity"), KEY_POP("Key-pop"), DIRECT("Alert sound");
         public final String label;
         Source(String label) { this.label = label; }
         @Override public String toString() { return label; }
