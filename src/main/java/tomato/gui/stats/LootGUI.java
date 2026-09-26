@@ -199,14 +199,14 @@ public class LootGUI extends JPanel {
             queueRender();
         }
 
-        if (Sound.whitebag.isEnabled() && isWhiteBag(bag)) Sound.whitebag.play();
-        if (
-            Sound.orangebag.isEnabled() && isOrangeBag(bag)
-        ) Sound.orangebag.play();
-        if (Sound.redbag.isEnabled() && isRedBag(bag)) Sound.redbag.play();
-        if (Sound.goldbag.isEnabled() && isGoldBag(bag)) Sound.goldbag.play();
-        if (Sound.eggbag.isEnabled() && isEggBag(bag)) Sound.eggbag.play();
-        if (Sound.bluebag.isEnabled() && isBlueBag(bag)) Sound.bluebag.play();
+        // play() applies the enable/mute/volume gates itself, so a matching bag whose sound is
+        // turned off is still recorded as a "Matched · alert off" decision; nothing more plays.
+        if (isWhiteBag(bag)) Sound.whitebag.play();
+        if (isOrangeBag(bag)) Sound.orangebag.play();
+        if (isRedBag(bag)) Sound.redbag.play();
+        if (isGoldBag(bag)) Sound.goldbag.play();
+        if (isEggBag(bag)) Sound.eggbag.play();
+        if (isBlueBag(bag)) Sound.bluebag.play();
         notifyItems(bag, Sound.custom::play,
             () -> sharing.sendLoot(data, map, bag, dropper, player, time));
 
