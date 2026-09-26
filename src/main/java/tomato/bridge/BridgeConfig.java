@@ -53,6 +53,17 @@ public final class BridgeConfig {
         catch (NumberFormatException e) { throw new IllegalArgumentException("Guild ID must be a positive Discord server ID."); }
         if (token.isEmpty()) throw new IllegalArgumentException("Enter the Link Token from your guild bot.");
     }
+    /** Plain-language operating mode. */
+    public String modeLabel() { return !enabled ? "Disabled" : send ? "Sending matching drops" : "Local review only"; }
+    /** Labels of settings that differ from {@code that}; the link token is named but never shown. */
+    public java.util.List<String> differences(BridgeConfig that) {
+        java.util.List<String> changed = new java.util.ArrayList<>();
+        String[] labels = {"Enable bridge", "Send", "Debug logs", "Endpoint", "Guild ID", "Link Token", "Loot CSV", "Review log", "UT", "ST", "Shiny", "Enchanted", "Other CSV items"};
+        Object[] mine = {enabled, send, debug, endpoint, guildId, token, csvPath, reviewLog, ut, st, shiny, enchanted, this.other};
+        Object[] theirs = {that.enabled, that.send, that.debug, that.endpoint, that.guildId, that.token, that.csvPath, that.reviewLog, that.ut, that.st, that.shiny, that.enchanted, that.other};
+        for (int i = 0; i < labels.length; i++) if (!mine[i].equals(theirs[i])) changed.add(labels[i]);
+        return changed;
+    }
     public boolean includes(BridgePayload.Item item) {
         return ut && item.ut || st && item.st || shiny && item.shiny || enchanted && item.enchantCount>0
             || other && !item.ut && !item.st && !item.shiny && item.enchantCount<=0;

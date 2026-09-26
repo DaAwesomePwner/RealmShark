@@ -32,7 +32,11 @@ public final class BridgeReviewGUI extends JPanel {
     private final JTextArea details=note("Detected drops will appear here once the bridge and network capture are enabled. Select a row to inspect enchants and the outgoing fields.");
     private final JTextArea logDetails=note("Select a diagnostic entry to read its full message.");
     private final JTabbedPane tabs=new JTabbedPane();
-    private final JButton save=new JButton("Save settings"),export=new JButton("Export review CSV"),exportLogs=new JButton("Export logs");
+    private final JButton save=new JButton("Save settings"),export=new JButton("Export review CSV"),exportLogs=new JButton("Export logs"),revert=new JButton("Revert to active");
+    private final JButton alertDraft=new JButton("Item alert from this drop…");
+    /** Opens a detached alert draft; replaced by tests. The Runnable restores the source row when the editor closes. */
+    private java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft,Runnable> draftOpener=tomato.gui.maingui.AlertRuleEditor::openDraft;
+    private final JTextArea activeSummary=ContentStyle.wrappingText(""),draftState=ContentStyle.wrappingText(""),validation=ContentStyle.wrappingText(""),confirmation=ContentStyle.wrappingText(""),saveResult=ContentStyle.wrappingText("");
     private final javax.swing.Timer timer;
     private BridgeService.Snapshot snapshot;
     private List<BridgeService.Review> rows=Collections.emptyList();
@@ -69,6 +73,8 @@ public final class BridgeReviewGUI extends JPanel {
         character.setPrototypeDisplayValue("All characters / Example #123");dungeon.setPrototypeDisplayValue("All dungeons / Lost Halls");
         JButton reset=new JButton("Reset filters");reset.addActionListener(e->{search.setText("");status.setSelectedIndex(0);outcome.setSelectedIndex(0);character.setSelectedIndex(0);dungeon.setSelectedIndex(0);enchantFilter.setSelectedIndex(0);});
         tools.add(labeled("Search",search));tools.add(outcome);tools.add(status);tools.add(character);tools.add(dungeon);tools.add(enchantFilter);tools.add(reset);tools.add(export);
+        alertDraft.setName("bridge-alert-draft");alertDraft.setEnabled(false);alertDraft.setToolTipText("Draft an exact item-ID alert from the selected drop. Opens silently; nothing is saved, enabled or sent.");
+        alertDraft.addActionListener(e->draftFromSelected());tools.add(alertDraft);
         reviewPage.add(tools,BorderLayout.NORTH);
         details.setName("bridge-details");details.setOpaque(true);details.setFont(ContentStyle.report(ContentStyle.body()));details.setMargin(new Insets(6,8,6,8));
         details.getAccessibleContext().setAccessibleName("Selected drop delivery details");
@@ -102,7 +108,12 @@ public final class BridgeReviewGUI extends JPanel {
     @Override public void removeNotify(){timer.stop();super.removeNotify();}
     private JComponent settings() {
         JPanel page=new JPanel(new BorderLayout(0,8));page.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
-        page.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File > Start Sniffer. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge."),BorderLayout.NORTH);
+        JPanel status=new JPanel(new GridLayout(0,1,0,4));
+        activeSummary.setName("bridge-active");draftState.setName("bridge-draft-state");validation.setName("bridge-validation");confirmation.setName("bridge-confirmation");saveResult.setName("bridge-save-result");revert.setName("bridge-revert");
+        activeSummary.setFont(ContentStyle.emphasis(ContentStyle.metadata(ContentStyle.body())));validation.setForeground(ContentStyle.color("rose"));
+        for(JTextArea area:new JTextArea[]{activeSummary,draftState,validation,saveResult,confirmation})status.add(area);
+        JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File > Start Sniffer. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
+        page.add(intro,BorderLayout.NORTH);
         JPanel form=new JPanel(new GridBagLayout());GridBagConstraints g=new GridBagConstraints();g.insets=new Insets(3,0,5,0);g.fill=GridBagConstraints.HORIZONTAL;g.anchor=GridBagConstraints.NORTHWEST;
         field(form,g,0,"Endpoint",endpoint);field(form,g,1,"Guild ID",guild);field(form,g,2,"Link Token",token);
         endpoint.setName("bridge-endpoint");guild.setName("bridge-guild");token.setName("bridge-token");csv.setName("bridge-csv");audit.setName("bridge-audit");
@@ -116,7 +127,7 @@ public final class BridgeReviewGUI extends JPanel {
         JPanel categories=ContentStyle.controls();for(JCheckBox box:new JCheckBox[]{ut,st,shiny,enchanted,other})categories.add(box);field(form,g,6,"Include categories",categories);
         JTextArea help=note("Categories are additive: any selected match qualifies, and the item must also be in the CSV to send. All categories selected matches the public bridge. Unlisted items remain visible for review. Turn off Send for local review only.\n\nCSV paths such as ./rotmg_loot_drops_updated.csv resolve from the application folder. The optional review log is a local JSONL file with one 5 MB backup. Relative and absolute paths are supported.\n\nKeep one sniffer instance running. New characters are configured in Discord with /mysniffer → Configure Character. Bridge enablement is independent of the original loot-sharing menu option.");
         field(form,g,7,"How it works",help);
-        JPanel actions=ContentStyle.controls();actions.add(save);JButton included=new JButton("Use included CSV");actions.add(included);included.addActionListener(e->csv.setText("./rotmg_loot_drops_updated.csv"));
+        JPanel actions=ContentStyle.controls();actions.add(save);actions.add(revert);revert.addActionListener(e->revert());JButton included=new JButton("Use included CSV");actions.add(included);included.addActionListener(e->csv.setText("./rotmg_loot_drops_updated.csv"));
         g.gridy=16;g.weighty=1;form.add(Box.createVerticalGlue(),g);page.add(form);
         class ScrollPage extends JPanel implements Scrollable {
             ScrollPage(){super(new BorderLayout());add(page);}
@@ -142,10 +153,10 @@ public final class BridgeReviewGUI extends JPanel {
     }
     private void trackEdits(){
         for(JTextField field:new JTextField[]{endpoint,guild,token,csv,audit})field.getDocument().addDocumentListener(new DocumentListener(){
-            private void changed(){if(!loadingFields)editedFields.add(field);}
+            private void changed(){if(!loadingFields)editedFields.add(field);updateDraftState();}
             public void insertUpdate(DocumentEvent e){changed();}public void removeUpdate(DocumentEvent e){changed();}public void changedUpdate(DocumentEvent e){changed();}
         });
-        for(JCheckBox box:new JCheckBox[]{enabled,send,debug,ut,st,shiny,enchanted,other})box.addItemListener(e->{if(!loadingFields)editedFields.add(box);});
+        for(JCheckBox box:new JCheckBox[]{enabled,send,debug,ut,st,shiny,enchanted,other})box.addItemListener(e->{if(!loadingFields)editedFields.add(box);updateDraftState();});
     }
     private void load(BridgeConfig c){
         loadingFields=true;
@@ -157,15 +168,40 @@ public final class BridgeReviewGUI extends JPanel {
         } finally {loadingFields=false;}
     }
     private BridgeConfig edited(){Properties p=new Properties();String[] keys={"endpoint","guild_id","link_token","csv_path","local_review_log","enabled","send","debug","filter.ut","filter.st","filter.shiny","filter.enchanted","filter.other"};Object[] values={endpoint.getText(),guild.getText(),new String(token.getPassword()),csv.getText(),audit.getText(),enabled.isSelected(),send.isSelected(),debug.isSelected(),ut.isSelected(),st.isSelected(),shiny.isSelected(),enchanted.isSelected(),other.isSelected()};for(int i=0;i<keys.length;i++)p.setProperty(BridgeConfig.PREFIX+keys[i],String.valueOf(values[i]));return new BridgeConfig(p);}
-    private void save(){if(saving||!save.isEnabled())return;BridgeConfig next=edited();saving=true;save.setEnabled(false);feedback.setText("Validating CSV and saving…");new SwingWorker<Void,Void>(){
+    /**
+     * BRIDGE-3: the service validates, loads the CSV and saves before switching, so a failure leaves the
+     * previous settings active. The draft stays in the form and the result is reported inline.
+     */
+    private void save(){if(saving||!save.isEnabled())return;BridgeConfig next=edited();saving=true;save.setEnabled(false);revert.setEnabled(false);feedback.setText("Validating CSV and saving…");saveResult.setText("Saving… the current settings stay active until this succeeds.");new SwingWorker<Void,Void>(){
         protected Void doInBackground()throws Exception{bridge.configure(next,true,true);return null;}
-        protected void done(){saving=false;try{get();feedback.setText(next.enabled&&next.send?"Saved. Check Logs for the confirmation response.":"Settings saved.");}catch(Exception ex){Throwable cause=ex.getCause()==null?ex:ex.getCause();String message=cause.getMessage();if(!next.token.isEmpty()&&message!=null)message=message.replace(next.token,"[redacted]");feedback.setText("Not saved. Check Settings / CSV.");JOptionPane.showMessageDialog(BridgeReviewGUI.this,message,"Bridge settings",JOptionPane.ERROR_MESSAGE);}refresh();}
+        protected void done(){saving=false;try{get();feedback.setText(next.enabled&&next.send?"Saved and active. The confirmation result is shown in Settings.":"Settings saved and active.");saveResult.setText("Saved and active: "+next.modeLabel()+".");}
+            catch(Exception ex){Throwable cause=ex.getCause()==null?ex:ex.getCause();String message=cause.getMessage()==null?cause.getClass().getSimpleName():cause.getMessage();if(!next.token.isEmpty())message=message.replace(next.token,"[redacted]");
+                feedback.setText("Not saved. The previous settings remain active; your draft is kept.");
+                saveResult.setText("Not saved: "+message+" The previous settings remain active ("+bridge.config().modeLabel()+"). Your draft is still in the form; correct it and Save again, or Revert.");}
+            refresh();updateDraftState();}
     }.execute();}
+    private void revert(){if(saving)return;BridgeConfig active=snapshot==null?bridge.config():snapshot.config;editedFields.clear();load(active);saveResult.setText("Draft reverted to the active settings.");updateDraftState();}
+    private void updateDraftState(){
+        if(loadingFields)return;
+        BridgeConfig active=snapshot==null?bridge.config():snapshot.config,draft=edited();
+        java.util.List<String> changed=draft.differences(active);
+        text(draftState,changed.isEmpty()?"The form matches the active settings.":"Unsaved changes: "+String.join(", ",changed)+". Save applies them; Revert restores the active settings.");
+        revert.setEnabled(!changed.isEmpty()&&!saving);
+        String problem="";try{draft.validate();}catch(RuntimeException invalid){problem=invalid.getMessage()==null?"Check the paths and endpoint.":invalid.getMessage();}
+        if(!draft.token.isEmpty())problem=problem.replace(draft.token,"[redacted]");
+        text(validation,problem.isEmpty()?"":"Fix before saving: "+problem);validation.setVisible(!problem.isEmpty());
+        boolean loading=snapshot==null||snapshot.loading;
+        text(activeSummary,loading?"Active now: loading saved settings…":"Active now: "+active.modeLabel()+(active.enabled?" · CSV items: "+snapshot.catalogSize:"")+(active.enabled&&active.send?" · Endpoint: "+host(active.endpoint):"")+" · Review log: "+(active.reviewLog.isEmpty()?"off":"on"));
+        text(confirmation,snapshot==null?"":snapshot.confirmation.label());
+    }
+    private static void text(JTextArea area,String value){if(!value.equals(area.getText()))area.setText(value);}
+    private static String host(String endpoint){try{String host=java.net.URI.create(endpoint).getHost();return host==null?"not set":host;}catch(RuntimeException e){return "invalid";}}
     public void refresh(){
         if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::refresh);return;}
         snapshot=bridge.snapshot();
         if(!snapshot.loading&&!initialSettingsLoaded){load(snapshot.config);initialSettingsLoaded=true;}
         save.setEnabled(!snapshot.loading&&!snapshot.closed&&!bridge.isPreview()&&!saving);
+        updateDraftState();
         if(snapshot.revision==revision)return;revision=snapshot.revision;
         long selected=selected()==null?-1:selected().id;
         String logSelection=logs.getSelectedRow()<0?null:String.valueOf(logs.getValueAt(logs.getSelectedRow(),0))+logs.getValueAt(logs.getSelectedRow(),2);
@@ -213,7 +249,17 @@ public final class BridgeReviewGUI extends JPanel {
         totals.setText(text.toString());
     }
     private BridgeService.Review selected(){int row=review.getSelectedRow();if(row<0)return null;int model=review.convertRowIndexToModel(row);return model<rows.size()?rows.get(model):null;}
-    private void showDetails(){BridgeService.Review r=selected();if(r==null){details.setText(rows.isEmpty()?"No retained observations. Bridge Review only records drops while enabled.":review.getRowCount()==0?"No matching retained observations. Reset filters to see other drops.":"Select a detected drop to inspect its enchants, character and delivery details.");return;}BridgePayload.Item i=r.drop.item;details.setText("Observation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot+" (pickup not verified)\nRarity: "+i.rarity+" ("+i.raritySource+") | Enchant count: "+(i.enchantCount<0?"unknown":i.enchantCount)+" | Divine: "+i.divine+"\nEnchants: "+(i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)+"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail+"\nNext step: "+r.nextStep()+"\n\nOutgoing JSON (token redacted):\n"+(r.payload.isEmpty()?"No payload queued.":r.payload));details.setCaretPosition(0);}
+    /** Test seam for the draft opener. */
+    public void useDraftOpener(java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft,Runnable> opener){draftOpener=opener;}
+    /** Drafts from the selected retained review; returning reselects the same review by ID when it is still retained and shown. */
+    public void draftFromSelected(){
+        BridgeService.Review r=selected();if(r==null)return;long id=r.id;
+        tomato.realmshark.AlertRules.Draft draft=tomato.realmshark.AlertRules.Draft.item(tomato.realmshark.AlertRules.Mode.ITEM_ID,Integer.toString(r.drop.item.id),r.drop.item.id,r.drop.item.rawName,
+            "Bridge review · "+r.time+" · "+characterLabel(r));
+        draftOpener.accept(draft,()->{for(int i=0;i<rows.size();i++)if(rows.get(i).id==id){int view=review.convertRowIndexToView(i);if(view>=0){tabs.setSelectedIndex(0);review.setRowSelectionInterval(view,view);review.scrollRectToVisible(review.getCellRect(view,0,true));review.requestFocusInWindow();return;}}
+            feedback.setText("The drop used for the alert draft is no longer shown (filters changed or it left the retained review).");});
+    }
+    private void showDetails(){BridgeService.Review r=selected();alertDraft.setEnabled(r!=null&&r.drop.item.id>0);if(r==null){details.setText(rows.isEmpty()?"No retained observations. Bridge Review only records drops while enabled.":review.getRowCount()==0?"No matching retained observations. Reset filters to see other drops.":"Select a detected drop to inspect its enchants, character and delivery details.");return;}BridgePayload.Item i=r.drop.item;details.setText("Observation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot+" (pickup not verified)\nRarity: "+i.rarity+" ("+i.raritySource+") | Enchant count: "+(i.enchantCount<0?"unknown":i.enchantCount)+" | Divine: "+i.divine+"\nEnchants: "+(i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)+"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail+"\nNext step: "+r.nextStep()+"\n\nOutgoing JSON (token redacted):\n"+(r.payload.isEmpty()?"No payload queued.":r.payload));details.setCaretPosition(0);}
     private void exportReview(){List<BridgeService.Review> visible=new ArrayList<>();for(int i=0;i<review.getRowCount();i++)visible.add(rows.get(review.convertRowIndexToModel(i)));chooseExport("bridge-review.csv",reviewCsv(visible));}
     private void exportLogs(){StringBuilder text=new StringBuilder();for(int i=0;i<logs.getRowCount();i++){int r=logs.convertRowIndexToModel(i);text.append(logModel.getValueAt(r,0)).append(" [").append(logModel.getValueAt(r,1)).append("] ").append(logModel.getValueAt(r,2)).append('\n');}chooseExport("bridge-diagnostics.log",text.toString());}
     private void chooseExport(String name,String content){JFileChooser chooser=new JFileChooser();chooser.setSelectedFile(new java.io.File(name));if(chooser.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION)return;Path path=chooser.getSelectedFile().toPath();if(Files.exists(path)&&JOptionPane.showConfirmDialog(this,"Replace the selected file?","Export",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;new SwingWorker<Void,Void>(){protected Void doInBackground()throws Exception{Files.write(path,content.getBytes(StandardCharsets.UTF_8));return null;}protected void done(){try{get();feedback.setText("Exported "+path.getFileName());}catch(Exception ex){feedback.setText("Export failed. Check the chosen folder and permissions.");}}}.execute();}
