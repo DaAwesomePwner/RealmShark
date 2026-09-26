@@ -29,6 +29,7 @@ import static ui.WaveThreeEvidence.*;
  */
 public class WaveThreeEvidenceTest {
     @Rule public VisualEvidence evidence = new VisualEvidence(FOLDER);
+    @Rule public FixtureZone zone = new FixtureZone();
     private final AtomicInteger audio = new AtomicInteger();
     private final Map<String, String> memory = new HashMap<>();
     private final AtomicInteger writes = new AtomicInteger();
@@ -60,6 +61,10 @@ public class WaveThreeEvidenceTest {
             wideAndCompact(evidence, shell, "notifications-recent-decisions-empty", () -> {
                 page.decisions.refresh();
                 assertEquals(0, page.decisions.model.getRowCount());
+                JLabel empty = named(page, "decisions-empty", JLabel.class);
+                assertTrue("empty state replaces the rows", empty.isShowing());
+                assertEquals(RecentDecisionsPanel.NONE_RECORDED, empty.getText());
+                assertIntroAboveRows(page);
             });
             AlertDecisions.INSTANCE.record(new Entry(Source.CHAT).result(Result.NO_MATCH).rule(AlertRules.Domain.CHAT, null, -1).subject("World · Ann")
                 .sample("where is the vault", null).explain("No match. Literal case-insensitive contains: help"));
@@ -74,15 +79,41 @@ public class WaveThreeEvidenceTest {
             AlertDecisions.INSTANCE.record(new Entry(Source.CHAT).sound(Sound.keywords).rule(AlertRules.Domain.CHAT, help, 0).subject("World · Cole").explain("Matched rule 1"));
             run(() -> assertTrue(page.focusDecision(unavailable)));
             wideAndCompact(evidence, shell, "notifications-recent-decisions-mixed", () -> {
-                page.decisions.select(unavailable, true);
-                reveal(named(page, "decisions-detail", JTextArea.class));
+                // Opened by focusDecision above: nothing below may scroll the page before the capture.
+                assertEquals("UTC", java.util.TimeZone.getDefault().getID());
+                JScrollPane decisionsPage = named(page, "decisions-page", JScrollPane.class), notificationsPage = named(page, "notifications-page", JScrollPane.class);
+                assertEquals("Recent decisions opens at the top", 0, decisionsPage.getViewport().getViewPosition().y);
+                assertEquals("the notifications page is not scrolled by the selection", 0, notificationsPage.getViewport().getViewPosition().y);
+                JTable table = page.decisions.table;
+                assertTrue("intro visible", fullyVisible(named(page, "decisions-intro", JTextArea.class)));
+                assertTrue("outcome filter visible", fullyVisible(page.decisions.outcome));
+                assertTrue("column headers visible", verticallyVisible(table.getTableHeader()));
+                assertIntroAboveRows(page);
+                int row = table.getSelectedRow();
+                assertEquals("Playback unavailable", table.getValueAt(row, 2));
+                java.awt.Rectangle cell = table.getCellRect(row, 0, true);
+                assertTrue("selected row scrolled into view within the table: " + cell + " in " + table.getVisibleRect(), table.getVisibleRect().contains(cell));
+                assertTrue("several rows on screen: " + table.getVisibleRect(), table.getVisibleRect().height >= 3 * table.getRowHeight());
                 Set<String> outcomes = new HashSet<>();
                 for (int i = 0; i < page.decisions.model.getRowCount(); i++) outcomes.add((String) page.decisions.model.getValueAt(i, 2));
                 assertTrue(outcomes.toString(), outcomes.containsAll(Arrays.asList("Played", "Matched but muted", "Playback unavailable", "Matched · cooldown", "Matched · playback pending")));
                 assertTrue(page.decisions.detail.getText().contains("no device"));
             });
+            // The selected decision's explanation stays reachable below the rows.
+            run(() -> { JTextArea detail = named(page, "decisions-detail", JTextArea.class); reveal(detail, detail.getHeight()); assertTrue(detail.isShowing()); });
         } finally { run(evidence::closeWindow); }
         assertEquals("viewing decisions never plays", 0, audio.get());
+    }
+
+    /** The intro and filter end above the rows (or empty state): no overlap in realized layout. */
+    private static void assertIntroAboveRows(NotificationsGUI page) {
+        JTextArea intro = named(page, "decisions-intro", JTextArea.class);
+        JComponent rows = named(page, "decisions-rows", JScrollPane.class);
+        java.awt.Container card = rows.getParent();
+        java.awt.Rectangle introBounds = javax.swing.SwingUtilities.convertRectangle(intro.getParent(), intro.getBounds(), card.getParent());
+        java.awt.Rectangle controls = javax.swing.SwingUtilities.convertRectangle(page.decisions.outcome.getParent(), page.decisions.outcome.getBounds(), card.getParent());
+        assertTrue("intro " + introBounds + " overlaps rows at " + card.getBounds(), introBounds.y + introBounds.height <= card.getY());
+        assertTrue("filter " + controls + " overlaps rows at " + card.getBounds(), controls.y + controls.height <= card.getY());
     }
 
     @Test public void notificationsKeyPopFocusBannerKnownAndUnknown() throws Exception {
@@ -94,7 +125,9 @@ public class WaveThreeEvidenceTest {
             run(() -> assertTrue(page.focusDungeon("Lost Halls", () -> {})));
             wideAndCompact(evidence, shell, "keypop-focus-banner", () -> {
                 JTextArea focus = named(page, "sound-dungeon-focus", JTextArea.class);
-                assertTrue(focus.getText(), focus.getText().contains("Lost Halls is currently not selected"));
+                assertTrue(focus.getText(), focus.getText().contains("From Key-pops: Lost Halls is currently not selected"));
+                JTabbedPane tabs = VisualEvidence.find(page, JTabbedPane.class, t -> t.indexOfTab(NotificationsGUI.DECISIONS) >= 0);
+                assertEquals("tab uses the navigation term", "Key-pops", tabs.getTitleAt(tabs.getSelectedIndex()));
                 VisualEvidence.reachable(focus);
                 assertTrue(named(page, "sound-dungeon-focus-back", JButton.class).isShowing());
             });
@@ -129,6 +162,14 @@ public class WaveThreeEvidenceTest {
             wideAndCompact(evidence, host, "alert-rule-editor-draft-invalid", () -> {
                 assertEquals("An invalid proposal is not added", 0, named(editor[0], "alert-rule-table", JTable.class).getRowCount());
                 assertFalse(named(editor[0], "rule-draft-source", JTextArea.class).getText().trim().isEmpty());
+                JTextArea problem = named(editor[0], "rule-draft-problem", JTextArea.class);
+                assertTrue(problem.getText().startsWith("Proposed rule not added"));
+                assertEquals("styled as an error", tomato.gui.modern.ContentStyle.color("rose"), problem.getForeground());
+                assertTrue(fullyVisible(problem));
+                JLabel empty = named(editor[0], "alert-rule-empty", JLabel.class);
+                assertTrue("empty rules state", empty.isShowing() && empty.getText().startsWith("No rules yet"));
+                assertTrue("match result visible without scrolling", fullyVisible(named(editor[0], "rule-sample-result", JTextArea.class)));
+                assertTrue("unsaved status visible without scrolling", fullyVisible(named(editor[0], "rule-save-status", JTextArea.class)));
             });
         } finally { run(evidence::closeWindow); }
         assertEquals("Opening a draft never saves", 0, writes.get());

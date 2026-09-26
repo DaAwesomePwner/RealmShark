@@ -78,11 +78,11 @@ public class KeypopGUI extends JPanel {
         south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
         JButton clearButton = new JButton("Clear history");
         clearButton.addActionListener(e -> {
-            if (JOptionPane.showConfirmDialog(this, "Clear the live key-pop buffer and statistics? Saved session history is kept.", "Clear key pops", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dashboard.clearHistory();
+            if (JOptionPane.showConfirmDialog(this, "Clear the live key-pop buffer and statistics? Saved session history is kept.", "Clear key-pops", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dashboard.clearHistory();
         });
 
         JButton notificationButton = new JButton("Notifications");
-        notificationButton.addActionListener(e -> tomato.gui.TomatoGUI.openNotifications("Key pops"));
+        notificationButton.addActionListener(e -> tomato.gui.TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS));
         south.add(notificationButton);
         JButton dungeonAlert = new JButton("Dungeon alert…");
         dungeonAlert.setName("keypop-notify-dungeon");
@@ -118,7 +118,7 @@ public class KeypopGUI extends JPanel {
      * and offers Back to this Key-pops view. Never changes a notification choice. Returns a status line.
      */
     static String handoff(String observed, Component source) {
-        if (observed == null) return "Select a key pop or dungeon row first.";
+        if (observed == null) return "Select a key-pop or dungeon row first.";
         String exact = tomato.gui.notifications.NotificationFocus.resolveDungeon(observed);
         if (exact == null) return "“" + observed + "” is not a known notification dungeon. Runes, vials, incs and unknown portals have no dungeon alert; nothing was opened or changed.";
         tomato.gui.route.Route route = tomato.gui.route.Route.to(tomato.gui.route.Destination.NOTIFICATIONS)
@@ -127,7 +127,7 @@ public class KeypopGUI extends JPanel {
         if (navigator.canOpen(route) && navigator.open(route)) return "Showing " + exact + " in Notifications. No choice was changed.";
         tomato.gui.modern.WorkspaceShell shell = source == null ? null : (tomato.gui.modern.WorkspaceShell)SwingUtilities.getAncestorOfClass(tomato.gui.modern.WorkspaceShell.class, source);
         int origin = shell == null ? -1 : shell.getSelectedPage();
-        tomato.gui.TomatoGUI.openNotifications("Key pops");
+        tomato.gui.TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS);
         tomato.gui.notifications.NotificationsGUI page = tomato.gui.notifications.NotificationsGUI.displayed();
         if (page == null) return "Notifications is unavailable here, so " + exact + " was not shown. No choice was changed.";
         page.focusDungeon(exact, origin < 0 ? null : () -> shell.select(origin));
@@ -172,7 +172,7 @@ public class KeypopGUI extends JPanel {
         boolean selected = selectedDungeons.contains(dungeonName);
         boolean missing = !selected && isMissingDungeonsSelected() && isMissingDungeon(stats, dungeonName);
         tomato.realmshark.AlertDecisions.Entry entry = new tomato.realmshark.AlertDecisions.Entry(tomato.realmshark.AlertDecisions.Source.KEY_POP)
-            .ref(dungeonName).subject("Key pop · " + dungeonName);
+            .ref(dungeonName).subject("Key-pop · " + dungeonName);
         if (selected || missing) {
             long decision = tomato.realmshark.AlertDecisions.INSTANCE.record(entry.sound(Sound.keypop).explain(selected
                 ? dungeonName + " is selected in Notifications."
@@ -227,7 +227,7 @@ public class KeypopGUI extends JPanel {
         } catch (IOException e) {
             if (!e.getMessage().equals(loggingError)) {
                 loggingError = e.getMessage();
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dashboard, "Key pop logging failed: " + loggingError, "Log file unavailable", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dashboard, "Key-pop logging failed: " + loggingError, "Log file unavailable", JOptionPane.ERROR_MESSAGE));
             }
         }
     }
@@ -250,7 +250,7 @@ public class KeypopGUI extends JPanel {
     }
 
     static JDialog createConfigureDialog() {
-        JDialog configureDialog = new JDialog(SwingUtilities.getWindowAncestor(dashboard), "Key pop notifications", Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog configureDialog = new JDialog(SwingUtilities.getWindowAncestor(dashboard), "Key-pop notifications", Dialog.ModalityType.APPLICATION_MODAL);
         realmshark.branding.AppIdentity.apply(configureDialog);
         configureDialog.setLayout(new BorderLayout());
         configureDialog.setMinimumSize(new Dimension(600, 380));

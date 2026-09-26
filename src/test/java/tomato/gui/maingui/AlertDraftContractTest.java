@@ -67,7 +67,10 @@ public class AlertDraftContractTest {
             AlertRuleEditor invalid = new AlertRuleEditor(rules, AlertRules.Domain.CHAT, Collections.emptyList(), "Chat", () -> {},
                 AlertRules.Draft.chat(AlertRules.Mode.SPACE_TOKEN, "two words", "two words here", "Chat · synthetic"));
             assertEquals(0, named(invalid, "alert-rule-table", JTable.class).getRowCount());
-            assertTrue(named(invalid, "rule-draft-source", JTextArea.class).getText().contains("Proposed rule not added"));
+            JTextArea problem = named(invalid, "rule-draft-problem", JTextArea.class);
+            assertTrue(problem.isVisible() && problem.getText().startsWith("Proposed rule not added"));
+            assertFalse("the error is not repeated as plain source text", named(invalid, "rule-draft-source", JTextArea.class).getText().contains("Proposed rule not added"));
+            assertTrue(named(invalid, "rule-draft-source", JTextArea.class).getText().startsWith("Draft from Chat · synthetic."));
 
             AlertRuleEditor entity = open(AlertRules.Draft.entity(45076, "Encounter · synthetic"));
             assertTrue(named(entity, "rule-sample-result", JTextArea.class).getText().startsWith("Matched rule 1"));

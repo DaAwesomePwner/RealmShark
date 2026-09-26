@@ -51,7 +51,7 @@ public class KeyPopNotificationHandoffTest {
             String status = KeypopGUI.handoff(report.selectedDungeon(), report);
             assertTrue(status, status.startsWith("Showing Lost Halls"));
             assertEquals(1, navigator.opened.get());
-            assertEquals("Key pops", page.getComponentCount() > 0 ? selectedTab(page) : null);
+            assertEquals("Key-pops", page.getComponentCount() > 0 ? selectedTab(page) : null);
             assertEquals("Lost Halls", search.getText());
             JTextArea focus = named(page, "sound-dungeon-focus", JTextArea.class);
             assertTrue(focus.getText().contains("Lost Halls is currently not selected"));
@@ -72,7 +72,7 @@ public class KeyPopNotificationHandoffTest {
             String unresolved = KeypopGUI.handoff(report.selectedDungeon(), report);
             assertTrue(unresolved, unresolved.contains("“Shield Rune” is not a known notification dungeon"));
             assertEquals("unresolved names never open Notifications", 1, navigator.opened.get());
-            assertEquals("Select a key pop or dungeon row first.", KeypopGUI.handoff(null, report));
+            assertEquals("Select a key-pop or dungeon row first.", KeypopGUI.handoff(null, report));
             assertFalse(page.focusDungeon("Not A Dungeon", null));
             assertTrue(focus.getText().contains("not a known notification dungeon"));
             assertEquals(before, KeypopGUI.getSelectedDungeons());

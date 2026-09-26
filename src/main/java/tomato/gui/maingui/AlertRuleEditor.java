@@ -28,6 +28,12 @@ public class AlertRuleEditor extends JPanel {
     private final JButton save = new JButton("Save rules");
     private final DraftSaveStatus saving = new DraftSaveStatus(save, "rule-save-status");
     private final JTextArea draftSummary = ContentStyle.wrappingText("");
+    /** Why a proposed rule was not added; shown in the error style, separate from the draft's source. */
+    private final JTextArea draftProblem = ContentStyle.wrappingText("");
+    static final String NO_RULES = "No rules yet. Choose Add rule to create one.";
+    /** Shown in place of rows while the draft has none; never part of the rules. */
+    private final JLabel emptyRules = new JLabel(NO_RULES, SwingConstants.CENTER);
+    private final JPanel ruleRows = new JPanel(new CardLayout());
     private JDialog dialog;
     private Runnable returnAction;
 
@@ -88,18 +94,37 @@ public class AlertRuleEditor extends JPanel {
         if (domain != AlertRules.Domain.CHAT) fields.add(labeled("Sample ID", sampleId));
         if (domain != AlertRules.Domain.ENTITY) fields.add(labeled(domain == AlertRules.Domain.ITEM ? "Sample name" : "Sample message", sampleText));
         JButton check = new JButton("Check sample"); check.setName("rule-check-sample");
-        JPanel sampleActions = ContentStyle.controls(); sampleActions.add(check);
-        JPanel sampleInputs = new JPanel(new BorderLayout(0, 6));
-        sampleInputs.add(fields); sampleInputs.add(sampleActions, BorderLayout.SOUTH);
+        // Check sample sits beside the sample field (bottom-aligned with it) so the match result stays in view
+        // in a compact editor instead of below another row of controls.
+        JPanel sampleActions = new JPanel(new BorderLayout()); sampleActions.add(check, BorderLayout.SOUTH);
+        JPanel sampleInputs = new JPanel(new BorderLayout(8, 0));
+        sampleInputs.add(fields); sampleInputs.add(sampleActions, BorderLayout.EAST);
         check.addActionListener(e -> checkSample()); samples.add(sampleInputs, BorderLayout.NORTH); samples.add(sampleResult);
-        JPanel body = new JPanel(new BorderLayout(0, 6)); body.add(ContentStyle.tableScroll(table, 5)); body.add(actions, BorderLayout.SOUTH);
-        JPanel lower = new JPanel(new BorderLayout(0, 6)); lower.add(samples); lower.add(saving.status, BorderLayout.SOUTH);
+        // Three rows keep the sample result on screen in a compact editor; taller windows give the table the rest.
+        JScrollPane ruleScroll = ContentStyle.tableScroll(table, 3);
+        emptyRules.setName("alert-rule-empty"); emptyRules.setFont(ContentStyle.metadata(ContentStyle.body()));
+        JPanel emptyCard = new JPanel(new BorderLayout()) {
+            @Override public Dimension getMinimumSize() { return ruleScroll.getMinimumSize(); }
+            @Override public Dimension getPreferredSize() { return ruleScroll.getMinimumSize(); }
+        };
+        emptyCard.setBorder(ruleScroll.getBorder()); emptyCard.add(emptyRules);
+        ruleRows.add(ruleScroll, "rows"); ruleRows.add(emptyCard, "empty");
+        model.addTableModelListener(e -> showRuleRows());
+        JPanel body = new JPanel(new BorderLayout(0, 6)); body.add(ruleRows); body.add(actions, BorderLayout.SOUTH);
+        JPanel lower = new JPanel(new BorderLayout(0, 6)); lower.add(samples);
         draftSummary.setName("rule-draft-source"); draftSummary.setVisible(false);
-        JPanel intro = new JPanel(new BorderLayout(0, 6)); intro.add(draftSummary, BorderLayout.NORTH); intro.add(help);
+        draftProblem.setName("rule-draft-problem"); draftProblem.setVisible(false); draftProblem.setForeground(ContentStyle.color("rose"));
+        draftProblem.getAccessibleContext().setAccessibleName("Draft problem");
+        JPanel notes = new JPanel(new BorderLayout(0, 4)); notes.add(draftProblem, BorderLayout.NORTH); notes.add(draftSummary);
+        JPanel intro = new JPanel(new BorderLayout(0, 6)); intro.add(notes, BorderLayout.NORTH); intro.add(help);
         add(ContentStyle.page(intro, body, lower));
         JPanel bottom = ContentStyle.controls(); JButton cancel = new JButton("Cancel"), test = new JButton("Test sound");
         test.addActionListener(e -> testSound.run()); cancel.addActionListener(e -> closeDraft());
-        bottom.add(test); bottom.add(cancel); bottom.add(save); add(bottom, BorderLayout.SOUTH);
+        bottom.add(test); bottom.add(cancel); bottom.add(save);
+        // The save state stays beside Save, outside the scrolling page, so "Unsaved" is visible without scrolling.
+        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(saving.status, BorderLayout.NORTH); footer.add(bottom);
+        add(footer, BorderLayout.SOUTH);
+        showRuleRows();
         save.setName("rule-save"); save.addActionListener(e -> {
             if (!finishEditing()) return;
             AlertRules.Snapshot[] accepted = new AlertRules.Snapshot[1];
@@ -133,10 +158,10 @@ public class AlertRuleEditor extends JPanel {
         Sound sound = soundFor(draft.domain);
         StringBuilder text = new StringBuilder("Draft from ").append(draft.source).append('.');
         String problem = "";
-        if (!base.editable()) problem = " " + base.problem;
+        if (!base.editable()) problem = base.problem;
         else {
             AlertRules.Rule proposed = null;
-            try { proposed = draft.proposedRule(); } catch (IllegalArgumentException invalid) { problem = " Proposed rule not added: " + invalid.getMessage(); }
+            try { proposed = draft.proposedRule(); } catch (IllegalArgumentException invalid) { problem = "Proposed rule not added: " + invalid.getMessage(); }
             if (proposed != null) {
                 int existing = base.indexOf(proposed.mode, proposed.value);
                 if (existing >= 0) {
@@ -149,9 +174,10 @@ public class AlertRuleEditor extends JPanel {
                 }
             }
         }
-        text.append(problem).append(" Nothing is saved or enabled until you choose Save rules; Test sound is the only playback. The ")
+        text.append(" Nothing is saved or enabled until you choose Save rules; Test sound is the only playback. The ")
             .append(sound.label).append(" sound is currently ").append(sound.isEnabled() ? "on" : "off").append(" and saving a rule does not change it.");
         draftSummary.setText(text.toString()); draftSummary.setVisible(true);
+        draftProblem.setText(problem); draftProblem.setVisible(!problem.isEmpty());
         if (draft.sampleId != null) sampleId.setText(Integer.toString(draft.sampleId));
         if (draft.sampleText != null) sampleText.setText(draft.sampleText);
         checkSample();
@@ -178,6 +204,7 @@ public class AlertRuleEditor extends JPanel {
         }
         return result;
     }
+    private void showRuleRows() { ((CardLayout) ruleRows.getLayout()).show(ruleRows, rows.isEmpty() ? "empty" : "rows"); }
     private boolean finishEditing() { return !table.isEditing() || table.getCellEditor().stopCellEditing(); }
     private void checkSample() {
         if (!finishEditing()) return;
