@@ -22,6 +22,10 @@ Update the State column when a phase's PR merges and `main` is verified.
 
 Read AGENTS.md, the spec, this roadmap and the plan for the earliest phase not marked merged. Reconcile branches, PRs and `main` with GitHub before continuing. Never overwrite unfamiliar work.
 
+**Where the documents live.** The spec, the plans and this roadmap were written on branch `claude/realmshark-ui-ux-redesign-cb0914` (pushed to `origin`). Until that branch is merged into `main` as a docs-only PR, fetch it (`git fetch origin claude/realmshark-ui-ux-redesign-cb0914`) to read them. Merging it first is simplest: every phase plan says "branch from verified `main`", and the plans are then present on every phase branch.
+
+**On another workstation.** The plans set `RS_TOOLS="C:/Users/dap/Downloads/RealmShark-realmshark/.tools"`, the tools folder of the original machine (it contains `jdk-17.0.20.1+1` and a pre-populated `gradle-home` for `--offline` builds). Point `RS_TOOLS`, `JAVA_HOME` and `GRADLE_USER_HOME` at that machine's JDK 17 and Gradle home instead. If its Gradle home has no cached dependencies yet, run the first build without `--offline` so Gradle can download them. Everything else in the plans (build directories, commands, test names) is machine-independent.
+
 ## P2 Home (absorbs My Info)
 
 **Entry:** P1c merged. **Exit:** spec S1 and S9; My Info removed from the sidebar.
