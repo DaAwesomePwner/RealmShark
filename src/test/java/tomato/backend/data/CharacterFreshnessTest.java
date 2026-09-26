@@ -75,7 +75,7 @@ public class CharacterFreshnessTest {
     @Test public void legacyJournalKeepsValuesWithoutInventingFieldTimesAndCopiesAreDetached() throws Exception {
         Path path = temp.getRoot().toPath().resolve("journal.json");
         CharacterJournal j = new CharacterJournal(path); j.observe(CharacterJournalTest.player("A", 782), 7); j.save();
-        String old = new String(Files.readAllBytes(path), StandardCharsets.UTF_8).replace("\"version\": 2", "\"version\": 1");
+        String old = new String(Files.readAllBytes(path), StandardCharsets.UTF_8).replace("\"version\": 3", "\"version\": 1");
         com.google.gson.JsonObject document = new com.google.gson.JsonParser().parse(old).getAsJsonObject();
         com.google.gson.JsonObject row = document.getAsJsonArray("characters").get(0).getAsJsonObject();
         row.remove("fields"); row.remove("lastObservedAlive"); row.remove("rosterReceivedAt"); row.remove("observedAgainAt");
@@ -86,7 +86,7 @@ public class CharacterFreshnessTest {
         assertEquals(Boolean.FALSE, record.seasonal); assertTrue(record.source.contains("Legacy"));
         record.fields.put("level", new FieldCapture(999, "fake")); assertTrue(j.characters().get(0).fields.isEmpty());
         j.notes(record.key, "migrated"); j.save();
-        assertTrue(new String(Files.readAllBytes(path), StandardCharsets.UTF_8).contains("\"version\": 2"));
+        assertTrue(new String(Files.readAllBytes(path), StandardCharsets.UTF_8).contains("\"version\": 3"));
     }
     @Test public void acceptedHttpMetadataRetainsPresenceAndPartialPetInputs() throws Exception {
         CharacterJournal journal = journal();
