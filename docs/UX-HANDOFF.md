@@ -2,6 +2,12 @@
 
 ## Current Wave 4 resumption
 
+Latest: Wave 4 implementation is complete in PR #15. The user approved the shortest
+finish with required PR CI and independent review, without another complete local
+validation/package cycle. See UX-WAVE4-VALIDATION.md for failed-run history and the
+explicitly deferred extra native fixture. Finish the PR/merge/main gates; do not restart
+the earlier broad visual audit. This update supersedes the in-progress text below.
+
 Wave 3 PR #14 merged as `dfceefb9ab87dd4d37a2429167d740b7ab0a33ee`; main CI
 `36245882529` passed. The user approved the recommendations in
 `UX-WAVE4-IMPLEMENTATION.md` and authorized implementation on 2026-09-26.

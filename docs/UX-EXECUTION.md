@@ -1,5 +1,11 @@
 # UX implementation execution and recovery
 
+Wave 4 completion update (2026-09-26): all Wave 4 coverage rows below are implemented
+in PR #15. The user approved the shortest finish: final required PR CI and independent
+head review, then normal merge/main verification; no repeated local full/scaled/package
+cycle. The extra native death-action fixture and cosmetic follow-ups are deferred as
+recorded in UX-WAVE4-VALIDATION.md. Reconcile GitHub for the final merge/main state.
+
 ## Authority and decisions
 
 User approved autonomous execution on 2026-09-21 for **DaAwesomePwner/RealmShark**.
