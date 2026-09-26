@@ -100,6 +100,45 @@ public class CombatMeterTest {
             }catch(Exception e){throw new AssertionError(e);}
         });
     }
+    private static Projectile tagged(int damage, DamageSource source, int item) {
+        Projectile projectile = new Projectile(damage); projectile.setSource(source, item); return projectile;
+    }
+    @Test public void sourceBreakdownSharesEveryHitOfThePlayerBySourceAndItem() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                Filter.disable();
+                TomatoData data = new TomatoData(); Entity alice = player(data, 1, "Alice"), bob = player(data, 2, "Bob");
+                Entity boss = enemy(data, 11, 90000, alice, 100); // untagged legacy-style hit
+                boss.genericDamageHit(alice, tagged(500, DamageSource.WEAPON, 0x7ff00001), 1500);
+                boss.genericDamageHit(alice, tagged(100, DamageSource.WEAPON, 0x7ff00001), 1600);
+                boss.genericDamageHit(alice, tagged(250, DamageSource.ABILITY, 0x7ff00002), 1700);
+                boss.genericDamageHit(alice, tagged(50, DamageSource.OTHER, 0), 1800);
+                boss.genericDamageHit(bob, tagged(9000, DamageSource.SUMMON, 0x7ff00003), 1900);
+                CombatMeterData meter = new CombatMeterData(java.util.Collections.singletonList(boss), null);
+                CombatMeterData.Row row = meter.rows.stream().filter(r -> r.player == alice).findFirst().get();
+                java.util.List<CombatMeterData.SourceShare> sources = CombatMeterData.sources(row);
+                assertEquals(4, sources.size());
+                assertEquals(DamageSource.WEAPON, sources.get(0).source); assertEquals(600, sources.get(0).damage); assertEquals(2, sources.get(0).hits);
+                assertEquals(DamageSource.ABILITY, sources.get(1).source);
+                assertEquals(DamageSource.UNKNOWN, sources.get(2).source); assertTrue(sources.get(2).items.isEmpty());
+                assertEquals(DamageSource.OTHER, sources.get(3).source);
+                assertEquals(600, sources.get(0).items.get("Item #" + 0x7ff00001)[0]);
+                assertEquals(row.damage, sources.stream().mapToLong(s -> s.damage).sum());
+
+                MeterDpsGUI view = new MeterDpsGUI();
+                view.renderData(null, java.util.Collections.singletonList(boss), new ArrayList<>(), 0, false);
+                JTable table = field(view, "table"); JTextArea details = field(view, "details");
+                for (int i = 0; i < table.getRowCount(); i++) if ("Alice".equals(table.getValueAt(i, 0))) table.setRowSelectionInterval(i, i);
+                String text = details.getText();
+                assertTrue(text, text.contains("Damage by source"));
+                assertTrue("Shares use the player's own damage, not the encounter total", text.contains(tomato.gui.modern.DisplayFormat.formatPercentage(60.0, 1)));
+                assertTrue(text.contains(tomato.gui.modern.DisplayFormat.formatPercentage(25.0, 1)));
+                assertTrue(text.contains(DamageSource.OTHER_DEFINITION)); assertTrue(text.contains(DamageSource.UNKNOWN_DEFINITION));
+                assertTrue(text.contains("Ability · Item #" + 0x7ff00002));
+                assertFalse("Another player's summon stays in their own breakdown", text.contains(DamageSource.SUMMON.label));
+            } catch (Exception e) { throw new AssertionError(e); }
+        });
+    }
     @SuppressWarnings("unchecked")
     private <T> T field(Object obj, String name) throws Exception {
         Field f = obj.getClass().getDeclaredField(name); f.setAccessible(true); return (T)f.get(obj);

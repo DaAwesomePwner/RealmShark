@@ -59,6 +59,9 @@ public class TomatoPacketCapture implements Controller {
             data.serverPlayerShoot(p);
             data.logPacket(packet);
             //System.out.println(packet);
+        } else if (packet instanceof AllyShootPacket) {
+            // Not added to the debug log: ally shots are frequent and only label later DAMAGE hits.
+            data.allyShoot((AllyShootPacket) packet);
         } else if (packet instanceof EnemyHitPacket) {
             EnemyHitPacket p = (EnemyHitPacket) packet;
 

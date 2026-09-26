@@ -61,6 +61,36 @@ final class CombatMeterData {
             rows.add(row);
         }
     }
+    /** One player's outgoing damage from one source, with per-item totals; ordered by damage. */
+    static final class SourceShare {
+        final DamageSource source;
+        long damage, hits;
+        final Map<String, long[]> items = new LinkedHashMap<>(); // item name -> {damage, hits}
+        SourceShare(DamageSource source) { this.source = source; }
+    }
+
+    /** Groups every outgoing hit of the row by source, then item, largest damage first. */
+    static List<SourceShare> sources(Row row) {
+        Map<DamageSource, SourceShare> bySource = new EnumMap<>(DamageSource.class);
+        for (Damage hit : row.outgoing) {
+            SourceShare share = bySource.computeIfAbsent(DamageSource.of(hit), SourceShare::new);
+            share.damage += hit.damage; share.hits++;
+            String item = DamageSource.itemName(hit);
+            if (item == null) continue;
+            long[] totals = share.items.computeIfAbsent(item, name -> new long[2]);
+            totals[0] += hit.damage; totals[1]++;
+        }
+        List<SourceShare> result = new ArrayList<>(bySource.values());
+        result.sort((a, b) -> Long.compare(b.damage, a.damage));
+        for (SourceShare share : result) {
+            List<Map.Entry<String, long[]>> items = new ArrayList<>(share.items.entrySet());
+            items.sort((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0]));
+            share.items.clear();
+            for (Map.Entry<String, long[]> item : items) share.items.put(item.getKey(), item.getValue());
+        }
+        return result;
+    }
+
     Double dps(Row row) { return seconds > 0 ? row.damage / seconds : null; }
     Double share(Row row) { return total > 0 ? row.damage * 100.0 / total : null; }
     static long windowMillis(Entity entity) { return Math.max(0,entity.getLastDamageTaken()-entity.getFirstDamageTaken()); }
