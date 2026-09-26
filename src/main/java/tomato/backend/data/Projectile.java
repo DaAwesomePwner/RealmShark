@@ -11,6 +11,7 @@ public class Projectile implements Serializable {
     Projectile(Projectile source) {
         damage=source.damage; summonerId=source.summonerId; armorPiercing=source.armorPiercing;
         containerType=source.containerType; originAbilityItem=source.originAbilityItem; originScalingStat=source.originScalingStat;
+        this.source=source.source; sourceItem=source.sourceItem;
     }
 
     private int damage;
@@ -24,6 +25,10 @@ public class Projectile implements Serializable {
     // Snapshot of the relevant stat value used for scaling (e.g., WIS/VIT) at shot time.
     // If not set, will be Integer.MIN_VALUE to indicate absence.
     private int originScalingStat = Integer.MIN_VALUE;
+    // Display-only hit origin; null in recordings made before source tracking.
+    private DamageSource source;
+    // Item or summon object type behind the hit; 0 when unknown.
+    private int sourceItem;
 
     public Projectile(int damage) {
         this.damage = damage;
@@ -265,6 +270,20 @@ public class Projectile implements Serializable {
      */
     public void setOriginScalingStat(int statValue) {
         this.originScalingStat = statValue;
+    }
+
+    public DamageSource getSource() {
+        return source;
+    }
+
+    public int getSourceItem() {
+        return sourceItem;
+    }
+
+    /** Records where this projectile came from for damage breakdowns; never used in damage math. */
+    public void setSource(DamageSource source, int item) {
+        this.source = source;
+        this.sourceItem = Math.max(0, item);
     }
 
     public void clear() {

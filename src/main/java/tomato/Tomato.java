@@ -266,6 +266,7 @@ public class Tomato {
             PacketType.SERVERPLAYERSHOOT,
             packCap::packetCapture
         );
+        Register.INSTANCE.register(PacketType.ALLYSHOOT, packCap::packetCapture);
         Register.INSTANCE.register(PacketType.UPDATE, packCap::packetCapture);
         Register.INSTANCE.register(PacketType.NEWTICK, packCap::packetCapture);
         Register.INSTANCE.register(PacketType.MAPINFO, packCap::packetCapture);

@@ -215,6 +215,20 @@ public class TomatoData {
     // Key: minion/summon objectId, Value: owner/player objectId
     private final HashMap<Integer, Integer> minionOwnerMap = new HashMap<>();
 
+    // Recent shot origins keyed by (ownerId << 32) | bulletId, used only to label server-reported
+    // DAMAGE hits. Bullet IDs are reused, so matches older than the window are ignored and evicted.
+    static final long SHOT_SOURCE_WINDOW_MS = 5000;
+    private static final int SHOT_SOURCE_LIMIT = 50000;
+    private static final class ShotSource {
+        final DamageSource source; final int item; final long time;
+        ShotSource(DamageSource source, int item, long time) { this.source = source; this.item = item; this.time = time; }
+    }
+    private final LinkedHashMap<Long, ShotSource> shotSources = new LinkedHashMap<Long, ShotSource>() {
+        @Override protected boolean removeEldestEntry(Map.Entry<Long, ShotSource> eldest) {
+            return size() > SHOT_SOURCE_LIMIT || eldest.getValue().time < timePc - SHOT_SOURCE_WINDOW_MS;
+        }
+    };
+
     /**
      * Sets the current realm.
      *
@@ -602,6 +616,8 @@ public class TomatoData {
             p.weaponId,
             p.projectileId
         );
+        proj.setSource(DamageSource.forItem(p.weaponId, DamageSource.UNKNOWN), p.weaponId);
+        if (player != null) rememberShot(player.id, p.bulletId, proj.getSource(), p.weaponId);
         // Store in the fixed-size array for quick access (legacy)
         if (p.bulletId >= 0 && p.bulletId < projectiles.length) {
             projectiles[p.bulletId] = proj;
@@ -650,6 +666,15 @@ public class TomatoData {
             minionOwnerMap.put(p.ownerId, p.summonerId);
         }
 
+        // Shots owned by a non-player entity on behalf of a summoner come from a summon/minion;
+        // the player's own server-created shots are classified by the item that fired them.
+        boolean summoned = p.summonerId != 0 && p.ownerId != p.summonerId && !playerList.containsKey(p.ownerId);
+        Entity summon = summoned ? entityList.get(p.ownerId) : null;
+        DamageSource shotSource = summoned ? DamageSource.SUMMON : DamageSource.forItem(p.containerType, DamageSource.ITEM_EFFECT);
+        int shotItem = summon != null ? summon.objectType : p.containerType;
+        int bulletCount = Math.max(1, (int) p.bulletCount);
+        for (int j = 0; j < bulletCount; j++) rememberShot(p.ownerId, p.bulletId + j, shotSource, shotItem);
+
         if (p.bulletCount > 1) {
             Projectile projectile = new Projectile(
                 p.damage,
@@ -657,6 +682,7 @@ public class TomatoData {
                 p.bulletType,
                 p.summonerId
             );
+            projectile.setSource(shotSource, shotItem);
             for (int j = p.bulletId; j < p.bulletId + p.bulletCount; j++) {
                 int arrIndex = (j % 256) + 256;
                 if (arrIndex >= 0 && arrIndex < projectiles.length) {
@@ -674,6 +700,7 @@ public class TomatoData {
                 p.bulletType,
                 p.summonerId
             );
+            projectile.setSource(shotSource, shotItem);
             // Snapshot origin info for this server-created projectile (ability item + scaling stat)
             try {
                 ownerEntity = playerList.get(p.ownerId);
@@ -716,6 +743,7 @@ public class TomatoData {
                 p.bulletType,
                 p.summonerId
             );
+            projectile.setSource(shotSource, shotItem);
             int arrIndex = (p.bulletId % 256) + 256;
             if (arrIndex >= 0 && arrIndex < projectiles.length) {
                 projectiles[arrIndex] = projectile;
@@ -855,6 +883,7 @@ public class TomatoData {
          * This ensures all player-owned entities' damage appears under the player's name in DPS logs.
          */
         Entity attacker = playerList.get(p.objectId);
+        Entity summon = null;
 
         // Fallback to entityList if not found in playerList (handles pets, minions, summons, etc.)
         if (attacker == null) {
@@ -867,6 +896,7 @@ public class TomatoData {
                     Entity owner = playerList.get(ownerId);
                     if (owner != null) {
                         // Replace attacker with the owner for damage attribution
+                        summon = attacker;
                         attacker = owner;
                     } else {
                         // Owner not found in playerList, ignore this damage
@@ -881,6 +911,13 @@ public class TomatoData {
 
         if (p.damageAmount > 0) {
             Projectile projectile = new Projectile(p.damageAmount);
+            if (summon != null) {
+                projectile.setSource(DamageSource.SUMMON, summon.objectType);
+            } else {
+                ShotSource shot = recentShot(p.objectId, p.bulletId);
+                if (shot != null) projectile.setSource(shot.source, shot.item);
+                else projectile.setSource(DamageSource.OTHER, 0);
+            }
             target.genericDamageHit(attacker, projectile, timePc);
             if (!target.isPlayerCharacter() && !entityHitList.containsKey(id)) {
                 entityHitList.put(id, target);
@@ -891,6 +928,31 @@ public class TomatoData {
         }
 
         target.updateDamageTaken(timePc);
+    }
+
+    /**
+     * Another player's weapon shot. Only its origin is kept, so the server's DAMAGE report for this
+     * bullet can be labelled as weapon damage.
+     *
+     * @param p Ally shot info.
+     */
+    public void allyShoot(AllyShootPacket p) {
+        rememberShot(p.ownerId, p.bulletId, DamageSource.forItem(p.containerType, DamageSource.WEAPON), p.containerType);
+    }
+
+    private static long shotKey(int ownerId, int bulletId) {
+        return (((long) ownerId) << 32) | (bulletId & 0xffffL);
+    }
+
+    private void rememberShot(int ownerId, int bulletId, DamageSource source, int item) {
+        long key = shotKey(ownerId, bulletId);
+        shotSources.remove(key); // re-insert so eviction order follows shot time
+        shotSources.put(key, new ShotSource(source, item, timePc));
+    }
+
+    private ShotSource recentShot(int ownerId, int bulletId) {
+        ShotSource shot = shotSources.get(shotKey(ownerId, bulletId));
+        return shot == null || shot.time < timePc - SHOT_SOURCE_WINDOW_MS ? null : shot;
     }
 
     void recordInspectDamage(Entity target, Damage hit) {
@@ -1028,6 +1090,7 @@ public class TomatoData {
         enemyProjectiles.clear();
 
         minionOwnerMap.clear();
+        shotSources.clear();
 
         deathNotifications = new ArrayList<>();
 

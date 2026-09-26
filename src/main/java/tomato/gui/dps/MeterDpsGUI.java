@@ -274,6 +274,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             .append(" · Incoming events: ").append(number(row.incomingHits)).append("\n");
         if (row.incomingAvailable && !wholeEncounter) text.append("Full dungeon taken: ").append(number(row.totalTaken))
             .append(" · Incoming events: ").append(number(row.totalIncomingHits)).append("\n");
+        if (!incoming) appendSources(text, row);
         if (incoming && !row.incomingAvailable) text.append("Incoming damage is unavailable: no incoming events were recorded for this player.");
         else {
             List<Damage> hits = incoming ? row.incoming : row.outgoing;
@@ -285,12 +286,36 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             for (int i = start; i < hits.size(); i++) {
                 Damage hit = hits.get(i);
                 String source = incoming ? (hit.owner == null ? "AoE / ground / unknown" : String.valueOf(hit.owner.name())) :
-                    (hit.projectile == null || hit.projectile.getContainerType() <= 0 ? "Unknown item / generic" : "Item #" + hit.projectile.getContainerType());
+                    DamageSource.describe(hit);
                 text.append(String.format(Locale.ROOT, "%7ss  %10s    %s%n",
                     snapshot.first==Long.MAX_VALUE?DisplayFormat.UNAVAILABLE:DisplayFormat.formatDurationSeconds(hit.time - snapshot.first, 2), number(hit.damage), source));
             }
         }
         int caret = details.getCaretPosition(); details.setText(text.toString()); details.setCaretPosition(Math.min(caret, details.getDocument().getLength()));
+    }
+    private static final int SOURCE_ITEMS_SHOWN = 5;
+    /** Share of the player's own recorded damage by source and item, over every hit, not only the latest 500. */
+    private static void appendSources(StringBuilder text, CombatMeterData.Row row) {
+        if (row.damage <= 0) return;
+        List<CombatMeterData.SourceShare> sources = CombatMeterData.sources(row);
+        text.append("Damage by source · share of this player's ").append(number(row.damage)).append(" recorded damage\n");
+        boolean other = false, unknown = false;
+        for (CombatMeterData.SourceShare share : sources) {
+            text.append(sourceLine("  ", share.source.label, share.damage, row.damage)).append("   ").append(number(share.hits)).append(share.hits == 1 ? " hit\n" : " hits\n");
+            int shown = 0;
+            for (Map.Entry<String, long[]> item : share.items.entrySet()) {
+                if (shown++ == SOURCE_ITEMS_SHOWN) { text.append("      + ").append(number(share.items.size() - SOURCE_ITEMS_SHOWN)).append(" more items\n"); break; }
+                text.append(sourceLine("      ", item.getKey(), item.getValue()[0], row.damage)).append('\n');
+            }
+            other |= share.source == DamageSource.OTHER; unknown |= share.source == DamageSource.UNKNOWN;
+        }
+        if (other) text.append(DamageSource.OTHER_DEFINITION).append('\n');
+        if (unknown) text.append(DamageSource.UNKNOWN_DEFINITION).append('\n');
+    }
+    private static String sourceLine(String indent, String label, long damage, long total) {
+        String name = indent + label;
+        if (name.length() > 30) name = name.substring(0, 29) + "…";
+        return String.format(Locale.ROOT, "%-30s %7s  %12s", name, DisplayFormat.formatPercentage(damage * 100.0 / total, 1), number(damage));
     }
     protected void editFont(Font font) {
         ContentStyle.tableFont(table, font, 0); ContentStyle.font(enemyList, font);
