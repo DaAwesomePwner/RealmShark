@@ -171,10 +171,10 @@ public final class BridgeReviewGUI extends JPanel {
     }
     private JComponent settings() {
         JPanel page=new JPanel(new BorderLayout(0,8));page.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
-        JPanel status=new JPanel(new GridLayout(0,1,0,4));
+        JPanel status=new JPanel();status.setLayout(new BoxLayout(status,BoxLayout.Y_AXIS));saveResult.setVisible(false);validation.setVisible(false);
         activeSummary.setName("bridge-active");draftState.setName("bridge-draft-state");validation.setName("bridge-validation");confirmation.setName("bridge-confirmation");saveResult.setName("bridge-save-result");revert.setName("bridge-revert");
         activeSummary.setFont(ContentStyle.emphasis(ContentStyle.metadata(ContentStyle.body())));validation.setForeground(ContentStyle.color("rose"));
-        for(JTextArea area:new JTextArea[]{activeSummary,draftState,validation,saveResult,confirmation})status.add(area);
+        for(JTextArea area:new JTextArea[]{activeSummary,draftState,validation,saveResult,confirmation}){area.setAlignmentX(Component.LEFT_ALIGNMENT);area.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));status.add(area);}
         JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File > Start Sniffer. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
         page.add(intro,BorderLayout.NORTH);
         JPanel form=new JPanel(new GridBagLayout());GridBagConstraints g=new GridBagConstraints();g.insets=new Insets(3,0,5,0);g.fill=GridBagConstraints.HORIZONTAL;g.anchor=GridBagConstraints.NORTHWEST;
@@ -256,6 +256,7 @@ public final class BridgeReviewGUI extends JPanel {
         boolean loading=snapshot==null||snapshot.loading;
         text(activeSummary,loading?"Active now: loading saved settings…":"Active now: "+active.modeLabel()+(active.enabled?" · CSV items: "+snapshot.catalogSize:"")+(active.enabled&&active.send?" · Endpoint: "+host(active.endpoint):"")+" · Review log: "+(active.reviewLog.isEmpty()?"off":"on"));
         text(confirmation,snapshot==null?"":snapshot.confirmation.label());
+        saveResult.setVisible(!saveResult.getText().isEmpty());
     }
     private static void text(JTextArea area,String value){if(!value.equals(area.getText()))area.setText(value);}
     private static String host(String endpoint){try{String host=java.net.URI.create(endpoint).getHost();return host==null?"not set":host;}catch(RuntimeException e){return "invalid";}}
