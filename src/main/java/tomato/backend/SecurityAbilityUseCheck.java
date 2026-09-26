@@ -65,15 +65,8 @@ public class SecurityAbilityUseCheck {
                         previousMana.statValue <=
                         sd.statValue
                     ) {
-                        StringBuilder sb = new StringBuilder();
-                        sb.append("[").append(Util.getHourTime()).append("] ");
-                        sb.append(entity.name()).append(": ");
-                        sb.append(
-                            IdToAsset.objectName(
-                                ability.statValue
-                            )
-                        );
-                        SecurityGUI.updateAbilityUsage(sb.toString());
+                        publish(entity, ability.statValue, previousMana.statValue, sd.statValue, "Stasis candidate",
+                            "Orb duration candidate followed by non-decreasing MP; not proof of a successful cast.");
                     }
                 }
             }
@@ -104,15 +97,8 @@ public class SecurityAbilityUseCheck {
                         previousMana.statValue <=
                         sd.statValue
                     ) {
-                        StringBuilder sb = new StringBuilder();
-                        sb.append("[").append(Util.getHourTime()).append("] ");
-                        sb.append(entity.name()).append(": ");
-                        sb.append(
-                            IdToAsset.objectName(
-                                ability.statValue
-                            )
-                        );
-                        SecurityGUI.updateAbilityUsage(sb.toString());
+                        publish(entity, ability.statValue, previousMana.statValue, sd.statValue, "Decoy candidate",
+                            "Decoy timing candidate followed by non-decreasing MP; attribution may be ambiguous.");
                     }
                 }
             }
@@ -121,6 +107,14 @@ public class SecurityAbilityUseCheck {
 
     public static void decreaseDecoyCounter() {
         decoyCounter = Math.max(-1, decoyCounter - 1);
+    }
+    private static final String APPLICATION_SESSION = java.util.UUID.randomUUID().toString();
+    private static void publish(Entity entity, int ability, int before, int incoming, String heuristic, String explanation) {
+        tomato.history.SessionStore history = tomato.history.AppHistory.store();
+        tomato.ability.AbilityObservationStore.application().add(new tomato.ability.AbilityObservation(
+            history == null ? APPLICATION_SESSION : history.currentId(), entity.abilityVisit(), System.currentTimeMillis(),
+            entity.id, entity.name(), CharacterClass.getName(entity.objectType), ability, IdToAsset.objectName(ability),
+            heuristic, before, incoming, explanation));
     }
     public static void reset() { decoyCounter = -1; }
 }

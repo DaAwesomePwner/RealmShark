@@ -66,6 +66,11 @@ public class Entity implements Serializable {
     private boolean isUser;
     public final Stat stat;
     private final transient TomatoData tomatoData;
+    /** Exact producer-time visit for optional inferred evidence; never joined by name/time. */
+    public tomato.history.link.VisitRef abilityVisit() {
+        tomato.history.link.EncounterContext context = tomatoData == null ? null : tomatoData.currentEncounterContext();
+        return context == null ? null : context.visit;
+    }
     public final int id;
     public int objectType;
     private long creationTime;
