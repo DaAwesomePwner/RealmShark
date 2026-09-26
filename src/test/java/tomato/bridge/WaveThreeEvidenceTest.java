@@ -25,6 +25,7 @@ import static ui.WaveThreeEvidence.*;
 public class WaveThreeEvidenceTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder(new File("."));
     @Rule public VisualEvidence evidence = new VisualEvidence(FOLDER);
+    @Rule public FixtureZone zone = new FixtureZone();
     private static final String TOKEN = "synthetic-evidence-token";
 
     private Path relative(String name) { return Paths.get("").toAbsolutePath().relativize(temp.getRoot().toPath().toAbsolutePath().resolve(name)); }
@@ -81,8 +82,12 @@ public class WaveThreeEvidenceTest {
                 await(() -> named(panel, "bridge-save", JButton.class).isEnabled() && !area(panel, "bridge-save-result").getText().startsWith("Saving"));
                 wideAndCompact(evidence, shell, "bridge-settings-failed-save", () -> {
                     String result = area(panel, "bridge-save-result").getText();
-                    assertTrue(result, result.contains("Not saved: Disk is read-only") && result.contains("previous settings remain active"));
+                    assertTrue(result, result.contains("Not saved: Disk is read-only. The previous settings remain active"));
                     assertFalse(result.contains(TOKEN));
+                    assertTrue("failed save uses the error style", panel.saveResultIsError());
+                    JTextArea saveResult = area(panel, "bridge-save-result");
+                    assertEquals("same error style as the invalid-draft message", tomato.gui.modern.ContentStyle.color("rose"), saveResult.getForeground());
+                    reveal(saveResult); assertTrue(saveResult.isShowing());
                     reveal(area(panel, "bridge-active"));
                     assertTrue(area(panel, "bridge-active").getText().startsWith("Active now: Local review only"));
                 });
@@ -116,13 +121,27 @@ public class WaveThreeEvidenceTest {
                 wideAndCompact(evidence, shell, "bridge-saved-review-not-opened", () -> {
                     assertNull(panel.savedResult());
                     assertTrue(area(panel, "bridge-saved-note").getText().contains("cannot be recovered"));
+                    assertFalse("live Review counters stay on the Review tab", area(panel, "bridge-totals").isShowing());
+                    assertVisibleRows(named(panel, "bridge-saved-table", JTable.class), 3);
+                    JScrollPane details = (JScrollPane) area(panel, "bridge-saved-details").getParent().getParent();
+                    reveal(details, details.getHeight());
+                    assertTrue("saved details keep a usable height", details.getViewport().getVisibleRect().height >= 2 * details.getViewport().getView().getFontMetrics(details.getViewport().getView().getFont()).getHeight());
                 });
                 run(() -> named(panel, "bridge-saved-open-configured", JButton.class).doClick());
                 await(() -> panel.savedResult() != null);
                 run(() -> named(panel, "bridge-saved-table", JTable.class).setRowSelectionInterval(0, 0));
                 wideAndCompact(evidence, shell, "bridge-saved-review-malformed-lines", () -> {
-                    reveal(area(panel, "bridge-saved-problems"));
+                    JTextArea skipped = area(panel, "bridge-saved-problems");
+                    reveal(skipped, skipped.getHeight());
+                    assertTrue("every skipped line is on screen", fullyVisible(skipped));
+                    assertTrue(measureText(skipped));
                     assertEquals(2, panel.savedResult().entries.size()); assertEquals(2, panel.savedResult().malformed);
+                    String summary = area(panel, "bridge-saved-summary").getText();
+                    assertTrue(summary, summary.startsWith("2 saved reviews from 1 session in 1 journal · 1 journal not found · 2 unreadable lines"));
+                    assertVisibleRows(named(panel, "bridge-saved-table", JTable.class), 3);
+                    JScrollPane details = (JScrollPane) area(panel, "bridge-saved-details").getParent().getParent();
+                    reveal(details, details.getHeight());
+                    assertTrue("saved details keep a usable height", details.getViewport().getVisibleRect().height >= 2 * area(panel, "bridge-saved-details").getFontMetrics(area(panel, "bridge-saved-details").getFont()).getHeight());
                     String problems = area(panel, "bridge-saved-problems").getText();
                     assertTrue(problems, problems.contains("review.jsonl line 3: not a JSON object") || problems.contains("not a JSON object"));
                     assertTrue(problems, problems.contains("unsupported journal version 2"));

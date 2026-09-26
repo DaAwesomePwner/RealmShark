@@ -38,6 +38,7 @@ public final class BridgeJournal {
         Problem(String journal, int line, String reason) { this.journal = journal; this.line = line; this.reason = reason; }
         @Override public String toString() { return journal + (line > 0 ? " line " + line : "") + ": " + reason; }
     }
+    private static final String NOT_FOUND = " (not found)", UNREADABLE = " (unreadable)";
     public static final class Result {
         public final List<Entry> entries; public final List<Problem> problems; public final List<String> sources;
         public final int malformed, superseded; public final boolean truncated;
@@ -46,10 +47,17 @@ public final class BridgeJournal {
             this.malformed = malformed; this.superseded = superseded; this.truncated = truncated;
         }
         public Set<String> sessions() { Set<String> result = new LinkedHashSet<>(); for (Entry e : entries) result.add(e.journal + " · " + e.session); return result; }
+        /** Journals that were opened and read (including ones with no usable records); missing and unreadable files are not counted. */
+        public int journalsRead() { int read = 0; for (String source : sources) if (!source.endsWith(NOT_FOUND) && !source.endsWith(UNREADABLE)) read++; return read; }
+        public int journalsMissing() { int missing = 0; for (String source : sources) if (source.endsWith(NOT_FOUND)) missing++; return missing; }
+        public int journalsUnreadable() { int unreadable = 0; for (String source : sources) if (source.endsWith(UNREADABLE)) unreadable++; return unreadable; }
         public String summary() {
             StringBuilder text = new StringBuilder();
+            int read = journalsRead(), missing = journalsMissing(), unreadable = journalsUnreadable();
             text.append(entries.size()).append(entries.size() == 1 ? " saved review" : " saved reviews").append(" from ").append(sessions().size())
-                .append(sessions().size() == 1 ? " session" : " sessions").append(" in ").append(sources.size()).append(sources.size() == 1 ? " journal" : " journals");
+                .append(sessions().size() == 1 ? " session" : " sessions").append(" in ").append(read).append(read == 1 ? " journal" : " journals");
+            if (missing > 0) text.append(" · ").append(missing).append(missing == 1 ? " journal not found" : " journals not found");
+            if (unreadable > 0) text.append(" · ").append(unreadable).append(unreadable == 1 ? " journal unreadable" : " journals unreadable");
             if (malformed > 0) text.append(" · ").append(malformed).append(malformed == 1 ? " unreadable line" : " unreadable lines");
             if (superseded > 0) text.append(" · ").append(superseded).append(" repeated records replaced by later lines");
             if (truncated) text.append(" · stopped after ").append(MAX_RECORDS).append(" records");
@@ -72,7 +80,7 @@ public final class BridgeJournal {
         Gson gson = new Gson();
         for (Path path : journals) {
             String name = path.getFileName() == null ? path.toString() : path.getFileName().toString();
-            if (!Files.isRegularFile(path)) { sources.add(name + " (not found)"); continue; }
+            if (!Files.isRegularFile(path)) { sources.add(name + NOT_FOUND); continue; }
             int lineNumber = 0, legacySegment = 1, read = 0; long lastLegacyId = 0;
             try (BufferedReader in = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
                 String line;
@@ -110,7 +118,7 @@ public final class BridgeJournal {
                 }
                 sources.add(name + " (" + read + " records)");
             } catch (IOException | UncheckedIOException failure) {
-                sources.add(name + " (unreadable)");
+                sources.add(name + UNREADABLE);
                 problem(problems, malformed, name, 0, "could not read the file (" + failure.getClass().getSimpleName() + ")");
             }
             if (truncated) break;
