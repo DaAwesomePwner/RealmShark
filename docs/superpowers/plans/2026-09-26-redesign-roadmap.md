@@ -7,7 +7,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | Phase | Plan | Branch | State |
 |---|---|---|---|
 | P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #17 (`9b6844a`) |
-| P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implementing |
+| P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented and locally validated; PR merge pending |
 | P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned |
 | P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned |
 | P2 Home | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
@@ -19,8 +19,9 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 Update the State column when a phase's PR merges and `main` is verified.
 
 P0 merged in PR #17 as `9b6844a`; its merge tree matches the reviewed P0 source.
-P1a is in progress. P1b and later phases have not started. Evidence:
-[P0 validation](2026-09-26-p0-validation.md).
+P1a is implemented and locally validated, pending PR merge. P1b and later phases
+have not started. Evidence: [P0 validation](2026-09-26-p0-validation.md),
+[P1a validation](2026-09-26-p1a-validation.md).
 
 ## Resume
 
