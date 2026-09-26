@@ -28,7 +28,13 @@ public final class AlertRouteTargets {
             public void open(Route route) {
                 showPage.run();
                 NotificationFocus focus = (NotificationFocus)route.payload;
-                Runnable back = () -> { if (Navigator.current().canGoBack()) Navigator.current().back(); };
+                // Pop only the Back entry this open pushes; once it is gone (shell Back, a later hop), the banner's
+                // Back just clears the focus instead of popping an origin that belongs to another navigation.
+                long entry = Navigator.current().nextBackToken();
+                Runnable back = () -> {
+                    Navigator current = Navigator.current();
+                    if (entry == 0 ? current.canGoBack() : current.backToken() == entry) current.back(); // 0: untracked navigator.
+                };
                 if (focus == null) return;
                 if (focus.dungeon != null) page.focusDungeon(focus.dungeon, back);
                 else if (focus.decision != null) page.focusDecision(focus.decision);

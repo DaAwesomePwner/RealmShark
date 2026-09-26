@@ -26,6 +26,7 @@ public final class ShellNavigator implements Navigator {
     private final Map<Integer, RouteTarget> shown = new HashMap<>();
     private final ArrayDeque<Origin> back = new ArrayDeque<>();
     private final List<Runnable> listeners = new ArrayList<>();
+    private long pushes;
 
     public ShellNavigator(IntSupplier selected, IntConsumer select, ToIntFunction<Destination> pageOf, int capacity) {
         if (capacity < 1) throw new IllegalArgumentException("Back stack needs a positive capacity");
@@ -52,6 +53,8 @@ public final class ShellNavigator implements Navigator {
     /** Shell page Back returns to, or {@link #NO_PAGE} when the stack is empty. */
     public int backPage() { requireEdt(); return back.isEmpty() ? NO_PAGE : back.peekLast().page; }
     public int depth() { requireEdt(); return back.size(); }
+    @Override public long backToken() { requireEdt(); return back.isEmpty() ? 0 : back.peekLast().token; }
+    @Override public long nextBackToken() { requireEdt(); return pushes + 1; }
 
     @Override public boolean open(Route route) {
         requireEdt();
@@ -71,6 +74,7 @@ public final class ShellNavigator implements Navigator {
         if (destinationPage != NO_PAGE) select.accept(destinationPage);
         if (origin != null) {
             shown.put(destinationPage, target);
+            origin.token = ++pushes;
             back.addLast(origin);
             while (back.size() > capacity) back.removeFirst();
         }
@@ -114,6 +118,7 @@ public final class ShellNavigator implements Navigator {
         final int page;
         final RouteTarget target;
         final Object state;
+        long token;
         Origin(int page, RouteTarget target, Object state) { this.page = page; this.target = target; this.state = state; }
     }
 }

@@ -14,6 +14,14 @@ public interface Navigator {
     boolean canGoBack();
     /** Whether some registered target would accept the route; use to enable or explain an action. */
     boolean canOpen(Route route);
+    /** Identity of the most recent Back entry, or 0 when there is none or entries are not tracked. */
+    default long backToken() { return 0; }
+    /**
+     * Identity the Back entry pushed by the route being opened right now will receive, or 0 when untracked.
+     * A destination that offers its own "Back" should pop only while {@link #backToken()} still equals it,
+     * so a stale control never pops an origin that belongs to a later navigation.
+     */
+    default long nextBackToken() { return 0; }
 
     Navigator NONE = new Navigator() {
         public boolean open(Route route) { return false; }
