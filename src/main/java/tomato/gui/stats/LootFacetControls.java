@@ -30,7 +30,7 @@ final class LootFacetControls extends JPanel {
         clear.addActionListener(e->{Facets next=new Facets();next.view=initial.view;changed.accept(next);});numbers.add(apply);numbers.add(clear);
         JPanel expanded=new JPanel(new BorderLayout(0,4));expanded.add(grid);expanded.add(numbers,BorderLayout.SOUTH);expanded.setVisible(false);
         JButton toggle=new JButton("Multi-select loot facets…");toggle.addActionListener(e->{expanded.setVisible(!expanded.isVisible());revalidate();});
-        JPanel top=ContentStyle.controls();top.add(toggle);top.add(new JLabel(summary(facets)));top.add(error);add(top,BorderLayout.NORTH);add(expanded);
+        JPanel top=ContentStyle.controls();top.add(toggle);JLabel summary=new JLabel(summary(facets));summary.setName("loot-facet-summary");summary.putClientProperty("html.disable",true);top.add(summary);top.add(error);add(top,BorderLayout.NORTH);add(expanded);
     }
     Facets value(){Facets next=SessionStore.JSON.fromJson(SessionStore.JSON.toJson(initial),Facets.class);next.bags=new LinkedHashSet<>(bags.getSelectedValuesList());next.dungeons=new LinkedHashSet<>(dungeons.getSelectedValuesList());next.rarities=new LinkedHashSet<>(rarities.getSelectedValuesList());next.tiers=new LinkedHashSet<>(tiers.getSelectedValuesList());next.kind=(Kind)kind.getSelectedItem();next.slots=slots.value();next.applied=applied.value();return next;}
     void updateChoices(Collection<String> bagChoices,Collection<String> dungeonChoices){update(bags,bagChoices);update(dungeons,dungeonChoices);}
@@ -39,7 +39,7 @@ final class LootFacetControls extends JPanel {
         List<String> current=new ArrayList<>();for(int i=0;i<list.getModel().getSize();i++)current.add(list.getModel().getElementAt(i));if(current.equals(new ArrayList<>(values)))return;
         list.setListData(values.toArray(new String[0]));for(int i=0;i<list.getModel().getSize();i++)if(selected.contains(list.getModel().getElementAt(i)))list.addSelectionInterval(i,i);
     }
-    static String summary(Facets f){return "Bags "+f.bags+" · Dungeons "+f.dungeons+" · "+f.kind+" · Rarity "+f.rarities+" · Tier "+f.tiers+" · Slots "+range(f.slots)+" · Applied "+range(f.applied);}
+    static String summary(Facets f){return "Bags "+f.bags+" · Dungeons "+f.dungeons+" · "+f.kind+" · Rarity "+f.rarities+" · Tier "+f.tiers+" · Slots "+range(f.slots)+" · Applied "+range(f.applied)+(f.drilled()?" · "+LootArchiveClient.drillSummary(f):"");}
     private static String range(Range r){return Objects.toString(r.min,"any")+"…"+Objects.toString(r.max,"any")+" / unknown "+r.unknown;}
     private static JList<String> list(String name,Collection<String> choices,Set<String> selected){
         Set<String> all=new TreeSet<>(choices);all.addAll(selected);JList<String> list=new JList<>(all.toArray(new String[0]));list.setName(name);list.getAccessibleContext().setAccessibleName(name.replace('-',' '));list.setVisibleRowCount(4);list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);

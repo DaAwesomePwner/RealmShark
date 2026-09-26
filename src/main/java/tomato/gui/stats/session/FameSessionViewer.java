@@ -32,6 +32,13 @@ public class FameSessionViewer extends JFrame {
     private final JLabel characterStatus = new JLabel();
     private final JLabel mapStatus = new JLabel();
     private final JLabel graphStatus = new JLabel();
+    private final JLabel graphDelta = new JLabel(" ");
+    private final JLabel mapAssociation = new JLabel();
+    private final JComboBox<String> range = new JComboBox<>(new String[]{"All samples", "1 min", "5 min", "15 min", "30 min", "60 min"});
+    private final JComboBox<String> measure = new JComboBox<>(new String[]{"Total fame", "Gain in range"});
+    private Integer graphedCharacter;
+    /** Shown when a saved history has no map association for the selected character. */
+    public static final String MAP_NOT_RECORDED = "Map association: Not recorded";
     private GraphPanel graphPanel;
     private boolean updatingFilters;
 
@@ -68,8 +75,21 @@ public class FameSessionViewer extends JFrame {
         graphPanel.setName("saved-fame-graph");
         graphPanel.setPreferredSize(new Dimension(800, 400));
         JPanel graph = new JPanel(new BorderLayout());
+        JPanel graphControls = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        range.setName("saved-fame-range"); measure.setName("saved-fame-measure");
+        range.getAccessibleContext().setAccessibleName("Range ending at the character's latest saved sample");
+        measure.getAccessibleContext().setAccessibleName("Graph measure");
+        range.addActionListener(e -> { if (!updatingFilters) updateGraph(); });
+        measure.addActionListener(e -> { if (!updatingFilters) updateGraph(); });
+        graphControls.add(new JLabel("Range ending at latest sample")); graphControls.add(range); graphControls.add(measure);
+        graph.add(graphControls, BorderLayout.NORTH);
         graph.add(graphPanel, BorderLayout.CENTER);
-        graph.add(graphStatus, BorderLayout.SOUTH);
+        JPanel graphFooter = new JPanel(new GridLayout(0, 1));
+        graphDelta.setName("saved-fame-delta"); graphDelta.putClientProperty("html.disable", true);
+        mapAssociation.setName("saved-fame-map-association"); mapAssociation.putClientProperty("html.disable", true);
+        graphPanel.addPropertyChangeListener(GraphPanel.SUMMARY_PROPERTY, e -> showDelta());
+        graphFooter.add(graphDelta); graphFooter.add(graphStatus); graphFooter.add(mapAssociation);
+        graph.add(graphFooter, BorderLayout.SOUTH);
         graphStatus.setName("saved-fame-graph-status");
         tabbedPane.addTab("Fame Graph", graph);
 
@@ -233,7 +253,8 @@ public class FameSessionViewer extends JFrame {
                 visit.getFameGained(), timeSpent,
                 timeSpent > 0 ? visit.getFameGained() * 60000.0 / timeSpent : null});
         }
-        mapStatus.setText(DisplayFormat.formatInteger(model.getRowCount()) + " of " + DisplayFormat.formatInteger(visits.size())
+        mapStatus.setText(visits.isEmpty() ? MAP_NOT_RECORDED + " for this character · this saved history has no map visits (fame samples never carry a map)"
+            : DisplayFormat.formatInteger(model.getRowCount()) + " of " + DisplayFormat.formatInteger(visits.size())
             + " saved visits shown · Selected character · Dungeon and gain filters affect visits only");
         populateSessionInfo();
     }
@@ -266,6 +287,7 @@ public class FameSessionViewer extends JFrame {
             .append("Selected Character: ").append(characterSelector.getSelectedItem() == null
                 ? "None" : characterSelector.getSelectedItem()).append("\n")
             .append(session.chronology(getSelectedCharacterId()).undatedCount()>0?"Graph Samples (dated only for selected character): ":"Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
+            .append(mapAssociationText(getSelectedCharacterId())).append("\n")
             .append("Map Visits Shown: ").append(DisplayFormat.formatInteger(mapFameTable.getRowCount())).append(" of ")
             .append(DisplayFormat.formatInteger(mapVisits(getSelectedCharacterId()).size())).append(" for selected character\n")
             .append("Dungeon: ").append(dungeonFilter.getSelectedItem()).append("\n")
@@ -279,10 +301,37 @@ public class FameSessionViewer extends JFrame {
         sessionInfoArea.setText(info.toString());
     }
 
+    /** Range and gain/total controls; pinned timestamps survive both and reset only for another character. */
+    private void updateGraph() {
+        Integer selectedCharId = getSelectedCharacterId();
+        if (!java.util.Objects.equals(selectedCharId, graphedCharacter)) { graphPanel.clearPin(); graphedCharacter = selectedCharId; }
+        long[] minutes = {0, 1, 5, 15, 30, 60};
+        ArrayList<Fame> samples = GraphPanel.window(fameSamples(selectedCharId), minutes[range.getSelectedIndex()] * 60000);
+        if (measure.getSelectedIndex() == 1 && !samples.isEmpty()) {
+            double baseline = samples.get(0).getFame(); ArrayList<Fame> relative = new ArrayList<>();
+            for (Fame sample : samples) relative.add(new Fame(sample.getFame() - baseline, sample.getTime()));
+            samples = relative;
+        }
+        graphPanel.setScores(samples);
+        mapAssociation.setText(mapAssociationText(selectedCharId));
+        showDelta();
+    }
+    private void showDelta() {
+        String text = graphPanel.inspectionSummary();
+        graphDelta.setText(text.isEmpty() ? " " : text);
+        graphDelta.getAccessibleContext().setAccessibleName(text);
+    }
+    /** Samples never carry a map; only separately saved map visits establish an association. */
+    String mapAssociationText(Integer id) {
+        int visits = mapVisits(id).size();
+        return visits == 0 ? MAP_NOT_RECORDED + " (no saved map visits for this character; fame samples carry no map)"
+            : "Map association: " + DisplayFormat.formatInteger(visits) + " saved map visits (tracker records); individual fame samples carry no map";
+    }
+
     private void updateCharacterData() {
         Integer selectedCharId = getSelectedCharacterId();
         ArrayList<Fame> samples = fameSamples(selectedCharId);
-        graphPanel.setScores(samples);
+        updateGraph();
         graphStatus.setText(selectedCharId == null ? "No saved character selected."
             : samples.isEmpty() ? "No saved fame samples for this character. Map visits are available separately."
             : samples.size() == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
