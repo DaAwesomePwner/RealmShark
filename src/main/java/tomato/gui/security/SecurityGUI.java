@@ -57,7 +57,7 @@ public class SecurityGUI extends JPanel {
         currentArea.add(parsePanel);
         runs = new InspectRunsPanel(log, parsePanel);
 
-        JPanel abilityUse = new JPanel();
+        JPanel abilityUse = new AbilityEvidencePanel(tomato.ability.AbilityObservationStore.application());
         tabbedPane.addTab("Current Area", currentArea);
         tabbedPane.addTab("Runs", runs);
         tabbedPane.addTab("Ability Use", abilityUse);
@@ -74,19 +74,6 @@ public class SecurityGUI extends JPanel {
         // a fixed slice from the roster viewport in a compact workspace.
         add(ContentStyle.page(null, tabbedPane, stateHost));
 
-        abilityUse.setLayout(new BorderLayout());
-        text = new tomato.gui.modern.EmptyLogArea("No ability activity yet", "Ability usage will appear here during capture.");
-        text.setFont(ContentStyle.body());
-        text.getAccessibleContext().setAccessibleName("Ability usage log");
-        JButton button = new JButton("Clear ability log");
-        button.addActionListener(e -> {
-            synchronized (pending) { pending.setLength(0); }
-            text.setText("");
-        });
-        abilityUse.add(TomatoGUI.createTextArea(text, true), BorderLayout.CENTER);
-        JPanel controls = ContentStyle.controls();
-        controls.add(button);
-        abilityUse.add(controls, BorderLayout.SOUTH);
         ContentStyle.refreshFonts(this);
         INSTANCE = this;
     }
@@ -106,8 +93,8 @@ public class SecurityGUI extends JPanel {
     @Override public void removeNotify(){if(liveState!=null)saveViewState();super.removeNotify();}
 
     public static void updateAbilityUsage(String s) {
-        SecurityGUI panel = INSTANCE;
-        if (panel != null) panel.appendText(s);
+        // Legacy callers lack structured provenance; never reverse-parse UI strings.
+        tomato.ability.AbilityObservationStore.application().omit();
     }
 
     private void appendText(String s) {
