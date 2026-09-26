@@ -1,7 +1,5 @@
 package tomato.gui.quest;
 
-import com.github.weisj.darklaf.LafManager;
-import com.github.weisj.darklaf.theme.HighContrastLightTheme;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
@@ -22,6 +20,7 @@ import packets.data.QuestData;
 import tomato.gui.TomatoGUI;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.notifications.NotificationsGUI;
 import static org.junit.Assert.*;
@@ -59,6 +58,8 @@ public class QuestConsistencyTest {
                 frame.dispose();
             }
             ContentStyle.setBodyFont(oldFont);
+            // Resets the contrast flag even when a test failed before its own VioletTheme.install().
+            Themes.install(new Themes.Choice(Themes.Variant.DARK, false));
             try { UIManager.setLookAndFeel(oldLaf); }
             catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
             ContentStyle.applyFontDefaults();
@@ -197,7 +198,7 @@ public class QuestConsistencyTest {
             final int themeIndex = theme;
             final boolean legacy = theme == 1;
             SwingUtilities.invokeAndWait(() -> {
-                if (legacy) LafManager.install(new HighContrastLightTheme()); else VioletTheme.install();
+                if (legacy) Themes.install(new Themes.Choice(Themes.Variant.LIGHT, true)); else VioletTheme.install();
                 SwingUtilities.updateComponentTreeUI(frame);
             });
             for (int font : FONTS) {
@@ -352,7 +353,7 @@ public class QuestConsistencyTest {
                 assertEquals("Selected before navigation", table().getValueAt(0, 1));
                 search().setText("selected"); shell.select(13);
                 assertFalse(quest.isShowing()); assertTrue(named(shell, "sound-master", JSlider.class).isShowing());
-                LafManager.install(new HighContrastLightTheme()); SwingUtilities.updateComponentTreeUI(frame); font(24);
+                Themes.install(new Themes.Choice(Themes.Variant.LIGHT, true)); SwingUtilities.updateComponentTreeUI(frame); font(24);
                 shell.refreshTheme();
             });
             QuestData replacement = record("wiring", "Selected after hidden publication", 2);

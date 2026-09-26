@@ -229,7 +229,7 @@ public final class ContentStyle {
             case "mint": return new Color(dark ? 0x86DBBA : 0x226D52);
             case "amber": return new Color(dark ? 0xEBC384 : 0x805510);
             case "rose": return new Color(dark ? 0xEEA6BA : 0x923553);
-            default: return new Color(dark ? 0xAAA7BD : 0x626071);
+            default: return new Color(Themes.increaseContrast() ? (dark ? 0xCFCBE0 : 0x4A4757) : (dark ? 0xAAA7BD : 0x626071));
         }
     }
 

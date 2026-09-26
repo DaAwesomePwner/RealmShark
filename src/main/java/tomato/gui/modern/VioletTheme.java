@@ -1,14 +1,13 @@
 package tomato.gui.modern;
 
 import com.formdev.flatlaf.FlatDarkLaf;
-import com.formdev.flatlaf.FlatLaf;
 import java.awt.*;
 import java.util.Properties;
 import javax.swing.*;
 import javax.swing.plaf.ColorUIResource;
 import javax.swing.plaf.FontUIResource;
 
-/** The default desktop theme. Legacy themes remain available in Edit &gt; Theme. */
+/** The default desktop theme. Violet Light shares these rules through {@link #apply}. */
 public final class VioletTheme extends FlatDarkLaf {
     /** Capture action colors. Every state keeps a 4.5:1 contrast with white text. */
     public static final Color CAPTURE_BACKGROUND = new Color(0x7041BD);
@@ -16,35 +15,51 @@ public final class VioletTheme extends FlatDarkLaf {
     public static final Color CAPTURE_PRESSED = new Color(0x6036A5);
 
     /**
-     * A violet-tinted neutral ramp. Surfaces share one hue, so depth reads as elevation
-     * instead of as a second color, and each step keeps the luminance of the flat charcoal
-     * step it replaces.
+     * One variant's colors. Surfaces share one hue, so depth reads as elevation instead of as a
+     * second color. Two border weights keep structure quiet while control edges stay findable.
      */
-    static final int BASE = 0x131120;           // window and panel base
-    static final int NAVIGATION = 0x0E0C18;     // sidebar, menu bar and title bar
-    static final int SURFACE = 0x181627;        // tables, lists and scroll panes
-    static final int SURFACE_ALTERNATE = 0x1C1A2D;
-    static final int SURFACE_RAISED = 0x201D33; // inputs, combo boxes and cards
-    static final int CONTROL = 0x252139;
-    static final int CONTROL_HOVER = 0x322C4C;
-    static final int CONTROL_PRESSED = 0x1C1930;
+    static final class Palette {
+        final int base, navigation, surface, surfaceAlternate, surfaceRaised;
+        final int control, controlHover, controlPressed;
+        final int borderSubtle, border, borderDisabled;
+        final int accent, accentBright, accentWash, selection, selectionText;
+        final int text, textMuted, textHeader, scrollThumb, scrollThumbHover;
+        /** Increase contrast replaces these three roles and widens focus rings. */
+        final int contrastBorder, contrastSubtle, contrastMuted;
 
-    /**
-     * Two border weights. Structural dividers stay quiet so the data reads first, while
-     * interactive outlines stay visible enough to find the edge of a control.
-     */
-    static final int BORDER_SUBTLE = 0x252236;
-    static final int BORDER = 0x38334F;
-    static final int BORDER_DISABLED = 0x221F31;
+        Palette(int base, int navigation, int surface, int surfaceAlternate, int surfaceRaised,
+                int control, int controlHover, int controlPressed,
+                int borderSubtle, int border, int borderDisabled,
+                int accent, int accentBright, int accentWash, int selection, int selectionText,
+                int text, int textMuted, int textHeader, int scrollThumb, int scrollThumbHover,
+                int contrastBorder, int contrastSubtle, int contrastMuted) {
+            this.base = base; this.navigation = navigation; this.surface = surface;
+            this.surfaceAlternate = surfaceAlternate; this.surfaceRaised = surfaceRaised;
+            this.control = control; this.controlHover = controlHover; this.controlPressed = controlPressed;
+            this.borderSubtle = borderSubtle; this.border = border; this.borderDisabled = borderDisabled;
+            this.accent = accent; this.accentBright = accentBright; this.accentWash = accentWash;
+            this.selection = selection; this.selectionText = selectionText;
+            this.text = text; this.textMuted = textMuted; this.textHeader = textHeader;
+            this.scrollThumb = scrollThumb; this.scrollThumbHover = scrollThumbHover;
+            this.contrastBorder = contrastBorder; this.contrastSubtle = contrastSubtle; this.contrastMuted = contrastMuted;
+        }
 
-    static final int ACCENT = 0xAD8CFF;
-    static final int ACCENT_BRIGHT = 0xC4ADFF;
-    static final int ACCENT_WASH = 0x2A2142;    // a quiet violet fill for hovered rows and selected tabs
-    static final int SELECTION = 0x3B2E5E;
-    static final int SELECTION_TEXT = 0xF4F0FF;
-    static final int TEXT = 0xE9E6F7;
-    static final int TEXT_MUTED = 0xA9A4C2;
-    static final int TEXT_HEADER = 0xB7B1D0;
+        static final Palette DARK = new Palette(
+            0x131120, 0x0E0C18, 0x181627, 0x1C1A2D, 0x201D33,
+            0x252139, 0x322C4C, 0x1C1930,
+            0x252236, 0x38334F, 0x221F31,
+            0xAD8CFF, 0xC4ADFF, 0x2A2142, 0x3B2E5E, 0xF4F0FF,
+            0xE9E6F7, 0xA9A4C2, 0xB7B1D0, 0x332E4A, 0x453E63,
+            0x5A5378, 0x3D3854, 0xCFCBE0);
+
+        static final Palette LIGHT = new Palette(
+            0xF5F4F9, 0xEEECF4, 0xFFFFFF, 0xF8F7FB, 0xFAF9FC,
+            0xEFEDF5, 0xE5E1F0, 0xDAD5E8,
+            0xE0DDE8, 0xC9C5D6, 0xE6E3EC,
+            0x6241AA, 0x4E3291, 0xF0E9FD, 0xE5DCF8, 0x302048,
+            0x24222E, 0x626071, 0x4A4757, 0xD3CFE0, 0xBDB7D0,
+            0x8C86A3, 0xB9B4C9, 0x4A4757);
+    }
 
     @Override public String getName() { return "RealmShark Violet"; }
 
@@ -55,12 +70,16 @@ public final class VioletTheme extends FlatDarkLaf {
      * box fills with the accent here rather than showing a checkmark on a grey square.
      */
     @Override protected Properties getAdditionalDefaults() {
-        Properties properties = super.getAdditionalDefaults();
-        if (properties == null) properties = new Properties();
-        properties.put("@accentColor", "#AD8CFF");
-        // The stock dark theme hardcodes a grey checkmark rather than deriving it from the accent,
+        return accentDefaults(super.getAdditionalDefaults(), Palette.DARK);
+    }
+
+    static Properties accentDefaults(Properties inherited, Palette palette) {
+        Properties properties = inherited == null ? new Properties() : inherited;
+        String accent = String.format("#%06X", palette.accent);
+        properties.put("@accentColor", accent);
+        // The stock themes hardcode a grey checkmark rather than deriving it from the accent,
         // and the filled icon takes its fill from that same value.
-        properties.put("CheckBox.icon.checkmarkColor", "#AD8CFF");
+        properties.put("CheckBox.icon.checkmarkColor", accent);
         properties.put("CheckBox.icon.style", "filled");
         properties.put("RadioButton.icon.style", "filled");
         return properties;
@@ -68,73 +87,79 @@ public final class VioletTheme extends FlatDarkLaf {
 
     @Override public UIDefaults getDefaults() {
         UIDefaults d = super.getDefaults();
-        surfaces(d);
-        borders(d);
-        interaction(d);
-        typography(d);
-        metrics(d);
+        apply(d, Palette.DARK);
         return d;
     }
 
-    /** Backgrounds and foregrounds, from the deepest chrome up to raised controls. */
-    private static void surfaces(UIDefaults d) {
-        color(d, "Panel.background", BASE);
-        color(d, "TabbedPane.background", BASE);
-        color(d, "MenuBar.background", NAVIGATION);
-        color(d, "TitlePane.background", NAVIGATION);
-        color(d, "TitlePane.inactiveBackground", NAVIGATION);
-        color(d, "Table.background", SURFACE);
-        color(d, "Table.alternateRowColor", SURFACE_ALTERNATE);
-        color(d, "List.background", SURFACE);
-        color(d, "Tree.background", SURFACE);
-        color(d, "ScrollPane.background", SURFACE);
-        color(d, "Viewport.background", SURFACE);
-        color(d, "TextArea.background", SURFACE);
-        color(d, "TextArea.inactiveBackground", SURFACE);
-        color(d, "TextArea.disabledBackground", SURFACE);
-        color(d, "TextField.background", SURFACE_RAISED);
-        color(d, "FormattedTextField.background", SURFACE_RAISED);
-        color(d, "PasswordField.background", SURFACE_RAISED);
-        color(d, "ComboBox.background", SURFACE_RAISED);
-        color(d, "ComboBox.buttonBackground", SURFACE_RAISED);
-        color(d, "Spinner.background", SURFACE_RAISED);
-        color(d, "TableHeader.background", SURFACE_RAISED);
-        color(d, "PopupMenu.background", SURFACE_RAISED);
-        color(d, "Button.background", CONTROL);
-        color(d, "ToggleButton.background", CONTROL);
+    /** Applies a variant's colors, typography and metrics, then the contrast overrides when enabled. */
+    static void apply(UIDefaults d, Palette p) {
+        surfaces(d, p);
+        borders(d, p);
+        interaction(d, p);
+        typography(d);
+        metrics(d);
+        if (Themes.increaseContrast()) contrast(d, p);
+    }
 
-        color(d, "Label.foreground", TEXT);
-        color(d, "TextArea.foreground", TEXT);
-        color(d, "List.foreground", TEXT);
-        color(d, "Table.foreground", TEXT);
-        color(d, "TextArea.inactiveForeground", TEXT_MUTED);
-        color(d, "Label.disabledForeground", TEXT_MUTED);
-        color(d, "TableHeader.foreground", TEXT_HEADER);
+    /** Backgrounds and foregrounds, from the deepest chrome up to raised controls. */
+    private static void surfaces(UIDefaults d, Palette p) {
+        color(d, "Panel.background", p.base);
+        color(d, "TabbedPane.background", p.base);
+        color(d, "MenuBar.background", p.navigation);
+        color(d, "TitlePane.background", p.navigation);
+        color(d, "TitlePane.inactiveBackground", p.navigation);
+        color(d, "Table.background", p.surface);
+        color(d, "Table.alternateRowColor", p.surfaceAlternate);
+        color(d, "List.background", p.surface);
+        color(d, "Tree.background", p.surface);
+        color(d, "ScrollPane.background", p.surface);
+        color(d, "Viewport.background", p.surface);
+        color(d, "TextArea.background", p.surface);
+        color(d, "TextArea.inactiveBackground", p.surface);
+        color(d, "TextArea.disabledBackground", p.surface);
+        color(d, "TextField.background", p.surfaceRaised);
+        color(d, "FormattedTextField.background", p.surfaceRaised);
+        color(d, "PasswordField.background", p.surfaceRaised);
+        color(d, "ComboBox.background", p.surfaceRaised);
+        color(d, "ComboBox.buttonBackground", p.surfaceRaised);
+        color(d, "Spinner.background", p.surfaceRaised);
+        color(d, "TableHeader.background", p.surfaceRaised);
+        color(d, "PopupMenu.background", p.surfaceRaised);
+        color(d, "Button.background", p.control);
+        color(d, "ToggleButton.background", p.control);
+
+        color(d, "Label.foreground", p.text);
+        color(d, "TextArea.foreground", p.text);
+        color(d, "List.foreground", p.text);
+        color(d, "Table.foreground", p.text);
+        color(d, "TextArea.inactiveForeground", p.textMuted);
+        color(d, "Label.disabledForeground", p.textMuted);
+        color(d, "TableHeader.foreground", p.textHeader);
     }
 
     /** Quiet structure, visible controls. */
-    private static void borders(UIDefaults d) {
-        color(d, "Component.borderColor", BORDER);
-        color(d, "Component.disabledBorderColor", BORDER_DISABLED);
-        color(d, "Component.focusedBorderColor", ACCENT);
-        color(d, "Separator.foreground", BORDER_SUBTLE);
-        color(d, "TableHeader.separatorColor", BORDER_SUBTLE);
-        color(d, "TableHeader.bottomSeparatorColor", BORDER_SUBTLE);
-        color(d, "PopupMenu.borderColor", BORDER);
-        color(d, "SplitPaneDivider.gripColor", BORDER);
-        color(d, "SplitPane.background", BASE);
-        color(d, "ToolTip.background", SURFACE_RAISED);
-        color(d, "ToolTip.foreground", TEXT);
+    private static void borders(UIDefaults d, Palette p) {
+        color(d, "Component.borderColor", p.border);
+        color(d, "Component.disabledBorderColor", p.borderDisabled);
+        color(d, "Component.focusedBorderColor", p.accent);
+        color(d, "Separator.foreground", p.borderSubtle);
+        color(d, "TableHeader.separatorColor", p.borderSubtle);
+        color(d, "TableHeader.bottomSeparatorColor", p.borderSubtle);
+        color(d, "PopupMenu.borderColor", p.border);
+        color(d, "SplitPaneDivider.gripColor", p.border);
+        color(d, "SplitPane.background", p.base);
+        color(d, "ToolTip.background", p.surfaceRaised);
+        color(d, "ToolTip.foreground", p.text);
     }
 
     /** Hover, pressed, selected and focused states, so every control answers the pointer. */
-    private static void interaction(UIDefaults d) {
-        color(d, "Component.focusColor", ACCENT);
-        color(d, "Component.accentColor", ACCENT);
+    private static void interaction(UIDefaults d, Palette p) {
+        color(d, "Component.focusColor", p.accent);
+        color(d, "Component.accentColor", p.accent);
 
-        color(d, "Button.hoverBackground", CONTROL_HOVER);
-        color(d, "Button.pressedBackground", CONTROL_PRESSED);
-        color(d, "Button.focusedBackground", CONTROL_HOVER);
+        color(d, "Button.hoverBackground", p.controlHover);
+        color(d, "Button.pressedBackground", p.controlPressed);
+        color(d, "Button.focusedBackground", p.controlHover);
         color(d, "Button.default.background", CAPTURE_BACKGROUND.getRGB());
         color(d, "Button.default.foreground", 0xFFFFFF);
         color(d, "Button.default.hoverBackground", CAPTURE_HOVER.getRGB());
@@ -143,41 +168,42 @@ public final class VioletTheme extends FlatDarkLaf {
         color(d, "Button.default.hoverForeground", 0xFFFFFF);
         color(d, "Button.default.pressedForeground", 0xFFFFFF);
 
-        color(d, "ToggleButton.hoverBackground", CONTROL_HOVER);
-        color(d, "ToggleButton.pressedBackground", CONTROL_PRESSED);
-        color(d, "ToggleButton.selectedBackground", ACCENT_WASH);
-        color(d, "ToggleButton.selectedForeground", ACCENT_BRIGHT);
+        color(d, "ToggleButton.hoverBackground", p.controlHover);
+        color(d, "ToggleButton.pressedBackground", p.controlPressed);
+        color(d, "ToggleButton.selectedBackground", p.accentWash);
+        color(d, "ToggleButton.selectedForeground", p.accentBright);
 
-        color(d, "Table.selectionBackground", SELECTION);
-        color(d, "Table.selectionForeground", SELECTION_TEXT);
+        color(d, "Table.selectionBackground", p.selection);
+        color(d, "Table.selectionForeground", p.selectionText);
         // Keep the selected record identifiable while its detail/editor controls own focus.
-        color(d, "Table.selectionInactiveBackground", SELECTION);
-        color(d, "Table.selectionInactiveForeground", SELECTION_TEXT);
-        color(d, "List.selectionBackground", SELECTION);
-        color(d, "List.selectionForeground", SELECTION_TEXT);
-        color(d, "List.selectionInactiveBackground", ACCENT_WASH);
-        color(d, "List.selectionInactiveForeground", TEXT);
-        color(d, "Tree.selectionBackground", SELECTION);
-        color(d, "Tree.selectionForeground", SELECTION_TEXT);
-        color(d, "TextComponent.selectionBackground", SELECTION);
+        color(d, "Table.selectionInactiveBackground", p.selection);
+        color(d, "Table.selectionInactiveForeground", p.selectionText);
+        color(d, "List.selectionBackground", p.selection);
+        color(d, "List.selectionForeground", p.selectionText);
+        color(d, "List.selectionInactiveBackground", p.accentWash);
+        color(d, "List.selectionInactiveForeground", p.text);
+        color(d, "Tree.selectionBackground", p.selection);
+        color(d, "Tree.selectionForeground", p.selectionText);
+        color(d, "TextComponent.selectionBackground", p.selection);
 
-        color(d, "MenuItem.selectionBackground", SELECTION);
-        color(d, "MenuItem.selectionForeground", SELECTION_TEXT);
-        color(d, "MenuBar.hoverBackground", ACCENT_WASH);
-        color(d, "MenuItem.underlineSelectionBackground", ACCENT_WASH);
+        color(d, "MenuItem.selectionBackground", p.selection);
+        color(d, "MenuItem.selectionForeground", p.selectionText);
+        color(d, "MenuItem.acceleratorSelectionForeground", p.selectionText);
+        color(d, "MenuBar.hoverBackground", p.accentWash);
+        color(d, "MenuItem.underlineSelectionBackground", p.accentWash);
 
-        color(d, "TabbedPane.underlineColor", ACCENT);
-        color(d, "TabbedPane.selectedBackground", ACCENT_WASH);
-        color(d, "TabbedPane.hoverColor", SURFACE_RAISED);
-        color(d, "TabbedPane.focusColor", ACCENT_WASH);
-        color(d, "TabbedPane.contentAreaColor", BORDER_SUBTLE);
+        color(d, "TabbedPane.underlineColor", p.accent);
+        color(d, "TabbedPane.selectedBackground", p.accentWash);
+        color(d, "TabbedPane.hoverColor", p.surfaceRaised);
+        color(d, "TabbedPane.focusColor", p.accentWash);
+        color(d, "TabbedPane.contentAreaColor", p.borderSubtle);
 
         // A track-free scroll bar: the thumb is the only mark, and it brightens under the pointer.
-        color(d, "ScrollBar.track", SURFACE);
-        color(d, "ScrollBar.hoverTrackColor", SURFACE);
-        color(d, "ScrollBar.thumb", 0x332E4A);
-        color(d, "ScrollBar.hoverThumbColor", 0x453E63);
-        color(d, "ScrollBar.pressedThumbColor", ACCENT);
+        color(d, "ScrollBar.track", p.surface);
+        color(d, "ScrollBar.hoverTrackColor", p.surface);
+        color(d, "ScrollBar.thumb", p.scrollThumb);
+        color(d, "ScrollBar.hoverThumbColor", p.scrollThumbHover);
+        color(d, "ScrollBar.pressedThumbColor", p.accent);
         d.put("ScrollBar.showButtons", false);
     }
 
@@ -225,13 +251,26 @@ public final class VioletTheme extends FlatDarkLaf {
         d.put("PopupMenu.borderInsets", new Insets(4, 1, 4, 1));
     }
 
+    /** Stronger outlines, dividers and secondary text for the users of the retired high-contrast themes. */
+    private static void contrast(UIDefaults d, Palette p) {
+        color(d, "Component.borderColor", p.contrastBorder);
+        color(d, "PopupMenu.borderColor", p.contrastBorder);
+        color(d, "Separator.foreground", p.contrastSubtle);
+        color(d, "TableHeader.separatorColor", p.contrastSubtle);
+        color(d, "TableHeader.bottomSeparatorColor", p.contrastSubtle);
+        color(d, "TabbedPane.contentAreaColor", p.contrastSubtle);
+        color(d, "Label.disabledForeground", p.contrastMuted);
+        color(d, "TextArea.inactiveForeground", p.contrastMuted);
+        color(d, "TableHeader.foreground", p.text);
+        d.put("Component.focusWidth", 2);
+    }
+
     private static void color(UIDefaults d, String key, int rgb) {
         d.put(key, new ColorUIResource(rgb));
     }
 
+    /** Installs Violet Dark without contrast; kept for callers that predate {@link Themes}. */
     public static boolean install() {
-        boolean installed = FlatLaf.setup(new VioletTheme());
-        FlatLaf.updateUI();
-        return installed;
+        return Themes.install(new Themes.Choice(Themes.Variant.DARK, false));
     }
 }

@@ -70,7 +70,7 @@ planning copies, not authoritative current status.
 ## Reproduce validation
 
 Install/configure JDK 17, set `JAVA_HOME` to it, and use the checked-in Gradle 7.6.4
-wrapper. Main production sources retain Java 8 API/bytecode targeting. Use a native
+wrapper. Main production sources target Java 17 (--release 17). Use a native
 Windows desktop for UI/focus checks; serialize those checks and packaging.
 
 ```powershell

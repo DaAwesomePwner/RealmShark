@@ -2,8 +2,6 @@ package tomato.gui.notifications;
 
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
-import com.github.weisj.darklaf.LafManager;
-import com.github.weisj.darklaf.theme.HighContrastLightTheme;
 import java.awt.*;
 import java.awt.event.ComponentEvent;
 import java.util.Collections;
@@ -12,6 +10,7 @@ import javax.swing.text.BadLocationException;
 import org.junit.*;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import static org.junit.Assert.*;
 
@@ -24,7 +23,7 @@ public class NotificationsConsistencyTest {
         SwingUtilities.invokeAndWait(() -> { previousFont = ContentStyle.body(); previousLaf = UIManager.getLookAndFeel(); });
     }
     @After public void restoreTheme() throws Exception {
-        SwingUtilities.invokeAndWait(() -> { ContentStyle.setBodyFont(previousFont); setLaf(previousLaf); });
+        SwingUtilities.invokeAndWait(() -> { Themes.install(new Themes.Choice(Themes.Variant.DARK, false)); ContentStyle.setBodyFont(previousFont); setLaf(previousLaf); });
     }
 
     @Test public void longFilenameSavedPartialAndErrorStatusesFitWithoutSqueezingOutSettings() throws Exception {
@@ -109,8 +108,8 @@ public class NotificationsConsistencyTest {
             for (int step = 0; step < 3; step++) {
                 final boolean legacy = step == 1;
                 SwingUtilities.invokeAndWait(() -> {
-                    if (legacy) LafManager.install(new HighContrastLightTheme());
-                    else setLaf(new VioletTheme());
+                    if (legacy) Themes.install(new Themes.Choice(Themes.Variant.LIGHT, true));
+                    else Themes.install(new Themes.Choice(Themes.Variant.DARK, false));
                     ContentStyle.applyFontDefaults(); SwingUtilities.updateComponentTreeUI(frame[0]); ContentStyle.refreshFonts(frame[0]);
                 });
                 for (int width : new int[] {820, 500, 680, 820}) for (int tab = 0; tab < ui[0].tabs.getTabCount(); tab++) {

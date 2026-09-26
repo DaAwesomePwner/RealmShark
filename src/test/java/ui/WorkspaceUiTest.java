@@ -144,7 +144,7 @@ public class WorkspaceUiTest {
             List<String> labels = new ArrayList<>(); collectMenu(frame.getJMenuBar(), labels);
             for (String required : new String[] {"Start capture connection", "Opt-out Loot Sharing", "Save Chat", "Clear Chat",
                     "Chat Message Pings", "Entity ID Pings", "Item Drop Pings", "Enchant Pings", "DPS Options", "Filter Loot",
-                    "RealmShark Violet", "Darcula Theme", "High Contrast Light Theme", "Solarized Dark Theme", "Font", "Net traffic"}) {
+                    "Violet Dark", "Violet Light", "Increase contrast", "Font", "Net traffic"}) {
                 assertTrue("Missing original menu: " + required, labels.contains(required));
             }
             assertFalse(findButton(shell, "capture-toggle").isEnabled());
@@ -196,15 +196,27 @@ public class WorkspaceUiTest {
         });
     }
 
-    @Test public void legacyThemeCanSwitchBackWithoutLosingTheWorkspace() throws Exception {
+    @Test public void lightThemeAndContrastSwitchBackWithoutLosingTheWorkspace() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            shell.select(7);
-            menuItem(frame.getJMenuBar(), "High Contrast Light Theme").doClick();
-            assertFalse(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme);
-            menuItem(frame.getJMenuBar(), "RealmShark Violet").doClick();
-            assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme);
-            assertEquals(7, shell.getSelectedPage());
-            shell.select(0);
+            JMenuItem contrast = menuItem(frame.getJMenuBar(), "Increase contrast");
+            // Preferences persist in the test working directory; start from a known state even after a failed run.
+            if (contrast.isSelected()) contrast.doClick();
+            try {
+                shell.select(7);
+                menuItem(frame.getJMenuBar(), "Violet Light").doClick();
+                assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletLightTheme);
+                contrast.doClick();
+                assertTrue(tomato.gui.modern.Themes.increaseContrast());
+                contrast.doClick();
+                menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
+                assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme);
+                assertFalse(tomato.gui.modern.Themes.increaseContrast());
+                assertEquals(7, shell.getSelectedPage());
+            } finally {
+                if (contrast.isSelected()) contrast.doClick();
+                menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
+                shell.select(0);
+            }
         });
     }
 
@@ -226,6 +238,37 @@ public class WorkspaceUiTest {
             frame.setSize(760, 620); frame.validate();
             shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
             frame.validate(); snapshot("compact.png");
+        });
+    }
+
+    @Test public void supportedAppearanceChoicesRepaintAndKeepTheSelectedPage() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JMenuItem contrast = menuItem(frame.getJMenuBar(), "Increase contrast");
+            try {
+                shell.select(0);
+                ChatGUI.appendTextAreaChat("[Synthetic] Aster: Ready for the next run.\n");
+                for (String variant : new String[] {"Violet Dark", "Violet Light"}) {
+                    menuItem(frame.getJMenuBar(), variant).doClick();
+                    for (boolean high : new boolean[] {false, true}) {
+                        if (contrast.isSelected() != high) contrast.doClick();
+                        assertEquals(high, tomato.gui.modern.Themes.saved().increaseContrast);
+                        assertEquals(variant.equals("Violet Light"),
+                            tomato.gui.modern.Themes.saved().variant == tomato.gui.modern.Themes.Variant.LIGHT);
+                        assertEquals(0, shell.getSelectedPage());
+                        for (int width : new int[] {1240, 680}) {
+                            frame.setSize(width, width == 680 ? 520 : 800); frame.validate();
+                            shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
+                            frame.validate();
+                            snapshot("p0-" + variant.replace(' ', '-') + "-contrast-" + high + "-" + width + ".png");
+                        }
+                    }
+                }
+            } finally {
+                ChatGUI.clearTextAreaChat();
+                if (contrast.isSelected()) contrast.doClick();
+                menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
+                frame.setSize(1240, 800);
+            }
         });
     }
 

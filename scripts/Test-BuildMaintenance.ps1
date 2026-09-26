@@ -70,7 +70,7 @@ function Invoke-ContractBuild {
         Write-Output "PASS: $Label rejected before task execution ($log)."
         return
     }
-    if ($exitCode -ne 0) { throw "Gradle failed during $Label (exit $exitCode). Inspect $log; main --release 8 failures require review before changing production code." }
+    if ($exitCode -ne 0) { throw "Gradle failed during $Label (exit $exitCode). Inspect $log; main --release 17 failures require review before changing production code." }
     $outcomes = [regex]::Matches($text, '(?m)^> Task :generateSources(?<outcome> UP-TO-DATE| FROM-CACHE| SKIPPED| NO-SOURCE| FAILED)?\r?$')
     if ($outcomes.Count -ne 1 -or $outcomes[0].Groups['outcome'].Value.Trim() -ne $ExpectedOutcome) {
         throw "Unexpected generateSources outcome during $Label; expected '$ExpectedOutcome' (empty means executed). See $log"

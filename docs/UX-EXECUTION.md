@@ -232,7 +232,7 @@ Add new applicable UI suites to the scaling allowlist; generated screenshots alo
 not constitute a visual pass.
 
 For each baseline/wave final head:
-1. Test and build with JDK 17/Gradle 7.6.4; retain main Java 8 compatibility.
+1. Test and build with JDK 17/Gradle 7.6.4; main sources target Java 17.
 2. Run applicable 150%/200% checks and independently review affected synthetic screens.
 3. Pass CI build-contract checks and runnable-JAR `--help` smoke test.
 4. Review the final head independently; resolve material findings and refresh evidence

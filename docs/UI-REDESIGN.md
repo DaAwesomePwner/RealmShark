@@ -16,7 +16,11 @@ The launchers use the downloaded project-local JDK when present, otherwise Java 
 
 ## Design and controls
 
-The default RealmShark Violet theme adds dark surfaces, violet accents, modern fonts for controls, larger click targets and clearer focus states. All six existing themes are still available under **Edit > Theme**, alongside the new theme. Saved log-font preferences remain supported; changes now apply to all four chat channels.
+The default RealmShark Violet theme adds dark surfaces, violet accents, modern fonts for controls, larger click targets and clearer focus states. **Edit > Theme** offers Violet Dark, Violet Light and Increase contrast. Saved Darklaf theme choices migrate to the nearest variant; high-contrast choices also enable Increase contrast. Saved log-font preferences remain supported; changes now apply to all four chat channels.
+
+P0 (2026-09-26) targets Java 17 and removes Darklaf. Current platform and theme
+validation is recorded in [P0 validation](superpowers/plans/2026-09-26-p0-validation.md);
+the dated legacy-theme checks below describe earlier releases.
 
 The sidebar automatically collapses to labeled-by-tooltip icons below 1000 pixels. At smaller widths the descriptive subtitle and footer hint yield space to the actual controls. The window supports sizes down to 680 by 520 logical pixels (or the available screen size). Legacy panels retain their scrolling and sub-tabs.
 
