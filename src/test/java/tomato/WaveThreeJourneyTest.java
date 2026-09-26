@@ -147,7 +147,7 @@ public class WaveThreeJourneyTest {
         await(() -> settled(loot));
         edt(() -> {
             assertEquals("No other session's loot is substituted", 0, loot.displayedPage().matches);
-            assertTrue(named(loot, JLabel.class, "loot-drill-summary").getText().contains("Linked run unavailable here"));
+            assertTrue(named(loot, JTextArea.class, "loot-drill-summary").getText().contains("Linked run unavailable here"));
             return null;
         });
         backTo(runs, origin, 10);

@@ -10,6 +10,7 @@ import java.util.List;
 import javax.swing.*;
 import tomato.gui.history.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.gui.route.*;
 import tomato.gui.stats.LootQuery.*;
 import tomato.gui.stats.session.*;
@@ -30,15 +31,55 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     }
     private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value){return new HistoryTables.Column<>(id,label,type,value,null);}
     static List<HistoryTables.Column<Row,?>> columns(){return Arrays.asList(
-        col("type","Row unit/type",String.class,r->r.type),col("time","Timestamp (epoch ms)",Long.class,r->r.time),col("name","Name",String.class,r->r.name),
+        col("type","Row unit/type",String.class,r->r.type),new HistoryTables.Column<>("time","Timestamp (epoch ms)",Long.class,r->r.time,timeRenderer()),col("name","Name",String.class,r->r.name),
         col("session","Source session",String.class,r->r.session),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId),col("dungeon","Dungeon",String.class,r->r.dungeon),col("bag","Bag",String.class,r->r.bag),col("dropper","Dropper",String.class,r->r.dropper),
         col("item","Item ID",Integer.class,r->r.itemId),col("tier","Tier",String.class,r->r.tier),col("rarity","Rarity",String.class,r->r.rarity),col("slots","Slots",Integer.class,r->r.slots),col("applied","Applied enchants",Integer.class,r->r.applied),
-        col("count","Occurrences / sample observations / count",Long.class,r->r.count),col("bags","Bags",Long.class,r->r.bags),col("items","Items",Long.class,r->r.items),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs),col("millis","Observed / finalized milliseconds",Long.class,r->r.millis),col("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis),
+        col("count","Occurrences / sample observations / count",Long.class,r->r.count),col("bags","Bags",Long.class,r->r.bags),col("items","Items",Long.class,r->r.items),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs),new HistoryTables.Column<>("millis","Observed / finalized milliseconds",Long.class,r->r.millis,durationRenderer()),new HistoryTables.Column<>("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis,durationRenderer()),
         col("whites","White bags",Long.class,r->r.whites),col("uts","UT gear",Long.class,r->r.uts),col("sts","ST gear",Long.class,r->r.sts),col("potions","Stat potions",Long.class,r->r.potions),col("completed","Completed",Long.class,r->r.completed),col("unknown","Excluded unknown visits",Long.class,r->r.unknownRuns),col("imports","Excluded imported visits",Long.class,r->r.importedRuns),
         col("rate","Items / hour",Double.class,r->r.perHour),col("perRun","Items / run",Double.class,r->r.perRun),col("utHour","UT / hour",Double.class,r->r.utPerHour),col("whiteRun","Whites / run",Double.class,r->r.whitesPerRun),col("utRun","UT / run",Double.class,r->r.utPerRun),col("stRun","ST / run",Double.class,r->r.stPerRun),col("potionRun","Potions / run",Double.class,r->r.potionsPerRun),
         col("character","Character ID (within session)",Integer.class,r->r.character),col("class","Class",String.class,r->r.className),col("first","First fame",Double.class,r->r.firstFame),col("last","Last fame",Double.class,r->r.lastFame),col("gain","Fame change",Double.class,r->r.gain),col("enemy","Enemy ID",Integer.class,r->r.enemyId),col("hits","Hit events",Long.class,r->r.hits),col("damage","Damage",Long.class,r->r.damage),col("build","Build",String.class,r->r.build),col("ongoing","Ongoing contribution at counter snapshot",String.class,r->"COUNTERS".equals(r.type)?r.ongoingActivity==null?"Not captured":r.ongoingActivity?"Included; time not finalized":"None at snapshot":null),col("runLink","Recorded run link",String.class,r->r.runLinked==null?null:r.runLinked?"Verified":"Unavailable"),col("zeroLoot","Eligible runs with no linked bags",Long.class,r->r.zeroLootRuns),col("unassigned","Unassigned bags",Long.class,r->r.unassignedBags),
         col("minRun","Minimum items / run",Long.class,r->r.minPerRun),col("median","Median items / run",Double.class,r->r.medianPerRun),col("maxRun","Maximum items / run",Long.class,r->r.maxPerRun),col("runChange","Items / run change (% of baseline)",Double.class,r->r.perRunChange),col("hourChange","Items / hour change (% of baseline)",Double.class,r->r.perHourChange),
         col("evidence","Calculation / coverage",String.class,r->r.evidence));}
+    /** Compact on-screen headers; the full analytical label stays in the header tooltip, details and CSV export. */
+    static final Map<String,String> HEADERS;static{Map<String,String> h=new HashMap<>();String[] pairs={
+        "type","Row type","time","Time","session","Session","visit","Visit ID","item","Item ID","applied","Applied","count","Count",
+        "runs","Visits","millis","Observed (h:mm:ss)","average","Avg / exit (h:mm:ss)","unknown","Excluded unknown","imports","Excluded imports",
+        "character","Character ID","ongoing","Ongoing at snapshot","runLink","Run link","zeroLoot","Zero-loot runs","unassigned","Unassigned bags",
+        "minRun","Min items / run","median","Median items / run","maxRun","Max items / run","runChange","Items / run change","hourChange","Items / hour change",
+        "evidence","Calculation / coverage"};for(int i=0;i<pairs.length;i+=2)h.put(pairs[i],pairs[i+1]);HEADERS=Collections.unmodifiableMap(h);}
+    /** Epoch-millisecond values render as local date/time; the model (sort, copy, export) keeps the exact value. Zero/negative means undated. */
+    static javax.swing.table.TableCellRenderer timeRenderer(){return new ContentStyle.Cell(){protected void setValue(Object value){
+        setText(value==null?DisplayFormat.UNAVAILABLE:((Number)value).longValue()<=0?"Undated":DisplayFormat.formatTimestamp(((Number)value).longValue()));}};}
+    /** Millisecond durations render as h:mm:ss; unknown stays distinct from a recorded zero. */
+    static javax.swing.table.TableCellRenderer durationRenderer(){ContentStyle.Cell cell=new ContentStyle.Cell(){protected void setValue(Object value){
+        setText(value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatDurationHMS(((Number)value).longValue()));}};cell.setHorizontalAlignment(SwingConstants.RIGHT);return cell;}
+    /** Short headers with full-label tooltips; every column is at least as wide as its header and sized to this page's values (capped). */
+    static void sizeColumns(JTable table){
+        javax.swing.table.TableCellRenderer base=table.getTableHeader().getDefaultRenderer();Map<String,String> labels=new HashMap<>();for(HistoryTables.Column<Row,?> c:columns())labels.put(c.id,c.label);
+        for(javax.swing.table.TableColumn column:Collections.list(table.getColumnModel().getColumns())){
+            String id=column.getIdentifier().toString(),full=labels.getOrDefault(id,String.valueOf(column.getHeaderValue()));
+            column.setHeaderValue(HEADERS.getOrDefault(id,full));
+            column.setHeaderRenderer((t,value,selected,focus,row,index)->{Component c=base.getTableCellRendererComponent(t,value,selected,focus,row,index);if(c instanceof JComponent)((JComponent)c).setToolTipText(full);return c;});
+            int header=headerWidth(table,column),content=0,model=column.getModelIndex();
+            for(int row=0;row<table.getRowCount();row++)content=Math.max(content,table.prepareRenderer(table.getCellRenderer(row,table.convertColumnIndexToView(model)),row,table.convertColumnIndexToView(model)).getPreferredSize().width);
+            int width=Math.max(header,Math.min(content+table.getIntercellSpacing().width+2,320));
+            column.setMinWidth(header);column.setPreferredWidth(width);column.setWidth(width);
+        }
+        // A later font refresh (theme, scaling or evidence fonts) must not truncate headers again.
+        table.getTableHeader().addPropertyChangeListener("font",e->ensureHeaderWidths(table));
+    }
+    static void ensureHeaderWidths(JTable table){
+        Set<javax.swing.table.TableColumn> all=new LinkedHashSet<>(Collections.list(table.getColumnModel().getColumns()));
+        Object retained=table.getClientProperty("archive.columns");if(retained instanceof Collection)for(Object c:(Collection<?>)retained)if(c instanceof javax.swing.table.TableColumn)all.add((javax.swing.table.TableColumn)c);
+        for(javax.swing.table.TableColumn column:all){int header=headerWidth(table,column);column.setMinWidth(header);if(column.getPreferredWidth()<header)column.setPreferredWidth(header);if(column.getWidth()<header)column.setWidth(header);}
+    }
+    /** The realized header renderer's preferred width, plus the column margin. */
+    static int headerWidth(JTable table,javax.swing.table.TableColumn column){
+        javax.swing.table.TableCellRenderer renderer=column.getHeaderRenderer()!=null?column.getHeaderRenderer():table.getTableHeader().getDefaultRenderer();
+        Component header=renderer.getTableCellRendererComponent(table,column.getHeaderValue(),false,false,-1,0);
+        // Fractional display scales (150%) can paint text a few pixels wider than its logical metrics; keep one em of slack.
+        return header.getPreferredSize().width+table.getIntercellSpacing().width+header.getFontMetrics(header.getFont()).charWidth('m');
+    }
     private static Map<String,Sort> sorts(){Map<String,Sort> m=new HashMap<>();String[] ids={"time","name","dungeon","bag","item","slots","applied","count","bags","items","runs","millis","rate","gain","hits","first","last","perRun","utHour","whiteRun","utRun","stRun","potionRun","whites","uts","sts","potions","completed","unknown","imports","damage","character","enemy","tier","rarity","average"};Sort[] values=Sort.values();for(int i=0;i<ids.length;i++)m.put(ids[i],values[i]);return m;}
     private final class Render extends JPanel {
         private ViewState<Facets,Sort> current;
@@ -48,7 +89,8 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private final JTable table;
         private final JScrollPane scroll;
         private boolean restoring=true;
-        private final JLabel linkStatus=new JLabel(" ");
+        private final JTextArea linkStatus=ContentStyle.wrappingText(" "),rateStatus=ContentStyle.wrappingText(" ");
+        private JTextArea countText;
         private final JButton showOccurrences=new JButton("Occurrences of selected variant"),showVisit=new JButton("Loot from selected run"),
             openRun=new JButton("Open recorded run"),rateDetails=new JButton("Dungeon rate calculation");
         Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
@@ -60,8 +102,8 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             JPanel top=new JPanel(new BorderLayout(0,4));
             if(view.loot())top.add(new LootFacetControls(state.query.facets(),choices("facet.bag."),choices("facet.dungeon."),f->query(current.query.withFacets(f))),BorderLayout.NORTH);
             else top.add(analyticalFilters(view),BorderLayout.NORTH);
-            top.add(dateControls(),BorderLayout.CENTER);top.add(ContentStyle.wrappingText(description(view)+"\n"+countDescription(page)),BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
-            table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);
+            top.add(dateControls(),BorderLayout.CENTER);countText=ContentStyle.wrappingText(description(view)+"\n"+countDescription(page));countText.setName("loot-archive-counts");top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
+            table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);sizeColumns(table);
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
             scroll=ContentStyle.tableScroll(table,3);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
@@ -84,6 +126,13 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             restoring=false;
             ArchiveRow<Row> restored=selected();if(restored!=null)detail(restored);updateDrill(restored);
         }
+        /** After a cohort input error the shown comparison no longer matches the inputs: clear it until a valid Compare runs. */
+        private void cohortInputInvalid(){
+            restoring=true;try{table.clearSelection();((javax.swing.table.DefaultTableModel)table.getModel()).setRowCount(0);}finally{restoring=false;}
+            countText.setText(STALE_COHORT);countText.setForeground(ContentStyle.color("rose"));
+            details.setText("No comparison shown: the previous results were cleared because the cohort inputs are not valid.");details.setCaretPosition(0);
+            revalidate();repaint();
+        }
         private ArchiveRow<Row> selected(){int r=table.getSelectedRow();return r<0||r>=page.rows.size()?null:page.rows.get(r);}
         /** Exact drill-downs change query intent (applied before paging); none reads the visible rows as a population. */
         private JComponent drillActions(View view){
@@ -99,10 +148,13 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             openRun.addActionListener(e->{ArchiveRow<Row> row=selected();tomato.history.link.VisitRef ref=row==null?null:row.value.visitRef();if(ref==null)return;
                 if(!Navigator.current().open(runRoute(ref)))linkStatus.setText("The Runs workspace did not accept run "+ref+"; nothing was opened.");});
             if(view.loot()){buttons.add(showOccurrences);buttons.add(showVisit);buttons.add(openRun);}buttons.add(rateDetails);
-            if(f.drilled()){JLabel active=new JLabel(drillSummary(f)+(f.visitSession!=null&&page.matches==0?VISIT_UNAVAILABLE:""));active.setName("loot-drill-summary");active.putClientProperty("html.disable",true);buttons.add(active);
+            JPanel lines=new JPanel();lines.setLayout(new BoxLayout(lines,BoxLayout.Y_AXIS));
+            if(f.drilled()){JTextArea active=ContentStyle.wrappingText(drillSummary(f)+(f.visitSession!=null&&page.matches==0?VISIT_UNAVAILABLE:""));active.setName("loot-drill-summary");active.getAccessibleContext().setAccessibleName(active.getText());lines.add(active);
                 JButton clear=new JButton("Clear drill-down");clear.setName("loot-clear-drill");clear.addActionListener(e->{Facets next=current.query.facets();next.variant=next.visitSession=next.visitId=null;query(current.query.withFacets(next));});buttons.add(clear);}
-            linkStatus.setName("loot-run-link-status");linkStatus.putClientProperty("html.disable",true);linkStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
-            panel.add(buttons,BorderLayout.CENTER);panel.add(linkStatus,BorderLayout.SOUTH);return panel;
+            // Run-link reasons apply only to the loot views that offer run actions; the rate button has its own reason.
+            linkStatus.setName("loot-run-link-status");linkStatus.setVisible(view.loot());rateStatus.setName("loot-rate-status");
+            for(JTextArea line:Arrays.asList(linkStatus,rateStatus)){line.setAlignmentX(0f);lines.add(line);}
+            panel.add(buttons,BorderLayout.CENTER);panel.add(lines,BorderLayout.SOUTH);return panel;
         }
         private void drill(Facets next,View target){next.view=target;current=current.withPosition(target.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(next));}
         private void updateDrill(ArchiveRow<Row> row){
@@ -111,14 +163,15 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             showVisit.setEnabled(ref!=null);rateDetails.setEnabled(r!=null&&r.dungeon!=null&&!r.dungeon.isEmpty()&&!"rate".equals(r.type));
             boolean navigable=ref!=null&&Navigator.current().canOpen(runRoute(ref));openRun.setEnabled(navigable);
             linkStatus.setText(runLinkStatus(r,ref,navigable));linkStatus.getAccessibleContext().setAccessibleName(linkStatus.getText());
+            rateStatus.setText(rateStatus(r));rateStatus.getAccessibleContext().setAccessibleName(rateStatus.getText());
         }
         private void query(ArchiveQuery<Facets,Sort> q){binding.queryChanged(q);}
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
         private Set<String> choices(String prefix){Set<String> values=new TreeSet<>();for(String key:page.counts.keySet())if(key.startsWith(prefix))values.add(key.substring(prefix.length()));return values;}
-        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"").append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append('\n');}details.setText(text.toString());details.setCaretPosition(0);}
+        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"").append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append(readable(column.id,value)).append('\n');}details.setText(text.toString());details.setCaretPosition(0);}
         private JComponent analyticalFilters(View view){
             if(view==View.COHORTS){Map<String,String> sessions=new TreeMap<>();page.counts.forEach((key,value)->{if(key.startsWith("facet.session."))sessions.put(key.substring(14),value.population);});
-                return new CohortControls(current.query.facets(),sessions,ZoneId.of(current.query.bounds().zone),f->query(current.query.withFacets(f)));}
+                return new CohortControls(current.query.facets(),sessions,ZoneId.of(current.query.bounds().zone),f->query(current.query.withFacets(f)),this::cohortInputInvalid);}
             JPanel p=ContentStyle.controls();Facets f=current.query.facets();JTextField dungeon=new JTextField(String.join(";",f.dungeons),16),identity=new JTextField(view==View.FAME?f.character:f.enemy,8);
             dungeon.getAccessibleContext().setAccessibleName("Exact dungeons separated by semicolons");identity.getAccessibleContext().setAccessibleName(view==View.FAME?"Exact character ID":"Exact enemy ID");
             p.add(new JLabel("Dungeons (semicolon-separated)"));p.add(dungeon);if(view==View.FAME||view==View.ENEMIES||view==View.SOURCES){p.add(new JLabel(view==View.FAME?"Character ID":"Enemy ID"));p.add(identity);}
@@ -140,15 +193,30 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             }.execute();}catch(IOException failure){details.setText(failure.getMessage());}
         }
     }
+    /** Details keep the exact stored value and add the on-screen form for timestamps and durations. */
+    static String readable(String id,Object value){
+        if(!(value instanceof Number))return "";long v=((Number)value).longValue();
+        if("time".equals(id))return v<=0?" (undated)":" ("+DisplayFormat.formatTimestamp(v)+")";
+        if("millis".equals(id)||"average".equals(id))return " ("+DisplayFormat.formatDurationHMS(v)+")";
+        return "";
+    }
     static Route runRoute(tomato.history.link.VisitRef ref){return Route.to(Destination.RUNS).withVisit(ref);}
+    static final String STALE_COHORT="Previous comparison cleared. Correct the cohort input shown above, then choose Compare cohorts to see current results.";
     static final String VISIT_UNAVAILABLE=" · Linked run unavailable here: no saved loot for this exact run (imported, deleted or unsaved session). No other run is substituted.";
-    static String drillSummary(Facets f){return "Drill-down:"+(f.variant==null?"":" exact variant "+f.variant+" (item ID/slots/applied)")+(f.visitSession==null?"":" · exact run "+f.visitSession+"/"+f.visitId);}
+    static String drillSummary(Facets f){StringJoiner parts=new StringJoiner(" · ");if(f.variant!=null)parts.add("exact variant "+f.variant+" (item ID/slots/applied)");if(f.visitSession!=null)parts.add("exact run "+f.visitSession+"/"+f.visitId);return "Drill-down: "+parts;}
     /** Explains exactly why a selected row can or cannot open its recorded run. */
     static String runLinkStatus(Row r,tomato.history.link.VisitRef ref,boolean navigable){
         if(r==null)return "Select an occurrence or bag to follow its recorded run; select a variant for its occurrences.";
         if(r.runLinked==null)return "variant".equals(r.type)?"Variants combine many runs; open their occurrences to reach one exact run.":"This row is not a single drop; no single run applies.";
         if(ref==null)return r.visitId==null||r.visitId.isEmpty()?"Run unavailable: no recorded visit ID (legacy or unlinked record).":"Run unavailable: visit "+r.visitId+" has no agreeing saved run in this session.";
-        return navigable?"Verified run "+ref+" can be opened.":"Verified run "+ref+"; opening runs is unavailable in this window (Runs navigation not registered).";
+        return navigable?"Verified run "+ref+" can be opened.":"Verified run "+ref+"; Runs view unavailable in this window, so it cannot be opened here.";
+    }
+    /** Why "Dungeon rate calculation" is or is not available for the selected row. */
+    static String rateStatus(Row r){
+        if(r==null)return "Dungeon rate calculation: select a row that has a dungeon.";
+        if("rate".equals(r.type))return "Dungeon rate calculation: this row already is the "+(r.dungeon==null||r.dungeon.isEmpty()?r.name:r.dungeon)+" rate; its calculation is in the details above.";
+        if(r.dungeon==null||r.dungeon.isEmpty())return "Dungeon rate calculation: unavailable because this row has no recorded dungeon.";
+        return "Dungeon rate calculation: shows eligible-run rates for "+r.dungeon+".";
     }
     static String description(View view){return view.loot()?"All saved occurrences are queried before grouping and paging. Recent Drops is globally paged, not the live 1,000-bag window. Unknown enchant values are not zero. Text: item ID/name, bag, dungeon, dropper, tier, rarity."
         :view.counters()?"Undated counters: custom periods unsupported. Text searches dungeon / enemy / item labels for this tab. Item facets are not applied."

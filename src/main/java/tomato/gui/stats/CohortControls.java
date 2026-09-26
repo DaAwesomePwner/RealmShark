@@ -16,11 +16,15 @@ final class CohortControls extends JPanel {
     private final Side baseline, candidate;
     private final JTextField dungeons;
     private final JComboBox<Outcome> outcome = new JComboBox<>(Outcome.values());
-    private final JLabel error = new JLabel(" ");
+    private final JTextArea error = ContentStyle.wrappingText("");
     private final Facets initial;
     private final ZoneId zone;
 
-    CohortControls(Facets facets, Map<String,String> sessions, ZoneId zone, Consumer<Facets> apply) {
+    /** Example accepted by the entry bounds: an ISO local date-time (resolved in the query zone) or one with an explicit offset. */
+    static final String TIME_FORMAT = "YYYY-MM-DDTHH:MM, e.g. 2026-09-21T09:30 or 2026-09-21T09:30-05:00";
+
+    /** {@code invalid} runs on the EDT after an input error so the owner can clear or mark results that no longer match the inputs. */
+    CohortControls(Facets facets, Map<String,String> sessions, ZoneId zone, Consumer<Facets> apply, Runnable invalid) {
         super(new BorderLayout(0, 4)); initial = facets; this.zone = zone;
         JPanel grid = ContentStyle.responsiveGrid(2, 220, 6);
         baseline = new Side("Baseline", "cohort-baseline", facets.baseline, sessions, zone);
@@ -32,10 +36,21 @@ final class CohortControls extends JPanel {
         outcome.setName("cohort-outcome"); outcome.getAccessibleContext().setAccessibleName("Shared run outcome");
         outcome.setSelectedItem(facets.outcome == null ? Outcome.ANY : facets.outcome);
         JButton applyButton = new JButton("Compare cohorts"); applyButton.setName("cohort-apply");
-        applyButton.addActionListener(e -> { try { Facets next = value(); next.validate(); error.setText(" "); apply.accept(next); } catch (RuntimeException failure) { error.setText(failure.getMessage()); } });
-        error.setName("cohort-error"); error.putClientProperty("html.disable", true);
-        shared.add(new JLabel("Both cohorts · dungeons (semicolon-separated)")); shared.add(dungeons); shared.add(outcome); shared.add(applyButton); shared.add(error);
-        add(shared, BorderLayout.SOUTH);
+        applyButton.addActionListener(e -> {
+            try { Facets next = value(); next.validate(); showError(null); apply.accept(next); }
+            catch (IllegalArgumentException failure) { showError(failure.getMessage()); invalid.run(); }
+            catch (RuntimeException failure) { showError("The cohorts could not be compared: check both cohorts' sessions and entry bounds."); invalid.run(); }
+        });
+        error.setName("cohort-error"); error.setForeground(ContentStyle.color("rose")); error.setVisible(false);
+        error.getAccessibleContext().setAccessibleName("Cohort input error");
+        shared.add(new JLabel("Both cohorts · dungeons (semicolon-separated)")); shared.add(dungeons); shared.add(outcome); shared.add(applyButton);
+        JPanel south = new JPanel(new BorderLayout(0, 2)); south.add(shared, BorderLayout.NORTH); south.add(error, BorderLayout.CENTER);
+        add(south, BorderLayout.SOUTH);
+    }
+    private void showError(String message) {
+        error.setText(message == null ? "" : message); error.setVisible(message != null);
+        error.getAccessibleContext().setAccessibleDescription(message);
+        revalidate(); repaint();
     }
     Facets value() {
         Facets next = SessionStore.JSON.fromJson(SessionStore.JSON.toJson(initial), Facets.class);
@@ -48,8 +63,9 @@ final class CohortControls extends JPanel {
     private static final class Side extends JPanel {
         final JList<String> sessions; final List<String> ids = new ArrayList<>();
         final JTextField from = new JTextField(14), until = new JTextField(14);
+        final String title;
         Side(String title, String name, Cohort cohort, Map<String,String> labels, ZoneId zone) {
-            super(new BorderLayout(0, 3));
+            super(new BorderLayout(0, 3)); this.title = title;
             List<String> display = new ArrayList<>();
             Set<String> known = new TreeSet<>(labels.keySet()); if (cohort != null) known.addAll(cohort.sessions);
             for (String id : known) { ids.add(id); display.add(labels.getOrDefault(id, "Session not in scope") + " · " + id); }
@@ -69,7 +85,19 @@ final class CohortControls extends JPanel {
         }
         Cohort value(ZoneId zone) {
             List<String> chosen = new ArrayList<>(); for (int index : sessions.getSelectedIndices()) chosen.add(ids.get(index));
-            return new Cohort(chosen, LootQuery.resolveTime(from.getText(), zone), LootQuery.resolveTime(until.getText(), zone));
+            Long start = time(from, "entry from", zone), end = time(until, "until", zone);
+            if (start != null && end != null && start >= end) throw new IllegalArgumentException(title + " entry from must be earlier than its until time.");
+            return new Cohort(chosen, start, end);
+        }
+        /** Names the field and the expected format instead of surfacing the parser's message. */
+        private Long time(JTextField field, String label, ZoneId zone) {
+            try { return LootQuery.resolveTime(field.getText(), zone); }
+            catch (java.time.format.DateTimeParseException failure) {
+                throw new IllegalArgumentException(title + " " + label + ": “" + field.getText().trim() + "” is not a date and time. Use " + TIME_FORMAT + ".");
+            }
+            catch (IllegalArgumentException failure) {
+                throw new IllegalArgumentException(title + " " + label + ": that local time is ambiguous or skipped in " + zone.getId() + ". Add a UTC offset, e.g. 2026-09-21T09:30-05:00.");
+            }
         }
     }
 }
