@@ -46,8 +46,9 @@ public class CharacterWaveFourEvidenceTest {
                     tabs.setSelectedIndex(tabs.indexOfTab("Equipment & inventory")); JTable gear = named(panel, "character-equipment", JTable.class); assertEquals(28, gear.getRowCount()); ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
                     tabs.setSelectedIndex(tabs.indexOfTab("Death annotation")); JTextField occurred = named(panel, "death-occurred", JTextField.class); ContentStyle.reveal(occurred, new Rectangle(0, 0, occurred.getWidth(), occurred.getHeight())); capture(frame, "death-unavailable-link");
                     ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 22)); ContentStyle.applyFontDefaults(); ContentStyle.refreshFonts(frame); ui.UiTestLayout.settle(frame);
-                    assertTrue("Snapshot evidence must follow enlarged metadata font role", named(panel, "character-snapshot-evidence", JTextArea.class).getFont().getSize2D() >= 20f);
-                    assertTrue("Manual run evidence must follow enlarged body font role", named(panel, "death-run-link", JTextArea.class).getFont().getSize2D() >= 22f);
+                    float metadataSize = ContentStyle.metadata(ContentStyle.body()).getSize2D();
+                    assertEquals("Snapshot evidence follows enlarged metadata role", metadataSize, named(panel, "character-snapshot-evidence", JTextArea.class).getFont().getSize2D(), .05f);
+                    assertEquals("Read-only run evidence uses wrappingText's metadata role (12/13 of body)", metadataSize, named(panel, "death-run-link", JTextArea.class).getFont().getSize2D(), .05f);
                     ContentStyle.reveal(occurred, new Rectangle(0, 0, occurred.getWidth(), occurred.getHeight())); capture(frame, "death-enlarged-text");
                 } catch (Exception failure) { throw new RuntimeException(failure); }
                 finally { if (frame != null) frame.dispose(); ContentStyle.setBodyFont(previous); try { UIManager.setLookAndFeel(look); } catch (Exception failure) { throw new RuntimeException(failure); } }
@@ -81,8 +82,17 @@ public class CharacterWaveFourEvidenceTest {
                 ui.WaveThreeEvidence.run(() -> {
                     ui.UiTestLayout.settle(frame[0]); assertFullyVisible(actions[0]); capture(frame[0], "death-open-run-keyboard-enlarged");
                 });
-                Robot keyboard = new Robot(); keyboard.keyPress(java.awt.event.KeyEvent.VK_TAB); keyboard.keyRelease(java.awt.event.KeyEvent.VK_TAB); keyboard.waitForIdle();
-                ui.WaveThreeEvidence.await(() -> actions[1].isFocusOwner());
+                // Wrapped Swing controls and scroll bars can add traversal stops at enlarged/scaled sizes.
+                // Verify real Tab reachability, without assuming Save is exactly one platform-specific stop away.
+                Robot keyboard = new Robot(); keyboard.setAutoDelay(50); java.util.List<String> visited = new ArrayList<>();
+                for (int step = 0; step < 40 && !ui.WaveThreeEvidence.edt(() -> actions[1].isFocusOwner()); step++) {
+                    keyboard.keyPress(java.awt.event.KeyEvent.VK_TAB); keyboard.keyRelease(java.awt.event.KeyEvent.VK_TAB); keyboard.waitForIdle();
+                    visited.add(ui.WaveThreeEvidence.edt(() -> {
+                        Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                        return owner instanceof JButton ? ((JButton)owner).getText() : owner == null ? "No focus" : owner.getClass().getSimpleName() + ":" + owner.getName();
+                    }));
+                }
+                assertTrue("Save death annotation must be reachable by keyboard Tab; visited " + visited, ui.WaveThreeEvidence.edt(() -> actions[1].isFocusOwner()));
                 ui.WaveThreeEvidence.run(() -> {
                     ui.UiTestLayout.settle(frame[0]); assertFullyVisible(actions[1]); capture(frame[0], "death-save-keyboard-enlarged");
                 });
