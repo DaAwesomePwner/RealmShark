@@ -54,6 +54,18 @@ The existing character semantic and visual tests remain, with corrected font rol
 and cleanup. Additional visual polish and old accepted Wave 3 cosmetic notes are
 separate follow-ups; no new confirmed product blocker is being waived.
 
+## Final CI layout correction
+
+Required PR CI at 6157cda (run 36263470276) ran 964 tests with two failures:
+both StatisticsArchiveNativeTest cases found the selected loot detail viewport
+too short at enlarged text after the optional summary wrapping/gutter polish.
+That polish and its new glyph checks are deferred; the previous layout is restored.
+All Wave 4 enrichment and existing archive reachability assertions remain intact.
+The earlier narrow geometry pass is not evidence for the restored final layout.
+Follow-ups are the extra death-editor native Tab fixture and optional loot text
+polish, including narrow/scaled right-edge clipping. Required CI must pass again;
+no repeated local full/scaled/package cycle is scheduled.
+
 ## Integrated audit
 
 All three production packages are integrated. Character goals, quest plans and

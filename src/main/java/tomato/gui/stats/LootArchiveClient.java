@@ -104,16 +104,11 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             JPanel top=new JPanel(new BorderLayout(0,4));
             if(view.loot())top.add(new LootFacetControls(state.query.facets(),choices("facet.bag."),choices("facet.dungeon."),f->query(current.query.withFacets(f))),BorderLayout.NORTH);
             else top.add(analyticalFilters(view),BorderLayout.NORTH);
-            top.add(dateControls(),BorderLayout.CENTER);countText=ContentStyle.wrappingText(description(view)+"\n"+countDescription(page));countText.setName("loot-archive-counts");
-            // Keep text clear of the enclosing page's scrollbar while narrow-width
-            // preferred-size passes settle after a font/scale change.
-            countText.setMargin(new Insets(0,0,0,20));
-            top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
+            top.add(dateControls(),BorderLayout.CENTER);countText=ContentStyle.wrappingText(description(view)+"\n"+countDescription(page));countText.setName("loot-archive-counts");top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
             table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);sizeColumns(table);
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
             scroll=ContentStyle.tableScroll(table,3);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
-            details.setMargin(new Insets(0,0,0,20));
             JScrollPane detailScroll=new JScrollPane(details) {
                 @Override public Dimension getMinimumSize() {
                     Insets border=getInsets(),text=details.getInsets();
@@ -228,7 +223,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         if(r.dungeon==null||r.dungeon.isEmpty())return "Dungeon rate calculation: unavailable because this row has no recorded dungeon.";
         return "Dungeon rate calculation: shows eligible-run rates for "+r.dungeon+".";
     }
-    static String description(View view){return view.loot()?"All saved occurrences are searched before paging.\nRecent Drops pages across the saved archive.\nThe live view retains the newest 1,000 bags.\nUnknown enchant values are not zero.\nSearch: item ID/name, bag, dungeon, dropper, tier, rarity."
+    static String description(View view){return view.loot()?"All saved occurrences are queried before grouping and paging. Recent Drops is globally paged, not the live 1,000-bag window. Unknown enchant values are not zero. Text: item ID/name, bag, dungeon, dropper, tier, rarity."
         :view.counters()?"Undated counters: custom periods unsupported. Text searches dungeon / enemy / item labels for this tab. Item facets are not applied."
         :view==View.COHORTS?"Controlled A/B comparison. Both cohorts share the dungeon, outcome, date-bound and loot-coverage predicates; each adds its own sessions and visit-entry bounds. Eligibility and rates follow Dungeon loot profile: imports and sessions without loot evidence are excluded, zero-loot runs count, unassigned bags make rates unavailable. Totals depend on cohort size; compare per-run/per-hour rates and distributions. A zero baseline has no percentage change."
         :view==View.FAME?"Text searches session, character ID and class; bounds select fame samples. Undated observations are counted separately, never ordered as epoch zero; incomplete chronology has no gain/elapsed interval. Loot facets and dungeon selection do not filter fame (map association not captured). Open graph uses the whole pinned session."
