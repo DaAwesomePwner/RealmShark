@@ -33,11 +33,24 @@ public class FameSessionViewer extends JFrame {
     private final JLabel mapStatus = new JLabel();
     private final JLabel graphStatus = new JLabel();
     private final JLabel graphDelta = new JLabel(" ");
-    private final JLabel mapAssociation = new JLabel();
+    private final JTextArea mapAssociation = tomato.gui.modern.ContentStyle.wrappingText(" ");
     private final JComboBox<String> range = new JComboBox<>(new String[]{"All samples", "1 min", "5 min", "15 min", "30 min", "60 min"});
     private final JComboBox<String> measure = new JComboBox<>(new String[]{"Total fame", "Gain in range"});
     private Integer graphedCharacter;
-    private final JComboBox<FameSession.SampleVisit> recordedRuns = new JComboBox<>();
+    /** Shown by the disabled run selector when no sample carries a recorded run. */
+    static final String NO_RECORDED_RUNS = "No recorded runs";
+    private final JComboBox<FameSession.SampleVisit> recordedRuns = new JComboBox<FameSession.SampleVisit>() {
+        // An empty selector still shows its whole "No recorded runs" text instead of a clipped "No…".
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            if (getItemCount() > 0) return size;
+            Component shown = getRenderer().getListCellRendererComponent(new JList<>(), null, -1, false, false);
+            Insets insets = getInsets();
+            int arrow = Math.max(size.height, getFontMetrics(getFont()).getHeight() + 8);
+            return new Dimension(Math.max(size.width, shown.getPreferredSize().width + arrow + insets.left + insets.right + 8), size.height);
+        }
+        @Override public Dimension getMinimumSize() { return getItemCount() > 0 ? super.getMinimumSize() : getPreferredSize(); }
+    };
     private final JButton openRun = new JButton("Open recorded run");
     private final JTextArea runStatus = tomato.gui.modern.ContentStyle.wrappingText(" ");
     /** Shown when a saved history has no map association for the selected character. */
@@ -87,9 +100,10 @@ public class FameSessionViewer extends JFrame {
         graphControls.add(new JLabel("Range ending at latest sample")); graphControls.add(range); graphControls.add(measure);
         graph.add(graphControls, BorderLayout.NORTH);
         graph.add(graphPanel, BorderLayout.CENTER);
-        JPanel graphFooter = new JPanel(new GridLayout(0, 1, 0, 2));
+        JPanel graphFooter = new JPanel(); graphFooter.setLayout(new BoxLayout(graphFooter, BoxLayout.Y_AXIS));
         graphDelta.setName("saved-fame-delta"); graphDelta.putClientProperty("html.disable", true);
-        mapAssociation.setName("saved-fame-map-association"); mapAssociation.putClientProperty("html.disable", true);
+        mapAssociation.setName("saved-fame-map-association");
+        for (JComponent line : new JComponent[]{graphDelta, graphStatus, mapAssociation}) line.setAlignmentX(0f);
         graphPanel.addPropertyChangeListener(GraphPanel.SUMMARY_PROPERTY, e -> showDelta());
         graphFooter.add(graphDelta); graphFooter.add(graphStatus); graphFooter.add(mapAssociation);
         recordedRuns.setName("saved-fame-recorded-runs"); openRun.setName("saved-fame-open-run"); runStatus.setName("saved-fame-run-status");
@@ -97,7 +111,7 @@ public class FameSessionViewer extends JFrame {
         recordedRuns.setRenderer(new DefaultListCellRenderer() {
             @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
                 super.getListCellRendererComponent(list, value, index, selected, focus); putClientProperty("html.disable", true);
-                setText(value instanceof FameSession.SampleVisit ? ((FameSession.SampleVisit)value).label() : "No recorded runs"); return this;
+                setText(value instanceof FameSession.SampleVisit ? ((FameSession.SampleVisit)value).label() : NO_RECORDED_RUNS); return this;
             }
         });
         recordedRuns.addActionListener(e -> updateRunAction());
@@ -107,10 +121,10 @@ public class FameSessionViewer extends JFrame {
                 runStatus.setText("The Runs workspace did not accept run " + chosen.visit() + "; nothing was opened.");
         });
         // The status gets its own wrapping line under the run controls so it stays readable at compact widths.
-        JPanel runControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0)); runControls.add(recordedRuns); runControls.add(openRun);
+        JPanel runControls = tomato.gui.modern.ContentStyle.controls(); runControls.add(recordedRuns); runControls.add(openRun);
         runStatus.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         JPanel runs = new JPanel(new BorderLayout(0, 2)); runs.add(runControls, BorderLayout.NORTH); runs.add(runStatus, BorderLayout.CENTER);
-        JPanel footer = new JPanel(new BorderLayout()); footer.add(graphFooter, BorderLayout.NORTH); footer.add(runs, BorderLayout.CENTER);
+        JPanel footer = new JPanel(new BorderLayout()); footer.setBorder(BorderFactory.createEmptyBorder(0, 6, 4, 6)); footer.add(graphFooter, BorderLayout.NORTH); footer.add(runs, BorderLayout.CENTER);
         graph.add(footer, BorderLayout.SOUTH);
         graphStatus.setName("saved-fame-graph-status");
         tabbedPane.addTab("Fame Graph", graph);
@@ -336,7 +350,7 @@ public class FameSessionViewer extends JFrame {
             samples = relative;
         }
         graphPanel.setScores(samples);
-        mapAssociation.setText(mapAssociationText(selectedCharId));
+        mapAssociation.setText(mapAssociationText(selectedCharId)); mapAssociation.getAccessibleContext().setAccessibleName(mapAssociation.getText());
         updatingFilters = true;
         try {
             recordedRuns.removeAllItems(); java.util.Set<tomato.history.link.VisitRef> seen = new java.util.HashSet<>();
@@ -359,7 +373,7 @@ public class FameSessionViewer extends JFrame {
         openRun.setEnabled(navigable); recordedRuns.setEnabled(recordedRuns.getItemCount() > 0);
         runStatus.setText(chosen == null ? "No sample of this character carries a recorded run (legacy samples: Not recorded)."
             : navigable ? "Opens verified run " + chosen.visit() + "."
-            : "Verified run " + chosen.visit() + "; opening runs is unavailable in this window (Runs navigation not registered).");
+            : "Verified run " + chosen.visit() + "; Runs view unavailable in this window, so it cannot be opened here.");
         runStatus.getAccessibleContext().setAccessibleName(runStatus.getText());
     }
     /** Per-sample associations come only from recorded visits; tracker map visits are separate records. */

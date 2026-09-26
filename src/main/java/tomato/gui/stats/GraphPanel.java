@@ -23,7 +23,7 @@ public class GraphPanel extends JPanel implements MouseMotionListener, MouseList
     private Long pinStart, pinEnd, dragFrom, cursorTime;
     private int hover = -1;
     private String summary = "";
-    private static final int LEFT = 78, RIGHT = 24, TOP = 24, BOTTOM = 100;
+    private static final int LEFT = 78, RIGHT = 24, TOP = 24, BOTTOM = 78;
 
     public GraphPanel(ArrayList<Fame> scores) { this(scores, true); }
     public GraphPanel(ArrayList<Fame> scores, boolean showTimeRangeDropdown) {
