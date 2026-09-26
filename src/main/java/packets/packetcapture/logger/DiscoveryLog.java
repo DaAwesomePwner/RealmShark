@@ -17,6 +17,12 @@ public final class DiscoveryLog implements AutoCloseable {
     /** History modules this collector produces; their recording intervals are persisted as coverage. */
     public static final String[] RECORDED_MODULES = {"runs", "timeline"};
     private static final long INTERVAL_PERSIST_MILLIS = 60000;
+    /**
+     * A silence longer than this splits the recording interval. Connected clients receive several frames per
+     * second, so a longer gap means nothing was observed (for example a capture stop that no hook reported);
+     * shorter gaps inside an interval are still counted as recorded.
+     */
+    public static final long INTERVAL_GAP_MILLIS = 30000;
     private final Path directory;
     private DiscoveryWriter writer;
     private final ActivityStore activityStore;
@@ -39,6 +45,9 @@ public final class DiscoveryLog implements AutoCloseable {
     private tomato.history.SessionStore history;
     private long intervalStart, intervalLast, intervalPersisted;
     private volatile String coverageError = "";
+    private long intervalGapMillis = INTERVAL_GAP_MILLIS;
+    /** Test hook: a shorter split threshold, so gap handling is testable without real 30-second waits. */
+    synchronized void intervalGapMillis(long value) { if (value < 1) throw new IllegalArgumentException("Positive gap required"); intervalGapMillis = value; }
     private final Map<Integer, PacketRow> packets = new TreeMap<>();
     private final Map<Integer, StatRow> stats = new TreeMap<>();
     private final ArrayDeque<Event> events = new ArrayDeque<>();
@@ -164,6 +173,18 @@ public final class DiscoveryLog implements AutoCloseable {
             transition(true, "Connection boundary; frames before and after are separate intervals");
         }
     }
+    /** The capture connection stopped (sniffer stopped); frames are no longer observed until it restarts. */
+    public synchronized void captureStopped() {
+        forgetVisitPacket(); closeInterval("Capture stopped");
+        if (enabled) transition(true, "Capture stopped; collection is on but nothing is observed until capture restarts");
+    }
+    /** The capture connection (re)started; any interval left open by an unreported stop is closed first. */
+    public synchronized void captureStarted() {
+        forgetVisitPacket(); closeInterval("Capture restarted");
+        if (enabled) transition(true, "Capture started");
+    }
+    /** A capture transport attempt began or ended (adapter reopen); the observed interval ends here. */
+    public synchronized void captureInterrupted() { forgetVisitPacket(); closeInterval("Capture interrupted or reopened"); }
     private void transition(boolean collecting, String reason) {
         if (transitions.size() == TRANSITION_LIMIT) transitions.removeFirst();
         transitions.addLast(new Transition(System.currentTimeMillis(), collecting, reason));
@@ -211,6 +232,7 @@ public final class DiscoveryLog implements AutoCloseable {
         if (id < 0 || id > 255) return; // Wire IDs are one byte; synthetic IP messages are excluded.
         diagnosticsRevision++;
         long now = System.currentTimeMillis();
+        if (intervalStart != 0 && now - intervalLast > intervalGapMillis) closeInterval("No frames observed for over " + intervalGapMillis + " ms");
         if (intervalStart == 0) intervalStart = now;
         intervalLast = now;
         if (now - intervalPersisted >= INTERVAL_PERSIST_MILLIS) persistInterval("Open; collection continuing");
