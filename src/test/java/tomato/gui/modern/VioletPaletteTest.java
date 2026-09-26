@@ -38,6 +38,9 @@ public class VioletPaletteTest {
             assertEquals(new Color(0x24222E), ContentStyle.color("text"));
             assertEquals(new Color(0x6241AA), ContentStyle.color("violet"));
             assertEquals(new Color(0x626071), ContentStyle.color("muted"));
+            // Plain menu items (for example Find settings, Ctrl+K) must not retain
+            // FlatLightLaf's white accelerator text on our pale selection surface.
+            assertEquals(new Color(0x302048), UIManager.getColor("MenuItem.acceleratorSelectionForeground"));
         });
     }
 

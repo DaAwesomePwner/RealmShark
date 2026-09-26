@@ -188,6 +188,7 @@ public final class VioletTheme extends FlatDarkLaf {
 
         color(d, "MenuItem.selectionBackground", p.selection);
         color(d, "MenuItem.selectionForeground", p.selectionText);
+        color(d, "MenuItem.acceleratorSelectionForeground", p.selectionText);
         color(d, "MenuBar.hoverBackground", p.accentWash);
         color(d, "MenuItem.underlineSelectionBackground", p.accentWash);
 

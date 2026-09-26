@@ -6,7 +6,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 
 | Phase | Plan | Branch | State |
 |---|---|---|---|
-| P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `feat/redesign-p0-platform` | Planned |
+| P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented and locally verified; PR not merged |
 | P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `feat/redesign-p1a-kit` | Planned |
 | P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `feat/redesign-p1b-shell` | Planned |
 | P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `feat/redesign-p1c-adoption` | Planned |
@@ -17,6 +17,11 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P6 Loot and cleanup | written at phase start | `feat/redesign-p6-cleanup` | Outline below |
 
 Update the State column when a phase's PR merges and `main` is verified.
+
+P0 is implemented on the existing redesign branch at the user's request. The
+branch includes the planning documents as well as P0; no separate docs merge is
+needed for this delivery. Fresh evidence is recorded in
+[P0 validation](2026-09-26-p0-validation.md). P1 has not started.
 
 ## Resume
 
