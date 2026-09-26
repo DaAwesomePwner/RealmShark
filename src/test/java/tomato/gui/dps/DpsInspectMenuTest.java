@@ -18,6 +18,9 @@ public class DpsInspectMenuTest {
     private JFrame frame;
     private final SecurityFilter previousFilter = ParsePanelGUI.currentFilter;
 
+    // Filter is global static state (default "filter" mode); isolate from test order.
+    @org.junit.Before public void resetDpsFilter() { Filter.disable(); }
+
     @After public void close() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             MenuSelectionManager.defaultManager().clearSelectedPath();

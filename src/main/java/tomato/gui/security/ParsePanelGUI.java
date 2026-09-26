@@ -75,6 +75,11 @@ public class ParsePanelGUI extends JPanel {
     private String displayedRun;
     private List<CapturedPlayer> historicalPlayers;
     private ActivityJournal.Visit inspectedRun;
+    private tomato.history.link.VisitRef displayedSource;
+    /** Pinned comparison baseline shared by every Inspect roster (EDT only); a detached copy. */
+    private static BuildComparison.Build pinned;
+    private final Action pinBaseline = action("Pin build as comparison baseline", e -> pinSelected());
+    private final Action compareBaseline = action("Compare with pinned baseline…", e -> compareSelected());
     private final List<TableColumn> runColumns = new ArrayList<>();
     private boolean runColumnsVisible;
 
@@ -215,6 +220,11 @@ public class ParsePanelGUI extends JPanel {
         equipment.putValue(Action.SHORT_DESCRIPTION, "Read all equipment and enchant details for the selected row (Ctrl+E)");
         playerActions.add(equipment);
         addMenuAction(actions, equipment, KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_DOWN_MASK));
+        pinBaseline.putValue(Action.SHORT_DESCRIPTION, "Copy the selected recorded build as the comparison baseline (Ctrl+B)");
+        compareBaseline.putValue(Action.SHORT_DESCRIPTION, "Compare the selected build with the pinned baseline (Ctrl+Shift+B)");
+        playerActions.add(pinBaseline);
+        addMenuAction(actions, pinBaseline, KeyStroke.getKeyStroke(KeyEvent.VK_B, InputEvent.CTRL_DOWN_MASK));
+        addMenuAction(actions, compareBaseline, KeyStroke.getKeyStroke(KeyEvent.VK_B, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
         table.getSelectionModel().addListSelectionListener(e -> updateSelectionActions());
 
         JPanel buttons = ContentStyle.controls();
@@ -346,6 +356,7 @@ public class ParsePanelGUI extends JPanel {
     private void updateSelectionActions() {
         Row row = selectedRow();
         playerActions.forEach(a -> a.setEnabled(row != null));
+        compareBaseline.setEnabled(row != null && pinned != null);
         guildActions.forEach(a -> a.setEnabled(row != null && !row.guild.isEmpty()));
         resultDetails.setText(row == null ? "Select a player to explain requirements." : inspectionName(row) + " · " + row.player.origin
             + "\n" + (row.player.currentArea ? "Current-area snapshot" : "Recorded snapshot") + " · Build/change time: "
@@ -369,21 +380,27 @@ public class ParsePanelGUI extends JPanel {
     }
 
     /** Opens the same Inspect details for a detached player from another view or saved encounter. */
-    public static void inspectPlayer(Component owner, InspectSnapshot captured) {
+    public static void inspectPlayer(Component owner, InspectSnapshot captured) { inspectPlayer(owner, captured, null); }
+
+    /** As {@link #inspectPlayer(Component, InspectSnapshot)}, naming the source view/recording and its link, when known. */
+    public static void inspectPlayer(Component owner, InspectSnapshot captured, String origin) {
         if (captured == null) return;
-        Row row = detachedRow(captured);
+        Row row = detachedRow(captured, origin);
         showEquipmentDetails(owner, inspectionName(row), inspectionDetails(row));
     }
 
     static String detachedDetails(InspectSnapshot captured) {
-        return inspectionDetails(detachedRow(captured));
+        return inspectionDetails(detachedRow(captured, null));
+    }
+    static String detachedDetails(InspectSnapshot captured, String origin) {
+        return inspectionDetails(detachedRow(captured, origin));
     }
 
-    private static Row detachedRow(InspectSnapshot captured) {
+    private static Row detachedRow(InspectSnapshot captured, String origin) {
         Entity entity = captured.toEntity();
         CapturedPlayer player = snapshot(entity.id, entity);
         player.className = captured.className();
-        player.origin = "Detached recorded build · Source session/run not supplied";
+        player.origin = "Detached recorded build · " + (origin == null || origin.isEmpty() ? "Source session/run not supplied" : origin);
         player.currentArea = false;
         return new Row(player, 0, null);
     }
@@ -577,6 +594,61 @@ public class ParsePanelGUI extends JPanel {
                 + (displayFilters.isSelected() ? "expanded" : "collapsed") + ". Search and Reset remain available.");
     }
 
+    /** Detached copy of a displayed row for INS-3; a current-area row has no recorded outcome or DPS. */
+    private BuildComparison.Build build(Row row) {
+        Entity entity = row.player.playerEntity;
+        StatData level = entity.stat.get(StatType.LEVEL_STAT);
+        Integer[] equipment = new Integer[4]; String[] names = new String[4];
+        for (int i = 0; i < 4; i++) { equipment[i] = row.player.equipmentCaptured[i] ? row.player.inv[i] : null; names[i] = row.player.itemName[i]; }
+        ActivityJournal.Visit run = row.player.currentArea ? null : inspectedRun;
+        String outcome = run == null ? "Not recorded (current area)" : run.runStatus() + " · " + (run.completionEvidence.isEmpty() ? "completion evidence not observed" : run.completionEvidence);
+        Long start = run == null || run.firstDamageAt < 0 ? null : run.firstDamageAt, end = run == null || run.lastDamageAt < 0 ? null : run.lastDamageAt;
+        return new BuildComparison.Build(inspectionName(row), Objects.toString(row.player.className, CharacterClass.getName(entity.objectType)), entity.objectType,
+            level == null ? null : level.statValue, entity.baseStats, equipment, names, row.player.recordedAt, run == null ? null : displayedSource,
+            row.player.origin, run == null ? null : run.map, outcome, row.damage, start, end);
+    }
+    private void pinSelected() {
+        Row row = selectedRow();
+        if (row == null) return;
+        pinned = build(row);
+        rosterCount.setText("Pinned comparison baseline: " + pinned.name + " · " + BuildComparison.source(pinned) + ". Select another build and choose Compare (Ctrl+Shift+B).");
+        updateSelectionActions();
+    }
+    private void compareSelected() {
+        Row row = selectedRow();
+        if (row == null || pinned == null) return;
+        showComparison(this, new BuildComparison(pinned, build(row)));
+    }
+    /** Currently pinned baseline; null when none. */
+    static BuildComparison.Build pinnedBaseline() { return pinned; }
+    static void clearPinnedBaseline() { pinned = null; }
+    BuildComparison comparisonForSelection() { Row row = selectedRow(); return row == null || pinned == null ? null : new BuildComparison(pinned, build(row)); }
+    void pinSelection() { pinSelected(); }
+    JTable rosterTable() { return table; }
+    String selectedOrigin() { Row row = selectedRow(); return row == null ? null : row.player.origin; }
+
+    static JDialog showComparison(Component owner, BuildComparison comparison) {
+        Window window = owner == null ? null : owner instanceof Window ? (Window) owner : SwingUtilities.getWindowAncestor(owner);
+        JDialog dialog = new JDialog(window, "Compare recorded builds", Dialog.ModalityType.MODELESS);
+        dialog.setName("inspect-build-comparison"); dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        String[] columns = {"Field", "Baseline", "Candidate", "Note"};
+        Object[][] values = new Object[comparison.lines.size()][];
+        for (int i = 0; i < values.length; i++) { BuildComparison.Line line = comparison.lines.get(i); values[i] = new Object[]{line.field, line.baseline, line.candidate, line.note}; }
+        JTable table = new JTable(new javax.swing.table.DefaultTableModel(values, columns) { @Override public boolean isCellEditable(int r, int c) { return false; } });
+        table.setName("inspect-build-comparison-table"); ContentStyle.table(table);
+        ContentStyle.Cell literal = new ContentStyle.Cell(); literal.putClientProperty("html.disable", true); table.setDefaultRenderer(Object.class, literal);
+        table.getAccessibleContext().setAccessibleName("Baseline versus candidate build fields");
+        JTextArea summary = ContentStyle.wrappingText(comparison.summary(), 5); summary.setName("inspect-build-comparison-summary"); summary.setFocusable(true);
+        summary.getAccessibleContext().setAccessibleName("Comparison summary, DPS windows and attribution limits");
+        JPanel content = new JPanel(new BorderLayout(0, 8)); content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        content.add(new JScrollPane(summary), BorderLayout.NORTH); content.add(ContentStyle.tableScroll(table, 6), BorderLayout.CENTER);
+        JButton close = new JButton("Close"); close.addActionListener(e -> dialog.dispose()); content.add(close, BorderLayout.SOUTH);
+        dialog.setContentPane(content); dialog.getRootPane().setDefaultButton(close);
+        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(), KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), WHEN_IN_FOCUSED_WINDOW);
+        ContentStyle.refreshFonts(content); dialog.setSize(820, 560); dialog.setLocationRelativeTo(owner); dialog.setVisible(true);
+        return dialog;
+    }
+
     void showCurrentArea() {
         boolean returning = historicalPlayers != null;
         displayedRun = null;
@@ -595,9 +667,15 @@ public class ParsePanelGUI extends JPanel {
         showRun(id, players, null);
     }
 
-    void showRun(ActivityJournal.Visit visit) { showRun(visit.id, visit.inspectedPlayers.values(), visit); }
+    void showRun(ActivityJournal.Visit visit) { showRun(null, visit); }
+    /** Shows one recorded run's last-recorded loadouts; {@code source} is its exact saved session + visit, when known. */
+    void showRun(tomato.history.link.VisitRef source, ActivityJournal.Visit visit) {
+        displayedSource = source;
+        showRun(visit.id, visit.inspectedPlayers.values(), visit);
+    }
 
     private void showRun(String id, Collection<InspectSnapshot> players, ActivityJournal.Visit visit) {
+        if (visit == null) displayedSource = null;
         if (historicalPlayers == null && viewState != null) viewState.save();
         if (!Objects.equals(displayedRun, id)) table.clearSelection();
         displayedRun = id;
@@ -609,7 +687,8 @@ public class ParsePanelGUI extends JPanel {
             CapturedPlayer row=snapshot(entity.id, entity);row.className=player.className();
             row.recordedAt=player.observedAt();
             row.currentArea=false;
-            row.origin="Recorded run: " + id + (visit == null ? "" : " · " + visit.map) + " · Last recorded loadout";
+            row.origin=(displayedSource == null ? "Recorded run: visit " + id + " · saved session not referenced"
+                : "Recorded run: session " + displayedSource.sessionId + " · visit " + displayedSource.visitId) + (visit == null ? "" : " · " + visit.map) + " · Last recorded loadout";
             captured.add(row);
         }
         synchronized (rosterLock) { historicalPlayers = captured; }
