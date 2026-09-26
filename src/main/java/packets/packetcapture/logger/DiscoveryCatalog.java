@@ -164,5 +164,29 @@ public final class DiscoveryCatalog {
         {"Pet / progression detail", "UPDATE, NEWTICK, STATS", "Pet abilities, exalts, projectile multipliers, forge fire", "Only nearby / transmitted stats exist; account-wide completeness is not implied."},
         {"Unmapped protocol", "UNKNOWN147, UNKNOWN164, UNKNOWN165, UNKNOWN181, UNKNOWN190, DAMAGE_BOOST", "IDs, frequency, size and decoder field names", "Opaque bytes and unknown values are withheld; names do not establish meaning."}
     };
+    /**
+     * Reviewed allowlist of gameplay views and the decoded packets they depend on, derived from the
+     * opportunities above: {route destination name, view label, packets}. Packet names only; no values.
+     * A decode or trailing-byte issue on one of these packets is evidence that the view may be incomplete.
+     */
+    public static final String[][] AFFECTED_VIEWS = {
+        {"RUNS", "Runs", "MAPINFO, CREATE_SUCCESS, INCOMING_PARTY_MEMBER_INFO, PARTY_MEMBER_ADDED, PARTY_ACTION_RESULT, EXALTATION_BONUS_CHANGED"},
+        {"TIMELINE", "Timeline", "MAPINFO, CREATE_SUCCESS, INCOMING_PARTY_MEMBER_INFO, PARTY_MEMBER_ADDED, PARTY_ACTION_RESULT, EXALTATION_BONUS_CHANGED"},
+        {"RESOURCES", "Resources & buffs", "UPDATE, NEWTICK"},
+        {"ENCOUNTER", "DPS Logger", "MAPINFO, CREATE_SUCCESS, PLAYERSHOOT, SERVERPLAYERSHOOT, ENEMYHIT, PLAYERHIT, DAMAGE, ENEMYSHOOT, AOE"},
+        {"INSPECT", "Inspect", "UPDATE, NEWTICK"},
+        {"LOOT", "Loot", "UPDATE, MAPINFO"}
+    };
+    /** Labels of the views that depend on this packet, in allowlist order; empty for unmapped packets. */
+    public static List<String> affectedViews(String packet) {
+        List<String> views = new ArrayList<>();
+        for (String[] view : AFFECTED_VIEWS) if (Arrays.asList(view[2].split(", ")).contains(packet)) views.add(view[1]);
+        return views;
+    }
+    /** Allowlisted packets for a route destination name, or an empty set when the view is not mapped. */
+    public static Set<String> packetsFor(String destination) {
+        for (String[] view : AFFECTED_VIEWS) if (view[0].equals(destination)) return new LinkedHashSet<>(Arrays.asList(view[2].split(", ")));
+        return Collections.emptySet();
+    }
     private DiscoveryCatalog() {}
 }

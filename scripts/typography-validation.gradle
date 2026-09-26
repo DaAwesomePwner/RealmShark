@@ -80,6 +80,15 @@ allprojects {
                     includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveFameRangeMeasureAndDelayedCharacterChoiceRestore'
                     includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveStateSaveFailureRetainsActiveFacetsAndCanRetryWithoutChangingThem'
                     includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.arrivingFacetChoicesPreserveTheUnappliedLiveDraft'
+                    // Wave 3 connected analysis: routed shell, Back restore and analytics drill-downs.
+                    includeTestsMatching 'tomato.gui.route.ShellBackActionTest'
+                    includeTestsMatching 'tomato.gui.route.RouteBackRestoreTest'
+                    includeTestsMatching 'tomato.ShellRouteRegistrationTest'
+                    includeTestsMatching 'tomato.gui.logging.CoverageExplanationTest.errorRouteFocusesAllowlistedPacketIssuesAndBackRestoresLogging'
+                    includeTestsMatching 'tomato.gui.stats.LootDrillDownTest.workspaceDrillsVariantToOccurrenceToVerifiedRunAndExplainsUnavailableNavigation'
+                    includeTestsMatching 'tomato.gui.stats.CohortComparisonTest.statisticsWorkspaceEditsCohortsThroughQueryIntent'
+                    includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.savedViewerHasRangeGainControlsKeepsPinsAndSaysMapNotRecorded'
+                    includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.liveTrackerShowsTheSameTextDelta'
                 }
                 testLogging { events 'failed'; exceptionFormat 'full' }
             }

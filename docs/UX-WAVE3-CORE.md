@@ -131,3 +131,103 @@ UI150/UI200 scaled checks, screenshots. Those are coordinator gates.
 - If a target's `open` mutates its own state and then throws, the navigator does not undo that
   target's internal state (the page and Back stack are unchanged).
 - Back returns to the recorded origin even if the user later moved elsewhere via the sidebar.
+
+## Round 2 (base `9a56f1c`)
+
+Commits: `f6051a5` (analytics integration, allowlist, STAT-2 fame hook), `d734a55` (LOG-2 and
+UX-05 recording intervals; they share the same producer hunks, so they landed in one commit),
+`cd8391c` (UX-04 export regression), plus this doc update. Ownership: `gui/logging/**` and
+`packets/packetcapture/logger/**` are outside lanes A and C and were treated as coordinator
+files for LOG-2. No lane A/C file was edited. `gui/stats/**` was not edited.
+
+### Item 1: analytics integration
+- `TomatoGUI` registers `LootRouteTarget.forWorkspace(Destination.STATISTICS|LOOT, typed, typed::restore)`
+  after the generic `ArchiveRouteTarget`s, so the analytics targets are tried first. The
+  factory signature was confirmed in `gui/stats/LootRouteTarget.java`.
+- `scripts/typography-validation.gradle`: added the four analytics methods plus
+  `tomato.gui.route.ShellBackActionTest`, `tomato.gui.route.RouteBackRestoreTest`,
+  `tomato.ShellRouteRegistrationTest` and
+  `tomato.gui.logging.CoverageExplanationTest.errorRouteFocusesAllowlistedPacketIssuesAndBackRestoresLogging`.
+  I have not run these at 150% or 200%.
+- STAT-2 hook: `AppHistory.FameSample` gains nullable `visitSession`, `visitId`, `map`,
+  a 6-argument constructor `(int, long, long, String, VisitRef, String map)`, and `VisitRef visit()`.
+  `AppHistory.fame(...)` reads `DiscoveryLog.INSTANCE.currentVisit()` before taking its own lock and
+  stores the visit only when it is the exact active visit in the same history session. Otherwise all
+  three fields are null, which Gson omits. Legacy JSON reads back with `visit() == null` (Not recorded).
+  The fame field stays `long`. The analytics request suggested `double`, but the existing schema is
+  `long`.
+- New `DiscoveryLog.currentVisit()` returns a `CurrentVisit {VisitRef visit; String map}`, or null
+  when collection is paused, no history is attached or no visit is active.
+
+### Item 2: LOG-2
+- `DiscoveryLog.Snapshot` adds these fields:
+  - `retentionEvictions` counts retained samples removed at `EVENT_LIMIT`. It is separate from
+    `cacheEvictions` and resets with the diagnostic clears.
+  - `retainedFirst` and `retainedLast` are epoch-ms bounds, or null when nothing is retained.
+  - `observedSince` is the start of the open observed interval.
+  - `transitions` is a bounded list (`TRANSITION_LIMIT = 32`) of `Transition {time, collecting,
+    reason}`. Reasons are pause, resume, connection boundary, clear and app close.
+  - `coverageError` reports failures to save recording coverage.
+- `DiagnosticCoverage` gives separate lines for the retained interval, retention evictions,
+  collection state, recent transitions, sampling, decode failures, trailing bytes, the affected
+  views, sampled-out events, omitted deltas, withheld stats, delta-cache evictions (explicitly "not an
+  event-retention count"), observer errors and disk drops.
+- `DiscoveryCatalog.AFFECTED_VIEWS` is a reviewed allowlist of {destination name, view label, packet
+  names}, derived from `OPPORTUNITIES`. It exposes `affectedViews(packet)` and `packetsFor(destination)`
+  and carries packet names only.
+- `tomato.gui.logging.LoggingRouteTarget` handles `Destination.LOGGING`. The payload
+  `LoggingRouteTarget.issuesFor(Destination view)` opens Packets with "issues only". The payload
+  `packetFor(view, packet)` filters to one allowlisted packet. Other payloads or references are rejected.
+  Capture and restore use the Logging view state (`applyViewState` is now package-private).
+  Registered in `TomatoGUI`.
+
+### Item 3: UX-05 recording intervals and UX-04 export scope
+- `SessionStore.recordInterval(module, from, until, end)` runs asynchronously on the store worker.
+  Intervals with the same start merge. The oldest are dropped beyond `ModuleAvailability.INTERVAL_LIMIT = 256`
+  and the evidence is marked `truncated`.
+- `SessionStore.availability(...)` no longer replaces prior intervals with a summary that has none.
+- `ModuleAvailability` has optional `intervals` and `truncated`, still at `schemaVersion` 1.
+  `Boolean recordedAt(long)` returns TRUE (recorded), FALSE (not recorded) or null (unknown: legacy,
+  truncated, or no evidence).
+- `DiscoveryLog` records an interval from the first to the last frame actually observed while
+  collecting. It is persisted for `runs` and `timeline` (`RECORDED_MODULES`) when collection pauses, at a
+  connection boundary, on clear or close, and every 60 s while it stays open. Collection that is on but
+  sees no frames is not claimed as recorded.
+- UX-04: `ArchiveWorkspace` already refused exports unless `!loading` and the displayed query equals the
+  pinned result's query. The new regression test proves the export manifest's query and revision equal
+  the displayed ones after an atomic restore, and that exports are refused while that restore is pending.
+  No code change was needed.
+
+### Round-2 tests (serialized runner, fresh results directory per run)
+
+| Run | Selectors | Result |
+| --- | --- | --- |
+| Item 1 | `ShellRouteRegistrationTest`, `SetupWorkspaceTest`, `FameVisitHookTest`, `tomato.gui.stats.*`, `tomato.gui.route.*`, `EncounterIdentityTest`, `DiscoveryLogTest` | 145 tests, 0 failures/errors/skipped |
+| Items 2–3 | `tomato.gui.logging.*` (includes new `CoverageExplanationTest` 3), `tomato.history.*` (includes new `RecordingIntervalTest` 3, `FameVisitHookTest` 1), `packets.packetcapture.logger.*`, `ShellRouteRegistrationTest`, `SetupWorkspaceTest`, `ShellHookIntegrationTest`, `tomato.gui.history.*`, `EncounterIdentityTest` | 152 tests, 0 failures/errors/skipped |
+| UX-04 | `ExportScopeAgreementTest` (new, 1), `ArchiveExportHookTest` | 4 tests, 0 failures |
+
+Not run: full suite, `shadowJar`, UI150/UI200, screenshots.
+
+### Remaining requests
+- Lane A (Runs/Timeline): register a RUNS target that accepts `Route.to(RUNS).withVisit(VisitRef)`. The
+  loot drill-down emits it and no target accepts it yet. Views that detect missing evidence can offer
+  `Route.to(Destination.LOGGING).withPayload(LoggingRouteTarget.issuesFor(Destination.RUNS|TIMELINE|RESOURCES|ENCOUNTER|INSPECT))`.
+  Show `ModuleAvailability.recordedAt` for a run's saved session so "not recorded" is not shown as empty.
+- Lane B (`gui/stats/**`): map `FameSample.visit()`/`map` in `LootArchiveClient.readFame`,
+  `StatisticsArchiveAdapter.fame` and `FameSessionViewer.mapAssociationText`. Legacy samples keep
+  "Not recorded".
+- Lane C and other producers (chat, loot, key-pops, bridge): call `SessionStore.recordInterval` for
+  their own modules when they actually record. Until then those modules stay "coverage unknown".
+- Coordinator: `ArchiveResult`'s manifest `coverage` field is still generic. Adding per-session
+  `ModuleAvailability` intervals there needs an edit in `tomato/history/archive`, which is outside my
+  assigned files.
+
+### Round-2 limitations
+- An open interval is persisted at most every 60 s, so a crash can lose up to a minute of claimed
+  coverage. That time reads as not recorded, which undercounts rather than over-claims.
+- A recording interval is "frames observed while collecting". A gap between frames within one
+  interval is not split.
+- The fame visit is the active visit when the sample is produced. Samples taken between a boundary and
+  the next MAPINFO carry none.
+- Transitions and retention counters are in memory and cover the current launch only. Only the
+  intervals are persisted.

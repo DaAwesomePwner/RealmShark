@@ -13,7 +13,10 @@ import java.util.*;
 public final class DiscoveryLog implements AutoCloseable {
     public static final DiscoveryLog INSTANCE = new DiscoveryLog(Paths.get("logs", "discovery"), false);
     static { Runtime.getRuntime().addShutdownHook(new Thread(INSTANCE::close, "Discovery log shutdown")); }
-    public static final int EVENT_LIMIT = 1500, CACHE_LIMIT = 20000, DELTA_LIMIT = 24;
+    public static final int EVENT_LIMIT = 1500, CACHE_LIMIT = 20000, DELTA_LIMIT = 24, TRANSITION_LIMIT = 32;
+    /** History modules this collector produces; their recording intervals are persisted as coverage. */
+    public static final String[] RECORDED_MODULES = {"runs", "timeline"};
+    private static final long INTERVAL_PERSIST_MILLIS = 60000;
     private final Path directory;
     private DiscoveryWriter writer;
     private final ActivityStore activityStore;
@@ -29,6 +32,13 @@ public final class DiscoveryLog implements AutoCloseable {
     private int sampleMillis = 1000;
     private String runId = UUID.randomUUID().toString();
     private long area, total, sampledOut, deltaOmitted, evictions, internalErrors;
+    // Retained-sample removals at EVENT_LIMIT; distinct from delta-cache evictions above.
+    private long retentionEvictions;
+    private final ArrayDeque<Transition> transitions = new ArrayDeque<>();
+    // Observed collection interval: first and latest frame recorded since collection last (re)started.
+    private tomato.history.SessionStore history;
+    private long intervalStart, intervalLast, intervalPersisted;
+    private volatile String coverageError = "";
     private final Map<Integer, PacketRow> packets = new TreeMap<>();
     private final Map<Integer, StatRow> stats = new TreeMap<>();
     private final ArrayDeque<Event> events = new ArrayDeque<>();
@@ -56,7 +66,7 @@ public final class DiscoveryLog implements AutoCloseable {
         }
     }
     public synchronized void attachHistory(tomato.history.SessionStore history) {
-        historySession = history.currentId();
+        historySession = history.currentId(); this.history = history;
         activity.archiveTo(visit -> history.put("runs", visit.id, visit));
         activity.archiveEventsTo(entry -> history.append("timeline", entry));
         history.collect("run", () -> {
@@ -75,7 +85,11 @@ public final class DiscoveryLog implements AutoCloseable {
     public boolean isSaving() { return saveToDisk; }
     public boolean isHistorical() { return historical; }
     public synchronized void setEnabled(boolean value) {
-        if (enabled != value) { previous.clear(); area++; diagnosticsRevision++; collectionRevision++; forgetVisitPacket(); activityBoundary("Collection paused / resumed"); checkpoint(); }
+        if (enabled != value) {
+            if (!value) closeInterval("Collection paused");
+            previous.clear(); area++; diagnosticsRevision++; collectionRevision++; forgetVisitPacket(); activityBoundary("Collection paused / resumed"); checkpoint();
+            transition(value, value ? "Collection resumed" : "Collection paused");
+        }
         enabled = value;
     }
     public synchronized void setSaving(boolean value) { if (saveToDisk != value) { saveToDisk = value; diagnosticsRevision++; } }
@@ -84,8 +98,10 @@ public final class DiscoveryLog implements AutoCloseable {
         if (sampleMillis != value) { sampleMillis = value; diagnosticsRevision++; }
     }
     public synchronized void clear() {
+        closeInterval("Collected data cleared");
         packets.clear(); stats.clear(); events.clear(); previous.clear();
-        total = sampledOut = deltaOmitted = evictions = internalErrors = area = 0;
+        total = sampledOut = deltaOmitted = evictions = internalErrors = area = retentionEvictions = 0;
+        transition(enabled, "Collected data cleared");
         runId = UUID.randomUUID().toString();
         diagnosticsRevision++; collectionRevision++;
         forgetVisitPacket(); activity.clear(); markActivityChanged(); checkpoint();
@@ -93,7 +109,7 @@ public final class DiscoveryLog implements AutoCloseable {
     public synchronized void clearDiagnostics() {
         if (!packets.isEmpty() || !stats.isEmpty() || !events.isEmpty() || internalErrors != 0) diagnosticsRevision++;
         packets.clear(); stats.clear(); events.clear(); previous.clear();
-        total = sampledOut = deltaOmitted = evictions = internalErrors = 0;
+        total = sampledOut = deltaOmitted = evictions = internalErrors = retentionEvictions = 0;
     }
     public synchronized ActivityJournal.State activityHistory() { return activitySnapshot(); }
     public synchronized String currentVisitId() { return activity.currentVisitId(); }
@@ -107,6 +123,22 @@ public final class DiscoveryLog implements AutoCloseable {
         if (packet == null || packet != visitPacket || !enabled || historySession == null || historySession.isEmpty()) return null;
         String active = activity.currentVisitId();
         return active.isEmpty() || !active.equals(visitPacketId) ? null : new tomato.history.link.VisitRef(historySession, active);
+    }
+    /**
+     * The exact visit active right now in this collector's history session, or null when collection is
+     * paused, no history is attached or no visit is active (for example after a boundary). Producers call
+     * this synchronously at their own observation time; it is never reconstructed later.
+     */
+    public synchronized CurrentVisit currentVisit() {
+        String active = activity.currentVisitId();
+        if (!enabled || historySession == null || historySession.isEmpty() || active.isEmpty()) return null;
+        return new CurrentVisit(new tomato.history.link.VisitRef(historySession, active), activity.currentVisitMap());
+    }
+    public static final class CurrentVisit {
+        public final tomato.history.link.VisitRef visit;
+        /** Canonical map name recorded by the journal; may be null. */
+        public final String map;
+        CurrentVisit(tomato.history.link.VisitRef visit, String map) { this.visit = visit; this.map = map; }
     }
     private void forgetVisitPacket() { visitPacket = null; visitPacketId = null; }
     public synchronized void inspectPlayer(tomato.backend.data.Entity entity) {
@@ -124,7 +156,33 @@ public final class DiscoveryLog implements AutoCloseable {
             if (activity.revision() != before) markActivityChanged();
         }
     }
-    public synchronized void boundary() { forgetVisitPacket(); if (enabled) { area++; diagnosticsRevision++; previous.clear(); activityBoundary("Connection boundary; completion unknown"); checkpoint(); } }
+    public synchronized void boundary() {
+        forgetVisitPacket();
+        if (enabled) {
+            closeInterval("Connection boundary");
+            area++; diagnosticsRevision++; previous.clear(); activityBoundary("Connection boundary; completion unknown"); checkpoint();
+            transition(true, "Connection boundary; frames before and after are separate intervals");
+        }
+    }
+    private void transition(boolean collecting, String reason) {
+        if (transitions.size() == TRANSITION_LIMIT) transitions.removeFirst();
+        transitions.addLast(new Transition(System.currentTimeMillis(), collecting, reason));
+        diagnosticsRevision++;
+    }
+    /** Ends the observed interval and persists it asynchronously; frames outside intervals were not recorded. */
+    private void closeInterval(String end) {
+        if (intervalStart > 0) persistInterval(end);
+        intervalStart = intervalLast = intervalPersisted = 0;
+    }
+    private void persistInterval(String end) {
+        tomato.history.SessionStore target = history;
+        if (target == null || !target.writable() || historical) return;
+        long from = intervalStart, until = intervalLast;
+        for (String module : RECORDED_MODULES) target.recordInterval(module, from, until, end).whenComplete((ignored, failure) -> {
+            coverageError = failure == null ? "" : "Recording coverage could not be saved: " + failure.getClass().getSimpleName();
+        });
+        intervalPersisted = until;
+    }
     private void activityBoundary(String reason) {
         long before=activity.revision(); activity.boundary(System.currentTimeMillis(),reason);
         if (before!=activity.revision()) markActivityChanged();
@@ -153,6 +211,9 @@ public final class DiscoveryLog implements AutoCloseable {
         if (id < 0 || id > 255) return; // Wire IDs are one byte; synthetic IP messages are excluded.
         diagnosticsRevision++;
         long now = System.currentTimeMillis();
+        if (intervalStart == 0) intervalStart = now;
+        intervalLast = now;
+        if (now - intervalPersisted >= INTERVAL_PERSIST_MILLIS) persistInterval("Open; collection continuing");
         PacketType type = PacketType.byOrdinal(id);
         PacketRow row = packets.computeIfAbsent(id, n -> new PacketRow(n, type));
         total++; row.count++; row.bytes += Math.max(0, bytes); row.lastSeen = now;
@@ -191,7 +252,7 @@ public final class DiscoveryLog implements AutoCloseable {
             row.latest = ActivityJournal.copyValues(values);
             Event event = new Event(runId, now, area, id, row.name, row.direction, bytes, outcome, remaining, values, deltas,
                 row.count, sampleMillis, deltaOmitted);
-            if (events.size() == EVENT_LIMIT) events.removeFirst();
+            if (events.size() == EVENT_LIMIT) { events.removeFirst(); retentionEvictions++; }
             events.addLast(event);
             if (saveToDisk && directory != null) {
                 if (writer == null) writer = new DiscoveryWriter(directory, 4 * 1024 * 1024);
@@ -251,7 +312,17 @@ public final class DiscoveryLog implements AutoCloseable {
         return new Snapshot(runId, area, total, sampledOut, deltaOmitted, evictions, internalErrors,
             writer == null ? 0 : writer.dropped.get(), writer == null ? "" : writer.error(),
             enabled, saveToDisk, sampleMillis, packetCopy, statCopy, eventCopy, includeActivity ? activitySnapshot() : null,
-            activityStore == null ? "" : activityStore.error());
+            activityStore == null ? "" : activityStore.error(), retentionEvictions,
+            events.isEmpty() ? null : Instant.parse(events.peekFirst().timestamp).toEpochMilli(),
+            events.isEmpty() ? null : Instant.parse(events.peekLast().timestamp).toEpochMilli(),
+            intervalStart == 0 ? null : intervalStart, new ArrayList<>(transitions), coverageError);
+    }
+    /** A collection-state change; transitions are bounded to the most recent {@link #TRANSITION_LIMIT}. */
+    public static final class Transition {
+        public final long time;
+        public final boolean collecting;
+        public final String reason;
+        Transition(long time, boolean collecting, String reason) { this.time = time; this.collecting = collecting; this.reason = reason; }
     }
     public static final class DiagnosticsRevision {
         private final transient DiscoveryLog owner;
@@ -310,7 +381,8 @@ public final class DiscoveryLog implements AutoCloseable {
     @Override public void close() {
         DiscoveryWriter closingWriter;
         synchronized (this) {
-            if (enabled) { enabled=false; diagnosticsRevision++; collectionRevision++; }
+            closeInterval("App closed");
+            if (enabled) { enabled=false; diagnosticsRevision++; collectionRevision++; transition(false, "App closed"); }
             forgetVisitPacket(); activityBoundary("App closed; completion unknown"); checkpoint(); closingWriter=writer;
         }
         // Never join filesystem workers while holding the monitor used by capture or snapshots.
@@ -378,6 +450,14 @@ public final class DiscoveryLog implements AutoCloseable {
         public final String runId, exportedAt=Instant.now().toString(), writerError;
         public final String scope="Passive game-traffic diagnostics. Counters include observed frames, including decode failures, while gameplay & diagnostics collection is enabled. Retained events are sampled and bounded; not a complete combat recording.";
         public final long area, total, sampledOut, deltaOmitted, cacheEvictions, observerErrors, diskDropped;
+        /** Retained samples removed at EVENT_LIMIT (history retention loss), not delta-cache evictions. */
+        public final long retentionEvictions;
+        /** Epoch-ms bounds of retained samples, null when none are retained; never continuous coverage. */
+        public final Long retainedFirst, retainedLast;
+        /** Start of the current observed collection interval, or null when nothing was observed since it began. */
+        public final Long observedSince;
+        public final List<Transition> transitions;
+        public final String coverageError;
         public final boolean enabled, saving;
         public final int sampleMillis;
         public final List<PacketRow> packets;
@@ -385,7 +465,10 @@ public final class DiscoveryLog implements AutoCloseable {
         public final List<Event> events;
         Snapshot(String run, long area, long total, long sampled, long omitted, long evicted, long errors, long dropped, String error,
                  boolean enabled, boolean saving, int sampleMillis, List<PacketRow> packets, List<StatRow> stats, List<Event> events,
-                 ActivityJournal.State activity, String activityWriterError) {
+                 ActivityJournal.State activity, String activityWriterError, long retentionEvictions, Long retainedFirst, Long retainedLast,
+                 Long observedSince, List<Transition> transitions, String coverageError) {
+            this.retentionEvictions=retentionEvictions; this.retainedFirst=retainedFirst; this.retainedLast=retainedLast;
+            this.observedSince=observedSince; this.transitions=Collections.unmodifiableList(transitions); this.coverageError=coverageError;
             runId=run; this.area=area; this.total=total; sampledOut=sampled; deltaOmitted=omitted; cacheEvictions=evicted; observerErrors=errors;
             diskDropped=dropped; writerError=error; this.enabled=enabled; this.saving=saving; this.sampleMillis=sampleMillis;
             this.packets=packets; this.stats=stats; this.events=events;
