@@ -200,6 +200,7 @@ public class WaveThreeEvidenceTest {
                     assertTrue(delta.getText(), delta.getText().startsWith("Pinned") && delta.getText().contains("+50"));
                     assertTrue(named(viewer.getRootPane(), "saved-fame-map-association", JLabel.class).getText().contains("3 of 4 samples with a recorded visit"));
                     assertTrue(named(viewer.getRootPane(), "saved-fame-open-run", JButton.class).isEnabled());
+                    assertRunStatusReadable(viewer, "Opens verified run");
                 });
                 run(() -> {
                     named(viewer.getRootPane(), "saved-fame-character", JComboBox.class).setSelectedIndex(1);
@@ -209,9 +210,21 @@ public class WaveThreeEvidenceTest {
                     assertTrue(named(viewer.getRootPane(), "saved-fame-map-association", JLabel.class).getText().startsWith(FameSessionViewer.MAP_NOT_RECORDED));
                     assertTrue(named(viewer.getRootPane(), "saved-fame-delta", JLabel.class).getText().contains("+35"));
                     assertFalse(named(viewer.getRootPane(), "saved-fame-open-run", JButton.class).isEnabled());
-                    assertTrue(named(viewer.getRootPane(), "saved-fame-run-status", JLabel.class).getText().contains("Not recorded"));
+                    assertTrue(named(viewer.getRootPane(), "saved-fame-run-status", JTextArea.class).getText().contains("Not recorded"));
+                    assertRunStatusReadable(viewer, "Not recorded");
                 });
             } finally { run(viewer::dispose); }
         }
+    }
+
+    /** The run status sits on its own wrapping line: showing, inside the realized window width, and given its full wrapped height. */
+    private static void assertRunStatusReadable(JFrame viewer, String expected) {
+        JTextArea status = named(viewer.getRootPane(), "saved-fame-run-status", JTextArea.class);
+        assertTrue(status.getText(), status.getText().contains(expected));
+        assertWithinWidth(status);
+        assertTrue("Run status height " + status.getHeight(), status.getHeight() >= status.getFontMetrics(status.getFont()).getHeight());
+        assertTrue("Run status allocated its wrapped height", measureText(status));
+        java.awt.Rectangle inRoot = SwingUtilities.convertRectangle(status, new java.awt.Rectangle(status.getSize()), viewer.getRootPane());
+        assertTrue("Run status " + inRoot + " inside window height " + viewer.getRootPane().getHeight(), inRoot.y + inRoot.height <= viewer.getRootPane().getHeight());
     }
 }

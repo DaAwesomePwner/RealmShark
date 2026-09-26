@@ -62,7 +62,7 @@ public class FameVisitAssociationTest {
                 FameSessionViewer viewer = new FameSessionViewer(graph);
                 try {
                     JComboBox<?> character = named(viewer, "saved-fame-character", JComboBox.class);
-                    JLabel map = named(viewer, "saved-fame-map-association", JLabel.class), status = named(viewer, "saved-fame-run-status", JLabel.class);
+                    JLabel map = named(viewer, "saved-fame-map-association", JLabel.class); JTextArea status = named(viewer, "saved-fame-run-status", JTextArea.class);
                     JComboBox<?> runs = named(viewer, "saved-fame-recorded-runs", JComboBox.class); JButton open = named(viewer, "saved-fame-open-run", JButton.class);
                     character.setSelectedIndex(0); // Wizard #7
                     assertTrue(map.getText(), map.getText().contains("3 of 4 samples with a recorded visit (Ice Citadel ×2, Lost Halls ×1); 1 Not recorded"));

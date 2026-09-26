@@ -219,6 +219,11 @@ public class WaveThreeEvidenceTest {
                     reveal(panel, 400);
                     assertTrue(panel.isShowing());
                     assertTrue(named(panel, "resource-window-summary", JTextArea.class).getText().startsWith("Selected window"));
+                    // Summary and handoff buttons wrap within the realized width; the page never scrolls sideways.
+                    for (String name : new String[]{"resource-window", "resource-window-summary", "resource-timeline-around", "resource-timeline-window"})
+                        assertWithinWidth(named(panel.getParent(), name, JComponent.class));
+                    JTextArea summary = named(panel, "resource-window-summary", JTextArea.class);
+                    assertTrue("Summary allocated its wrapped height", measureText(summary));
                     assertEquals(Integer.valueOf(100), panel.analysis().hp.min);
                     JTable lanes = named(panel, "resource-window-lanes", JTable.class);
                     boolean zeroActive = false;

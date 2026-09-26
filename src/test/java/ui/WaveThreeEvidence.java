@@ -183,6 +183,27 @@ public final class WaveThreeEvidence {
 
     public static void reveal(JComponent component) { reveal(component, 160); }
 
+    /**
+     * No sideways page: every viewport enclosing {@code component} is at least as wide as its view, and the component lies
+     * horizontally inside each viewport's visible width. Uses realized sizes, never the requested window width.
+     */
+    public static void assertWithinWidth(JComponent component) {
+        assertTrue(SwingUtilities.isEventDispatchThread());
+        assertTrue(component.getName() + " is showing with a width", component.isShowing() && component.getWidth() > 0);
+        for (Container parent = component.getParent(); parent != null; parent = parent.getParent()) {
+            if (!(parent instanceof JViewport)) continue;
+            JViewport viewport = (JViewport) parent;
+            Rectangle bounds = SwingUtilities.convertRectangle(component, new Rectangle(component.getSize()), viewport);
+            assertTrue(component.getName() + ": view width " + viewport.getView().getWidth() + " exceeds viewport " + viewport.getWidth(),
+                viewport.getView().getWidth() <= viewport.getWidth());
+            assertTrue(component.getName() + " " + bounds + " outside viewport width " + viewport.getWidth(),
+                bounds.x >= 0 && bounds.x + bounds.width <= viewport.getWidth());
+        }
+        JRootPane root = SwingUtilities.getRootPane(component);
+        Rectangle inRoot = SwingUtilities.convertRectangle(component, new Rectangle(component.getSize()), root);
+        assertTrue(component.getName() + " " + inRoot + " outside window width " + root.getWidth(), inRoot.x >= 0 && inRoot.x + inRoot.width <= root.getWidth());
+    }
+
     /** Scrolls so {@code row} of {@code table} is visible. */
     public static void revealRow(JTable table, int row) {
         Rectangle cell = table.getCellRect(row, 0, true);
