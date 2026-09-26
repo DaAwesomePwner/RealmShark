@@ -255,4 +255,3 @@ On resume:
 Resume prompt: "Resume RealmShark UX execution; read AGENTS.md, docs/UX-HANDOFF.md,
 docs/UX-CHECKPOINT.json, docs/UX-EXECUTION.md and any .omc/ux/checkpoint.json;
 reconcile GitHub, then continue the earliest incomplete gate."
-
