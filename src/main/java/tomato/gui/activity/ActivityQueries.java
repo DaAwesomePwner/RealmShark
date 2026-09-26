@@ -62,7 +62,8 @@ public final class ActivityQueries {
         public String unit() { return mode==ActivityPanel.Mode.TIMELINE?"events":"visits"; }
         public List<ReadSnapshot.Source> sources(SessionStore store,ArchiveQuery<Filters,Sort> q) {
             String scope=q.resolvedScope(store);
-            return mode==ActivityPanel.Mode.TIMELINE?Collections.singletonList(new ReadSnapshot.Source(scope,"timeline"))
+            // An exact visit-linked Timeline also pins its runs so the linked outcome is read from the same revision.
+            return mode==ActivityPanel.Mode.TIMELINE&&!ActivityRoutes.exactVisit(q.facets())?Collections.singletonList(new ReadSnapshot.Source(scope,"timeline"))
                     :Arrays.asList(new ReadSnapshot.Source(scope,"runs"),new ReadSnapshot.Source(scope,"timeline"));
         }
         public void validate(ArchiveQuery<Filters,Sort> q) {
@@ -156,6 +157,16 @@ public final class ActivityQueries {
         r.values=e.values;r.assigned=e.visitId!=null&&!e.visitId.isEmpty();return r;
     }
     private static Long knownTime(long time) { return time==0?null:time; }
+    /** The pinned visit with this exact session and recorded visit ID, or null when that revision lacks it. */
+    public static ActivityJournal.Visit readLinkedVisit(ArchiveResult.Lease<Row> lease,String session,String visitId,Cancellation cancel)throws IOException {
+        if(session==null||session.isEmpty()||visitId==null||visitId.isEmpty())return null;
+        ActivityJournal.Visit[] found={null};
+        // Read the whole pinned scope: a missing (deleted/imported) session is "absent", not a read failure.
+        lease.readSource(SessionStore.ALL,"runs",ActivityJournal.Visit.class,row->{
+            if(row.ref.session.equals(session)&&visitId.equals(row.value.id))found[0]=row.value;
+        },cancel);
+        return found[0];
+    }
     /** Full details use the source Ref AND the recorded domain ID, never time/map guesses. */
     public static ActivityJournal.Visit readVisit(ArchiveResult.Lease<Row> lease,ArchiveRow<Row> selected,Cancellation cancel)throws IOException {
         ActivityJournal.Visit[] found={null};
