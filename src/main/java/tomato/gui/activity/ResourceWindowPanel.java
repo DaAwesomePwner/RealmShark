@@ -19,7 +19,7 @@ import java.util.function.Supplier;
  * active / observed / unknown seconds with observed uptime. Zero-active lanes stay listed. Timeline handoffs
  * carry the exact saved visit and half-open bounds and are offered only when the navigator accepts them. EDT only.
  */
-final class ResourceWindowPanel extends JPanel {
+final class ResourceWindowPanel extends JPanel implements Scrollable {
     private final CombatTimelineChart chart;
     private final Supplier<VisitRef> reference;
     private final JTextArea summary = ContentStyle.wrappingText("", 3);
@@ -56,6 +56,18 @@ final class ResourceWindowPanel extends JPanel {
     }
 
     ResourceWindow analysis() { return analysis; }
+
+    // Hosted in a JScrollPane: track the viewport width so the summary and controls wrap instead of the
+    // lanes table's natural width forcing a sideways page. The lanes table keeps its own horizontal scroll.
+    @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+    @Override public boolean getScrollableTracksViewportWidth() { return true; }
+    @Override public boolean getScrollableTracksViewportHeight() {
+        return getParent() instanceof JViewport && getParent().getHeight() >= getPreferredSize().height;
+    }
+    @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 32; }
+    @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+        return Math.max(32, (orientation == SwingConstants.VERTICAL ? visible.height : visible.width) - 32);
+    }
 
     void recompute() {
         ActivityJournal.Visit visit = chart.getVisit();
