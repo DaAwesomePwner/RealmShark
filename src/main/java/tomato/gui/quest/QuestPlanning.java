@@ -70,7 +70,10 @@ public final class QuestPlanning {
     }
     /** An explicit release-all choice is atomic with the new confirmed stock value. */
     public static void held(AccountPlan p, int item, long n, String note, boolean release, long at) {
-        if (release) for (Map<Integer, Long> r : p.reservations.values()) r.remove(item);
+        if (release) {
+            for (Map<Integer, Long> r : p.reservations.values()) r.remove(item);
+            p.reservations.values().removeIf(Map::isEmpty);
+        }
         p.held.put(item, new ManualHeld(n, at, note));
     }
     public static void reserve(AccountPlan p, String entry, int item, long n) {

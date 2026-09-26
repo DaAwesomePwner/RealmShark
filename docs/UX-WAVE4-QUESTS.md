@@ -37,4 +37,12 @@ quests, explicit account selection, scope changes before mailbox delivery, faile
 and delayed save completion during account switching. Native geometry/focus, scaled new
 surface evidence and independent screenshot review remain integration gates.
 
+`QuestPlanEvidenceTest` adds exact offscreen 680/1100x520 pages at fonts 13/18 with
+populated, unknown, stale, validation error, empty and manual-control screenshots under
+`screenshots/wave4/quests`. Its native method exercises focused keyboard actions for
+manual stock validation, explicit atomic release and durable Save at compact size; run
+only in the serialized desktop lane. Planning controls reveal on focus and long detail
+text reveals the keyboard caret. The offscreen method passed with the 16 behavioral
+checks; native/scaled execution is still pending at this package handoff.
+
 No shared store, checkpoint, shell routing or producer files were modified in this lane.

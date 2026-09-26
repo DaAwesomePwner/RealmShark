@@ -46,6 +46,10 @@ public final class QuestPlanPanel extends JPanel {
     public QuestPlanPanel(PlanningStore store, IntFunction<String> names) {
         super(new BorderLayout(0, 6)); this.store = store; this.names = names;
         setName("quest-plan-panel"); account.setName("quest-plan-account");
+        status.setName("quest-plan-status"); status.setFocusable(false);
+        detail.setName("quest-plan-detail"); totals.setName("quest-plan-totals");
+        repeats.setName("quest-plan-repeat-count"); item.setName("quest-plan-item-id"); quantity.setName("quest-plan-quantity");
+        note.setName("quest-plan-note"); release.setName("quest-plan-release-affected");
         account.getAccessibleContext().setAccessibleName("Account for manual quest plans");
         JPanel header = new JPanel(new BorderLayout(0, 6));
         JPanel scope = ContentStyle.controls(); scope.add(new JLabel("Planning account")); scope.add(account); header.add(scope, BorderLayout.NORTH);
@@ -58,7 +62,8 @@ public final class QuestPlanPanel extends JPanel {
         table.setDefaultRenderer(Object.class, new ContentStyle.Cell());
         table.getSelectionModel().addListSelectionListener(e -> { if (!refreshing && !e.getValueIsAdjusting()) showDetails(); });
         JPanel body = new JPanel(); body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-        JScrollPane list = ContentStyle.tableScroll(table, 4); list.setPreferredSize(new Dimension(650, 210)); body.add(list);
+        JScrollPane list = ContentStyle.tableScroll(table, 4); list.setColumnHeaderView(table.getTableHeader());
+        list.setPreferredSize(new Dimension(650, 210)); body.add(list);
         body.add(detail); body.add(totals);
         JPanel edit = ContentStyle.controls(); edit.add(label("Desired repeats", repeats));
         edit.add(button("Set repeats", "quest-plan-repeats", () -> mutate(p -> {
@@ -84,7 +89,8 @@ public final class QuestPlanPanel extends JPanel {
             if (d.dirty && JOptionPane.showConfirmDialog(this, "Discard this account's unsaved quest plan changes?", "Reload saved plan", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
             drafts.put(key, new Draft(store.snapshot(key))); refresh();
         }));
-        add(ContentStyle.page(header, body, actions), BorderLayout.CENTER);
+        JScrollPane page = ContentStyle.page(header, body, actions); page.setName("quest-plan-scroll");
+        add(page, BorderLayout.CENTER); installReveal(this);
         account.addActionListener(e -> { if (!refreshing) refresh(); }); poll();
     }
     @Override public void addNotify() { super.addNotify(); poll.start(); poll(); }
@@ -236,6 +242,24 @@ public final class QuestPlanPanel extends JPanel {
         JPanel p = new JPanel(new BorderLayout(0, 3)); JLabel l = new JLabel(text); l.setLabelFor(control); control.getAccessibleContext().setAccessibleName(text); p.add(l, BorderLayout.NORTH); p.add(control); return p;
     }
     private static JButton button(String text, String name, Runnable action) { JButton b = new JButton(text); b.setName(name); b.addActionListener(e -> action.run()); return b; }
+    private static void installReveal(Component value) {
+        if (value instanceof JComponent && (value instanceof AbstractButton || value instanceof JComboBox || value instanceof javax.swing.text.JTextComponent || value instanceof JTable)) {
+            JComponent c = (JComponent) value;
+            c.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusGained(java.awt.event.FocusEvent e) {
+                    if (c instanceof JTable) ContentStyle.reveal(c, ((JTable)c).getCellRect(Math.max(0, ((JTable)c).getSelectedRow()), 0, true));
+                    else ContentStyle.reveal(c, new Rectangle(0, 0, c.getWidth(), Math.min(c.getHeight(), c.getFontMetrics(c.getFont()).getHeight() + 12)));
+                }
+            });
+            if (c instanceof JTextArea) ((JTextArea)c).addCaretListener(e -> {
+                if (c.isFocusOwner()) SwingUtilities.invokeLater(() -> {
+                    try { if (c.isFocusOwner()) ContentStyle.reveal(c, ((JTextArea)c).modelToView(((JTextArea)c).getCaretPosition())); }
+                    catch (javax.swing.text.BadLocationException invalid) { throw new IllegalStateException(invalid); }
+                });
+            });
+        }
+        if (value instanceof Container) for (Component child : ((Container)value).getComponents()) installReveal(child);
+    }
     private final class PlanModel extends AbstractTableModel {
         final String[] columns = {"Quest", "Stable ID", "Repeats", "Status"};
         public int getRowCount() { return rows.size(); } public int getColumnCount() { return columns.length; }
