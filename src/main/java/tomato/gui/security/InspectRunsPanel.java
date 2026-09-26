@@ -40,7 +40,8 @@ final class InspectRunsPanel extends JPanel {
                         if(savedRoster==null)savedRoster=new ParsePanelGUI(false);
                         // ParsePanel's local row keys use visit ID. Clear them when the source session changes.
                         if(!session.equals(origin.session))savedRoster.showRun("",Collections.emptyList());
-                        session=origin.session;savedRoster.showRun(visit);return savedRoster;
+                        // Provenance carries the exact saved session + visit (INS-2); names/times are never used.
+                        session=origin.session;savedRoster.showRun(tomato.gui.activity.ActivityRoutes.reference(origin.session,visit.id),visit);return savedRoster;
                     }
                 });
     }

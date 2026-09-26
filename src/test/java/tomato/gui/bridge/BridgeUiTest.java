@@ -34,12 +34,13 @@ public class BridgeUiTest {
                     search.setText("[");assertEquals(0,table.getRowCount());search.setText("");
                     JComboBox<?> filter=(JComboBox<?>)find(panel,"bridge-status-filter");filter.setSelectedItem("Not in CSV");assertEquals(1,table.getRowCount());filter.setSelectedIndex(0);
                     JPasswordField token=(JPasswordField)find(panel,"bridge-token");assertTrue(token.echoCharIsSet());
-                    JTabbedPane tabs=findType(panel,JTabbedPane.class);assertEquals(3,tabs.getTabCount());
+                    JTabbedPane tabs=findType(panel,JTabbedPane.class);assertEquals(4,tabs.getTabCount());
                     JTable logs=(JTable)find(panel,"bridge-log-table");logs.setRowSelectionInterval(2,2);JTextArea logDetail=(JTextArea)find(panel,"bridge-log-details");assertTrue(logDetail.getText().contains("POST"));assertTrue(logDetail.getText().contains("[redacted]"));assertFalse(logDetail.getText().contains("test-secret"));
                     for(int width:new int[]{1240,680}){
                         frame.setSize(width,width==680?620:800);frame.validate();shell.dispatchEvent(new java.awt.event.ComponentEvent(shell,java.awt.event.ComponentEvent.COMPONENT_RESIZED));frame.validate();shell.select(pages.length-1);
-                        assertEquals(width<1000,shell.isCompact());
-                        for(int tab=0;tab<3;tab++){
+                        // Native scaled runs clamp/scale the realized client, so compact mode follows the shell's actual width.
+                        assertEquals("Native compact mode follows the realized client",shell.getWidth()<1000,shell.isCompact());if(width==680)assertTrue("The compact layout is exercised",shell.isCompact());
+                        for(int tab=0;tab<tabs.getTabCount();tab++){
                             tabs.setSelectedIndex(tab);frame.validate();
                             if(tab==1){JTextField field=(JTextField)find(panel,"bridge-endpoint");assertTrue(field.getWidth()>140);}
                             BufferedImage image=new BufferedImage(frame.getWidth(),frame.getHeight(),BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();frame.printAll(g);g.dispose();

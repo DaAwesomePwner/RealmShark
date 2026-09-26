@@ -33,6 +33,11 @@ public class NotificationsConsistencyTest {
         String[] states = {"", "Saved short.wav. Use Test to hear it.", "Saved " + filename + ". Use Test to hear it.",
             "Sound unchanged: could not open " + filename + "\nCheck the selected folder.\nこんにちは ★ e\u0301 😀",
             "Partial: the saved sound is unavailable.\n" + filename + "\nOther alert settings are retained."};
+        // Populate the app-global decision history so the Recent decisions table (and its scroll bar) is
+        // exercised deterministically, independent of which tests ran earlier in this JVM.
+        tomato.realmshark.AlertDecisions.INSTANCE.clear();
+        for (int i = 0; i < 40; i++) tomato.realmshark.AlertDecisions.INSTANCE.record(
+            new tomato.realmshark.AlertDecisions.Entry(tomato.realmshark.AlertDecisions.Source.CHAT).subject("Synthetic message " + i).explain("Matched"));
         SwingUtilities.invokeAndWait(() -> {
             theme(new VioletTheme(), 13); ui[0] = new NotificationsGUI();
             JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
@@ -64,7 +69,7 @@ public class NotificationsConsistencyTest {
                     SwingUtilities.invokeAndWait(() -> ui[0].tabs.setSelectedIndex(selected));
                     settle(shell[0]);
                     SwingUtilities.invokeAndWait(() -> {
-                        JScrollPane section = (JScrollPane) ui[0].tabs.getSelectedComponent();
+                        JScrollPane section = section(ui[0]);
                         assertTrue("A section viewport remains usable", section.getViewport().getHeight() >= ui[0].tabs.getFontMetrics(ui[0].tabs.getFont()).getHeight() * 4);
                         assertContentReachable((Container) section.getViewport().getView());
                         assertWrappingFits(status(ui[0]));
@@ -117,7 +122,7 @@ public class NotificationsConsistencyTest {
                     });
                     for (int turn = 0; turn < 10; turn++) SwingUtilities.invokeAndWait(() -> frame[0].validate());
                     SwingUtilities.invokeAndWait(() -> {
-                        JScrollPane section = (JScrollPane) ui[0].tabs.getSelectedComponent();
+                        JScrollPane section = section(ui[0]);
                         assertTrue(section.getViewport().getHeight() >= ui[0].tabs.getFontMetrics(ui[0].tabs.getFont()).getHeight() * 4);
                         assertContentReachable((Container) section.getViewport().getView());
                         assertWrappingFits(status(ui[0]));
@@ -165,6 +170,8 @@ public class NotificationsConsistencyTest {
     private static void assertContentReachable(Container root) {
         for (Component child : root.getComponents()) {
             if (!child.isVisible()) continue;
+            // Scroll bars are viewport chrome, not page actions; FlatLaf sizes their hidden arrow buttons to 0 height.
+            if (child instanceof JScrollBar) continue;
             if (child instanceof JTextArea && !((JTextArea) child).isEditable()) assertWrappingFits((JTextArea) child);
             else if (child instanceof AbstractButton && child.isEnabled()) {
                 AbstractButton button = (AbstractButton) child;
@@ -193,7 +200,7 @@ public class NotificationsConsistencyTest {
             JComponent view = (JComponent) ((JViewport) parent).getView();
             view.scrollRectToVisible(SwingUtilities.convertRectangle(component, region, view));
         }
-        assertTrue("Scroll-reachable " + component.getName() + ": " + region + " in " + component.getVisibleRect(), component.getVisibleRect().contains(region));
+        assertTrue("Scroll-reachable " + component.getClass().getSimpleName() + " " + component.getName() + ": " + region + " in " + component.getVisibleRect(), component.getVisibleRect().contains(region));
     }
     private static void settle(Container root) throws Exception {
         for (int turn = 0; turn < 10; turn++) SwingUtilities.invokeAndWait(() -> layoutTree(root));
@@ -213,5 +220,11 @@ public class NotificationsConsistencyTest {
     }
     private static void setLaf(LookAndFeel laf) {
         try { UIManager.setLookAndFeel(laf); } catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
+    }
+
+    /** The selected section's scrolling page; Recent decisions hosts its own page so its table can reveal rows itself. */
+    private static JScrollPane section(NotificationsGUI ui) {
+        java.awt.Component selected = ui.tabs.getSelectedComponent();
+        return selected instanceof RecentDecisionsPanel ? ((RecentDecisionsPanel) selected).page : (JScrollPane) selected;
     }
 }

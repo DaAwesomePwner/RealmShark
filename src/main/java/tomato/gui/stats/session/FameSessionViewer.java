@@ -32,6 +32,29 @@ public class FameSessionViewer extends JFrame {
     private final JLabel characterStatus = new JLabel();
     private final JLabel mapStatus = new JLabel();
     private final JLabel graphStatus = new JLabel();
+    private final JLabel graphDelta = new JLabel(" ");
+    private final JTextArea mapAssociation = tomato.gui.modern.ContentStyle.wrappingText(" ");
+    private final JComboBox<String> range = new JComboBox<>(new String[]{"All samples", "1 min", "5 min", "15 min", "30 min", "60 min"});
+    private final JComboBox<String> measure = new JComboBox<>(new String[]{"Total fame", "Gain in range"});
+    private Integer graphedCharacter;
+    /** Shown by the disabled run selector when no sample carries a recorded run. */
+    static final String NO_RECORDED_RUNS = "No recorded runs";
+    private final JComboBox<FameSession.SampleVisit> recordedRuns = new JComboBox<FameSession.SampleVisit>() {
+        // An empty selector still shows its whole "No recorded runs" text instead of a clipped "No…".
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            if (getItemCount() > 0) return size;
+            Component shown = getRenderer().getListCellRendererComponent(new JList<>(), null, -1, false, false);
+            Insets insets = getInsets();
+            int arrow = Math.max(size.height, getFontMetrics(getFont()).getHeight() + 8);
+            return new Dimension(Math.max(size.width, shown.getPreferredSize().width + arrow + insets.left + insets.right + 8), size.height);
+        }
+        @Override public Dimension getMinimumSize() { return getItemCount() > 0 ? super.getMinimumSize() : getPreferredSize(); }
+    };
+    private final JButton openRun = new JButton("Open recorded run");
+    private final JTextArea runStatus = tomato.gui.modern.ContentStyle.wrappingText(" ");
+    /** Shown when a saved history has no map association for the selected character. */
+    public static final String MAP_NOT_RECORDED = "Map association: Not recorded";
     private GraphPanel graphPanel;
     private boolean updatingFilters;
 
@@ -68,8 +91,42 @@ public class FameSessionViewer extends JFrame {
         graphPanel.setName("saved-fame-graph");
         graphPanel.setPreferredSize(new Dimension(800, 400));
         JPanel graph = new JPanel(new BorderLayout());
+        JPanel graphControls = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        range.setName("saved-fame-range"); measure.setName("saved-fame-measure");
+        range.getAccessibleContext().setAccessibleName("Range ending at the character's latest saved sample");
+        measure.getAccessibleContext().setAccessibleName("Graph measure");
+        // The status line and Session Info describe the plotted range, so both refresh with the graph.
+        range.addActionListener(e -> { if (!updatingFilters) { updateGraph(); populateSessionInfo(); } });
+        measure.addActionListener(e -> { if (!updatingFilters) { updateGraph(); populateSessionInfo(); } });
+        graphControls.add(new JLabel("Range ending at latest sample")); graphControls.add(range); graphControls.add(measure);
+        graph.add(graphControls, BorderLayout.NORTH);
         graph.add(graphPanel, BorderLayout.CENTER);
-        graph.add(graphStatus, BorderLayout.SOUTH);
+        JPanel graphFooter = new JPanel(); graphFooter.setLayout(new BoxLayout(graphFooter, BoxLayout.Y_AXIS));
+        graphDelta.setName("saved-fame-delta"); graphDelta.putClientProperty("html.disable", true);
+        mapAssociation.setName("saved-fame-map-association");
+        for (JComponent line : new JComponent[]{graphDelta, graphStatus, mapAssociation}) line.setAlignmentX(0f);
+        graphPanel.addPropertyChangeListener(GraphPanel.SUMMARY_PROPERTY, e -> showDelta());
+        graphFooter.add(graphDelta); graphFooter.add(graphStatus); graphFooter.add(mapAssociation);
+        recordedRuns.setName("saved-fame-recorded-runs"); openRun.setName("saved-fame-open-run"); runStatus.setName("saved-fame-run-status");
+        recordedRuns.getAccessibleContext().setAccessibleName("Recorded runs of the selected character's fame samples");
+        recordedRuns.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                super.getListCellRendererComponent(list, value, index, selected, focus); putClientProperty("html.disable", true);
+                setText(value instanceof FameSession.SampleVisit ? ((FameSession.SampleVisit)value).label() : NO_RECORDED_RUNS); return this;
+            }
+        });
+        recordedRuns.addActionListener(e -> updateRunAction());
+        openRun.addActionListener(e -> {
+            FameSession.SampleVisit chosen = (FameSession.SampleVisit)recordedRuns.getSelectedItem();
+            if (chosen != null && chosen.visit() != null && !tomato.gui.route.Navigator.current().open(runRoute(chosen)))
+                runStatus.setText("The Runs workspace did not accept run " + chosen.visit() + "; nothing was opened.");
+        });
+        // The status gets its own wrapping line under the run controls so it stays readable at compact widths.
+        JPanel runControls = tomato.gui.modern.ContentStyle.controls(); runControls.add(recordedRuns); runControls.add(openRun);
+        runStatus.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        JPanel runs = new JPanel(new BorderLayout(0, 2)); runs.add(runControls, BorderLayout.NORTH); runs.add(runStatus, BorderLayout.CENTER);
+        JPanel footer = new JPanel(new BorderLayout()); footer.setBorder(BorderFactory.createEmptyBorder(0, 6, 4, 6)); footer.add(graphFooter, BorderLayout.NORTH); footer.add(runs, BorderLayout.CENTER);
+        graph.add(footer, BorderLayout.SOUTH);
         graphStatus.setName("saved-fame-graph-status");
         tabbedPane.addTab("Fame Graph", graph);
 
@@ -233,7 +290,9 @@ public class FameSessionViewer extends JFrame {
                 visit.getFameGained(), timeSpent,
                 timeSpent > 0 ? visit.getFameGained() * 60000.0 / timeSpent : null});
         }
-        mapStatus.setText(DisplayFormat.formatInteger(model.getRowCount()) + " of " + DisplayFormat.formatInteger(visits.size())
+        mapStatus.setText(visits.isEmpty() ? MAP_NOT_RECORDED + " for this character · this saved history has no map visits"
+            + (session.sampleVisits(selectedCharId).isEmpty() ? "" : " (some fame samples carry recorded runs; see Fame Graph)")
+            : DisplayFormat.formatInteger(model.getRowCount()) + " of " + DisplayFormat.formatInteger(visits.size())
             + " saved visits shown · Selected character · Dungeon and gain filters affect visits only");
         populateSessionInfo();
     }
@@ -265,7 +324,8 @@ public class FameSessionViewer extends JFrame {
             .append("Character Rows: ").append(DisplayFormat.formatInteger(characterFameTable.getRowCount())).append("\n")
             .append("Selected Character: ").append(characterSelector.getSelectedItem() == null
                 ? "None" : characterSelector.getSelectedItem()).append("\n")
-            .append(session.chronology(getSelectedCharacterId()).undatedCount()>0?"Graph Samples (dated only for selected character): ":"Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
+            .append(range.getSelectedIndex()>0?"Graph Samples (plotted in the last "+range.getSelectedItem()+"): ":session.chronology(getSelectedCharacterId()).undatedCount()>0?"Graph Samples (dated only for selected character): ":"Graph Samples (all for selected character): ").append(DisplayFormat.formatInteger(graphPanel.getScores().size())).append("\n")
+            .append(mapAssociationText(getSelectedCharacterId())).append("\n")
             .append("Map Visits Shown: ").append(DisplayFormat.formatInteger(mapFameTable.getRowCount())).append(" of ")
             .append(DisplayFormat.formatInteger(mapVisits(getSelectedCharacterId()).size())).append(" for selected character\n")
             .append("Dungeon: ").append(dungeonFilter.getSelectedItem()).append("\n")
@@ -279,16 +339,75 @@ public class FameSessionViewer extends JFrame {
         sessionInfoArea.setText(info.toString());
     }
 
-    private void updateCharacterData() {
+    /** Range and gain/total controls; pinned timestamps survive both and reset only for another character. */
+    private void updateGraph() {
         Integer selectedCharId = getSelectedCharacterId();
-        ArrayList<Fame> samples = fameSamples(selectedCharId);
+        if (!java.util.Objects.equals(selectedCharId, graphedCharacter)) { graphPanel.clearPin(); graphedCharacter = selectedCharId; }
+        long[] minutes = {0, 1, 5, 15, 30, 60};
+        ArrayList<Fame> all = fameSamples(selectedCharId);
+        ArrayList<Fame> samples = GraphPanel.window(all, minutes[range.getSelectedIndex()] * 60000);
+        updateGraphStatus(selectedCharId, all.size(), samples.size());
+        if (measure.getSelectedIndex() == 1 && !samples.isEmpty()) {
+            double baseline = samples.get(0).getFame(); ArrayList<Fame> relative = new ArrayList<>();
+            for (Fame sample : samples) relative.add(new Fame(sample.getFame() - baseline, sample.getTime()));
+            samples = relative;
+        }
         graphPanel.setScores(samples);
+        mapAssociation.setText(mapAssociationText(selectedCharId)); mapAssociation.getAccessibleContext().setAccessibleName(mapAssociation.getText());
+        updatingFilters = true;
+        try {
+            recordedRuns.removeAllItems(); java.util.Set<tomato.history.link.VisitRef> seen = new java.util.HashSet<>();
+            for (FameSession.SampleVisit visit : session.sampleVisits(selectedCharId)) if (visit.visit() != null && seen.add(visit.visit())) recordedRuns.addItem(visit);
+        } finally { updatingFilters = false; }
+        updateRunAction();
+        showDelta();
+    }
+    private void showDelta() {
+        String text = graphPanel.inspectionSummary();
+        graphDelta.setText(text.isEmpty() ? " " : text);
+        graphDelta.getAccessibleContext().setAccessibleName(text);
+    }
+    private static tomato.gui.route.Route runRoute(FameSession.SampleVisit visit) {
+        return tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS).withVisit(visit.visit());
+    }
+    private void updateRunAction() {
+        FameSession.SampleVisit chosen = (FameSession.SampleVisit)recordedRuns.getSelectedItem();
+        boolean navigable = chosen != null && chosen.visit() != null && tomato.gui.route.Navigator.current().canOpen(runRoute(chosen));
+        openRun.setEnabled(navigable); recordedRuns.setEnabled(recordedRuns.getItemCount() > 0);
+        runStatus.setText(chosen == null ? "No sample of this character carries a recorded run (legacy samples: Not recorded)."
+            : navigable ? "Opens verified run " + chosen.visit() + "."
+            : "Verified run " + chosen.visit() + "; Runs view unavailable in this window, so it cannot be opened here.");
+        runStatus.getAccessibleContext().setAccessibleName(runStatus.getText());
+    }
+    /** Per-sample associations come only from recorded visits; tracker map visits are separate records. */
+    String mapAssociationText(Integer id) {
+        int visits = mapVisits(id).size();
+        java.util.List<Fame> all = session.getCharacterFameData().get(id);
+        int samples = all == null ? 0 : all.size(), associated = session.sampleVisits(id).size();
+        java.util.TreeMap<String, Integer> maps = new java.util.TreeMap<>();
+        for (FameSession.SampleVisit visit : session.sampleVisits(id)) maps.merge(visit.map == null || visit.map.isEmpty() ? "map not captured" : visit.map, 1, Integer::sum);
+        StringBuilder list = new StringBuilder(); for (java.util.Map.Entry<String, Integer> e : maps.entrySet()) list.append(list.length() == 0 ? "" : ", ").append(e.getKey()).append(" ×").append(e.getValue());
+        String tracker = visits == 0 ? "no saved map visits" : DisplayFormat.formatInteger(visits) + " saved map visits (tracker records)";
+        if (associated == 0) return MAP_NOT_RECORDED + " for fame samples (" + tracker + "; no sample carries a recorded visit)";
+        return "Map association: " + DisplayFormat.formatInteger(associated) + " of " + DisplayFormat.formatInteger(samples)
+            + " samples with a recorded visit (" + list + "); " + DisplayFormat.formatInteger(Math.max(0, samples - associated)) + " Not recorded · " + tracker;
+    }
+
+    /** Describes what the graph plots: the whole session, or the selected range's share of the saved samples. */
+    private void updateGraphStatus(Integer selectedCharId, int total, int plotted) {
+        boolean ranged = range.getSelectedIndex() > 0;
+        String scope = ranged ? DisplayFormat.formatInteger(plotted) + " of " + DisplayFormat.formatInteger(total) + " saved samples in the last " + range.getSelectedItem()
+            : DisplayFormat.formatInteger(total) + " saved samples · Selected character, entire session";
         graphStatus.setText(selectedCharId == null ? "No saved character selected."
-            : samples.isEmpty() ? "No saved fame samples for this character. Map visits are available separately."
-            : samples.size() == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
-            : DisplayFormat.formatInteger(samples.size()) + " saved samples · Selected character, entire session · Map filters do not affect the graph");
+            : total == 0 ? "No saved fame samples for this character. Map visits are available separately."
+            : total == 1 ? "1 saved sample for selected character · Another timestamp is needed to draw a graph."
+            : scope + " · Map filters do not affect the graph");
         FameSession.Chronology chronology=session.chronology(selectedCharId);
-        if(selectedCharId!=null&&chronology.undatedCount()>0)graphStatus.setText(DisplayFormat.formatInteger(samples.size())+" dated samples plotted · "+DisplayFormat.formatInteger(chronology.undatedCount())+" undated observations not plotted · Gain and elapsed interval unavailable");
+        if(selectedCharId!=null&&chronology.undatedCount()>0)graphStatus.setText((ranged ? scope.replace("saved samples", "dated samples") : DisplayFormat.formatInteger(plotted)+" dated samples plotted")+" · "+DisplayFormat.formatInteger(chronology.undatedCount())+" undated observations not plotted · Gain and elapsed interval unavailable");
+    }
+
+    private void updateCharacterData() {
+        updateGraph();
         populateDungeonFilter();
         updateMapFameData();
     }

@@ -27,6 +27,8 @@ import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.stats.FameTablePanel;
 import tomato.gui.stats.LootGUI;
+import tomato.history.link.EncounterContext;
+import tomato.history.link.VisitRef;
 import tomato.realmshark.HttpCharListRequest;
 import tomato.realmshark.RealmCharacter;
 import tomato.realmshark.RealmCharacterStats;
@@ -236,11 +238,43 @@ public class TomatoData {
      */
     public void setNewRealm(MapInfoPacket map) {
         tomato.realmshark.RealmEventAlerts.INSTANCE.resetCooldowns();
+        // Order matters: the outgoing encounter is finished with its own entry-frozen reference
+        // inside clear(); only afterwards is the incoming MAPINFO's exact visit captured.
         clear();
         ParsePanelGUI.clear();
         petYardCheck(map.displayName);
         this.map = map;
         rng = new RNG(map.seed);
+        encounterVisit = visitSource.apply(map);
+        encounterEnteredAt = System.currentTimeMillis();
+    }
+
+    // Encounter identity frozen at entry. The visit comes only from the exact clean MAPINFO object
+    // that established it; never from a dungeon name or timestamp.
+    private java.util.function.Function<MapInfoPacket, VisitRef> visitSource =
+        packets.packetcapture.logger.DiscoveryLog.INSTANCE::visitForMap;
+    private VisitRef encounterVisit;
+    private long encounterEnteredAt;
+    private Integer encounterLocalId;
+    private boolean encounterLocalConflict;
+
+    /** Test and composition hook: where incoming MAPINFO objects are resolved to exact visits. */
+    void visitSource(java.util.function.Function<MapInfoPacket, VisitRef> source) {
+        visitSource = source == null ? map -> null : source;
+    }
+
+    /**
+     * Entry-frozen identity of the in-progress encounter, with the local object ID verified so far, or null
+     * when no encounter was entered through {@link #setNewRealm}. Producer thread only (like DpsSnapshot).
+     */
+    public EncounterContext currentEncounterContext() {
+        return encounterEnteredAt <= 0 ? null : new EncounterContext(encounterVisit, encounterLocalObjectId(), encounterEnteredAt);
+    }
+
+    /** The verified local object ID for the current encounter, or null when absent or ambiguous. */
+    private Integer encounterLocalObjectId() {
+        if (encounterLocalConflict || player == null || worldPlayerId < 0 || player.id != worldPlayerId || !player.isUser()) return null;
+        return encounterLocalId != null && encounterLocalId != worldPlayerId ? null : player.id;
     }
 
     /**
@@ -259,6 +293,9 @@ public class TomatoData {
         }
         entityList.remove(objectId);
         player = null;
+        // A second, different local object inside one encounter makes its local row ambiguous.
+        if (encounterLocalId != null && encounterLocalId != objectId) encounterLocalConflict = true;
+        encounterLocalId = objectId;
         this.worldPlayerId = objectId;
         this.charId = charId;
         resetMyInfo(null, charId, objectId);
@@ -432,9 +469,9 @@ public class TomatoData {
      * @param idType ID of sound alert entity
      */
     private void customSoundAlert(int idType) {
-        if (tomato.realmshark.AlertRules.application().matchEntityType(getEntityIdPings(), idType).matched) {
-            Sound.custom.play();
-        }
+        // Records the match decision (rule identity or no match) before any sound gate is applied.
+        long decision = tomato.realmshark.AlertDecisions.entityAlert(getEntityIdPings(), idType);
+        if (decision != 0) Sound.custom.play(decision);
     }
 
     /**
@@ -1050,6 +1087,11 @@ public class TomatoData {
      * Clears all data as instance is changing.
      */
     public void clear() {
+        // Captured before identity fields reset; requires agreement with the capture-owned player.
+        Integer localObjectId = encounterLocalObjectId();
+        EncounterContext context = new EncounterContext(encounterVisit, localObjectId,
+            encounterEnteredAt > 0 ? encounterEnteredAt : System.currentTimeMillis());
+        encounterVisit = null; encounterEnteredAt = 0; encounterLocalId = null; encounterLocalConflict = false;
         SecurityAbilityUseCheck.reset();
         invalidateRosterRequest();
         metadataAwaitingCreate = true;
@@ -1066,7 +1108,8 @@ public class TomatoData {
                     dungeonTime(),
                     timePcFirst,
                     dpsPacketLog,
-                    player
+                    player,
+                    context
                 )
             );
             DpsGUI.updateLabel();

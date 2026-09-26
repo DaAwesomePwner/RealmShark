@@ -3,6 +3,8 @@ package tomato.backend.data;
 import packets.Packet;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
+import tomato.history.link.EncounterContext;
+import tomato.history.link.VisitRef;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -27,6 +29,11 @@ public class DpsData implements Serializable {
     private LocalPlayerContext localPlayerContext;
     // Optional in old streams. This identifies a recording, never a dungeon name/time match.
     private String recordingId;
+    // Optional entry-frozen identity (Wave 3). Stored as JDK types so older readers can still open
+    // new files; a null capture time means a legacy recording with no context of any kind.
+    private String visitSessionId, visitId;
+    private Integer localPlayerObjectId;
+    private Long contextCapturedAt;
 
     public DpsData(MapInfoPacket m, HashMap<Integer, Entity> entityHitList, ArrayList<NotificationPacket> deathNotifications, long totalDungeonPcTime, long timePcFirst, ArrayList<Packet> dpsPacketLog) {
         this(m, entityHitList, deathNotifications, totalDungeonPcTime, timePcFirst, dpsPacketLog,
@@ -37,6 +44,12 @@ public class DpsData implements Serializable {
     public DpsData(MapInfoPacket m, HashMap<Integer, Entity> entityHitList, ArrayList<NotificationPacket> deathNotifications, long totalDungeonPcTime, long timePcFirst, ArrayList<Packet> dpsPacketLog, Entity localPlayer) {
         this(m, entityHitList, deathNotifications, totalDungeonPcTime, timePcFirst, dpsPacketLog,
             localPlayer == null ? inferLocalPlayer(entityHitList) : LocalPlayerContext.capture(localPlayer));
+    }
+
+    /** A new recording with the identity frozen at encounter entry; {@code context} may be null. */
+    public DpsData(MapInfoPacket m, HashMap<Integer, Entity> entityHitList, ArrayList<NotificationPacket> deathNotifications, long totalDungeonPcTime, long timePcFirst, ArrayList<Packet> dpsPacketLog, Entity localPlayer, EncounterContext context) {
+        this(m, entityHitList, deathNotifications, totalDungeonPcTime, timePcFirst, dpsPacketLog, localPlayer);
+        setEncounterContext(context);
     }
 
     private DpsData(MapInfoPacket m, HashMap<Integer, Entity> entityHitList, ArrayList<NotificationPacket> deathNotifications, long totalDungeonPcTime, long timePcFirst, ArrayList<Packet> dpsPacketLog, LocalPlayerContext context) {
@@ -55,7 +68,29 @@ public class DpsData implements Serializable {
             totalDungeonPcTime, dungeonStartTime,
             saveDebugData && debugPackets != null ? new ArrayList<>(debugPackets) : null, localPlayerContext);
         copy.recordingId = recordingId;
+        copy.visitSessionId = visitSessionId; copy.visitId = visitId;
+        copy.localPlayerObjectId = localPlayerObjectId; copy.contextCapturedAt = contextCapturedAt;
         return copy;
+    }
+
+    /**
+     * Identity frozen when this encounter was entered, or null for legacy recordings. The visit is
+     * present only when capture verified it at entry; the local object ID is meaningful only inside
+     * this encounter. Returns a fresh detached value.
+     */
+    public EncounterContext getEncounterContext() {
+        if (contextCapturedAt == null) return null;
+        VisitRef visit = visitSessionId == null || visitId == null || visitSessionId.isEmpty() || visitId.isEmpty()
+            ? null : new VisitRef(visitSessionId, visitId);
+        return new EncounterContext(visit, localPlayerObjectId, contextCapturedAt);
+    }
+
+    private void setEncounterContext(EncounterContext context) {
+        if (context == null) return;
+        visitSessionId = context.visit == null ? null : context.visit.sessionId;
+        visitId = context.visit == null ? null : context.visit.visitId;
+        localPlayerObjectId = context.localPlayerObjectId;
+        contextCapturedAt = context.capturedAt;
     }
 
     public String getRecordingId() { return recordingId; }

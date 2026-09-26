@@ -72,7 +72,9 @@ public final class ArchiveResult<R> implements AutoCloseable {
             manifest.add("issues",SessionStore.JSON.toJsonTree(pin.issues()));
             JsonArray sessions=new JsonArray();for(String id:pin.sessionIds())sessions.add(SessionStore.JSON.toJsonTree(pin.session(id)));
             manifest.add("sessions",sessions);
-            manifest.addProperty("coverage","Missing module availability means recording coverage unknown; presence is not completeness");
+            // Kept as a string for older readers; the per-session evidence is in recordingCoverage.
+            manifest.addProperty("coverage","Per session and module in recordingCoverage: recorded intervals where the producer declared them, otherwise unknown; presence is not completeness");
+            manifest.add("recordingCoverage",recordingCoverage(pin));
             JsonArray cuts=new JsonArray();for(ReadSnapshot.Cut cut:pin.cuts()) {
                 JsonObject c=new JsonObject();c.addProperty("session",cut.session);c.addProperty("module",cut.module);
                 c.addProperty("locator",cut.locator);c.addProperty("bytes",cut.bytes);c.addProperty("sha256",cut.sha256);
@@ -89,6 +91,28 @@ public final class ArchiveResult<R> implements AutoCloseable {
         }
     }
     public JsonObject manifest() { return manifest.deepCopy(); }
+    /**
+     * {session: {module: evidence}} for every pinned session and every module read by this result. Evidence is
+     * the session's declared availability (state, reason, recording intervals, truncation) or an explicit UNKNOWN
+     * when the session declared nothing for that module, including every legacy session.
+     */
+    static JsonObject recordingCoverage(ReadSnapshot pin) {
+        Set<String> modules=new TreeSet<>();for(ReadSnapshot.Cut cut:pin.cuts())modules.add(cut.module);
+        JsonObject coverage=new JsonObject();
+        for(String id:new TreeSet<>(pin.sessionIds())) {
+            SessionStore.Session session=pin.session(id);JsonObject perModule=new JsonObject();
+            for(String module:modules) {
+                SessionStore.ModuleAvailability declared=session==null||session.availability==null?null:session.availability.get(module);
+                if(declared!=null&&declared.valid())perModule.add(module,SessionStore.JSON.toJsonTree(declared));
+                else {
+                    JsonObject unknown=new JsonObject();unknown.addProperty("state",SessionStore.ModuleAvailability.State.UNKNOWN.name());
+                    unknown.addProperty("reason","No recording evidence for this module in this session; coverage unknown");perModule.add(module,unknown);
+                }
+            }
+            coverage.add(id,perModule);
+        }
+        return coverage;
+    }
     public ArchivePage<R> page(long page,int size,Cancellation cancel) throws IOException {
         ExportSelection selection=ExportSelection.page(page,size);List<ArchiveRow<R>> values=new ArrayList<>();
         long[] bytes={0};

@@ -86,7 +86,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         exportPage.addActionListener(e->{if(displayed!=null)chooseExport(ExportSelection.page(displayed.page,displayed.size));});
         exportSelected.addActionListener(e->chooseExport(ExportSelection.selected(state.selected)));cancelExport.addActionListener(e->exportCancel.cancel());
         addHierarchyListener(e->{if((e.getChangeFlags()&HierarchyEvent.SHOWING_CHANGED)!=0){
-            if(isShowing()){if(!closed)request(false);}else{invalidateView();cancel.cancel();refresh.invalidate();loading=false;updateActions();}
+            // A load started while hidden (for example an atomic restore before its page is shown) continues.
+            if(isShowing()){if(!closed&&!loading)request(false);}else{invalidateView();cancel.cancel();refresh.invalidate();loading=false;updateActions();}
         }});
         reloadNames();syncControls();reloadCatalog();request(false);
     }
@@ -101,6 +102,17 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     public void showSaved(){requireEdt();state=state.withArchive(true);persist();request(false);}
     public void changeQuery(ArchiveQuery<F,S> query){
         requireEdt();if(restoring||closed)return;state=state.withQuery(query).withArchive(true);persist();syncControls();request(false);
+    }
+    /**
+     * Atomically applies a complete detached state once (Back and routed opens): scope, query, mode, page,
+     * selection, scroll anchor and layouts. In-flight reads are invalidated so their completions are inert,
+     * and exactly one load starts for the restored state. A query of other facet/sort types is rejected.
+     */
+    public void restore(ViewState<F,S> value){
+        requireEdt();Objects.requireNonNull(value,"state");if(closed)return;
+        ArchiveQuery<F,S> typed=client.initialQuery().restore(value.query.toJson());
+        if(!typed.equals(value.query))throw new IllegalArgumentException("State belongs to a different workspace");
+        state=value;persist();syncControls();request(false);
     }
     public void selectPage(long page){requireEdt();if(page<0)throw new IllegalArgumentException("Negative page");state=state.withPage(page);persist();request(false);}
     public void refresh(){requireEdt();request(true);}
@@ -162,10 +174,15 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         });}catch(RuntimeException failure){update.discard();throw failure;}finally{restoring=false;}
         ArchiveResult<R> old=result;result=update.result;resultQuery=query;displayed=update.page;state=nextState;
         saved.removeAll();activeView=view;saved.add(view);restoreEnabled(saved);saved.revalidate();saved.repaint();loading=false;
-        List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(item.field.name()+" "+item.direction);
+        List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(sortLabel(item));
         String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; try Reset filters. "):"";
         status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
         if(old!=null&&old!=result)old.close();persist();updateActions();
+    }
+    /** Readable sort wording, e.g. "time (descending)", instead of raw enum names. */
+    static String sortLabel(ArchiveQuery.Order<?> item){
+        String field=item.field.name().toLowerCase(java.util.Locale.ROOT).replace('_',' ');
+        return field+" ("+(item.direction==ArchiveQuery.Direction.ASCENDING?"ascending":"descending")+")";
     }
     private void persist(){if(stateLoadFailed)return;try{watchSave(states.save(name,state));}catch(RuntimeException failure){saveStatus.setText(failure.getMessage());}}
     private void watchSave(CompletionStage<PreferencesStore.SaveResult> save){

@@ -317,19 +317,78 @@ public final class SessionStore implements AutoCloseable {
     }
     public static final class ModuleAvailability {
         public enum State { UNKNOWN, PARTIAL, NOT_CAPTURED }
+        public static final int INTERVAL_LIMIT = 256;
         public final int schemaVersion;
         public final State state;
         public final String reason;
         public final Long from, until;
-        public ModuleAvailability(State state, String reason, Long from, Long until) {
+        /** Optional producer recording intervals, oldest first; null in histories written before Wave 3. */
+        public final List<Interval> intervals;
+        /** Older intervals were dropped at {@link #INTERVAL_LIMIT}; times before the first are unknown. */
+        public final boolean truncated;
+        public ModuleAvailability(State state, String reason, Long from, Long until) { this(state, reason, from, until, null, false); }
+        public ModuleAvailability(State state, String reason, Long from, Long until, List<Interval> intervals, boolean truncated) {
             this.schemaVersion = 1;
             this.state = Objects.requireNonNull(state); this.reason = Objects.requireNonNull(reason);
             this.from = from; this.until = until;
+            this.intervals = intervals == null ? null : Collections.unmodifiableList(new ArrayList<>(intervals)); this.truncated = truncated;
         }
+        /**
+         * TRUE when a recording interval covers the time (recorded; an absent record means none happened),
+         * FALSE when interval evidence exists and excludes it (not recorded), null when coverage is unknown.
+         */
+        public Boolean recordedAt(long time) {
+            if (intervals == null || intervals.isEmpty()) return null;
+            if (truncated && time < intervals.get(0).from) return null;
+            for (Interval interval : intervals) if (interval.from <= time && time <= interval.until) return Boolean.TRUE;
+            return Boolean.FALSE;
+        }
+        /** Whether this evidence is well formed; malformed evidence is treated as unknown coverage. */
+        public boolean valid() {
+            if (schemaVersion != 1 || state == null || reason == null) return false;
+            if (intervals != null) for (Interval interval : intervals) if (interval == null || interval.until < interval.from || interval.end == null) return false;
+            return true;
+        }
+    }
+    /** A span in which the producer was actually collecting; {@code end} explains how it closed. */
+    public static final class Interval {
+        public final long from, until;
+        public final String end;
+        public Interval(long from, long until, String end) {
+            if (until < from) throw new IllegalArgumentException("Interval ends before it starts");
+            this.from = from; this.until = until; this.end = Objects.requireNonNull(end);
+        }
+    }
+    /**
+     * Merges one producer recording interval (same start extends it) into this session's module coverage,
+     * asynchronously. Prior intervals are kept; beyond the limit the oldest are dropped and marked truncated.
+     */
+    public CompletionStage<Void> recordInterval(String module, long from, long until, String end) {
+        Interval added = new Interval(from, until, end);
+        return updateAvailability(module, prior -> {
+            List<Interval> merged = new ArrayList<>();
+            boolean truncated = prior != null && prior.truncated, replaced = false;
+            if (prior != null && prior.intervals != null) for (Interval interval : prior.intervals) {
+                if (interval.from == added.from) { merged.add(new Interval(from, Math.max(interval.until, until), end)); replaced = true; }
+                else merged.add(interval);
+            }
+            if (!replaced) merged.add(added);
+            merged.sort(Comparator.comparingLong(interval -> interval.from));
+            while (merged.size() > ModuleAvailability.INTERVAL_LIMIT) { merged.remove(0); truncated = true; }
+            return new ModuleAvailability(ModuleAvailability.State.PARTIAL,
+                "Recorded only while collection was on; outside these intervals nothing was recorded",
+                merged.get(0).from, merged.get(merged.size() - 1).until, merged, truncated);
+        });
     }
     /** Future producers explicitly declare coverage. Merely writing a record never declares completeness. */
     public CompletionStage<Void> availability(String module, ModuleAvailability evidence) {
-        checkModule(module); Objects.requireNonNull(evidence);
+        Objects.requireNonNull(evidence);
+        // Richer prior interval evidence is never replaced by a summary without intervals.
+        return updateAvailability(module, prior -> evidence.intervals == null && prior != null && prior.intervals != null
+            ? new ModuleAvailability(evidence.state, evidence.reason, evidence.from, evidence.until, prior.intervals, prior.truncated) : evidence);
+    }
+    private CompletionStage<Void> updateAvailability(String module, java.util.function.UnaryOperator<ModuleAvailability> update) {
+        checkModule(module);
         CompletableFuture<Void> completion = new CompletableFuture<>();
         if (!writable || closing) { completion.completeExceptionally(new IOException("History is read-only or closed")); return completion; }
         worker.execute(() -> {
@@ -337,7 +396,8 @@ public final class SessionStore implements AutoCloseable {
                 ensureCurrent();
                 Session next = JSON.fromJson(JSON.toJson(current), Session.class);
                 if (next.availability == null) next.availability = new LinkedHashMap<>();
-                next.availability.put(module, evidence);
+                ModuleAvailability prior = next.availability.get(module);
+                next.availability.put(module, update.apply(prior != null && prior.valid() ? prior : null));
                 atomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(next));
                 current.availability = next.availability; completion.complete(null);
             } catch (Exception failure) { completion.completeExceptionally(failure); }
@@ -357,7 +417,7 @@ public final class SessionStore implements AutoCloseable {
         public Session session() { return metadata == null ? null : JSON.fromJson(JSON.toJson(metadata), Session.class); }
         public ModuleAvailability availability(String module) {
             ModuleAvailability value = metadata == null || metadata.availability == null ? null : metadata.availability.get(module);
-            return value != null && value.schemaVersion == 1 && value.state != null && value.reason != null ? value
+            return value != null && value.valid() ? value
                 : new ModuleAvailability(ModuleAvailability.State.UNKNOWN, "Recording coverage unknown", null, null);
         }
     }

@@ -34,6 +34,8 @@ public class FameTrackerGUI extends JPanel {
     private boolean updatingCharacters;
     private long renderedGeneration = -1;
     private Integer restoredCharacter;
+    private final JLabel delta = new JLabel(" ");
+    private int graphedCharacter = Integer.MIN_VALUE;
 
     public FameTrackerGUI() {
         this(FameSessionManager::saveSessionAsync);
@@ -69,7 +71,9 @@ public class FameTrackerGUI extends JPanel {
         saveStatus.setName("fame-save-status");
         saveStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
         sampleStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
-        add(StatsUi.stack(sampleStatus, saveStatus, StatsUi.note("Rates use the first and last actual samples in the selected range. Character history may include time spent elsewhere; this is not combat uptime.")), BorderLayout.SOUTH);
+        delta.setName("fame-graph-delta"); delta.putClientProperty("html.disable", true); delta.setFont(ContentStyle.metadata(ContentStyle.body()));
+        graphPanel.addPropertyChangeListener(GraphPanel.SUMMARY_PROPERTY, e -> { String text = graphPanel.inspectionSummary(); delta.setText(text.isEmpty() ? " " : text); delta.getAccessibleContext().setAccessibleName(text); });
+        add(StatsUi.stack(delta, sampleStatus, saveStatus, StatsUi.note("Rates use the first and last actual samples in the selected range. Character history may include time spent elsewhere; this is not combat uptime.")), BorderLayout.SOUTH);
         character.addActionListener(e -> refreshGraph()); range.addActionListener(e -> refreshGraph()); measure.addActionListener(e -> refreshGraph());
 
         presentation = new FameRefresh(this, this::renderGraph);
@@ -181,6 +185,8 @@ public class FameTrackerGUI extends JPanel {
         } finally { updatingCharacters = false; }
         renderedGeneration = snapshot.generation;
         int id = snapshot.selectedId;
+        // Pins are sample timestamps: new samples and range/measure changes keep them; another character does not.
+        if (id != graphedCharacter) { graphPanel.clearPin(); graphedCharacter = id; }
         ArrayList<Fame> samples = snapshot.samples;
         samples.sort(java.util.Comparator.comparingLong(Fame::getTime));
         saveStatus.setText(tracking.status());

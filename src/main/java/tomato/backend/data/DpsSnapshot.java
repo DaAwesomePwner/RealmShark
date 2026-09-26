@@ -12,6 +12,8 @@ public final class DpsSnapshot {
     public final DpsData.LocalPlayerContext localPlayerContext;
     public final ArrayList<NotificationPacket> notifications;
     public final long elapsed;
+    /** Entry-frozen identity of this live encounter, or null when it was not entered through a map change. */
+    public final tomato.history.link.EncounterContext context;
 
     private DpsSnapshot(TomatoData data) {
         // Decoded map/notification packets are never subsequently mutated by capture.
@@ -22,6 +24,7 @@ public final class DpsSnapshot {
         for(int i=0;i<targets.length;i++) targets[i]=targets[i].copyForDisplay(copies);
         player=data.player==null?null:data.player.copyForDisplay(copies);
         localPlayerContext=DpsData.LocalPlayerContext.capture(player);
+        context=data.currentEncounterContext();
     }
 
     /** Call on the packet producer, or before capture has started. */

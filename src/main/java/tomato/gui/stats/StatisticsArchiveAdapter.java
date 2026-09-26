@@ -110,29 +110,41 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
         counts.put("excluded unknown visits",new Count(unknown,"visits","same visit cohort; session loot availability unknown"));
         if(view==View.SESSIONS)counts.put("undated fame observations",new Count(shownUndated,"sample observations","shown session summaries and date/unknown-time policy; combined gain unavailable when chronology is incomplete"));
     }
-    private static void addVisit(HistoricalStatistics.Profile p,ActivityJournal.Visit v){p.runs++;p.millis+=v.observedMillis();p.missingDuration|=v.observedMillis()<=0;p.damage+=v.totalDamage;p.damageKnown&=v.damageTracked;if(v.ended==0)p.ongoing++;if("Completed".equals(v.runStatus()))p.completed++;}
-    private static Row profile(HistoricalStatistics.Profile p){
+    static void addVisit(HistoricalStatistics.Profile p,ActivityJournal.Visit v){p.runs++;p.millis+=v.observedMillis();p.missingDuration|=v.observedMillis()<=0;p.damage+=v.totalDamage;p.damageKnown&=v.damageTracked;if(v.ended==0)p.ongoing++;if("Completed".equals(v.runStatus()))p.completed++;}
+    static Row profile(HistoricalStatistics.Profile p){
         Row r=new Row();r.items=p.lootValue(p.items);r.bags=p.lootValue(p.bags);r.runs=p.runs;r.millis=p.millis;r.whites=p.lootValue(p.whites);r.uts=p.lootValue(p.uts);r.sts=p.lootValue(p.sts);r.potions=p.lootValue(p.potions);r.completed=p.completed;r.unknownRuns=p.unknownRuns;r.importedRuns=p.excludedRuns;
-        r.perRun=p.perRun(p.items);r.perHour=p.perHour(p.items);r.utPerHour=p.perHour(p.uts);r.whitesPerRun=p.perRun(p.whites);r.utPerRun=p.perRun(p.uts);r.stPerRun=p.perRun(p.sts);r.potionsPerRun=p.perRun(p.potions);r.damage=p.damageKnown&&p.runs>0?p.damage:null;r.evidence=p.explanation();return r;
+        r.perRun=p.perRun(p.items);r.perHour=p.perHour(p.items);r.utPerHour=p.perHour(p.uts);r.whitesPerRun=p.perRun(p.whites);r.utPerRun=p.perRun(p.uts);r.stPerRun=p.perRun(p.sts);r.potionsPerRun=p.perRun(p.potions);r.damage=p.damageKnown&&p.runs>0?p.damage:null;r.evidence=p.explanation();
+        r.zeroLootRuns=p.lootEvidence?(long)(p.runs-p.lootRuns.size()):null;r.unassignedBags=p.lootEvidence?p.unassignedBags:null;return r;
     }
     private static final class FameRange {
         String session,className="Unknown";int character;
         final FameSession.Chronology chronology=new FameSession.Chronology();
-        Row row(){Row r=new Row();r.type="fame";r.session=session;r.character=character;r.name=className+" #"+character;r.className=className;r.time=chronology.firstTime();r.firstFame=chronology.firstFame();r.lastFame=chronology.lastFame();r.gain=chronology.gain();r.millis=chronology.elapsed();r.count=chronology.datedCount()+chronology.undatedCount();r.evidence=chronology.explanation()+" No historical map association inferred.";return r;}
+        Row row(){Row r=new Row();r.type="fame";r.session=session;r.character=character;r.name=className+" #"+character;r.className=className;r.time=chronology.firstTime();r.firstFame=chronology.firstFame();r.lastFame=chronology.lastFame();r.gain=chronology.gain();r.millis=chronology.elapsed();r.count=chronology.datedCount()+chronology.undatedCount();r.evidence=chronology.explanation()+" "+association();return r;}
+        long associated,unassociated;final Map<String,Long> maps=new TreeMap<>();
+        void associate(AppHistory.FameSample sample)throws IOException{
+            if(sample.visit()==null){unassociated++;return;}associated++;LootArchiveAdapter.label(sample.map);
+            String map=sample.map==null||sample.map.isEmpty()?"map not captured":sample.map;if(maps.containsKey(map)||maps.size()<10)maps.merge(map,1L,Long::sum);
+        }
+        /** Recorded per-sample visit associations; legacy samples stay Not recorded and nothing is inferred from names or times. */
+        String association(){
+            if(associated==0)return "Map association: Not recorded (no sample carries a recorded visit; none is inferred).";
+            StringJoiner list=new StringJoiner(", ");maps.forEach((map,count)->list.add(map+" ×"+count));
+            return "Map association: "+associated+" sample(s) with a recorded visit ("+list+(maps.size()>=10?", …":"")+"); "+unassociated+" sample(s) Not recorded.";
+        }
     }
     private static Map<String,FameRange> fame(ReadSnapshot pin,ArchiveQuery<Facets,Sort> q,Cancellation cancel)throws IOException{
         Map<String,FameRange> result=new TreeMap<>();
         pin.read("fame-snapshots",FameSession.class,row->{if(row.value.getCharacterFameData()!=null)for(Map.Entry<Integer,List<Fame>> character:row.value.getCharacterFameData().entrySet())for(Fame sample:character.getValue()){
-            cancel.check();sample(result,q,row.ref.session,character.getKey(),row.value.getCharacterClassNames()==null?"Unknown":row.value.getCharacterClassNames().getOrDefault(character.getKey(),"Unknown"),sample.getTime(),sample.getFame());
+            cancel.check();FameRange legacy=sample(result,q,row.ref.session,character.getKey(),row.value.getCharacterClassNames()==null?"Unknown":row.value.getCharacterClassNames().getOrDefault(character.getKey(),"Unknown"),sample.getTime(),sample.getFame());if(legacy!=null)legacy.unassociated++;
         }},cancel);
-        for(String module:Arrays.asList("fame","fame-latest"))pin.read(module,AppHistory.FameSample.class,row->sample(result,q,row.ref.session,row.value.character,row.value.className,row.value.time,row.value.fame),cancel);
+        for(String module:Arrays.asList("fame","fame-latest"))pin.read(module,AppHistory.FameSample.class,row->{FameRange range=sample(result,q,row.ref.session,row.value.character,row.value.className,row.value.time,row.value.fame);if(range!=null)range.associate(row.value);},cancel);
         return result;
     }
-    private static void sample(Map<String,FameRange> groups,ArchiveQuery<Facets,Sort> q,String session,int character,String name,long time,double fame)throws IOException{
-        if(!q.bounds().contains(LootQuery.time(time),LootQuery.time(time)))return;
+    private static FameRange sample(Map<String,FameRange> groups,ArchiveQuery<Facets,Sort> q,String session,int character,String name,long time,double fame)throws IOException{
+        if(!q.bounds().contains(LootQuery.time(time),LootQuery.time(time)))return null;
         LootArchiveAdapter.label(name);FameRange range=group(groups,session+"/"+character,FameRange::new);range.session=session;range.character=character;
         Long last=range.chronology.lastTime();if(time>0&&(last==null||time>=last)||last==null&&range.className.equals("Unknown"))range.className=name==null?"Unknown":name;
-        range.chronology.add(time,fame);
+        range.chronology.add(time,fame);return range;
     }
     private void counters(ReadSnapshot pin,ArchiveQuery<Facets,Sort> q,Sink<Row> sink,Cancellation cancel)throws IOException{
         Map<String,Row> groups=new TreeMap<>();Facets facets=q.facets();

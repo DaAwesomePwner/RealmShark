@@ -1,135 +1,35 @@
 {
   "schemaVersion": 1,
   "repository": "DaAwesomePwner/RealmShark",
-  "recordedDate": "2026-09-24",
-  "phase": "wave-2",
-  "status": "Wave2 local validation passed; final independent review and final-head CI/merge gates pending",
-  "stopRequestedByUser": false,
-  "branch": "feat/ux-wave-2-evidence",
-  "testedCodeCommit": "9923bea",
-  "testedWorkerCommit": "66fc750349376ee8e3b1acfce969d362cf04538d",
-  "equivalence": "No differences in src, scripts or build.gradle between tested worker and integrated code. Guide/milestone changes are documentation only.",
-  "mainCommit": "64d58d0606a82a956e082fa0dcc07aa18d8fbbfa",
-  "mainCi": {
-    "run": "https://github.com/DaAwesomePwner/RealmShark/actions/runs/35696825491",
-    "conclusion": "success"
-  },
+  "recordedDate": "2026-09-26",
+  "phase": "wave-3",
+  "status": "Wave 3 implemented and locally validated; PR, final-head CI, merge and main verification pending",
+  "branch": "feat/ux-wave-3-connected-analysis",
+  "base": "6d71a5605b1f1ff2e5a5a00d5af43fe0da8eac1f",
+  "testedCodeCommit": "ca15196",
   "trackingIssue": "https://github.com/DaAwesomePwner/RealmShark/issues/9",
-  "wave2PullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/12",
-  "wave2CodeCi": {
-    "head": "fefdaa6",
-    "run": "https://github.com/DaAwesomePwner/RealmShark/actions/runs/36078756953",
-    "conclusion": "success",
-    "tests": 802,
-    "failures": 0,
-    "errors": 0,
-    "skipped": 0,
-    "jarBuildContractAndHelp": "passed"
-  },
   "waves": [
-    {
-      "wave": 1,
-      "status": "merged",
-      "pullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/11"
-    },
-    {
-      "wave": 2,
-      "status": "verified locally; final independent approval and final-head CI/merge gates pending"
-    },
-    {
-      "wave": 3,
-      "status": "not implemented; provisional contracts preserved",
-      "document": "docs/UX-WAVE3-CONTRACTS.md"
-    },
-    {
-      "wave": 4,
-      "status": "not implemented; provisional contracts preserved",
-      "document": "docs/UX-WAVE4-CONTRACTS.md"
-    }
+    {"wave": 1, "status": "merged and main verified", "pullRequest": 11, "merge": "64d58d0606a82a956e082fa0dcc07aa18d8fbbfa"},
+    {"wave": 2, "status": "merged and main verified", "pullRequest": 12, "merge": "00e218839b07227f2cf8346f563f0eac09002872", "mainCi": "36081366088"},
+    {"wave": 3, "status": "implemented; locally validated; PR/CI/merge pending"},
+    {"wave": 4, "status": "not started; provisional contracts only", "document": "docs/UX-WAVE4-CONTRACTS.md"}
   ],
+  "interWave": {"pullRequest": 13, "title": "Per-player damage-by-source breakdown", "merge": "6d71a56", "mainCi": "36223175267"},
   "validation": {
-    "command": ".\\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/scaled-final-pass-cache -PrealmSharkBuildDir=build/scaled-final-pass -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200",
-    "runtime": "JDK17, Gradle7.6.4, Java8 main API/bytecode targeting",
-    "exitCode": 0,
-    "test": {"tests": 803, "failures": 0, "errors": 0, "skipped": 0},
-    "testUi150": {"tests": 176, "failures": 0, "errors": 0, "skipped": 0},
-    "testUi200": {"tests": 176, "failures": 0, "errors": 0, "skipped": 0},
+    "toolchain": "JDK 17 (Temurin 17.0.20.1), Gradle 7.6.4, Java 8 API/bytecode targets",
+    "test": {"tests": 916, "failures": 0, "errors": 0, "skipped": 0},
+    "testUi150": {"tests": 233, "failures": 0, "errors": 0, "skipped": 0},
+    "testUi200": {"tests": 233, "failures": 0, "errors": 0, "skipped": 0},
     "shadowJar": "passed",
-    "buildContract": "passed at9923bea; build/build-maintenance-56cb21cc7b6046adaa0ae048fa39ea16",
-    "isolatedJarHelpExitCode": 0,
-    "evidence": "Validation worktree build/scaled-final-pass; coordinator independently summed XML and checked exits",
-    "limits": "Native screenshots use realized host-clamped geometry; exact detached-client layout is separately tested. Historical focus timeout cause remains unestablished; activation precondition is now verified. No OS keyboard delivery claim."
-  },
-  "historicalHandoffValidation": {
-    "testedCodeCommit": "ad21a1fe3091324a7d773b69a326b2566071e0eb",
-    "command": ".\\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/ux-handoff-cache -PrealmSharkBuildDir=build/ux-handoff -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200",
-    "commandNote": "Portable equivalent; original worker used its own unique build/cache directories.",
-    "runtime": "JDK 17, Gradle 7.6.4, main Java 8 API/bytecode targeting",
-    "exitCode": 1,
-    "test": {
-      "tests": 800,
-      "failures": 0,
-      "errors": 0,
-      "skipped": 0
-    },
-    "shadowJar": "passed",
-    "testUi150": {
-      "tests": 174,
-      "failures": 1,
-      "errors": 0,
-      "skipped": 0
-    },
-    "testUi200": {
-      "tests": 174,
-      "failures": 0,
-      "errors": 0,
-      "skipped": 0
-    },
-    "failures": [
-      {
-        "task": "testUi150",
-        "test": "ui.WorkspaceShellNavigationTest.realFrameFocusPaintDiffersFromSelectionAndReproducesTheOldEmptyBorderDefect",
-        "message": "Timed out waiting for keyboard focus",
-        "location": "src/test/java/ui/WorkspaceShellNavigationTest.java:329 (called from line 186)",
-        "cause": "Not established. Do not assume infrastructure-only or waive the gate."
-      }
-    ],
-    "buildContract": {
-      "result": "passed earlier in this resumption",
-      "codeCommit": "c1ccedb",
-      "isolatedJarHelpExitCode": 0
-    },
-    "limits": [
-      "Earlier interrupted run produced no test result and is not a pass.",
-      "Raw build reports and screenshots are local-only; regenerate needed artifacts in the next workspace.",
-      "History keyboard fixture verifies native focus and posted Swing dispatch, not OS keystroke delivery."
-    ]
+    "isolatedHelpExitCode": 0,
+    "buildContract": "passed at ab6f613; no build files changed since",
+    "record": "docs/UX-WAVE3-VALIDATION.md"
   },
   "review": {
-    "sourceThrough": "6f7d007",
-    "finalTestDeltaThrough": "66fc750 (integrated9923bea)",
-    "result": "Fresh independent source, test/guide delta and startup-publication repair reviews found no blockers. Final milestone/exact-head disposition pending.",
-    "visuals": "46 workstation-setup images plus24 fresh final-run images at66fc750 independently inspected; no blockers. Final live/archived Inspect, explicit failures and compact24pt archives at100/150/200. Realized native geometry, not exact host-clamped requested sizes or OS keyboard delivery.",
-    "pending": [
-      "Independent review of final PR head"
-    ]
+    "source": "Independent: APPROVE f3d8161; should-fix items fixed, APPROVE cce9fb0; final delta APPROVE 7975942 (later commits are test reconciliations)",
+    "visual": "Round 1 FIX REQUIRED (2 blockers, 9 should-fix) addressed in three fix lanes; round 2 on final-head ab6f613 captures PASS (cosmetic notes only)"
   },
-  "nextAction": "Complete independent final milestone/exact-head review and final-head Windows CI, then merge PR12 normally and verify actual main SHA/CI. Publish merge state in issue9 and local checkpoint; this tracked file is the premerge evidence snapshot.",
-  "remainingGates": [
-    "Independent final PR-head review",
-    "Pass required Windows CI at final PR head",
-    "Normal merge and verify main CI before Wave 3"
-  ],
-  "recovery": {
-    "entrypoint": "docs/UX-HANDOFF.md",
-    "validationRecord": "docs/UX-WAVE2-VALIDATION.md",
-    "coverageLedger": "docs/UX-EXECUTION.md",
-    "productBacklog": "docs/UX-ROADMAP-2026-09-21.md",
-    "localStateOptional": ".omc/ux/checkpoint.json and old worktrees are machine-local conveniences, not required recovery inputs.",
-    "workers": "All production/test changes integrated; create fresh isolated worker worktrees when resuming.",
-    "historicalCopies": [
-      "docs/UX-EXECUTION (1).md",
-      "docs/UX-ROADMAP-2026-09-21 (1).md"
-    ]
-  }
+  "laneHandoffs": ["docs/UX-WAVE3-CORE.md", "docs/UX-WAVE3-ANALYTICS.md", "docs/UX-WAVE3-ALERTS.md", "docs/UX-WAVE3-INVESTIGATION.md"],
+  "nextAction": "Publish the Wave 3 PR with this evidence; pass required Windows CI on the final head; merge normally; verify main CI and synchronize local main. Then begin Wave 4 from verified main.",
+  "recovery": "This tracked file is the pre-merge snapshot. Actual PR/merge/main CI state is on GitHub (PR and issue #9); reconcile before resuming."
 }

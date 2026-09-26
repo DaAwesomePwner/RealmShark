@@ -23,6 +23,30 @@ public class FameSession {
     private String description;
     private boolean readOnly;
     private ArchiveProvenance archiveProvenance;
+    /** Optional per-sample exact visit associations (archive projections only). Null when none was recorded. */
+    private HashMap<Integer, List<SampleVisit>> sampleVisits;
+
+    /** A fame sample's recorded visit, copied from {@code AppHistory.FameSample}; never inferred. */
+    public static final class SampleVisit {
+        public final long time; public final String visitSession, visitId, map;
+        public SampleVisit(long time, tomato.history.link.VisitRef visit, String map) {
+            this.time = time; visitSession = visit.sessionId; visitId = visit.visitId; this.map = map;
+        }
+        public tomato.history.link.VisitRef visit() {
+            return visitSession == null || visitId == null || visitSession.isEmpty() || visitId.isEmpty() ? null : new tomato.history.link.VisitRef(visitSession, visitId);
+        }
+        public String label() { return (map == null || map.isEmpty() ? "Map not captured" : map) + " · run " + visitSession + "/" + visitId; }
+    }
+    /** Recorded sample visits for a character, oldest first; empty for legacy histories. */
+    public List<SampleVisit> sampleVisits(Integer character) {
+        List<SampleVisit> values = sampleVisits == null ? null : sampleVisits.get(character);
+        return values == null ? Collections.<SampleVisit>emptyList() : Collections.unmodifiableList(values);
+    }
+    /** Archive projections only: record one sample's exact visit. */
+    public void addSampleVisit(int character, SampleVisit visit) {
+        if (sampleVisits == null) sampleVisits = new HashMap<>();
+        sampleVisits.computeIfAbsent(character, k -> new ArrayList<>()).add(visit);
+    }
 
     /** View-generation metadata is separate from the original session's dates. */
     public static final class ArchiveProvenance {

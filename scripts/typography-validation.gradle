@@ -80,6 +80,32 @@ allprojects {
                     includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveFameRangeMeasureAndDelayedCharacterChoiceRestore'
                     includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.liveStateSaveFailureRetainsActiveFacetsAndCanRetryWithoutChangingThem'
                     includeTestsMatching 'tomato.gui.stats.LootArchiveStateTest.arrivingFacetChoicesPreserveTheUnappliedLiveDraft'
+                    // Wave 3 connected analysis: routed shell, Back restore and analytics drill-downs.
+                    includeTestsMatching 'tomato.gui.route.ShellBackActionTest'
+                    includeTestsMatching 'tomato.gui.route.RouteBackRestoreTest'
+                    includeTestsMatching 'tomato.ShellRouteRegistrationTest'
+                    includeTestsMatching 'tomato.gui.logging.CoverageExplanationTest.errorRouteFocusesAllowlistedPacketIssuesAndBackRestoresLogging'
+                    includeTestsMatching 'tomato.gui.stats.LootDrillDownTest.workspaceDrillsVariantToOccurrenceToVerifiedRunAndExplainsUnavailableNavigation'
+                    includeTestsMatching 'tomato.gui.stats.CohortComparisonTest.statisticsWorkspaceEditsCohortsThroughQueryIntent'
+                    includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.savedViewerHasRangeGainControlsKeepsPinsAndSaysMapNotRecorded'
+                    includeTestsMatching 'tomato.gui.stats.FameGraphPinTest.liveTrackerShowsTheSameTextDelta'
+                    includeTestsMatching 'tomato.gui.stats.FameVisitAssociationTest.viewerShowsRecordedRunsAndGatesOpeningOnTheNavigator'
+                    // Wave 3 alerts and Bridge: contextual drafts, Key-pop handoff, decisions, Bridge settings/review.
+                    // Wave 3 visual evidence: populated/empty/unavailable captures of every new surface.
+                    includeTestsMatching '*.WaveThreeEvidenceTest'
+                    // Wave 3 investigation: run workbench/routes, resource windows, event explorer, comparison, My Info.
+                    includeTestsMatching 'tomato.gui.activity.ActivityRouteTest'
+                    includeTestsMatching 'tomato.gui.activity.ResourceWindowTest'
+                    includeTestsMatching 'tomato.gui.dps.DpsInvestigationTest'
+                    includeTestsMatching 'tomato.gui.security.InspectComparisonTest'
+                    includeTestsMatching 'tomato.gui.myinfo.RecordedDpsHandoffTest'
+                    includeTestsMatching 'tomato.gui.maingui.AlertDraftContractTest'
+                    includeTestsMatching 'tomato.gui.chat.ChatAlertDraftTest'
+                    includeTestsMatching 'tomato.gui.keypop.KeyPopNotificationHandoffTest'
+                    includeTestsMatching 'tomato.gui.notifications.RecentDecisionsTest'
+                    includeTestsMatching 'tomato.bridge.BridgeDraftActiveTest'
+                    includeTestsMatching 'tomato.bridge.BridgeSavedReviewTest'
+                    includeTestsMatching 'tomato.gui.bridge.BridgeUiTest'
                 }
                 testLogging { events 'failed'; exceptionFormat 'full' }
             }

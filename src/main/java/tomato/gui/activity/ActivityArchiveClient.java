@@ -86,12 +86,17 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private final JButton linked=new JButton("Export selected visit + Timeline…");
         private final JButton openFolder=new JButton("Open linked export folder");
         private Path exportedFolder;
-        private Cancellation detailCancel=new Cancellation(),exportCancel=new Cancellation();
+        private Cancellation detailCancel=new Cancellation(),exportCancel=new Cancellation(),outcomeCancel=new Cancellation();
         private ArchiveRow<Row> pending, selected;
         private boolean reading, restoring=true, removed, exporting;
         private long generation;
+        private final boolean exact;
+        private tomato.history.link.VisitRef shownRef;
+        private ResourceWindowPanel resourceWindow;
+        private final JTextArea window=ContentStyle.wrappingText("");
         View(ArchivePage<Row> page,ViewState<Filters,Sort> state,Binding<Filters,Sort> binding) {
             super(new BorderLayout(0,6));this.page=page;this.state=state;this.binding=binding;
+            exact=ActivityRoutes.exactVisit(state.query.facets());
             setName("activity-archive-"+mode.name().toLowerCase(Locale.ROOT));
             Map<String,Sort> sorts=new LinkedHashMap<>();
             List<HistoryTables.Column<Row,?>> columns=columns(sorts);
@@ -112,6 +117,10 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             top.add(HistoryTables.controls(table,defaults,presets,layout->{this.state=this.state.withTable("activity",layout);remember();}));
             JTextArea counts=ContentStyle.wrappingText(counts(page)+(mode==ActivityPanel.Mode.TIMELINE?"":
                     "\nVisit summary rows · Export selected visit + Timeline below includes full linked evidence."));counts.setName("activity-archive-counts");top.add(counts);
+            if(mode==ActivityPanel.Mode.TIMELINE&&(exact||state.query.bounds().from!=null||state.query.bounds().until!=null)) {
+                window.setName("timeline-window");window.getAccessibleContext().setAccessibleName("Timeline window, exact visit link and linked outcome");
+                window.setText(windowText()+(exact?"\nLinked outcome: reading from this revision…":""));top.add(window);
+            }
             add(top,BorderLayout.NORTH);
             message.setName("activity-archive-detail");message.getAccessibleContext().setAccessibleName("Saved activity details and origin");
             message.setRows(6);
@@ -122,8 +131,10 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 chart.addPropertyChangeListener("inspectionSummary",e->inspection.setText((String)e.getNewValue()));
                 plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspection,BorderLayout.SOUTH);
                 tabs.setName("saved-resource-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+                resourceWindow=new ResourceWindowPanel(chart,()->shownRef);
                 tabs.addTab("Resources & buffs",plot);tabs.addTab("Uptime summary",uptime);tabs.addTab("Coverage",new JScrollPane(message));
-                int index="uptime".equals(state.tab)?1:"coverage".equals(state.tab)?2:0;tabs.setSelectedIndex(index);
+                tabs.addTab("Selected window",ResourceWindowPanel.scroll(resourceWindow));
+                int index="uptime".equals(state.tab)?1:"coverage".equals(state.tab)?2:"window".equals(state.tab)?3:0;tabs.setSelectedIndex(index);
                 tabs.addChangeListener(e->{if(!restoring){this.state=this.state.withPosition(tab(),this.state.selected,this.state.anchor,this.state.anchorOffset);remember();}});
                 details.add(tabs);
             } else details.add(new JScrollPane(message));
@@ -144,10 +155,47 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 position();int row=table.getSelectedRow();select(row<0?null:page.rows.get(row));
             }});
             scroll.getViewport().addChangeListener(e->{if(!restoring&&!removed)position();});
+            // A routed exact visit (session + visit ID) selects its single match; the selection is remembered after render.
+            if(exact&&mode!=ActivityPanel.Mode.TIMELINE&&page.rows.size()==1&&table.getSelectedRow()<0){
+                table.setRowSelectionInterval(0,0);SwingUtilities.invokeLater(()->{if(!removed&&!restoring)position();});
+            }
             restoring=false;
             int row=table.getSelectedRow();select(row<0?null:page.rows.get(row));
+            if(mode==ActivityPanel.Mode.TIMELINE)startLinkedOutcome();
         }
-        private String tab() { return tabs.getSelectedIndex()==1?"uptime":tabs.getSelectedIndex()==2?"coverage":"resources"; }
+        /** Explicit unresolved-reference state: nothing nearby is substituted for the linked visit. */
+        private String unavailable() {
+            Filters f=state.query.facets();
+            return "Linked visit unavailable: session "+f.visitSession+" · visit "+f.visitId+" is not in this saved history"
+                    +(mode==ActivityPanel.Mode.TIMELINE&&state.query.bounds().from!=null?" window":"")+"."
+                    +"\nIt may belong to an imported, deleted or another machine's session, or it has not been saved yet. "
+                    +"No other visit (including one with the same dungeon name) is substituted. Use Clear exact visit link to browse.";
+        }
+        private void startLinkedOutcome() {
+            if(!exact)return;
+            Filters f=state.query.facets();ZoneId zone=ZoneId.of(state.query.bounds().zone);
+            final ArchiveResult.Lease<Row> lease;
+            try{lease=page.lease();}catch(IOException failure){window.setText(window.getText()+"\nLinked outcome unavailable: displayed pin closed.");return;}
+            Cancellation token=outcomeCancel;
+            new SwingWorker<ActivityJournal.Visit,Void>(){
+                protected ActivityJournal.Visit doInBackground()throws Exception{try(ArchiveResult.Lease<Row> held=lease){return ActivityQueries.readLinkedVisit(held,f.visitSession,f.visitId,token);}}
+                protected void done(){
+                    if(removed)return;
+                    String text;
+                    try{ActivityJournal.Visit visit=get();text=visit==null?"Linked outcome: "+unavailable():"Linked outcome · "+Objects.toString(visit.map,"Unknown area")+" · "+RunWorkbench.outcomeLine(visit,zone);}
+                    catch(Exception failure){text="Linked outcome could not be read from this revision; Refresh to retry.";}
+                    window.setText(windowText()+"\n"+text);
+                }
+            }.execute();
+        }
+        private String windowText() {
+            ArchiveQuery.Bounds b=state.query.bounds();Filters f=state.query.facets();ZoneId zone=ZoneId.of(b.zone);
+            String scope=exact?"Exact visit "+f.visitId+" (session "+f.visitSession+")":"All assigned and unassigned events in scope";
+            if(b.from==null&&b.until==null)return scope+" · no time window.";
+            return scope+"\nWindow ["+(b.from==null?"unbounded":RunWorkbench.time(b.from,zone))+", "+(b.until==null?"unbounded":RunWorkbench.time(b.until,zone))+") "+zone.getId()
+                    +" · half-open; "+page.matches+" matching events. Displayed pages and every export use this same query and bounds.";
+        }
+        private String tab() { int i=tabs.getSelectedIndex();return i==1?"uptime":i==2?"coverage":i==3?"window":"resources"; }
         private void remember() { if(!restoring&&!removed)binding.viewChanged(state); }
         private void position() { state=HistoryTables.position(table,scroll,page,state);remember(); }
         private JPanel queryControls() {
@@ -172,6 +220,13 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 }catch(RuntimeException failure){message.setText("Duration not applied: "+failure.getMessage());}});controls.add(duration);
             }
             JButton dates=new JButton("Date bounds…");dates.addActionListener(e->dates());controls.add(dates);
+            ArchiveQuery.Bounds span=state.query.bounds();
+            if(mode==ActivityPanel.Mode.TIMELINE&&span.from!=null&&span.until!=null) {
+                JButton widen=new JButton("Widen window ±30 s");widen.setName("timeline-widen-window");
+                widen.setToolTipText("Adjust both half-open bounds by 30 seconds; displayed rows and exports keep using one query");
+                widen.addActionListener(e->binding.queryChanged(state.query.withBounds(new ArchiveQuery.Bounds(span.from-ActivityRoutes.AROUND_MILLIS,
+                        span.until+ActivityRoutes.AROUND_MILLIS,ZoneId.of(span.zone),span.mode,span.includeUnknown))));controls.add(widen);
+            }
             if(!f.visitId.isEmpty()) {
                 JButton clear=new JButton("Clear exact visit link");clear.setToolTipText(f.visitSession+" / "+f.visitId);
                 clear.addActionListener(e->{Filters next=this.state.query.facets();next.visitId=next.visitSession="";change(next);});controls.add(clear);
@@ -197,9 +252,11 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private void select(ArchiveRow<Row> row) {
             if(removed)return;generation++;detailCancel.cancel();selected=row;pending=row;
             linked.setEnabled(row!=null&&!exporting);
-            if(mode==ActivityPanel.Mode.COMBAT){chart.setVisit(null);uptime.removeAll();uptime.revalidate();uptime.repaint();}
-            if(visitRenderer!=null){details.removeAll();details.add(new JScrollPane(message));details.revalidate();details.repaint();}
-            if(row==null){pending=null;message.setText(page.matches==0?"No saved matches in this query. Reset filters or change scope; recording coverage is unknown.":"Select a saved visit or event for full details.");return;}
+            if(mode==ActivityPanel.Mode.COMBAT){shownRef=null;chart.setVisit(null);uptime.removeAll();uptime.revalidate();uptime.repaint();}
+            if(visitRenderer!=null||mode==ActivityPanel.Mode.RUNS){details.removeAll();details.add(new JScrollPane(message));details.revalidate();details.repaint();}
+            if(row==null){pending=null;message.setText(page.matches==0?(exact&&mode!=ActivityPanel.Mode.TIMELINE?unavailable()
+                    :exact?"No saved Timeline events for this exact visit"+(state.query.bounds().from!=null?" in this window":"")+". Recording coverage is unknown; an empty window is not proof that nothing happened."
+                    :"No saved matches in this query. Reset filters or change scope; recording coverage is unknown."):"Select a saved visit or event for full details.");return;}
             message.setText(origin(row)+"\n"+row.value.summary+"\n"+row.value.detail);
             if(mode==ActivityPanel.Mode.TIMELINE) {
                 pending=null;message.append("\n"+(row.value.assigned?"Assigned by recorded visit ID: "+row.value.visitId:"Unassigned; no visit inferred")
@@ -241,11 +298,18 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                     +"\nTimeline samples omitted by retention: "+visit.timelineOmitted+". Old aggregate-only visits cannot reconstruct charts."
                     +"\nPage/all-match exports contain lightweight visit summaries. Export selected visit + Timeline includes full saved details and exact linked events.");
             if(mode==ActivityPanel.Mode.COMBAT) {
+                shownRef=ActivityRoutes.reference(row.ref.session,visit.id);
                 chart.setVisit(visit);List<Object[]> rows=new ArrayList<>();
                 uptimes(rows,visit.conditions,visit.conditionObservedMillis,"");uptimes(rows,visit.extraConditions,visit.extraConditionObservedMillis," (extra)");
                 JTable table=HistoryTables.table("saved-buff-uptime",new String[]{"Condition","Active ms","Observed ms","Uptime %"},
                         new Class<?>[]{String.class,Long.class,Long.class,Double.class},rows);
                 uptime.removeAll();uptime.add(HistoryTables.page(table,"Local character only. Uptime denominator is observed coverage, not the entire visit."));uptime.revalidate();uptime.repaint();
+            } else if(mode==ActivityPanel.Mode.RUNS&&visitRenderer==null) {
+                // Run workbench: grouped evidence for this exact visit, with exact-reference actions.
+                tomato.history.link.VisitRef ref=ActivityRoutes.reference(row.ref.session,visit.id);
+                RunWorkbenchPanel workbench=new RunWorkbenchPanel(message,ref,row.value,visit,ZoneId.of(state.query.bounds().zone),origin(row),
+                        "\nPage/all-match exports contain lightweight visit summaries. Export selected visit + Timeline includes full saved details and exact linked events.");
+                details.removeAll();details.add(workbench);details.revalidate();details.repaint();
             } else if(visitRenderer!=null) {
                 JPanel host=new JPanel(new BorderLayout());message.append("\nRoster facets apply only to this selected visit.");
                 JScrollPane evidence=new JScrollPane(message);evidence.setPreferredSize(new Dimension(600,90));
@@ -284,7 +348,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 }
             }.execute();
         }
-        private void retire() { removed=true;generation++;pending=null;detailCancel.cancel();exportCancel.cancel(); }
+        private void retire() { removed=true;generation++;pending=null;detailCancel.cancel();exportCancel.cancel();outcomeCancel.cancel(); }
         @Override public void removeNotify() { retire();super.removeNotify(); }
     }
     private List<HistoryTables.Column<Row,?>> columns(Map<String,Sort> sorts) {

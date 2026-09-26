@@ -37,7 +37,7 @@ final class KeyPopDashboard extends JPanel {
     private final JLabel[] metricCaptions = new JLabel[4];
     final JLabel status = new JLabel();
     private final JTextArea resolvedPeriod = ContentStyle.wrappingText("");
-    final JLabel empty = new JLabel("Waiting for key pops", SwingConstants.CENTER);
+    final JLabel empty = new JLabel("Waiting for key-pops", SwingConstants.CENTER);
     private final KeyPopHistory history;
     private final DefaultTableModel eventsModel = model(new String[] {"Time", "Player", "Type", "Dungeon / item"}, Instant.class, String.class, String.class, String.class);
     private final DefaultTableModel playersModel = model(new String[] {"Player", "Pops", "Keys", "Runes", "Vials", "Incs", "Share %", "Last pop"}, String.class, Integer.class, Integer.class, Integer.class, Integer.class, Integer.class, Double.class, Instant.class);
@@ -106,7 +106,7 @@ final class KeyPopDashboard extends JPanel {
         constraints.gridy++; top.add(cards, constraints);
         JPanel searchRow = new JPanel(new BorderLayout(8, 0));
         search.setName("keypop-search"); search.putClientProperty("JTextField.placeholderText", "Search player, dungeon or item…");
-        search.getAccessibleContext().setAccessibleName("Search key pops");
+        search.getAccessibleContext().setAccessibleName("Search key-pops");
         search.setToolTipText("Case-insensitive search; every word must match the event.");
         searchRow.add(search); searchRow.add(button("Reset filters", this::resetFilters), BorderLayout.EAST);
         constraints.gridy++; top.add(searchRow, constraints);
@@ -330,6 +330,21 @@ final class KeyPopDashboard extends JPanel {
     }
 
     List<KeyPopEvent> filteredEvents() { return new ArrayList<>(filtered); }
+
+    /**
+     * The dungeon/item of the selected event or By dungeon row, else the Dungeon filter; null when the
+     * current tab has no such selection (By player). The value is observed text and is not resolved here.
+     */
+    String selectedDungeon() {
+        int tab = tabs.getSelectedIndex();
+        if (tab == 0 && events.getSelectedRow() >= 0) {
+            int row = events.convertRowIndexToModel(events.getSelectedRow());
+            return row < filtered.size() ? filtered.get(row).item : null;
+        }
+        if (tab == 2 && items.getSelectedRow() >= 0) return (String)items.getModel().getValueAt(items.convertRowIndexToModel(items.getSelectedRow()), 0);
+        if (tab != 1 && item.getSelectedIndex() > 0) return (String)item.getSelectedItem();
+        return null;
+    }
 
     void editFont(Font font) {
         for (JTable table : new JTable[] {events, players, items}) ContentStyle.tableFont(table, font, 0);

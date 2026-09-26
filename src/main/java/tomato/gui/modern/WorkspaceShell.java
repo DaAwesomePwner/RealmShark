@@ -4,11 +4,15 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import tomato.gui.route.Destination;
+import tomato.gui.route.ShellNavigator;
 import util.PreferencesStore;
 import util.PropertiesManager;
 
 /** Responsive navigation around the original feature panels; no data is duplicated. */
 public final class WorkspaceShell extends JPanel {
+    /** Back label when the routed origin is the page already shown. */
+    public static final String BACK_TO_PREVIOUS_VIEW = "Back to previous view";
     public static final String[] TITLES = {"Chat", "Key-pops", "Inspect", "Characters", "Statistics", "Daily Quests", "My Info", "DPS Logger", "Loot", "Logging", "Runs", "Timeline", "Bridge Review", "Notifications"};
     private static final String[] DESCRIPTIONS = {
         "Your conversations across the Realm, in one place.",
@@ -50,6 +54,8 @@ public final class WorkspaceShell extends JPanel {
     private final Timer preferencesTimer = new Timer(250, e -> refreshPreferencesStatus());
     private final JLabel sideFooter = new JLabel("Powered by RealmShark");
     private final JButton capture = new JButton("Start capture");
+    private final JButton back = new JButton("Back");
+    private ShellNavigator navigator;
     private final JLabel previewLabel = new JLabel("PREVIEW");
     private boolean compact;
     private final JTextArea captureFailure = new JTextArea();
@@ -130,6 +136,10 @@ public final class WorkspaceShell extends JPanel {
         heading.add(title, BorderLayout.NORTH); heading.add(description, BorderLayout.CENTER);
         header.add(heading, BorderLayout.CENTER);
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        back.setName("navigate-back");
+        back.setVisible(false);
+        back.addActionListener(e -> navigateBack());
+        actions.add(back);
         capture.setName("capture-toggle");
         capture.setToolTipText("Start or stop the network sniffer (Ctrl+Shift+S)");
         capture.addActionListener(e -> toggleCapture.run());
@@ -182,6 +192,10 @@ public final class WorkspaceShell extends JPanel {
         addComponentListener(new ComponentAdapter() { @Override public void componentResized(ComponentEvent e) { adapt(); }});
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "capture");
         getActionMap().put("capture", new AbstractAction() { public void actionPerformed(ActionEvent e) { if (capture.isEnabled()) capture.doClick(); }});
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK), "navigate-back");
+        getActionMap().put("navigate-back", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { navigateBack(); }
+        });
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK), "open-navigation");
         getActionMap().put("open-navigation", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { showNavigation(); }
@@ -368,8 +382,53 @@ public final class WorkspaceShell extends JPanel {
             styleNavigation(i);
         }
         scrollSelected(); scrollSelectedLater();
+        if (navigator != null) refreshBack(); // The label depends on whether Back returns to this page.
     }
     public int getSelectedPage() { return selected; }
+
+    /** Shell page for a routed destination, or {@link ShellNavigator#NO_PAGE} for dialog destinations. */
+    public static int pageOf(Destination destination) {
+        switch (destination) {
+            case INSPECT: return 2;
+            case STATISTICS: return 4;
+            case MY_INFO: return 6;
+            case ENCOUNTER: case RESOURCES: return 7;
+            case LOOT: return 8;
+            case LOGGING: return 9;
+            case RUNS: return 10;
+            case TIMELINE: return 11;
+            case BRIDGE_REVIEW: return 12;
+            case NOTIFICATIONS: return 13;
+            default: return ShellNavigator.NO_PAGE; // ALERT_DRAFT opens beside the current page.
+        }
+    }
+
+    /** Creates this shell's navigator; the caller installs it with {@code Navigator.install}. */
+    public ShellNavigator createNavigator() {
+        ShellNavigator created = new ShellNavigator(this::getSelectedPage, this::select, WorkspaceShell::pageOf, ShellNavigator.DEFAULT_CAPACITY);
+        navigator = created;
+        created.addChangeListener(this::refreshBack);
+        refreshBack();
+        return created;
+    }
+
+    /** Visible only while a routed origin can be restored; Alt+Left works whenever it is shown. */
+    private void refreshBack() {
+        boolean available = navigator != null && navigator.canGoBack();
+        int page = available ? navigator.backPage() : -1;
+        // A route within the current page (for example Runs to a filtered Runs view) returns to that page's earlier
+        // view; naming the page the user is already on would read as a no-op.
+        String label = page == selected ? BACK_TO_PREVIOUS_VIEW : page >= 0 && page < TITLES.length ? "Back to " + TITLES[page] : "Back";
+        back.setText(label); back.getAccessibleContext().setAccessibleName(label);
+        back.setToolTipText("Return to the view you came from, with its filters and selection (Alt+Left)");
+        if (back.isVisible() != available) { back.setVisible(available); revalidate(); repaint(); }
+    }
+
+    private void navigateBack() {
+        if (navigator == null || !navigator.canGoBack()) return;
+        // Focus follows the restored page, as with the Alt destination shortcuts; the hidden page loses it.
+        if (navigator.back()) navigation[selected].requestFocusInWindow();
+    }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {
         captureRunning = running;

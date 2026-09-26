@@ -117,7 +117,7 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
             }
         }
         public Map<String,String> dependencies(){return Collections.singletonMap("population","Observed pop events only; portal callouts excluded. Summary origins @query are aggregate keys, not session identities.");}
-        public Map<String,Count> counts(){Map<String,Count> result=new LinkedHashMap<>();result.put("events",new Count(matching,"pop events","whole matching query; share denominator; callouts excluded"));result.put("keys",new Count(keys,"key pops","whole matching query"));return result;}
+        public Map<String,Count> counts(){Map<String,Count> result=new LinkedHashMap<>();result.put("events",new Count(matching,"pop events","whole matching query; share denominator; callouts excluded"));result.put("keys",new Count(keys,"key-pops","whole matching query"));return result;}
         private static final class GroupKey implements Comparable<GroupKey>{final String group,player;GroupKey(String g,String p){group=g;player=p;}long bytes(){return 64L+2L*group.length()+2L*player.length();}public int compareTo(GroupKey k){int c=group.compareTo(k.group);return c==0?player.compareTo(k.player):c;}}
         private static final class Accumulator{
             long pops,keys,runes,vials,incs,players;Instant last;String player="";

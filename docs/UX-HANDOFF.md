@@ -1,21 +1,19 @@
 # Four-wave UX implementation handoff
 
-Wave 2 was explicitly resumed on 2026-09-24 from the clean, published `6f7d007`
-handoff. The earlier stop is superseded. Native geometry/focus test repairs,
-session-startup metadata-publication race repair and user guides are integrated
-through `9923bea`. Final local validation passed **803/176/176** full/150%/200%
-tests, zero failures/errors/skips, plus JAR/help. Independent source/test/guide
-and startup-repair reviews found no blockers. PR #12 final-head approval, CI,
-merge and main verification remain the final gates. This is the premerge evidence
-snapshot; reconcile later PR/issue state before resuming.
-Main and its successful Wave 1 CI were reconciled live.
+Waves 1 and 2 are merged and main-verified (PR #11 `64d58d0`, PR #12 `00e2188`).
+Standalone PR #13 (per-player damage-by-source breakdown) merged as `6d71a56`.
+Wave 3 was implemented on `feat/ux-wave-3-connected-analysis` from `6d71a56` on
+2026-09-26 in four lanes plus coordinator integration. Evidence, reviews and the
+exact tested head are in [the Wave 3 validation record](UX-WAVE3-VALIDATION.md) and
+[portable checkpoint](UX-CHECKPOINT.json). This is the pre-merge snapshot; reconcile
+the Wave 3 PR, CI and main state with GitHub before resuming.
 
 ## Start here on another computer
 
 ```powershell
 git clone https://github.com/DaAwesomePwner/RealmShark.git
 Set-Location RealmShark
-git switch feat/ux-wave-2-evidence
+git switch feat/ux-wave-3-connected-analysis   # or main, once Wave 3 is merged
 git pull --ff-only
 git status --short
 ```
@@ -23,68 +21,54 @@ git status --short
 For an existing checkout, inspect its status and worktrees first; never overwrite
 unfamiliar changes to match this handoff. Fetch and compare with the live remote.
 
-Read `AGENTS.md`, `docs/UX-EXECUTION.md`, `docs/UX-CHECKPOINT.json`, and
-`docs/UX-WAVE2-VALIDATION.md`. The checkpoint records the exact tested code commit,
-results and next action. Reconcile it with GitHub issue #9, PRs and CI before work.
-`main` was verified at Wave 1 merge `64d58d0606a82a956e082fa0dcc07aa18d8fbbfa`;
-its successful CI run was `35696825491`. Wave 2 remains on its feature branch.
+Read `AGENTS.md`, `docs/UX-EXECUTION.md`, `docs/UX-CHECKPOINT.json` and
+`docs/UX-WAVE3-VALIDATION.md`. The lane handoffs `docs/UX-WAVE3-CORE.md`,
+`UX-WAVE3-ANALYTICS.md`, `UX-WAVE3-ALERTS.md` and `UX-WAVE3-INVESTIGATION.md`
+document the public APIs (VisitRef/EncounterContext, Route/Navigator, archive
+restore, alert drafts and decisions, Bridge journal reader) that Wave 4 builds on.
+Reconcile the checkpoint with GitHub issue #9, PRs and CI before work.
 
-The ignored `.omc/ux/checkpoint.json` and old isolated worktrees are machine-local
-conveniences. They are not required to resume, and their stale owners/processes
-must not be treated as active workers on a new computer. Create fresh isolated
-worktrees for new work; at most five active subagents and one writer per shared file.
-All resumed production/test work is integrated into the Wave 2 feature branch.
+The ignored `.omc/ux/checkpoint.json` and isolated `../RealmShark-w3-*` worktrees are
+machine-local conveniences. They are not required to resume, and their owners must
+not be treated as active workers on a new computer. Create fresh isolated worktrees
+for new work; at most five active subagents and one writer per shared file.
 
 ## Scope and remaining sequence
 
-1. Finish the Wave 2 gates recorded in the tracked checkpoint. Resolve any failing
-   checks without treating an interrupted or partly completed run as a pass.
-2. Independently review the final PR head and fresh native/scaled evidence. Publish
-   the Wave 2 PR with exact evidence, pass required Windows CI, merge normally,
-   verify the actual main merge and main CI, then synchronize local main.
-3. Only then create `feat/ux-wave-3-connected-analysis` from verified main and use
-   [Wave 3 contracts](UX-WAVE3-CONTRACTS.md) as provisional preparation. Reconcile
-   those proposed APIs with the actual checkout. The MAPINFO/reset ordering hazard
-   in that note is particularly important for exact encounter/visit identity.
-4. After Wave 3 review/CI/merge/main verification, create `feat/ux-wave-4-planning`
-   and use [Wave 4 contracts](UX-WAVE4-CONTRACTS.md). It is the fourth and final
-   wave, with bounded internal packages rather than additional wave branches.
+1. If the Wave 3 PR is not merged: resume its earliest incomplete gate (final-head
+   CI, merge, main verification). Refresh evidence after any code change; an
+   interrupted run is not a pass.
+2. After Wave 3 main verification, create `feat/ux-wave-4-planning` from verified main
+   and use [Wave 4 contracts](UX-WAVE4-CONTRACTS.md). Reconcile its proposed APIs with
+   the actual Wave 3 code; it is the fourth and final wave.
 
 The 55-ID product backlog is `docs/UX-ROADMAP-2026-09-21.md`; completion states are
-in `docs/UX-EXECUTION.md`. The two files with ` (1)` in their names are unchanged
-early planning copies preserved during this handoff, not authoritative current
-status. Do not resume from their obsolete baseline/pending-state statements.
+in `docs/UX-EXECUTION.md`. The two files with ` (1)` in their names are early
+planning copies, not authoritative current status.
 
 ## Reproduce validation
 
 Install/configure JDK 17, set `JAVA_HOME` to it, and use the checked-in Gradle 7.6.4
-wrapper. Main production sources retain Java 8 API/bytecode targeting. A fresh
-machine may need network access for the wrapper and dependencies. Use a native
-Windows desktop for the UI/focus checks; serialize those checks and packaging.
+wrapper. Main production sources retain Java 8 API/bytecode targeting. Use a native
+Windows desktop for UI/focus checks; serialize those checks and packaging.
 
 ```powershell
 .\gradlew.bat --no-daemon --continue --console=plain --project-cache-dir build/ux-handoff-cache -PrealmSharkBuildDir=build/ux-handoff -I scripts/typography-validation.gradle test shadowJar testUi150 testUi200
 .\scripts\Test-BuildMaintenance.ps1 -JavaHome $env:JAVA_HOME
 ```
 
-Use a new output/cache directory if another process owns one. Inspect every test
-task's XML and the command exit code, not just whether a report/JAR exists. Run
-the resulting JAR's `--help` from an isolated working directory. Review generated
-populated/empty/error, compact/enlarged and scaled screenshots independently.
+Inspect every test task's XML and the exit code. Run the JAR's `--help` from an
+isolated working directory. Wave 3 visual evidence (`*.WaveThreeEvidenceTest`)
+writes populated/empty/unavailable captures under
+`<build>/ui-{test,Ui150,Ui200}/screenshots/wave3/`; review them independently.
 Never run `Set-CiDisplay.ps1` on a workstation; it is CI-only. Do not start live
-capture or send Bridge deliveries for this work. Tests use synthetic history and
-isolated preferences; do not substitute personal saved data.
-
-Raw local build reports and screenshots are not committed. The tracked validation
-record and checkpoint retain the results and their limits; rerun on the next
-machine when those artifacts are needed or the code changes. In particular,
-History keyboard evidence distinguishes native focus plus posted Swing key
-dispatch from OS keystroke delivery.
+capture or send Bridge deliveries. Tests use synthetic history and isolated
+preferences; do not substitute personal saved data.
 
 ## Resume prompt
 
 > Resume the four-wave RealmShark UX implementation. Read AGENTS.md,
 > docs/UX-HANDOFF.md, docs/UX-CHECKPOINT.json and docs/UX-EXECUTION.md; reconcile
-> actual Git/GitHub state; continue the earliest incomplete Wave 2 gate using
-> independent subagents where appropriate. Do not start the next wave before the
-> current wave's final-head review, CI, merge and main verification are complete.
+> actual Git/GitHub state; continue the earliest incomplete gate using independent
+> subagents where appropriate. Do not start Wave 4 before Wave 3's final-head review,
+> CI, merge and main verification are complete.

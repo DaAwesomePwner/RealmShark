@@ -104,6 +104,31 @@ public class LootLogTest {
         }
     }
 
+    @Test public void matchingBagWithItsSoundTurnedOffIsRecordedAsAlertOff() throws Exception {
+        SendLoot.Session sharing = new SendLoot.Session(new LootDelivery(
+            () -> { throw new AssertionError("Opted-out log must not connect"); }, 2, false, false));
+        boolean whiteEnabled = tomato.realmshark.Sound.whitebag.isEnabled();
+        ExecutorService capture = Executors.newSingleThreadExecutor();
+        try {
+            SwingUtilities.invokeAndWait(() -> { new LootGUI(new TomatoData(), sharing); LootGUI.lootSharing(true); });
+            tomato.realmshark.Sound.whitebag.setEnabled(false);
+            tomato.realmshark.AlertDecisions.INSTANCE.clear();
+            capture.submit(() -> {
+                LootGUI.updateExaltStats(); // enables the producer, as capture does once exalt stats arrive
+                Entity player = new Entity(null, 1, 0); player.objectType = 768;
+                Entity bag = new Entity(null, 2, 0); bag.objectType = LootBags.WHITE.getId();
+                MapInfoPacket map = new MapInfoPacket(); map.name = "The Shatters";
+                LootGUI.update(map, bag, null, player, 1);
+            }).get(10, TimeUnit.SECONDS);
+            boolean recorded = false;
+            for (tomato.realmshark.AlertDecisions.Decision d : tomato.realmshark.AlertDecisions.INSTANCE.snapshot(true))
+                recorded |= d.result == tomato.realmshark.AlertDecisions.Result.SOUND_OFF && tomato.realmshark.Sound.whitebag.label.equals(d.soundLabel);
+            assertTrue("A matching bag whose sound is off still records its decision", recorded);
+        } finally {
+            capture.shutdownNow(); sharing.close(); tomato.realmshark.Sound.whitebag.setEnabled(whiteEnabled);
+        }
+    }
+
     @Test public void blockedConnectionDoesNotBlockCaptureEdtOrOptOutStatus() throws Exception {
         ControlledLootTransport transport = new ControlledLootTransport(true, false);
         transport.ignoreConnectInterrupt = true;
@@ -165,7 +190,7 @@ public class LootLogTest {
                 StatData item = new StatData(); item.statValue = 999991; bag.stat.set(StatType.INVENTORY_0_STAT, item);
                 AtomicBoolean alerted = new AtomicBoolean();
                 LootGUI.lootSharing(false);
-                view.notifyItems(bag, () -> alerted.set(true), () -> fail("Preview cannot share"));
+                view.notifyItems(bag, decision -> alerted.set(true), () -> fail("Preview cannot share"));
                 view.refreshDeliveryStatus();
                 assertTrue(alerted.get());
                 assertTrue(findStatus(view).getAccessibleContext().getAccessibleDescription().contains("Preview — sending disabled"));

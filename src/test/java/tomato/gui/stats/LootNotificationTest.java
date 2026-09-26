@@ -63,7 +63,7 @@ public class LootNotificationTest {
         enchants(bag, String.join(",", encode(777), "", encode(777), "!!!", "", "", "", encode(777)));
         for (boolean disabled : new boolean[]{true, false}) {
             LootGUI.lootSharing(disabled); List<String> calls = new ArrayList<>();
-            view.notifyItems(bag, () -> calls.add("alert"), () -> {
+            view.notifyItems(bag, decision -> calls.add("alert"), () -> {
                 assertEquals(Arrays.asList("alert", "alert", "alert"), calls); calls.add("share");
             });
             assertEquals(disabled ? Arrays.asList("alert", "alert", "alert")
@@ -71,12 +71,30 @@ public class LootNotificationTest {
         }
     }
 
+    @Test public void matchingDropsPassTheirRecordedDecisionAndNonMatchesRecordNoMatchWithoutAlerting() {
+        PropertiesManager.setProperties(AlertRules.Domain.ITEM.key(),
+            "{\"version\":1,\"rules\":[{\"mode\":\"ITEM_ID\",\"value\":\"42\"}]}");
+        LootGUI.lootSharing(true);
+        Entity bag = new Entity(null, 9, 0); item(bag, 0, 42); item(bag, 1, 142);
+        List<Long> alerts = new ArrayList<>();
+        view.notifyItems(bag, alerts::add, () -> fail("Sharing opted out"));
+        assertEquals("Only the matching item alerts", 1, alerts.size());
+        tomato.realmshark.AlertDecisions.Decision matched = null, missed = null;
+        for (tomato.realmshark.AlertDecisions.Decision d : tomato.realmshark.AlertDecisions.INSTANCE.snapshot(true)) {
+            if (d.id == alerts.get(0)) matched = d;
+            else if (d.source == tomato.realmshark.AlertDecisions.Source.ITEM && d.result == tomato.realmshark.AlertDecisions.Result.NO_MATCH && d.id > alerts.get(0)) missed = d;
+        }
+        assertNotNull("The alert carries the recorded item decision", matched);
+        assertEquals(AlertRules.Mode.ITEM_ID, matched.ruleMode); assertEquals("42", matched.ruleValue);
+        assertNotNull("The non-matching item is recorded as no match", missed);
+    }
+
     @Test public void unsupportedTypedRulesDoNotReactivateTheLegacyLootProbe() {
         data.setPropList("itemPings", new ArrayList<>(Collections.singletonList("42")));
         PropertiesManager.setProperties(AlertRules.Domain.ITEM.key(), "{\"version\":999,\"rules\":[]}");
         Entity bag = new Entity(null, 9, 0); item(bag, 0, 42); item(bag, 7, 142);
         LootGUI.lootSharing(true);
-        view.notifyItems(bag, () -> fail("Unsupported typed rules must remain inactive"), () -> fail("Sharing opted out"));
+        view.notifyItems(bag, decision -> fail("Unsupported typed rules must remain inactive"), () -> fail("Sharing opted out"));
     }
 
     @Test public void alertsOncePerMatchingItemBeforeSharingWithEitherOptOutState() {
@@ -90,7 +108,7 @@ public class LootNotificationTest {
         for (boolean disabled : new boolean[]{true, false}) {
             LootGUI.lootSharing(disabled);
             List<String> calls = new ArrayList<>();
-            view.notifyItems(bag, () -> calls.add("alert"), () -> {
+            view.notifyItems(bag, decision -> calls.add("alert"), () -> {
                 assertEquals(Arrays.asList("alert", "alert", "alert"), calls);
                 calls.add("share");
             });
@@ -112,7 +130,7 @@ public class LootNotificationTest {
             for (boolean disabled : new boolean[]{true, false}) {
                 LootGUI.lootSharing(disabled);
                 List<String> calls = new ArrayList<>();
-                view.notifyItems(bag, () -> calls.add("alert"), () -> calls.add("share"));
+                view.notifyItems(bag, decision -> calls.add("alert"), () -> calls.add("share"));
                 assertEquals(bad, disabled ? Arrays.asList("alert", "alert", "alert")
                     : Arrays.asList("alert", "alert", "alert", "share"), calls);
             }
@@ -126,7 +144,7 @@ public class LootNotificationTest {
         enchants(bag, String.join(",", encode(777, 888), "", "", "", "", "", "", unpadded));
         LootGUI.lootSharing(true);
         List<String> calls = new ArrayList<>();
-        view.notifyItems(bag, () -> calls.add("alert"), () -> fail("Sharing is opted out"));
+        view.notifyItems(bag, decision -> calls.add("alert"), () -> fail("Sharing is opted out"));
         assertEquals(Arrays.asList("alert", "alert"), calls);
     }
 
@@ -135,10 +153,10 @@ public class LootNotificationTest {
         item(bag, 0, 999990); item(bag, 7, 999997);
         LootGUI.lootSharing(true);
         Runnable unexpected = () -> fail("No matching local rule; sharing is opted out");
-        view.notifyItems(bag, unexpected, unexpected); // Entire UNIQUE_DATA_STRING stat absent.
+        view.notifyItems(bag, decision -> unexpected.run(), unexpected); // Entire UNIQUE_DATA_STRING stat absent.
         for (String code : new String[]{null, "", ",,,,,,,", "AAIE_f_9__3__f8=", encode(-1, -2), encode(999)}) {
             enchants(bag, code);
-            view.notifyItems(bag, unexpected, unexpected);
+            view.notifyItems(bag, decision -> unexpected.run(), unexpected);
         }
     }
 
@@ -150,11 +168,11 @@ public class LootNotificationTest {
         LootGUI.lootSharing(true);
         List<String> calls = new ArrayList<>();
         Runnable unexpectedShare = () -> fail("Sharing is opted out");
-        view.notifyItems(bag, () -> calls.add("alert"), unexpectedShare);
+        view.notifyItems(bag, decision -> calls.add("alert"), unexpectedShare);
         assertEquals(Arrays.asList("alert", "alert"), calls);
         PropertiesManager.setProperties("enchantPing.selected", "");
         calls.clear();
-        view.notifyItems(bag, () -> calls.add("alert"), unexpectedShare);
+        view.notifyItems(bag, decision -> calls.add("alert"), unexpectedShare);
         assertEquals(Collections.singletonList("alert"), calls);
     }
 
@@ -170,13 +188,13 @@ public class LootNotificationTest {
                     Arrays.asList("Notification test blade", Integer.toString(id)))) {
                 data.setPropList("itemPings", new ArrayList<>(rules));
                 List<String> calls = new ArrayList<>();
-                view.notifyItems(bag, () -> calls.add("alert"), () -> fail("Sharing is opted out"));
+                view.notifyItems(bag, decision -> calls.add("alert"), () -> fail("Sharing is opted out"));
                 assertEquals(Collections.singletonList("alert"), calls);
             }
             PropertiesManager.setProperties("enchantPing.selected", "");
             data.setPropList("itemPings", new ArrayList<>(Collections.singletonList("Notification test blade")));
             List<String> calls = new ArrayList<>();
-            view.notifyItems(bag, () -> calls.add("alert"), () -> fail("Sharing is opted out"));
+            view.notifyItems(bag, decision -> calls.add("alert"), () -> fail("Sharing is opted out"));
             assertEquals("Name rule alone still alerts", Collections.singletonList("alert"), calls);
         } finally { if (previous == null) assets.remove(id); else assets.put(id, previous); }
     }

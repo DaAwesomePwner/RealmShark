@@ -23,21 +23,21 @@ quantities separate from observations; versioned metadata; no guessed historical
 
 ## Current milestone
 
-Wave 1 is merged. Wave 2 implementation is integrated and explicitly resumed on
-2026-09-24 from the clean, published `6f7d007` handoff. PR #12 is open. Native width
-and focus-fixture repairs, a session-startup metadata-publication race fix, and
-updated user guides are integrated through `9923bea`. Final local validation at
-equivalent worker `66fc750` passed **803 full / 176 at 150% / 176 at 200%**, with
-zero failures/errors/skips; JAR and isolated help passed. Independent source,
-test/guide and startup-repair reviews found no blockers. Independent visual review
-covered 46 baseline plus 24 final-run images with no blockers. Final local
-build-maintenance passed. Exact-head review and final-head CI remain merge gates.
-Earlier PR CI passed at
-`fefdaa6` and `202741b`; these precede the startup repair. Waves 3 and 4
-implementation has not started; their tracked
-contract notes are provisional preparation only. Read [the handoff](UX-HANDOFF.md),
-[portable checkpoint](UX-CHECKPOINT.json) and [validation record](UX-WAVE2-VALIDATION.md)
-for the tested code, completed checks, remaining gates and exact next action.
+Waves 1 and 2 are merged and main-verified. Wave 2 PR #12 merged as
+`00e218839b07227f2cf8346f563f0eac09002872` (main CI `36081366088` success).
+Standalone PR #13 (per-player damage-by-source breakdown) merged as `6d71a56` with
+successful main CI `36223175267`; Wave 3 branched from it on 2026-09-26.
+
+Wave 3 (`feat/ux-wave-3-connected-analysis`) is implemented in four lanes plus
+coordinator integration: shared contracts `a94240c`; core capture identity and
+routing, LOG-2, recording intervals and export coverage; analytics; alerts/Bridge;
+investigation; cross-module journey tests. Lane handoffs:
+[core](UX-WAVE3-CORE.md), [analytics](UX-WAVE3-ANALYTICS.md),
+[alerts/Bridge](UX-WAVE3-ALERTS.md), [investigation](UX-WAVE3-INVESTIGATION.md).
+Final-gate evidence and remaining gates are recorded in
+[the Wave 3 validation record](UX-WAVE3-VALIDATION.md), [the handoff](UX-HANDOFF.md)
+and [portable checkpoint](UX-CHECKPOINT.json). Wave 4 has not started; its tracked
+contract notes are provisional preparation only.
 Live GitHub reconciliation on 2026-09-24 confirmed Wave 1 PR #11 merged as
 `64d58d0606a82a956e082fa0dcc07aa18d8fbbfa`, with successful main CI `35696825491`.
 Wave 2 resumed from local `c1ccedb` and remote `18e3c4f`. All recovered production,
@@ -161,62 +161,61 @@ An ID with multiple slices closes only when all slices meet their acceptance cri
 
 | ID | Package(s) | State |
 | --- | --- | --- |
-| UX-01 | 2A | verified; Wave 2 merge gates pending |
-| UX-02 | 2A state; 3A routing | state verified; Wave 2 merge gates pending; routing pending |
+| UX-01 | 2A | merged |
+| UX-02 | 2A state; 3A routing | 2A state merged; 3A routing/Back implemented; Wave 3 gates pending |
 | UX-03 | 1A; adopted throughout | 1A merged; later adoption tracked |
-| UX-04 | 2A and module adapters; 3 linked extensions | Wave 2 verified; merge gates pending; linked extensions pending |
-| UX-05 | 2A library; 3A recording intervals | library verified; Wave 2 merge gates pending; recording intervals pending |
+| UX-04 | 2A and module adapters; 3 linked extensions | Wave 2 merged; 3A export scope/coverage manifest implemented; Wave 3 gates pending |
+| UX-05 | 2A library; 3A recording intervals | library merged; 3A recording intervals implemented; Wave 3 gates pending |
 | UX-06 | 1A | merged |
-| UX-07 | 2A onward; 4D audit | Wave 2 verified; merge gates pending; final audit pending |
+| UX-07 | 2A onward; 4D audit | Wave 2 merged; final audit pending |
 | UX-08 | 4D | pending |
 | CHAT-1 | 1C | merged |
-| CHAT-2 | 2B | verified; Wave 2 merge gates pending |
-| CHAT-3 | 2B saved views; 3D drafts | saved views verified; Wave 2 merge gates pending; drafts pending |
+| CHAT-2 | 2B | merged |
+| CHAT-3 | 2B saved views; 3D drafts | saved views merged; 3D drafts implemented; Wave 3 gates pending |
 | KEY-1 | 1C | merged |
-| KEY-2 | 2B | verified; Wave 2 merge gates pending |
-| KEY-3 | 3D | pending |
-| INS-1 | 2C | verified; Wave 2 merge gates pending |
-| INS-2 | 1A honesty; 3B metadata | 1A merged; 3B pending |
-| INS-3 | 3B | pending |
+| KEY-2 | 2B | merged |
+| KEY-3 | 3D | implemented; Wave 3 gates pending |
+| INS-1 | 2C | merged |
+| INS-2 | 1A honesty; 3B metadata | 1A merged; 3B provenance implemented; Wave 3 gates pending |
+| INS-3 | 3B | implemented; Wave 3 gates pending |
 | INS-4 | 4B | pending |
 | CHAR-1 | 1B | merged |
-| CHAR-2 | 2C | verified; Wave 2 merge gates pending |
+| CHAR-2 | 2C | merged |
 | CHAR-3 | 4A | pending |
 | CHAR-4 | 4B | pending |
 | CHAR-5 | 1B | merged |
 | STAT-1 | 1D | merged |
-| STAT-2 | 3C | pending |
-| STAT-3 | 3C | pending |
+| STAT-2 | 3C | implemented; Wave 3 gates pending |
+| STAT-3 | 3C | implemented; Wave 3 gates pending |
 | QUEST-1 | 1B | merged |
 | QUEST-2 | 4A | pending |
 | QUEST-3 | 4A | pending |
 | INFO-1 | 1A | merged |
-| INFO-2 | 3B | pending |
+| INFO-2 | 3B | implemented; Wave 3 gates pending |
 | COMBAT-1 | 1D | merged |
-| COMBAT-2 | 2C | verified; Wave 2 merge gates pending |
-| COMBAT-3 | 3B | pending |
-| COMBAT-4 | 3B | pending |
-| COMBAT-5 | 3B | pending |
-| LOOT-1 | 1D recency; 2D deep search | recency merged; deep search verified; Wave 2 merge gates pending |
-| LOOT-2 | 2D | verified; Wave 2 merge gates pending |
-| LOOT-3 | 3C | pending |
+| COMBAT-2 | 2C | merged |
+| COMBAT-3 | 3B | implemented; Wave 3 gates pending |
+| COMBAT-4 | 3B | implemented; Wave 3 gates pending |
+| COMBAT-5 | 3B | implemented; Wave 3 gates pending |
+| LOOT-1 | 1D recency; 2D deep search | recency merged; deep search merged |
+| LOOT-2 | 2D | merged |
+| LOOT-3 | 3C | implemented; Wave 3 gates pending |
 | LOOT-4 | 4C | pending |
-| LOG-1 | 2B | verified; Wave 2 merge gates pending |
-| LOG-2 | 1A honesty; 3A metadata | 1A merged; 3A pending |
-| LOG-3 | 2B | verified; Wave 2 merge gates pending |
-| RUN-1 | 2D | verified; Wave 2 merge gates pending |
-| RUN-2 | 3A | pending |
-| TIME-1 | 2D | verified; Wave 2 merge gates pending |
-| TIME-2 | 3A | pending |
+| LOG-1 | 2B | merged |
+| LOG-2 | 1A honesty; 3A metadata | 1A merged; 3A coverage implemented; Wave 3 gates pending |
+| LOG-3 | 2B | merged |
+| RUN-1 | 2D | merged |
+| RUN-2 | 3A | implemented; Wave 3 gates pending |
+| TIME-1 | 2D | merged |
+| TIME-2 | 3A | implemented; Wave 3 gates pending |
 | BRIDGE-1 | 1D | merged |
 | BRIDGE-2 | 1D | merged |
-| BRIDGE-3 | 3D | pending |
-| BRIDGE-4 | 3D | pending |
+| BRIDGE-3 | 3D | implemented; Wave 3 gates pending |
+| BRIDGE-4 | 3D | implemented; Wave 3 gates pending |
 | ALERT-1 | 1C | merged |
 | ALERT-2 | 1C | merged |
 | ALERT-3 | 1C | merged |
-| ALERT-4 | 3D | pending |
-
+| ALERT-4 | 3D | implemented (incl. entity/loot producer hooks); Wave 3 gates pending |
 ## Validation and merge gates
 
 For bounded packages: meaningful behavioral tests for changed semantics; preserve
