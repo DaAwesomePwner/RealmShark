@@ -30,7 +30,10 @@ public class SetupWorkspaceTest {
         SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "synthetic");
         TomatoGUI gui = new TomatoGUI(new TomatoData());
         WorkspaceShell[] shell = new WorkspaceShell[1];
-        int windows = Window.getWindows().length;
+        // Window.getWindows() also lists disposed windows until they are garbage collected, so compare
+        // identities: a count can drop mid-test when an earlier test's window is collected.
+        java.util.Set<Window> windows = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        windows.addAll(java.util.Arrays.asList(Window.getWindows()));
         try {
             ActivityJournal.Visit visit = new ActivityJournal.Visit(); visit.id = "synthetic-run"; visit.map = "Ice Citadel";
             visit.started = 1000; visit.ended = visit.lastSeen = 2000;
@@ -54,7 +57,7 @@ public class SetupWorkspaceTest {
                 assertFalse(named(shell[0], "capture-toggle", JButton.class).isEnabled());
             });
             assertFalse(Tomato.isCaptureRunning());
-            assertEquals(windows, Window.getWindows().length);
+            for (Window window : Window.getWindows()) assertTrue("Browsing history must not open a window", windows.contains(window));
         } finally {
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> { if (shell[0] != null) shell[0].removeNotify(); });
