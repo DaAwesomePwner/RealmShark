@@ -1,5 +1,14 @@
 # RealmShark development and resumption
 
+## Current validation policy
+
+User update (2026-09-26): CI is manual-only and is not required for PR merges.
+Prefer focused local checks and relevant build/launch smoke checks on the user's
+computer. Do not routinely repeat full suites, scaled UI matrices or packaging
+cycles. Docs/workflow-only changes need diff/config inspection, not application
+tests. This supersedes mandatory CI and broad validation requirements below and
+in historical wave documents. Keep normal PR merges and other branch protections.
+
 ## Active UX implementation
 
 Before editing, read `docs/UX-EXECUTION.md` and, if present, `.omc/ux/checkpoint.json`.
