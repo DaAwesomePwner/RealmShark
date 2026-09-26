@@ -174,8 +174,8 @@ public class QuestConsistencyTest {
             });
             settle(shell);
             SwingUtilities.invokeAndWait(() -> {
-                assertEquals(1, table().getRowCount()); assertEquals(0, table().getValueAt(0, 4));
-                assertTrue(text(quest).contains("No items listed by the server."));
+                assertEquals(1, table().getRowCount()); assertNull(table().getValueAt(0, 4));
+                assertTrue(text(quest).contains("Not captured; requirements/rewards unknown."));
                 assertFalse(text(quest).contains(DESCRIPTION)); assertFalse(text(quest).contains(EXPIRATION));
                 assertFalse(text(quest).contains("CHOOSE ONE"));
                 assertWrappedText(quest, true); assertUsableViewports();
@@ -230,6 +230,15 @@ public class QuestConsistencyTest {
                     assertSame("Posted Tab must traverse into the first filter", type, KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner());
                     fullyVisible(type);
                 });
+                for (String name : new String[]{"quest-repeat-mode", "quest-reward-mode", "quest-expiration-mode",
+                        "quest-requirement-item", "quest-requirement-count", "quest-add-plan"}) {
+                    JComponent control = named(quest, name, JComponent.class);
+                    JComponent focusTarget = control instanceof JSpinner
+                        ? ((JSpinner.DefaultEditor) ((JSpinner) control).getEditor()).getTextField() : control;
+                    SwingUtilities.invokeAndWait(() -> scroll("quest-page-scroll").getVerticalScrollBar().setValue(Integer.MAX_VALUE));
+                    awaitFocus(focusTarget);
+                    SwingUtilities.invokeAndWait(() -> fullyVisible(focusTarget));
+                }
                 awaitFocus(table()); postKey(table(), KeyEvent.VK_DOWN, 0);
                 settle(frame);
                 SwingUtilities.invokeAndWait(() -> {

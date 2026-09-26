@@ -1,5 +1,22 @@
 # Four-wave UX implementation handoff
 
+## Current Wave 4 resumption
+
+Latest: Wave 4 implementation is complete in PR #15. The user approved the shortest
+finish with required PR CI and independent review, without another complete local
+validation/package cycle. See UX-WAVE4-VALIDATION.md for failed-run history and the
+explicitly deferred extra native fixture. Finish the PR/merge/main gates; do not restart
+the earlier broad visual audit. This update supersedes the in-progress text below.
+
+Wave 3 PR #14 merged as `dfceefb9ab87dd4d37a2429167d740b7ab0a33ee`; main CI
+`36245882529` passed. The user approved the recommendations in
+`UX-WAVE4-IMPLEMENTATION.md` and authorized implementation on 2026-09-26.
+Wave 4 is in progress on `feat/ux-wave-4-planning`. Read that plan and the updated
+portable checkpoint first. Shared persistence, manual annotations, quest planning,
+ability evidence, loot enrichment and search are being integrated; final gates remain.
+The Wave 3 sections below are historical recovery context, not an instruction to
+repeat its completed merge. No current Wave 4 check is implied by old Wave 3 evidence.
+
 Waves 1 and 2 are merged and main-verified (PR #11 `64d58d0`, PR #12 `00e2188`).
 Standalone PR #13 (per-player damage-by-source breakdown) merged as `6d71a56`.
 Wave 3 was implemented on `feat/ux-wave-3-connected-analysis` from `6d71a56` on

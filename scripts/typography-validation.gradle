@@ -13,6 +13,13 @@ allprojects {
                 jvmArgs "-Dsun.java2d.uiScale=${scale}"
                 filter {
                     includeTestsMatching 'ui.WorkspaceUiTest'
+                    includeTestsMatching 'tomato.gui.security.AbilityEvidencePanelTest'
+                    includeTestsMatching 'tomato.gui.search.ActionSearchPanelTest'
+                    includeTestsMatching 'tomato.gui.stats.WaveFourEvidenceTest'
+                    includeTestsMatching 'tomato.gui.character.CharacterPlanningPanelTest'
+                    includeTestsMatching 'tomato.gui.character.CharacterWaveFourEvidenceTest'
+                    includeTestsMatching 'tomato.gui.quest.QuestPlanPanelTest'
+                    includeTestsMatching 'tomato.gui.quest.QuestPlanEvidenceTest'
                     includeTestsMatching 'ui.ContentStyleTest'
                     includeTestsMatching 'ui.WorkspaceShellNavigationTest'
                     includeTestsMatching 'tomato.gui.security.ParsePanelRefreshTest'

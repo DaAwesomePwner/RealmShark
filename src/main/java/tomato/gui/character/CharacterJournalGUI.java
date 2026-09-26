@@ -48,7 +48,9 @@ public final class CharacterJournalGUI extends JPanel {
     };
     private final JTable roster = table(rosterModel);
     private final DefaultTableModel statModel = model("Stat", "Base", "Cap", "Potions to max", "Field evidence");
-    private final DefaultTableModel gearModel = model("Slot", "Item", "Item ID", "Field evidence");
+    private final CharacterEquipmentPanel equipmentPanel = new CharacterEquipmentPanel();
+    private final CharacterPlanningPanel planningPanel;
+    private final CharacterDeathPanel deathPanel;
     private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
     private final DefaultTableModel exaltModel = model("Account", "Class", "Stat", "Level", "Completions", "Next tier", "Observed");
     private final DefaultTableModel charExaltModel = model("Stat", "Level", "Completions", "Next tier");
@@ -80,7 +82,12 @@ public final class CharacterJournalGUI extends JPanel {
     }
 
     CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock, java.util.function.Supplier<RosterDefinitions> definitionsSource) {
+        this(journal, clock, definitionsSource, tomato.planning.PlanningStore.shared());
+    }
+    CharacterJournalGUI(CharacterJournal journal, java.util.function.LongSupplier clock, java.util.function.Supplier<RosterDefinitions> definitionsSource, tomato.planning.PlanningStore plans) {
         super(new BorderLayout(0, 8)); this.journal = journal; this.clock = Objects.requireNonNull(clock); this.definitionsSource = definitionsSource;
+        planningPanel = new CharacterPlanningPanel(plans);
+        deathPanel = new CharacterDeathPanel(journal);
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel top = new JPanel(new BorderLayout(0, 6));
         summary.setName("character-summary");
@@ -159,16 +166,7 @@ public final class CharacterJournalGUI extends JPanel {
             }
         });
         tabs.addTab("Stat maxing", ContentStyle.tableScroll(stats, 3));
-        JTable gear = table(gearModel); gear.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
-            @Override public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
-                super.getTableCellRendererComponent(t, v, s, f, row, col); setIcon(null);
-                Object id = gearModel.getValueAt(t.convertRowIndexToModel(row), 2);
-                if (id instanceof Integer && (Integer)id >= 0) setIcon(ImageBuffer.getOutlinedIcon((Integer)id, 24));
-                return this;
-            }
-        });
-        ContentStyle.tableFont(gear, ContentStyle.body(), 32); // Room for 24px equipment icons.
-        tabs.addTab("Equipment & inventory", ContentStyle.tableScroll(gear, 3));
+        tabs.addTab("Equipment & inventory", equipmentPanel);
         tabs.addTab("Class exalts", ContentStyle.tableScroll(table(charExaltModel), 3));
         JPanel notePanel = new JPanel(new BorderLayout(8, 8)); notes.setLineWrap(true); notes.setWrapStyleWord(true);
         notes.setName("character-notes"); notes.setFont(ContentStyle.body()); notes.getAccessibleContext().setAccessibleName("Character notes");
@@ -180,6 +178,8 @@ public final class CharacterJournalGUI extends JPanel {
         };
         notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH); tabs.addTab("Notes", notePanel);
         tabs.addTab("Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3));
+        tabs.addTab("Goals", planningPanel);
+        tabs.addTab("Death annotation", deathPanel);
         detail.add(tabs, BorderLayout.CENTER);
         JTextArea hint = note("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
         hint.setToolTipText("Potion estimates use +5 Life/Mana and +1 other stats. Exalts are account/class progress shared across characters.");
@@ -235,6 +235,8 @@ public final class CharacterJournalGUI extends JPanel {
     @Override public void addNotify() { super.addNotify(); timer.start(); refresh(); }
     @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
     public JPanel exaltPanel() { return exalts; }
+    public void bindNavigator(tomato.gui.route.Navigator navigator) { deathPanel.bindNavigator(navigator); }
+    public void openGoals() { tabs.setSelectedComponent(planningPanel); tabs.requestFocusInWindow(); }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
         boolean project = false;
@@ -256,7 +258,8 @@ public final class CharacterJournalGUI extends JPanel {
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
         else if ((isShowing() || detached) && ageFilter.getSelectedIndex() != 0 && !matchingKeys().equals(filteredKeys())) filter();
-        if (isShowing() || detached) refreshTimeEvidence(selected());
+        if (isShowing() || detached) { refreshTimeEvidence(selected()); deathPanel.showRecord(selected()); }
+        if (isShowing() || detached) planningPanel.refresh(records, accounts, definitions);
         String storageStatus = journal.storageStatus();
         if (records.isEmpty() && storageStatus.startsWith("Saved"))
             storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
@@ -315,7 +318,8 @@ public final class CharacterJournalGUI extends JPanel {
         }
         selectedKey = newKey;
         if (Objects.equals(selectedKey, pendingSelectionKey)) pendingSelectionKey = null;
-        statModel.setRowCount(0); gearModel.setRowCount(0); charExaltModel.setRowCount(0); metadataModel.setRowCount(0);
+        statModel.setRowCount(0); charExaltModel.setRowCount(0); metadataModel.setRowCount(0);
+        equipmentPanel.showRecord(r, definitions); deathPanel.showRecord(r);
         death.setEnabled(r != null); saveNotes.setEnabled(r != null); notes.setEnabled(r != null);
         if (r == null) { heading.setText("Select a character"); heading.setIcon(null); seen.setText(" "); seen.setToolTipText(null); notes.setText(""); return; }
         heading.setText(className(r.classId) + " #" + r.characterId + (r.dead ? " • Marked dead manually" : ""));
@@ -332,8 +336,6 @@ public final class CharacterJournalGUI extends JPanel {
             statModel.addRow(new Object[]{CharacterJournal.STATS[i], unknown(r.stats[i]), unknown(cap),
                 cap == null || r.stats[i] == null ? "Unknown" : CharacterJournal.potions(r.stats[i], cap, i), evidence(r, "stat." + i, r.stats[i] != null)});
         }
-        String[] slots = {"Weapon", "Ability", "Armor", "Ring"};
-        for (int i = 0; i < r.equipment.length; i++) gearModel.addRow(new Object[]{i < 4 ? slots[i] : i < 12 ? "Inventory " + (i - 3) : "Backpack " + (i - 11), itemName(r.equipment[i]), r.equipment[i], evidence(r, "equipment." + i, r.equipment[i] != null)});
         int[] exalt = null;
         for (AccountRecord a : accounts) if (a.key.equals(r.account)) exalt = a.exalts.get(r.classId);
         for (int i = 0; i < 8; i++) {

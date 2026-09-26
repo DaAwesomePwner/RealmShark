@@ -21,6 +21,10 @@ final class RecordedDpsPanel extends JPanel {
     private final JComboBox<RecordedEncounter> choice = new JComboBox<>();
     private final JButton open = new JButton("Open recorded local row");
     private final JTextArea explanation = ContentStyle.wrappingText("", 3);
+    private SwingWorker<List<RecordedEncounter>, Void> reloadWorker;
+    private long reloadGeneration;
+    private boolean loading, disposed;
+    private String loadError;
 
     RecordedDpsPanel(Supplier<List<RecordedEncounter>> encounters, Supplier<String> estimate) {
         super(new BorderLayout(0, 4));
@@ -47,20 +51,51 @@ final class RecordedDpsPanel extends JPanel {
         reload();
     }
 
-    /** Re-reads the detached library list, keeping the selected recording when it still exists. */
+    /** Projects the detached library off EDT; late completions never replace a newer refresh. */
     void reload() {
-        RecordedEncounter selected = (RecordedEncounter) choice.getSelectedItem();
-        choice.removeAllItems();
-        List<RecordedEncounter> list = encounters.get();
-        for (int i = list.size() - 1; i >= 0; i--) choice.addItem(list.get(i)); // Newest first.
-        if (selected != null) for (int i = 0; i < choice.getItemCount(); i++)
-            if (selected.recordingId != null && selected.recordingId.equals(choice.getItemAt(i).recordingId)) { choice.setSelectedIndex(i); break; }
-        explain();
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Reload must be requested on EDT");
+        if (disposed) return;
+        final RecordedEncounter selected = (RecordedEncounter) choice.getSelectedItem();
+        final long generation = ++reloadGeneration;
+        if (reloadWorker != null) reloadWorker.cancel(true);
+        loading = true; loadError = null; choice.setEnabled(false); explain();
+        reloadWorker = new SwingWorker<List<RecordedEncounter>, Void>() {
+            @Override protected List<RecordedEncounter> doInBackground() { return new java.util.ArrayList<>(encounters.get()); }
+            @Override protected void done() {
+                if (disposed || generation != reloadGeneration || isCancelled()) return;
+                try {
+                    List<RecordedEncounter> list = get();
+                    choice.removeAllItems();
+                    for (int i = list.size() - 1; i >= 0; i--) choice.addItem(list.get(i));
+                    if (selected != null) for (int i = 0; i < choice.getItemCount(); i++)
+                        if (selected.recordingId != null && selected.recordingId.equals(choice.getItemAt(i).recordingId)) { choice.setSelectedIndex(i); break; }
+                } catch (Exception failure) {
+                    loadError = "Could not refresh recordings. Previous choices are retained but cannot be opened until Refresh recordings succeeds.";
+                } finally { loading = false; choice.setEnabled(true); explain(); }
+            }
+        };
+        reloadWorker.execute();
+    }
+    @Override public void addNotify() { disposed = false; super.addNotify(); }
+    @Override public void removeNotify() {
+        disposed = true; reloadGeneration++; if (reloadWorker != null) reloadWorker.cancel(true); loading = false;
+        super.removeNotify();
+    }
+    boolean loading() { return loading; }
+
+    private String currentEstimate() {
+        return "Current estimate: " + estimate.get() + " — uses your current build, current stats and the chosen scenario; it is not a recording.";
     }
 
     void explain() {
+        String current = currentEstimate();
+        if (loading || loadError != null) {
+            open.setEnabled(false);
+            open.setToolTipText(loading ? "Wait for the recording refresh to finish" : loadError);
+            explanation.setText(current + "\n" + (loading ? "Refreshing recorded encounters in the background… Previous selection is retained until the refresh finishes." : loadError));
+            return;
+        }
         RecordedEncounter selected = (RecordedEncounter) choice.getSelectedItem();
-        String current = "Current estimate: " + estimate.get() + " — uses your current build, current stats and the chosen scenario; it is not a recording.";
         if (selected == null) {
             open.setEnabled(false);
             explanation.setText(current + "\nNo recorded encounters in this session's DPS library. Recorded DPS appears after an encounter is saved or imported.");
@@ -78,6 +113,7 @@ final class RecordedDpsPanel extends JPanel {
     }
 
     private void openSelected() {
+        if (loading || loadError != null || disposed) return;
         RecordedEncounter selected = (RecordedEncounter) choice.getSelectedItem();
         Route route = selected == null ? null : selected.localRowRoute();
         if (route == null || !Navigator.current().open(route))

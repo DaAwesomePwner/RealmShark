@@ -60,6 +60,7 @@ public class WaveThreeEvidenceTest {
             created.select(6); return created;
         });
         try {
+            RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));
             run(() -> select(panel(view[0]), linked.getRecordingId()));
             footer(shell, view[0], "myinfo-recorded-dps-linked", () -> {
                 RecordedDpsPanel panel = panel(view[0]);
@@ -84,6 +85,7 @@ public class WaveThreeEvidenceTest {
             });
             // An empty library (a fresh DPS Logger) says so rather than showing another recording.
             run(() -> { new DpsGUI(new TomatoData(), DiscoveryLog.historyView(new ActivityJournal.State())); panel(view[0]).reload(); });
+            RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));
             footer(shell, view[0], "myinfo-recorded-dps-empty", () -> {
                 assertEquals(0, panel(view[0]).choice().getItemCount());
                 assertTrue(panel(view[0]).explanationText().contains("No recorded encounters"));
@@ -93,7 +95,7 @@ public class WaveThreeEvidenceTest {
 
     /** Shows the whole My Info page, then scrolls the footer into its viewport for the capture. */
     private void footer(WorkspaceShell shell, MyInfoGUI view, String name, Check assertions) throws Exception {
-        for (boolean compact : new boolean[]{false, true}) frame(evidence, shell, name, compact, () -> {
+        for (boolean compact : new boolean[]{false, true}) frame(evidence, shell, name, compact, () -> !panel(view).loading(), () -> {
             RecordedDpsPanel panel = panel(view);
             VisualEvidence.reachable(panel);
             VisualEvidence.completeText(named(panel, "myinfo-recorded-explanation", JTextArea.class));

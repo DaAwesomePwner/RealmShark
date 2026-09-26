@@ -27,7 +27,9 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     public ArchiveAdapter<Row,Facets,Sort> adapter(ArchiveQuery<Facets,Sort> q){View view=q.facets().view;return view.loot()?new LootArchiveAdapter(q):view==View.COHORTS?new CohortArchiveAdapter(q):new StatisticsArchiveAdapter(q);}
     public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){return new Render(page,state,binding);}
     public List<ArchiveExport.Column<Row>> exportColumns(){
-        List<ArchiveExport.Column<Row>> result=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns())result.add(new ArchiveExport.Column<>(column.label,column.value));return result;
+        List<ArchiveExport.Column<Row>> result=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns())result.add(new ArchiveExport.Column<>(column.label,column.value));
+        result.add(new ArchiveExport.Column<>("Exact enchantment evidence",r->r.enchantEvidence));
+        result.add(new ArchiveExport.Column<>("Captured drop context",r->r.dropContext));return result;
     }
     private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value){return new HistoryTables.Column<>(id,label,type,value,null);}
     static List<HistoryTables.Column<Row,?>> columns(){return Arrays.asList(
@@ -130,7 +132,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private void cohortInputInvalid(){
             restoring=true;try{table.clearSelection();((javax.swing.table.DefaultTableModel)table.getModel()).setRowCount(0);}finally{restoring=false;}
             countText.setText(STALE_COHORT);countText.setForeground(ContentStyle.color("rose"));
-            details.setText("No comparison shown: the previous results were cleared because the cohort inputs are not valid.");details.setCaretPosition(0);
+            details.setText("No comparison shown: the previous results were cleared because the cohort inputs are not valid. Export still uses the last applied comparison, not these invalid inputs.");details.setCaretPosition(0);
             revalidate();repaint();
         }
         private ArchiveRow<Row> selected(){int r=table.getSelectedRow();return r<0||r>=page.rows.size()?null:page.rows.get(r);}
@@ -168,7 +170,10 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private void query(ArchiveQuery<Facets,Sort> q){binding.queryChanged(q);}
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
         private Set<String> choices(String prefix){Set<String> values=new TreeSet<>();for(String key:page.counts.keySet())if(key.startsWith(prefix))values.add(key.substring(prefix.length()));return values;}
-        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"").append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append(readable(column.id,value)).append('\n');}details.setText(text.toString());details.setCaretPosition(0);}
+        private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"");
+            if("occurrence".equals(row.value.type))text.append("Exact enchantment evidence: ").append(row.value.enchantEvidence==null?"Not recorded":row.value.enchantEvidence).append("\nDrop context: ").append(row.value.dropContext==null?"Not recorded":row.value.dropContext).append('\n');
+            text.append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append(readable(column.id,value)).append('\n');}
+            details.setText(text.toString());details.setCaretPosition(0);}
         private JComponent analyticalFilters(View view){
             if(view==View.COHORTS){Map<String,String> sessions=new TreeMap<>();page.counts.forEach((key,value)->{if(key.startsWith("facet.session."))sessions.put(key.substring(14),value.population);});
                 return new CohortControls(current.query.facets(),sessions,ZoneId.of(current.query.bounds().zone),f->query(current.query.withFacets(f)),this::cohortInputInvalid);}
@@ -201,7 +206,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         return "";
     }
     static Route runRoute(tomato.history.link.VisitRef ref){return Route.to(Destination.RUNS).withVisit(ref);}
-    static final String STALE_COHORT="Previous comparison cleared. Correct the cohort input shown above, then choose Compare cohorts to see current results.";
+    static final String STALE_COHORT="Previous comparison cleared. Export still uses the last applied comparison, not these invalid inputs. Correct the cohort input shown above, then choose Compare cohorts to see current results.";
     static final String VISIT_UNAVAILABLE=" · Linked run unavailable here: no saved loot for this exact run (imported, deleted or unsaved session). No other run is substituted.";
     static String drillSummary(Facets f){StringJoiner parts=new StringJoiner(" · ");if(f.variant!=null)parts.add("exact variant "+f.variant+" (item ID/slots/applied)");if(f.visitSession!=null)parts.add("exact run "+f.visitSession+"/"+f.visitId);return "Drill-down: "+parts;}
     /** Explains exactly why a selected row can or cannot open its recorded run. */

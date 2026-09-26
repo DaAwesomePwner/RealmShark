@@ -9,6 +9,34 @@ import java.util.*;
 import java.util.prefs.AbstractPreferences;
 
 public class QuestGuiTest {
+    @Test public void stableIdsPresenceAndComparisonFacetsRemainDistinct() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            QuestGUI ui = panel();
+            QuestData a = quest("A", 5, new int[]{1, 1, 1}, 10); a.id = "stable-rare-id"; a.repeatable = true; a.itemOfChoice = true; a.expiration = "raw-unparsed";
+            QuestData b = quest("B", 5, null); b.rewards = null;
+            QuestData c = quest("C", 5, new int[0]);
+            ui.update(new QuestData[]{a, b, c}); JTable table = find(ui, JTable.class);
+            find(ui, JTextField.class).setText("stable-rare-id"); assertEquals(1, table.getRowCount());
+            find(ui, JTextField.class).setText("");
+            combo(ui, "Repeatability").setSelectedItem("Repeatable"); assertEquals(1, table.getRowCount());
+            combo(ui, "Repeatability").setSelectedIndex(0);
+            combo(ui, "Reward mode").setSelectedItem("Rewards not captured"); assertEquals(1, table.getRowCount());
+            assertEquals("B", table.getValueAt(0, 1)); assertNull(table.getValueAt(0, 4)); assertTrue(allText(ui).contains("Requirements not captured"));
+            combo(ui, "Reward mode").setSelectedIndex(0);
+            combo(ui, "Expiration").setSelectedItem("Expiration supplied"); assertEquals(1, table.getRowCount());
+            combo(ui, "Expiration").setSelectedIndex(0);
+            for (Component child : allComponents(ui)) {
+                if (child instanceof JTextField && "Required item name / ID".equals(((JTextField) child).getAccessibleContext().getAccessibleName())) ((JTextField) child).setText("1");
+                if (child instanceof JSpinner && "Minimum quantity of item".equals(((JSpinner) child).getAccessibleContext().getAccessibleName())) ((JSpinner) child).setValue(4);
+            }
+            assertEquals(0, table.getRowCount());
+        });
+    }
+    private static java.util.List<Component> allComponents(Component root) {
+        java.util.List<Component> values = new ArrayList<>(); values.add(root);
+        if (root instanceof Container) for (Component c : ((Container) root).getComponents()) values.addAll(allComponents(c));
+        return values;
+    }
     private static final Map<Integer, String> NAMES = new HashMap<>();
     static {
         NAMES.put(1, "Mark of the Forgotten King");

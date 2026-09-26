@@ -39,6 +39,13 @@ public final class CharacterJournal implements AutoCloseable {
         public Integer[] equipment = new Integer[28];
         public String notes = "";
         public String source = "Captured character";
+        public DeathAnnotation deathAnnotation;
+    }
+    public static final class DeathAnnotation {
+        public Long occurredAt;
+        public long markedAt, editedAt;
+        public String notes = "";
+        public tomato.history.link.VisitRef visit;
     }
     public static final class AccountRecord {
         public String key, name;
@@ -46,7 +53,7 @@ public final class CharacterJournal implements AutoCloseable {
         public long exaltSeen;
     }
     private static final class Document {
-        int version = 2;
+        int version = 3;
         List<CharacterRecord> characters = new ArrayList<>();
         Map<String, AccountRecord> accounts = new LinkedHashMap<>();
     }
@@ -74,7 +81,7 @@ public final class CharacterJournal implements AutoCloseable {
         if (Files.exists(path)) {
             try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
                 Document loaded = JSON.fromJson(reader, Document.class);
-                if (loaded == null || (loaded.version != 1 && loaded.version != 2) || loaded.characters == null || loaded.accounts == null)
+                if (loaded == null || (loaded.version < 1 || loaded.version > 3) || loaded.characters == null || loaded.accounts == null)
                     throw new IOException("Unsupported journal");
                 for (CharacterRecord r : loaded.characters) {
                     if (r == null || r.key == null || r.account == null || r.stats == null || r.stats.length != 8
@@ -84,12 +91,16 @@ public final class CharacterJournal implements AutoCloseable {
                         if (field.getKey() == null || field.getValue() == null || field.getValue().at < 0 || field.getValue().source == null)
                             throw new IOException("Invalid field provenance");
                     if (loaded.version == 1) r.source = "Legacy snapshot; field provenance unknown";
+                    if (r.deathAnnotation == null && r.diedAt > 0) {
+                        r.deathAnnotation = new DeathAnnotation(); r.deathAnnotation.markedAt = r.diedAt;
+                    }
+                    if (r.deathAnnotation != null) validateAnnotation(r.deathAnnotation);
                 }
                 for (AccountRecord a : loaded.accounts.values()) {
                     if (a == null || a.key == null || a.exalts == null) throw new IOException("Invalid account");
                     for (int[] values : a.exalts.values()) if (!validExalts(values)) throw new IOException("Invalid exalts");
                 }
-                loaded.version = 2;
+                loaded.version = 3;
                 document = loaded;
             } catch (Exception e) {
                 readOnly = true;
@@ -256,12 +267,38 @@ public final class CharacterJournal implements AutoCloseable {
             CharacterRecord next = pendingAlive.remove(key);
             if (next != null) {
                 next.notes = r.notes;
+                next.deathAnnotation = copyAnnotation(r.deathAnnotation);
                 document.characters.set(document.characters.indexOf(r), next);
                 r = next;
             }
         } else pendingAlive.remove(key);
         r.observedAgainAt = 0;
         r.dead = dead; r.diedAt = dead ? System.currentTimeMillis() : 0; changed();
+        if (dead) {
+            if (r.deathAnnotation == null) r.deathAnnotation = new DeathAnnotation();
+            r.deathAnnotation.markedAt = r.diedAt;
+        }
+    }
+    public synchronized void annotateDeath(String key, DeathAnnotation value) {
+        CharacterRecord r = find(key); if (r == null || readOnly) return;
+        if (value == null) throw new IllegalArgumentException("Annotation is required");
+        validateAnnotation(value);
+        DeathAnnotation next = copyAnnotation(value);
+        next.markedAt = r.deathAnnotation == null ? r.diedAt : r.deathAnnotation.markedAt;
+        next.editedAt = System.currentTimeMillis(); r.deathAnnotation = next; changed();
+    }
+    private static void validateAnnotation(DeathAnnotation value) {
+        if (value.markedAt < 0 || value.editedAt < 0 || value.occurredAt != null && value.occurredAt < 0)
+            throw new IllegalArgumentException("Invalid annotation timestamp");
+        if (value.notes != null && value.notes.length() > 10000) throw new IllegalArgumentException("Note is too long");
+        if (value.visit != null && (value.visit.sessionId == null || value.visit.sessionId.isEmpty()
+                || value.visit.visitId == null || value.visit.visitId.isEmpty())) throw new IllegalArgumentException("Invalid exact visit");
+    }
+    private static DeathAnnotation copyAnnotation(DeathAnnotation source) {
+        if (source == null) return null;
+        DeathAnnotation copy = new DeathAnnotation(); copy.occurredAt = source.occurredAt;
+        copy.markedAt = source.markedAt; copy.editedAt = source.editedAt; copy.notes = source.notes; copy.visit = source.visit;
+        return copy;
     }
     public synchronized void notes(String key, String notes) {
         CharacterRecord r = find(key); if (r == null) return;
@@ -317,6 +354,7 @@ public final class CharacterJournal implements AutoCloseable {
         c.characterId = r.characterId; c.classId = r.classId; c.level = r.level; c.skin = r.skin;
         c.fame = r.fame; c.seasonal = r.seasonal; c.firstSeen = r.firstSeen; c.lastSeen = r.lastSeen;
         c.diedAt = r.diedAt; c.dead = r.dead; c.notes = r.notes; c.source = r.source;
+        c.deathAnnotation = copyAnnotation(r.deathAnnotation);
         c.lastObservedAlive = r.lastObservedAlive; c.rosterReceivedAt = r.rosterReceivedAt; c.observedAgainAt = r.observedAgainAt;
         c.fields = new HashMap<>(r.fields);
         c.observationRevision = r.observationRevision;

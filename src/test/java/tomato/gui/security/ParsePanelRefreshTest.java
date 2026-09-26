@@ -98,6 +98,7 @@ public class ParsePanelRefreshTest {
             ContentStyle.setBodyFont(oldFont);
             try { UIManager.setLookAndFeel(oldLookAndFeel); }
             catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
+            ContentStyle.applyFontDefaults();
         });
         PropertiesManager.setProperties("securityFilters", oldFilters == null ? "" : oldFilters);
         PropertiesManager.setProperties("securityFilterName", oldSelected == null ? "" : oldSelected);
@@ -428,36 +429,41 @@ public class ParsePanelRefreshTest {
         });
     }
 
-    @Test public void abilityMessagesBatchOnEdtWithoutLosingLines() throws Exception {
-        AtomicReference<JTextArea> log = new AtomicReference<>();
-        AtomicInteger appends = new AtomicInteger();
-        StringBuilder expected = new StringBuilder();
-        for (int i = 0; i < 300; i++) expected.append("Ability ").append(i).append('\n');
+    @Test public void abilityBurstPublicationKeepsDetachedEvidenceOffTheEdtUntilRefresh() throws Exception {
+        tomato.ability.AbilityObservationStore store=new tomato.ability.AbilityObservationStore(400);
+        AtomicReference<AbilityEvidencePanel> evidence=new AtomicReference<>();
+        AtomicInteger changes=new AtomicInteger();
         SwingUtilities.invokeAndWait(() -> {
-            SecurityGUI security = new SecurityGUI();
-            JTabbedPane tabs = named(security, "inspect-tabs", JTabbedPane.class);
-            log.set(find((Container)tabs.getComponentAt(tabs.indexOfTab("Ability Use")), JTextArea.class));
-            assertEquals("Ability usage log", log.get().getAccessibleContext().getAccessibleName());
-            log.get().getDocument().addDocumentListener(new DocumentListener() {
-                public void insertUpdate(DocumentEvent e) {
-                    assertTrue(SwingUtilities.isEventDispatchThread());
-                    appends.incrementAndGet();
-                }
-                public void removeUpdate(DocumentEvent e) { }
-                public void changedUpdate(DocumentEvent e) { }
-            });
+            evidence.set(new AbilityEvidencePanel(store));
+            JTable table=named(evidence.get(),"ability-table",JTable.class);
+            assertEquals("Inferred ability observations",table.getAccessibleContext().getAccessibleName());
+            table.getModel().addTableModelListener(e->{assertTrue(SwingUtilities.isEventDispatchThread());changes.incrementAndGet();});
             Thread capture = new Thread(() -> {
-                for (int i = 0; i < 300; i++) SecurityGUI.updateAbilityUsage("Ability " + i);
+                for(int i=0;i<300;i++)store.add(new tomato.ability.AbilityObservation("fixture-session",null,i,i,
+                    "Player "+i,"Mystic",i,"Ability "+i,"stasis",10,12,"Ambiguous candidate"));
             });
             capture.start();
             try { capture.join(3000); } catch (InterruptedException e) { throw new AssertionError(e); }
             assertFalse(capture.isAlive());
-            assertEquals(0, appends.get());
+            assertEquals("Producer publication must never touch Swing",0,changes.get());
+            assertEquals(300,store.snapshot("",null,null,null).retained);
         });
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals(expected.toString(), log.get().getText());
-            assertEquals(1, appends.get());
+            evidence.get().refresh();
+            JTable table=named(evidence.get(),"ability-table",JTable.class);
+            assertEquals("Rendering is bounded even for a larger burst",100,table.getRowCount());
+            assertTrue(changes.get()>0);assertTrue(changes.get()<=101);
+            named(evidence.get(),"ability-search",JTextField.class).setText("Ability 0");
+            assertEquals("Search covers retained evidence beyond the displayed page",1,table.getRowCount());
+            table.setRowSelectionInterval(0,0);
+            String detail=named(evidence.get(),"ability-details",JTextArea.class).getText();
+            assertTrue(detail.contains("Previous MP: 10"));assertTrue(detail.contains("Incoming MP: 12"));
+            assertTrue(detail.contains("not a confirmed cast"));
         });
+        for(int i=300;i<450;i++)store.add(new tomato.ability.AbilityObservation("fixture-session",null,i,i,
+            "Player "+i,"Mystic",i,"Ability "+i,"stasis",10,12,"Ambiguous candidate"));
+        assertEquals(400,store.snapshot("",null,null,null).retained);
+        assertEquals(50,store.snapshot("",null,null,null).evicted);
     }
 
     @Test public void populatedSecurityInMinimumWorkspaceKeepsRowsAndActionsReachable() throws Exception {
@@ -515,11 +521,38 @@ public class ParsePanelRefreshTest {
                     + ", scroll=" + rosterScroll.getSize(), rosterScroll.getViewport().getExtentSize().height >= table.getRowHeight() * 3);
             Point start = SwingUtilities.convertPoint(rosterScroll.getViewport(), 0, 0, pageScroll.getViewport().getView());
             pageScroll.getVerticalScrollBar().setValue(start.y);
+            ContentStyle.reveal(table, table.getCellRect(0, 0, true));
             assertTrue("Rows must be reachable by scrolling the page", table.getVisibleRect().height >= table.getRowHeight());
             assertLastRowReachable(table);
             // Container state controls may add an outer page scroll; reveal every ancestor.
             ui.VisualEvidence.completeButton(button(panel, "Actions…"));
             new ui.VisualEvidence("wave2").capture(frame, "inspect-live-large-actions");
+        });
+        AtomicReference<JTable> focusedTable=new AtomicReference<>();
+        CountDownLatch lastSelected=new CountDownLatch(1);
+        SwingUtilities.invokeAndWait(()->{
+            JTable table=find(panel,JTable.class);focusedTable.set(table);
+            table.setRowSelectionInterval(0,0);
+            table.getSelectionModel().addListSelectionListener(e->{
+                if(!e.getValueIsAdjusting()&&table.getSelectedRow()==table.getRowCount()-1)lastSelected.countDown();
+            });
+        });
+        JTable table=focusedTable.get();
+        awaitRosterFocus(table);
+        // Native keyboard integration with verified real window/table focus.
+        EventQueue keyboard=Toolkit.getDefaultToolkit().getSystemEventQueue();
+        for(int row=1;row<table.getRowCount();row++){
+            long when=System.currentTimeMillis();
+            keyboard.postEvent(new KeyEvent(table,KeyEvent.KEY_PRESSED,when,0,KeyEvent.VK_DOWN,KeyEvent.CHAR_UNDEFINED));
+            keyboard.postEvent(new KeyEvent(table,KeyEvent.KEY_RELEASED,when,0,KeyEvent.VK_DOWN,KeyEvent.CHAR_UNDEFINED));
+        }
+        boolean moved=lastSelected.await(5,TimeUnit.SECONDS);
+        SwingUtilities.invokeAndWait(()->assertTrue("Down keys select final row: selected="+table.getSelectedRow()+", count="+table.getRowCount()+", focus="+table.hasFocus(),moved));
+        SwingUtilities.invokeAndWait(()->{
+            assertEquals(table.getRowCount()-1,table.getSelectedRow());
+            Rectangle last=table.getCellRect(table.getSelectedRow(),Math.max(0,table.getSelectedColumn()),true);
+            assertTrue("Keyboard selection reveals the final row through outer page scrolling without test assistance",
+                table.getVisibleRect().intersects(last));
         });
     }
 
@@ -863,7 +896,10 @@ public class ParsePanelRefreshTest {
         int last = table.getRowCount() - 1;
         table.setRowSelectionInterval(last, last);
         Rectangle cell = table.getCellRect(last, 0, true);
-        table.scrollRectToVisible(cell);
+        // Large text can activate both roster and enclosing workspace scrollbars.
+        // Exercise the same reachable region through every scrollable ancestor;
+        // scrolling only the inner table cannot expose a row behind the outer page.
+        ContentStyle.reveal(table,cell);
         assertTrue("The final populated row must remain reachable", table.getVisibleRect().intersects(cell));
     }
 

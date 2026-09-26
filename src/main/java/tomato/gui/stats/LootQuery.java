@@ -98,6 +98,7 @@ public final class LootQuery {
     }
     /** One lightweight row schema gives every view explicit analytical CSV columns. */
     public static final class Row {
+        public String enchantEvidence,dropContext;
         public String type,name="",dungeon="",bag="",dropper="",session="",visitId="",tier="",rarity="",evidence="",className="",build="";
         public Integer itemId,slots,applied,character,enemyId;
         public Long time,count,bags,items,runs,millis,averageMillis,whites,uts,sts,potions,completed,unknownRuns,importedRuns,hits,damage;
@@ -114,7 +115,9 @@ public final class LootQuery {
         public String variantKey(){return itemId==null?null:itemId+"/"+slots+"/"+applied;}
         /** Exact recorded visit reference, or null when the row has no verified run link. */
         public tomato.history.link.VisitRef visitRef(){return Boolean.TRUE.equals(runLinked)&&session!=null&&!session.isEmpty()&&visitId!=null&&!visitId.isEmpty()?new tomato.history.link.VisitRef(session,visitId):null;}
-        static Row item(String session,LootDashboard.Drop d,LootDashboard.Item i,String dungeon){Row r=new Row();r.type="occurrence";r.session=session;r.visitId=Objects.toString(d.visitId,"");r.time=time(d.time);r.name=i.name;r.itemId=i.id;r.dungeon=dungeon;r.bag=d.bag;r.dropper=d.dropper;r.tier=tier(i);r.rarity=rarity(i);r.slots=slots(i);r.applied=applied(i);r.count=1L;return r;}
+        static Row item(String session,LootDashboard.Drop d,LootDashboard.Item i,String dungeon){Row r=new Row();r.type="occurrence";r.session=session;r.visitId=Objects.toString(d.visitId,"");r.time=time(d.time);r.name=i.name;r.itemId=i.id;r.dungeon=dungeon;r.bag=d.bag;r.dropper=d.dropper;r.tier=tier(i);r.rarity=rarity(i);r.slots=slots(i);r.applied=applied(i);r.count=1L;
+            r.enchantEvidence=(i.enchantEvidence==null?tomato.realmshark.ParseEnchants.legacyEvidence():i.enchantEvidence).describe();
+            r.dropContext=d.context==null?"Not recorded (legacy occurrence)":d.context.describe();return r;}
     }
     static Comparator<Row> comparator(Sort sort){
         switch(sort){
