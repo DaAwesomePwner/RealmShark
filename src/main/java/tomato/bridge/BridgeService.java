@@ -40,6 +40,8 @@ public final class BridgeService implements AutoCloseable {
         private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload){this(id,time,drop,status,detail,payload,status+": "+detail);}
         private Review(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload,String localChoice){this.id=id;this.time=time;this.drop=drop;this.status=status;this.detail=detail;this.payload=payload;this.localChoice=localChoice;}
         Review with(String status,String detail){return new Review(id,time,drop,status,detail,payload,localChoice);}
+        /** Detached review restored from a saved journal (BridgeJournal); never queued or sent. */
+        static Review restored(long id,String time,BridgePayload.Drop drop,String status,String detail,String payload,String localChoice){return new Review(id,time,drop,status,detail,payload,localChoice);}
         public Outcome outcome(){return Outcome.of(status);}
         public String nextStep(){
             if("Uncertain".equals(status))return "Check the bot's log before resubmitting; delivery is uncertain and retries may duplicate loot.";
@@ -64,6 +66,24 @@ public final class BridgeService implements AutoCloseable {
         public final String time,level,message;
         Log(String level,String message){time=Instant.now().toString();this.level=level;this.message=message;}
     }
+    /** Actual result of the settings confirmation ping for one accepted configuration (BRIDGE-3). */
+    public static final class Confirmation {
+        public enum State { NONE, NOT_REQUESTED, QUEUED, CONFIRMED, REJECTED, UNCERTAIN, NOT_QUEUED, CANCELLED }
+        public final State state; public final String detail; final long generation;
+        Confirmation(State state,String detail,long generation){this.state=state;this.detail=detail;this.generation=generation;}
+        public String label(){
+            switch(state){
+                case NOT_REQUESTED:return "Confirmation not requested: "+detail;
+                case QUEUED:return "Confirmation ping queued; waiting for the bot's response.";
+                case CONFIRMED:return "Confirmation received: "+detail;
+                case REJECTED:return "Confirmation rejected: "+detail;
+                case UNCERTAIN:return "Confirmation uncertain: "+detail;
+                case NOT_QUEUED:return "Confirmation not sent: "+detail;
+                case CANCELLED:return "Confirmation cancelled: "+detail;
+                default:return "No settings have been confirmed in this session.";
+            }
+        }
+    }
     public static final class Snapshot {
         public final List<Review> reviews;public final List<Log> logs;
         public final int queued,catalogSize; public final long observed,accepted,skipped,failed,revision;
@@ -71,7 +91,9 @@ public final class BridgeService implements AutoCloseable {
         public final boolean loading,closed;
         public final BridgeConfig config;
         public final Map<Outcome,Long> outcomes;
-        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,Map<Outcome,Long> counts,long revision,String state,boolean loading,boolean closed,BridgeConfig config){reviews=r;logs=l;queued=q;catalogSize=c;observed=o;outcomes=Collections.unmodifiableMap(new EnumMap<>(counts));accepted=count(Outcome.LOGGED)+count(Outcome.RECEIVED);skipped=count(Outcome.LOCAL);failed=count(Outcome.FAILED);this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
+        /** Actual confirmation result for the active settings; never inferred from a successful save. */
+        public final Confirmation confirmation;
+        Snapshot(List<Review> r,List<Log> l,int q,int c,long o,Map<Outcome,Long> counts,long revision,String state,boolean loading,boolean closed,BridgeConfig config,Confirmation confirmation){this.confirmation=confirmation;reviews=r;logs=l;queued=q;catalogSize=c;observed=o;outcomes=Collections.unmodifiableMap(new EnumMap<>(counts));accepted=count(Outcome.LOGGED)+count(Outcome.RECEIVED);skipped=count(Outcome.LOCAL);failed=count(Outcome.FAILED);this.revision=revision;this.state=state;this.loading=loading;this.closed=closed;this.config=config;}
         public long count(Outcome outcome){return outcomes.getOrDefault(outcome,0L);}
     }
     private static final class Holder { static final BridgeService INSTANCE = create(); }
@@ -95,6 +117,7 @@ public final class BridgeService implements AutoCloseable {
     private long generation,sequence,observed,revision;
     private final Map<Outcome,Long> outcomes=new EnumMap<>(Outcome.class);
     private String state="Loading bridge settings…";
+    private Confirmation confirmation=new Confirmation(Confirmation.State.NONE,"",0);
     private Closeable folderLock; // Owned exclusively by configurationWorker, including cleanup.
 
     /** Loads settings in the background without waiting on the caller, including the EDT. Observe Snapshot.loading/state. */
@@ -103,6 +126,7 @@ public final class BridgeService implements AutoCloseable {
     }
     BridgeService(Path settings,boolean preview,Transport transport,int queueCapacity,BridgeStorage storage) {
         this.settings=settings;this.preview=preview;this.transport=transport;this.storage=storage;
+        storage.serviceSession=UUID.randomUUID().toString();
         worker=worker("realmshark-guild-bridge",queueCapacity);
         configurationWorker=worker("realmshark-bridge-configuration",CONFIGURATION_CAPACITY);
         configurationWorker.execute(this::initialize);
@@ -153,6 +177,7 @@ public final class BridgeService implements AutoCloseable {
                 state=active?(next.send?"Ready to send detected drops":"Local review only"):"Disabled";
                 log("INFO",state+". CSV items: "+loaded.size()+". Waiting requests from previous settings will be cancelled.");
                 if(active&&next.send&&ping)enqueuePing(next,generation);
+                else confirmation=new Confirmation(Confirmation.State.NOT_REQUESTED,!next.enabled?"the bridge is disabled.":!next.send?"sending is off (local review only).":"settings were reloaded without a confirmation ping.",generation);
             }
             if(acquired!=null){folderLock=acquired;acquired=null;}
             if(!next.enabled)releaseLock();
@@ -201,10 +226,19 @@ public final class BridgeService implements AutoCloseable {
         send(entry,payload,target);
     }
     private void enqueuePing(BridgeConfig target,long version) {
-        try {worker.execute(()->{synchronized(this){if(!active||generation!=version||closed)return;}send(null,BridgePayload.settingsPing(target),target);});log("INFO","Settings confirmation queued. The bot may announce the successful link in Discord.");}
-        catch(RejectedExecutionException e){log("ERROR","Settings saved, but confirmation could not be queued. Queue is full.");}
+        try {
+            worker.execute(()->{synchronized(this){if(!active||generation!=version||closed){confirm(version,Confirmation.State.CANCELLED,"settings changed before the ping was sent.");return;}}send(null,BridgePayload.settingsPing(target),target,version);});
+            confirmation=new Confirmation(Confirmation.State.QUEUED,"",version);
+            log("INFO","Settings confirmation queued. The bot may announce the successful link in Discord.");
+        }
+        catch(RejectedExecutionException e){confirmation=new Confirmation(Confirmation.State.NOT_QUEUED,"the delivery queue is full.",version);log("ERROR","Settings saved, but confirmation could not be queued. Queue is full.");}
     }
-    private void send(Review entry,JsonObject payload,BridgeConfig target) {
+    private synchronized void confirm(long version,Confirmation.State next,String detail){
+        if(confirmation.generation!=version)return;
+        confirmation=new Confirmation(next,detail,version);revision++;
+    }
+    private void send(Review entry,JsonObject payload,BridgeConfig target){send(entry,payload,target,-1);}
+    private void send(Review entry,JsonObject payload,BridgeConfig target,long pingVersion) {
         String label=entry==null?"Settings confirmation":entry.drop.item.rawName;
         if(target.debug)log("DEBUG","POST "+label+" | "+BridgePayload.redacted(payload));
         try {
@@ -229,9 +263,11 @@ public final class BridgeService implements AutoCloseable {
             if(status.equals("Rejected"))detail+=". Check endpoint, token, guild and bot settings; no automatic retry.";
             log(status.equals("Rejected")?"ERROR":"INFO",label+": "+status+" | "+detail);
             if(entry!=null)finish(entry,status,detail,target,true);
+            else confirm(pingVersion,status.equals("Rejected")?Confirmation.State.REJECTED:Confirmation.State.CONFIRMED,status+" | "+detail);
         } catch(IOException|RuntimeException e) {
             String detail="Delivery is uncertain ("+e.getClass().getSimpleName()+"). Check the bot before resubmitting; automatic retries could duplicate loot.";
             log("ERROR",label+": "+detail);if(entry!=null)finish(entry,"Uncertain",detail,target,true);
+            else confirm(pingVersion,Confirmation.State.UNCERTAIN,"no response ("+e.getClass().getSimpleName()+"); check endpoint, network and bot.");
         }
     }
     private static Boolean booleanResult(JsonObject object,String key){
@@ -253,7 +289,7 @@ public final class BridgeService implements AutoCloseable {
         if(!config.token.isEmpty())message=message.replace(config.token,"[redacted]");
         logs.addLast(new Log(level,message));while(logs.size()>500)logs.removeFirst();revision++;
     }
-    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,outcomes,revision,state,loading,closed,config);}
+    public synchronized Snapshot snapshot(){return new Snapshot(new ArrayList<>(reviews.values()),new ArrayList<>(logs),worker.getQueue().size(),catalog.size(),observed,outcomes,revision,state,loading,closed,config,confirmation);}
     public synchronized void clearLogs(){logs.clear();revision++;}
     private static void requireBackgroundWait(){if(SwingUtilities.isEventDispatchThread())throw new IllegalStateException("Do not wait for bridge workers on the EDT.");}
     /** Startup has settled (possibly with an error in snapshot().state), or close has invalidated it. */

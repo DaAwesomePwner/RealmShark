@@ -331,6 +331,21 @@ final class KeyPopDashboard extends JPanel {
 
     List<KeyPopEvent> filteredEvents() { return new ArrayList<>(filtered); }
 
+    /**
+     * The dungeon/item of the selected event or By dungeon row, else the Dungeon filter; null when the
+     * current tab has no such selection (By player). The value is observed text and is not resolved here.
+     */
+    String selectedDungeon() {
+        int tab = tabs.getSelectedIndex();
+        if (tab == 0 && events.getSelectedRow() >= 0) {
+            int row = events.convertRowIndexToModel(events.getSelectedRow());
+            return row < filtered.size() ? filtered.get(row).item : null;
+        }
+        if (tab == 2 && items.getSelectedRow() >= 0) return (String)items.getModel().getValueAt(items.convertRowIndexToModel(items.getSelectedRow()), 0);
+        if (tab != 1 && item.getSelectedIndex() > 0) return (String)item.getSelectedItem();
+        return null;
+    }
+
     void editFont(Font font) {
         for (JTable table : new JTable[] {events, players, items}) ContentStyle.tableFont(table, font, 0);
     }

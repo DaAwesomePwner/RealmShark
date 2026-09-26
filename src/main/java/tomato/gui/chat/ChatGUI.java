@@ -65,7 +65,7 @@ public class ChatGUI extends JPanel {
     private final ChatExplorer explorer;
     private final ChatFilters filters;
     private final tomato.realmshark.AlertRules alertRules;
-    private final java.util.function.Consumer<Sound> playAlert;
+    private final java.util.function.ObjLongConsumer<Sound> playAlert;
     private final ObservedIgnores observedIgnores = new ObservedIgnores();
     public static volatile boolean save;
     private static TomatoData data;
@@ -79,11 +79,17 @@ public class ChatGUI extends JPanel {
     }
 
     ChatGUI(TomatoData data, ChatFilters filters, boolean loadExternalRules) {
-        this(data, filters, loadExternalRules, tomato.realmshark.AlertRules.application(), Sound::play);
+        this(data, filters, loadExternalRules, tomato.realmshark.AlertRules.application(), Sound::play, true);
     }
 
     ChatGUI(TomatoData data, ChatFilters filters, boolean loadExternalRules, tomato.realmshark.AlertRules alertRules,
             java.util.function.Consumer<Sound> playAlert) {
+        this(data, filters, loadExternalRules, alertRules, (sound, decision) -> playAlert.accept(sound), true);
+    }
+
+    /** {@code playAlert} receives the sound and the recorded decision ID so asynchronous playback can complete it. */
+    ChatGUI(TomatoData data, ChatFilters filters, boolean loadExternalRules, tomato.realmshark.AlertRules alertRules,
+            java.util.function.ObjLongConsumer<Sound> playAlert, boolean recordDecisions) {
         this.alertRules = alertRules; this.playAlert = playAlert;
         ChatGUI.data = data;
         setLayout(new BorderLayout());
@@ -182,6 +188,7 @@ public class ChatGUI extends JPanel {
         String ignored = filters.reason(message);
         explorer.accept(message);
         if (!ignored.isEmpty()) {
+            recordIgnored(p, message, ignored);
             if (save) Util.print("chat/chat", message.transcript() + " [Ignored: " + ignored + "]");
             return;
         }
@@ -191,31 +198,65 @@ public class ChatGUI extends JPanel {
         if (save) Util.print("chat/chat", message.transcript());
     }
 
+    /** Pure choice of the one chat sound for a message; also used to explain ignored messages. */
+    private static final class Plan {
+        Sound channel; String channelNote = "";
+        tomato.realmshark.AlertRules.Snapshot rules; tomato.realmshark.AlertRules.Match keyword;
+    }
+    private Plan plan(TextPacket p, ChatMessage message) {
+        Plan plan = new Plan();
+        boolean isPlayer = message.ownMessage;
+        if (p.recipient.contains("*Guild*")) {
+            if (!isPlayer && Sound.guild.isEnabled()) plan.channel = Sound.guild; else if (!isPlayer) plan.channelNote = "Guild chat alert is off. ";
+        } else if (p.recipient.contains("*Party*")) {
+            if (!isPlayer && Sound.party.isEnabled()) plan.channel = Sound.party; else if (!isPlayer) plan.channelNote = "Party chat alert is off. ";
+        } else if (!p.recipient.trim().isEmpty()) {
+            if (message.isIncomingWhisper() && Sound.pm.isEnabled()) plan.channel = Sound.pm;
+            else if (message.isIncomingWhisper()) plan.channelNote = "Whisper alert is off. ";
+        }
+        if (data != null && !isPlayer && (message.channel != ChatMessage.Channel.PM || message.isIncomingWhisper())) {
+            plan.rules = alertRules.snapshot(tomato.realmshark.AlertRules.Domain.CHAT, data.getChatMessagePings());
+            plan.keyword = plan.rules.matchChat(p.text);
+        }
+        return plan;
+    }
+
     void alert(TextPacket p, ChatMessage message) {
         tomato.realmshark.RealmEventAlerts.INSTANCE.accept(p, data == null || data.map == null ? null : data.map.name);
-        boolean isPlayer = message.ownMessage;
-        boolean pinged = false;
-        if (p.recipient.contains("*Guild*")) {
-            if (!isPlayer && Sound.guild.isEnabled()) {
-                playAlert.accept(Sound.guild);
-                pinged = true;
+        Plan plan = plan(p, message);
+        if (plan.channel != null) {
+            String also = plan.keyword != null && plan.keyword.matched ? " Keyword rule " + (plan.keyword.ruleIndex + 1)
+                + " also matched; one sound plays per message and the channel alert takes precedence." : "";
+            long id = record(entry(message, plan, plan.channel, plan.keyword != null && plan.keyword.matched)
+                .explain(plan.channel.label + " alert for this channel." + also));
+            playAlert.accept(plan.channel, id);
+        } else if (plan.keyword != null) {
+            if (plan.keyword.matched) {
+                playAlert.accept(Sound.keywords, record(entry(message, plan, Sound.keywords, true).explain(plan.channelNote + plan.keyword.explanation)));
+            } else {
+                record(entry(message, plan, null, false).result(plan.rules.editable() ? tomato.realmshark.AlertDecisions.Result.NO_MATCH
+                    : tomato.realmshark.AlertDecisions.Result.RULES_UNAVAILABLE).explain(plan.channelNote + plan.keyword.explanation));
             }
-        } else if (p.recipient.contains("*Party*")) {
-            if (!isPlayer && Sound.party.isEnabled()) {
-                playAlert.accept(Sound.party);
-                pinged = true;
-            }
-        } else if (!p.recipient.trim().isEmpty()) {
-            if (message.isIncomingWhisper() && Sound.pm.isEnabled()) {
-                playAlert.accept(Sound.pm);
-                pinged = true;
-            }
-
-        }
-        if (data != null && !pinged && !isPlayer && (message.channel != ChatMessage.Channel.PM || message.isIncomingWhisper())) {
-            if (alertRules.matchChat(data.getChatMessagePings(), p.text).matched) playAlert.accept(Sound.keywords);
         }
     }
+    /** Ignored messages stay silent; a decision is recorded only when they would otherwise have alerted. */
+    private void recordIgnored(TextPacket p, ChatMessage message, String reason) {
+        if (p == null || p.recipient == null || p.text == null) return;
+        Plan plan = plan(p, message);
+        boolean keyword = plan.keyword != null && plan.keyword.matched;
+        Sound would = plan.channel != null ? plan.channel : keyword ? Sound.keywords : null;
+        if (would == null) return;
+        record(entry(message, plan, would, keyword).result(tomato.realmshark.AlertDecisions.Result.IGNORED)
+            .explain("Would have played " + would.label + ", but the message is ignored: " + reason + " Ignored messages never alert."));
+    }
+    private tomato.realmshark.AlertDecisions.Entry entry(ChatMessage message, Plan plan, Sound sound, boolean keyword) {
+        tomato.realmshark.AlertDecisions.Entry entry = new tomato.realmshark.AlertDecisions.Entry(tomato.realmshark.AlertDecisions.Source.CHAT)
+            .sound(sound).subject(message.channel.label + " · " + message.playerLabel()).sample(message.text, null);
+        if (keyword) entry.rule(tomato.realmshark.AlertRules.Domain.CHAT, plan.rules.rules.get(plan.keyword.ruleIndex), plan.keyword.ruleIndex);
+        else entry.rule(tomato.realmshark.AlertRules.Domain.CHAT, null, -1);
+        return entry;
+    }
+    private static long record(tomato.realmshark.AlertDecisions.Entry entry) { return tomato.realmshark.AlertDecisions.INSTANCE.record(entry); }
 
     public static void observeAccountList(packets.incoming.AccountListPacket packet) {
         ChatGUI current = instance;

@@ -45,6 +45,10 @@ final class ChatExplorer extends JPanel {
     private ChatFilters.Classification classification;
     private final JTextArea filterStatus = ContentStyle.wrappingText(""), ignoreReason = ContentStyle.wrappingText("");
     private final JButton ignorePlayer = new JButton("Ignore player");
+    private final JButton alertMessage = new JButton("Alert from message…"), alertPlayer = new JButton("Alert on mentions…");
+    private final JTextArea draftStatus = ContentStyle.wrappingText("");
+    /** Opens a contextual draft and runs the Runnable when the editor closes. Replaced by tests; never saves. */
+    private java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft, Runnable> draftOpener = tomato.gui.maingui.AlertRuleEditor::openDraft;
     private final List<ChatMessage> history = new ArrayList<>();
     private final Set<ChatMessage> starred = new HashSet<>();
     private final ArrayDeque<ChatMessage> pending = new ArrayDeque<>();
@@ -285,10 +289,17 @@ final class ChatExplorer extends JPanel {
         ignoreReason.putClientProperty("html.disable", true);
         ignoreReason.setAlignmentX(Component.LEFT_ALIGNMENT); detailTop.add(ignoreReason);
         JPanel detailActions = ContentStyle.controls();
-        for (JButton button : new JButton[]{star, copy, filterPlayer, ignorePlayer}) {
+        alertMessage.setName("chat-alert-message"); alertPlayer.setName("chat-alert-player");
+        alertMessage.setToolTipText("Draft a chat rule from this message (or the selected words). Opens silently; nothing is saved or enabled.");
+        alertPlayer.setToolTipText("Draft a chat token rule for mentions of this player. Chat rules match message text, not senders.");
+        alertMessage.addActionListener(e -> draftFromMessage(false)); alertPlayer.addActionListener(e -> draftFromMessage(true));
+        for (JButton button : new JButton[]{star, copy, filterPlayer, ignorePlayer, alertMessage, alertPlayer}) {
             detailActions.add(button);
         }
-        detailActions.setAlignmentX(Component.LEFT_ALIGNMENT); detailTop.add(detailActions); details.add(detailTop, BorderLayout.NORTH);
+        detailActions.setAlignmentX(Component.LEFT_ALIGNMENT); detailTop.add(detailActions);
+        draftStatus.setName("chat-draft-status"); draftStatus.setVisible(false); draftStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
+        ContentStyle.font(draftStatus, ContentStyle.metadata(ContentStyle.body())); detailTop.add(draftStatus);
+        details.add(detailTop, BorderLayout.NORTH);
         detail.setName("chat-detail-message");
         detail.setEditable(false); detail.setLineWrap(true); detail.setWrapStyleWord(true);
         detail.setRows(2); detail.setMargin(new Insets(4, 8, 4, 8));
@@ -553,6 +564,11 @@ final class ChatExplorer extends JPanel {
         star.setEnabled(hasMessage); copy.setEnabled(hasMessage); filterPlayer.setEnabled(hasMessage && !message.player.isEmpty());
         ignorePlayer.setEnabled(hasMessage && !message.ownMessage && message.channel != ChatMessage.Channel.SYSTEM && !message.sender.isEmpty());
         ignorePlayer.setText(hasMessage && spamFilters.ignoresPlayer(message.sender) ? "Unignore player" : "Ignore player");
+        alertMessage.setEnabled(hasMessage && !message.ownMessage && !message.text.trim().isEmpty());
+        alertPlayer.setEnabled(hasMessage && !message.player.isEmpty() && message.player.indexOf(' ') < 0 && !message.player.startsWith("#"));
+        alertPlayer.setText(hasMessage && alertPlayer.isEnabled() ? "Alert on mentions of " + shortName(message.player) + "…" : "Alert on mentions…");
+        if (hasMessage && message.ownMessage) alertMessage.setToolTipText("Your own messages never trigger chat alerts; select a received message.");
+        else alertMessage.setToolTipText("Draft a chat rule from this message (or the selected words). Opens silently; nothing is saved or enabled.");
         String why = hasMessage ? reason(message) : "";
         ignoreReason.setText(why.isEmpty() ? "" : "Ignored: " + why);
         ignoreReason.setToolTipText(why.isEmpty() ? null : plainTooltip(why));
@@ -576,6 +592,44 @@ final class ChatExplorer extends JPanel {
             } catch (javax.swing.text.BadLocationException ignored) { break; }
         }
     }
+
+    private static String shortName(String name) { return name.length() <= 16 ? name : name.substring(0, 15) + "…"; }
+
+    /** Test/integration seam: replaces how contextual drafts are opened (the default opens AlertRuleEditor). */
+    void useDraftOpener(java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft, Runnable> opener) { draftOpener = opener; }
+
+    /**
+     * CHAT-3 draft slice: builds a detached draft (never the live message) and, when the editor closes,
+     * reselects and focuses the same message so the reader returns to the source record.
+     */
+    void draftFromMessage(boolean player) {
+        ChatMessage message = selected(); if (message == null) return;
+        String source = "Chat · " + message.clock() + " · " + message.channel.label + " · " + message.playerLabel();
+        tomato.realmshark.AlertRules.Draft draft;
+        if (player) draft = tomato.realmshark.AlertRules.Draft.chat(tomato.realmshark.AlertRules.Mode.SPACE_TOKEN, message.player, message.text, source + " (mentions of this player)");
+        else {
+            String chosen = detail.getSelectedText();
+            String value = chosen != null && !chosen.trim().isEmpty() && detailedMessage == message ? chosen.trim() : message.text.trim();
+            draft = tomato.realmshark.AlertRules.Draft.chat(tomato.realmshark.AlertRules.Mode.TEXT_CONTAINS, value, message.text, source);
+        }
+        follow.setSelected(false);
+        draftStatus.setVisible(false);
+        draftOpener.accept(draft, () -> returnToMessage(message));
+    }
+
+    /** Restores the source row after a draft closes. Returns false and explains when it is no longer shown. */
+    boolean returnToMessage(ChatMessage message) {
+        if (viewDirty) refresh(true);
+        int row = visible.indexOf(message);
+        if (row < 0) {
+            draftStatus.setText("The message used for the alert draft is no longer in this view (filters changed or it left the retained history).");
+            draftStatus.setVisible(true); revalidate(); return false;
+        }
+        table.setRowSelectionInterval(row, row); table.scrollRectToVisible(table.getCellRect(row, 0, true)); table.requestFocusInWindow();
+        draftStatus.setVisible(false); return true;
+    }
+    ChatMessage selectedMessage() { return selected(); }
+    List<ChatMessage> visibleMessages() { return Collections.unmodifiableList(visible); }
 
     private void toggleStar() {
         ChatMessage message = selected(); if (message == null) return;

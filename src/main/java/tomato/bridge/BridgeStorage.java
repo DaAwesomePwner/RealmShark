@@ -28,10 +28,28 @@ class BridgeStorage {
         }
     }
 
+    /** Identifies the writing service instance; review IDs are only unique within it. Set by BridgeService. */
+    volatile String serviceSession="";
+
     void audit(BridgeService.Review entry,BridgeConfig config) throws IOException {
         Path path=Paths.get(config.reviewLog).toAbsolutePath();Files.createDirectories(path.getParent());
         if(Files.exists(path)&&Files.size(path)>5*1024*1024)Files.move(path,path.resolveSibling(path.getFileName()+".1"),StandardCopyOption.REPLACE_EXISTING);
-        String json=new Gson().toJson(entry)+System.lineSeparator();
+        String json=versionedLine(entry,serviceSession,appSession())+System.lineSeparator();
         Files.write(path,json.getBytes(StandardCharsets.UTF_8),StandardOpenOption.CREATE,StandardOpenOption.APPEND);
+    }
+    /** Journal format 1: an envelope naming the format, writer session and optional app session around the review. */
+    static String versionedLine(BridgeService.Review entry,String serviceSession,String appSession){
+        com.google.gson.JsonObject line=new com.google.gson.JsonObject();
+        line.addProperty("journal",BridgeJournal.FORMAT);line.addProperty("version",BridgeJournal.VERSION);
+        line.addProperty("service",serviceSession==null?"":serviceSession);
+        if(appSession!=null&&!appSession.isEmpty())line.addProperty("appSession",appSession);
+        line.add("review",new Gson().toJsonTree(entry));
+        return line.toString();
+    }
+    /** The pre-versioned format: the bare review object. Kept for tests of legacy journals. */
+    static String legacyLine(BridgeService.Review entry){return new Gson().toJson(entry);}
+    private static String appSession(){
+        try{tomato.history.SessionStore store=tomato.history.AppHistory.store();return store==null?null:store.currentId();}
+        catch(RuntimeException|LinkageError unavailable){return null;}
     }
 }

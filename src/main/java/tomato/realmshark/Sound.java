@@ -25,6 +25,9 @@ public class Sound {
     private static long preferenceRequest;
     // Package-local recording seam: tests replace submission, never open an audio device.
     static volatile java.util.function.BiConsumer<Sound, Boolean> playbackOverride;
+    /** Package-local device seam used on the audio worker instead of AudioOutput; tests never open hardware. */
+    interface Device { void play(Sound sound, Consumer<String> started, Consumer<String> failed) throws Exception; }
+    static volatile Device deviceOverride;
 
     public static final Sound pm = new Sound("pm", "Whispers / DMs", "Messages", "chatPing", false);
     public static final Sound party = new Sound("party", "Party chat", "Messages", "chatPingParty", false);
@@ -107,34 +110,63 @@ public class Sound {
     private static void changed() { for (Runnable listener : listeners) listener.run(); }
     private static void status(String message) { lastStatus = message; changed(); }
 
-    /** Event playback respects both this profile and the master mute. */
-    public void play() { if (isEnabled() && !muted && masterVolume > 0 && volume > 0) submit(false, null); }
+    /**
+     * Event playback respects both this profile and the master mute. Callers without their own decision
+     * record get a generic "Alert sound" decision so suppression and playback are never silent.
+     */
+    public void play() {
+        play(AlertDecisions.INSTANCE.record(new AlertDecisions.Entry(AlertDecisions.Source.DIRECT).sound(this).subject(label)
+            .explain("Direct alert for " + label + ".")));
+    }
+    /** Event playback for a recorded decision; the enable/mute/volume gate and the asynchronous outcome complete it. */
+    public void play(long decision) {
+        if (!isEnabled()) { AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.SOUND_OFF, label + " is turned off in Notifications."); return; }
+        if (muted) { AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.MUTED, "Mute all is on."); return; }
+        if (masterVolume == 0 || volume == 0) {
+            AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.SILENT_VOLUME, "Master volume " + masterVolume + "%, " + label + " volume " + volume + "%.");
+            return;
+        }
+        submit(false, null, decision);
+    }
     /** Test ignores this alert's enable switch, but always honors master mute and volumes. */
-    public void preview(Consumer<String> result) { submit(true, result); }
-    private void submit(boolean test, Consumer<String> result) {
+    public void preview(Consumer<String> result) { submit(true, result, 0); }
+    private void submit(boolean test, Consumer<String> result, long decision) {
         java.util.function.BiConsumer<Sound, Boolean> replacement = playbackOverride;
-        if (replacement != null) { replacement.accept(this, test); return; }
+        if (replacement != null) {
+            replacement.accept(this, test);
+            AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.SUBMITTED, "Submitted to a test recorder; no device was used.");
+            return;
+        }
         try {
             audio.execute(() -> {
-                if (muted || masterVolume == 0 || volume == 0)
+                if (muted || masterVolume == 0 || volume == 0) {
                     report("Muted: raise the master and alert volumes and turn off Mute all.", result);
-                else if (test || enabled) {
-                    try { playNow(result); }
-                    catch (Exception | LinkageError e) { failed(e.getMessage(), result); }
-                }
+                    AlertDecisions.INSTANCE.complete(decision, muted ? AlertDecisions.Result.MUTED : AlertDecisions.Result.SILENT_VOLUME,
+                        muted ? "Mute all was turned on before playback." : "A volume was set to 0 before playback.");
+                } else if (test || enabled) {
+                    try { playNow(result, decision); }
+                    catch (Exception | LinkageError e) { failed(e.getMessage(), result, decision); }
+                } else AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.SOUND_OFF, label + " was turned off before playback.");
             });
         } catch (RejectedExecutionException e) {
             report("Audio is busy; this alert was skipped. Try again.", result);
+            AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.BUSY, "Audio queue full; this alert was skipped.");
         }
     }
     private static void report(String message, Consumer<String> result) {
         status(message);
         if (result != null) result.accept(message);
     }
-    private void failed(String reason, Consumer<String> result) {
+    private void failed(String reason, Consumer<String> result, long decision) {
         report("Could not play " + label + ": " + reason + ". Check the audio output or choose another WAV.", result);
+        AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.UNAVAILABLE, "Could not play: " + reason + ".");
     }
-    private void playNow(Consumer<String> result) throws Exception {
+    private void playNow(Consumer<String> result, long decision) throws Exception {
+        Device seam = deviceOverride;
+        if (seam != null) {
+            seam.play(this, route -> started(route, result, decision), reason -> failed(reason, result, decision));
+            return;
+        }
         String selected = tone;
         if (!selected.equals(cachedTone)) {
             Decoded decoded = decode(selected);
@@ -143,9 +175,13 @@ public class Sound {
         stop();
         byte[] pcm = scalePcm(cachedPcm, masterVolume, volume);
         playback = AudioOutput.play(cachedFormat, pcm,
-                device -> report("Playing " + label + " on " + device + ".", result),
-                reason -> failed(reason, result));
+                device -> started(device, result, decision),
+                reason -> failed(reason, result, decision));
         if (muted) playback.stop();
+    }
+    private void started(String device, Consumer<String> result, long decision) {
+        report("Playing " + label + " on " + device + ".", result);
+        AlertDecisions.INSTANCE.complete(decision, AlertDecisions.Result.PLAYED, "Played on " + device + ".");
     }
     static byte[] scalePcm(byte[] original, int master, int alert) {
         byte[] pcm = original.clone(); double gain = percent(master) * percent(alert) / 10000.0;
