@@ -1,6 +1,6 @@
 # Wave 4 validation record
 
-Status: in progress. No final-head validation or merge approval is claimed.
+Status: implementation complete; final required PR CI and merge pending. PR #15.
 Base: Wave 3 main merge `dfceefb`; its main CI `36245882529` passed.
 Toolchain: JDK 17.0.20.1+1, Gradle 7.6.4, main Java 8 targeting.
 
@@ -27,11 +27,32 @@ mutating a stat directly; it failed to produce a pending-alive snapshot. Correct
 to send a synthetic update through the real producer and rerun successfully.
 This initial failed invocation is not represented as a pass.
 
-## Pending gates
+## Approved shortest finish
 
-Final source review, native/scaled visual review, full/scaled suites, shadow JAR,
-isolated help, build/runtime/package checks, PR CI, normal merge and main verification.
+On 2026-09-26 the user approved finishing with the verified fixes and one final
+required PR CI, without repeating the complete local full/scaled/package cycle.
+Required Windows CI still runs the full suite, shadow JAR, build contract and help.
+Independent final-head review, normal merge and main verification remain required.
 No live capture, real Bridge deliveries or workstation display-setting changes.
+
+The initial integrated run had 964 tests with 3 failures; each scaled run had 251
+tests with 2 failures. These were the outdated journal-schema fixture, obsolete
+ability-log assertions and nested roster scrolling. Corrections are integrated.
+Later native diagnostics exposed incorrect metadata-font and Ctrl+End assumptions
+and incomplete font-default cleanup. These failed runs are not passes.
+
+The final evidence-lane recheck passed 4 tests at each 100/150/200% scale (zero
+failures/errors/skips), including roster keyboard reveal and loot text geometry.
+Source review approved production through 5ab6c6b; the last narrow delta requires
+final review. Independent visuals confirmed ability/search, quest surfaces and the
+corrected loot summary/details. Whole-suite final scaled success is not claimed.
+
+Deferred follow-up: the newly added enlarged death-editor Open-to-Save native Tab
+fixture remains unfinished and is excluded from this wave, not marked passed or
+skipped. Its work is preserved in worker commits b72e65c, 90201f0 and b3e4b1a.
+The existing character semantic and visual tests remain, with corrected font roles
+and cleanup. Additional visual polish and old accepted Wave 3 cosmetic notes are
+separate follow-ups; no new confirmed product blocker is being waived.
 
 ## Integrated audit
 

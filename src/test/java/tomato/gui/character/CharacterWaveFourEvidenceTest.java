@@ -55,68 +55,6 @@ public class CharacterWaveFourEvidenceTest {
             });
         }
     }
-    @Test public void enlargedDeathActionsAreRevealedByNativeFocusAndKeyboardTab() throws Exception {
-        Assume.assumeFalse(GraphicsEnvironment.isHeadless());
-        try (CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("focus-journal.json")); PlanningStore plans = PlanningStore.memory()) {
-            String account = CharacterJournal.accountKey("synthetic-death-focus");
-            RealmCharacter source = new RealmCharacter(); source.charId = 8; source.classNum = 782; source.supplied("class");
-            journal.mergeRoster(account, Collections.singletonList(source)); journal.markDead(account + ":8", true);
-            CharacterJournal.DeathAnnotation annotation = new CharacterJournal.DeathAnnotation(); annotation.notes = "Synthetic manual annotation for keyboard evidence.";
-            annotation.visit = new tomato.history.link.VisitRef("00000000-0000-0000-0000-000000000001", "unavailable-synthetic-visit"); journal.annotateDeath(account + ":8", annotation);
-            JFrame[] frame = new JFrame[1]; JButton[] actions = new JButton[2]; Font[] oldFont = new Font[1]; LookAndFeel[] oldLook = new LookAndFeel[1];
-            try {
-                ui.WaveThreeEvidence.run(() -> {
-                    oldFont[0] = ContentStyle.body(); oldLook[0] = UIManager.getLookAndFeel(); VioletTheme.install();
-                    ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 22)); ContentStyle.applyFontDefaults();
-                    CharacterJournalGUI panel = new CharacterJournalGUI(journal, () -> 1700000001000L, RosterDefinitions::empty, plans);
-                    frame[0] = new JFrame("Synthetic enlarged death keyboard evidence"); frame[0].setContentPane(panel); frame[0].setSize(680, 520); frame[0].setVisible(true);
-                    JTabbedPane tabs = named(panel, "character-detail-tabs", JTabbedPane.class); tabs.setSelectedIndex(tabs.indexOfTab("Death annotation"));
-                    ContentStyle.refreshFonts(frame[0]); ui.UiTestLayout.settle(frame[0]);
-                    actions[0] = button(panel, "Open exact run"); actions[1] = button(panel, "Save death annotation");
-                    assertNotNull(actions[0]); assertNotNull(actions[1]); assertTrue(actions[0].isEnabled()); assertTrue(actions[1].isEnabled());
-                    frame[0].toFront(); frame[0].requestFocus();
-                });
-                ui.WaveThreeEvidence.await(() -> frame[0].isFocused());
-                ui.WaveThreeEvidence.run(() -> assertTrue("Native focus request accepted", actions[0].requestFocusInWindow()));
-                ui.WaveThreeEvidence.await(() -> actions[0].isFocusOwner());
-                ui.WaveThreeEvidence.run(() -> {
-                    ui.UiTestLayout.settle(frame[0]); assertFullyVisible(actions[0]); capture(frame[0], "death-open-run-keyboard-enlarged");
-                });
-                // Wrapped Swing controls and scroll bars can add traversal stops at enlarged/scaled sizes.
-                // Verify real Tab reachability, without assuming Save is exactly one platform-specific stop away.
-                Robot keyboard = new Robot(); keyboard.setAutoDelay(50); java.util.List<String> visited = new ArrayList<>();
-                for (int step = 0; step < 40 && !ui.WaveThreeEvidence.edt(() -> actions[1].isFocusOwner()); step++) {
-                    keyboard.keyPress(java.awt.event.KeyEvent.VK_TAB); keyboard.keyRelease(java.awt.event.KeyEvent.VK_TAB); keyboard.waitForIdle();
-                    visited.add(ui.WaveThreeEvidence.edt(() -> {
-                        Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-                        return owner instanceof JButton ? ((JButton)owner).getText() : owner == null ? "No focus" : owner.getClass().getSimpleName() + ":" + owner.getName();
-                    }));
-                }
-                assertTrue("Save death annotation must be reachable by keyboard Tab; visited " + visited, ui.WaveThreeEvidence.edt(() -> actions[1].isFocusOwner()));
-                ui.WaveThreeEvidence.run(() -> {
-                    ui.UiTestLayout.settle(frame[0]); assertFullyVisible(actions[1]); capture(frame[0], "death-save-keyboard-enlarged");
-                });
-            } finally {
-                ui.WaveThreeEvidence.run(() -> {
-                    if (frame[0] != null) frame[0].dispose();
-                    if (oldFont[0] != null) ContentStyle.setBodyFont(oldFont[0]);
-                    if (oldLook[0] != null) UIManager.setLookAndFeel(oldLook[0]); ContentStyle.applyFontDefaults();
-                });
-            }
-        }
-    }
-    private static void assertFullyVisible(JComponent control) {
-        assertTrue("Native keyboard focus must remain on action", control.isFocusOwner());
-        assertTrue("Focused action must be completely inside all viewports: " + control.getName() + " " + control.getVisibleRect(),
-            control.isShowing() && control.getWidth() > 0 && control.getHeight() > 0 && control.getVisibleRect().contains(new Rectangle(0, 0, control.getWidth(), control.getHeight())));
-    }
-    private static JButton button(Container root, String text) {
-        for (Component child : root.getComponents()) {
-            if (child instanceof JButton && text.equals(((JButton)child).getText())) return (JButton)child;
-            if (child instanceof Container) { JButton found = button((Container)child, text); if (found != null) return found; }
-        }
-        return null;
-    }
     private static void capture(JFrame frame, String name) throws Exception {
         ui.UiTestLayout.settle(frame); assertWrappedControlsFit(frame);
         BufferedImage image = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB); Graphics2D g = image.createGraphics(); frame.paint(g); g.dispose();

@@ -3,7 +3,7 @@
   "repository": "DaAwesomePwner/RealmShark",
   "recordedDate": "2026-09-26",
   "phase": "wave-4",
-  "status": "Implementing; final validation/review/PR gates pending",
+  "status": "Implementation complete; shortest finish approved; final PR CI/review and merge pending",
   "branch": "feat/ux-wave-4-planning",
   "base": "dfceefb9ab87dd4d37a2429167d740b7ab0a33ee",
   "mainCi": "36245882529",
@@ -15,10 +15,11 @@
     "Exact enchantment and presence-verified drop context"
   ],
   "remainingGates": [
-    "Integrate remaining character and UI evidence changes",
-    "Independent final source and visual review",
-    "Full test/shadowJar, scaled tests, build/runtime/package checks",
-    "PR Windows CI, normal merge and main CI verification"
+    "Independent final PR head review",
+    "Required Windows PR CI",
+    "Normal merge and main CI verification"
   ],
-  "nextAction": "Reconcile local checkpoint and actual Git state; continue earliest unfinished Wave 4 package or gate."
+  "nextAction": "Reconcile local checkpoint and actual Git state; continue earliest unfinished Wave 4 package or gate.",
+  "pullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/15",
+  "validationScope": "User approved no repeated local full/scaled/package cycle. Deferred extra native death-action fixture; see UX-WAVE4-VALIDATION.md."
 }
