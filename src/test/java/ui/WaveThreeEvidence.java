@@ -6,6 +6,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.function.BooleanSupplier;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
@@ -24,16 +25,40 @@ public final class WaveThreeEvidence {
     /** A realistic synthetic epoch (2026-09-21) so captured dates read like recorded history, not 1970. */
     public static final long BASE = 1_790_000_000_000L;
     public static final int WIDE_WIDTH = 1240, WIDE_HEIGHT = 800, COMPACT_WIDTH = 680, COMPACT_HEIGHT = 520, FONT = 13;
+    /**
+     * Captures never show the workstation's time zone (location metadata): every helper below formats, settles and
+     * paints with this fixture zone and restores the previous default afterwards. Production defaults are unchanged.
+     */
+    public static final TimeZone FIXTURE_ZONE = TimeZone.getTimeZone("UTC");
     private WaveThreeEvidence() {}
 
     public interface Check { void run() throws Exception; }
     public interface Checked<T> { T get() throws Exception; }
 
+    /** Runs {@code body} with {@link #FIXTURE_ZONE} as the default zone, restoring the previous default in {@code finally}. */
+    public static <T> T inFixtureZone(Checked<T> body) throws Exception {
+        TimeZone previous = TimeZone.getDefault();
+        TimeZone.setDefault(FIXTURE_ZONE);
+        try { return body.get(); } finally { TimeZone.setDefault(previous); }
+    }
+
+    /**
+     * Pins {@link #FIXTURE_ZONE} for a whole test, including timers and asynchronous reads between helper calls:
+     * {@code @Rule public WaveThreeEvidence.FixtureZone zone = new WaveThreeEvidence.FixtureZone();}
+     */
+    public static final class FixtureZone extends org.junit.rules.ExternalResource {
+        private TimeZone previous;
+        @Override protected void before() { previous = TimeZone.getDefault(); TimeZone.setDefault(FIXTURE_ZONE); }
+        @Override protected void after() { if (previous != null) TimeZone.setDefault(previous); }
+    }
+
     public static <T> T edt(Checked<T> body) throws Exception {
-        AtomicReference<T> result = new AtomicReference<>(); AtomicReference<Throwable> failure = new AtomicReference<>();
-        SwingUtilities.invokeAndWait(() -> { try { result.set(body.get()); } catch (Throwable t) { failure.set(t); } });
-        if (failure.get() != null) throw new AssertionError(failure.get());
-        return result.get();
+        return inFixtureZone(() -> {
+            AtomicReference<T> result = new AtomicReference<>(); AtomicReference<Throwable> failure = new AtomicReference<>();
+            SwingUtilities.invokeAndWait(() -> { try { result.set(body.get()); } catch (Throwable t) { failure.set(t); } });
+            if (failure.get() != null) throw new AssertionError(failure.get());
+            return result.get();
+        });
     }
 
     public static void run(Check body) throws Exception { edt(() -> { body.run(); return null; }); }
@@ -55,6 +80,10 @@ public final class WaveThreeEvidence {
     }
 
     public static void frame(VisualEvidence evidence, JComponent root, String name, boolean compact, BooleanSupplier ready, Check assertions) throws Exception {
+        inFixtureZone(() -> { frameInZone(evidence, root, name, compact, ready, assertions); return null; });
+    }
+
+    private static void frameInZone(VisualEvidence evidence, JComponent root, String name, boolean compact, BooleanSupplier ready, Check assertions) throws Exception {
         run(() -> evidence.show(root, name, compact ? COMPACT_WIDTH : WIDE_WIDTH, compact ? COMPACT_HEIGHT : WIDE_HEIGHT, FONT));
         evidence.settle();
         await(ready);
@@ -78,6 +107,10 @@ public final class WaveThreeEvidence {
 
     /** Resizes an application dialog/window to wide and compact sizes and captures each; the window stays open. */
     public static void windowWideAndCompact(Window window, String name, int wideWidth, int wideHeight, Check assertions) throws Exception {
+        inFixtureZone(() -> { windowInZone(window, name, wideWidth, wideHeight, assertions); return null; });
+    }
+
+    private static void windowInZone(Window window, String name, int wideWidth, int wideHeight, Check assertions) throws Exception {
         for (boolean compact : new boolean[]{false, true}) {
             run(() -> {
                 tomato.gui.modern.ContentStyle.refreshFonts(window);
@@ -202,6 +235,38 @@ public final class WaveThreeEvidence {
         JRootPane root = SwingUtilities.getRootPane(component);
         Rectangle inRoot = SwingUtilities.convertRectangle(component, new Rectangle(component.getSize()), root);
         assertTrue(component.getName() + " " + inRoot + " outside window width " + root.getWidth(), inRoot.x >= 0 && inRoot.x + inRoot.width <= root.getWidth());
+    }
+
+    /**
+     * Reveals the scroll pane around {@code table} and asserts that its viewport shows at least {@code rows} rows on
+     * screen, measured from realized (not requested) sizes after every enclosing viewport has scrolled.
+     */
+    public static void assertVisibleRows(JTable table, int rows) {
+        assertTrue(SwingUtilities.isEventDispatchThread());
+        assertTrue(table.getName() + " is inside a viewport", table.getParent() instanceof JViewport);
+        JViewport viewport = (JViewport) table.getParent();
+        JComponent scroll = (JComponent) viewport.getParent();
+        reveal(scroll, scroll.getHeight());
+        int visible = viewport.getVisibleRect().height, needed = rows * table.getRowHeight();
+        assertTrue(table.getName() + " shows " + visible + " px; " + rows + " rows need " + needed + " (window "
+            + SwingUtilities.getWindowAncestor(table).getSize() + ")", visible >= needed);
+    }
+
+    /** Device scale of the window that shows {@code component} (1 at 100%, 2 at 200%). */
+    public static double scale(Component component) {
+        Window window = component instanceof Window ? (Window) component : SwingUtilities.getWindowAncestor(component);
+        return window.getGraphicsConfiguration().getDefaultTransform().getScaleX();
+    }
+
+    /** True when all of {@code component} is on screen without scrolling any enclosing viewport. */
+    public static boolean fullyVisible(JComponent component) {
+        return component.isShowing() && component.getWidth() > 0 && component.getHeight() > 0
+            && component.getVisibleRect().height >= component.getHeight() && component.getVisibleRect().width >= component.getWidth();
+    }
+
+    /** True when the full height of {@code component} is on screen without scrolling (it may extend sideways into a horizontal scroll). */
+    public static boolean verticallyVisible(JComponent component) {
+        return component.isShowing() && component.getHeight() > 0 && component.getVisibleRect().height >= component.getHeight();
     }
 
     /** Scrolls so {@code row} of {@code table} is visible. */
