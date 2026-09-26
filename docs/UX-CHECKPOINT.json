@@ -2,34 +2,23 @@
   "schemaVersion": 1,
   "repository": "DaAwesomePwner/RealmShark",
   "recordedDate": "2026-09-26",
-  "phase": "wave-3",
-  "status": "Wave 3 implemented and locally validated; PR, final-head CI, merge and main verification pending",
-  "branch": "feat/ux-wave-3-connected-analysis",
-  "base": "6d71a5605b1f1ff2e5a5a00d5af43fe0da8eac1f",
-  "testedCodeCommit": "ca15196",
+  "phase": "wave-4",
+  "status": "Implementing; final validation/review/PR gates pending",
+  "branch": "feat/ux-wave-4-planning",
+  "base": "dfceefb9ab87dd4d37a2429167d740b7ab0a33ee",
+  "mainCi": "36245882529",
   "trackingIssue": "https://github.com/DaAwesomePwner/RealmShark/issues/9",
-  "waves": [
-    {"wave": 1, "status": "merged and main verified", "pullRequest": 11, "merge": "64d58d0606a82a956e082fa0dcc07aa18d8fbbfa"},
-    {"wave": 2, "status": "merged and main verified", "pullRequest": 12, "merge": "00e218839b07227f2cf8346f563f0eac09002872", "mainCi": "36081366088"},
-    {"wave": 3, "status": "implemented; locally validated; PR/CI/merge pending"},
-    {"wave": 4, "status": "not started; provisional contracts only", "document": "docs/UX-WAVE4-CONTRACTS.md"}
+  "plan": "docs/UX-WAVE4-IMPLEMENTATION.md",
+  "approved": [
+    "Optional manual stock and reservations",
+    "Session-only bounded ability evidence",
+    "Exact enchantment and presence-verified drop context"
   ],
-  "interWave": {"pullRequest": 13, "title": "Per-player damage-by-source breakdown", "merge": "6d71a56", "mainCi": "36223175267"},
-  "validation": {
-    "toolchain": "JDK 17 (Temurin 17.0.20.1), Gradle 7.6.4, Java 8 API/bytecode targets",
-    "test": {"tests": 916, "failures": 0, "errors": 0, "skipped": 0},
-    "testUi150": {"tests": 233, "failures": 0, "errors": 0, "skipped": 0},
-    "testUi200": {"tests": 233, "failures": 0, "errors": 0, "skipped": 0},
-    "shadowJar": "passed",
-    "isolatedHelpExitCode": 0,
-    "buildContract": "passed at ab6f613; no build files changed since",
-    "record": "docs/UX-WAVE3-VALIDATION.md"
-  },
-  "review": {
-    "source": "Independent: APPROVE f3d8161; should-fix items fixed, APPROVE cce9fb0; final delta APPROVE 7975942 (later commits are test reconciliations)",
-    "visual": "Round 1 FIX REQUIRED (2 blockers, 9 should-fix) addressed in three fix lanes; round 2 on final-head ab6f613 captures PASS (cosmetic notes only)"
-  },
-  "laneHandoffs": ["docs/UX-WAVE3-CORE.md", "docs/UX-WAVE3-ANALYTICS.md", "docs/UX-WAVE3-ALERTS.md", "docs/UX-WAVE3-INVESTIGATION.md"],
-  "nextAction": "Publish the Wave 3 PR with this evidence; pass required Windows CI on the final head; merge normally; verify main CI and synchronize local main. Then begin Wave 4 from verified main.",
-  "recovery": "This tracked file is the pre-merge snapshot. Actual PR/merge/main CI state is on GitHub (PR and issue #9); reconcile before resuming."
+  "remainingGates": [
+    "Integrate remaining character and UI evidence changes",
+    "Independent final source and visual review",
+    "Full test/shadowJar, scaled tests, build/runtime/package checks",
+    "PR Windows CI, normal merge and main CI verification"
+  ],
+  "nextAction": "Reconcile local checkpoint and actual Git state; continue earliest unfinished Wave 4 package or gate."
 }
