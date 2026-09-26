@@ -78,6 +78,14 @@ public class WaveFourEvidenceTest {
                     JTabbedPane tabs=named(panel,"loot-archive-tabs",JTabbedPane.class);
                     assertTrue("Initial tab header remains reachable",tabs.getVisibleRect().height>0);
                     assertEquals("Initial archive view starts at its header",0,tabs.getVisibleRect().y);
+                    JTextArea summary=named(panel,"loot-archive-counts",JTextArea.class);
+                    try {
+                        for(int offset=0;offset<summary.getDocument().getLength();offset++){
+                            java.awt.Rectangle glyph=summary.modelToView(offset);
+                            assertNotNull(glyph);
+                            assertTrue("Summary glyph remains inside its text width",glyph.x+glyph.width<=summary.getWidth());
+                        }
+                    } catch(javax.swing.text.BadLocationException failure){throw new AssertionError(failure);}
                 });
                 screens(host,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("Exact enchantment evidence"));reveal(details);});
                 screens(host,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("LEGACY_NOT_RECORDED"));reveal(details);});
