@@ -31,7 +31,12 @@ public final class LootRouteTarget implements RouteTarget {
     /** {@code restore} is the coordinator's atomic workspace restore (for example {@code workspace::restore}). */
     public static LootRouteTarget forWorkspace(Destination destination, ArchiveWorkspace<Row,Facets,Sort> workspace,
                                                Consumer<ViewState<Facets,Sort>> restore) {
-        return new LootRouteTarget(destination, workspace::state, workspace::changeQuery, restore);
+        // Opening applies the routed query atomically with a cleared selection and scroll anchor, as the Activity
+        // targets do, so an old selection from another query is never carried into the destination.
+        return new LootRouteTarget(destination, workspace::state, query -> {
+            ViewState<Facets,Sort> current = workspace.state();
+            restore.accept(current.withQuery(query).withArchive(true).withPosition(current.tab, java.util.Collections.emptyList(), null, 0));
+        }, restore);
     }
 
     @Override public Destination destination() { return destination; }
