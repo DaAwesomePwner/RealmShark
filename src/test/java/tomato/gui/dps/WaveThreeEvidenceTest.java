@@ -69,7 +69,8 @@ public class WaveThreeEvidenceTest {
                 for (int i = 0; i < shown.length; i++) {
                     DpsData encounter = shown[i]; EncounterLink.State state = states[i];
                     run(() -> assertTrue(dps.showEncounter(DpsInvestigationTest.entry(dps, encounter))));
-                    wideAndCompact(evidence, shell, names[i], () -> {
+                    for (boolean compact : new boolean[]{false, true}) frame(evidence, shell, names[i], compact, () -> {
+                        if (!compact) assertDetailsUsable(dps);
                         assertEquals(state, dps.shownLink().state);
                         JTextArea link = named(dps, "dps-encounter-link", JTextArea.class);
                         reveal(link);
@@ -124,6 +125,24 @@ public class WaveThreeEvidenceTest {
                 assertTrue(explorer.statusText(), explorer.statusText().contains("0 matching of " + DpsInvestigationTest.n(1200)));
             });
         } finally { run(() -> { if (dialog[0] != null) dialog[0].dispose(); }); }
+    }
+
+    /**
+     * Wide frame (whatever width/height the display realizes): the meter's hit details keep at least one full text line
+     * visible beneath the table and link row. The compact frame clips the whole meter area and is reported separately.
+     */
+    private static void assertDetailsUsable(DpsGUI dps) {
+        JTextArea details = named(dps, "dps-hit-details", JTextArea.class);
+        JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, details);
+        int line = details.getFontMetrics(details.getFont()).getHeight();
+        java.awt.Rectangle inWindow = SwingUtilities.convertRectangle(viewport, new java.awt.Rectangle(viewport.getSize()), dps);
+        JSplitPane split = (JSplitPane) SwingUtilities.getAncestorOfClass(JSplitPane.class, details);
+        String diag = " split=" + split.getSize() + " div=" + split.getDividerLocation() + " top=" + split.getTopComponent().getSize() + "/min" + split.getTopComponent().getMinimumSize()
+            + " bottom=" + split.getBottomComponent().getSize() + "/min" + split.getBottomComponent().getMinimumSize();
+        assertTrue("Hit details visible height " + viewport.getHeight() + " < one line " + line + " (meter " + dps.getSize() + ")" + diag,
+            details.isShowing() && viewport.getHeight() >= line && inWindow.y + line <= dps.getHeight());
+        JButton explore = named(dps, "dps-explore-events", JButton.class);
+        assertTrue("Explore button showing", explore.isShowing() && explore.getWidth() > 0 && explore.getHeight() > 0);
     }
 
     private static JTextField field(JComponent root, String accessibleName) {

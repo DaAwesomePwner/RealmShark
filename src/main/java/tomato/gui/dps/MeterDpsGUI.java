@@ -134,7 +134,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             }
         };
         table.setDefaultRenderer(Long.class, numeric); table.setDefaultRenderer(Double.class, numeric);
-        details.setEditable(false); ContentStyle.font(details, ContentStyle.report(ContentStyle.body()));
+        details.setName("dps-hit-details"); details.setEditable(false); ContentStyle.font(details, ContentStyle.report(ContentStyle.body()));
         details.setMargin(new Insets(6, 8, 6, 8));
         explore.setName("dps-explore-events"); explore.setEnabled(false);
         explore.setToolTipText("Page through every retained hit of the selected player with filters and event-time loadouts");
@@ -143,10 +143,30 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         routeNotice.setLineWrap(true); routeNotice.setWrapStyleWord(true); routeNotice.setOpaque(false); routeNotice.setVisible(false);
         routeNotice.getAccessibleContext().setAccessibleName("Historical recorded DPS notice");
         ContentStyle.font(routeNotice, ContentStyle.body());
-        JPanel detailTools = ContentStyle.controls(); detailTools.add(explore);
-        JPanel detailPane = new JPanel(new BorderLayout(0, 4));
-        detailPane.add(detailTools, BorderLayout.NORTH); detailPane.add(new JScrollPane(details), BorderLayout.CENTER);
-        JSplitPane right = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(table), detailPane);
+        // Explore sits beside the hit details rather than above them, and the details keep a two-line floor,
+        // so short or scaled windows do not squeeze the details to a sliver beneath the table.
+        JPanel detailTools = new JPanel(new BorderLayout()); detailTools.add(explore, BorderLayout.NORTH);
+        JScrollPane detailScroll = new JScrollPane(details) {
+            @Override public Dimension getMinimumSize() {
+                Insets border = getInsets(), text = details.getInsets();
+                int height = details.getFontMetrics(details.getFont()).getHeight() * 2 + text.top + text.bottom + border.top + border.bottom
+                    + getHorizontalScrollBar().getPreferredSize().height;
+                return new Dimension(super.getMinimumSize().width, height);
+            }
+        };
+        detailScroll.setName("dps-hit-details-scroll");
+        JPanel detailPane = new JPanel(new BorderLayout(6, 0));
+        detailPane.add(detailScroll, BorderLayout.CENTER); detailPane.add(detailTools, BorderLayout.EAST);
+        JSplitPane right = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(table), detailPane) {
+            @Override public void doLayout() {
+                // The initial 320 px divider is honoured only while the details keep their minimum height below it.
+                if (getHeight() > 0) {
+                    int maximum = getMaximumDividerLocation();
+                    if (getDividerLocation() > maximum && maximum >= getMinimumDividerLocation()) setDividerLocation(maximum);
+                }
+                super.doLayout();
+            }
+        };
         right.setResizeWeight(.72); right.setDividerLocation(320);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
         left.setMinimumSize(new Dimension(150, 80)); right.setMinimumSize(new Dimension(260, 80));
