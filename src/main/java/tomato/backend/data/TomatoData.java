@@ -263,6 +263,14 @@ public class TomatoData {
         visitSource = source == null ? map -> null : source;
     }
 
+    /**
+     * Entry-frozen identity of the in-progress encounter, with the local object ID verified so far, or null
+     * when no encounter was entered through {@link #setNewRealm}. Producer thread only (like DpsSnapshot).
+     */
+    public EncounterContext currentEncounterContext() {
+        return encounterEnteredAt <= 0 ? null : new EncounterContext(encounterVisit, encounterLocalObjectId(), encounterEnteredAt);
+    }
+
     /** The verified local object ID for the current encounter, or null when absent or ambiguous. */
     private Integer encounterLocalObjectId() {
         if (encounterLocalConflict || player == null || worldPlayerId < 0 || player.id != worldPlayerId || !player.isUser()) return null;

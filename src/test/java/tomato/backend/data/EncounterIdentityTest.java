@@ -136,6 +136,21 @@ public class EncounterIdentityTest {
         assertNotNull("Identity absence does not remove the verified visit", missing.visit);
     }
 
+    @Test public void liveSnapshotCarriesTheInProgressEncountersEntryFrozenContext() {
+        assertNull("No encounter entered yet: identity unknown, not unlinked", DpsSnapshot.capture(data).context);
+        MapInfoPacket map = enter("Lost Halls", "decoded");
+        VisitRef entered = log.visitForMap(map);
+        data.setUserId(21, 7, "AAAAAA=="); spawn(21);
+        EncounterContext live = DpsSnapshot.capture(data).context;
+        assertEquals(entered, live.visit); assertEquals(Integer.valueOf(21), live.localPlayerObjectId);
+        log.boundary();
+        assertEquals("A boundary after entry does not rewrite the live encounter's entry link", entered, DpsSnapshot.capture(data).context.visit);
+        enter("Ice Citadel", "trailing-bytes");
+        EncounterContext unlinked = DpsSnapshot.capture(data).context;
+        assertNotNull(unlinked); assertNull(unlinked.visit); assertFalse(unlinked.linked());
+        assertEquals("The saved recording keeps the live link", entered, data.dpsData.get(0).getEncounterContext().visit);
+    }
+
     private MapInfoPacket enter(String name, String outcome) {
         MapInfoPacket map = map(name);
         log.observe(PacketType.MAPINFO.getIndex(), 30, map, outcome, "decoded".equals(outcome) ? 0 : 4);
