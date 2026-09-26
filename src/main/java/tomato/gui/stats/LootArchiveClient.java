@@ -99,7 +99,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             openRun.addActionListener(e->{ArchiveRow<Row> row=selected();tomato.history.link.VisitRef ref=row==null?null:row.value.visitRef();if(ref==null)return;
                 if(!Navigator.current().open(runRoute(ref)))linkStatus.setText("The Runs workspace did not accept run "+ref+"; nothing was opened.");});
             if(view.loot()){buttons.add(showOccurrences);buttons.add(showVisit);buttons.add(openRun);}buttons.add(rateDetails);
-            if(f.drilled()){JLabel active=new JLabel(drillSummary(f));active.setName("loot-drill-summary");active.putClientProperty("html.disable",true);buttons.add(active);
+            if(f.drilled()){JLabel active=new JLabel(drillSummary(f)+(f.visitSession!=null&&page.matches==0?VISIT_UNAVAILABLE:""));active.setName("loot-drill-summary");active.putClientProperty("html.disable",true);buttons.add(active);
                 JButton clear=new JButton("Clear drill-down");clear.setName("loot-clear-drill");clear.addActionListener(e->{Facets next=current.query.facets();next.variant=next.visitSession=next.visitId=null;query(current.query.withFacets(next));});buttons.add(clear);}
             linkStatus.setName("loot-run-link-status");linkStatus.putClientProperty("html.disable",true);linkStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
             panel.add(buttons,BorderLayout.CENTER);panel.add(linkStatus,BorderLayout.SOUTH);return panel;
@@ -141,6 +141,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         }
     }
     static Route runRoute(tomato.history.link.VisitRef ref){return Route.to(Destination.RUNS).withVisit(ref);}
+    static final String VISIT_UNAVAILABLE=" · Linked run unavailable here: no saved loot for this exact run (imported, deleted or unsaved session). No other run is substituted.";
     static String drillSummary(Facets f){return "Drill-down:"+(f.variant==null?"":" exact variant "+f.variant+" (item ID/slots/applied)")+(f.visitSession==null?"":" · exact run "+f.visitSession+"/"+f.visitId);}
     /** Explains exactly why a selected row can or cannot open its recorded run. */
     static String runLinkStatus(Row r,tomato.history.link.VisitRef ref,boolean navigable){
