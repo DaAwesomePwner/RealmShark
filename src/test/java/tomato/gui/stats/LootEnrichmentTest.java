@@ -9,6 +9,20 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class LootEnrichmentTest {
+    @org.junit.Rule public org.junit.rules.TemporaryFolder temp=new org.junit.rules.TemporaryFolder();
+    @Test public void groupedVariantsNeverClaimOneOccurrencesExactEffects()throws Exception{
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
+            LootDashboard.Item a=new LootDashboard.Item(42,"A","WEAPON",ParseEnchants.evidence(encoded(1)));
+            LootDashboard.Item b=new LootDashboard.Item(42,"B","WEAPON",ParseEnchants.evidence(encoded(2)));
+            store.append("loot",new LootDashboard.Drop("White","Ice Citadel","Fixture",100,Arrays.asList(a,b)));store.flush();
+            LootQuery.Facets f=new LootQuery.Facets();f.view=LootQuery.View.ITEMS;
+            tomato.history.archive.ArchiveQuery<LootQuery.Facets,LootQuery.Sort> q=LootQuery.initial(false).withScope(store.currentId()).withFacets(f);
+            try(tomato.history.archive.ArchiveResult<LootQuery.Row> result=tomato.history.archive.ArchiveResult.open(store,q,new LootArchiveAdapter(q),temp.newFolder().toPath(),new tomato.history.archive.Cancellation())){
+                LootQuery.Row group=result.page(0,100,new tomato.history.archive.Cancellation()).rows.get(0).value;
+                assertEquals(Long.valueOf(2),group.count);assertNull(group.enchantEvidence);assertNull(group.dropContext);
+            }
+        }
+    }
     @Test public void capturedZeroDiffersFromAbsentBoostAndPlayerChangesCannotRewriteContext(){
         tomato.backend.data.Entity player=new tomato.backend.data.Entity(null,1,1);
         assertNull(DropContext.capture(null,player,100,null).lootDropSeconds);

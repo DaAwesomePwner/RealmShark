@@ -35,6 +35,7 @@ public class WaveFourEvidenceTest {
             assertTrue(named(panel,"ability-details",JTextArea.class).getText().contains("not a confirmed cast"));
             assertTrue(named(panel,"ability-status",JTextArea.class).getText().contains("2 evicted · 1 omitted"));
             assertTrue(table.getParent().getHeight()>40);
+            assertTrue(named(panel,"ability-details",JTextArea.class).getParent().getHeight()>=80);
         });
         run(()->named(panel,"ability-search",JTextField.class).setText("absent-player"));
         screens(panel,"ability-empty-filter",()->assertEquals(0,named(panel,"ability-table",JTable.class).getRowCount()));
@@ -46,7 +47,7 @@ public class WaveFourEvidenceTest {
         ActionSearchPanel panel=edt(()->new ActionSearchPanel(registry,()->{}));
         screens(panel,"settings-search",()->assertEquals(2,named(panel,"action-results",JList.class).getModel().getSize()));
         run(()->named(panel,"action-search",JTextField.class).setText("capture"));
-        screens(panel,"settings-search-disabled",()->{assertFalse(named(panel,"action-open",JButton.class).isEnabled());assertTrue(named(panel,"action-details",JTextArea.class).getText().contains("Preview does not allow capture"));});
+        screens(panel,"settings-search-disabled",()->{assertFalse(named(panel,"action-open",JButton.class).isEnabled());assertTrue(named(panel,"action-details",JTextArea.class).getText().contains("Preview does not allow capture"));assertTrue(named(panel,"action-details",JTextArea.class).getParent().getHeight()>=120);});
         run(()->named(panel,"action-search",JTextField.class).setText("missing-control"));
         screens(panel,"settings-search-empty",()->assertEquals(0,named(panel,"action-results",JList.class).getModel().getSize()));
     }
@@ -62,8 +63,10 @@ public class WaveFourEvidenceTest {
                 JComponent panel=edt(()->client.render(page,ViewState.initial(q),new ArchiveClient.Binding<LootQuery.Facets,LootQuery.Sort>(){
                     public void queryChanged(ArchiveQuery<LootQuery.Facets,LootQuery.Sort> q){}public void viewChanged(ViewState<LootQuery.Facets,LootQuery.Sort> state){}public void refresh(){}
                 }));
-                screens(panel,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);assertTrue(named(panel,"loot-archive-details",JTextArea.class).getText().contains("Exact enchantment evidence"));});
-                screens(panel,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);assertTrue(named(panel,"loot-archive-details",JTextArea.class).getText().contains("LEGACY_NOT_RECORDED"));});
+                // ArchiveWorkspace supplies this scroll fallback in production.
+                JComponent host=edt(()->tomato.gui.modern.ContentStyle.page(null,panel,null));
+                screens(host,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("Exact enchantment evidence"));reveal(details);});
+                screens(host,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("LEGACY_NOT_RECORDED"));reveal(details);});
             }
         }
     }

@@ -35,7 +35,10 @@ public final class AbilityEvidencePanel extends JPanel {
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);table.getAccessibleContext().setAccessibleName("Inferred ability observations");
         table.getSelectionModel().addListSelectionListener(e->{int index=table.getSelectedRow();if(index>=0&&index<rows.size()){details.setText(rows.get(index).details());details.setCaretPosition(0);}});
         details.setEditable(false);details.getAccessibleContext().setAccessibleName("Complete ability evidence");status.setEditable(false);
-        JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,new JScrollPane(table),new JScrollPane(details));split.setResizeWeight(.65);
+        JScrollPane tableScroll=new JScrollPane(table),detailScroll=new JScrollPane(details);
+        tableScroll.setMinimumSize(new Dimension(0,60));detailScroll.setMinimumSize(new Dimension(0,90));
+        tableScroll.setPreferredSize(new Dimension(450,230));detailScroll.setPreferredSize(new Dimension(450,160));
+        JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,tableScroll,detailScroll);split.setResizeWeight(.5);
         add(controls,BorderLayout.NORTH);add(split);add(status,BorderLayout.SOUTH);refresh();
     }
     public void refresh(){

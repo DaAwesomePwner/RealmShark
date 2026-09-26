@@ -61,7 +61,7 @@ public final class LootArchiveAdapter implements ArchiveAdapter<Row,Facets,Sort>
                 Row row=Row.item(source.ref.session,d,i,dungeon);row.runLinked=runLinked;
                 if(view==View.OCCURRENCES){row.evidence=runEvidence(d.visitId,runLinked);if(runLinked)linked[0]++;else linked[1]++;sink.accept(source.child("item-"+ordinal,row));}
                 else if(view!=View.RECENT&&view!=View.BAGS&&view!=View.DUNGEONS){
-                    Row group=groups.get(key);if(group==null){group=row;group.type="variant";group.session="";group.visitId="";group.bag="";group.dropper="";group.evidence="Variant = item ID + slots + applied count. Time/dungeon describe the latest matching observation; bag counts can overlap between variants. No single session/visit link is implied.";group.count=0L;group.bags=0L;groups.put(key,group);bounded(groups.size(),limit,"Variant groups");}
+                    Row group=groups.get(key);if(group==null){group=row;group.type="variant";group.enchantEvidence=null;group.dropContext=null;group.session="";group.visitId="";group.bag="";group.dropper="";group.evidence="Variant = item ID + slots + applied count. Time/dungeon describe the latest matching observation; bag counts can overlap between variants. No single session/visit link is implied.";group.count=0L;group.bags=0L;groups.put(key,group);bounded(groups.size(),limit,"Variant groups");}
                     group.count++;if(bagVariants.add(key))group.bags++;
                     if(group.time==null||row.time!=null&&row.time>group.time){group.time=row.time;group.dungeon=row.dungeon;}
                 }
