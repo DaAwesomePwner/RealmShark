@@ -176,7 +176,7 @@ public class LootDrillDownTest {
                     JButton occurrences = named(workspace, "loot-drill-occurrences", JButton.class);
                     assertFalse(occurrences.isEnabled());
                     named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(0, 0);
-                    assertTrue(named(workspace, "loot-run-link-status", JLabel.class).getText().contains("Variants combine many runs"));
+                    assertTrue(named(workspace, "loot-run-link-status", JTextArea.class).getText().contains("Variants combine many runs"));
                     assertTrue(occurrences.isEnabled()); occurrences.doClick(); return null; });
                 await(() -> !workspace.loading() && workspace.state().query.facets().view == View.OCCURRENCES && workspace.displayedPage().matches == 2);
                 assertEquals("1/0/0", edt(() -> workspace.state().query.facets().variant));
@@ -185,10 +185,10 @@ public class LootDrillDownTest {
                 edt(() -> {
                     named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(linkedRow, linkedRow);
                     assertFalse(named(workspace, "loot-open-run", JButton.class).isEnabled());
-                    assertTrue(named(workspace, "loot-run-link-status", JLabel.class).getText().contains("opening runs is unavailable"));
-                    assertTrue(named(workspace, "loot-drill-summary", JLabel.class).getText().contains("exact variant 1/0/0"));
+                    assertTrue(named(workspace, "loot-run-link-status", JTextArea.class).getText().contains("Runs view unavailable in this window"));
+                    assertTrue(named(workspace, "loot-drill-summary", JTextArea.class).getText().contains("exact variant 1/0/0"));
                     named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(1 - linkedRow, 1 - linkedRow);
-                    assertTrue(named(workspace, "loot-run-link-status", JLabel.class).getText().contains("no recorded visit ID"));
+                    assertTrue(named(workspace, "loot-run-link-status", JTextArea.class).getText().contains("no recorded visit ID"));
                     assertFalse(named(workspace, "loot-drill-visit", JButton.class).isEnabled());
                     return null; });
                 List<Route> routes = new ArrayList<>();

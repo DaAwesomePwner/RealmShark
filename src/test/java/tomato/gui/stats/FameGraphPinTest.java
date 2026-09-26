@@ -87,7 +87,7 @@ public class FameGraphPinTest {
             try {
                 JComboBox<?> character = named(viewer, "saved-fame-character", JComboBox.class);
                 GraphPanel graph = named(viewer, "saved-fame-graph", GraphPanel.class);
-                JLabel map = named(viewer, "saved-fame-map-association", JLabel.class), delta = named(viewer, "saved-fame-delta", JLabel.class);
+                JTextArea map = named(viewer, "saved-fame-map-association", JTextArea.class); JLabel delta = named(viewer, "saved-fame-delta", JLabel.class);
                 assertEquals(0, character.getSelectedIndex());
                 assertTrue(map.getText(), map.getText().startsWith(FameSessionViewer.MAP_NOT_RECORDED));
                 assertTrue(named(viewer, "saved-fame-map-status", JLabel.class).getText().contains("Not recorded"));

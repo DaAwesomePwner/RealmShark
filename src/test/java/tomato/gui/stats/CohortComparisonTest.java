@@ -140,7 +140,7 @@ public class CohortComparisonTest {
                 Row delta = edt(() -> { for (ArchiveRow<Row> row : workspace.displayedPage().rows) if ("delta".equals(row.value.type)) return row.value; return null; });
                 assertNotNull(delta); assertEquals(3.0, delta.perRun, 0); assertEquals(300.0, delta.perRunChange, 1e-9);
                 edt(() -> { named(workspace, "cohort-baseline-from", JTextField.class).setText("not a time"); named(workspace, "cohort-apply", JButton.class).doClick();
-                    assertFalse(named(workspace, "cohort-error", JLabel.class).getText().trim().isEmpty()); return null; });
+                    assertFalse(named(workspace, "cohort-error", JTextArea.class).getText().trim().isEmpty()); return null; });
             } finally { edt(() -> { workspace.close(); return null; }); }
         } finally { prefs.shutdown(5, TimeUnit.SECONDS, message -> {}); }
     }
