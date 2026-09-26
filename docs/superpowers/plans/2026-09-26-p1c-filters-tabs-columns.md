@@ -90,7 +90,9 @@
 ```java
 package tomato.gui.history;
 
-import java.awt.*;
+// Explicit AWT imports: java.awt.* would make ArchiveFixtures.Event ambiguous with java.awt.Event.
+import java.awt.Component;
+import java.awt.Container;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -1871,13 +1873,14 @@ with:
 ```java
         // One filter row: search (and the visit/type selectors for Timeline and Resources); Runs keeps its facets in the drawer.
         filterBar=new FilterBar("activity-"+mode.name().toLowerCase(Locale.ROOT));filterBar.setAlignmentX(LEFT_ALIGNMENT);
-        WrapRow scope=new WrapRow(labeled("Search",search));
+        // Not "scope": the constructor already declares a JTextArea scope further down.
+        WrapRow searchRow=new WrapRow(labeled("Search",search));
         if(mode!=Mode.RUNS){
             visitPicker.setName("activity-visit"); visitPicker.setPrototypeDisplayValue(new VisitChoice("","09-09 22:00 · Recorded visit"));
             visitPicker.getAccessibleContext().setAccessibleName("Recorded visit");kind.setName("activity-kind");kind.getAccessibleContext().setAccessibleName("Activity type");
-            scope.add(labeled("Visit",visitPicker)); if(mode==Mode.TIMELINE)scope.add(kind);
+            searchRow.add(labeled("Visit",visitPicker)); if(mode==Mode.TIMELINE)searchRow.add(kind);
         }
-        filterBar.search(scope);if(mode==Mode.RUNS)filterBar.drawer(runFilterControls());
+        filterBar.search(searchRow);if(mode==Mode.RUNS)filterBar.drawer(runFilterControls());
         top.add(filterBar);top.add(controls);
 ```
 Replace:
@@ -4090,7 +4093,10 @@ Loot keeps its existing content fit: a column grows to its page's values (capped
 ```java
 package tomato.gui.history;
 
-import java.awt.*;
+// Explicit AWT imports: java.awt.* would make ArchiveFixtures.Event ambiguous with java.awt.Event.
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Font;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
