@@ -2,8 +2,10 @@ package tomato.backend.data;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import java.io.*;
@@ -109,6 +111,8 @@ public final class CharacterJournal implements AutoCloseable {
     private final Store store;
     private Document document = new Document();
     private boolean dirty, readOnly;
+    /** The last save attempt failed (backup or write); cleared by the next successful write. Never inferred from the text. */
+    private volatile boolean saveFailed;
     private long revision;
     private String storageStatus = "Saved locally";
     private ScheduledExecutorService writer;
@@ -180,9 +184,8 @@ public final class CharacterJournal implements AutoCloseable {
 
     public synchronized String observe(Entity player, int characterId) {
         if (player == null || characterId < 0) return null;
-        StatData accountStat = player.stat.get(StatType.ACCOUNT_ID_STAT);
-        if (accountStat == null || accountStat.stringStatValue == null || accountStat.stringStatValue.trim().isEmpty()) return null;
-        String account = accountKey(accountStat.stringStatValue);
+        String account = accountKeyOf(player);
+        if (account == null) return null;
         String key = account + ":" + characterId;
         CharacterRecord record = find(key);
         if (record == null) {
@@ -410,7 +413,7 @@ public final class CharacterJournal implements AutoCloseable {
         for (String field : c.presence.keySet()) if (field.startsWith("pet.")) { reported = true; break; }
         if (!reported || known != null && c.receivedAt < known.observedAt) return null;
         // An explicitly empty pet element: no pet is equipped (known), unlike a list that says nothing about pets (unknown).
-        if (c.presence.containsKey("pet.none")) {
+        if (c.presence.containsKey(RealmCharacter.PET_NONE)) {
             PetRecord none = new PetRecord(); none.absent = Boolean.TRUE; none.observedAt = c.receivedAt; none.source = "Character list"; return none;
         }
         Long instanceId = c.presence.containsKey("pet.81") ? Long.valueOf(c.petInstanceId) : null;
@@ -439,9 +442,12 @@ public final class CharacterJournal implements AutoCloseable {
         for (int[] values : new int[][]{p.abilityType, p.abilityLevel, p.abilityPoints})
             if (values == null || values.length != 3 || Arrays.stream(values).anyMatch(n -> n < -1)) return false;
         // "No pet" carries no pet values: a record that says both is contradictory, so it reads as unknown.
-        if (Boolean.TRUE.equals(p.absent) && (p.instanceId != null || p.name != null || p.type != null || p.rarity != null || p.family != null)) return false;
+        if (Boolean.TRUE.equals(p.absent) && (p.instanceId != null || p.name != null || p.type != null || p.rarity != null || p.family != null
+                || p.skin != null || p.maxAbilityPower != null || known(p.abilityType) || known(p.abilityLevel) || known(p.abilityPoints))) return false;
         return p.observedAt >= 0;
     }
+    /** Any ability value other than -1 (unknown) is a pet value. The arrays are already checked non-null with length 3. */
+    private static boolean known(int[] values) { return Arrays.stream(values).anyMatch(n -> n != -1); }
     /** v5 values that parsed but make no sense are unknown, never a load failure. */
     private static void normalizeV5(CharacterRecord r) {
         if (r.pet != null && Boolean.FALSE.equals(r.pet.absent)) r.pet.absent = null; // only TRUE is saved
@@ -459,7 +465,34 @@ public final class CharacterJournal implements AutoCloseable {
         if (a.vaultPotions == null || a.vaultPotionsObservedAt < 0) a.vaultPotionsObservedAt = 0;
     }
     private static final java.lang.reflect.Type COMPLETIONS = new TypeToken<Map<String, Integer>>() {}.getType(),
-        SEEN_BY_CLASS = new TypeToken<Map<Integer, Long>>() {}.getType();
+        SEEN_BY_CLASS = new TypeToken<Map<Integer, Long>>() {}.getType(), SEEN_TIMES = new TypeToken<Map<String, Long>>() {}.getType();
+    /**
+     * Only for checking v5 fields before binding: a boolean must be a JSON boolean, a number a JSON number with an exact integral
+     * value in the Java type's range, and a string a JSON string. Gson alone coerces ("yes" reads as false, "123" as 123, 1.5 as 1,
+     * 4294967297 as the int 1). JSON null is never passed to these, so null stays unknown.
+     */
+    private static final Gson STRICT = strictGson();
+    private static Gson strictGson() {
+        JsonDeserializer<Boolean> bool = (value, type, context) -> {
+            if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()) return value.getAsBoolean();
+            throw new JsonParseException("Not a boolean");
+        };
+        JsonDeserializer<Long> whole = (value, type, context) -> exact(value).longValueExact();
+        JsonDeserializer<Integer> integer = (value, type, context) -> exact(value).intValueExact();
+        JsonDeserializer<String> text = (value, type, context) -> {
+            if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) return value.getAsString();
+            throw new JsonParseException("Not a string");
+        };
+        return new GsonBuilder().registerTypeAdapter(Boolean.class, bool).registerTypeAdapter(boolean.class, bool)
+            .registerTypeAdapter(Long.class, whole).registerTypeAdapter(long.class, whole)
+            .registerTypeAdapter(Integer.class, integer).registerTypeAdapter(int.class, integer)
+            .registerTypeAdapter(String.class, text).create();
+    }
+    /** A JSON number as written; longValueExact/intValueExact then reject fractions and out-of-range values (1e3 is 1000). */
+    private static java.math.BigDecimal exact(JsonElement value) {
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw new JsonParseException("Not a number");
+        return new java.math.BigDecimal(value.getAsString());
+    }
     /** v5 fields are optional: one that does not parse as its type is removed before binding (read as unknown), never a failure. */
     private static void dropMalformedV5Fields(JsonElement tree) {
         if (tree == null || !tree.isJsonObject()) return;
@@ -472,13 +505,16 @@ public final class CharacterJournal implements AutoCloseable {
         if (accounts != null && accounts.isJsonObject()) for (Map.Entry<String, JsonElement> row : accounts.getAsJsonObject().entrySet())
             if (row.getValue().isJsonObject()) {
                 JsonObject a = row.getValue().getAsJsonObject();
-                drop(a, "exaltSeenByClass", SEEN_BY_CLASS); drop(a, "vaultPotions", int[].class); drop(a, "vaultPotionsObservedAt", long.class);
+                // Keys are class ids written as JSON names (strings): parsed leniently as today; the times are strict.
+                drop(a, "exaltSeenByClass", SEEN_BY_CLASS, JSON); drop(a, "exaltSeenByClass", SEEN_TIMES);
+                drop(a, "vaultPotions", int[].class); drop(a, "vaultPotionsObservedAt", long.class);
             }
     }
-    private static void drop(JsonObject owner, String field, java.lang.reflect.Type type) {
+    private static void drop(JsonObject owner, String field, java.lang.reflect.Type type) { drop(owner, field, type, STRICT); }
+    private static void drop(JsonObject owner, String field, java.lang.reflect.Type type, Gson gson) {
         JsonElement value = owner.get(field);
         if (value == null || value.isJsonNull()) return;
-        try { JSON.fromJson(value, type); } catch (RuntimeException malformed) { owner.remove(field); }
+        try { gson.fromJson(value, type); } catch (RuntimeException malformed) { owner.remove(field); }
     }
     /** The captured EXALTED_* bonuses in canonical stat order, or null unless all eight were captured. */
     public static int[] exaltBonus(Entity player) {
@@ -526,7 +562,7 @@ public final class CharacterJournal implements AutoCloseable {
     }
     /** Null while the journal is readable and its last save (if any) succeeded; otherwise storageStatus(), for a warn banner. */
     public synchronized String storageProblem() {
-        return readOnly || storageStatus.startsWith("Save failed") ? storageStatus : null;
+        return readOnly || saveFailed ? storageStatus : null;
     }
     /**
      * Deep copy of the non-dead character last observed alive in game, or null. A character list sets lastSeen for every
@@ -582,7 +618,8 @@ public final class CharacterJournal implements AutoCloseable {
         CharacterRecord r = find(key); if (r == null) return;
         r.notes = notes == null ? "" : notes; changed();
     }
-    public synchronized String storageStatus() { return dirty && storageStatus.startsWith("Saved") ? "Saving locally…" : storageStatus; }
+    /** "Saving locally…" while changes wait for the saver; otherwise the last load or save status (a failure keeps its text). */
+    public synchronized String storageStatus() { return dirty && !readOnly && !saveFailed ? "Saving locally…" : storageStatus; }
     public void save() {
         // Take the snapshot AFTER acquiring the writer lock, so an older caller cannot
         // overwrite a newer save. Readers/observations never acquire this lock.
@@ -600,17 +637,24 @@ public final class CharacterJournal implements AutoCloseable {
             } catch (IOException e) {
                 // Name the backup path: a stuck/invalid journal.v4.bak is a different, more diagnosable problem than a plain
                 // write failure, and "check access to Characters/journal.json" would point at the wrong file.
-                synchronized (this) { storageStatus = "Save failed • backup Characters/" + backupPath(path).getFileName() + " could not be written"; }
+                // A failed backup leaves the older file untouched and backupPending/dirty set, so the saver retries both.
+                String backup = backupPath(path).getFileName().toString();
+                synchronized (this) {
+                    saveFailed = true;
+                    storageStatus = "Save failed • backup Characters/" + backup + " could not be written. " + path.getFileName()
+                        + " is unchanged. Move or delete whatever is at " + backup + ", or free disk space; saving retries automatically.";
+                }
                 return;
             }
             try {
                 store.write(path, JSON.toJson(snapshot));
                 synchronized (this) {
                     if (revision == savedRevision) dirty = false;
+                    saveFailed = false;
                     storageStatus = "Saved locally • Characters/journal.json";
                 }
             } catch (IOException e) {
-                synchronized (this) { storageStatus = "Save failed • check access to Characters/journal.json"; }
+                synchronized (this) { saveFailed = true; storageStatus = "Save failed • check access to Characters/journal.json"; }
             }
         }
     }
@@ -719,6 +763,14 @@ public final class CharacterJournal implements AutoCloseable {
         StatData s = e.stat.get(type);
         if (s == null) return fallback;
         return s.statValue;
+    }
+    /**
+     * The journal account key of an entity's own ACCOUNT_ID_STAT, or null when that stat is missing or blank. The one derivation
+     * the journal, live identity and fame history share, so their keys always match.
+     */
+    static String accountKeyOf(Entity player) {
+        StatData stat = player == null ? null : player.stat.get(StatType.ACCOUNT_ID_STAT);
+        return stat == null || stat.stringStatValue == null || stat.stringStatValue.trim().isEmpty() ? null : accountKey(stat.stringStatValue);
     }
     public static String accountKey(String id) {
         try {

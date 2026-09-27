@@ -24,6 +24,8 @@ import java.util.TreeMap;
  * Basic data class to store Character info.
  */
 public class RealmCharacter {
+    /** Presence key for an explicitly empty {@code <Pet/>}: the character has no pet (known), unlike an omitted element (unknown). */
+    public static final String PET_NONE = "pet.none";
     /** Explicitly supplied fields, including zero/false. Never inferred from primitive defaults. */
     public final java.util.Map<String, tomato.backend.data.FieldCapture> presence = new java.util.HashMap<>();
     public long receivedAt;
