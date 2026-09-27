@@ -40,7 +40,6 @@ public final class LineIcon implements Icon {
             case 12: g.drawLine(4, 2, 4, 20); for(int y2 : new int[]{5,11,17}) { g.fillOval(2,y2-2,4,4); g.drawLine(9,y2,19,y2); } break;
             case 13: g.drawLine(2,16,20,16); g.drawLine(5,5,5,20);g.drawLine(17,5,17,20);g.drawArc(5,2,12,18,180,180);break;
             case 14: path(g, 4, 8, 4, 16, 18, 16, 18, 8); g.drawArc(4, 2, 14, 13, 0, 180); g.drawArc(8, 16, 6, 5, 180, 180); break;
-            case 8:
             case HOME: path(g, 3, 11, 11, 4, 19, 11); path(g, 5, 10, 5, 19, 17, 19, 17, 10); path(g, 9, 19, 9, 14, 13, 14, 13, 19); break;
             case SWORDS: g.drawLine(4, 4, 18, 18); g.drawLine(18, 4, 4, 18); g.drawLine(3, 14, 8, 19); g.drawLine(14, 19, 19, 14); break;
             case DIAMOND: path(g, 7, 4, 15, 4, 19, 9, 11, 19, 3, 9, 7, 4); g.drawLine(3, 9, 19, 9); break;
@@ -75,6 +74,7 @@ public final class LineIcon implements Icon {
             case CLOSE: g.drawLine(6, 6, 16, 16); g.drawLine(16, 6, 6, 16); break;
             case SEARCH: g.drawOval(4, 4, 11, 11); g.drawLine(13, 13, 18, 18); break;
             case GRIP: for (int gx : new int[]{8, 13}) for (int gy : new int[]{5, 10, 15}) g.fillOval(gx, gy, 2, 2); break;
+            case 8: // The RealmShark fin brand mark (WorkspaceShell), also the fallback for unknown types.
             default: FinIcon.paintOutline(g, 0, 0, 22, c.getForeground()); break;
         }
         g.dispose();
