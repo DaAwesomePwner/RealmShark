@@ -136,8 +136,11 @@ re-run since Task 10 (source head `a6b8fa8`, 1308/0/0/0); do not read the 237- o
 as full-suite runs.
 
 Evidence: re-ran `ui.CharactersEvidenceTest` (3/3 passed, 21 captures).
-`p3a-sheet-build-other-1240-13-simple.png` now reads "Your Wizard is in game now." / "Open the
-Wizard's Build" (previously "Sample is in game now." / "Open Sample's Build" — "Sample" being the
-account name). `p3a-gallery-empty-1240-13-simple.png` is clean in this run: no "View state save
+`p3a-sheet-build-other-1240-13-simple.png` read "Your Wizard is in game now." / "Open the
+Wizard's Build" after round 1 (previously "Sample is in game now." / "Open Sample's Build" — "Sample"
+being the account name); after round 2 it reads "Your Wizard #101 is in game now." / "Open Wizard
+#101's Build". `p3a-gallery-empty-1240-13-simple.png` is clean in this run: no "View state save
 failed" banner (the Task 10 record already noted this as an intermittent test-harness artifact
 deferred to P3b; not reproduced here, so left alone).
+
+Final-head JAR smoke (after fix round 2, coordinator): `shadowJar` built `RealmShark-v1.2.3.jar`; isolated `java -jar … --help` exited 0. The full suite was not re-run on this head (last full run: 1308/0/0/0 at `a6b8fa8`); both fix rounds ran their focused tests as recorded above.
