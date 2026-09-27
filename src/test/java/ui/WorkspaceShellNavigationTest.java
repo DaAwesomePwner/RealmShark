@@ -451,6 +451,23 @@ public class WorkspaceShellNavigationTest {
         }
     }
 
+    @Test public void openingBuildMovesKeyboardFocusIntoThePageBecauseItHasNoRow() throws Exception {
+        JButton first = new JButton("Estimate");
+        SwingUtilities.invokeAndWait(() -> { first.setName("build-first"); pages[6].add(first); pages[6].revalidate(); });
+        activateWindow(frame);
+        awaitFocus(button("nav-1"), () -> button("nav-1").requestFocusInWindow());
+        awaitFocus(first, () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
+        SwingUtilities.invokeAndWait(() -> {
+            assertEquals(6, shell.getSelectedPage());
+            assertFalse(button("nav-6").isVisible());
+            assertTrue("Alt+7: focus is inside the Build page", SwingUtilities.isDescendingFrom(
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(), pages[6]));
+        });
+        awaitFocus(button("nav-1"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.ALT_DOWN_MASK)));
+        SwingUtilities.invokeAndWait(() -> pages[6].remove(first));
+        awaitFocus(find(shell, "workspace-cards"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
+    }
+
 
     /** Pages of the destinations the compact menu lists, in menu order. */
     private static java.util.List<Integer> popupPages(JPopupMenu popup) {

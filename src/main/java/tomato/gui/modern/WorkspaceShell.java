@@ -40,6 +40,7 @@ public final class WorkspaceShell extends JPanel {
     private final JPanel settingsRow = new JPanel(new BorderLayout());
     private final JPanel sideBottom = new JPanel(new BorderLayout());
     private final JPanel cards = ContentStyle.card(new CardLayout());
+    private final JComponent[] pages;
     private final JToggleButton[] navigation = new JToggleButton[TITLES.length];
     private final JRadioButtonMenuItem[] destinations = new JRadioButtonMenuItem[TITLES.length];
     private final JButton compactNavigation = new JButton(new NavigationMenuIcon()) {
@@ -100,6 +101,7 @@ public final class WorkspaceShell extends JPanel {
         this.layout = Objects.requireNonNull(layout, "layout");
         this.mode = Objects.requireNonNull(mode, "mode");
         if (panels.length != TITLES.length) throw new IllegalArgumentException("All feature panels are required");
+        pages = panels.clone();
         sidebar.setPreferredSize(new Dimension(188, 0));
         JPanel brandRow = new JPanel(new BorderLayout(8, 0)); brandRow.setOpaque(false);
         brand.setFont(ContentStyle.emphasis(ContentStyle.body().deriveFont(ContentStyle.body().getSize2D() * 17f / ContentStyle.FONT_SIZE)));
@@ -164,10 +166,10 @@ public final class WorkspaceShell extends JPanel {
             cards.add(panels[i], Integer.toString(i));
             KeyStroke shortcut = KeyStroke.getKeyStroke(shortcutKey(i), InputEvent.ALT_DOWN_MASK);
             getInputMap(WHEN_IN_FOCUSED_WINDOW).put(shortcut, "page-" + i);
-            getActionMap().put("page-" + i, new AbstractAction() { public void actionPerformed(ActionEvent e) { select(index); navigation[index].requestFocusInWindow(); }});
+            getActionMap().put("page-" + i, new AbstractAction() { public void actionPerformed(ActionEvent e) { select(index); focusPage(index); }});
             JRadioButtonMenuItem destination = new JRadioButtonMenuItem(TITLES[i], button.getIcon());
             destination.setName("compact-nav-" + i); destination.setAccelerator(shortcut);
-            destination.addActionListener(e -> { select(index); navigation[index].requestFocusInWindow(); });
+            destination.addActionListener(e -> { select(index); focusPage(index); });
             destinations[i] = destination; menuGroup.add(destination); // rebuildPopup adds it in sidebar order
         }
         advancedToggle.setName("nav-advanced");
@@ -253,6 +255,7 @@ public final class WorkspaceShell extends JPanel {
         headingAndSetup.add(header, BorderLayout.NORTH); headingAndSetup.add(setupBanner);
         workspace.add(headingAndSetup, BorderLayout.NORTH);
         setSetupState("Saved capture preference is applied after assets are ready. Saved history is available without capture.", true, false);
+        cards.setName("workspace-cards");
         cards.setMinimumSize(new Dimension(0, 0)); workspace.add(cards, BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout(16, 0));
         status.setFont(ContentStyle.metadata(ContentStyle.body()));
@@ -758,7 +761,19 @@ public final class WorkspaceShell extends JPanel {
     private void navigateBack() {
         if (navigator == null || !navigator.canGoBack()) return;
         // Focus follows the restored page, as with the Alt destination shortcuts; the hidden page loses it.
-        if (navigator.back()) navigation[selected].requestFocusInWindow();
+        if (navigator.back()) focusPage(selected);
+    }
+
+    /**
+     * Keyboard focus for the page just shown: its sidebar row, or for an unlisted page (Build), which has no row, the page's
+     * first focusable component in traversal order, else the page container.
+     */
+    private void focusPage(int page) {
+        if (NavEntry.forPage(page).group() != NavEntry.Group.UNLISTED) { navigation[page].requestFocusInWindow(); return; }
+        Container root = cards.getFocusCycleRootAncestor();
+        FocusTraversalPolicy policy = root == null ? null : root.getFocusTraversalPolicy();
+        Component first = policy == null ? null : policy.getFirstComponent(pages[page]);
+        (first != null ? first : cards).requestFocusInWindow();
     }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {
