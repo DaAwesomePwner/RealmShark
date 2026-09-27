@@ -110,6 +110,53 @@ public class ExaltsGridTest {
         }
     }
 
+    @Test public void aFailedBuildShowsAWarnBannerUntilABuildApplies() throws Exception {
+        java.util.function.Consumer<String> savedLog = ExaltsGrid.errorLog;
+        List<String> logged = new ArrayList<>();
+        ExaltsGrid.errorLog = logged::add;
+        try (CharacterJournal journal = journal(false)) {
+            boolean[] fail = {true, true};
+            java.util.function.IntFunction<int[]> groups = id -> {
+                if (fail[0]) throw new IllegalStateException("class data changed while reading");
+                if (fail[1]) throw new IllegalStateException();
+                return weaponGroup(id);
+            };
+            ExaltsGrid[] grid = new ExaltsGrid[1];
+            SwingUtilities.invokeAndWait(() -> {
+                grid[0] = new ExaltsGrid(context(journal), Runnable::run, groups, ExaltFixtures::className, () -> PLANNING);
+                assertFalse("No banner before anything failed", visible(named(grid[0], "character-exalts-failed", Banner.class), grid[0]));
+                grid[0].refresh();
+            });
+            await(() -> visible(named(grid[0], "character-exalts-failed", Banner.class), grid[0]));
+            SwingUtilities.invokeAndWait(() -> {
+                Banner failed = named(grid[0], "character-exalts-failed", Banner.class);
+                assertEquals("Exalts could not be shown: class data changed while reading. It retries automatically.", failed.text());
+                assertTrue("A warn banner (spec §7)", failed.warns());
+                assertEquals("Still logged, with its stack trace", 1, logged.size());
+                assertTrue(logged.get(0), logged.get(0).contains("IllegalStateException"));
+                assertNull("Nothing applied: no tiles and no \"no progress\"", grid[0].model());
+                assertFalse(visible(named(grid[0], "character-exalts-grid-empty", EmptyState.class), grid[0]));
+                fail[0] = false;
+            });
+            journal.exalts(FIRST, Map.of(KNIGHT, counts(KNIGHT_COUNTS)));
+            SwingUtilities.invokeAndWait(grid[0]::refresh);
+            await(() -> named(grid[0], "character-exalts-failed", Banner.class).text().contains("IllegalStateException"));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("Without a message, the exception's name", "Exalts could not be shown: IllegalStateException. It retries automatically.",
+                    named(grid[0], "character-exalts-failed", Banner.class).text());
+                fail[1] = false;
+                grid[0].refresh(); // a failure cleared the token: the next check retries
+            });
+            await(() -> grid[0].model() != null);
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse("An applied build hides the banner", visible(named(grid[0], "character-exalts-failed", Banner.class), grid[0]));
+                assertEquals(List.of(WIZARD, PRIEST, WARRIOR, KNIGHT), classes(tiles(grid[0])));
+            });
+        } finally {
+            ExaltsGrid.errorLog = savedLog;
+        }
+    }
+
     @Test public void theEmptyStateShowsOnlyOnceABuildFoundNoCounts() throws Exception {
         try (CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("empty.json"))) {
             journal.observe(tomato.backend.data.CharacterJournalTest.player("exalt-fixture-first", WIZARD), 7);

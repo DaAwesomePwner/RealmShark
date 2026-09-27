@@ -60,6 +60,21 @@ public class AccountExaltsBuilderTest {
         assertNull(noAssets.headerBoost());
     }
 
+    @Test public void aFullyExaltedAccountBoostsEveryClassBy35WithoutWeaponGroups() {
+        AccountRecord maxed = account(FIRST, "Sample");
+        for (int i = 0; i < 19; i++) maxed.exalts.put(700 + i, counts(PRIEST_COUNTS));
+        assertTrue("19 classes, every count at 75 or more", RealmCharacter.fullyExalted(maxed.exalts));
+        AccountExalts model = AccountExaltsBuilder.build(List.of(maxed), List.of(), FIRST, live(FIRST, 7, 705), id -> null, ExaltFixtures::className);
+        assertEquals(19, model.tiles().size());
+        for (AccountExalts.Tile tile : model.tiles())
+            assertEquals("Fully exalted is 35 for every class, whatever its weapon group", Integer.valueOf(35), tile.lootBoost());
+        assertEquals("The header too", Integer.valueOf(35), model.headerBoost());
+        assertEquals(19, model.fullyExalted());
+        maxed.exalts.remove(718);
+        AccountExalts eighteen = AccountExaltsBuilder.build(List.of(maxed), List.of(), FIRST, null, id -> null, ExaltFixtures::className);
+        assertNull("18 maxed classes are not fully exalted: without a weapon group the boost stays unknown", eighteen.tiles().get(0).lootBoost());
+    }
+
     @Test public void theHeaderShowsTheClassInGameElseTheClassLastPlayed() {
         List<CharacterRecord> records = List.of(record(FIRST, 7, WIZARD, NOW - 2 * HOUR, false), record(FIRST, 8, WARRIOR, NOW - 5 * HOUR, false),
             record(FIRST, 9, PRIEST, NOW - HOUR, true), record(SECOND, 3, KNIGHT, NOW, false));

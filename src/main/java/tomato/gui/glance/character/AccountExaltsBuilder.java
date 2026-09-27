@@ -10,8 +10,8 @@ import tomato.realmshark.RealmCharacter;
 /**
  * Pure, static builder of the account Exalts grid (spec §6.2). No Swing: ExaltsGrid calls it on the "character-exalts" thread with
  * the journal's deep copies. Tiers, totals and the lowest tier are SheetModelBuilder.exalts's, so a tile and its class detail (the
- * sheet's Exalts tab) always agree. The loot boost is RealmCharacter's formula over the account's saved counts, per class: unknown
- * (null), never 0, when the class's weapon group is not in the selected game assets.
+ * sheet's Exalts tab) always agree. The loot boost is RealmCharacter's formula over the account's saved counts, per class: 35 for a
+ * fully exalted account, otherwise unknown (null), never 0, when the class's weapon group is not in the selected game assets.
  */
 final class AccountExaltsBuilder {
     static final String IN_GAME = "in game", LAST_PLAYED = "last played";
@@ -72,8 +72,13 @@ final class AccountExaltsBuilder {
         return recent == null ? null : recent.account;
     }
 
-    /** The class's loot boost over the account's saved counts; null when the assets do not name its weapon group. */
+    /**
+     * The class's loot boost over the account's saved counts: 35 for every class of a fully exalted account (no weapon group
+     * needed), else null when the assets do not name its weapon group. A class of the group without saved counts gives 0, as the
+     * game rule and the live Loot value do: a class with no completions gives no boost.
+     */
     private static Integer boost(AccountRecord account, int classId, IntFunction<int[]> weaponClasses) {
+        if (RealmCharacter.fullyExalted(account.exalts)) return RealmCharacter.exaltLootBonus(account.exalts, null); // 35
         int[] group = weaponClasses.apply(classId);
         return group == null ? null : RealmCharacter.exaltLootBonus(account.exalts, group);
     }
