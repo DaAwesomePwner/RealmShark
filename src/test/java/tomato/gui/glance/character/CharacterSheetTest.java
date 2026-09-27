@@ -143,6 +143,80 @@ public class CharacterSheetTest {
         }
     }
 
+    @Test public void selectingARememberedDeathTabWhileTheRecordLoadsLandsOnDeathOnceItApplies() throws Exception {
+        try (CharacterJournal journal = journal("select-restore.json", 1, 2)) {
+            journal.markDead(ACCOUNT + ":1", true);
+            journal.markDead(ACCOUNT + ":2", true);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                // Mirrors CharacterRosterView.showSheet's implicit-tab restore: open(key, null) then selectTab(remembered).
+                sheet.open(ACCOUNT + ":1", null);
+                sheet.selectTab("death");
+                assertFalse("Death is not offered until the record loads: the restore request cannot reach it yet",
+                    sheet.tabs().visibleIds().contains("death"));
+                await(sheet::ready);
+                assertEquals("The restore request is retried, select-only, once the record applies", "death", sheet.selectedTab());
+
+                sheet.open(ACCOUNT + ":2", null);
+                sheet.selectTab("death");
+                await(sheet::ready);
+                assertEquals("Landing on Death this way also works for a second, freshly opened character", "death", sheet.selectedTab());
+            });
+        }
+    }
+
+    @Test public void selectingAHiddenTabNeverShowsIt() throws Exception {
+        try (CharacterJournal journal = journal("select-hidden.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", null);
+                assertTrue(sheet.tabs().hide("goals"));
+                assertTrue(sheet.tabs().hiddenIds().contains("goals"));
+                sheet.selectTab("goals"); // the restore-only path must never show() a hidden tab
+                assertTrue("selectTab never un-hides a tab", sheet.tabs().hiddenIds().contains("goals"));
+                assertNotEquals("goals", sheet.selectedTab());
+            });
+        }
+    }
+
+    @Test public void aUsersTabChoiceMadeWhileLoadingSurvivesThePendingTabsOneRetry() throws Exception {
+        try (CharacterJournal journal = journal("user-choice-loading.json", 1)) {
+            journal.markDead(ACCOUNT + ":1", true);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                sheet.open(ACCOUNT + ":1", "death"); // explicit; not yet reachable while the record loads
+                assertFalse(sheet.tabs().visibleIds().contains("death"));
+                sheet.tabs().select("notes"); // the user's own pick, made while the sheet is still loading
+                assertEquals("notes", sheet.selectedTab());
+                await(sheet::ready); // the record loads and Death becomes available
+                assertEquals("The user's choice, made before the pending request's one retry, is not overridden",
+                    "notes", sheet.selectedTab());
+            });
+        }
+    }
+
+    @Test public void aUsersTabChoiceAfterLoadIsNotOverriddenByALaterRefresh() throws Exception {
+        try (CharacterJournal journal = journal("user-choice-refresh.json", 1)) {
+            // The character starts alive: Death is never offered on the sheet's first read, so the explicit request is spent.
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                sheet.open(ACCOUNT + ":1", "death");
+                await(sheet::ready);
+                assertFalse("Death was never offered on the first read", sheet.tabs().visibleIds().contains("death"));
+                assertEquals("overview", sheet.selectedTab());
+
+                sheet.tabs().select("notes"); // the user's own choice, made after the sheet settled
+                assertEquals("notes", sheet.selectedTab());
+
+                journal.markDead(ACCOUNT + ":1", true); // Death becomes available now
+                sheet.refresh(); // forces another rebuild of the SAME key
+                await(() -> sheet.tabs().visibleIds().contains("death"));
+                assertEquals("The abandoned request must not pull the user back off their own later choice",
+                    "notes", sheet.selectedTab());
+            });
+        }
+    }
+
     @Test public void aMapChangeGraceExpiringWithNoNewPublishDropsPlayingNowAndTheLiveBoosts() throws Exception {
         try (CharacterJournal journal = journal("grace.json", 7)) {
             long[] clock = {5_000};

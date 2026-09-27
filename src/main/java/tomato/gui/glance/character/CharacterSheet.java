@@ -75,10 +75,16 @@ public final class CharacterSheet extends JPanel {
     /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
     private String key, filledKey, loadedKey;
     /**
-     * The tab an explicit {@link #open} asked for, until it is actually reached. A conditional tab (Death) may not exist yet
-     * while the character's record is still loading, so this is retried in {@link #loaded} once the read applies.
+     * The tab {@link #open} (explicit navigation) or {@link #selectTab} (restoring a saved tab) last asked for, until it is
+     * reached or abandoned; {@code pendingTabShows} is true only for the former, which may show a hidden tab, never for the
+     * latter (spec: restore only selects). A conditional tab (Death) may not be offered yet while the record loads, so one
+     * more attempt happens in {@link #loaded}; whatever the outcome, the request does not survive past that single retry, and
+     * any other settled selection (the user's own choice, or an unrelated fallback) abandons it immediately (see the
+     * {@code tabs.onSelect} listener in the constructor) — so a later, unrelated rebuild never pulls the user off a tab they
+     * since chose, and never re-shows a tab they since re-hid.
      */
     private String pendingTab;
+    private boolean pendingTabShows;
     /** True only during {@link #open}'s own reset of the previous character's tabs; see {@link #resettingTabs()}. */
     private boolean resettingTabs;
     private CharacterRecord record;
@@ -128,6 +134,9 @@ public final class CharacterSheet extends JPanel {
             .addAnalyst("evidence", "Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3))
             // Only while the character is marked dead (spec §6.2); skipping it never rewrites the saved order (spec §4.4).
             .addWhen("death", "Death annotation", deathPanel, () -> record != null && record.dead);
+        // A still-unreached pending tab is abandoned the moment anything else settles as selected: the user's own choice, or
+        // an unrelated fallback. Only the request that is still current when a selection lands is ever honored.
+        tabs.onSelect(id -> { if (!Objects.equals(id, pendingTab)) pendingTab = null; });
         JTabbedPane strip = tabs.component(); strip.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
         hint.setToolTipText("Potion estimates use +5 Life/Mana and +1 other stats. Exalts are account/class progress shared across characters.");
         JPanel content = new JPanel(new BorderLayout(0, 8)) {
@@ -191,8 +200,7 @@ public final class CharacterSheet extends JPanel {
             status.setTone(Tokens.Tone.NEUTRAL); status.setText(LOADING); status.setVisible(true);
         }
         presenter.open(key);
-        pendingTab = tab;
-        applyPendingTab();
+        requestTab(tab, true); // explicit navigation may show a hidden tab
     }
     public String key() { return key; }
     /** True once the sheet shows the journal's read of its current key: that character, or its unavailable state. */
@@ -205,8 +213,11 @@ public final class CharacterSheet extends JPanel {
     public boolean resettingTabs() { return resettingTabs; }
     public String selectedTab() { return tabs.selectedId(); }
     public CustomizableTabs tabs() { return tabs; }
-    /** Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. */
-    public void selectTab(String id) { tabs.select(id); }
+    /**
+     * Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. A conditional tab (Death)
+     * may not be offered yet while the record loads, so this is retried once, select-only, from {@link #loaded}.
+     */
+    public void selectTab(String id) { requestTab(id, false); }
     /** What the "‹ Characters" link and the unavailable state's button do; the Roster tab sets it on every open. */
     public void onBack(Runnable action) { backAction = Objects.requireNonNull(action); }
     public void bindNavigator(Navigator navigator) { deathPanel.bindNavigator(navigator); }
@@ -232,14 +243,17 @@ public final class CharacterSheet extends JPanel {
     /** Puts the header's identity block (SheetHeader) beside Mark dead; the back link, banners and snapshot evidence stay. */
     void setIdentity(JComponent value) { identity.add(value, BorderLayout.CENTER); identity.revalidate(); identity.repaint(); }
 
-    /**
-     * Explicit navigation may show a hidden tab and select it; a conditional tab (Death) can still be unreached because its
-     * record has not loaded yet, so the request is kept in {@link #pendingTab} and retried from {@link #loaded}. Cleared once
-     * it is actually reached, so it never fires again for a later, unrelated tab change.
-     */
+    /** Registers {@code id} as the tab to reach ({@code shows}: see {@link #pendingTab}) and makes one immediate attempt. */
+    private void requestTab(String id, boolean shows) {
+        pendingTab = id;
+        pendingTabShows = shows;
+        applyPendingTab();
+    }
+
+    /** One attempt at {@link #pendingTab}; clears it once reached. A select-only request never shows a hidden tab. */
     private void applyPendingTab() {
         if (pendingTab == null) return;
-        tabs.show(pendingTab);
+        if (pendingTabShows) tabs.show(pendingTab);
         tabs.select(pendingTab);
         if (pendingTab.equals(tabs.selectedId())) pendingTab = null;
     }
@@ -273,6 +287,7 @@ public final class CharacterSheet extends JPanel {
         if (changed) fill();
         tabs.refreshConditions();
         applyPendingTab();
+        pendingTab = null; // one retry only: a request that is still unreached here is abandoned, not retried on a later rebuild
         shown();
     }
 

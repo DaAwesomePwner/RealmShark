@@ -10,7 +10,7 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 
-/** Small shared pieces of the character sheet tabs. EDT only. */
+/** Small shared pieces of the character sheet tabs. EDT only, except {@link #fieldEvidence}, a pure string helper also called from SheetModelBuilder on its build thread. */
 final class SheetViews {
     /** Canonical stat order: life, mana, atk, def, spd, dex, vit, wis. */
     static final String[] STATS = {"Life", "Mana", "ATT", "DEF", "SPD", "DEX", "VIT", "WIS"};
