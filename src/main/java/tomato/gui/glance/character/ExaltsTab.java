@@ -12,35 +12,46 @@ import static tomato.gui.glance.character.SheetViews.*;
  * Sheet › Exalts (spec §6.2), for this character's class. Each of the 8 stats shows its tier pips (5), its completions and how
  * many more reach the next tier, the saved live stat bonus for this class, and the dungeon that grants it. The header shows the
  * total completions and the lowest tier. With no saved counts for this class, an empty state replaces the rows; a null section (the
- * sheet is loading) shows neither. EDT only.
+ * sheet is loading) shows neither. The Characters › Exalts grid reuses it, account-scoped, as its class detail under another name
+ * prefix. EDT only.
  */
 final class ExaltsTab extends JPanel {
-    private final KitText totals = named(KitText.emphasis(""), "character-exalts-totals");
-    private final KitText observed = named(KitText.caption(""), "character-exalts-observed");
-    private final KitText bonusSeen = named(KitText.caption(""), "character-exalts-bonus-observed");
+    private final KitText totals, observed, bonusSeen;
     private final PipMeter[] pips = new PipMeter[8];
     private final KitText[] counts = new KitText[8], next = new KitText[8], bonus = new KitText[8], earn = new KitText[8];
     private final JPanel content;
-    private final EmptyState empty = named(new EmptyState("No exalt progress for this class yet",
-        "Exalt progress arrives when capture reads your character list.", null), "character-exalts-empty");
+    private final EmptyState empty;
     private SheetModel.Exalts shown;
 
-    ExaltsTab() {
+    /** The sheet's tab: {@code character-exalts}, {@code character-exalts-*} and {@code character-exalt-*-i}. */
+    ExaltsTab() { this("character"); }
+
+    /**
+     * {@code prefix} replaces the leading "character" of every component name ("account" names the Exalts grid's class detail
+     * {@code account-exalts-*} and {@code account-exalt-*-i}), so two instances in one window never share a name.
+     */
+    ExaltsTab(String prefix) {
         super(new BorderLayout());
+        if (prefix == null || !prefix.matches("[a-z0-9][a-z0-9-]*")) throw new IllegalArgumentException("Invalid name prefix: " + prefix);
         setOpaque(false);
-        setName("character-exalts");
+        setName(prefix + "-exalts");
+        totals = named(KitText.emphasis(""), prefix + "-exalts-totals");
+        observed = named(KitText.caption(""), prefix + "-exalts-observed");
+        bonusSeen = named(KitText.caption(""), prefix + "-exalts-bonus-observed");
+        empty = named(new EmptyState("No exalt progress for this class yet", "Exalt progress arrives when capture reads your character list.", null),
+            prefix + "-exalts-empty");
         JPanel rows = new JPanel(new GridBagLayout());
         rows.setOpaque(false);
         GridBagConstraints c = new GridBagConstraints();
         c.anchor = GridBagConstraints.WEST;
         c.insets = new Insets(Tokens.XS, 0, Tokens.XS, Tokens.M);
         for (int i = 0; i < 8; i++) {
-            pips[i] = named(new PipMeter(5), "character-exalt-pips-" + i);
+            pips[i] = named(new PipMeter(5), prefix + "-exalt-pips-" + i);
             pips[i].getAccessibleContext().setAccessibleName(CharacterJournal.STATS[i] + " exalt tier");
-            counts[i] = named(KitText.body(""), "character-exalt-count-" + i);
-            next[i] = named(KitText.caption(""), "character-exalt-next-" + i);
-            bonus[i] = named(new KitText("", Type.caption(), Tokens.Role.ACCENT_TEXT), "character-exalt-bonus-" + i);
-            earn[i] = named(KitText.caption(""), "character-exalt-earn-" + i);
+            counts[i] = named(KitText.body(""), prefix + "-exalt-count-" + i);
+            next[i] = named(KitText.caption(""), prefix + "-exalt-next-" + i);
+            bonus[i] = named(new KitText("", Type.caption(), Tokens.Role.ACCENT_TEXT), prefix + "-exalt-bonus-" + i);
+            earn[i] = named(KitText.caption(""), prefix + "-exalt-earn-" + i);
             c.gridy = i;
             c.gridx = 0; c.weightx = 0; c.fill = GridBagConstraints.NONE;
             rows.add(KitText.body(CharacterJournal.STATS[i]), c);
@@ -49,7 +60,7 @@ final class ExaltsTab extends JPanel {
             c.gridx = 2; c.weightx = 1; c.fill = GridBagConstraints.HORIZONTAL;
             rows.add(row(counts[i], next[i], bonus[i], earn[i]), c); // wraps at 680 px and font 18
         }
-        content = named(KitLayouts.stack(Tokens.S, totals, row(observed, bonusSeen), rows), "character-exalts-content");
+        content = named(KitLayouts.stack(Tokens.S, totals, row(observed, bonusSeen), rows), prefix + "-exalts-content");
         add(KitLayouts.stack(Tokens.M, content, empty), BorderLayout.NORTH);
         apply(null);
     }

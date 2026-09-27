@@ -94,4 +94,29 @@ public class ExaltsTabTest {
             assertFalse("Loading shows no \"no progress\" either", named(tab, "character-exalts-empty", EmptyState.class).isVisible());
         });
     }
+
+    @Test public void aPrefixRenamesEveryComponent() throws Exception {
+        SheetModel.Exalts exalts = model(record(), account(0, 4, 5, 14, 15, 30, 50, 74), null).exalts();
+        SwingUtilities.invokeAndWait(() -> {
+            ExaltsTab sheet = new ExaltsTab(), account = new ExaltsTab("account");
+            List<String> sheetNames = names(sheet, new java.util.ArrayList<>()), accountNames = names(account, new java.util.ArrayList<>());
+            assertTrue("The sheet keeps its names", sheetNames.containsAll(List.of("character-exalts", "character-exalts-totals",
+                "character-exalts-content", "character-exalts-empty", "character-exalt-pips-0", "character-exalt-earn-7")));
+            List<String> expected = new java.util.ArrayList<>();
+            for (String name : sheetNames) expected.add(name != null && name.startsWith("character") ? "account" + name.substring("character".length()) : name);
+            assertEquals("Every name, in the same place, with the prefix instead of \"character\"", expected, accountNames);
+            for (String name : accountNames) assertFalse(name, name != null && name.startsWith("character"));
+            account.apply(exalts);
+            assertEquals("Total completions 192 · Lowest tier 0/5", text(account, "account-exalts-totals"));
+            assertEquals(3, named(account, "account-exalt-pips-5", PipMeter.class).filled());
+            assertEquals("74 completions", text(account, "account-exalt-count-7"));
+        });
+    }
+
+    /** Every component's name, depth first from {@code root} (null for an unnamed one), so two trees compare position by position. */
+    private static List<String> names(java.awt.Component root, List<String> into) {
+        into.add(root.getName());
+        if (root instanceof java.awt.Container) for (java.awt.Component child : ((java.awt.Container) root).getComponents()) names(child, into);
+        return into;
+    }
 }
