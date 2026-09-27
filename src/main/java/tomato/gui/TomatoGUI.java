@@ -17,6 +17,7 @@ import tomato.gui.chat.ChatGUI;
 import tomato.gui.chat.ChatPingGUI;
 import tomato.gui.dps.DpsDisplayOptions;
 import tomato.gui.dps.DpsGUI;
+import tomato.gui.glance.home.HomePage;
 import tomato.gui.activity.ActivityPanel;
 import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.history.ViewStateStore;
@@ -128,12 +129,16 @@ public class TomatoGUI {
             logging,
             runsWorkspace,
             timelineWorkspace,
-            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings},
+            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings,
+            new HomePage()},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
         registerRetainedPage(Destination.CHARACTERS);
         registerRetainedPage(Destination.QUESTS);
+        registerRetainedPage(Destination.HOME);
+        // Build (page 6) has no sidebar row; routes, Settings search, the Home hero and Alt+7 reach it.
+        registerRetainedPage(Destination.MY_INFO);
         registerArchive(navigator, Destination.RUNS, runsWorkspace);
         registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerArchive(navigator, Destination.LOOT, lootWorkspace);
@@ -448,6 +453,8 @@ public class TomatoGUI {
             "Characters/plans.json; death notes in Characters/journal.json", () -> { navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)); characterPanel.openGoals(); });
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
             "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
+        registerSearch("build.open", "Build (weapon damage and recovery)", "build my info weapon damage dps recovery mana estimates equipment",
+            "Build", "Nothing is saved; values come from the live capture", () -> navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO)));
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
             java.awt.event.InputEvent.CTRL_DOWN_MASK), "find-settings");
         shell.getActionMap().put("find-settings", new AbstractAction() {

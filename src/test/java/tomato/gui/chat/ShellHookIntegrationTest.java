@@ -151,6 +151,30 @@ public class ShellHookIntegrationTest {
         });
     }
 
+    @Test public void homeIsPageFourteenAndBuildOpensFromSearchUnderItsNewTitle() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+            assertNotNull("Home is shell page 14", home);
+            assertEquals("home-page", home.getName());
+            assertNotNull(named(home, "empty-state", tomato.gui.kit.EmptyState.class));
+            shell.select(0);
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.HOME)));
+            assertEquals(14, shell.getSelectedPage());
+            assertTrue(home.isVisible());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            assertEquals(1, registry.search("build.open").size());
+            assertEquals("Build (weapon damage and recovery)", registry.search("build.open").get(0).label);
+            assertTrue(registry.search("build.open").get(0).open());
+            assertEquals(6, shell.getSelectedPage());
+            assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
+            assertFalse("Build never takes a sidebar row", named(shell, "nav-6", AbstractButton.class).isVisible());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+        });
+    }
+
+
     @Test public void shellQueriedHistorySharesTheLiveChatPolicy() throws Exception {
         ChatMessage message = new ChatMessage(LocalDateTime.of(2026, 9, 1, 12, 0), ChatMessage.Channel.WORLD,
             "IntegrationAnn", "", "IntegrationAnn", "synthetic conversation", "");

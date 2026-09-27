@@ -65,10 +65,11 @@ public class WorkspaceShellNavigationTest {
 
     @Test public void selectedRowScrollsAfterNativeWindowResize() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals(14, WorkspaceShell.TITLES.length);
-            for (int i = 0; i < 14; i++) {
+            assertEquals(15, WorkspaceShell.TITLES.length);
+            for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                 AbstractButton button = button("nav-" + i);
                 assertEquals(WorkspaceShell.TITLES[i], button.getAccessibleContext().getAccessibleName());
+                if (i == 6) { assertFalse("Build has no sidebar row", button.isVisible()); continue; }
                 assertTrue(button.getHeight() >= 32);
                 assertTrue("Default navigation should stay compact", button.getHeight() <= 36);
             }
@@ -101,7 +102,7 @@ public class WorkspaceShellNavigationTest {
             JPopupMenu popup = compactNavigation.getComponentPopupMenu();
             assertEquals("compact-navigation-popup", popup.getName()); assertTrue(popup.isShowing());
             // Sidebar order and groups: core, Advanced, Settings.
-            assertEquals(java.util.Arrays.asList(6, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12, 13), popupPages(popup));
+            assertEquals(java.util.Arrays.asList(14, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12, 13), popupPages(popup));
             for (int page : popupPages(popup)) {
                 JMenuItem item = popupItem(popup, page);
                 assertEquals(WorkspaceShell.TITLES[page], item.getText());
@@ -266,6 +267,7 @@ public class WorkspaceShellNavigationTest {
                     assertEquals("Exact offscreen client geometry", geometry, fixture[0].getSize());
                     for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                         AbstractButton target = (AbstractButton) find(fixture[0], "nav-" + i);
+                        if (i == 6) { assertFalse("Build has no sidebar row", target.isVisible()); continue; }
                         Insets insets = target.getInsets();
                         Rectangle available = new Rectangle(insets.left, insets.top,
                             target.getWidth() - insets.left - insets.right, target.getHeight() - insets.top - insets.bottom);
@@ -307,7 +309,7 @@ public class WorkspaceShellNavigationTest {
                 Graphics2D graphics = image.createGraphics();
                 fixture[0].printAll(graphics);
                 graphics.dispose();
-                Component destination = find(fixture[0], "nav-6"); // My Info is the first row in the default order.
+                Component destination = find(fixture[0], "nav-14"); // Home is the first row in the default order.
                 Point origin = SwingUtilities.convertPoint(destination, 0, 0, fixture[0]);
                 int base = image.getRGB(2, geometry.height - 4);
                 // Sample the sidebar's leading edge, clear of the destinations and their scroll bar.
@@ -405,12 +407,14 @@ public class WorkspaceShellNavigationTest {
         for (int i = 0; i < pages.length; i++) {
             assertEquals("Visible content page " + i, i == selected, pages[i].isShowing());
             assertEquals("Selected navigation row " + i, i == selected, button("nav-" + i).isSelected());
-            assertEquals("Selected popup destination " + i, i == selected, popupItem(popup, i).isSelected());
+            JMenuItem item = popupItem(popup, i);
+            if (i == 6) assertNull("Build is never in the compact menu", item);
+            else assertEquals("Selected popup destination " + i, i == selected, item.isSelected());
         }
     }
 
     @Test public void keyboardReorderingKeepsTheFocusedRowVisibleWhenAnotherPageIsSelected() throws Exception {
-        SwingUtilities.invokeAndWait(() -> { resize(680, 240); shell.select(6); });
+        SwingUtilities.invokeAndWait(() -> { resize(680, 240); shell.select(14); });
         activateWindow(frame);
         AbstractButton target = button("nav-0");
         awaitFocus(target, () -> {
@@ -424,12 +428,29 @@ public class WorkspaceShellNavigationTest {
         });
         for (int pass = 0; pass < 3; pass++) SwingUtilities.invokeAndWait(() -> frame.validate());
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals("Reordering must not navigate", 6, shell.getSelectedPage());
+            assertEquals("Reordering must not navigate", 14, shell.getSelectedPage());
             assertTrue(target.isFocusOwner());
             assertEquals("The focused row stays wholly inside the viewport after layout",
                     target.getHeight(), target.getVisibleRect().height);
         });
     }
+
+    @Test public void theMenuOpensOnTheFirstListedDestinationWhileBuildIsCurrent() throws Exception {
+        for (int width : new int[] {1240, 760}) {
+            SwingUtilities.invokeAndWait(() -> {
+                resize(width, 620); shell.select(6);
+                invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK));
+                JPopupMenu popup = compactNavigation.getComponentPopupMenu();
+                assertTrue(width + " px: the menu opens", popup.isVisible());
+                assertNull("Build is never listed", popupItem(popup, 6));
+                assertSame("The keyboard starts on the first listed destination", popupItem(popup, 14), selectedMenuElement());
+                popup.setVisible(false); MenuSelectionManager.defaultManager().clearSelectedPath();
+                assertEquals("Opening the menu does not navigate", 6, shell.getSelectedPage());
+                assertFalse(button("nav-6").isVisible());
+            });
+        }
+    }
+
 
     /** Pages of the destinations the compact menu lists, in menu order. */
     private static java.util.List<Integer> popupPages(JPopupMenu popup) {

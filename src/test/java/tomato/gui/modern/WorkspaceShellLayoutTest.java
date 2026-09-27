@@ -18,20 +18,20 @@ public class WorkspaceShellLayoutTest {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
             click(shell.contextMenu(3), "nav-menu-move-up");
-            assertEquals(Arrays.asList(3, 6, 10, 7, 8, 5, 0), listedRows(shell));
-            assertTrue(store.get(NavLayout.ORDER_KEY).startsWith("characters,my-info,"));
+            assertEquals(Arrays.asList(3, 14, 10, 7, 8, 5, 0), listedRows(shell));
+            assertTrue(store.get(NavLayout.ORDER_KEY).startsWith("characters,home,"));
             assertFalse("The first row cannot move up", item(shell.contextMenu(3), "nav-menu-move-up").isEnabled());
             click(shell.contextMenu(8), "nav-menu-hide");
             assertFalse(named(shell, "nav-8", AbstractButton.class).isVisible());
             assertEquals("loot", store.get(NavLayout.HIDDEN_KEY));
-            assertEquals(Arrays.asList(3, 6, 10, 7, 5, 0), listedRows(shell));
+            assertEquals(Arrays.asList(3, 14, 10, 7, 5, 0), listedRows(shell));
             JMenu hidden = (JMenu) item(shell.contextMenu(3), "nav-menu-show-hidden");
             assertTrue(hidden.isEnabled());
             assertEquals("Loot", hidden.getItem(0).getText());
             click(shell.contextMenu(3), "nav-menu-show-8");
             assertTrue(named(shell, "nav-8", AbstractButton.class).isVisible());
-            click(shell.contextMenu(6), "nav-menu-reset");
-            assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 0), listedRows(shell));
+            click(shell.contextMenu(14), "nav-menu-reset");
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0), listedRows(shell));
             assertEquals("", store.get(NavLayout.ORDER_KEY));
             assertEquals("", store.get(NavLayout.HIDDEN_KEY));
         });
@@ -40,15 +40,15 @@ public class WorkspaceShellLayoutTest {
     @Test public void advancedDestinationsPinToTheCoreListAndUnpinBack() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
-            assertNull("Core rows have nothing to pin", item(shell.contextMenu(6), "nav-menu-pin"));
+            assertNull("Core rows have nothing to pin", item(shell.contextMenu(14), "nav-menu-pin"));
             click(shell.contextMenu(11), "nav-menu-pin");
-            assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 0, 11), listedRows(shell));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0, 11), listedRows(shell));
             assertEquals("Advanced (5)", named(shell, "nav-advanced", AbstractButton.class).getText());
             assertEquals("timeline", store.get(NavLayout.PINNED_KEY));
             click(shell.contextMenu(11), "nav-menu-move-up");
-            assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 11, 0), listedRows(shell));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 11, 0), listedRows(shell));
             click(shell.contextMenu(11), "nav-menu-unpin");
-            assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 0), listedRows(shell));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0), listedRows(shell));
             assertEquals("", store.get(NavLayout.PINNED_KEY));
             assertNotNull(item(shell.contextMenu(11), "nav-menu-pin"));
         });
@@ -63,7 +63,7 @@ public class WorkspaceShellLayoutTest {
                 assertNull(absent, item(settings, absent));
             assertFalse("Nothing is hidden yet", item(settings, "nav-menu-show-hidden").isEnabled());
             assertTrue(item(settings, "nav-menu-reset").isEnabled());
-            for (int page : new int[] {6, 3, 10, 7, 8, 5}) click(shell.contextMenu(page), "nav-menu-hide");
+            for (int page : new int[] {14, 3, 10, 7, 8, 5}) click(shell.contextMenu(page), "nav-menu-hide");
             assertFalse("The last visible core row cannot be hidden", item(shell.contextMenu(0), "nav-menu-hide").isEnabled());
         });
     }
@@ -77,9 +77,9 @@ public class WorkspaceShellLayoutTest {
                 frame[0].setContentPane(shell); frame[0].setSize(1240, 800); frame[0].setVisible(true);
                 AbstractButton runs = named(shell, "nav-10", AbstractButton.class);
                 invoke(runs, KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
-                assertEquals(Arrays.asList(6, 10, 3, 7, 8, 5, 0), listedRows(shell));
+                assertEquals(Arrays.asList(14, 10, 3, 7, 8, 5, 0), listedRows(shell));
                 invoke(runs, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
-                assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 0), listedRows(shell));
+                assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0), listedRows(shell));
                 assertNotNull(runs.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(KeyEvent.VK_CONTEXT_MENU, 0)));
                 invoke(runs, KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK));
                 MenuElement[] path = MenuSelectionManager.defaultManager().getSelectedPath();
@@ -100,7 +100,7 @@ public class WorkspaceShellLayoutTest {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
             JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
-            assertEquals(Arrays.asList(6, 3, 10, 7, 5, 0, 11, 2, 1, 4, 9, 12, 13), menuPages(popup));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 5, 0, 11, 2, 1, 4, 9, 12, 13), menuPages(popup));
             JLabel group = named(popup, "compact-nav-advanced", JLabel.class);
             assertTrue(group.isVisible());
             assertEquals("Advanced", group.getText());
@@ -109,11 +109,11 @@ public class WorkspaceShellLayoutTest {
             assertEquals("Core | Advanced | Settings", 2, separators);
             shell.select(8);
             assertEquals("The current page is listed even when hidden",
-                Arrays.asList(6, 3, 10, 7, 8, 5, 0, 11, 2, 1, 4, 9, 12, 13), menuPages(popup));
+                Arrays.asList(14, 3, 10, 7, 8, 5, 0, 11, 2, 1, 4, 9, 12, 13), menuPages(popup));
             assertTrue(named(popup, "compact-nav-8", JMenuItem.class).isSelected());
             click(shell.contextMenu(0), "nav-menu-move-up");
             assertEquals("Reordering reaches the menu",
-                Arrays.asList(6, 3, 10, 7, 8, 0, 5, 11, 2, 1, 4, 9, 12, 13), menuPages(popup));
+                Arrays.asList(14, 3, 10, 7, 8, 0, 5, 11, 2, 1, 4, 9, 12, 13), menuPages(popup));
         });
     }
     @Test public void landingIsTheFirstVisibleCoreDestinationInTheUsersOrder() throws Exception {
@@ -121,14 +121,20 @@ public class WorkspaceShellLayoutTest {
             WorkspaceShell shell = shell();
             assertEquals("Shells built directly still open on page 0", 0, shell.getSelectedPage());
             shell.selectLanding();
-            assertEquals(6, shell.getSelectedPage());
-            click(shell.contextMenu(6), "nav-menu-hide");
+            assertEquals("Home is the default landing page", 14, shell.getSelectedPage());
+            click(shell.contextMenu(14), "nav-menu-hide");
             shell.selectLanding();
             assertEquals("Hidden rows are skipped", 3, shell.getSelectedPage());
-            store.put(NavLayout.ORDER_KEY, "quests");
+            store.put(NavLayout.ORDER_KEY, "quests,home");
             WorkspaceShell reordered = shell();
             reordered.selectLanding();
             assertEquals("A reordered list lands on its new first row", 5, reordered.getSelectedPage());
+            store.remove(NavLayout.HIDDEN_KEY);
+            store.put(NavLayout.ORDER_KEY, "quests");
+            WorkspaceShell upgraded = shell();
+            upgraded.selectLanding();
+            assertEquals("A saved order from before Home gains Home in front", 14, upgraded.getSelectedPage());
+            assertEquals("Reading never rewrites the saved order", "quests", store.get(NavLayout.ORDER_KEY));
         });
     }
     private final Map<String, String> store = new HashMap<>();
@@ -144,7 +150,7 @@ public class WorkspaceShellLayoutTest {
     @Test public void coreDestinationsComeFirstAndAdvancedStartsCollapsed() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
-            assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 0), listedRows(shell));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0), listedRows(shell));
             AbstractButton advanced = named(shell, "nav-advanced", AbstractButton.class);
             assertEquals("Advanced (6)", advanced.getText());
             assertEquals("Advanced pages", advanced.getAccessibleContext().getAccessibleName());
@@ -152,8 +158,8 @@ public class WorkspaceShellLayoutTest {
             advanced.doClick();
             assertEquals("true", store.get(NavLayout.ADVANCED_KEY));
             assertEquals("Expanded", advanced.getAccessibleContext().getAccessibleDescription());
-            assertEquals(Arrays.asList(6, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12), listedRows(shell));
-            assertEquals("The open group is remembered", Arrays.asList(6, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12), listedRows(shell()));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12), listedRows(shell));
+            assertEquals("The open group is remembered", Arrays.asList(14, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12), listedRows(shell()));
         });
     }
 
@@ -184,17 +190,22 @@ public class WorkspaceShellLayoutTest {
             shell.select(12);
             assertTrue("A collapsed Advanced page shows while it is current", bridge.isVisible());
             assertTrue(bridge.isSelected());
-            assertEquals(Arrays.asList(6, 3, 10, 7, 5, 0, 12), listedRows(shell));
+            assertEquals(Arrays.asList(14, 3, 10, 7, 5, 0, 12), listedRows(shell));
             shell.select(8);
             assertTrue("A hidden page shows while it is current", loot.isVisible());
             assertFalse(bridge.isVisible());
             shell.select(6);
             assertFalse(loot.isVisible());
+            assertFalse("Build never shows in the sidebar, even while current", named(shell, "nav-6", AbstractButton.class).isVisible());
         });
     }
 
     @Test public void titlesAndRoutesKeepTheirPageIndices() throws Exception {
-        assertEquals(14, WorkspaceShell.TITLES.length);
+        assertEquals(15, WorkspaceShell.TITLES.length);
+        assertEquals(14, WorkspaceShell.pageOf(Destination.HOME));
+        assertEquals(6, WorkspaceShell.pageOf(Destination.MY_INFO));
+        assertEquals("Home", WorkspaceShell.TITLES[14]);
+        assertEquals("Build", WorkspaceShell.TITLES[6]);
         assertEquals("Party", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.INSPECT)]);
         assertEquals("Quests", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.QUESTS)]);
         assertEquals("Settings", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.NOTIFICATIONS)]);
@@ -208,6 +219,35 @@ public class WorkspaceShellLayoutTest {
             assertEquals("page-2", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_3, InputEvent.ALT_DOWN_MASK)));
         });
     }
+
+    @Test public void altHOpensHomeAndBuildNeverTakesASidebarRowOrMenuEntry() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            WorkspaceShell shell = shell();
+            InputMap keys = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+            assertEquals("page-14", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_H, InputEvent.ALT_DOWN_MASK)));
+            assertEquals("Build keeps Alt+7", "page-6", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
+            assertEquals("Home  (Alt+H)", named(shell, "nav-14", AbstractButton.class).getToolTipText());
+            JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
+            assertEquals(KeyStroke.getKeyStroke(KeyEvent.VK_H, InputEvent.ALT_DOWN_MASK), named(popup, "compact-nav-14", JMenuItem.class).getAccelerator());
+            shell.getActionMap().get("page-14").actionPerformed(null);
+            assertEquals(14, shell.getSelectedPage());
+            assertEquals("Home", named(shell, "page-title", JLabel.class).getText());
+            shell.getActionMap().get("page-6").actionPerformed(null);
+            assertEquals(6, shell.getSelectedPage());
+            assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
+            AbstractButton build = named(shell, "nav-6", AbstractButton.class);
+            assertNotNull("The Build row exists for its name, selection and shortcut", build);
+            assertTrue(build.isSelected());
+            assertFalse("Build never shows in the sidebar, even while current", build.isVisible());
+            assertEquals(Arrays.asList(14, 3, 10, 7, 8, 5, 0), listedRows(shell));
+            assertNull("Build is never added to the compact menu", named(popup, "compact-nav-6", JMenuItem.class));
+            assertFalse(menuPages(popup).contains(6));
+            JPopupMenu menu = shell.contextMenu(6);
+            for (String absent : new String[] {"nav-menu-move-up", "nav-menu-move-down", "nav-menu-hide", "nav-menu-show", "nav-menu-pin"})
+                assertNull("Build has no row to customize: " + absent, item(menu, absent));
+        });
+    }
+
 
     static void resize(WorkspaceShell shell, int width, int height) {
         shell.setSize(width, height);
