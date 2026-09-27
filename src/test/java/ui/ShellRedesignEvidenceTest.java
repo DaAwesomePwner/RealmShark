@@ -57,6 +57,25 @@ public class ShellRedesignEvidenceTest {
                         evidence.capture("settings-appearance-" + suffix);
                         errors.checkSucceeds(() -> { assertSettingsAreWhole(shell[0]); return null; });
                     });
+                    if (size[0] == 680 && font == 18) {
+                        SwingUtilities.invokeAndWait(() -> shell[0].setSetupState("Assets ready", true, false));
+                        evidence.settle();
+                        SwingUtilities.invokeAndWait(() -> {
+                            evidence.capture("settings-appearance-ready-" + suffix);
+                            AbstractButton analyst = named(shell[0], "settings-display-mode-1", AbstractButton.class);
+                            analyst.scrollRectToVisible(new Rectangle(analyst.getSize()));
+                        });
+                        evidence.settle();
+                        SwingUtilities.invokeAndWait(() -> {
+                            evidence.capture("settings-appearance-lower-" + suffix);
+                            AbstractButton analyst = named(shell[0], "settings-display-mode-1", AbstractButton.class);
+                            assertEquals("Lower Appearance controls are reachable through scrolling",
+                                    analyst.getHeight(), analyst.getVisibleRect().height);
+                            settings[0].showSection(SettingsPage.NOTIFICATIONS);
+                        });
+                        evidence.settle();
+                        SwingUtilities.invokeAndWait(() -> evidence.capture("settings-notifications-ready-" + suffix));
+                    }
                 }
     }
 

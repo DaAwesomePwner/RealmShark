@@ -141,8 +141,7 @@ public class TomatoGUI {
         registerLoot(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerLoot(navigator, Destination.LOOT, lootWorkspace);
         navigator.register(new tomato.gui.logging.LoggingRouteTarget(logging));
-        navigator.register(tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
-            () -> openSettings(SettingsPage.NOTIFICATIONS)));
+        registerSettingsNotifications(navigator, settings, notifications);
         navigator.register(tomato.gui.notifications.AlertRouteTargets.alertDraft());
         // Investigation targets resolve exact visits and windows; null for live-only (no saved history) views.
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.RUNS, runsWorkspace));
@@ -165,6 +164,26 @@ public class TomatoGUI {
         refreshContentFonts();
         return mainPanel;
     }
+
+    /** Page 13 owns both the Settings section and the nested notification view. Back restores both. */
+    private static void registerSettingsNotifications(ShellNavigator navigator, SettingsPage page,
+            tomato.gui.notifications.NotificationsGUI notifications) {
+        RouteTarget delegate = tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
+                () -> page.showSection(SettingsPage.NOTIFICATIONS));
+        navigator.register(new RouteTarget() {
+            public Destination destination() { return delegate.destination(); }
+            public boolean accepts(tomato.gui.route.Route route) { return delegate.accepts(route); }
+            public Object captureState() { return new SettingsRouteState(page.currentSection(), delegate.captureState()); }
+            public void open(tomato.gui.route.Route route) { delegate.open(route); }
+            public void restoreState(Object state) {
+                SettingsRouteState saved = (SettingsRouteState) state;
+                delegate.restoreState(saved.notifications());
+                page.showSection(saved.section());
+            }
+        });
+    }
+
+    private record SettingsRouteState(String section, Object notifications) { }
 
     private static void registerIfPresent(ShellNavigator navigator, RouteTarget target) {
         if (target != null) navigator.register(target);

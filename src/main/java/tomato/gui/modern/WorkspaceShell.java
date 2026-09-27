@@ -74,6 +74,7 @@ public final class WorkspaceShell extends JPanel {
     private boolean assetsReady = true, setupBusy, captureRunning, captureFailed, preview;
     private CaptureState readiness = CaptureState.STOPPED;
     private int selected;
+    private JToggleButton scrollAnchor;
     private boolean scrollPending;
 
     public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview) {
@@ -138,6 +139,12 @@ public final class WorkspaceShell extends JPanel {
             button.setMargin(new Insets(2, 6, 2, 6)); button.setFocusPainted(true);
             button.putClientProperty("JComponent.minimumWidth", 0);
             button.addActionListener(e -> select(index));
+            button.addFocusListener(new FocusAdapter() {
+                @Override public void focusGained(FocusEvent e) {
+                    scrollAnchor = button;
+                    scrollSelectedLater();
+                }
+            });
             // Right-click, Shift+F10 or the context-menu key opens the row's menu; Ctrl+Shift+Up/Down moves it.
             button.addMouseListener(new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) { if (e.isPopupTrigger()) showContextMenu(index, e.getPoint()); }
@@ -435,6 +442,7 @@ public final class WorkspaceShell extends JPanel {
         if (!operation.getAsBoolean()) return;
         applyLayout();
         JToggleButton target = navigation[focus].isVisible() ? navigation[focus] : navigation[selected];
+        scrollAnchor = target;
         target.requestFocusInWindow();
         scrollSelectedLater();
     }
@@ -674,6 +682,7 @@ public final class WorkspaceShell extends JPanel {
     public void select(int index) {
         if (index < 0 || index >= navigation.length) throw new IllegalArgumentException("Invalid page");
         selected = index; ((CardLayout) cards.getLayout()).show(cards, Integer.toString(index));
+        scrollAnchor = navigation[index];
         NavEntry entry = NavEntry.forPage(index);
         title.setText(entry.title());
         // The description lives in the title's tooltip, so the header keeps a single line (spec §4.3).
@@ -929,7 +938,8 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void scrollSelected() {
-        JToggleButton button = navigation[selected];
+        // Customizing a different row must not scroll its keyboard focus back to the selected page.
+        JToggleButton button = scrollAnchor != null && scrollAnchor.isVisible() ? scrollAnchor : navigation[selected];
         button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
     }
 

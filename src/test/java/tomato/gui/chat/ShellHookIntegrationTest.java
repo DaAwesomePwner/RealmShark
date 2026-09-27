@@ -53,6 +53,11 @@ public class ShellHookIntegrationTest {
             assertTrue(registry.search("appearance.settings").get(0).open());
             assertEquals(13, shell.getSelectedPage());
             assertEquals(tomato.gui.settings.SettingsPage.APPEARANCE, settings.currentSection());
+            assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.NOTIFICATIONS)));
+            assertEquals(tomato.gui.settings.SettingsPage.NOTIFICATIONS, settings.currentSection());
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals("Back restores the Settings section as well as notification state",
+                    tomato.gui.settings.SettingsPage.APPEARANCE, settings.currentSection());
             Icon before = tomato.gui.kit.Sprites.sprite(987_654_321, 24);
             TomatoGUI.assetsReloaded();
             assertNotSame("Asset reloads drop cached sprites", before, tomato.gui.kit.Sprites.sprite(987_654_321, 24));

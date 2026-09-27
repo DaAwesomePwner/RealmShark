@@ -409,6 +409,28 @@ public class WorkspaceShellNavigationTest {
         }
     }
 
+    @Test public void keyboardReorderingKeepsTheFocusedRowVisibleWhenAnotherPageIsSelected() throws Exception {
+        SwingUtilities.invokeAndWait(() -> { resize(680, 240); shell.select(6); });
+        activateWindow(frame);
+        AbstractButton target = button("nav-0");
+        awaitFocus(target, () -> {
+            target.scrollRectToVisible(new Rectangle(0, 0, target.getWidth(), target.getHeight()));
+            target.requestFocusInWindow();
+        });
+        SwingUtilities.invokeAndWait(() -> {
+            invokeKey(target, JComponent.WHEN_FOCUSED,
+                    KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
+            frame.validate();
+        });
+        for (int pass = 0; pass < 3; pass++) SwingUtilities.invokeAndWait(() -> frame.validate());
+        SwingUtilities.invokeAndWait(() -> {
+            assertEquals("Reordering must not navigate", 6, shell.getSelectedPage());
+            assertTrue(target.isFocusOwner());
+            assertEquals("The focused row stays wholly inside the viewport after layout",
+                    target.getHeight(), target.getVisibleRect().height);
+        });
+    }
+
     /** Pages of the destinations the compact menu lists, in menu order. */
     private static java.util.List<Integer> popupPages(JPopupMenu popup) {
         java.util.List<Integer> listed = new java.util.ArrayList<>();
