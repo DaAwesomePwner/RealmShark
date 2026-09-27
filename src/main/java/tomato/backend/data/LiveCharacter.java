@@ -1,5 +1,6 @@
 package tomato.backend.data;
 
+import java.util.Arrays;
 import java.util.Objects;
 import packets.data.StatData;
 import packets.data.enums.StatType;
@@ -44,6 +45,15 @@ public final class LiveCharacter {
         @Override public int[] equipment() { return copy(equipment); }
         @Override public int[] exaltBonus() { return copy(exaltBonus); }
         private static int[] copy(int[] values) { return values == null ? null : values.clone(); }
+        /** The same character state: every value and array by content, Build inputs from the same observations; observedAt ignored. */
+        public boolean sameContent(Snapshot other) {
+            return other != null && characterId == other.characterId && classId == other.classId && Objects.equals(account, other.account)
+                && Objects.equals(name, other.name) && Objects.equals(skin, other.skin) && Objects.equals(level, other.level)
+                && Objects.equals(characterFame, other.characterFame) && Arrays.equals(totals, other.totals) && Arrays.equals(base, other.base)
+                && Arrays.equals(equipment, other.equipment) && Objects.equals(accountFame, other.accountFame) && Objects.equals(gold, other.gold)
+                && Objects.equals(rankStars, other.rankStars) && Arrays.equals(exaltBonus, other.exaltBonus)
+                && (build == null ? other.build == null : build.sameSource(other.build));
+        }
         private static int[] copy(int[] values, int length, String name) {
             if (values != null && values.length != length) throw new IllegalArgumentException(name + " must have " + length + " entries");
             return copy(values);
@@ -55,11 +65,16 @@ public final class LiveCharacter {
     private boolean accepting = true;
     private long revision, lastSeenAt;
 
-    /** Capture thread: the local character's latest state. */
+    /**
+     * Capture thread: the local character's latest state. The revision moves only when no character was current or the content
+     * differs ({@link Snapshot#sameContent}); an equal snapshot still replaces it, so readers see its observedAt.
+     */
     public synchronized void publish(Snapshot value) {
         if (value == null) throw new IllegalArgumentException("Use clear() when no character is in game");
         if (!accepting) return; // A producer may finish detaching after capture stop was requested.
-        current = value; lastKnown = value; revision++;
+        boolean changed = current == null || !current.sameContent(value);
+        current = value; lastKnown = value;
+        if (changed) revision++;
     }
     /**
      * Capture thread (or capture stop): no character is in game, because of {@code why}. Only an actual change bumps the

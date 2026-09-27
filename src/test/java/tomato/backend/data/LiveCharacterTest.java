@@ -4,6 +4,7 @@ import java.io.IOException;
 import org.junit.Test;
 import packets.data.StatData;
 import packets.data.enums.StatType;
+import tomato.gui.myinfo.BuildEstimates;
 import tomato.gui.myinfo.WeaponFixture;
 import static org.junit.Assert.*;
 
@@ -24,7 +25,10 @@ public class LiveCharacterTest {
         live.clear(500, LiveCharacter.Boundary.STOPPED);
         assertEquals("Clearing with nothing in game is not a change", 0, live.revision()); assertEquals(0, live.lastSeenAt());
         assertNull("No character has stopped being current yet", live.lastBoundary());
-        LiveCharacter.Snapshot first = snapshot(1000), second = snapshot(2000);
+        LiveCharacter.Snapshot first = snapshot(1000);
+        // A new level, so a change (a snapshot differing only in observedAt is none; see the next test).
+        LiveCharacter.Snapshot second = new LiveCharacter.Snapshot("account", 7, 782, "Sample", 912, 21, 1500L, TOTALS,
+            new int[]{670, 385, 75, 25, 50, 75, 40, -1}, new int[]{2711, -1, -1, -1}, 12345, 1200, 70, BONUS, null, 2000);
         live.publish(first);
         assertSame(first, live.current()); assertSame(first, live.lastKnown()); assertEquals(1, live.revision()); assertEquals(0, live.lastSeenAt());
         live.publish(second);
@@ -160,6 +164,52 @@ public class LiveCharacterTest {
         assertNotNull(data.liveCharacter.current());
         data.captureStopped();
         assertNull("Stopping capture means nothing is known to be in game", data.liveCharacter.current());
+    }
+
+    @Test public void theSameObservationIsDetachedOnceAndAnEqualSnapshotKeepsTheRevision() throws Exception {
+        LiveCharacter live = new LiveCharacter();
+        live.publish(snapshot(1000));
+        long revision = live.revision();
+        LiveCharacter.Snapshot again = snapshot(2000);
+        live.publish(again);
+        assertEquals("Only the publish time differs", revision, live.revision());
+        assertSame("Readers still get the newest publication", again, live.current()); assertSame(again, live.lastKnown());
+        live.publish(new LiveCharacter.Snapshot("account", 7, 782, "Sample", 912, 21, 1500L, TOTALS,
+            new int[]{670, 385, 75, 25, 50, 75, 40, -1}, new int[]{2711, -1, -1, -1}, 12345, 1200, 70, BONUS, null, 3000));
+        assertEquals("A new level is a change", revision + 1, live.revision());
+
+        TomatoData data = new TomatoData(); data.setUserId(1, 7, "AAAAAA==");
+        Entity player = new Entity(data, 1, 0); player.captureObjectType(782); data.player = player;
+        text(player, StatType.ACCOUNT_ID_STAT, "dedupe-account");
+        player.updateStats(status(StatType.LEVEL_STAT, 20), 0);
+        data.publishMyInfoPlayer(player);
+        LiveCharacter.Snapshot first = data.liveCharacter.current();
+        long published = data.liveCharacter.revision();
+        data.publishMyInfoPlayer(player);   // the tick publishes the same observation again
+        assertSame("Nothing new was observed: no second detach", first, data.liveCharacter.current());
+        assertEquals(published, data.liveCharacter.revision());
+        player.updateStats(status(StatType.LEVEL_STAT, 21), 0);
+        data.publishMyInfoPlayer(player);
+        assertEquals(Integer.valueOf(21), data.liveCharacter.current().level()); assertTrue(data.liveCharacter.revision() > published);
+        data.captureBoundary();   // clears the character without a new observation
+        data.publishMyInfoPlayer(player);
+        assertNotNull("After a clear the same observation is published again", data.liveCharacter.current());
+
+        BuildEstimates.Inputs a = BuildEstimates.Inputs.detach(player, null, TomatoData.PetAvailability.ABSENT);
+        assertTrue("Same observations", a.sameSource(BuildEstimates.Inputs.detach(player, null, TomatoData.PetAvailability.ABSENT)));
+        assertFalse("Another pet state", a.sameSource(BuildEstimates.Inputs.detach(player, null, TomatoData.PetAvailability.UNKNOWN)));
+        player.updateStats(status(StatType.LEVEL_STAT, 22), 0);
+        assertFalse("A newer observation", a.sameSource(BuildEstimates.Inputs.detach(player, null, TomatoData.PetAvailability.ABSENT)));
+        Entity untracked = new Entity(null, 2, 0);
+        assertFalse("Stats set without an observation are never assumed equal",
+            BuildEstimates.Inputs.detach(untracked, null, null).sameSource(BuildEstimates.Inputs.detach(untracked, null, null)));
+    }
+
+    private static packets.data.ObjectStatusData status(StatType type, int value) {
+        StatData stat = new StatData(); stat.statType = type; stat.statTypeNum = type.get(); stat.statValue = value;
+        packets.data.ObjectStatusData status = new packets.data.ObjectStatusData();
+        status.objectId = 1; status.pos = new packets.data.WorldPosData(); status.stats = new StatData[]{stat};
+        return status;
     }
 
     private static void put(Entity entity, StatType type, int value) { StatData stat = new StatData(); stat.statValue = value; entity.stat.set(type, stat); }

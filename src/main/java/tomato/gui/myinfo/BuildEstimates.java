@@ -34,11 +34,23 @@ public final class BuildEstimates {
         private final Entity player, pet;
         private final TomatoData.PetAvailability pets;
 
-        private Inputs(Entity player, Entity pet, TomatoData.PetAvailability pets) { this.player = player; this.pet = pet; this.pets = pets; }
+        /** The sources' Entity.observationRevision() when copied; -1 without that entity. */
+        private final long playerRevision, petRevision;
+
+        private Inputs(Entity player, Entity pet, TomatoData.PetAvailability pets, long playerRevision, long petRevision) {
+            this.player = player; this.pet = pet; this.pets = pets; this.playerRevision = playerRevision; this.petRevision = petRevision;
+        }
 
         /** Capture thread: copies the stats now; later packets change the live entities, never these copies. */
         public static Inputs detach(Entity player, Entity pet, TomatoData.PetAvailability pets) {
-            return new Inputs(copyStats(player), copyStats(pet), pets == null ? TomatoData.PetAvailability.UNKNOWN : pets);
+            return new Inputs(copyStats(player), copyStats(pet), pets == null ? TomatoData.PetAvailability.UNKNOWN : pets,
+                player == null ? -1 : player.observationRevision(), pet == null ? -1 : pet.observationRevision());
+        }
+
+        /** Copied from the same player and pet observations with the same pet state; revision 0 (no observation yet) never matches. */
+        public boolean sameSource(Inputs other) {
+            return other != null && pets == other.pets && (player == null) == (other.player == null) && (pet == null) == (other.pet == null)
+                && playerRevision != 0 && petRevision != 0 && playerRevision == other.playerRevision && petRevision == other.petRevision;
         }
 
         /** Build's default (in-combat) scenario over the copies. Costs a weapon lookup and an enchant decode: memoize per snapshot. */

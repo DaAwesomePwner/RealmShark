@@ -85,6 +85,10 @@ public class TomatoData {
     private PetAvailability petAvailability = PetAvailability.UNKNOWN;
     /** Home's view of the local character; published beside every My Info snapshot and cleared with it. */
     public final LiveCharacter liveCharacter = new LiveCharacter();
+    /** What Home's last detach was made from (capture thread); an unchanged key while its snapshot is current needs no new detach. */
+    private record LiveKey(MyInfoIdentity identity, Entity player, long playerRevision, Entity pet, long petRevision, PetAvailability availability) {}
+    private LiveKey liveKey;
+    private LiveCharacter.Snapshot livePublished;
     private final ProgressionData progression = new ProgressionData();
     public ProgressionData progression() { return progression; }
     public void captureStopped() { progression.captureStopped(); liveCharacter.stop(System.currentTimeMillis()); }
@@ -159,9 +163,16 @@ public class TomatoData {
         Entity companion = ownedPet ? pet : null;
         PetAvailability availability = ownedPet ? petAvailability : PetAvailability.UNKNOWN;
         MyInfoGUI.updateSnapshot(this, identity, value, companion, availability);
-        // Home: detached copies of My Info's inputs; Home estimates from them on its own thread, never here.
+        // Home: detached copies of My Info's inputs; Home estimates from them on its own thread, never here. A tick publishes at
+        // least twice (the entity update, then the tick): the same observation of the same pair is detached once. My Info's own
+        // snapshot above still runs every time, because its callers may set stats without a new observation.
+        LiveKey key = new LiveKey(identity, value, value.observationRevision(), companion,
+            companion == null ? -1 : companion.observationRevision(), availability);
+        if (key.equals(liveKey) && livePublished != null && liveCharacter.current() == livePublished) return;
         liveCharacter.publish(LiveCharacter.read(identity.account, identity.characterId, value,
             BuildEstimates.Inputs.detach(value, companion, availability), System.currentTimeMillis()));
+        liveKey = key;
+        livePublished = liveCharacter.current();   // null when a stopped capture rejected it, so the next call publishes again
     }
 
     /** Unscoped/stale pet callbacks may only republish the currently bound owner/pet pair. */
