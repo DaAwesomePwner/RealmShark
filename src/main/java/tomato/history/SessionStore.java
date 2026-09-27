@@ -183,9 +183,17 @@ public final class SessionStore implements AutoCloseable {
         return tomato.history.archive.ReadSnapshot.capture(this, sources, scratch, cancel);
     }
     public <T> void read(String scope, String module, Class<T> type, BiConsumer<Session,T> consumer) throws IOException {
+        read(catalog(), scope, module, type, consumer);
+    }
+    /**
+     * As above over a catalog the caller already listed, so a reader of several modules and sessions lists the library
+     * once. Off the EDT only.
+     */
+    public <T> void read(List<SessionEntry> catalog, String scope, String module, Class<T> type, BiConsumer<Session,T> consumer) throws IOException {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read history off the EDT");
         checkModule(module);
         List<Session> selected=new ArrayList<>();
-        for(SessionEntry entry:catalog()) {
+        for(SessionEntry entry:catalog) {
             if(!ALL.equals(scope)&&!entry.id.equals(scope))continue;
             if(!entry.readable())throw new IOException("Unreadable session "+entry.id+": "+entry.error);
             selected.add(entry.session());
