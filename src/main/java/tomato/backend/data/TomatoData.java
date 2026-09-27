@@ -181,6 +181,11 @@ public class TomatoData {
         String account = characterJournal().observe(player, charId);
         if (account == null) return;
         journalAccount = account;
+        StatData stars = player.stat.get(StatType.NUM_STARS_STAT), gold = player.stat.get(StatType.CREDITS_STAT),
+            fame = player.stat.get(StatType.FAME_STAT);
+        characterJournal().accountLive(account, player.typeCapture() == null ? -1 : player.objectType,
+            stars == null ? null : stars.statValue, gold == null ? null : (long) gold.statValue,
+            fame == null ? null : (long) fame.statValue, CharacterJournal.exaltBonus(player), player.observedAt());
         publishMyInfoPlayer(player);
         applyMetadataResponses();
         if (journalPendingRoster != null) {

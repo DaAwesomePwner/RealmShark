@@ -21,6 +21,9 @@ public final class CharacterJournal implements AutoCloseable {
         StatType.DEFENSE_STAT, StatType.SPEED_STAT, StatType.DEXTERITY_STAT, StatType.VITALITY_STAT, StatType.WISDOM_STAT};
     private static final StatType[] BOOSTS = {StatType.MAX_HP_BOOST_STAT, StatType.MAX_MP_BOOST_STAT, StatType.ATTACK_BOOST_STAT,
         StatType.DEFENSE_BOOST_STAT, StatType.SPEED_BOOST_STAT, StatType.DEXTERITY_BOOST_STAT, StatType.VITALITY_BOOST_STAT, StatType.WISDOM_BOOST_STAT};
+    /** Live exaltation bonus stats in canonical order: life, mana, atk, def, spd, dex, vit, wis (not StatType id order). */
+    private static final StatType[] EXALT_BONUSES = {StatType.EXALTED_HP, StatType.EXALTED_MP, StatType.EXALTED_ATK,
+        StatType.EXALTED_DEF, StatType.EXALTED_SPD, StatType.EXALTED_DEX, StatType.EXALTED_VIT, StatType.EXALTED_WIS};
     private static final Gson JSON = new GsonBuilder().setPrettyPrinting().create();
 
     public static final class CharacterRecord {
@@ -51,9 +54,20 @@ public final class CharacterJournal implements AutoCloseable {
         public String key, name;
         public Map<Integer, int[]> exalts = new TreeMap<>();
         public long exaltSeen;
+        /** Class id → live EXALTED_* stat bonuses (canonical stat order) last seen on a character of that class. */
+        public Map<Integer, ExaltBonus> liveExaltBonus = new TreeMap<>();
+        /** Account-wide live stats; null = never observed. */
+        public Long accountFame, gold;
+        public Integer rankStars;
+        /** Latest receipt time of an account-wide live stat (epoch ms); 0 = never. */
+        public long accountStatsObservedAt;
+    }
+    public static final class ExaltBonus {
+        public int[] bonus = new int[8];
+        public long observedAt;
     }
     private static final class Document {
-        int version = 3;
+        int version = 4;
         List<CharacterRecord> characters = new ArrayList<>();
         Map<String, AccountRecord> accounts = new LinkedHashMap<>();
     }
@@ -81,7 +95,7 @@ public final class CharacterJournal implements AutoCloseable {
         if (Files.exists(path)) {
             try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
                 Document loaded = JSON.fromJson(reader, Document.class);
-                if (loaded == null || (loaded.version < 1 || loaded.version > 3) || loaded.characters == null || loaded.accounts == null)
+                if (loaded == null || (loaded.version < 1 || loaded.version > 4) || loaded.characters == null || loaded.accounts == null)
                     throw new IOException("Unsupported journal");
                 for (CharacterRecord r : loaded.characters) {
                     if (r == null || r.key == null || r.account == null || r.stats == null || r.stats.length != 8
@@ -99,8 +113,13 @@ public final class CharacterJournal implements AutoCloseable {
                 for (AccountRecord a : loaded.accounts.values()) {
                     if (a == null || a.key == null || a.exalts == null) throw new IOException("Invalid account");
                     for (int[] values : a.exalts.values()) if (!validExalts(values)) throw new IOException("Invalid exalts");
+                    if (a.liveExaltBonus == null) a.liveExaltBonus = new TreeMap<>(); // v1–v3 documents have no live fields.
+                    for (Map.Entry<Integer, ExaltBonus> bonus : a.liveExaltBonus.entrySet())
+                        if (bonus.getKey() == null || bonus.getValue() == null || !validExalts(bonus.getValue().bonus) || bonus.getValue().observedAt < 0)
+                            throw new IOException("Invalid live exalt bonus");
+                    if (a.accountStatsObservedAt < 0) throw new IOException("Invalid account observation time");
                 }
-                loaded.version = 3;
+                loaded.version = 4;
                 document = loaded;
             } catch (Exception e) {
                 readOnly = true;
@@ -239,6 +258,41 @@ public final class CharacterJournal implements AutoCloseable {
             }
         }
     }
+    /**
+     * Account-wide live stats and this class's live exaltation bonuses (canonical stat order). A null argument was not
+     * observed and keeps the previous value; the journal changes only when a value or its observation time does.
+     */
+    public synchronized void accountLive(String accountKey, int classId, Integer rankStars, Long gold, Long accountFame, int[] exaltBonus, long observedAt) {
+        if (accountKey == null) return;
+        AccountRecord a = account(accountKey);
+        boolean change = false;
+        if (rankStars != null && !rankStars.equals(a.rankStars)) { a.rankStars = rankStars; change = true; }
+        if (gold != null && !gold.equals(a.gold)) { a.gold = gold; change = true; }
+        if (accountFame != null && !accountFame.equals(a.accountFame)) { a.accountFame = accountFame; change = true; }
+        if ((rankStars != null || gold != null || accountFame != null) && observedAt > a.accountStatsObservedAt) {
+            a.accountStatsObservedAt = observedAt; change = true;
+        }
+        if (classId > 0 && validExalts(exaltBonus)) {
+            ExaltBonus known = a.liveExaltBonus.get(classId);
+            if (known == null || !Arrays.equals(known.bonus, exaltBonus) || observedAt > known.observedAt) {
+                ExaltBonus next = new ExaltBonus(); next.bonus = exaltBonus.clone();
+                next.observedAt = Math.max(observedAt, known == null ? 0 : known.observedAt);
+                a.liveExaltBonus.put(classId, next); change = true;
+            }
+        }
+        if (change) changed();
+    }
+    /** The captured EXALTED_* bonuses in canonical stat order, or null unless all eight were captured. */
+    public static int[] exaltBonus(Entity player) {
+        if (player == null) return null;
+        int[] bonus = new int[8];
+        for (int i = 0; i < 8; i++) {
+            StatData value = player.stat.get(EXALT_BONUSES[i]);
+            if (value == null || value.statValue < 0) return null;
+            bonus[i] = value.statValue;
+        }
+        return bonus;
+    }
     private static boolean validExalts(int[] v) { return v != null && v.length == 8 && Arrays.stream(v).allMatch(n -> n >= 0); }
     private AccountRecord account(String key) {
         AccountRecord a = document.accounts.get(key);
@@ -259,6 +313,17 @@ public final class CharacterJournal implements AutoCloseable {
         List<AccountRecord> copy = new ArrayList<>();
         for (AccountRecord a : document.accounts.values()) copy.add(copy(a));
         return copy;
+    }
+    /** Deep copy of one account's record, or null when the account is unknown. */
+    public synchronized AccountRecord accountCopy(String accountKey) {
+        AccountRecord a = accountKey == null ? null : document.accounts.get(accountKey);
+        return a == null ? null : copy(a);
+    }
+    /** Deep copy of the non-dead character seen most recently (greatest lastSeen), or null. */
+    public synchronized CharacterRecord mostRecentCharacter() {
+        CharacterRecord best = null;
+        for (CharacterRecord r : document.characters) if (!r.dead && (best == null || r.lastSeen > best.lastSeen)) best = r;
+        return best == null ? null : copy(best);
     }
     public synchronized void markDead(String key, boolean dead) {
         CharacterRecord r = find(key); if (r == null) return;
@@ -366,6 +431,11 @@ public final class CharacterJournal implements AutoCloseable {
     private static AccountRecord copy(AccountRecord a) {
         AccountRecord c = new AccountRecord(); c.key = a.key; c.name = a.name; c.exaltSeen = a.exaltSeen;
         a.exalts.forEach((id, values) -> c.exalts.put(id, values.clone()));
+        a.liveExaltBonus.forEach((id, value) -> {
+            ExaltBonus bonus = new ExaltBonus(); bonus.bonus = value.bonus.clone(); bonus.observedAt = value.observedAt;
+            c.liveExaltBonus.put(id, bonus);
+        });
+        c.accountFame = a.accountFame; c.gold = a.gold; c.rankStars = a.rankStars; c.accountStatsObservedAt = a.accountStatsObservedAt;
         return c;
     }
 
