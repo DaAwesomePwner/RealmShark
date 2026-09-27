@@ -189,7 +189,7 @@ public class CharacterJournalLayoutTest {
             reachable(button(sheet, "Mark dead"));
             assertTrue(button(sheet, "Mark dead").isEnabled());
         });
-        for (String id : new String[]{"overview", "gear", "exalts", "build", "goals", "notes", "death"}) {
+        for (String id : new String[]{"overview", "gear", "exalts", "pet", "fame", "build", "goals", "notes", "death"}) {
             if ("death".equals(id)) { // shown only for a character marked dead: mark it here, restore it after the loop
                 SwingUtilities.invokeAndWait(() -> button(sheet, "Mark dead").doClick());
                 tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
@@ -223,6 +223,11 @@ public class CharacterJournalLayoutTest {
                     reachable(named(sheet, "character-gear-slot-11", JComponent.class));
                 } else if ("exalts".equals(id)) {
                     reachable(named(sheet, "character-exalts-empty", JComponent.class));
+                } else if ("pet".equals(id)) {
+                    reachable(named(sheet, "character-pet-empty", JComponent.class)); // no character list was read: the pet is unknown
+                } else if ("fame".equals(id)) {
+                    // A placeholder slot until the Fame tab arrives: checked for its place, like Build.
+                    assertSame(named(sheet, "character-tab-fame", JComponent.class), tabs.getSelectedComponent());
                 } else if ("build".equals(id)) {
                     // Build fills its tab and scrolls itself, so it is checked for its place and width rather than for fitting whole.
                     JComponent build = named(sheet, "character-build", JComponent.class);

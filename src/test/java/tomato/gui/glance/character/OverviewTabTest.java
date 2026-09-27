@@ -4,12 +4,15 @@ import javax.swing.*;
 import org.junit.Test;
 import tomato.backend.data.CharacterJournal;
 import tomato.gui.kit.*;
+import tomato.gui.modern.DisplayFormat;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
 /** Overview and header on synthetic models: live boost only while playing, vault counts only when known, unknown never 0. */
 public class OverviewTabTest {
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
+    /** Tests that do not open the Pet tab from the Overview's pet card. */
+    private static final Runnable NO_OPEN = () -> {};
     private static String text(JComponent root, String name) { return named(root, name, JLabel.class).getText(); }
     private static ItemSlot.State slot(JComponent root, int i) { return named(root, "character-overview-slot-" + i, ItemSlot.class).state(); }
 
@@ -20,7 +23,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE; // seasonal characters show no vault count
         SheetModel model = model(regular, account, live(ACCOUNT, 7, "Sharkbait", null));
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
             tab.apply(model);
             assertEquals("20/25", text(tab, "character-overview-value-3"));
             assertTrue(named(tab, "character-overview-bar-0", StatBar.class).maxed());
@@ -43,7 +46,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord record = record(); record.stats[3] = null;
         SheetModel model = model(record, account(), live(ACCOUNT, 8, "Ann", null));
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
             tab.apply(model);
             for (int i = 0; i < 8; i++) assertFalse("No boost for a character not in game", named(tab, "character-overview-boost-" + i, JLabel.class).isVisible());
             assertEquals("—", text(tab, "character-overview-value-3"));
@@ -61,7 +64,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE;
         SheetModel model = model(regular, account, null);
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
             tab.apply(model);
             KitText need = named(tab, "character-overview-need-0", KitText.class);
             assertEquals("DEF needs 5 · 3 in vault (yesterday)", need.getText());
@@ -84,7 +87,7 @@ public class OverviewTabTest {
             SheetModel model = model(record, account(), null); // no vault data: vaultAge() is always "", so it never masks this bug
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
+                    OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
                     clock.set(null, (java.util.function.LongSupplier) () -> NOW + 30_000); // 30 s later: "just now"
                     tab.apply(model);
                     assertEquals("Marked dead just now", text(tab, "character-overview-death-text"));
@@ -101,7 +104,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord record = record(); record.dead = true; record.diedAt = NOW - 24 * HOUR;
         SheetModel model = model(record, account(), null);
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
             tab.apply(model);
             Collapsible table = named(tab, "character-stat-table", Collapsible.class);
             assertFalse("Simple mode hides the stat table", table.isVisible());
@@ -128,7 +131,7 @@ public class OverviewTabTest {
         assertNotEquals("The two rebuilds are unequal models", first, later);
         assertEquals(first.stats(), later.stats());
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, () -> NOW);
+            OverviewTab tab = new OverviewTab(mode, () -> NOW, NO_OPEN);
             mode.set(DisplayModeModel.Mode.ANALYST);
             tab.apply(first);
             JTable rows = named(tab, "character-stat-rows", JTable.class);
@@ -156,7 +159,7 @@ public class OverviewTabTest {
         SheetModel model = model(regular, account, null);
         long[] clock = {NOW + HOUR};
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, () -> clock[0]);
+            OverviewTab tab = new OverviewTab(mode, () -> clock[0], NO_OPEN);
             tab.apply(model);
             KitText need = named(tab, "character-overview-need-0", KitText.class);
             assertEquals("An hour old by the sheet's clock: current, whatever the system clock says", Tokens.Role.TEXT, need.role());
@@ -206,6 +209,64 @@ public class OverviewTabTest {
             assertNull("Sharkbait must not still be announced while the next character loads",
                 header.getAccessibleContext().getAccessibleName());
             assertNull(header.getAccessibleContext().getAccessibleDescription());
+        });
+    }
+    /** The Overview's pet card: the pet, its rarity and its three abilities; "No pet" and unknown ("—" with a reason) kept apart. */
+    @Test public void thePetCardShowsKnownNoneAndUnknown() throws Exception {
+        CharacterJournal.CharacterRecord withPet = record(); withPet.pet = pet(NOW);
+        CharacterJournal.CharacterRecord none = record(); none.pet = noPet(NOW);
+        SheetModel known = model(withPet, account(), null), noPet = model(none, account(), null), unknown = model(record(), account(), null);
+        SwingUtilities.invokeAndWait(() -> {
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
+            tab.apply(known);
+            Card card = named(tab, "character-overview-pet", Card.class);
+            assertTrue(card.isVisible()); assertEquals("Pet", card.header().title());
+            assertEquals("Sample pet", text(tab, "character-overview-pet-name"));
+            Chip rarity = named(tab, "character-overview-pet-rarity", Chip.class);
+            assertTrue(rarity.isVisible()); assertEquals("Rare", rarity.getText()); assertEquals(Tokens.Tone.NEUTRAL, rarity.tone());
+            JTextArea abilities = named(tab, "character-overview-pet-abilities", JTextArea.class);
+            assertTrue(abilities.isVisible());
+            assertEquals("Levels of the three slots; the third unlocks at max level 90", "Heal 45 · Magic heal 30 · Electric locked", abilities.getText());
+            assertTrue("Skin 0: the placeholder sprite", Sprites.isPlaceholder(named(tab, "character-overview-pet-sprite", JLabel.class).getIcon()));
+
+            tab.apply(noPet);
+            assertEquals("No pet", text(tab, "character-overview-pet-name"));
+            assertFalse(rarity.isVisible()); assertFalse(abilities.isVisible());
+            assertFalse(named(tab, "character-overview-pet-sprite", JLabel.class).isVisible());
+
+            tab.apply(unknown);
+            JLabel name = named(tab, "character-overview-pet-name", JLabel.class);
+            assertEquals("Unknown is never \"No pet\"", DisplayFormat.UNAVAILABLE, name.getText());
+            assertEquals("Pet details arrive when capture reads your character list in the Pet Yard or the Daily Quest Room", name.getToolTipText());
+            assertFalse(rarity.isVisible()); assertFalse(abilities.isVisible());
+
+            CharacterJournal.CharacterRecord partial = record(); partial.pet = pet(NOW);
+            partial.pet.rarity = null; partial.pet.abilityType = new int[]{407, -1, 406}; partial.pet.abilityLevel = new int[]{-1, 3, 1};
+            partial.pet.maxAbilityPower = 90;
+            tab.apply(model(partial, account(), null));
+            assertFalse("An unknown rarity hides the chip", rarity.isVisible());
+            assertEquals("Unknown levels and types are dashes, never 0", "Heal — · — · Electric 1", abilities.getText());
+        });
+    }
+
+    /** Opening the card (click, Enter or Space) opens the sheet's Pet tab: CharacterSheet passes openTab("pet"). */
+    @Test public void thePetCardOpensThePetTab() throws Exception {
+        CharacterJournal.CharacterRecord withPet = record(); withPet.pet = pet(NOW);
+        SheetModel known = model(withPet, account(), null);
+        SwingUtilities.invokeAndWait(() -> {
+            int[] opened = {0};
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, () -> opened[0]++);
+            tab.apply(known);
+            Card card = named(tab, "character-overview-pet", Card.class);
+            assertEquals("Open pet", card.getAccessibleContext().getAccessibleName());
+            assertTrue("Keyboard reachable", card.isFocusable());
+            card.getActionMap().get("open-card").actionPerformed(null);
+            assertEquals(1, opened[0]);
+            JLabel name = named(tab, "character-overview-pet-name", JLabel.class);
+            for (java.awt.event.MouseListener listener : name.getMouseListeners())
+                listener.mouseClicked(new java.awt.event.MouseEvent(name, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 1, 1, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            assertEquals("A click on the card's text opens it too", 2, opened[0]);
+            assertNull("The other cards stay plain", named(tab, "character-overview-gear", Card.class).getActionMap().get("open-card"));
         });
     }
 }

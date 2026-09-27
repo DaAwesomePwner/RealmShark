@@ -64,7 +64,21 @@ public final class CharacterFixtures {
         // The Wizard's weapon, ability and armor are known, its ring and inventory empty, its backpack not captured.
         if (spec.id() == 101) c.equipment = new int[]{2593, 2856, 3113, -1, -1, -1, -1, -1, -1, -1, -1, -1};
         c.receivedAt = receivedAt;
+        if (spec.id() == 101) pet(c);
+        if (spec.id() == 103) c.supplied(RealmCharacter.PET_NONE); // the Priest's list entry has an empty pet element: "No pet"
         return c;
+    }
+
+    /**
+     * The Wizard's pet as the character list reports it: "Sample pet", Legendary (rarity 3, max ability level 90), Heal level 90,
+     * Magic heal level 72 and Electric level 40. Skin 0 (no sprite: the placeholder); type 0x7001 (named only if pets.xml says so).
+     */
+    private static void pet(RealmCharacter c) {
+        c.petInstanceId = 5_101; c.petName = "Sample pet"; c.petType = 0x7001; c.petRarity = 3; c.petMaxAbilityPower = 90; c.petSkin = 0;
+        // [points, level, type] per slot; points agree with the levels under PetFeeding's formula.
+        c.petAbilitys = new int[]{236_000, 90, 407, 60_000, 72, 408, 5_000, 40, 406};
+        for (int stat : new int[]{81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95}) c.supplied("pet." + stat);
+        c.supplied("pet." + packets.data.enums.StatType.SKIN_ID.get());
     }
 
     /** Class caps for every fixture class, as RosterDefinitions would read them from players.xml. */

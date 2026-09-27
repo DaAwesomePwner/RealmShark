@@ -7,12 +7,13 @@ import tomato.gui.kit.DisplayValue;
 /**
  * Immutable character sheet view model (spec §6.2), built off the EDT by SheetModelBuilder and applied on the EDT. Per-stat
  * lists have 8 entries in canonical order (life, mana, atk, def, spd, dex, vit, wis) with -1 for unknown. Lists are immutable
- * and compare by content, so the presenter and tabs can skip a section that did not change.
+ * and compare by content, so the presenter and tabs can skip a section that did not change. {@code pet} is the character's own pet
+ * from its journal record (PetSummary.UNKNOWN when not captured, never "No pet").
  */
-public record SheetModel(String key, Identity identity, Stats stats, Gear gear, Exalts exalts, Death death, Live live) {
+public record SheetModel(String key, Identity identity, Stats stats, Gear gear, Exalts exalts, PetSummary pet, Death death, Live live) {
     public SheetModel {
         Objects.requireNonNull(key, "key"); Objects.requireNonNull(identity, "identity"); Objects.requireNonNull(stats, "stats");
-        Objects.requireNonNull(gear, "gear"); Objects.requireNonNull(exalts, "exalts");
+        Objects.requireNonNull(gear, "gear"); Objects.requireNonNull(exalts, "exalts"); Objects.requireNonNull(pet, "pet");
     }
 
     /**
