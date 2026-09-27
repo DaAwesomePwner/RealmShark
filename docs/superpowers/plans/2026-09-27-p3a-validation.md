@@ -67,3 +67,51 @@ JDK 17 and Gradle 7.6.4, offline, isolated `build/p3a` and `build/p3a-cache`, sy
 - The gallery's sort and view are preferences (`ui.characters.sort`, `ui.characters.view`), not part of the roster's saved views.
 - Stat bars keep the "+N" live boost text; no painted overlay (user decision 2026-09-27).
 - Page 6 stays a "Build moved" pointer until P6 deletes it.
+
+## Final review fixes
+
+Fixes from the whole-branch review, after Task 10 (full details, file:line and RED/GREEN evidence in
+`.superpowers/sdd/final-fix-report.md`):
+
+1. Build pointer worded by the live character's **class**, not the account name it shares with every
+   character (`SheetModel.Live`, `SheetModelBuilder.liveRef`, `BuildTab.pointer`): "Your Wizard is in
+   game now." / "Open the Wizard's Build".
+2. Keyboard focus regressions vs P2 (spec §10): explicit navigation into the sheet (Alt+7's Build
+   redirect and the Goals search entry, both resolving through `CharactersRouteTarget.open`) now
+   focuses the back link; `CharacterJournalGUI.focusTarget()` no longer points at the gallery's card
+   list once an EmptyState has taken its place in the tree (falls back to the search field).
+3. Relative times stop aging once capture stops: the gallery's 1 s timer now repaints every tick even
+   without a live-key change; `OverviewTab`'s unchanged-model skip now also compares the death
+   annotation's relative age, so "Played `<ago>`" and "Marked dead `<ago>`" keep advancing.
+4. `SheetHeader.clearIdentity` now clears the accessible name/description too.
+5. `TomatoGUI.closeWorkspace` now saves the sheet's notes draft first, before
+   `closeArchiveWorkspaces`/`home.close`.
+6. Test preference isolation for `ui.tabs.character` added to `ShellHookIntegrationTest`, `BuildTabTest`
+   and `CharacterRosterViewTest`.
+7. `CharacterJournal.backupOnce` no longer treats a non-regular-file at the `journal.v4.bak` path as
+   already backed up, so a broken backup fails the save instead of letting the version 5 write proceed
+   with no real backup.
+
+Commits: `45aecbc` (code + tests), `a3680af` (docs: journal version 5 in CHARACTERS.md, the spec's
+§8.3 heading and the roadmap outline).
+
+Tests run (covering tests named for this task, not the full suite; one combined Gradle invocation):
+`tomato.gui.glance.character.*`, `tomato.gui.character.*`, `tomato.gui.roster.*`,
+`tomato.gui.glance.home.*`, `CharacterJournalV5Test`, `CharacterJournalV4Test`,
+`ShellHookIntegrationTest`, `ShellRouteRegistrationTest`, `ui.WorkspaceUiTest`,
+`ui.CharactersEvidenceTest` — **237 tests, 0 failures, 0 errors, 0 skipped, across 42 test classes**,
+`BUILD SUCCESSFUL in 1m 20s`.
+
+RED→GREEN executed for the backup-failure test (item 7) and the gallery-EmptyState focus fallback
+(item 2's `CharacterJournalGUI.focusTarget()` half): both failed against the pre-fix code exactly as
+predicted, then passed after the fix. The Build-pointer wording (item 1) is RED by construction (the
+new assertions name the fixed text). The other focus half (`CharactersRouteTarget.open()`'s
+`focusBackLink()` call), the aging fixes (item 3) and the closeWorkspace ordering (item 5) are
+reasoned/new-test RED rather than a literal revert-and-rerun; see the fix report for which.
+
+Evidence: re-ran `ui.CharactersEvidenceTest` (3/3 passed, 21 captures).
+`p3a-sheet-build-other-1240-13-simple.png` now reads "Your Wizard is in game now." / "Open the
+Wizard's Build" (previously "Sample is in game now." / "Open Sample's Build" — "Sample" being the
+account name). `p3a-gallery-empty-1240-13-simple.png` is clean in this run: no "View state save
+failed" banner (the Task 10 record already noted this as an intermittent test-harness artifact
+deferred to P3b; not reproduced here, so left alone).
