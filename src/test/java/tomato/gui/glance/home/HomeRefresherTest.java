@@ -124,6 +124,30 @@ public class HomeRefresherTest {
         await(() -> last(models).today().state() == State.LIVE, "recovers");
     }
 
+    @Test public void eachWindowKeepsItsOwnLastGoodReadWhenARereadFails() throws Exception {
+        Fake sources = new Fake(); List<HomeModel> models = new CopyOnWriteArrayList<>(); HomeRefresher refresher = refresher(sources, models);
+        edt(refresher::start);
+        await(() -> !models.isEmpty() && last(models).today().window() == TODAY && last(models).today().state() == State.LIVE, "today's good read");
+        HomeArchive.Totals today = last(models).today().totals();
+        clock.addAndGet(60_000L);
+        edt(() -> refresher.setWindow(SESSION));
+        await(() -> last(models).today().window() == SESSION && last(models).today().state() == State.LIVE, "this session's good read");
+        HomeArchive.Totals session = last(models).today().totals();
+        sources.archiveFailure = new IOException("disk full");
+        clock.addAndGet(2 * 60_000L);
+        edt(() -> refresher.setWindow(TODAY));
+        await(() -> last(models).today().window() == TODAY && last(models).today().state() != State.LOADING, "today's failed re-read");
+        HomeModel back = last(models);
+        assertEquals("Today's own last good read stays, labeled stale", State.STALE, back.today().state());
+        assertEquals(today, back.today().totals());
+        assertEquals("Last updated 3 min ago · disk full", back.today().reason());
+        assertEquals(State.STALE, back.runs().state());
+        edt(() -> refresher.setWindow(SESSION));
+        await(() -> last(models).today().window() == SESSION && last(models).today().state() != State.LOADING, "this session's failed re-read");
+        assertEquals(State.STALE, last(models).today().state());
+        assertEquals("This session's own last good read, not today's", session, last(models).today().totals());
+    }
+
     @Test public void anErrorInASourceDoesNotStopTheSchedule() throws Exception {
         Fake sources = new Fake(); List<HomeModel> models = new CopyOnWriteArrayList<>(); HomeRefresher refresher = refresher(sources, models);
         sources.heroError = new Error("synthetic failure");

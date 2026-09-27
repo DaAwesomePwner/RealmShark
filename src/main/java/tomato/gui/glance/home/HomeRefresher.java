@@ -1,5 +1,7 @@
 package tomato.gui.glance.home;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -38,10 +40,9 @@ public final class HomeRefresher implements AutoCloseable {
     private long seenGeneration = -1, agedAt, archiveReadAt;
     private HomeSources.Revisions built;
     private HomeArchive.Window archiveWindow;
-    // Owned by the "home-archive" thread: the last successful read, kept (stale) when a re-read fails.
-    private HomeArchive.Result lastGood;
-    private HomeArchive.Window lastGoodWindow;
-    private long lastGoodAt;
+    // Owned by the "home-archive" thread: each window's last successful read and its time, kept (stale) when a re-read of that window fails.
+    private final Map<HomeArchive.Window, LastGood> lastGood = new EnumMap<>(HomeArchive.Window.class);
+    private record LastGood(HomeArchive.Result result, long readAt) {}
 
     public HomeRefresher(HomeSources sources, Consumer<HomeModel> applyOnEdt, LongSupplier clock, HomeArchive.Window initial) {
         this(sources, applyOnEdt, clock, initial, LIVE_MILLIS);
@@ -153,21 +154,22 @@ public final class HomeRefresher implements AutoCloseable {
         catch (RejectedExecutionException closing) { archiveBusy.set(false); }
     }
 
-    /** "home-archive": one saved-history read. A failed re-read keeps the last good result of this window, labeled stale. */
+    /** "home-archive": one saved-history read. A failed re-read keeps this window's last good result, labeled stale. */
     private void readArchive(long gen, HomeArchive.Window requested, long now) {
         try {
             if (!current(gen)) return;
             HomeModel.Today today; HomeModel.Runs runs;
             try {
                 HomeArchive.Result result = Objects.requireNonNull(sources.archive(requested, now), "archive");
-                lastGood = result; lastGoodWindow = requested; lastGoodAt = now;
+                lastGood.put(requested, new LastGood(result, now));
                 today = HomeModelBuilder.today(requested, result, null);
                 runs = HomeModelBuilder.runs(result, null);
             } catch (Exception failure) {
-                // Spec §7: the last good read stays, marked stale with its age and the reason; UNAVAILABLE only without one.
-                boolean kept = lastGood != null && lastGoodWindow == requested;
-                today = kept ? HomeModelBuilder.staleToday(requested, lastGood, lastGoodAt, failure, now) : HomeModelBuilder.today(requested, null, failure);
-                runs = kept ? HomeModelBuilder.staleRuns(lastGood, lastGoodAt, failure, now) : HomeModelBuilder.runs(null, failure);
+                // Spec §7: this window's last good read stays, marked stale with its age and the reason; UNAVAILABLE only
+                // when this window never had one.
+                LastGood kept = lastGood.get(requested);
+                today = kept != null ? HomeModelBuilder.staleToday(requested, kept.result(), kept.readAt(), failure, now) : HomeModelBuilder.today(requested, null, failure);
+                runs = kept != null ? HomeModelBuilder.staleRuns(kept.result(), kept.readAt(), failure, now) : HomeModelBuilder.runs(null, failure);
             }
             HomeModel.Today shownToday = today;
             HomeModel.Runs shownRuns = runs;
