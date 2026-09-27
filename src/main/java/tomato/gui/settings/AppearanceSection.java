@@ -78,7 +78,13 @@ public final class AppearanceSection extends JPanel {
     }
 
     private JComponent group(String title, JComponent control, String help) {
-        JPanel group = new JPanel(new BorderLayout(0, Tokens.XS));
+        JPanel group = new JPanel(new BorderLayout(0, Tokens.XS)) {
+            @Override public Dimension getMaximumSize() {
+                // Keep controls beside their help text instead of stretching each group down a tall page.
+                Dimension size = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, size.height);
+            }
+        };
         group.setOpaque(false);
         group.setAlignmentX(LEFT_ALIGNMENT);
         group.setBorder(new EmptyBorder(title == null ? 0 : Tokens.M, 0, Tokens.S, 0));
