@@ -460,6 +460,18 @@ static List<GoalCard> build(CharacterJournal.CharacterRecord record, PlanData.Ac
 
 ---
 
+## Wave A outcomes (for Waves B–D)
+
+Merged into the integration branch at `86b2699`; combined focused run 101 classes, 590 tests, 0 failures.
+- **`TileList<T>`** (Task 3): also `OPEN = "open-tile"` (the action Enter/Space run; tests call `getActionMap().get(TileList.OPEN)`), `onOpen(String command, Consumer<T>)` to keep an existing action name, and `selectKey(String key, boolean reveal)`. Renderers return a fixed cell size from `getPreferredSize()`; the caller sets the list's own accessible name.
+- **`PetDefinitions.parse`** is package-private: tests outside `tomato.backend.data` write `xml/pets.xml` under a temporary root and use `PetDefinitions.read(root)`, optionally `PetDefinitions.install(...)` (public, tests only), as `PetSummaryTest.defs()` does. `PetDefinitions.ability(int)` returns null for unknown ids, so `CharacterPetsGUI` keeps its own "Ability not captured" / "Unknown ability #id" fallbacks.
+- **`PetSummary`** locks slots with `PetFeeding.estimate(...).locked` (a max level outside 1–100 locks nothing).
+- **Sheet** (Task 4): `SheetModel.Gear(List<Integer> slots, List<String> tiers, Boolean hasBackpack, List<Integer> enchants)` with `tier(int)`; `OverviewTab(DisplayModeModel, LongSupplier clock)`; `GearTab(DisplayModeModel)`; `CharacterSheet(SheetContext, Executor)` (tests) and `CharacterSheet.model()`; `SheetPresenter.errorLog` (tests); `BuildTab.failed()` (`character-build-failed`). `SheetFixtures.seenAgain` constructs a `SheetModel` directly: a new `SheetModel` component updates it.
+- **Journal** (Task 1): `RealmCharacter.PET_NONE`; `RealmCharacter.exaltLootBonus(Map<Integer,int[]>, int[] weaponGroup)` (35 when fully exalted, else a null group throws) and `fullyExalted(Map)`; `CharacterJournal.storageProblem()` reads an explicit save-failure flag; a `RuntimeException` while saving is a failed save, never a stopped saver.
+- **Fame provenance** (Task 1): `AppHistory.FameSample.account` keeps only a 64-lowercase-hex key (anything else becomes null); fixtures must use `CharacterJournal.accountKey(...)` values. `fame-latest` is keyed `account:character` when the account is known.
+- **Characters Back** (Task 3): `CharactersState(sheet, key, tab, roster)`; Back brings the Roster tab forward only when it was in front when the state was captured.
+- **Test class paths:** `tomato.gui.chat.ShellHookIntegrationTest`.
+
 ## Local validation
 
 | Check | Command | Record |
