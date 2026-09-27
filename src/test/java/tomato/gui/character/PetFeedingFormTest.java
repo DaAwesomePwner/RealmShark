@@ -1,9 +1,15 @@
 package tomato.gui.character;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import com.formdev.flatlaf.FlatLightLaf;
+import tomato.gui.kit.Collapsible;
+import tomato.gui.kit.EmptyState;
+import tomato.gui.kit.TileList;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
+import util.PropertiesManager;
 import packets.data.ObjectData;
 import packets.data.ObjectStatusData;
 import packets.data.StatData;
@@ -15,6 +21,13 @@ import java.awt.*;
 import static org.junit.Assert.*;
 
 public class PetFeedingFormTest {
+    /** The feeding calculator's drawer remembers whether it is open; every test starts from the default and restores the user's value. */
+    private static final String FEEDING = Collapsible.PREFIX + "pets-feeding";
+    private String feeding;
+
+    @Before public void defaultFeedingDrawer() { feeding = PropertiesManager.getProperty(FEEDING); PropertiesManager.setProperties(FEEDING, ""); }
+    @After public void restoreFeedingDrawer() { PropertiesManager.setProperties(FEEDING, feeding == null ? "" : feeding); }
+
     @Test public void invalidAndLockedLabelsFollowThemeWithoutNewCaptureData() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             LookAndFeel original = UIManager.getLookAndFeel();
@@ -22,6 +35,7 @@ public class PetFeedingFormTest {
             try {
                 UIManager.setLookAndFeel(new VioletTheme());
                 CharacterPetsGUI panel = new CharacterPetsGUI(null);
+                expandFeeding(panel);
                 frame.setContentPane(panel);
                 frame.setSize(640, 600);
                 CharacterPetsGUI.addPet(pet(stat(StatType.PET_INSTANCE_ID_STAT, 1), stat(StatType.PET_MAX_ABILITY_POWER_STAT, 30)));
@@ -54,6 +68,7 @@ public class PetFeedingFormTest {
     @Test public void validatesPositiveFeedPowerAndPreservesCapturedPetSnapshots() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             CharacterPetsGUI panel = new CharacterPetsGUI(null);
+            expandFeeding(panel);
             JFrame frame = new JFrame();
             frame.setContentPane(panel);
             frame.setSize(640, 600);
@@ -100,11 +115,74 @@ public class PetFeedingFormTest {
         });
     }
 
-    private static ObjectData pet(StatData... stats) {
+    @Test public void theFeedingDrawerStartsCollapsedRemembersItsStateAndComputesForTheSelectedCard() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPetsGUI panel = new CharacterPetsGUI(null);
+            JFrame frame = new JFrame();
+            frame.setContentPane(panel);
+            frame.setSize(900, 700);
+            try {
+                Collapsible drawer = named(panel, "pets-feeding", Collapsible.class);
+                AbstractButton toggle = named(panel, "collapsible-pets-feeding", AbstractButton.class);
+                assertNotNull(drawer); assertNotNull(toggle);
+                assertFalse("The feeding calculator starts collapsed", drawer.expanded());
+                assertEquals("Feeding calculator", toggle.getText());
+                frame.setVisible(true);
+                assertTrue("No pet yet: the invitation shows", named(panel, "pet-empty", EmptyState.class).isVisible());
+                assertEquals("No pets yet", named(panel, "pet-empty", EmptyState.class).getAccessibleContext().getAccessibleName());
+                assertFalse(named(panel, "pet-cards", TileList.class).isVisible());
+
+                CharacterPetsGUI.addPet(pet(101, stat(StatType.PET_INSTANCE_ID_STAT, 10), stat(StatType.PET_MAX_ABILITY_POWER_STAT, 30),
+                    stat(StatType.PET_FIRST_ABILITY_POWER_STAT, 1), stat(StatType.PET_FIRST_ABILITY_POINT_STAT, 100), stat(StatType.PET_FIRST_ABILITY_TYPE_STAT, 407)));
+                CharacterPetsGUI.addPet(pet(102, stat(StatType.PET_INSTANCE_ID_STAT, 20), stat(StatType.PET_MAX_ABILITY_POWER_STAT, 30),
+                    stat(StatType.PET_FIRST_ABILITY_POWER_STAT, 1), stat(StatType.PET_FIRST_ABILITY_TYPE_STAT, 408)));
+                feedField(panel).postActionEvent(); // recalculates from fresh observations now instead of at the next 500 ms poll
+                TileList<?> cards = named(panel, "pet-cards", TileList.class);
+                assertTrue(cards.isVisible());
+                assertFalse(named(panel, "pet-empty", EmptyState.class).isVisible());
+                assertEquals(2, cards.items().size());
+                assertEquals("Pets", cards.getAccessibleContext().getAccessibleName());
+                assertTrue("Nothing selected: the calculator uses the first card's pet", text(panel).contains("Captured points: 100"));
+                assertNotNull(label(panel, "Heal · Level 1"));
+
+                cards.selectKey("pet:20", true);
+                assertTrue("It follows the selected card", text(panel).contains("Ability points not captured"));
+                assertNotNull(label(panel, "Magic heal · Level 1"));
+                assertFalse(text(panel).contains("Captured points: 100"));
+
+                toggle.doClick();
+                assertTrue(drawer.expanded());
+                assertEquals("The drawer remembers it is open", "true", PropertiesManager.getProperty(FEEDING));
+                toggle.doClick();
+                assertFalse(drawer.expanded());
+                cards.getActionMap().get(TileList.OPEN).actionPerformed(null);
+                assertTrue("Enter on a pet card opens its feeding calculator", drawer.expanded());
+            } finally { frame.dispose(); CharacterPetsGUI.clearPets(); }
+        });
+    }
+
+    /** The feeding calculator is in a drawer that starts collapsed: open it as the user does before reading its estimates. */
+    private static void expandFeeding(Container panel) {
+        Collapsible drawer = named(panel, "pets-feeding", Collapsible.class);
+        assertNotNull("The feeding calculator drawer", drawer);
+        if (!drawer.expanded()) named(panel, "collapsible-pets-feeding", AbstractButton.class).doClick();
+        assertTrue(drawer.expanded());
+    }
+
+    private static ObjectData pet(StatData... stats) { return pet(0, stats); }
+    private static ObjectData pet(int objectId, StatData... stats) {
         ObjectData object = new ObjectData();
         object.status = new ObjectStatusData();
+        object.status.objectId = objectId;
         object.status.stats = stats;
         return object;
+    }
+    private static <T extends Component> T named(Container root, String name, Class<T> type) {
+        for (Component c : root.getComponents()) {
+            if (type.isInstance(c) && name.equals(c.getName())) return type.cast(c);
+            if (c instanceof Container) { T found = named((Container) c, name, type); if (found != null) return found; }
+        }
+        return null;
     }
     private static String text(Container root) {
         StringBuilder result = new StringBuilder();
