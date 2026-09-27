@@ -12,6 +12,7 @@ import tomato.gui.kit.Chip;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.KitFormat;
+import tomato.gui.kit.KitText;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
@@ -25,10 +26,10 @@ import tomato.gui.modern.DisplayFormat;
 final class NowCard extends HomeCard {
     static final int SHOWN = 3;
     private final JLabel portal = HomeViews.named(new JLabel(), "home-now-portal");
-    private final HomeViews.Text area = HomeViews.named(HomeViews.emphasis(""), "home-now-area");
-    private final HomeViews.Text elapsed = HomeViews.named(HomeViews.caption(""), "home-now-elapsed");
-    private final HomeViews.Text rank = HomeViews.named(HomeViews.caption(""), "home-now-rank");
-    private final HomeViews.Text pop = HomeViews.named(HomeViews.body(""), "home-now-pop");
+    private final KitText area = HomeViews.named(HomeViews.emphasis(""), "home-now-area");
+    private final KitText elapsed = HomeViews.named(HomeViews.caption(""), "home-now-elapsed");
+    private final KitText rank = HomeViews.named(HomeViews.caption(""), "home-now-rank");
+    private final KitText pop = HomeViews.named(HomeViews.body(""), "home-now-pop");
     private final Chip capture = HomeViews.named(new Chip("Capture off", Tokens.Tone.NEUTRAL), "home-now-capture");
     private final MeterRow[] rows = new MeterRow[SHOWN];
     private final EmptyState empty = HomeViews.named(new EmptyState("Nothing live yet",
@@ -131,7 +132,7 @@ final class NowCard extends HomeCard {
     /** One live meter row: place, class color, name and DPS. Your row is tinted and says "(you)", so color is never the only cue. */
     private static final class MeterRow extends JPanel {
         private final Swatch swatch = new Swatch();
-        private final HomeViews.Text place = HomeViews.caption(""), who = HomeViews.body(""), dps = HomeViews.body("");
+        private final KitText place = HomeViews.caption(""), who = HomeViews.body(""), dps = HomeViews.body("");
         private boolean local;
 
         MeterRow(int index) {

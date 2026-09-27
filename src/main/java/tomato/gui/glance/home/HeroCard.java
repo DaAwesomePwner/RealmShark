@@ -8,6 +8,7 @@ import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.KitButton;
+import tomato.gui.kit.KitText;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.StatBar;
 import tomato.gui.kit.StatTile;
@@ -35,15 +36,15 @@ final class HeroCard extends HomeCard {
 
     private final JLabel sprite = HomeViews.named(new JLabel(), "home-hero-sprite");
     private final JLabel name;
-    private final HomeViews.Text meta = HomeViews.named(HomeViews.caption(""), "home-hero-meta");
+    private final KitText meta = HomeViews.named(HomeViews.caption(""), "home-hero-meta");
     private final Chip maxed = HomeViews.named(new Chip("", Tokens.Tone.WARN), "home-hero-maxed");
     private final Chip exalts = HomeViews.named(new Chip("", Tokens.Tone.ACCENT), "home-hero-exalts");
     private final Chip seen = HomeViews.named(new Chip("", Tokens.Tone.NEUTRAL), "home-hero-seen");
     private final ItemSlot[] gear = new ItemSlot[4];
     private final StatBar[] bars = new StatBar[8];
-    private final HomeViews.Text[] gearTiers = new HomeViews.Text[4], values = new HomeViews.Text[8], boosts = new HomeViews.Text[8];
-    private final HomeViews.Text needs = HomeViews.named(HomeViews.caption(""), "home-hero-needs");
-    private final HomeViews.Text account = HomeViews.named(HomeViews.caption(""), "home-hero-account");
+    private final KitText[] gearTiers = new KitText[4], values = new KitText[8], boosts = new KitText[8];
+    private final KitText needs = HomeViews.named(HomeViews.caption(""), "home-hero-needs");
+    private final KitText account = HomeViews.named(HomeViews.caption(""), "home-hero-account");
     private final StatTile weaponDps = HomeViews.named(new StatTile("Weapon DPS"), "home-hero-weapon-dps");
     private final StatTile mpPerSecond = HomeViews.named(new StatTile("MP/sec"), "home-hero-mp");
     private final EmptyState empty = HomeViews.named(new EmptyState("No character yet",
@@ -93,7 +94,7 @@ final class HeroCard extends HomeCard {
             bars[i] = HomeViews.named(new StatBar(), "home-hero-bar-" + i);
             bars[i].getAccessibleContext().setAccessibleName(STATS[i]);
             values[i] = HomeViews.named(HomeViews.caption(""), "home-hero-value-" + i);
-            boosts[i] = HomeViews.named(new HomeViews.Text("", Type.caption(), Tokens.Role.ACCENT_TEXT), "home-hero-boost-" + i);
+            boosts[i] = HomeViews.named(new KitText("", Type.caption(), Tokens.Role.ACCENT_TEXT), "home-hero-boost-" + i);
             JPanel numbers = HomeViews.clear(new FlowLayout(FlowLayout.TRAILING, Tokens.XS, 0), values[i], boosts[i]);
             stats.add(HomeViews.beside(bars[i], HomeViews.beside(numbers, HomeViews.caption(STATS[i]), BorderLayout.WEST, Tokens.XS), BorderLayout.NORTH, 2));
         }

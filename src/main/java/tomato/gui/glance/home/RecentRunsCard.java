@@ -13,6 +13,7 @@ import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.KitFormat;
+import tomato.gui.kit.KitText;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.history.link.VisitRef;
@@ -102,7 +103,7 @@ final class RecentRunsCard extends HomeCard {
     /** One run. Focusable; click (including on its sprites), Enter or Space opens its exact VisitRef. */
     private static final class RunRow extends JPanel {
         private final JLabel portal = new JLabel();
-        private final HomeViews.Text map = HomeViews.emphasis(""), when = HomeViews.caption(""), dps = HomeViews.caption("");
+        private final KitText map = HomeViews.emphasis(""), when = HomeViews.caption(""), dps = HomeViews.caption("");
         private final Chip outcome = new Chip("", Tokens.Tone.NEUTRAL);
         private final ItemSlot[] loot = new ItemSlot[LOOT];
         private final JPanel strip = HomeViews.clear(new FlowLayout(FlowLayout.LEADING, 2, 0));
