@@ -159,7 +159,10 @@ public final class HomeArchive {
         Map<String, long[]> readings = new HashMap<>();   // per session: its first and last reading in the window
         for (SessionStore.Session session : sessions) for (AppHistory.FameSample sample : cache.fame(session)) {
             if (sample.time <= 0 || !span.keeps(sample.time)) continue;
-            characters.computeIfAbsent(session.id + "/" + sample.character + "/" + sample.className, key -> new ArrayList<>()).add(sample);
+            // One series per session, account, character id and class: two accounts' character #7 in one session never merge.
+            // Legacy samples have no account (the empty part), so they group exactly as before.
+            String series = session.id + "/" + (sample.account == null ? "" : sample.account) + "/" + sample.character + "/" + sample.className;
+            characters.computeIfAbsent(series, key -> new ArrayList<>()).add(sample);
             long[] reading = readings.computeIfAbsent(session.id, key -> new long[] {Long.MAX_VALUE, Long.MIN_VALUE});
             reading[0] = Math.min(reading[0], sample.time); reading[1] = Math.max(reading[1], sample.time);
         }
