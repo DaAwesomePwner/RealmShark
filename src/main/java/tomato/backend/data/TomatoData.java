@@ -23,6 +23,7 @@ import tomato.backend.SecurityAbilityUseCheck;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.keypop.KeypopGUI;
+import tomato.gui.myinfo.BuildEstimates;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.stats.FameTablePanel;
@@ -82,9 +83,11 @@ public class TomatoData {
     private MyInfoIdentity petIdentity;
     private Entity petOwner;
     private PetAvailability petAvailability = PetAvailability.UNKNOWN;
+    /** Home's view of the local character; published beside every My Info snapshot and cleared with it. */
+    public final LiveCharacter liveCharacter = new LiveCharacter();
     private final ProgressionData progression = new ProgressionData();
     public ProgressionData progression() { return progression; }
-    public void captureStopped() { progression.captureStopped(); }
+    public void captureStopped() { progression.captureStopped(); liveCharacter.clear(System.currentTimeMillis()); }
     public void captureStarted() { progression.captureStarted(); }
     public void captureBoundary() { progression.reset(null, "Connection changed; waiting for verified account"); }
     public void quests(QuestFetchResponsePacket packet) {
@@ -123,6 +126,7 @@ public class TomatoData {
         pet = null; petOwner = null; petIdentity = null; petAvailability = PetAvailability.UNKNOWN;
         myInfoIdentity = new MyInfoIdentity(myInfoIdentity.generation + 1, account, characterId, objectId);
         MyInfoGUI.updateSnapshot(this, myInfoIdentity, null, null, PetAvailability.UNKNOWN);
+        liveCharacter.clear(System.currentTimeMillis());
     }
 
     /** Capture-thread entry point, including the legacy callback from Entity.updateStats(). */
@@ -139,8 +143,12 @@ public class TomatoData {
         }
         myInfoOwner = value;
         boolean ownedPet = identity.account != null && petIdentity == identity && petOwner == value;
-        MyInfoGUI.updateSnapshot(this, identity, value, ownedPet ? pet : null,
-            ownedPet ? petAvailability : PetAvailability.UNKNOWN);
+        Entity companion = ownedPet ? pet : null;
+        PetAvailability availability = ownedPet ? petAvailability : PetAvailability.UNKNOWN;
+        MyInfoGUI.updateSnapshot(this, identity, value, companion, availability);
+        // Home: detached copies of My Info's inputs; Home estimates from them on its own thread, never here.
+        liveCharacter.publish(LiveCharacter.read(identity.account, identity.characterId, value,
+            BuildEstimates.Inputs.detach(value, companion, availability), System.currentTimeMillis()));
     }
 
     /** Unscoped/stale pet callbacks may only republish the currently bound owner/pet pair. */
