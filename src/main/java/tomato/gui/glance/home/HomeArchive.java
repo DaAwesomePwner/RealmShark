@@ -74,7 +74,12 @@ public final class HomeArchive {
         Objects.requireNonNull(store, "store"); Objects.requireNonNull(window, "window"); Objects.requireNonNull(zone, "zone");
         List<SessionStore.SessionEntry> catalog = store.catalog();   // listed once; every module read below reuses it
         List<SessionStore.Session> sessions = new ArrayList<>();   // newest start first, as catalog() sorts them
-        for (SessionStore.SessionEntry entry : catalog) if (entry.readable()) sessions.add(entry.session());
+        for (SessionStore.SessionEntry entry : catalog) {
+            // Missing metadata cannot establish whether this session overlaps Today or contains a newer run.
+            // Reject the combined read so the refresher retains prior results as stale, rather than showing partial totals.
+            if (!entry.readable()) throw new IOException("Unreadable session " + entry.id + ": " + entry.error);
+            sessions.add(entry.session());
+        }
         Cache cache = new Cache(store, catalog);
         Totals totals;
         if (window == Window.TODAY) {

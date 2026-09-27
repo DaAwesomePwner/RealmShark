@@ -77,6 +77,28 @@ public class RecentRunsCardTest {
             assertFalse(note.isVisible());
         });
     }
+
+    @Test public void aFailedReReadKeepsAnEmptyResultExplicitlyStale() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RecentRunsCard card = populated();
+            String reason = "Last updated 5 min ago · disk full";
+            card.apply(new HomeModel.Runs(HomeModel.State.STALE, List.of(), reason), NOW);
+            HomeViews.Reason note = named(card, "home-runs-note", HomeViews.Reason.class);
+            assertNotNull("An empty cached result still needs its stale banner", note);
+            assertTrue(note.isVisible()); assertTrue(note.warns()); assertEquals(reason, note.text());
+            assertNotNull(named(card, "home-runs-empty", EmptyState.class));
+            assertEquals(reason, card.getAccessibleContext().getAccessibleDescription());
+            assertTrue(card.getAccessibleContext().getAccessibleName().contains("last successful read"));
+            card.apply(new HomeModel.Runs(HomeModel.State.LIVE, HomeModels.runs(NOW), null), NOW);
+            assertFalse(note.isVisible());
+            assertTrue(named(card, "home-run-0", JPanel.class).isVisible());
+            card.apply(HomeModels.empty().runs(), NOW);
+            assertFalse(note.isVisible());
+            assertEquals("Recent runs: none yet", card.getAccessibleContext().getAccessibleName());
+            assertNull(card.getAccessibleContext().getAccessibleDescription());
+        });
+    }
+
     @Test public void inProgressFewerRowsStatesAndEvidence() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             RecentRunsCard card = new RecentRunsCard(opened::add, mode);

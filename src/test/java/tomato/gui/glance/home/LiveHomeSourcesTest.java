@@ -83,6 +83,22 @@ public class LiveHomeSourcesTest {
         }
     }
 
+
+    @Test public void unreadableJournalIsUnavailableUntilALiveCharacterCanBeShown() throws Exception {
+        java.nio.file.Path path = temp.newFile("broken-journal.json").toPath();
+        java.nio.file.Files.writeString(path, "{broken");
+        CharacterJournal journal = new CharacterJournal(path);
+        journals.add(journal);
+        TomatoData data = new TomatoData() { @Override public CharacterJournal characterJournal() { return journal; } };
+        LiveHomeSources sources = new LiveHomeSources(data, () -> null);
+        HomeModel.Hero unavailable = sources.hero(1000);
+        assertEquals(HomeModel.State.UNAVAILABLE, unavailable.state());
+        assertTrue(unavailable.evidence().contains("Cannot read Characters/journal.json"));
+        data.liveCharacter.publish(new LiveCharacter.Snapshot("account", 7, 782, "Sample", null, 20, null,
+            null, null, null, null, null, null, null, null, 1000));
+        assertEquals("Captured data remains useful despite a failed saved journal", HomeModel.State.LIVE, sources.hero(1000).state());
+    }
+
     @Test public void everySectionIsEmptyWithoutCaptureHistoryOrQuests() throws Exception {
         LiveHomeSources sources = new LiveHomeSources(isolated(), () -> null);
         sources.revisions();

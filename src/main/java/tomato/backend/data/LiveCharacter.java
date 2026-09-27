@@ -42,11 +42,13 @@ public final class LiveCharacter {
     }
 
     private Snapshot current, lastKnown;
+    private boolean accepting = true;
     private long revision, lastSeenAt;
 
     /** Capture thread: the local character's latest state. */
     public synchronized void publish(Snapshot value) {
         if (value == null) throw new IllegalArgumentException("Use clear() when no character is in game");
+        if (!accepting) return; // A producer may finish detaching after capture stop was requested.
         current = value; lastKnown = value; revision++;
     }
     /** Capture thread (or capture stop): no character is in game. Only an actual change bumps the revision. */
@@ -54,6 +56,10 @@ public final class LiveCharacter {
         if (current == null) return;
         current = null; lastSeenAt = at; revision++;
     }
+    /** Start follows termination of the previous capture worker, so no old publication can cross this boundary. */
+    public synchronized void start() { accepting = true; }
+    /** Atomically reject late producer publications and clear the current character. */
+    public synchronized void stop(long at) { accepting = false; clear(at); }
     public synchronized long revision() { return revision; }
     /** The character in game now, or null. */
     public synchronized Snapshot current() { return current; }

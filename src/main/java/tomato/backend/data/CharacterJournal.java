@@ -301,6 +301,8 @@ public final class CharacterJournal implements AutoCloseable {
     }
     private CharacterRecord find(String key) { for (CharacterRecord r : document.characters) if (r.key.equals(key)) return r; return null; }
     private void changed() { dirty = true; revision++; }
+    /** False when the saved journal could not be loaded; an absent file is a valid empty journal. */
+    public synchronized boolean readable() { return !readOnly; }
     public synchronized long revision() { return revision; }
     public List<CharacterRecord> characters() {
         List<CharacterRecord> copy = new ArrayList<>();

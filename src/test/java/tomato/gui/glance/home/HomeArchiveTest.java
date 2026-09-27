@@ -36,6 +36,23 @@ public class HomeArchiveTest {
         return new RecordedEncounter(id, map, null, 60_000L, EncounterLink.live(new EncounterContext(visit, local, 1L)), damage, seconds);
     }
 
+
+    @Test public void unreadableSessionMetadataNeverBecomesCompleteTotals() throws Exception {
+        Path root = fixture();
+        Files.writeString(root.resolve(MORNING).resolve("session.json"), "{broken");
+        try (SessionStore store = new SessionStore(root, true, "fixture")) {
+            assertTrue(store.catalog().stream().anyMatch(entry -> !entry.readable()));
+            for (HomeArchive.Window window : HomeArchive.Window.values()) {
+                try {
+                    HomeArchive.read(store, window, NOW, ZONE, List.of());
+                    fail("Unreadable historical metadata must mark the combined archive result incomplete");
+                } catch (java.io.IOException expected) {
+                    assertTrue(expected.getMessage().contains("Unreadable session " + MORNING));
+                }
+            }
+        }
+    }
+
     @Test public void todayCountsTheLocalCalendarDayAcrossSessions() throws Exception {
         HomeArchive.Totals t = read(fixture(), TODAY, NOW, List.of()).totals();
         assertEquals(TODAY, t.window()); assertEquals(MIDNIGHT, t.from()); assertEquals(at(1, 0, 0), t.until());

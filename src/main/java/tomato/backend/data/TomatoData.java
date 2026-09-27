@@ -87,9 +87,9 @@ public class TomatoData {
     public final LiveCharacter liveCharacter = new LiveCharacter();
     private final ProgressionData progression = new ProgressionData();
     public ProgressionData progression() { return progression; }
-    public void captureStopped() { progression.captureStopped(); liveCharacter.clear(System.currentTimeMillis()); }
-    public void captureStarted() { progression.captureStarted(); }
-    public void captureBoundary() { progression.reset(null, "Connection changed; waiting for verified account"); }
+    public void captureStopped() { progression.captureStopped(); liveCharacter.stop(System.currentTimeMillis()); }
+    public void captureStarted() { progression.captureStarted(); liveCharacter.start(); }
+    public void captureBoundary() { progression.reset(null, "Connection changed; waiting for verified account"); liveCharacter.clear(System.currentTimeMillis()); }
     public void quests(QuestFetchResponsePacket packet) {
         ProgressionData.Scope origin = progression.scope();
         progression.quests(origin, packet.quests, System.currentTimeMillis());

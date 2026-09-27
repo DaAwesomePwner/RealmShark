@@ -31,7 +31,7 @@ final class RecentRunsCard extends HomeCard {
     private final HomeViews.Reason note = new HomeViews.Reason("home-runs-note");
     private final EmptyState empty = HomeViews.named(new EmptyState("No runs yet",
         "Finish a dungeon with capture on and it shows up here with its loot.", null), "home-runs-empty");
-    private final JComponent content;
+    private final JComponent content, rowList;
     private HomeModel.Runs shown;
     private String shownTimes = "";
 
@@ -41,7 +41,8 @@ final class RecentRunsCard extends HomeCard {
         for (int i = 0; i < rows.length; i++) rows[i] = new RunRow(i, open);
         note.setVisible(false);
         // The stale banner sits above the rows and takes no space (nor gap) while hidden.
-        content = HomeViews.named(HomeViews.stack(0, HomeViews.beside(HomeViews.stack(Tokens.XS, rows), note, BorderLayout.NORTH, Tokens.XS)),
+        rowList = HomeViews.stack(Tokens.XS, rows);
+        content = HomeViews.named(HomeViews.stack(0, HomeViews.beside(HomeViews.stack(0, empty, rowList), note, BorderLayout.NORTH, Tokens.XS)),
             "home-runs-content");
         status(HomeViews.LOADING, "Recent runs: loading");
     }
@@ -61,20 +62,23 @@ final class RecentRunsCard extends HomeCard {
         List<HomeArchive.RecentRun> list = runs.rows() == null ? List.of() : runs.rows();
         int shownRows = Math.min(rows.length, list.size());
         header().setCount(shownRows == 0 ? null : String.valueOf(shownRows));
-        if (runs.state() == HomeModel.State.EMPTY || shownRows == 0) {
-            body(empty);
-            getAccessibleContext().setAccessibleName("Recent runs: none yet");
-            getAccessibleContext().setAccessibleDescription(null);
+        boolean stale = runs.state() == HomeModel.State.STALE;
+        String reason = stale ? text(runs.reason(), "Showing the last successful read of saved history.") : "";
+        note.setText(reason, true);
+        note.setVisible(stale);
+        boolean noRows = runs.state() == HomeModel.State.EMPTY || shownRows == 0;
+        empty.setVisible(noRows); rowList.setVisible(!noRows);
+        if (noRows) {
+            body(content);
+            getAccessibleContext().setAccessibleName(stale ? "Recent runs: none in the last successful read" : "Recent runs: none yet");
+            getAccessibleContext().setAccessibleDescription(stale ? reason : null);
             return;
         }
         for (int i = 0; i < rows.length; i++) {
             rows[i].setVisible(i < shownRows);
             if (i < shownRows) rows[i].set(list.get(i), now);
         }
-        boolean stale = runs.state() == HomeModel.State.STALE;
-        String reason = stale ? text(runs.reason(), "Showing the last successful read of saved history.") : "";
-        note.setText(reason, true);
-        note.setVisible(stale);
+
         getAccessibleContext().setAccessibleName("Recent runs: " + shownRows + (shownRows == 1 ? " run" : " runs") + (stale ? ", last successful read" : ""));
         getAccessibleContext().setAccessibleDescription(stale ? reason : null);
         body(content);

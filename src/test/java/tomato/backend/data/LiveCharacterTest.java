@@ -36,6 +36,26 @@ public class LiveCharacterTest {
         try { live.publish(null); fail("Use clear() when no character is in game"); } catch (IllegalArgumentException expected) {}
     }
 
+
+    @Test public void captureStopRejectsLatePublicationUntilTheNextStartAndBoundaryClears() {
+        TomatoData data = new TomatoData();
+        LiveCharacter live = data.liveCharacter;
+        LiveCharacter.Snapshot first = snapshot(1000), delayed = snapshot(2000);
+        live.publish(first);
+        data.captureBoundary();
+        assertNull("Transport interruption invalidates the current character", live.current());
+        live.publish(first);
+        data.captureStopped();
+        long revision = live.revision();
+        // Simulates the producer finishing a detach that began before stopRequested.
+        live.publish(delayed);
+        assertNull("A late producer publication cannot resurrect a stopped capture", live.current());
+        assertSame(first, live.lastKnown()); assertEquals(revision, live.revision());
+        data.captureStarted();
+        live.publish(delayed);
+        assertSame(delayed, live.current());
+    }
+
     @Test public void snapshotsCopyArraysInAndOutAndRejectWrongShapes() {
         int[] totals = TOTALS.clone(), base = TOTALS.clone(), equipment = {2711, -1, -1, -1}, bonus = BONUS.clone();
         LiveCharacter.Snapshot s = arrays(totals, base, equipment, bonus);

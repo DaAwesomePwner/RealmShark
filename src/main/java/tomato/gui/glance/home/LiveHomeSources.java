@@ -86,6 +86,8 @@ public final class LiveHomeSources implements HomeSources {
         LiveCharacter.Snapshot current = live.current();
         if (current != null) return HomeModelBuilder.hero(current, estimates(current), last, account(journal, current.account()), 0, now);
         LiveCharacter.Snapshot known = live.lastKnown();
+        if (known == null && !journal.readable())
+            return HomeModel.Hero.placeholder(HomeModel.State.UNAVAILABLE, journal.storageStatus());
         long seen = known == null ? 0 : live.lastSeenAt() > 0 ? live.lastSeenAt() : Math.max(1, known.observedAt());
         String account = known != null ? known.account() : last != null ? last.account : null;
         return HomeModelBuilder.hero(known, estimates(known), last, account(journal, account), seen, now);
