@@ -10,7 +10,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #18 (`7b3e0c5`) |
 | P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #19 (`0abafe4`) |
 | P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #20 (`e973f10`) |
-| P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned |
+| P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending |
 | P3 Characters | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P4 Quests | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
@@ -22,10 +22,10 @@ P0 merged in PR #17 as `9b6844a`; its merge tree matches the reviewed P0 source.
 P1a merged in PR #18 as `7b3e0c5`, including the brand-icon correction `ee8d085`.
 P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
 P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
-P2 is planned; later phases have not started.
+P2 is implemented on the branch; its PR merge is pending. Later phases have not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
-[P1c validation](2026-09-26-p1c-validation.md).
+[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md).
 
 ## Resume
 
@@ -69,6 +69,7 @@ Outline:
 4. Pets gallery with rarity, family and ability bars; the feeding calculator goes in a drawer.
 5. Journal v4, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
 6. Evidence and journal migration tests (v3 → v4 load, partial rendering).
+7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar).
 
 ## P4 Quests
 
@@ -79,6 +80,7 @@ Outline:
 2. Quest board: a painted `QuestCard` list grouped by chest tier, user type label or none. It shows badges (Repeatable / One-time / Done), the category chip, the expiry chip (warn color under 6 h), reward sprites first ("Pick 1 of N" for `itemOfChoice`) and requirement sprites with counts. A detail drawer shows description, full lists and the raw expiration in Analyst mode.
 3. Summary line with the stale state, "Pinned first", and group-by control; "Name types…" in the Filters drawer.
 4. Planner restyle: plan cards with reserved / available / missing bars; the manual stock editor in a drawer. Semantics unchanged.
+5. Deferred from P2: the Home Quests card's expiry countdown, from the same confirmed QuestExpiry formats.
 
 ## P5 Runs and DPS
 
