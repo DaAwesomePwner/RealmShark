@@ -273,9 +273,14 @@ public class CharacterPublicationTest {
         assertEquals(Integer.valueOf(4), pet.family); assertEquals(Integer.valueOf(3), pet.rarity);
         assertEquals("Pup", pet.name); assertEquals("Pet Yard capture", pet.source);
 
+        int petsBeforeEmptyPetElement = data.progression().snapshot().pets.size();
         roster = roster("<Char id='7'><ObjectType>782</ObjectType><Level>20</Level><Pet/></Char>");
         acceptRoster();
         assertEquals("An explicitly empty Pet element is saved as no pet", Boolean.TRUE, journal.characterCopy(key).pet.absent);
+        assertEquals("An explicitly empty Pet element publishes no phantom pet to progression",
+            petsBeforeEmptyPetElement, data.progression().snapshot().pets.size());
+        for (ProgressionData.Pet published : data.progression().snapshot().pets)
+            assertNotEquals("No object:-1 placeholder pet for the equipped character", -1, published.objectId);
     }
 
     private static StatData yardStat(StatType type, int value) {

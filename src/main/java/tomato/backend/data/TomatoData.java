@@ -1323,7 +1323,8 @@ public class TomatoData {
     }
 
     private static boolean hasPetFields(RealmCharacter c) {
-        for (String field : c.presence.keySet()) if (field.startsWith("pet.")) return true;
+        // "pet.none" only records an explicitly empty <Pet/> (see CharacterJournal.rosterPet); it is not a stat to publish.
+        for (String field : c.presence.keySet()) if (field.startsWith("pet.") && !field.equals("pet.none")) return true;
         return false;
     }
 
