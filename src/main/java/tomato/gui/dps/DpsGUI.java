@@ -317,6 +317,21 @@ public class DpsGUI extends JPanel {
     /** Map transitions must replace the live snapshot even when the next tick never arrives. */
     public static void updateMapPacket(TomatoData data) { publish(data, true); }
 
+    /**
+     * The newest capture-thread snapshot (immutable; any thread; a new object per publication, at most about once a
+     * second plus every map change), or null when no DPS page exists.
+     */
+    public static DpsSnapshot latestSnapshot() { DpsGUI view = INSTANCE; return view == null ? null : view.latest; }
+
+    /**
+     * Changes whenever {@link #recordedEncounters()} may return something else: another DPS page or a new catalog revision
+     * (recordings added, imported or cleared). Any thread; read it before the list so a racing change only causes a re-read.
+     */
+    public static String recordingsRevision() {
+        DpsGUI view = INSTANCE;
+        return view == null ? "" : view.encounterCatalog.lifetimeId() + "#" + view.encounterCatalog.revision();
+    }
+
     private static void publish(TomatoData data, boolean force) {
         DpsGUI view=INSTANCE;
         if(view==null || view.data!=data) return;

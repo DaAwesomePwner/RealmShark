@@ -456,7 +456,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         ContentStyle.font(summary, ContentStyle.emphasis(font)); ContentStyle.font(scope, ContentStyle.metadata(font));
         ContentStyle.font(captureWarning, font);
     }
-    private static Color classColor(int type) {
+    public static Color classColor(int type) {
         Color surface = UIManager.getColor("Table.background");
         boolean dark = surface == null || surface.getRed() < 128;
         return Color.getHSBColor((type * .618034f) % 1f, dark ? .36f : .72f, dark ? .94f : .48f);

@@ -63,6 +63,7 @@ public final class ActivityJournal {
     Visit activeVisit() { return current == null ? null : new Visit(current); }
     String currentVisitId() { return current == null ? "" : current.id; }
     String currentVisitMap() { return current == null ? null : current.map; }
+    long currentVisitStarted() { return current == null ? 0 : current.started; }
 
     public void boundary(long now, String reason) {
         finish(now, reason);

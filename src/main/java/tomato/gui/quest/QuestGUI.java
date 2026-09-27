@@ -245,7 +245,7 @@ public class QuestGUI extends JPanel {
         pin.setEnabled(false); pin.addActionListener(e -> togglePin());
         removeGlobal.setVisible(false); removeGlobal.addActionListener(e -> {
             Quest q = selected(); if (q == null) return;
-            new QuestPins(preferences).removeGlobal(key(q)); globalPinned.remove(key(q)); refresh();
+            new QuestPins(preferences).removeGlobal(key(q)); QuestPinning.changed(); globalPinned.remove(key(q)); refresh();
         });
         JPanel pinActions = ContentStyle.controls(); pinActions.add(removeGlobal); pinActions.add(pin); footer.add(pinActions, BorderLayout.EAST);
         JButton plan = new JButton("Add to account plan"); plan.setName("quest-add-plan"); pinActions.add(plan);
@@ -567,10 +567,7 @@ public class QuestGUI extends JPanel {
         return parts.isEmpty() ? "None listed" : String.join(", ", parts);
     }
 
-    private String key(Quest q) {
-        return UUID.nameUUIDFromBytes((q.id.isEmpty() ? q.name + ":" + q.category : q.id)
-            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
-    }
+    private String key(Quest q) { return QuestPins.key(q.id, q.name, q.category); }
 
     private String status(Quest q) {
         if (q.repeatable) return q.completed ? "Repeatable • completed before" : "Repeatable";
@@ -583,6 +580,7 @@ public class QuestGUI extends JPanel {
         if (value) pinned.add(key); else pinned.remove(key);
         if (source == null) { if (preferences != null) preferences.putBoolean("pin." + key, value); }
         else new QuestPins(preferences).set(pinAccount(), key, value);
+        QuestPinning.changed();
         refresh();
     }
 
