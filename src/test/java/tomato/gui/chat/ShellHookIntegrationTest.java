@@ -69,15 +69,18 @@ public class ShellHookIntegrationTest {
     private TomatoGUI gui;
     private SessionStore store;
     private TomatoData data;
-    private String filters, ignoredVisibility, temporaryDirectory;
+    private static final String TABS = "ui.tabs.character";
+    private String filters, ignoredVisibility, temporaryDirectory, sheetTabs;
     private final Map<String,String> archivePreferences = new LinkedHashMap<>();
     private static final String[] MODULES = {"chat", "keypops", "inspect", "statistics", "loot", "runs", "timeline"};
 
     @Before public void open() throws Exception {
         filters = PropertiesManager.getProperty("chat.filters");
         ignoredVisibility = PropertiesManager.getProperty("chat.showIgnoredPlayers");
+        sheetTabs = PropertiesManager.getProperty(TABS);
         PropertiesManager.setProperties("chat.filters", "{}");
         PropertiesManager.setProperties("chat.showIgnoredPlayers", "false");
+        PropertiesManager.setProperties(TABS, ""); // explicit navigation (charactersRoutesOpenTheListOrOneSheetAndBackRestoresEach) may show() a tab
         for (String key : archiveKeys()) {
             archivePreferences.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
@@ -91,6 +94,8 @@ public class ShellHookIntegrationTest {
                 field.setAccessible(true); original.put(field, field.get(null));
             }
         data = new TomatoData();
+        // Build now follows the journal (live or most recent character): an empty temporary journal keeps Build on page 6 here.
+        tomato.gui.glance.character.SheetFixtures.inject(data, new tomato.backend.data.CharacterJournal(temp.newFolder().toPath().resolve("journal.json")));
         SwingUtilities.invokeAndWait(this::buildShell);
     }
     private void buildShell() { gui = new TomatoGUI(data); shell = (WorkspaceShell)gui.createWorkspace(); }
@@ -110,6 +115,7 @@ public class ShellHookIntegrationTest {
             catch (IllegalAccessException e) { throw new AssertionError(e); }
             PropertiesManager.setProperties("chat.filters", filters == null ? "{}" : filters);
             PropertiesManager.setProperties("chat.showIgnoredPlayers", ignoredVisibility == null ? "false" : ignoredVisibility);
+            PropertiesManager.setProperties(TABS, sheetTabs == null ? "" : sheetTabs);
         });
         for (String key : archiveKeys()) PropertiesManager.setProperties(key, archivePreferences.getOrDefault(key, ""));
         PropertiesManager.flush().toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -151,6 +157,28 @@ public class ShellHookIntegrationTest {
         });
     }
 
+    @Test public void charactersRoutesOpenTheListOrOneSheetAndBackRestoresEach() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            tomato.gui.character.CharacterRosterView roster = find(shell, tomato.gui.character.CharacterRosterView.class);
+            assertNotNull("The Characters Roster tab hosts the list and the sheet", roster);
+            shell.select(0);
+            String unknown = "0".repeat(64) + ":404";
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.CHARACTER_SHEET)
+                .withPayload(new tomato.gui.glance.character.SheetFocus(unknown, null))));
+            assertEquals(3, shell.getSelectedPage());
+            assertTrue(roster.showingSheet());
+            tomato.gui.activity.SnapshotTestSupport.await(roster.sheet()::ready); // at once here; from Task 5 the sheet reads off the EDT
+            assertTrue("An unknown key shows the unavailable state",
+                named(roster, "character-sheet-unavailable", tomato.gui.kit.EmptyState.class).isVisible());
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.CHARACTERS)));
+            assertFalse("A plain Characters route shows the list", roster.showingSheet());
+            assertTrue(navigator.back());
+            assertTrue("Back restores the sheet", roster.showingSheet()); assertEquals(unknown, roster.sheet().key());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+        });
+    }
+
     @Test public void homeIsPageFourteenAndBuildOpensFromSearchUnderItsNewTitle() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
@@ -169,6 +197,7 @@ public class ShellHookIntegrationTest {
             assertTrue(registry.search("build.open").get(0).open());
             assertEquals(6, shell.getSelectedPage());
             assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
+            assertNotNull("With no character, page 6 says that Build moved", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
             assertFalse("Build never takes a sidebar row", named(shell, "nav-6", AbstractButton.class).isVisible());
             assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
         });
@@ -193,6 +222,7 @@ public class ShellHookIntegrationTest {
             }
             named(home, "home-build", AbstractButton.class).doClick();
             assertEquals("The hero's Build action opens page 6", 6, shell.getSelectedPage());
+            assertNotNull("With no character yet, that is the Build moved page", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
             assertTrue(navigator.back());
             assertEquals(14, shell.getSelectedPage());
             named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);
@@ -205,6 +235,115 @@ public class ShellHookIntegrationTest {
             assertTrue(navigator.back());
             assertEquals(14, shell.getSelectedPage());
         });
+    }
+
+    /**
+     * Spec S2 and S5 from Home over a synthetic roster (CharacterFixtures). S2: Home names the stat that needs potions and how
+     * many with no click, and the hero's sheet Overview repeats it after one. S5: the hero, then the Exalts tab (two clicks) show
+     * every exalt tier and the distance to the next. The hero opens its own sheet at Overview; Back returns Home.
+     */
+    @Test public void homeHeroOpensItsSheetForS2AndS5AndBackReturnsHome() throws Exception {
+        try (AutoCloseable definitions = tomato.gui.glance.character.CharacterFixtures.installDefinitions()) {
+            tomato.backend.data.CharacterJournal journal = rebuildWithSyntheticRoster();
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+                    home.apply(tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis()));
+                    shell.select(14);
+                    JLabel needs = named(home, "home-hero-needs", JLabel.class);
+                    assertEquals("S2, 0 clicks: Home names the stat and the count", "Needs WIS 3 potions", needs.getText());
+                    assertTrue(shown(needs));
+                    named(home, "home-hero", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null); // click 1
+                    assertEquals("The hero opens the Characters page", 3, shell.getSelectedPage());
+                    tomato.gui.glance.character.CharacterSheet sheet = find(shell, tomato.gui.glance.character.CharacterSheet.class);
+                    assertEquals("…on its own character's sheet", tomato.gui.glance.home.HomeModels.KEY, sheet.key());
+                    assertEquals("…at Overview", "overview", sheet.selectedTab());
+                    assertTrue(shown(sheet));
+                });
+                // Built off the EDT; the needs row holds one label per stat that needs potions.
+                await(() -> texts(named(shell, "character-overview-needs", JComponent.class)).stream().anyMatch(t -> t.contains("WIS needs 3")));
+                SwingUtilities.invokeAndWait(() -> {
+                    assertTrue("S2, 1 click: the Overview names the stat and the count", shown(named(shell, "character-overview-needs", JComponent.class)));
+                    tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+                    assertTrue(navigator.back());
+                    assertEquals("Back returns Home", 14, shell.getSelectedPage());
+                    tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+                    int clicks = 0;
+                    named(home, "home-hero", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null); clicks++;
+                    JTabbedPane tabs = named(shell, "character-tabs", JTabbedPane.class);
+                    tabs.setSelectedIndex(tabs.indexOfTab("Exalts")); clicks++;
+                    assertEquals("S5 takes two clicks from Home", 2, clicks);
+                    assertEquals("exalts", find(shell, tomato.gui.glance.character.CharacterSheet.class).selectedTab());
+                });
+                await(() -> exaltTiers() == 19); // tiers 5+4+3+2+1+0+0+4 of the fixture Wizard
+                SwingUtilities.invokeAndWait(() -> {
+                    Container exalts = (Container) named(shell, "character-tabs", JTabbedPane.class).getSelectedComponent();
+                    assertTrue("S5: all eight stats' tiers show", all(exalts, tomato.gui.kit.PipMeter.class).size() >= 8);
+                    assertTrue("S5: with the distance to the next tier", texts(exalts).stream().anyMatch(t -> t.contains("to next tier")));
+                    assertTrue(tomato.gui.route.Navigator.current().back());
+                    assertEquals(14, shell.getSelectedPage());
+                });
+            } finally {
+                journal.close();
+            }
+        }
+    }
+
+    @Test public void aHeroWithoutAJournalKeyOpensTheCharactersList() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+            tomato.gui.glance.home.HomeModel model = tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis());
+            home.apply(model.withHero(tomato.gui.glance.home.HomeModels.withKey(model.hero(), null)));
+            shell.select(14);
+            named(home, "home-hero", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null);
+            assertEquals(3, shell.getSelectedPage());
+            assertFalse("The list shows, not a sheet", shown(find(shell, tomato.gui.glance.character.CharacterSheet.class)));
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals(14, shell.getSelectedPage());
+        });
+    }
+
+    /** Rebuilds the workspace over a TomatoData whose journal is a temporary file holding the synthetic roster. */
+    private tomato.backend.data.CharacterJournal rebuildWithSyntheticRoster() throws Exception {
+        tomato.backend.data.CharacterJournal journal = tomato.gui.glance.character.CharacterFixtures.journal(
+            temp.newFolder("roster").toPath().resolve("Characters").resolve("journal.json"), System.currentTimeMillis());
+        SwingUtilities.invokeAndWait(() -> {
+            gui.closeWorkspace(); shell.removeNotify();
+            data = new TomatoData() { @Override public tomato.backend.data.CharacterJournal characterJournal() { return journal; } };
+            buildShell();
+        });
+        return journal;
+    }
+    /** Visible up to the shell: there is no window here, so isShowing is false everywhere. */
+    private boolean shown(Component component) {
+        for (Component c = component; c != null; c = c.getParent()) { if (!c.isVisible()) return false; if (c == shell) return true; }
+        return false;
+    }
+    /** The filled tiers of every pip meter on the sheet's selected tab (0 while it is still loading). */
+    private int exaltTiers() {
+        JTabbedPane tabs = named(shell, "character-tabs", JTabbedPane.class);
+        if (tabs == null || !(tabs.getSelectedComponent() instanceof Container)) return 0;
+        int sum = 0;
+        for (tomato.gui.kit.PipMeter meter : all((Container) tabs.getSelectedComponent(), tomato.gui.kit.PipMeter.class)) sum += meter.filled();
+        return sum;
+    }
+    private static <T> java.util.List<T> all(Container root, Class<T> type) {
+        java.util.List<T> found = new ArrayList<>();
+        for (Component c : root.getComponents()) {
+            if (type.isInstance(c)) found.add(type.cast(c));
+            if (c instanceof Container) found.addAll(all((Container) c, type));
+        }
+        return found;
+    }
+    private static java.util.List<String> texts(Container root) {
+        java.util.List<String> found = new ArrayList<>();
+        for (Component c : all(root, Component.class)) { String t = text(c); if (!t.isEmpty()) found.add(t); }
+        return found;
+    }
+    private static String text(Component component) {
+        if (component instanceof JLabel) return Objects.toString(((JLabel) component).getText(), "");
+        if (component instanceof javax.swing.text.JTextComponent) return ((javax.swing.text.JTextComponent) component).getText();
+        return "";
     }
 
     @Test public void shellQueriedHistorySharesTheLiveChatPolicy() throws Exception {

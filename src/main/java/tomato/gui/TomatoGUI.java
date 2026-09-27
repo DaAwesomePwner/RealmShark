@@ -102,7 +102,8 @@ public class TomatoGUI {
         java.util.List<String> planningAccounts = new java.util.ArrayList<>();
         for (tomato.backend.data.CharacterJournal.AccountRecord account : data.characterJournal().accounts()) planningAccounts.add(account.key);
         questPanel.knownPlanningAccounts(planningAccounts);
-        myDmg = new MyInfoGUI(data);
+        myDmg = new MyInfoGUI(data); // the only instance: it lives in the character sheet's Build tab
+        characterPanel.hostBuild(myDmg);
         dpsPanel = new DpsGUI(data);
 
         menuBar = new TomatoMenuBar();
@@ -127,7 +128,7 @@ public class TomatoGUI {
         shell = new WorkspaceShell(new JComponent[] {
             chatPanel.workspace(), keypopPanel.workspace(), inspectWorkspace,
             characterPanel, statisticsWorkspace,
-            questPanel, myDmg, dpsPanel,
+            questPanel, new tomato.gui.myinfo.BuildMovedPanel(TomatoGUI::openBuild, () -> tomato.gui.myinfo.BuildRoute.key(data) != null), dpsPanel,
             lootWorkspace,
             logging,
             runsWorkspace,
@@ -136,14 +137,19 @@ public class TomatoGUI {
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
-        registerRetainedPage(Destination.CHARACTERS);
+        // The Roster tab's list (CHARACTERS) and one character's sheet (CHARACTER_SHEET) share one view and one Back state.
+        for (RouteTarget target : characterPanel.routeTargets()) navigator.register(target);
         registerRetainedPage(Destination.QUESTS);
         // Home's Now card opens the DPS Logger page as it is. This target accepts plain routes only and is registered before
         // DpsGUI's encounter target, which is therefore tried first: exact recording routes keep resolving there.
         registerRetainedPage(Destination.ENCOUNTER);
         registerRetainedPage(Destination.HOME);
-        // Build (page 6) has no sidebar row; routes, Settings search, the Home hero and Alt+7 reach it.
-        registerRetainedPage(Destination.MY_INFO);
+        // Build is a tab on the character sheet (spec §6.2). The Build route, Settings search, the Home hero and Alt+7 open it for
+        // the character in game, else the most recent one. Page 6 only says that Build moved, for when no character exists yet.
+        navigator.register(new tomato.gui.myinfo.BuildRoute(() -> tomato.gui.myinfo.BuildRoute.key(data)));
+        shell.getActionMap().put("page-6", new AbstractAction() {
+            public void actionPerformed(java.awt.event.ActionEvent e) { openBuild(); }
+        });
         registerArchive(navigator, Destination.RUNS, runsWorkspace);
         registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerArchive(navigator, Destination.LOOT, lootWorkspace);
@@ -298,6 +304,7 @@ public class TomatoGUI {
     public void closeWorkspace() {
         // AppHistory's shutdown hook still checkpoints DiscoveryLog before closing SessionStore.
         onEdt(() -> {
+            if (characterPanel != null) characterPanel.sheet().saveDraft(); // save the user's draft before anything else closes
             if (navigator != null && Navigator.current() == navigator) Navigator.install(null);
             tomato.gui.search.ActionRegistry.application().clear();
             closeArchiveWorkspaces(mainPanel);
@@ -456,11 +463,11 @@ public class TomatoGUI {
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
             "Bridge settings and journal use their configured local paths", () -> shell.select(12));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
-            "Characters/plans.json; death notes in Characters/journal.json", () -> { navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)); characterPanel.openGoals(); });
+            "Characters/plans.json; death notes in Characters/journal.json", () -> characterPanel.openGoals());
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
             "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
         registerSearch("build.open", "Build (weapon damage and recovery)", "build my info weapon damage dps recovery mana estimates equipment",
-            "Build", "Nothing is saved; values come from the live capture", () -> navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO)));
+            "Characters › Build", "Nothing is saved; values come from the live capture", () -> navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO)));
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
             java.awt.event.InputEvent.CTRL_DOWN_MASK), "find-settings");
         shell.getActionMap().put("find-settings", new AbstractAction() {
@@ -475,7 +482,7 @@ public class TomatoGUI {
     /** Home's drill-downs go through the navigator, so Back returns to Home. */
     private static tomato.gui.glance.home.HomeActions homeActions() {
         return new tomato.gui.glance.home.HomeActions(
-            () -> openFromHome(tomato.gui.route.Route.to(Destination.CHARACTERS)),
+            TomatoGUI::openCharacterFromHome,
             () -> openFromHome(tomato.gui.route.Route.to(Destination.MY_INFO)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.ENCOUNTER)),
             // The exact VisitRef first; plain Runs only when no exact-visit target exists (no saved history store).
@@ -483,10 +490,23 @@ public class TomatoGUI {
             () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)));
     }
 
+    /** Alt+7 and page 6's button: the Build route (the sheet's Build tab, or page 6 while no character exists). */
+    private static void openBuild() {
+        if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO));
+    }
+
     /** Opens the first route a registered target accepts. */
     private static void openFromHome(tomato.gui.route.Route... routes) {
         if (navigator == null) return;
         for (tomato.gui.route.Route route : routes) if (navigator.open(route)) return;
+    }
+
+    /** The Home hero opens its own character's sheet at Overview; without a journal key (no character yet), the Characters list. */
+    private static void openCharacterFromHome(String key) {
+        tomato.gui.route.Route list = tomato.gui.route.Route.to(Destination.CHARACTERS);
+        if (key == null) openFromHome(list);
+        else openFromHome(tomato.gui.route.Route.to(Destination.CHARACTER_SHEET)
+            .withPayload(new tomato.gui.glance.character.SheetFocus(key, "overview")), list);
     }
 
 

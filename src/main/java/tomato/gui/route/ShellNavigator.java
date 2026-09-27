@@ -60,6 +60,10 @@ public final class ShellNavigator implements Navigator {
         requireEdt();
         RouteTarget target = route == null ? null : target(route);
         if (target == null) return false;
+        // One hop: a target may send its route to another destination (Build now opens on the character sheet).
+        Route redirected = redirect(target, route);
+        RouteTarget next = redirected == null ? null : target(redirected);
+        if (next != null) { route = redirected; target = next; }
         int destinationPage = pageOf.applyAsInt(route.destination);
         int originPage = selected.getAsInt();
         // Capture before navigating; a failed capture leaves everything unchanged.
@@ -102,6 +106,10 @@ public final class ShellNavigator implements Navigator {
             catch (RuntimeException rejected) { /* A failing validation is a rejection, not a crash. */ }
         }
         return null;
+    }
+    private static Route redirect(RouteTarget target, Route route) {
+        try { return target.redirect(route); }
+        catch (RuntimeException failed) { return null; } // A failing redirect keeps the original route.
     }
     private RouteTarget shownOn(int page) {
         RouteTarget current = shown.get(page);

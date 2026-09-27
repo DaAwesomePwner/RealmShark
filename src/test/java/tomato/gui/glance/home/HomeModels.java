@@ -12,7 +12,9 @@ import tomato.history.link.VisitRef;
 /** Synthetic Home view models for card, layout, timing, shell and evidence tests. No capture and no personal data. */
 public final class HomeModels {
     public static final String SESSION = "0f8fad5b-d9cb-469f-a165-70867728950e";
-    public static final HomeActions NO_ACTIONS = new HomeActions(() -> {}, () -> {}, () -> {}, visit -> {}, () -> {});
+    /** The synthetic Wizard's journal key; CharacterFixtures' roster holds it, so the hero opens a real sheet in shell tests. */
+    public static final String KEY = tomato.gui.glance.character.CharacterFixtures.KEY;
+    public static final HomeActions NO_ACTIONS = new HomeActions(key -> {}, () -> {}, () -> {}, visit -> {}, () -> {});
     static final int WIZARD = 782, PRIEST = 784, WARRIOR = 797;
     private static final int[] CAPS = {720, 385, 75, 25, 50, 75, 40, 75};
     private HomeModels() {}
@@ -29,7 +31,7 @@ public final class HomeModels {
             DisplayValue.estimate("1,480", "Average weapon damage × rate of fire against 0 DEF"),
             DisplayValue.estimate("18.4", "MP regeneration from WIS at the base rate"),
             "70 stars · 12,345 account fame · 1,200 gold", live ? 0L : now - 2 * 3_600_000L,
-            "Live stats from the current map; caps from the class definition; estimates use the Build page's default scenario.");
+            "Live stats from the current map; caps from the class definition; estimates use the Build page's default scenario.", KEY);
     }
     public static HomeModel.Now now(long now) {
         return new HomeModel.Now(HomeModel.State.LIVE, true, "Lost Halls", now - 750_000L, List.of(
@@ -65,6 +67,12 @@ public final class HomeModels {
             new HomeModel.QuestLine("Standard Snake Pit", new int[]{2597, 2598}, true, true)),
             now - (stale ? 3 * 3_600_000L : 840_000L), stale);
     }
+    /** The same hero with another journal key (null: the hero opens the Characters list). */
+    public static HomeModel.Hero withKey(HomeModel.Hero h, String key) {
+        return new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(), h.base(), h.caps(),
+            h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), h.equipment(), h.weaponDps(), h.mpPerSecond(), h.accountLine(),
+            h.lastSeenAt(), h.evidence(), key);
+    }
     public static HomeModel populated(long now) {
         return new HomeModel(hero(HomeModel.State.LIVE, now), now(now), today(HomeArchive.Window.TODAY, now),
             new HomeModel.Runs(HomeModel.State.LIVE, runs(now), null), quests(now, false));
@@ -74,7 +82,7 @@ public final class HomeModels {
         String none = "No character captured yet";
         return new HomeModel(
             new HomeModel.Hero(HomeModel.State.EMPTY, null, 0, null, null, null, DisplayValue.unknown(none), -1, null, null, null, null,
-                "", -1, null, DisplayValue.unknown(none), DisplayValue.unknown(none), "", 0L, "No character has been captured on this computer yet."),
+                "", -1, null, DisplayValue.unknown(none), DisplayValue.unknown(none), "", 0L, "No character has been captured on this computer yet.", null),
             new HomeModel.Now(HomeModel.State.EMPTY, false, null, null, List.of(), 0, 0, null),
             new HomeModel.Today(HomeModel.State.EMPTY, HomeArchive.Window.TODAY, null, null),
             new HomeModel.Runs(HomeModel.State.EMPTY, List.of(), null),
@@ -89,7 +97,7 @@ public final class HomeModels {
         String reason = "Saved history is not available: the history folder could not be opened.";
         return new HomeModel(
             new HomeModel.Hero(HomeModel.State.UNAVAILABLE, null, 0, null, null, null, DisplayValue.unknown(reason), -1, null, null, null,
-                null, "", -1, null, DisplayValue.unknown(reason), DisplayValue.unknown(reason), "", 0L, "The character journal could not be read."),
+                null, "", -1, null, DisplayValue.unknown(reason), DisplayValue.unknown(reason), "", 0L, "The character journal could not be read.", null),
             new HomeModel.Now(HomeModel.State.UNAVAILABLE, false, null, null, List.of(), 0, 0, null),
             new HomeModel.Today(HomeModel.State.UNAVAILABLE, HomeArchive.Window.TODAY, null, reason),
             new HomeModel.Runs(HomeModel.State.UNAVAILABLE, List.of(), reason),

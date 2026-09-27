@@ -12,6 +12,7 @@ import tomato.gui.kit.FilterBar;
 import static org.junit.Assert.*;
 
 public class CharacterFilterBarTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     @Test public void rosterFiltersLiveInTheDrawerWithChips() throws Exception {

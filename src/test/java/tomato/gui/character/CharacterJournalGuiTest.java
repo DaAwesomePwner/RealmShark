@@ -7,21 +7,31 @@ import java.nio.file.*;
 import java.util.*;
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import org.junit.Rule;
 import org.junit.Test;
 import static org.junit.Assert.*;
 import tomato.backend.data.*;
+import tomato.gui.glance.character.CharacterSheet;
 import tomato.gui.modern.VioletTheme;
 import tomato.realmshark.RealmCharacter;
-import tomato.realmshark.enums.CharacterClass;
 
 public class CharacterJournalGuiTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     private static <T> T find(Container root, Class<T> type) {
         for (Component c : root.getComponents()) { if (type.isInstance(c)) return type.cast(c);
             if (c instanceof Container) { T found = find((Container)c, type); if (found != null) return found; } }
         return null;
     }
+    /** The life-state facet by name: the filter row's Sort combo precedes the drawer's facets in the tree. */
+    private static JComboBox<?> lifeFilter(Container root) {
+        for (Component c : root.getComponents()) {
+            if (c instanceof JComboBox && "character-life".equals(c.getName())) return (JComboBox<?>) c;
+            if (c instanceof Container) { JComboBox<?> found = lifeFilter((Container) c); if (found != null) return found; }
+        }
+        return null;
+    }
     private static JButton button(Container root, String text) {
-        for (Component c : root.getComponents()) { if (c instanceof JButton && ((JButton)c).getText().equals(text)) return (JButton)c;
+        for (Component c : root.getComponents()) { if (c instanceof JButton && text.equals(((JButton)c).getText())) return (JButton)c;
             if (c instanceof Container) { JButton found = button((Container)c,text); if (found != null) return found; } } return null;
     }
     private static JTextArea notes(Container root) {
@@ -56,28 +66,31 @@ public class CharacterJournalGuiTest {
         j.mergeRoster(account, chars); j.markDead(account+":104",true);
         Map<Integer,int[]> ex = new HashMap<>(); ex.put(782,new int[]{75,50,30,15,5,1,0,74}); j.exalts(account,ex);
         SwingUtilities.invokeAndWait(() -> {
-            VioletTheme.install(); CharacterJournalGUI panel = new CharacterJournalGUI(j, System::currentTimeMillis, () -> definitions);
+            VioletTheme.install();
+            CharacterRosterView view = RosterFixtures.view(j, System::currentTimeMillis, () -> definitions);
+            CharacterJournalGUI panel = view.listPanel(); CharacterSheet sheet = view.sheet();
             JTable roster = find(panel,JTable.class); assertEquals(6,roster.getRowCount());
             JTextField search = find(panel,JTextField.class);
             search.setText("["); assertEquals(0,roster.getRowCount());
             search.setText("12345"); assertEquals(6,roster.getRowCount()); search.setText("101"); assertEquals(1,roster.getRowCount());
             assertEquals(Integer.valueOf(6), roster.getValueAt(0,5));
-            button(panel,"Mark dead").doClick(); assertEquals("Marked dead manually",roster.getValueAt(0,2));
-            button(panel,"Restore alive").doClick(); assertEquals("Last observed alive",roster.getValueAt(0,2));
-            JTextArea notes = notes(panel); notes.setText("Finish Life and Wisdom"); button(panel,"Save notes").doClick();
+            RosterFixtures.enter(view); button(sheet,"Mark dead").doClick(); view.showList(); assertEquals("Marked dead manually",roster.getValueAt(0,2));
+            RosterFixtures.enter(view); button(sheet,"Restore alive").doClick(); view.showList(); assertEquals("Last observed alive",roster.getValueAt(0,2));
+            RosterFixtures.enter(view); JTextArea notes = notes(sheet); notes.setText("Finish Life and Wisdom"); button(sheet,"Save notes").doClick();
             assertEquals("Finish Life and Wisdom",j.characters().stream().filter(r -> r.characterId == 101).findFirst().get().notes);
-            search.setText(""); roster.getRowSorter().toggleSortOrder(6);
+            view.showList(); search.setText(""); roster.getRowSorter().toggleSortOrder(6);
             assertEquals(900L, roster.getValueAt(0,6));
-            JComboBox<?> filter = find(panel,JComboBox.class); filter.setSelectedItem("Marked dead manually"); assertEquals(1,roster.getRowCount());
+            JComboBox<?> filter = lifeFilter(panel); filter.setSelectedItem("Marked dead manually"); assertEquals(1,roster.getRowCount());
             filter.setSelectedItem("Not marked dead"); assertEquals(5,roster.getRowCount()); filter.setSelectedItem("All characters");
             search.setText("");
-            JFrame frame = new JFrame("Characters — sample data"); frame.setContentPane(panel);
+            JFrame frame = new JFrame("Characters — sample data"); frame.setContentPane(view);
             try {
                 render(frame,"characters-desktop.png",1080);
                 render(frame,"characters-compact.png",680);
-                assertTrue(button(panel,"Mark dead").getX() >= 0);
-                JTabbedPane tabs = find(panel,JTabbedPane.class); tabs.setSelectedIndex(1); render(frame,"characters-equipment.png",1080);
-                tabs.setSelectedIndex(2); render(frame,"characters-class-exalts.png",1080);
+                RosterFixtures.enter(view);
+                assertTrue(button(sheet,"Mark dead").getX() >= 0);
+                sheet.tabs().select("gear"); render(frame,"characters-equipment.png",1080);
+                sheet.tabs().select("exalts"); render(frame,"characters-class-exalts.png",1080);
                 frame.setContentPane(panel.exaltPanel()); render(frame,"characters-account-exalts.png",1080);
             } finally { frame.dispose(); }
         });

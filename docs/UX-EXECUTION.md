@@ -1,13 +1,13 @@
 # UX implementation execution and recovery
 
-Current redesign (2026-09-26): P0 merged in PR #17 (`9b6844a`); P1a design kit
+Current redesign (2026-09-27): P0 merged in PR #17 (`9b6844a`); P1a design kit
 merged in PR #18 (`7b3e0c5`), including fix `ee8d085`. P1b merged in PR #19 as `0abafe4`, including fix `a011bfd`.
-P1c merged in PR #20 as `e973f10`, including fix `4ca1657`; main was verified before P2 began. Continue from the
-[presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md) and
-[P2 validation](superpowers/plans/2026-09-26-p2-validation.md). Every redesign
+P1c merged in PR #20 as `e973f10`, including fix `4ca1657`. P2 merged in PR #21 as `94db6f6`; main was verified
+before P3a began. Continue from the [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md) and
+[P3a validation](superpowers/plans/2026-09-27-p3a-validation.md). Every redesign
 phase uses `claude/realmshark-ui-ux-redesign-cb0914`. The wave history below is
-completed background. P2 (Home) is implemented, pending PR merge. Reconcile its
-final-head review and GitHub state before P3.
+completed background. P3a (Characters: gallery, sheet, journal v5) is implemented, pending PR merge. Reconcile its
+final-head review and GitHub state before P3b.
 
 Current policy (user approved 2026-09-26): CI is manual-only, not a merge gate.
 Use focused local checks and relevant build/launch smoke checks; no routine full

@@ -10,8 +10,9 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #18 (`7b3e0c5`) |
 | P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #19 (`0abafe4`) |
 | P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #20 (`e973f10`) |
-| P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending |
-| P3 Characters | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #21 (`94db6f6`) |
+| P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending |
+| P3b Characters: Exalts grid, Pets, Pet and Fame tabs | written while P3a is implemented | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P4 Quests | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
@@ -22,12 +23,16 @@ P0 merged in PR #17 as `9b6844a`; its merge tree matches the reviewed P0 source.
 P1a merged in PR #18 as `7b3e0c5`, including the brand-icon correction `ee8d085`.
 P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
 P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
-P2 is implemented on the branch; its PR merge is pending. Later phases have not started.
+P2 merged in PR #21 as `94db6f6`, including seven review fixes (`f10bd7d`..`2367bc7`). P3a is implemented on the branch; its PR merge is pending. Later phases have not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
-[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md).
+[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md).
 
 ## Resume
+
+**Latest handoff: [2026-09-27-redesign-handoff.md](2026-09-27-redesign-handoff.md).**
+- It covers the current state, next steps, decisions, process and build notes, and the P3b inputs.
+- Read it before anything else when resuming on a new machine or in a cloud session.
 
 Read AGENTS.md, the spec, this roadmap and the plan for the earliest phase not marked merged. Reconcile branches, PRs and `main` with GitHub before continuing. Never overwrite unfamiliar work.
 
@@ -62,14 +67,20 @@ Outline:
 
 **Entry:** P2 merged. **Exit:** S2 and S5.
 
+User decisions (2026-09-27):
+- **Two PRs.** P3a covers the P2 follow-ups, journal v5, the roster gallery, the character sheet (Overview, Gear, Exalts, Build, Goals, Notes, Snapshot evidence, Death annotation) and the Build move. P3b covers the account Exalts grid, the Pets gallery, the sheet's Pet and Fame tabs, Home's pet rarity chip, the sheet Overview's pet card and Goals restyled as cards with progress (the last two deferred from P3a at its plan review).
+- **Stat bars keep the "+N" boost text;** there is no painted overlay.
+- **The journal moves to version 5, not 4 as first planned** (spec §8.3).
+
 Outline:
 1. Roster gallery: `JList` with `HORIZONTAL_WRAP` and a painted `CharacterCard` renderer. Graveyard collapses; the FilterBar drawer reuses the P1c roster filters; the existing table is the Table view.
 2. Character sheet (`Destination.CHARACTER_SHEET`), with header and `CustomizableTabs("character")`: Overview, Gear, Exalts, Pet, Fame, Build (from P2), Goals, Notes, Snapshot evidence (Analyst), Death annotation (dead characters only).
 3. Exalts grid: one tile per observed class, header tiles for loot boost and fully exalted classes, class drill-down with `PipMeter`s, "N to next tier" and "where to earn it" (`exaltationConfig.xml`).
 4. Pets gallery with rarity, family and ability bars; the feeding calculator goes in a drawer.
-5. Journal v4, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
-6. Evidence and journal migration tests (v3 → v4 load, partial rendering).
-7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar).
+5. Journal v5, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
+6. Evidence and journal migration tests (v4 → v5 load, partial rendering).
+7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar). Deferred from P3a's plan review (2026-09-27) to P3b: the sheet Overview's pet card (it needs P3b's pet names and rarity) and Goals restyled as cards with progress (P3a moves the Goals tab unchanged).
+8. Status (2026-09-27): P3a implements items 1, 2 (without the Pet and Fame tabs), 5 (as journal version 5) and 7 (except the pet rarity chip). P3b covers items 3 and 4, the Pet and Fame tabs, the pet rarity chip, the Overview pet card and Goals restyled as cards with progress.
 
 ## P4 Quests
 

@@ -82,6 +82,25 @@ public class RecordedDpsHandoffTest {
             return null;
         });
     }
+    @Test public void recordedEncountersProjectOnlyCatalogEntriesTheyHaveNotSeen() throws Exception {
+        TomatoData data = new TomatoData();
+        DpsData first = encounter(data, "Lost Halls", new EncounterContext(new VisitRef(SESSION, "journal:1"), 7, 1));
+        data.dpsData.add(first);
+        DpsGUI dps = edt(() -> new DpsGUI(data, DiscoveryLog.historyView(new ActivityJournal.State())));
+        Map<String, RecordedEncounter> known = new HashMap<>();
+        List<RecordedEncounter> one = DpsGUI.recordedEncounters(known);
+        assertEquals(1, one.size()); assertEquals(1, known.size());
+        data.dpsData.add(encounter(data, "Ice Citadel", new EncounterContext(new VisitRef(SESSION, "journal:2"), 7, 2)));
+        dps.encounters().captured(data.dpsData.toArray(new DpsData[0]));
+        List<RecordedEncounter> two = DpsGUI.recordedEncounters(known);
+        assertEquals(2, two.size()); assertSame("A projected recording is reused, not recomputed", one.get(0), two.get(0));
+        assertEquals("Ice Citadel", two.get(1).map);
+        data.dpsData.remove(first);
+        dps.encounters().captured(data.dpsData.toArray(new DpsData[0]));
+        assertEquals(1, DpsGUI.recordedEncounters(known).size()); assertEquals("Entries that left the catalog are forgotten", 1, known.size());
+        assertEquals("The one-shot projection is unchanged", 1, DpsGUI.recordedEncounters().size());
+    }
+
     static void awaitLoaded(RecordedDpsPanel panel) throws Exception {
         long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(8);
         while (edt(panel::loading) && System.nanoTime() < end) Thread.sleep(10);

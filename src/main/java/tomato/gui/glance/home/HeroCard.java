@@ -1,6 +1,7 @@
 package tomato.gui.glance.home;
 
 import java.awt.*;
+import java.util.function.Consumer;
 import javax.swing.*;
 import tomato.gui.kit.Chip;
 import tomato.gui.kit.DisplayModeModel;
@@ -8,6 +9,7 @@ import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.KitButton;
+import tomato.gui.kit.KitText;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.StatBar;
 import tomato.gui.kit.StatTile;
@@ -21,8 +23,8 @@ import tomato.gui.modern.DisplayFormat;
  * holds the character's name as the card title, the Build action and Evidence. On a wide page one row holds the 54 px skin
  * sprite, class · level · fame and the maxed / exalt / last-seen chips, the four equipped slots with tier labels, and the
  * Weapon DPS and MP/sec estimate tiles (it wraps below 1000 px); then eight base-versus-cap bars (2 × 4) with the live boost;
- * then the needs line (left) and the account line (right) on one line. The whole card opens Characters; Build opens the
- * Build page. The pet rarity chip arrives with pet data in P3.
+ * then the needs line (left) and the account line (right) on one line. The whole card opens its sheet (the Characters list
+ * without a journal key); Build opens the Build page. The pet rarity chip arrives with pet data in P3.
  */
 final class HeroCard extends HomeCard {
     /** Canonical stat order: life, mana, atk, def, spd, dex, vit, wis. */
@@ -35,15 +37,15 @@ final class HeroCard extends HomeCard {
 
     private final JLabel sprite = HomeViews.named(new JLabel(), "home-hero-sprite");
     private final JLabel name;
-    private final HomeViews.Text meta = HomeViews.named(HomeViews.caption(""), "home-hero-meta");
+    private final KitText meta = HomeViews.named(HomeViews.caption(""), "home-hero-meta");
     private final Chip maxed = HomeViews.named(new Chip("", Tokens.Tone.WARN), "home-hero-maxed");
     private final Chip exalts = HomeViews.named(new Chip("", Tokens.Tone.ACCENT), "home-hero-exalts");
     private final Chip seen = HomeViews.named(new Chip("", Tokens.Tone.NEUTRAL), "home-hero-seen");
     private final ItemSlot[] gear = new ItemSlot[4];
     private final StatBar[] bars = new StatBar[8];
-    private final HomeViews.Text[] gearTiers = new HomeViews.Text[4], values = new HomeViews.Text[8], boosts = new HomeViews.Text[8];
-    private final HomeViews.Text needs = HomeViews.named(HomeViews.caption(""), "home-hero-needs");
-    private final HomeViews.Text account = HomeViews.named(HomeViews.caption(""), "home-hero-account");
+    private final KitText[] gearTiers = new KitText[4], values = new KitText[8], boosts = new KitText[8];
+    private final KitText needs = HomeViews.named(HomeViews.caption(""), "home-hero-needs");
+    private final KitText account = HomeViews.named(HomeViews.caption(""), "home-hero-account");
     private final StatTile weaponDps = HomeViews.named(new StatTile("Weapon DPS"), "home-hero-weapon-dps");
     private final StatTile mpPerSecond = HomeViews.named(new StatTile("MP/sec"), "home-hero-mp");
     private final EmptyState empty = HomeViews.named(new EmptyState("No character yet",
@@ -53,7 +55,7 @@ final class HeroCard extends HomeCard {
     private HomeModel.Hero shown;
     private String shownSeen = "";
 
-    HeroCard(Runnable openCharacters, Runnable openBuild, DisplayModeModel mode) {
+    HeroCard(Consumer<String> openCharacter, Runnable openBuild, DisplayModeModel mode) {
         super(mode, "home-hero", "No capture evidence yet.");
         title(NO_NAME);
         name = titleLabel(header(), NO_NAME);
@@ -64,7 +66,8 @@ final class HeroCard extends HomeCard {
         build.addActionListener(e -> openBuild.run());
         header().actions().add(build, 0);
         content = layoutContent();
-        onOpen("Open Characters", openCharacters);
+        // The shown hero's own sheet at Overview (TomatoGUI routes by its journal key); without a key, the Characters list.
+        onOpen("Open Characters", () -> openCharacter.accept(shown == null ? null : shown.key()));
         status(HomeViews.LOADING, "Character: loading");
     }
 
@@ -93,7 +96,7 @@ final class HeroCard extends HomeCard {
             bars[i] = HomeViews.named(new StatBar(), "home-hero-bar-" + i);
             bars[i].getAccessibleContext().setAccessibleName(STATS[i]);
             values[i] = HomeViews.named(HomeViews.caption(""), "home-hero-value-" + i);
-            boosts[i] = HomeViews.named(new HomeViews.Text("", Type.caption(), Tokens.Role.ACCENT_TEXT), "home-hero-boost-" + i);
+            boosts[i] = HomeViews.named(new KitText("", Type.caption(), Tokens.Role.ACCENT_TEXT), "home-hero-boost-" + i);
             JPanel numbers = HomeViews.clear(new FlowLayout(FlowLayout.TRAILING, Tokens.XS, 0), values[i], boosts[i]);
             stats.add(HomeViews.beside(bars[i], HomeViews.beside(numbers, HomeViews.caption(STATS[i]), BorderLayout.WEST, Tokens.XS), BorderLayout.NORTH, 2));
         }
@@ -143,7 +146,8 @@ final class HeroCard extends HomeCard {
         footer.setVisible(needs.isVisible() || account.isVisible());
         // The name stays stable while time passes; "Last seen N ago" is the description, so assistive technology is not re-announced.
         getAccessibleContext().setAccessibleName(who + ", " + kind + (hero.level() == null ? "" : " level " + hero.level())
-            + (hero.maxed() >= 0 ? ", " + hero.maxed() + " of 8 maxed" : "") + (live ? "" : ", not in game") + ". Open Characters");
+            + (hero.maxed() >= 0 ? ", " + hero.maxed() + " of 8 maxed" : "") + (live ? "" : ", not in game")
+            + (hero.key() == null ? ". Open Characters" : ". Open character sheet"));
         getAccessibleContext().setAccessibleDescription(live ? null : seenText);
         body(content);
     }

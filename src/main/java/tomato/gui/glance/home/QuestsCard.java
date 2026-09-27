@@ -7,6 +7,7 @@ import tomato.gui.kit.Chip;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.ItemSlot;
+import tomato.gui.kit.KitText;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.DisplayFormat;
@@ -17,9 +18,9 @@ import tomato.gui.modern.DisplayFormat;
  */
 final class QuestsCard extends HomeCard {
     static final int SHOWN = 3, REWARDS = 4;
-    private final HomeViews.Text counts = HomeViews.named(HomeViews.caption(""), "home-quests-counts");
-    private final HomeViews.Text age = HomeViews.named(HomeViews.caption(""), "home-quests-age");
-    private final HomeViews.Text none = HomeViews.named(HomeViews.body("No pinned quests · Pin quests on the Quests page"), "home-quests-none");
+    private final KitText counts = HomeViews.named(HomeViews.caption(""), "home-quests-counts");
+    private final KitText age = HomeViews.named(HomeViews.caption(""), "home-quests-age");
+    private final KitText none = HomeViews.named(HomeViews.body("No pinned quests · Pin quests on the Quests page"), "home-quests-none");
     private final Chip stale = HomeViews.named(new Chip("May be out of date", Tokens.Tone.WARN), "home-quests-stale");
     private final QuestRow[] rows = new QuestRow[SHOWN];
     private final EmptyState empty = HomeViews.named(new EmptyState("No quests captured",
@@ -88,7 +89,7 @@ final class QuestsCard extends HomeCard {
 
     /** One pinned quest: name, Repeatable / One-time and Done badges, up to four reward sprites and "+N". */
     private static final class QuestRow extends JPanel {
-        private final HomeViews.Text name = HomeViews.body(""), more = HomeViews.caption("");
+        private final KitText name = HomeViews.body(""), more = HomeViews.caption("");
         private final Chip kind = new Chip("", Tokens.Tone.INFO), done = new Chip(HomeViews.glyph('✓', "Done"), Tokens.Tone.GOOD);
         private final ItemSlot[] rewards = new ItemSlot[REWARDS];
 

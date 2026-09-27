@@ -34,7 +34,7 @@ public record NavEntry(String id, int page, String title, String description, in
         new NavEntry("bridge-review", 12, "Bridge Review", "Review detected loot, configure guild exports and troubleshoot delivery.", 13, Group.ADVANCED),
         new NavEntry("settings", 13, "Settings", "Notifications, sounds and appearance.", LineIcon.GEAR, Group.SETTINGS),
         // Build was My Info; its ID stays so saved preferences still recognise (and ignore) it.
-        new NavEntry("my-info", 6, "Build", "Weapon damage, recovery and estimates for your current character.", LineIcon.INFO, Group.UNLISTED));
+        new NavEntry("my-info", 6, "Build", "Build moved to the character sheet: open a character and choose Build.", LineIcon.INFO, Group.UNLISTED));
 
     public NavEntry {
         if (id == null || !ID.matcher(id).matches())

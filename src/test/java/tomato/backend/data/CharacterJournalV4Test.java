@@ -43,7 +43,7 @@ public class CharacterJournalV4Test {
         assertTrue("Nothing changed, so the v3 file is not rewritten", read(path).contains("\"version\":3"));
         j.accountLive(ACCOUNT, 782, 70, 1200L, 12345L, new int[]{50, 40, 3, 4, 5, 6, 7, 8}, 5000); j.save();
         String saved = read(path);
-        assertTrue(saved.contains("\"version\": 4")); assertTrue(saved.contains("\"liveExaltBonus\"")); assertTrue(saved.contains("\"rankStars\": 70"));
+        assertTrue(saved.contains("\"version\": 5")); assertTrue(saved.contains("\"liveExaltBonus\"")); assertTrue(saved.contains("\"rankStars\": 70"));
         CharacterJournal reopened = new CharacterJournal(path);
         CharacterJournal.AccountRecord live = reopened.accountCopy(ACCOUNT);
         assertEquals(Integer.valueOf(70), live.rankStars); assertEquals(Long.valueOf(1200), live.gold);
@@ -145,7 +145,7 @@ public class CharacterJournalV4Test {
     }
 
     @Test public void newerOrMalformedJournalsStayReadOnly() throws Exception {
-        Path path = file(); String newer = v3Document(ACCOUNT).replace("\"version\":3", "\"version\":5");
+        Path path = file(); String newer = v3Document(ACCOUNT).replace("\"version\":3", "\"version\":6");
         write(path, newer);
         CharacterJournal j = new CharacterJournal(path);
         assertTrue(j.storageStatus().contains("Original preserved")); assertTrue(j.characters().isEmpty());

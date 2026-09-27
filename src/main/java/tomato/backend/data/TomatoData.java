@@ -85,6 +85,10 @@ public class TomatoData {
     private PetAvailability petAvailability = PetAvailability.UNKNOWN;
     /** Home's view of the local character; published beside every My Info snapshot and cleared with it. */
     public final LiveCharacter liveCharacter = new LiveCharacter();
+    /** What Home's last detach was made from (capture thread); an unchanged key while its snapshot is current needs no new detach. */
+    private record LiveKey(MyInfoIdentity identity, Entity player, long playerRevision, Entity pet, long petRevision, PetAvailability availability) {}
+    private LiveKey liveKey;
+    private LiveCharacter.Snapshot livePublished;
     private final ProgressionData progression = new ProgressionData();
     public ProgressionData progression() { return progression; }
     public void captureStopped() { progression.captureStopped(); liveCharacter.stop(System.currentTimeMillis()); }
@@ -159,9 +163,16 @@ public class TomatoData {
         Entity companion = ownedPet ? pet : null;
         PetAvailability availability = ownedPet ? petAvailability : PetAvailability.UNKNOWN;
         MyInfoGUI.updateSnapshot(this, identity, value, companion, availability);
-        // Home: detached copies of My Info's inputs; Home estimates from them on its own thread, never here.
+        // Home: detached copies of My Info's inputs; Home estimates from them on its own thread, never here. A tick publishes at
+        // least twice (the entity update, then the tick): the same observation of the same pair is detached once. My Info's own
+        // snapshot above still runs every time, because its callers may set stats without a new observation.
+        LiveKey key = new LiveKey(identity, value, value.observationRevision(), companion,
+            companion == null ? -1 : companion.observationRevision(), availability);
+        if (key.equals(liveKey) && livePublished != null && liveCharacter.current() == livePublished) return;
         liveCharacter.publish(LiveCharacter.read(identity.account, identity.characterId, value,
             BuildEstimates.Inputs.detach(value, companion, availability), System.currentTimeMillis()));
+        liveKey = key;
+        livePublished = liveCharacter.current();   // null when a stopped capture rejected it, so the next call publishes again
     }
 
     /** Unscoped/stale pet callbacks may only republish the currently bound owner/pet pair. */
@@ -202,6 +213,10 @@ public class TomatoData {
         String account = characterJournal().observe(player, charId);
         if (account == null) return;
         journalAccount = account;
+        if (journalCompletions != null && journalCompletionsCharacter == charId) {
+            characterJournal().dungeonCompletions(account, charId, journalCompletions, journalCompletionsAt);
+            journalCompletions = null;
+        }
         StatData stars = player.stat.get(StatType.NUM_STARS_STAT), gold = player.stat.get(StatType.CREDITS_STAT),
             fame = player.stat.get(StatType.FAME_STAT);
         characterJournal().accountLive(account, player.typeCapture() == null ? -1 : player.objectType,
@@ -222,6 +237,10 @@ public class TomatoData {
     private ArrayList<Packet> dpsPacketLog = new ArrayList<>();
     private boolean petyard;
     private RealmCharacterStats currentCharacterStats;
+    // A complete PCStats decode from CREATE, kept until rememberCharacter has verified the account it belongs to.
+    private int[] journalCompletions;
+    private int journalCompletionsCharacter = -1;
+    private long journalCompletionsAt;
     private final TreeSet<Integer> lootBags = new TreeSet<>();
     private int lootTickToggle = 0;
     private final ArrayList<Entity>[] lootTickContainer = new ArrayList[] {
@@ -332,6 +351,8 @@ public class TomatoData {
         resetMyInfo(null, charId, objectId);
         updateDungeonStats(charId, str);
         packets.packetcapture.logger.DiscoveryLog.INSTANCE.completionStats(charId, currentCharacterStats.completionCounts());
+        journalCompletions = currentCharacterStats.completionCounts();   // null unless the payload decoded completely
+        journalCompletionsCharacter = charId; journalCompletionsAt = System.currentTimeMillis();
     }
 
     public void petYardCheck(String displayName) {
@@ -581,6 +602,8 @@ public class TomatoData {
         Map<Integer, FieldCapture> fields = new HashMap<>();
         for (StatData field : delta) fields.put(field.statTypeNum, value.fieldCapture(field.statTypeNum));
         progression.pet(progression.scope(), value.id, new Stat(delta), value.observedAt(), "Pet Yard capture", fields);
+        CharacterJournal.PetRecord seen = yardPetRecord(value);   // the entity's accumulated pet fields, not only this delta
+        if (seen != null && journalAccount != null) characterJournal().yardPet(journalAccount, seen);
     }
 
     /**
@@ -1206,13 +1229,20 @@ public class TomatoData {
     }
 
     public void vaultPacketUpdate(VaultContentPacket p) {
-        if (player != null) {
-            if (player.stat.get(StatType.SEASONAL).statValue == 1) {
-                vaultDataRecievedSeasonal = true;
-                seasonalVault.vaultPacketUpdate(p);
-            } else {
-                vaultDataRecievedRegular = true;
-                regularVault.vaultPacketUpdate(p);
+        if (player == null) return;
+        // Without the SEASONAL stat the contents cannot be attributed to either vault (reading it used to throw).
+        StatData season = player.stat.get(StatType.SEASONAL);
+        if (season == null) return;
+        if (season.statValue == 1) {
+            vaultDataRecievedSeasonal = true;
+            seasonalVault.vaultPacketUpdate(p);
+        } else {
+            vaultDataRecievedRegular = true;
+            regularVault.vaultPacketUpdate(p);
+            if (p.lastVaultPacket) {   // the regular vault's totals are complete now
+                int[] potions = new int[8];
+                regularVault.getVaultChestPots(potions); regularVault.getPotStoragePots(potions); regularVault.getGiftChestPots(potions);
+                characterJournal().vaultPotions(journalAccount, potions, System.currentTimeMillis());
             }
         }
     }
@@ -1293,7 +1323,8 @@ public class TomatoData {
     }
 
     private static boolean hasPetFields(RealmCharacter c) {
-        for (String field : c.presence.keySet()) if (field.startsWith("pet.")) return true;
+        // "pet.none" only records an explicitly empty <Pet/> (see CharacterJournal.rosterPet); it is not a stat to publish.
+        for (String field : c.presence.keySet()) if (field.startsWith("pet.") && !field.equals("pet.none")) return true;
         return false;
     }
 
@@ -1609,19 +1640,23 @@ public class TomatoData {
                 case "Level": c.level=Integer.parseInt(value); c.supplied("level"); break;
                 case "Texture": c.skin=Integer.parseInt(value); c.supplied("skin"); break;
                 case "CreationDate": c.date=value; c.supplied("created"); break;
-                case "HasBackpack": c.backpack="1".equals(value); break;
+                case "HasBackpack": c.backpack="1".equals(value); c.supplied("backpack"); break;
                 case "Has3Quickslots": c.qs3="1".equals(value); break;
                 case "Seasonal":
                     if ("True".equalsIgnoreCase(value) || "False".equalsIgnoreCase(value)) { c.seasonal=Boolean.parseBoolean(value); c.supplied("seasonal"); }
                     break;
-                case "Exp": c.exp=Long.parseLong(value); break;
+                case "Exp": c.exp=Long.parseLong(value); c.supplied("exp"); break;
                 case "CurrentFame": c.fame=Long.parseLong(value); c.supplied("fame"); break;
                 case "PCStats":
                     c.pcStats=value;
                     try { c.charStats=new RealmCharacterStats(); c.charStats.decode(value); }
                     catch (RuntimeException e) { c.charStats=null; }
+                    // Presence marks a complete decode; the journal decodes the list's PCStats string again (capture may overlay charStats).
+                    if (c.charStats != null && c.charStats.completionCounts() != null) c.supplied("dungeons");
                     break;
                 case "Pet":
+                    // An explicitly empty <Pet/> is a known absence (the journal saves "no pet"); omitted or partial metadata stays unknown.
+                    if (!field.hasAttributes() && children(field).isEmpty() && value.isEmpty()) c.supplied("pet.none");
                     c.petCreatedOn=field.getAttribute("createdOn"); c.petName=field.getAttribute("name");
                     c.petInstanceId=attributeInt(field,"instanceId"); c.petMaxAbilityPower=attributeInt(field,"maxAbilityPower");
                     c.petRarity=attributeInt(field,"rarity"); c.petSkin=attributeInt(field,"skin"); c.petType=attributeInt(field,"type");
@@ -1649,6 +1684,28 @@ public class TomatoData {
         return c;
     }
 
+    /** The journal's view of a Pet Yard pet entity (every pet field captured so far), or null without an instance id. */
+    private static CharacterJournal.PetRecord yardPetRecord(Entity value) {
+        StatData id = value.stat.get(StatType.PET_INSTANCE_ID_STAT), name = value.stat.get(StatType.PET_NAME_STAT);
+        if (id == null) return null;
+        CharacterJournal.PetRecord pet = new CharacterJournal.PetRecord();
+        pet.instanceId = (long) id.statValue; pet.name = name == null ? null : name.stringStatValue;
+        pet.type = statInt(value, StatType.PET_TYPE_STAT); pet.rarity = statInt(value, StatType.PET_RARITY_STAT);
+        pet.family = statInt(value, StatType.PET_FAMILY_STAT); pet.maxAbilityPower = statInt(value, StatType.PET_MAX_ABILITY_POWER_STAT);
+        pet.skin = statInt(value, StatType.SKIN_ID);
+        StatType[][] abilities = {{StatType.PET_FIRST_ABILITY_POINT_STAT, StatType.PET_FIRST_ABILITY_POWER_STAT, StatType.PET_FIRST_ABILITY_TYPE_STAT},
+            {StatType.PET_SECOND_ABILITY_POINT_STAT, StatType.PET_SECOND_ABILITY_POWER_STAT, StatType.PET_SECOND_ABILITY_TYPE_STAT},
+            {StatType.PET_THIRD_ABILITY_POINT_STAT, StatType.PET_THIRD_ABILITY_POWER_STAT, StatType.PET_THIRD_ABILITY_TYPE_STAT}};
+        for (int i = 0; i < 3; i++) {
+            Integer points = statInt(value, abilities[i][0]), level = statInt(value, abilities[i][1]), type = statInt(value, abilities[i][2]);
+            pet.abilityPoints[i] = points == null || points < 0 ? -1 : points;
+            pet.abilityLevel[i] = level == null || level < 0 ? -1 : level;
+            pet.abilityType[i] = type == null || type < 0 ? -1 : type;
+        }
+        pet.observedAt = Math.max(0, value.observedAt()); pet.source = "Pet Yard capture";
+        return pet;
+    }
+    private static Integer statInt(Entity entity, StatType type) { StatData s = entity.stat.get(type); return s == null ? null : s.statValue; }
     private static int attributeInt(Element node, String name) {
         return node.hasAttribute(name) ? Integer.parseInt(node.getAttribute(name)) : 0;
     }

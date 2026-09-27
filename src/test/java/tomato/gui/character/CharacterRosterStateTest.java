@@ -11,6 +11,7 @@ import tomato.realmshark.RealmCharacter;
 import static org.junit.Assert.*;
 
 public class CharacterRosterStateTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Test @SuppressWarnings({"rawtypes", "unchecked"}) public void capturedMarkupLabelsStayLiteralInBoundedChoiceTooltips() throws Exception {
         String name = "<html><img src='https://invalid.example/image'>Account & <b>name</b>";
@@ -58,12 +59,17 @@ public class CharacterRosterStateTest {
         journal.mergeRoster(account, Arrays.asList(character(1, 650, 1000), character(2, 650, 2000)));
         AtomicLong clock = new AtomicLong(2000); RosterDefinitions definitions = CharacterRosterQueryTest.definitions();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterJournalGUI view = new CharacterJournalGUI(journal, clock::get, () -> definitions);
+            CharacterRosterView roster = RosterFixtures.view(journal, clock::get, () -> definitions);
+            CharacterJournalGUI view = roster.listPanel();
             JTable table = named(view, "character-roster", JTable.class);
             for (int i = 0; i < table.getRowCount(); i++) if (table.getValueAt(i,0).toString().endsWith("#1")) table.setRowSelectionInterval(i,i);
-            named(view, "character-notes", JTextArea.class).setText("Draft for character one");
+            RosterFixtures.enter(roster);
+            named(roster.sheet(), "character-notes", JTextArea.class).setText("Draft for character one");
+            roster.showList();
+            assertEquals("Back saves the draft to its own character", "Draft for character one", journal.characters().stream().filter(r -> r.characterId == 1).findFirst().get().notes);
             named(view, "character-facet-8", JSpinner.class).setValue(1); named(view, "character-facet-7", JComboBox.class).setSelectedIndex(1);
             clock.set(3601000); view.refresh(); assertEquals(1, table.getRowCount()); assertTrue(table.getValueAt(0,0).toString().endsWith("#2"));
+            RosterFixtures.enter(roster);
             assertEquals("Draft for character one", journal.characters().stream().filter(r -> r.characterId == 1).findFirst().get().notes);
             assertEquals("", journal.characters().stream().filter(r -> r.characterId == 2).findFirst().get().notes);
         });

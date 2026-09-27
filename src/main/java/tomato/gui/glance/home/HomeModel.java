@@ -25,11 +25,11 @@ public record HomeModel(Hero hero, Now now, Today today, Runs runs, Quests quest
         Objects.requireNonNull(runs, "runs"); Objects.requireNonNull(quests, "quests");
     }
 
-    /** {@code maxed} 0-8 or -1; {@code exaltTiers} sum over 8 stats or -1; {@code lastSeenAt} when a STALE character was last seen (epoch ms), 0 while LIVE. */
+    /** {@code maxed} 0-8 or -1; {@code exaltTiers} sum over 8 stats or -1; {@code lastSeenAt} when a STALE character was last seen (epoch ms), 0 while LIVE; {@code key} the journal key of the character's sheet ("<64 hex>:<characterId>"), null when unknown. */
     public record Hero(State state, String name, int classId, String className, Integer skin, Integer level,
                        DisplayValue fame, int maxed, int[] base, int[] caps, int[] totals, int[] potionsNeeded,
                        String needsLine, int exaltTiers, int[] equipment, DisplayValue weaponDps, DisplayValue mpPerSecond,
-                       String accountLine, long lastSeenAt, String evidence) {
+                       String accountLine, long lastSeenAt, String evidence, String key) {
         public Hero {
             Objects.requireNonNull(state, "state");
             fame = orUnknown(fame); weaponDps = orUnknown(weaponDps); mpPerSecond = orUnknown(mpPerSecond);
@@ -46,14 +46,14 @@ public record HomeModel(Hero hero, Now now, Today today, Runs runs, Quests quest
                 && Objects.equals(skin, h.skin) && Objects.equals(level, h.level) && fame.equals(h.fame) && Arrays.equals(base, h.base)
                 && Arrays.equals(caps, h.caps) && Arrays.equals(totals, h.totals) && Arrays.equals(potionsNeeded, h.potionsNeeded)
                 && needsLine.equals(h.needsLine) && Arrays.equals(equipment, h.equipment) && weaponDps.equals(h.weaponDps)
-                && mpPerSecond.equals(h.mpPerSecond) && accountLine.equals(h.accountLine) && evidence.equals(h.evidence);
+                && mpPerSecond.equals(h.mpPerSecond) && accountLine.equals(h.accountLine) && evidence.equals(h.evidence) && Objects.equals(key, h.key);
         }
         @Override public int hashCode() {
-            return Objects.hash(state, name, classId, level, fame, maxed, Arrays.hashCode(base), Arrays.hashCode(totals), Arrays.hashCode(equipment), lastSeenAt);
+            return Objects.hash(state, name, classId, level, fame, maxed, Arrays.hashCode(base), Arrays.hashCode(totals), Arrays.hashCode(equipment), lastSeenAt, key);
         }
         /** No character data (loading, empty or unavailable): every value unknown; {@code evidence} says why. */
         public static Hero placeholder(State state, String evidence) {
-            return new Hero(state, null, -1, null, null, null, null, -1, null, null, null, null, "", -1, null, null, null, "", 0, evidence);
+            return new Hero(state, null, -1, null, null, null, null, -1, null, null, null, null, "", -1, null, null, null, "", 0, evidence, null);
         }
     }
     /** {@code area} null = no active visit; outside dungeons only area and capture state are filled; {@code localRank} 0 = not on the meter. */

@@ -85,6 +85,22 @@ public class HomeModelBuilderTest {
         assertNotEquals(first, hero(live(CAPS.clone(), 100L, NOW - 100), estimates(11.0, 1.0), null, account(), 0));
     }
 
+    @Test public void theHeroCarriesTheJournalKeyOfTheSheetItOpens() {
+        String account = CharacterJournal.accountKey("sample-account");
+        LiveCharacter.Snapshot keyed = new LiveCharacter.Snapshot(account, 7, CLASS, "Tester", 900, 20, 100L, new int[]{800, 300, 90, 30, 60, 80, 50, 70},
+            CAPS.clone(), new int[]{1001, 1002, 0, 1004}, null, null, null, null, null, NOW - 500);
+        HomeModel.Hero inGame = hero(keyed, null, null, account(), 0);
+        assertEquals("A live hero opens its own sheet", account + ":7", inGame.key());
+        assertNull("An account that is not a journal key opens the Characters list", hero(live(CAPS.clone(), 100L), null, null, account(), 0).key());
+        CharacterJournal.CharacterRecord saved = new CharacterJournal.CharacterRecord();
+        saved.key = account + ":9"; saved.account = account; saved.characterId = 9; saved.classId = CLASS; saved.lastSeen = NOW - 60_000L;
+        assertEquals("A saved hero opens that record's sheet", account + ":9", hero(null, null, saved, account(), 0).key());
+        saved.key = "account-A:9";
+        assertNull("A malformed saved key is never routed", hero(null, null, saved, account(), 0).key());
+        assertNull("No character, no key", hero(null, null, null, null, 0).key());
+        assertNotEquals("The key is part of the hero's content", inGame, HomeModels.withKey(inGame, null));
+    }
+
     @Test public void needsLineShowsThreeStatsThenACount() {
         HomeModel.Hero h = hero(live(new int[]{710, 247, 72, 24, 45, 75, 40, 60}, 1L), null, null, null, 0);
         assertEquals(3, h.maxed());
@@ -220,6 +236,17 @@ public class HomeModelBuilderTest {
         assertEquals("Last updated 5 min ago · disk full", staleRuns.reason());
         assertEquals("Totals compare by content", some, new HomeArchive.Totals(TODAY, 0, 1, 1, 2, true, 0L, null, new double[12], 0, 0, 0, 0, true));
         assertNotEquals("Whether runs were saved is content", some, new HomeArchive.Totals(TODAY, 0, 1, 1, 2, false, 0L, null, new double[12], 0, 0, 0, 0, true));
+    }
+
+    @Test public void aPeriodWithUnreadableSessionsIsNeverEmpty() {
+        HomeArchive.Totals nothing = new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false, 1);
+        assertEquals("Its runs may be in the unreadable session", State.LIVE, HomeModelBuilder.today(TODAY, new HomeArchive.Result(nothing, List.of()), null).state());
+        assertEquals("The P2 constructor: every session readable", 0, new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false).unreadableSessions());
+        assertNotEquals(nothing, new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false, 2));
+        HomeModel.Runs skipped = HomeModelBuilder.runs(new HomeArchive.Result(nothing, List.of(), 2), null);
+        assertEquals("No readable run, but two sessions may hold newer ones: not empty", State.LIVE, skipped.state());
+        assertEquals("2 saved sessions could not be read", skipped.reason());
+        assertEquals("The P2 constructor: nothing skipped", State.EMPTY, HomeModelBuilder.runs(new HomeArchive.Result(nothing, List.of()), null).state());
     }
 
     @Test public void questsShowPinnedQuestsOnlyWithCountsAndStaleness() {

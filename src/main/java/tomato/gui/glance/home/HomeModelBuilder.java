@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.function.*;
+import java.util.regex.Pattern;
 import packets.data.QuestData;
 import packets.packetcapture.logger.DiscoveryLog;
 import tomato.backend.data.*;
@@ -38,6 +39,9 @@ public final class HomeModelBuilder {
 
     private HomeModelBuilder() {}
 
+    /** Short canonical stat label: LIFE, MANA, ATT, DEF, SPD, DEX, VIT, WIS (the character sheet uses Home's wording). */
+    public static String statLabel(int index) { return STAT_LABELS[index]; }
+
     /**
      * {@code live} is LiveCharacter.current() with {@code lastSeenAt} 0, or (not in game) LiveCharacter.lastKnown() with
      * LiveCharacter.lastSeenAt() and {@code boundary}, LiveCharacter.lastBoundary(); see {@link #stillCurrent}.
@@ -61,7 +65,7 @@ public final class HomeModelBuilder {
      * True while the live character is in game ({@code lastSeenAt} 0) or was cleared by a TRANSIENT boundary at most
      * MAP_CHANGE_GRACE_MILLIS ago; a capture stop, another account or character, or an unknown reason ends it at once.
      */
-    static boolean stillCurrent(long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
+    public static boolean stillCurrent(long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
         return lastSeenAt <= 0 || boundary == LiveCharacter.Boundary.TRANSIENT && now - lastSeenAt <= MAP_CHANGE_GRACE_MILLIS;
     }
 
@@ -89,7 +93,7 @@ public final class HomeModelBuilder {
             estimate(dps, 0, basis + " with the Build page's method; not a recorded measurement", DPS_UNKNOWN),
             estimate(mp, 1, basis + " with the Build page's method", MP_UNKNOWN),
             // A live hero carries no stale label, so saved values may fill the account line only on a stale one (spec §1).
-            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence);
+            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence, live.journalKey());
     }
 
     private static HomeModel.Hero fromJournal(CharacterJournal.CharacterRecord last, CharacterJournal.AccountRecord account,
@@ -109,15 +113,18 @@ public final class HomeModelBuilder {
             + "enter the game with capture on. " + POTION_RULE + " Exalt tiers from saved account exalts" + (exalt < 0 ? " (not captured yet)" : "") + ".";
         return new HomeModel.Hero(State.STALE, name(last.name, className, last.characterId), classId, className, last.skin, last.level,
             fame, maxed, base, cap, null, need, needsLine(need, maxed), exalt, slots, DisplayValue.unknown(DPS_UNKNOWN),
-            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence);
+            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence, sheetKey(last.key));
     }
 
-    static int[] potionsNeeded(int[] base, int[] caps) {
+    private static final Pattern SHEET_KEY = Pattern.compile("[0-9a-f]{64}:[0-9]+");
+    /** A journal key the character sheet accepts ("<64 hex>:<characterId>"), else null: the hero then opens the Characters list. */
+    static String sheetKey(String key) { return key != null && SHEET_KEY.matcher(key).matches() ? key : null; }
+    public static int[] potionsNeeded(int[] base, int[] caps) {
         int[] need = new int[8];
         for (int i = 0; i < 8; i++) need[i] = base[i] < 0 || caps[i] < 0 ? -1 : CharacterJournal.potions(base[i], caps[i], i);   // -1 = unknown
         return need;
     }
-    static int maxed(int[] need) { int count = 0; for (int n : need) { if (n < 0) return -1; if (n == 0) count++; } return count; }
+    public static int maxed(int[] need) { int count = 0; for (int n : need) { if (n < 0) return -1; if (n == 0) count++; } return count; }
     static String needsLine(int[] need, int maxed) {
         if (maxed < 0 || maxed == 8) return "";
         List<String> parts = new ArrayList<>();
@@ -186,7 +193,9 @@ public final class HomeModelBuilder {
         if (failure != null) return new HomeModel.Today(State.UNAVAILABLE, window, null, "Saved history could not be read: " + oneLine(failure));
         if (result == null) return HomeModel.Today.placeholder(State.LOADING, window);
         HomeArchive.Totals t = result.totals();
-        boolean empty = t.runsEntered() == 0 && t.fameGained() == null && t.untiered() + t.setTiered() + t.whiteBags() + t.potions() == 0;
+        // Unreadable sessions may hold this period's records: never "nothing recorded" while any exist.
+        boolean empty = t.unreadableSessions() == 0 && t.runsEntered() == 0 && t.fameGained() == null
+            && t.untiered() + t.setTiered() + t.whiteBags() + t.potions() == 0;
         return new HomeModel.Today(empty ? State.EMPTY : State.LIVE, window, t, !empty ? ""
             : window == HomeArchive.Window.TODAY ? "Nothing recorded today yet. Enter a dungeon with capture on."
             : "Nothing recorded this session yet. Enter a dungeon with capture on.");
@@ -195,8 +204,11 @@ public final class HomeModelBuilder {
     public static HomeModel.Runs runs(HomeArchive.Result result, Exception failure) {
         if (failure != null) return HomeModel.Runs.placeholder(State.UNAVAILABLE, "Saved runs could not be read: " + oneLine(failure));
         if (result == null) return HomeModel.Runs.placeholder(State.LOADING, "");
-        if (result.recent().isEmpty()) return HomeModel.Runs.placeholder(State.EMPTY, "No dungeon runs recorded yet. Enter a dungeon with capture on.");
-        return new HomeModel.Runs(State.LIVE, result.recent(), "");
+        // Saved sessions that could not be read may hold newer runs: say so above the rows instead of implying the list is complete.
+        String skipped = result.unreadableRecent() == 0 ? "" : TodayTiles.unreadableText(result.unreadableRecent());
+        if (result.recent().isEmpty() && skipped.isEmpty())
+            return HomeModel.Runs.placeholder(State.EMPTY, "No dungeon runs recorded yet. Enter a dungeon with capture on.");
+        return new HomeModel.Runs(State.LIVE, result.recent(), skipped);
     }
 
     /** A re-read failed after a good read of the same window (read at {@code readAt}): keep its totals, labeled stale with age and reason (spec §7). */

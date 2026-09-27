@@ -16,6 +16,7 @@ import tomato.realmshark.RealmCharacter;
 
 /** Synthetic native fixtures. Screenshot production alone is not a visual/a11y pass. */
 public class CharacterWaveFourEvidenceTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public ui.WaveThreeEvidence.FixtureZone zone = new ui.WaveThreeEvidence.FixtureZone();
     @Test public void populatedEmptyAndUnavailablePlanningEquipmentAndDeathSurfaces() throws Exception {
@@ -35,15 +36,18 @@ public class CharacterWaveFourEvidenceTest {
                 Font previous = ContentStyle.body(); LookAndFeel look = UIManager.getLookAndFeel(); JFrame frame = null;
                 try {
                     VioletTheme.install(); frame = new JFrame("Synthetic Wave 4 character evidence");
-                    CharacterJournalGUI panel = new CharacterJournalGUI(journal, () -> 1700000001000L, () -> definitions, plans);
+                    CharacterRosterView panel = RosterFixtures.view(journal, () -> 1700000001000L, () -> definitions, plans);
                     frame.setContentPane(panel); frame.setSize(1080, 800); frame.setVisible(true); frame.validate();
-                    JTabbedPane tabs = named(panel, "character-detail-tabs", JTabbedPane.class);
+                    RosterFixtures.enter(panel); frame.validate();
+                    JTabbedPane tabs = named(panel, "character-tabs", JTabbedPane.class);
                     tabs.setSelectedIndex(tabs.indexOfTab("Goals")); named(panel, "planning-0", JComboBox.class).setSelectedIndex(1);
                     JTable goals = named(panel, "planning-8", JTable.class); assertEquals(2, goals.getRowCount());
                     ContentStyle.reveal(goals, goals.getCellRect(0, 0, true)); capture(frame, "goals-populated");
                     frame.setSize(680, 520); frame.validate(); ContentStyle.reveal(goals, goals.getCellRect(0, 0, true)); capture(frame, "goals-compact");
                     named(panel, "planning-7", JTextField.class).setText("no-matching-fixture"); assertEquals(0, goals.getRowCount()); capture(frame, "goals-empty-search"); named(panel, "planning-7", JTextField.class).setText("");
-                    tabs.setSelectedIndex(tabs.indexOfTab("Equipment & inventory")); JTable gear = named(panel, "character-equipment", JTable.class); assertEquals(28, gear.getRowCount()); ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
+                    tabs.setSelectedIndex(tabs.indexOfTab("Gear")); JTable gear = named(panel, "character-equipment", JTable.class);
+                    tomato.gui.activity.SnapshotTestSupport.await(() -> gear.getRowCount() == 28); // the Gear tab's slot table fills off the EDT
+                    ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
                     tabs.setSelectedIndex(tabs.indexOfTab("Death annotation")); JTextField occurred = named(panel, "death-occurred", JTextField.class); ContentStyle.reveal(occurred, new Rectangle(0, 0, occurred.getWidth(), occurred.getHeight())); capture(frame, "death-unavailable-link");
                     ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 22)); ContentStyle.applyFontDefaults(); ContentStyle.refreshFonts(frame); ui.UiTestLayout.settle(frame);
                     float metadataSize = ContentStyle.metadata(ContentStyle.body()).getSize2D();

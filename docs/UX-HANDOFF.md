@@ -1,15 +1,19 @@
 # Four-wave UX implementation handoff
 
-Current redesign handoff (2026-09-26): the four waves are complete. P0 merged
+**Latest redesign handoff (2026-09-27): read [the redesign handoff](superpowers/plans/2026-09-27-redesign-handoff.md) first.**
+- It covers the state, open PR #22 and its two Codex threads, the user's decisions, the review and implementation process, build and test notes, and the P3b plan inputs.
+- It supersedes session-local notes when you switch machines, including cloud sessions.
+
+Current redesign handoff (2026-09-27): the four waves are complete. P0 merged
 in PR #17 (`9b6844a`); P1a design kit merged in PR #18 (`7b3e0c5`), including fix `ee8d085`.
 Use the [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md)
-and [P2 validation](superpowers/plans/2026-09-26-p2-validation.md) for current
+and [P3a validation](superpowers/plans/2026-09-27-p3a-validation.md) for current
 scope and evidence. Every phase uses `claude/realmshark-ui-ux-redesign-cb0914`.
 P1b merged in PR #19 as `0abafe4`, including `a011bfd`. P1c merged in PR #20 as
-`e973f10`, including `4ca1657`. P2 (Home) is implemented, pending PR merge. Focused
-checks, the final full suite and JAR smoke are recorded in the P2 validation; see the
-P2 PR for independent final-head review. Verify merged main before starting P3.
-The older resumption instructions below are historical.
+`e973f10`, including `4ca1657`. P2 merged in PR #21 as `94db6f6`. P3a (Characters) is
+implemented, pending PR merge. Focused checks, S2/S5, the final full suite and JAR smoke
+are recorded in the P3a validation; see the P3a PR for independent final-head review.
+Verify merged main before starting P3b. The older resumption instructions below are historical.
 
 Current policy (user approved 2026-09-26): CI is manual-only, not required for
 merges. Follow AGENTS.md for focused local validation; historical CI gates below

@@ -2,6 +2,10 @@ package tomato.backend.data;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -11,7 +15,9 @@ import java.util.concurrent.*;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.realmshark.RealmCharacter;
+import tomato.realmshark.RealmCharacterStats;
 import tomato.realmshark.enums.CharacterClass;
+import tomato.realmshark.enums.CharacterStatistics;
 
 /** Local snapshots of the user's characters. Never serializes packets, entities or credentials. */
 public final class CharacterJournal implements AutoCloseable {
@@ -43,6 +49,28 @@ public final class CharacterJournal implements AutoCloseable {
         public String notes = "";
         public String source = "Captured character";
         public DeathAnnotation deathAnnotation;
+        /** v5: the pet as the character list last reported it (absent = TRUE: no pet), refreshed (with its family) by the Pet Yard; null = unknown. */
+        public PetRecord pet;
+        /** v5: dungeon name → completions from a complete PCStats decode, positive counts only. Null = unknown; absent in a map = 0. */
+        public Map<String, Integer> dungeonCompletions;
+        public long dungeonCompletionsObservedAt;
+        /** v5: from the character list; null = unknown. */
+        public Long exp;
+        public Boolean hasBackpack;
+    }
+    /**
+     * v5: a character's pet. A null value was not reported; ability arrays are in slot order with -1 = unknown. {@code absent}
+     * TRUE means the character list said the character has no pet (an explicitly empty element): a known "No pet", with every
+     * other value unknown. A character whose record has no PetRecord at all is unknown, never "No pet".
+     */
+    public static final class PetRecord {
+        public Boolean absent;
+        public Long instanceId;
+        public String name;
+        public Integer type, rarity, family, skin, maxAbilityPower;
+        public int[] abilityType = {-1, -1, -1}, abilityLevel = {-1, -1, -1}, abilityPoints = {-1, -1, -1};
+        public long observedAt;
+        public String source;
     }
     public static final class DeathAnnotation {
         public Long occurredAt;
@@ -61,13 +89,18 @@ public final class CharacterJournal implements AutoCloseable {
         public Integer rankStars;
         /** Latest receipt time of an account-wide live stat (epoch ms); 0 = never. */
         public long accountStatsObservedAt;
+        /** v5: class id → when that class's exalt counts last changed in this journal (epoch ms). */
+        public Map<Integer, Long> exaltSeenByClass = new TreeMap<>();
+        /** v5: stat potions in the regular vault chest, potion storage and gift chest, canonical order, greater = 2; null = unknown. */
+        public int[] vaultPotions;
+        public long vaultPotionsObservedAt;
     }
     public static final class ExaltBonus {
         public int[] bonus = new int[8];
         public long observedAt;
     }
     private static final class Document {
-        int version = 4;
+        int version = 5;
         List<CharacterRecord> characters = new ArrayList<>();
         Map<String, AccountRecord> accounts = new LinkedHashMap<>();
     }
@@ -81,6 +114,8 @@ public final class CharacterJournal implements AutoCloseable {
     private ScheduledExecutorService writer;
     private Thread shutdown;
     private final Map<String, CharacterRecord> pendingAlive = new HashMap<>();
+    /** A loaded version 1-4 file not yet backed up: the first save copies it once to <name>.v4.bak (saver thread, saveLock held). */
+    private volatile boolean backupPending;
 
     public CharacterJournal(Path path) {
         this(path, CharacterJournal::writeFile);
@@ -94,8 +129,10 @@ public final class CharacterJournal implements AutoCloseable {
         this.store = store;
         if (Files.exists(path)) {
             try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-                Document loaded = JSON.fromJson(reader, Document.class);
-                if (loaded == null || (loaded.version < 1 || loaded.version > 4) || loaded.characters == null || loaded.accounts == null)
+                JsonElement tree = JsonParser.parseReader(reader);
+                dropMalformedV5Fields(tree);
+                Document loaded = JSON.fromJson(tree, Document.class);
+                if (loaded == null || (loaded.version < 1 || loaded.version > 5) || loaded.characters == null || loaded.accounts == null)
                     throw new IOException("Unsupported journal");
                 for (CharacterRecord r : loaded.characters) {
                     if (r == null || r.key == null || r.account == null || r.stats == null || r.stats.length != 8
@@ -109,6 +146,7 @@ public final class CharacterJournal implements AutoCloseable {
                         r.deathAnnotation = new DeathAnnotation(); r.deathAnnotation.markedAt = r.diedAt;
                     }
                     if (r.deathAnnotation != null) validateAnnotation(r.deathAnnotation);
+                    normalizeV5(r);
                 }
                 for (AccountRecord a : loaded.accounts.values()) {
                     if (a == null || a.key == null || a.exalts == null) throw new IOException("Invalid account");
@@ -118,8 +156,10 @@ public final class CharacterJournal implements AutoCloseable {
                         if (bonus.getKey() == null || bonus.getValue() == null || !validExalts(bonus.getValue().bonus) || bonus.getValue().observedAt < 0)
                             throw new IOException("Invalid live exalt bonus");
                     if (a.accountStatsObservedAt < 0) throw new IOException("Invalid account observation time");
+                    normalizeV5(a);
                 }
-                loaded.version = 4;
+                backupPending = loaded.version < 5; // a pre-version-5 file is copied once before version 5 first replaces it
+                loaded.version = 5;
                 document = loaded;
             } catch (Exception e) {
                 readOnly = true;
@@ -226,6 +266,16 @@ public final class CharacterJournal implements AutoCloseable {
             if (c.presence.containsKey("fame")) r.fame = c.fame;
             if (c.presence.containsKey("seasonal")) r.seasonal = c.seasonal;
             if (c.presence.containsKey("created")) r.created = c.date;
+            if (c.presence.containsKey("exp")) r.exp = c.exp;
+            if (c.presence.containsKey("backpack")) r.hasBackpack = c.backpack;
+            // A delayed list never replaces newer completions (CREATE's PCStats) or a newer pet (the Pet Yard). The list's own
+            // PCStats string is decoded again: capture overlays the decoded stats of the character in game with CREATE's.
+            if (c.presence.containsKey("dungeons") && c.receivedAt >= r.dungeonCompletionsObservedAt) {
+                Map<String, Integer> completions = completions(listedCompletions(c.pcStats));
+                if (completions != null) { r.dungeonCompletions = completions; r.dungeonCompletionsObservedAt = c.receivedAt; }
+            }
+            PetRecord pet = rosterPet(c, r.pet);
+            if (pet != null) r.pet = pet;
             if (account(account).name != null) r.name = account(account).name;
             r.source = "Character list + capture";
             int[] values = {c.hp, c.mp, c.atk, c.def, c.spd, c.dex, c.vit, c.wis};
@@ -254,7 +304,8 @@ public final class CharacterJournal implements AutoCloseable {
         for (Map.Entry<Integer, int[]> entry : values.entrySet()) {
             if (!validExalts(entry.getValue())) continue;
             if (!Arrays.equals(a.exalts.get(entry.getKey()), entry.getValue())) {
-                a.exalts.put(entry.getKey(), entry.getValue().clone()); a.exaltSeen = System.currentTimeMillis(); changed();
+                long now = System.currentTimeMillis();
+                a.exalts.put(entry.getKey(), entry.getValue().clone()); a.exaltSeen = now; a.exaltSeenByClass.put(entry.getKey(), now); changed();
             }
         }
     }
@@ -281,6 +332,153 @@ public final class CharacterJournal implements AutoCloseable {
             }
         }
         if (change) changed();
+    }
+    /** A complete PCStats decode of one character: counts in CharacterStatistics.DUNGEON_NAMES order. Anything else is ignored. */
+    public synchronized void dungeonCompletions(String accountKey, int characterId, int[] counts, long observedAt) {
+        CharacterRecord r = observable(accountKey, characterId);
+        Map<String, Integer> next = completions(counts);
+        if (r == null || next == null || observedAt < r.dungeonCompletionsObservedAt) return;
+        if (next.equals(r.dungeonCompletions) && observedAt == r.dungeonCompletionsObservedAt) return;
+        r.dungeonCompletions = next; r.dungeonCompletionsObservedAt = observedAt; changed();
+    }
+    /** The regular vault's stat potions (8 entries, canonical order, normal-potion equivalents) seen at {@code observedAt}. */
+    public synchronized void vaultPotions(String accountKey, int[] potions, long observedAt) {
+        if (accountKey == null || potions == null || potions.length != 8 || Arrays.stream(potions).anyMatch(n -> n < 0)) return;
+        AccountRecord a = account(accountKey);
+        if (observedAt < a.vaultPotionsObservedAt || Arrays.equals(a.vaultPotions, potions) && observedAt == a.vaultPotionsObservedAt) return;
+        a.vaultPotions = potions.clone(); a.vaultPotionsObservedAt = observedAt; changed();
+    }
+    /**
+     * A Pet Yard pet: each of the account's characters whose pet has this instance id takes its family and other reported values
+     * (null values and -1 abilities keep what is known). An observation older than the known pet is ignored, and values seen again
+     * unchanged do not dirty the journal.
+     */
+    public synchronized void yardPet(String accountKey, PetRecord seen) {
+        if (accountKey == null || seen == null || seen.instanceId == null || !validPet(seen)) return;
+        for (CharacterRecord record : document.characters) {
+            if (!accountKey.equals(record.account)) continue;
+            CharacterRecord r = record.dead ? pendingAlive.get(record.key) : record;
+            if (r == null || r.pet == null || !seen.instanceId.equals(r.pet.instanceId) || seen.observedAt < r.pet.observedAt) continue;
+            PetRecord next = copy(r.pet);
+            if (seen.name != null) next.name = seen.name;
+            if (seen.type != null) next.type = seen.type;
+            if (seen.rarity != null) next.rarity = seen.rarity;
+            if (seen.family != null) next.family = seen.family;
+            if (seen.skin != null) next.skin = seen.skin;
+            if (seen.maxAbilityPower != null) next.maxAbilityPower = seen.maxAbilityPower;
+            for (int i = 0; i < 3; i++) {
+                if (seen.abilityType[i] >= 0) next.abilityType[i] = seen.abilityType[i];
+                if (seen.abilityLevel[i] >= 0) next.abilityLevel[i] = seen.abilityLevel[i];
+                if (seen.abilityPoints[i] >= 0) next.abilityPoints[i] = seen.abilityPoints[i];
+            }
+            if (samePetValues(next, r.pet)) continue;
+            next.observedAt = Math.max(next.observedAt, seen.observedAt);
+            next.source = seen.source == null ? "Pet Yard capture" : seen.source;
+            r.pet = next; changed();
+        }
+    }
+    /** Where new observations of a character go: its record, or while it is marked dead its pending alive copy (null if none). */
+    private CharacterRecord observable(String accountKey, int characterId) {
+        if (accountKey == null) return null;
+        String key = accountKey + ":" + characterId;
+        CharacterRecord r = find(key);
+        return r == null || !r.dead ? r : pendingAlive.get(key);
+    }
+    /** Dungeon name → count (positive counts only) from one count per CharacterStatistics.DUNGEON_NAMES entry; else null. */
+    private static Map<String, Integer> completions(int[] counts) {
+        List<String> names = CharacterStatistics.DUNGEON_NAMES;
+        if (counts == null || counts.length != names.size()) return null;
+        Map<String, Integer> result = new TreeMap<>();
+        for (int i = 0; i < counts.length; i++) {
+            if (counts[i] < 0) return null;
+            if (counts[i] > 0) result.put(names.get(i), counts[i]);
+        }
+        return result;
+    }
+    /** A complete decode of a character-list PCStats string: counts in CharacterStatistics.DUNGEON_NAMES order, else null. */
+    private static int[] listedCompletions(String pcStats) {
+        if (pcStats == null) return null;
+        try { RealmCharacterStats stats = new RealmCharacterStats(); stats.decode(pcStats); return stats.completionCounts(); }
+        catch (RuntimeException malformed) { return null; }
+    }
+    /**
+     * The list's pet, or null when it reported none or is older than the known pet. The same pet (a reported instance id equal to
+     * the known one) keeps every value the list omits, including its Pet Yard family; any other pet starts from unknown.
+     */
+    private static PetRecord rosterPet(RealmCharacter c, PetRecord known) {
+        boolean reported = false;
+        for (String field : c.presence.keySet()) if (field.startsWith("pet.")) { reported = true; break; }
+        if (!reported || known != null && c.receivedAt < known.observedAt) return null;
+        // An explicitly empty pet element: no pet is equipped (known), unlike a list that says nothing about pets (unknown).
+        if (c.presence.containsKey("pet.none")) {
+            PetRecord none = new PetRecord(); none.absent = Boolean.TRUE; none.observedAt = c.receivedAt; none.source = "Character list"; return none;
+        }
+        Long instanceId = c.presence.containsKey("pet.81") ? Long.valueOf(c.petInstanceId) : null;
+        PetRecord pet = instanceId != null && known != null && instanceId.equals(known.instanceId) ? copy(known) : new PetRecord();
+        pet.instanceId = instanceId;
+        if (c.presence.containsKey("pet.82")) pet.name = c.petName;
+        if (c.presence.containsKey("pet.83")) pet.type = c.petType;
+        if (c.presence.containsKey("pet.84")) pet.rarity = c.petRarity;
+        if (c.presence.containsKey("pet.85")) pet.maxAbilityPower = c.petMaxAbilityPower;
+        if (c.presence.containsKey("pet." + StatType.SKIN_ID.get())) pet.skin = c.petSkin;
+        if (c.petAbilitys != null && c.petAbilitys.length == 9) for (int i = 0; i < 3; i++) {
+            if (c.presence.containsKey("pet." + (87 + i))) pet.abilityPoints[i] = c.petAbilitys[i * 3];
+            if (c.presence.containsKey("pet." + (90 + i))) pet.abilityLevel[i] = c.petAbilitys[i * 3 + 1];
+            if (c.presence.containsKey("pet." + (93 + i))) pet.abilityType[i] = c.petAbilitys[i * 3 + 2];
+        }
+        pet.observedAt = c.receivedAt; pet.source = "Character list";
+        return pet;
+    }
+    private static boolean samePetValues(PetRecord a, PetRecord b) {
+        return Objects.equals(a.absent, b.absent) && Objects.equals(a.instanceId, b.instanceId) && Objects.equals(a.name, b.name) && Objects.equals(a.type, b.type)
+            && Objects.equals(a.rarity, b.rarity) && Objects.equals(a.family, b.family) && Objects.equals(a.skin, b.skin)
+            && Objects.equals(a.maxAbilityPower, b.maxAbilityPower) && Arrays.equals(a.abilityType, b.abilityType)
+            && Arrays.equals(a.abilityLevel, b.abilityLevel) && Arrays.equals(a.abilityPoints, b.abilityPoints);
+    }
+    private static boolean validPet(PetRecord p) {
+        for (int[] values : new int[][]{p.abilityType, p.abilityLevel, p.abilityPoints})
+            if (values == null || values.length != 3 || Arrays.stream(values).anyMatch(n -> n < -1)) return false;
+        // "No pet" carries no pet values: a record that says both is contradictory, so it reads as unknown.
+        if (Boolean.TRUE.equals(p.absent) && (p.instanceId != null || p.name != null || p.type != null || p.rarity != null || p.family != null)) return false;
+        return p.observedAt >= 0;
+    }
+    /** v5 values that parsed but make no sense are unknown, never a load failure. */
+    private static void normalizeV5(CharacterRecord r) {
+        if (r.pet != null && Boolean.FALSE.equals(r.pet.absent)) r.pet.absent = null; // only TRUE is saved
+        if (r.pet != null && !validPet(r.pet)) r.pet = null;
+        if (r.dungeonCompletions != null) for (Map.Entry<String, Integer> entry : r.dungeonCompletions.entrySet())
+            if (!CharacterStatistics.DUNGEON_NAMES.contains(entry.getKey()) || entry.getValue() == null || entry.getValue() < 0) { r.dungeonCompletions = null; break; }
+        if (r.dungeonCompletions == null || r.dungeonCompletionsObservedAt < 0) r.dungeonCompletionsObservedAt = 0;
+        if (r.exp != null && r.exp < 0) r.exp = null;
+    }
+    private static void normalizeV5(AccountRecord a) {
+        Map<Integer, Long> seen = new TreeMap<>();
+        if (a.exaltSeenByClass != null) a.exaltSeenByClass.forEach((id, at) -> { if (id != null && id > 0 && at != null && at >= 0) seen.put(id, at); });
+        a.exaltSeenByClass = seen;
+        if (a.vaultPotions != null && (a.vaultPotions.length != 8 || Arrays.stream(a.vaultPotions).anyMatch(n -> n < 0))) a.vaultPotions = null;
+        if (a.vaultPotions == null || a.vaultPotionsObservedAt < 0) a.vaultPotionsObservedAt = 0;
+    }
+    private static final java.lang.reflect.Type COMPLETIONS = new TypeToken<Map<String, Integer>>() {}.getType(),
+        SEEN_BY_CLASS = new TypeToken<Map<Integer, Long>>() {}.getType();
+    /** v5 fields are optional: one that does not parse as its type is removed before binding (read as unknown), never a failure. */
+    private static void dropMalformedV5Fields(JsonElement tree) {
+        if (tree == null || !tree.isJsonObject()) return;
+        JsonElement characters = tree.getAsJsonObject().get("characters"), accounts = tree.getAsJsonObject().get("accounts");
+        if (characters != null && characters.isJsonArray()) for (JsonElement row : characters.getAsJsonArray()) if (row.isJsonObject()) {
+            JsonObject r = row.getAsJsonObject();
+            drop(r, "pet", PetRecord.class); drop(r, "dungeonCompletions", COMPLETIONS); drop(r, "dungeonCompletionsObservedAt", long.class);
+            drop(r, "exp", Long.class); drop(r, "hasBackpack", Boolean.class);
+        }
+        if (accounts != null && accounts.isJsonObject()) for (Map.Entry<String, JsonElement> row : accounts.getAsJsonObject().entrySet())
+            if (row.getValue().isJsonObject()) {
+                JsonObject a = row.getValue().getAsJsonObject();
+                drop(a, "exaltSeenByClass", SEEN_BY_CLASS); drop(a, "vaultPotions", int[].class); drop(a, "vaultPotionsObservedAt", long.class);
+            }
+    }
+    private static void drop(JsonObject owner, String field, java.lang.reflect.Type type) {
+        JsonElement value = owner.get(field);
+        if (value == null || value.isJsonNull()) return;
+        try { JSON.fromJson(value, type); } catch (RuntimeException malformed) { owner.remove(field); }
     }
     /** The captured EXALTED_* bonuses in canonical stat order, or null unless all eight were captured. */
     public static int[] exaltBonus(Entity player) {
@@ -320,6 +518,15 @@ public final class CharacterJournal implements AutoCloseable {
     public synchronized AccountRecord accountCopy(String accountKey) {
         AccountRecord a = accountKey == null ? null : document.accounts.get(accountKey);
         return a == null ? null : copy(a);
+    }
+    /** Deep copy of one character's record by journal key ("<account>:<characterId>"), or null when unknown. */
+    public synchronized CharacterRecord characterCopy(String key) {
+        CharacterRecord r = key == null ? null : find(key);
+        return r == null ? null : copy(r);
+    }
+    /** Null while the journal is readable and its last save (if any) succeeded; otherwise storageStatus(), for a warn banner. */
+    public synchronized String storageProblem() {
+        return readOnly || storageStatus.startsWith("Save failed") ? storageStatus : null;
     }
     /**
      * Deep copy of the non-dead character last observed alive in game, or null. A character list sets lastSeen for every
@@ -389,6 +596,14 @@ public final class CharacterJournal implements AutoCloseable {
                 document.accounts.forEach((key, value) -> snapshot.accounts.put(key, copy(value)));
             }
             try {
+                backupOnce(); // before version 5 first replaces an older file
+            } catch (IOException e) {
+                // Name the backup path: a stuck/invalid journal.v4.bak is a different, more diagnosable problem than a plain
+                // write failure, and "check access to Characters/journal.json" would point at the wrong file.
+                synchronized (this) { storageStatus = "Save failed • backup Characters/" + backupPath(path).getFileName() + " could not be written"; }
+                return;
+            }
+            try {
                 store.write(path, JSON.toJson(snapshot));
                 synchronized (this) {
                     if (revision == savedRevision) dirty = false;
@@ -398,6 +613,24 @@ public final class CharacterJournal implements AutoCloseable {
                 synchronized (this) { storageStatus = "Save failed • check access to Characters/journal.json"; }
             }
         }
+    }
+
+    /** The one-time copy of a pre-version-5 journal beside it: journal.json becomes journal.v4.bak. */
+    static Path backupPath(Path path) {
+        String name = path.getFileName().toString();
+        return path.resolveSibling((name.endsWith(".json") ? name.substring(0, name.length() - 5) : name) + ".v4.bak");
+    }
+    /**
+     * Copies the loaded pre-version-5 file once, never over an existing backup (saveLock held). A backup path occupied by
+     * anything other than a regular file (a directory, say, from an interrupted earlier attempt) does not count as already
+     * backed up, so the copy is attempted and its failure fails the save, rather than silently letting the version 5 write
+     * proceed with no real backup ever made.
+     */
+    private void backupOnce() throws IOException {
+        if (!backupPending) return;
+        Path backup = backupPath(path);
+        if (Files.exists(path) && !Files.isRegularFile(backup)) Files.copy(path, backup);
+        backupPending = false;
     }
 
     private static void writeFile(Path path, String json) throws IOException {
@@ -431,6 +664,9 @@ public final class CharacterJournal implements AutoCloseable {
         c.observationRevision = r.observationRevision;
         c.rosterRevision = r.rosterRevision;
         c.stats = r.stats.clone(); c.equipment = r.equipment.clone();
+        c.pet = copy(r.pet);
+        c.dungeonCompletions = r.dungeonCompletions == null ? null : new TreeMap<>(r.dungeonCompletions);
+        c.dungeonCompletionsObservedAt = r.dungeonCompletionsObservedAt; c.exp = r.exp; c.hasBackpack = r.hasBackpack;
         return c;
     }
 
@@ -442,6 +678,17 @@ public final class CharacterJournal implements AutoCloseable {
             c.liveExaltBonus.put(id, bonus);
         });
         c.accountFame = a.accountFame; c.gold = a.gold; c.rankStars = a.rankStars; c.accountStatsObservedAt = a.accountStatsObservedAt;
+        c.exaltSeenByClass = new TreeMap<>(a.exaltSeenByClass);
+        c.vaultPotions = a.vaultPotions == null ? null : a.vaultPotions.clone(); c.vaultPotionsObservedAt = a.vaultPotionsObservedAt;
+        return c;
+    }
+
+    private static PetRecord copy(PetRecord p) {
+        if (p == null) return null;
+        PetRecord c = new PetRecord();
+        c.absent = p.absent; c.instanceId = p.instanceId; c.name = p.name; c.type = p.type; c.rarity = p.rarity; c.family = p.family; c.skin = p.skin;
+        c.maxAbilityPower = p.maxAbilityPower; c.abilityType = p.abilityType.clone(); c.abilityLevel = p.abilityLevel.clone();
+        c.abilityPoints = p.abilityPoints.clone(); c.observedAt = p.observedAt; c.source = p.source;
         return c;
     }
 

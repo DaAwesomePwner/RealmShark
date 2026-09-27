@@ -3,6 +3,7 @@ package tomato.gui.glance.home;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
@@ -83,6 +84,22 @@ public class LiveHomeSourcesTest {
         }
     }
 
+
+    @Test public void reprojectionsGetEarlierProjectionsAndArchiveReadsKeepTheirCache() throws Exception {
+        List<Map<String, RecordedEncounter>> maps = new ArrayList<>();
+        String[] revision = {"catalog#1"};
+        java.nio.file.Path root = temp.newFolder().toPath(); HomeHistoryFixture.write(root);
+        HomeArchive.Cache cache = new HomeArchive.Cache();
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            LiveHomeSources sources = new LiveHomeSources(isolated(), () -> store, (account, quest) -> false, () -> revision[0],
+                known -> { maps.add(known); return List.of(); }, cache);
+            sources.archive(HomeArchive.Window.TODAY, HomeHistoryFixture.NOW);
+            revision[0] = "catalog#2";
+            sources.archive(HomeArchive.Window.TODAY, HomeHistoryFixture.NOW);
+            assertEquals(2, maps.size()); assertSame("Each re-projection gets the projections kept so far", maps.get(0), maps.get(1));
+            assertTrue("The archive read through the sources' cache", cache.size() > 0);
+        }
+    }
 
     @Test public void unreadableJournalIsUnavailableUntilALiveCharacterCanBeShown() throws Exception {
         java.nio.file.Path path = temp.newFile("broken-journal.json").toPath();

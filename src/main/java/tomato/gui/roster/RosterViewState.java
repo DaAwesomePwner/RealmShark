@@ -27,6 +27,9 @@ public final class RosterViewState {
     private boolean restoring, blocked, queued;
     private long saveGeneration;
     private long changeGeneration;
+    private final List<Runnable> statusListeners = new ArrayList<>();
+    /** The latest status is a failure: a save failed, or the saved state could not be read. */
+    private boolean problem;
 
     public RosterViewState(ViewStateStore store, String key, Supplier<Map<String, String>> capture,
                            Function<Map<String, String>, Runnable> prepare) {
@@ -52,7 +55,7 @@ public final class RosterViewState {
             }
             state = saved;
         } catch (RuntimeException invalid) {
-            blocked = true; status.setText("Saved view state unavailable. Current controls remain usable; Reset saved view state to replace it.");
+            blocked = true; status("Saved view state unavailable. Current controls remain usable; Reset saved view state to replace it.", true);
         }
         ownershipChanged();
     }
@@ -92,16 +95,31 @@ public final class RosterViewState {
         blocked = false;
         state = ViewState.initial(ArchiveQuery.of(ArchiveQuery.CURRENT, new Fields(), Fields.class, Order.NONE));
         watch(store.reset(key));
-        status.setText("Saved state reset. Current controls and notes are retained; Save view state remembers them.");
+        status("Saved state reset. Current controls and notes are retained; Save view state remembers them.", false);
     }
     private CompletionStage<PreferencesStore.SaveResult> watch(CompletionStage<PreferencesStore.SaveResult> save) {
         long request = ++saveGeneration;
         save.whenComplete((result, failure) -> SwingUtilities.invokeLater(() -> {
-            if (request == saveGeneration) status.setText(failure == null && result != null && result.isSuccess()
-                ? "View state saved." : "View state save failed; current controls remain active. Save view state retries.");
+            if (request != saveGeneration) return;
+            boolean saved = failure == null && result != null && result.isSuccess();
+            status(saved ? "View state saved." : "View state save failed; current controls remain active. Save view state retries.", !saved);
         }));
         return save;
     }
+    private void status(String text, boolean failed) {
+        problem = failed;
+        status.setText(text);
+        for (Runnable listener : new ArrayList<>(statusListeners)) listener.run();
+    }
+    /** The latest status line: saved, save failed, reset, or saved state unavailable ("" before any). */
+    public String statusText() { return status.getText(); }
+    /** True while the latest status is a failure: the last save failed or the saved state could not be read. */
+    public boolean statusProblem() { return problem; }
+    /** Runs on the EDT after every status change, for hosts that offer the actions in a menu and show only failures. */
+    public void onStatus(Runnable listener) { statusListeners.add(Objects.requireNonNull(listener)); }
+    /** What the Reset saved view state button does, for hosts that offer it in a menu. */
+    public void resetSaved() { reset(); }
+
     public static int number(Map<String, String> values, String key, int fallback, int minimum, int maximum) {
         if (!values.containsKey(key)) return fallback;
         int value = Integer.parseInt(values.get(key));

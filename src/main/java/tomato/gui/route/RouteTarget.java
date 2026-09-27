@@ -12,4 +12,9 @@ public interface RouteTarget {
     Object captureState();
     void open(Route route);
     void restoreState(Object state);
+    /**
+     * Another route to open instead of an accepted one, or null (the default). The navigator follows it once, only when some
+     * target accepts it, and keeps a single Back entry; otherwise this target opens the original route.
+     */
+    default Route redirect(Route route) { return null; }
 }

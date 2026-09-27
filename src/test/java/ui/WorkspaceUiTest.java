@@ -355,21 +355,103 @@ public class WorkspaceUiTest {
         SwingUtilities.invokeAndWait(() -> {
             int before = shell.getSelectedPage();
             try {
-                assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
-                assertEquals(6, shell.getSelectedPage());
-                assertEquals("Build", pageTitle(shell).getText());
+                // Build lands on page 6 only while no character exists: pin an empty journal, then put the app's own back.
+                tomato.backend.data.TomatoData app = appData();
+                tomato.backend.data.CharacterJournal previous = app.characterJournal();
+                tomato.gui.glance.character.SheetFixtures.inject(app, emptyJournal());
+                try {
+                    assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
+                    assertEquals(6, shell.getSelectedPage());
+                    assertEquals("Build", pageTitle(shell).getText());
+                } finally { tomato.gui.glance.character.SheetFixtures.inject(app, previous); }
                 assertFalse("Build stays out of the sidebar while it is current", findButton(shell, "nav-6").isVisible());
                 assertTrue(tomato.gui.route.Navigator.current().back());
                 assertEquals(before, shell.getSelectedPage());
             } finally { shell.select(before); }
         });
     }
+    /**
+     * Regression for the P3a final review (round 2): CharactersRouteTarget.open used to call
+     * focusBackLink() before ShellNavigator.open actually selected the destination page, so from
+     * another page (the main Alt+7 case) the Characters page was still hidden and
+     * requestFocusInWindow() failed silently; focus stayed on the sidebar.
+     */
+    @Test public void altSevenFocusesTheSheetsBackLinkWhenOpenedFromAnotherPage() throws Exception {
+        tomato.backend.data.TomatoData app = appData();
+        tomato.backend.data.CharacterJournal previous = app.characterJournal();
+        tomato.backend.data.CharacterJournal journal = emptyJournal();
+        tomato.gui.glance.character.SheetFixtures.seed(journal);
+        AbstractButton[] back = new AbstractButton[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.glance.character.SheetFixtures.inject(app, journal);
+                shell.select(14); // Home: opening the sheet from elsewhere is the main Alt+7 case
+                frame.toFront();
+                shell.getActionMap().get("page-6").actionPerformed(null); // Alt+7
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(() -> {
+                if (shell.getSelectedPage() != 3) return false;
+                back[0] = findButton(shell, "character-sheet-back");
+                return back[0] != null && back[0].isFocusOwner();
+            });
+            SwingUtilities.invokeAndWait(() -> assertSame("Alt+7 from another page still focuses the sheet's back link",
+                back[0], KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.route.Navigator.current().back();
+                tomato.gui.glance.character.SheetFixtures.inject(app, previous);
+                shell.select(0);
+            });
+        }
+    }
+
+    /** Same regression, through the Goals search entry (CharacterPanelGUI.openGoals) instead of Alt+7. */
+    @Test public void goalsSearchFocusesTheSheetsBackLinkWhenOpenedFromAnotherPage() throws Exception {
+        tomato.backend.data.TomatoData app = appData();
+        tomato.backend.data.CharacterJournal previous = app.characterJournal();
+        tomato.backend.data.CharacterJournal journal = emptyJournal();
+        tomato.gui.glance.character.SheetFixtures.seed(journal);
+        AbstractButton[] back = new AbstractButton[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.glance.character.SheetFixtures.inject(app, journal);
+                shell.select(5); // Quests: another page, not Characters
+                frame.toFront();
+                assertTrue(tomato.gui.search.ActionRegistry.application().search("plans.characters").get(0).open());
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(() -> {
+                if (shell.getSelectedPage() != 3) return false;
+                back[0] = findButton(shell, "character-sheet-back");
+                return back[0] != null && back[0].isFocusOwner();
+            });
+            SwingUtilities.invokeAndWait(() -> assertSame("The Goals search entry from another page still focuses the sheet's back link",
+                back[0], KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.route.Navigator.current().back();
+                tomato.gui.glance.character.SheetFixtures.inject(app, previous);
+                shell.select(0);
+            });
+        }
+    }
+
     private static JLabel pageTitle(Container root) {
         for (Component c : root.getComponents()) {
             if (c instanceof JLabel && "page-title".equals(c.getName())) return (JLabel) c;
             if (c instanceof Container) { JLabel found = pageTitle((Container) c); if (found != null) return found; }
         }
         return null;
+    }
+    private static tomato.backend.data.TomatoData appData() {
+        try {
+            java.lang.reflect.Field field = TomatoGUI.class.getDeclaredField("data"); field.setAccessible(true);
+            return (tomato.backend.data.TomatoData) field.get(null);
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+    /** A journal with no character, in a new temporary folder. */
+    private static tomato.backend.data.CharacterJournal emptyJournal() {
+        try { return new tomato.backend.data.CharacterJournal(java.nio.file.Files.createTempDirectory("workspace-build-").resolve("journal.json")); }
+        catch (java.io.IOException e) { throw new AssertionError(e); }
     }
 
     private static AbstractButton findButton(Container root, String name) {

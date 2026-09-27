@@ -412,9 +412,12 @@ Restyle only: channel tabs become segmented pills with counts; FilterBar (search
 - Migration of the saved `theme` property: Darcula, HighContrast Dark, Solarized Dark → Violet Dark; IntelliJ, Solarized Light → Violet Light; HighContrast Light → Violet Light + Increase contrast. HighContrast Dark also enables Increase contrast.
 - Only `TomatoMenuBar` and `TomatoGUI` reference Darklaf today; theme-switch tests are updated accordingly.
 
-### 8.3 Save more character data (journal version 4)
+### 8.3 Save more character data (journal version 5)
 
-All new fields are optional. Old records load unchanged and render as partial. No backfill guesses. Version 4 is introduced in P2 with the `AccountRecord` live fields; P3 adds the remaining optional fields to the same version (Gson leaves absent fields null, so no further bump is needed).
+All new fields are optional. Old records load unchanged and render as partial. No backfill guesses.
+- **Version 4 (P2)** added the `AccountRecord` live fields.
+- **Version 5 (P3)** adds the remaining fields below.
+- **Why a bump:** P2 builds open version 4, ignore fields they do not know and rewrite the whole file on save. Adding P3's fields under version 4 would let an older build silently drop them. A P2 build opens a version 5 file read-only, so the new fields survive a rollback (review finding, 2026-09-27).
 
 | Record | New field | Source |
 |---|---|---|
@@ -476,7 +479,7 @@ Each phase is its own branch and PR from verified `main`, usable on its own. Old
 | **P0 Platform** | Java 17 target; retire Darklaf; Violet Light + Increase contrast; theme migration | Build, tests and bundle scripts pass on Java 17; saved legacy themes migrate |
 | **P1 Kit + shell** (three PRs: P1a kit; P1b sidebar, header, Settings and shell tests; P1c filter drawers, customizable tabs and column kinds across pages) | `tomato.gui.kit` components; tokens; `DisplayValue`; `ColumnKind` + `KitTables`; `FilterBar` + `ArchiveWorkspace` slot refactor; `OverflowMenu`; `CustomizableTabs`; Simple/Analyst mode; new sidebar with Advanced group and Settings page; header/setup banner; brittle-test migration. Existing pages adopt FilterBar, overflow, column kinds and kit buttons mechanically | S6 met on Runs, Timeline, Resources, Party, Loot, Chat, Key-pops, Characters and Quests (Logging, Bridge review, the encounter library, the DPS meter and the Statistics sub-pages follow in P5/P6); S7 met; every existing page reachable; filters collapsed by default; tab reorder/hide persists |
 | **P2 Home** | Home page + view models; hero, Now, Today, Recent runs, Quests cards; My Info content moved into a temporary Build panel reachable from the hero; journal v4 live fields (live exalt bonus, account fame/gold/stars) | S1, S9 met; My Info removed from sidebar |
-| **P3 Characters** | Gallery, sheet with tabs, Exalts grid, Pets gallery; journal v4 persisted fields (pet, completions, vault potions) | S2, S5 met |
+| **P3 Characters** (two PRs: P3a gallery, sheet and journal v5; P3b Exalts grid, Pets gallery, Pet and Fame tabs) | Gallery, sheet with tabs, Exalts grid, Pets gallery; journal v5 persisted fields (pet, completions, vault potions) | S2, S5 met |
 | **P4 Quests** | Board, cards, expiry countdown (after O1), Planner restyle | S3 met |
 | **P5 Runs & DPS** | `encounters` auto-save; feed, recap, Dungeons, Live meter, Recordings; Statistics and DPS Logger removed from the sidebar | S4, S8 met; storage measured |
 | **P6 Loot + cleanup** | Loot Highlights/Explore; Advanced pages restyle; remove dead panels (Statistics shell, old My Info) and unused styles; docs update | No orphaned pages or styles; docs describe the new IA |

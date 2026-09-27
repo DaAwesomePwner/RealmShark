@@ -369,6 +369,9 @@ public class ParseEnchants {
 
         public CaptureState state(int slot) { return states[slot]; }
 
+        /** Unlocked enchant slots of one equipped item (0 Common … 4 Divine, as Summary.rarity() names them); -1 unless KNOWN. */
+        public int unlockedSlots(int slot) { return states[slot] == CaptureState.KNOWN ? summarize(codes[slot]).slots : -1; }
+
         public String description(int slot) {
             if (states[slot] == CaptureState.MISSING) return "Enchant data not captured.";
             if (states[slot] == CaptureState.MALFORMED) return "Malformed enchant data; effects unavailable.";

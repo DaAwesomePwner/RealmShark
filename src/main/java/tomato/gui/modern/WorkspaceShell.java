@@ -441,15 +441,21 @@ public final class WorkspaceShell extends JPanel {
         change(() -> layout.move(NavEntry.forPage(page).id(), delta), page);
     }
 
-    /** Applies a saved-layout change, then re-lays the rows and keeps focus on the row the user acted on. */
+    /**
+     * Applies a saved-layout change, then re-lays the rows and keeps focus on the row the user acted on. When that row is
+     * hidden now (Hide), focus goes where page navigation puts it ({@link #focusPage}); a hidden row never anchors scrolling.
+     */
     private void change(BooleanSupplier operation, int focus) {
         if (!operation.getAsBoolean()) return;
         applyLayout();
-        JToggleButton target = navigation[focus].isVisible() ? navigation[focus] : navigation[selected];
-        scrollAnchor = target;
-        target.requestFocusInWindow();
+        JToggleButton row = navigation[focus];
+        if (row.isVisible()) { scrollAnchor = row; row.requestFocusInWindow(); }
+        else { scrollAnchor = navigation[selected].isVisible() ? navigation[selected] : null; focusPage(selected); }
         scrollSelectedLater();
     }
+
+    /** The row the sidebar keeps in view after a change, or null (tests). */
+    JToggleButton scrollAnchor() { return scrollAnchor; }
 
     private static JMenuItem menuItem(String name, String text, boolean enabled, Runnable run) {
         JMenuItem item = new JMenuItem(text);
@@ -721,7 +727,7 @@ public final class WorkspaceShell extends JPanel {
     public static int pageOf(Destination destination) {
         switch (destination) {
             case INSPECT: return 2;
-            case CHARACTERS: return 3;
+            case CHARACTERS: case CHARACTER_SHEET: return 3; // The sheet is a card on the Characters Roster tab.
             case STATISTICS: return 4;
             case QUESTS: return 5;
             case MY_INFO: return 6;
@@ -764,16 +770,19 @@ public final class WorkspaceShell extends JPanel {
         if (navigator.back()) focusPage(selected);
     }
 
+    /** Keyboard focus for the page just shown ({@link #focusTarget}). */
+    private void focusPage(int page) { focusTarget(page).requestFocusInWindow(); }
+
     /**
-     * Keyboard focus for the page just shown: its sidebar row, or for an unlisted page (Build), which has no row, the page's
-     * first focusable component in traversal order, else the page container.
+     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (an unlisted page such
+     * as Build, or a hidden row) the page's first focusable component in traversal order, else the page container.
      */
-    private void focusPage(int page) {
-        if (NavEntry.forPage(page).group() != NavEntry.Group.UNLISTED) { navigation[page].requestFocusInWindow(); return; }
+    Component focusTarget(int page) {
+        if (NavEntry.forPage(page).group() != NavEntry.Group.UNLISTED && navigation[page].isVisible()) return navigation[page];
         Container root = cards.getFocusCycleRootAncestor();
         FocusTraversalPolicy policy = root == null ? null : root.getFocusTraversalPolicy();
         Component first = policy == null ? null : policy.getFirstComponent(pages[page]);
-        (first != null ? first : cards).requestFocusInWindow();
+        return first != null ? first : cards;
     }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {

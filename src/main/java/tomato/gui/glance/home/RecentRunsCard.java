@@ -13,6 +13,7 @@ import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.KitFormat;
+import tomato.gui.kit.KitText;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.history.link.VisitRef;
@@ -20,7 +21,8 @@ import tomato.history.link.VisitRef;
 /**
  * The last five dungeon runs, newest first (spec §6.1): portal, dungeon, outcome badge, time ago, your DPS only when a
  * combat recording is linked to that exact visit, and up to eight loot sprites. Each row opens its exact run. A failed
- * re-read keeps the last rows under a warn banner saying when they were read and why the new read failed.
+ * re-read keeps the last rows under a warn banner saying when they were read and why the new read failed; a read that skipped
+ * unreadable saved sessions says how many, because they may hold newer runs.
  */
 final class RecentRunsCard extends HomeCard {
     static final int LOOT = 8;
@@ -63,15 +65,17 @@ final class RecentRunsCard extends HomeCard {
         int shownRows = Math.min(rows.length, list.size());
         header().setCount(shownRows == 0 ? null : String.valueOf(shownRows));
         boolean stale = runs.state() == HomeModel.State.STALE;
-        String reason = stale ? text(runs.reason(), "Showing the last successful read of saved history.") : "";
+        // A stale read explains itself; a live read names the saved sessions it could not read. An EMPTY reason is the empty state.
+        String reason = stale ? text(runs.reason(), "Showing the last successful read of saved history.")
+            : runs.state() == HomeModel.State.LIVE ? runs.reason() : "";
         note.setText(reason, true);
-        note.setVisible(stale);
+        note.setVisible(!reason.isEmpty());
         boolean noRows = runs.state() == HomeModel.State.EMPTY || shownRows == 0;
         empty.setVisible(noRows); rowList.setVisible(!noRows);
         if (noRows) {
             body(content);
             getAccessibleContext().setAccessibleName(stale ? "Recent runs: none in the last successful read" : "Recent runs: none yet");
-            getAccessibleContext().setAccessibleDescription(stale ? reason : null);
+            getAccessibleContext().setAccessibleDescription(reason.isEmpty() ? null : reason);
             return;
         }
         for (int i = 0; i < rows.length; i++) {
@@ -80,7 +84,7 @@ final class RecentRunsCard extends HomeCard {
         }
 
         getAccessibleContext().setAccessibleName("Recent runs: " + shownRows + (shownRows == 1 ? " run" : " runs") + (stale ? ", last successful read" : ""));
-        getAccessibleContext().setAccessibleDescription(stale ? reason : null);
+        getAccessibleContext().setAccessibleDescription(reason.isEmpty() ? null : reason);
         body(content);
     }
 
@@ -99,7 +103,7 @@ final class RecentRunsCard extends HomeCard {
     /** One run. Focusable; click (including on its sprites), Enter or Space opens its exact VisitRef. */
     private static final class RunRow extends JPanel {
         private final JLabel portal = new JLabel();
-        private final HomeViews.Text map = HomeViews.emphasis(""), when = HomeViews.caption(""), dps = HomeViews.caption("");
+        private final KitText map = HomeViews.emphasis(""), when = HomeViews.caption(""), dps = HomeViews.caption("");
         private final Chip outcome = new Chip("", Tokens.Tone.NEUTRAL);
         private final ItemSlot[] loot = new ItemSlot[LOOT];
         private final JPanel strip = HomeViews.clear(new FlowLayout(FlowLayout.LEADING, 2, 0));

@@ -11,9 +11,13 @@ import java.util.concurrent.TimeUnit;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
+import packets.data.ObjectStatusData;
 import packets.data.StatData;
+import packets.data.WorldPosData;
 import packets.data.enums.StatType;
 import packets.incoming.CreateSuccessPacket;
+import packets.incoming.ExaltationUpdatePacket;
+import packets.incoming.NewTickPacket;
 import packets.incoming.VaultContentPacket;
 import tomato.backend.TomatoPacketCapture;
 import tomato.gui.character.CharacterPetsGUI;
@@ -223,6 +227,67 @@ public class CharacterPublicationTest {
         onEdt(() -> assertTrue(petCache().isEmpty()));
         assertEquals("The saved journal survives clearing live account metadata", 2, journal.characters().size());
         observeLoot(); assertArrayEquals(new int[]{1,1}, lootTotals());
+    }
+
+    @Test public void rosterCreateVaultExaltsAndPetYardFeedJournalVersionFive() throws Exception {
+        identify();
+        roster = roster("<Char id='7'><ObjectType>782</ObjectType><Level>20</Level><Exp>30000</Exp><HasBackpack>1</HasBackpack>"
+            + "<Seasonal>False</Seasonal><PCStats>" + completions(3) + "</PCStats>"
+            + "<Pet name='Pup' instanceId='42' maxAbilityPower='70' rarity='2' skin='100' type='3'><Abilities>"
+            + "<Ability type='407' power='50' points='1000'/><Ability type='408' power='40' points='800'/>"
+            + "<Ability type='406' power='30' points='600'/></Abilities></Pet></Char>");
+        acceptRoster();
+        String account = CharacterJournal.accountKey("fixture-account"), key = account + ":7";
+        CharacterJournal.CharacterRecord listed = journal.characterCopy(key);
+        assertEquals(Long.valueOf(30_000), listed.exp); assertEquals(Boolean.TRUE, listed.hasBackpack);
+        assertEquals(Map.of("Pirate Cave", 3), listed.dungeonCompletions);
+        assertEquals(Long.valueOf(42), listed.pet.instanceId); assertEquals("Pup", listed.pet.name); assertNull(listed.pet.family);
+        assertArrayEquals(new int[]{407, 408, 406}, listed.pet.abilityType); assertEquals("Character list", listed.pet.source);
+
+        data.setUserId(1, 7, completions(5));   // CREATE carries the character's current PCStats
+        data.player = new Entity(data, 1, 0); data.player.objectType = 782;
+        StatData identity = new StatData(); identity.stringStatValue = "fixture-account"; data.player.stat.set(StatType.ACCOUNT_ID_STAT, identity);
+        data.rememberCharacter();
+        assertEquals("Live completions replace the list's", Map.of("Pirate Cave", 5), journal.characterCopy(key).dungeonCompletions);
+
+        TomatoPacketCapture capture = new TomatoPacketCapture(data);
+        seasonal(false);
+        capture.packetCapture(vault(true, new int[]{2793, 9064}, new int[]{5466}, new int[]{2794, 9070}));
+        assertArrayEquals("Chest, gifts and storage in normal potions", new int[]{3, 1, 2, 1, 0, 0, 0, 0}, journal.accountCopy(account).vaultPotions);
+        seasonal(true);
+        capture.packetCapture(vault(true, new int[]{2613}, new int[0], new int[0]));
+        data.player.stat.set(StatType.SEASONAL, null);
+        capture.packetCapture(vault(true, new int[]{2613}, new int[0], new int[0]));   // season unknown: not attributed, no failure
+        assertArrayEquals("Only the regular vault is recorded", new int[]{3, 1, 2, 1, 0, 0, 0, 0}, journal.accountCopy(account).vaultPotions);
+
+        ExaltationUpdatePacket exalt = new ExaltationUpdatePacket(); exalt.objType = 782; exalt.healthProgress = 30;
+        data.exaltUpdate(exalt);
+        assertTrue(journal.accountCopy(account).exaltSeenByClass.containsKey(782));
+
+        data.petYardCheck("Pet Yard");
+        NewTickPacket tick = new NewTickPacket();
+        tick.status = new ObjectStatusData[]{yardStatus(500, yardStat(StatType.PET_INSTANCE_ID_STAT, 42), yardStat(StatType.PET_FAMILY_STAT, 4),
+            yardStat(StatType.PET_RARITY_STAT, 3))};
+        data.updateNewTick(tick);
+        CharacterJournal.PetRecord pet = journal.characterCopy(key).pet;
+        assertEquals(Integer.valueOf(4), pet.family); assertEquals(Integer.valueOf(3), pet.rarity);
+        assertEquals("Pup", pet.name); assertEquals("Pet Yard capture", pet.source);
+
+        int petsBeforeEmptyPetElement = data.progression().snapshot().pets.size();
+        roster = roster("<Char id='7'><ObjectType>782</ObjectType><Level>20</Level><Pet/></Char>");
+        acceptRoster();
+        assertEquals("An explicitly empty Pet element is saved as no pet", Boolean.TRUE, journal.characterCopy(key).pet.absent);
+        assertEquals("An explicitly empty Pet element publishes no phantom pet to progression",
+            petsBeforeEmptyPetElement, data.progression().snapshot().pets.size());
+        for (ProgressionData.Pet published : data.progression().snapshot().pets)
+            assertNotEquals("No object:-1 placeholder pet for the equipped character", -1, published.objectId);
+    }
+
+    private static StatData yardStat(StatType type, int value) {
+        StatData stat = new StatData(); stat.statType = type; stat.statTypeNum = type.get(); stat.statValue = value; return stat;
+    }
+    private static ObjectStatusData yardStatus(int objectId, StatData... stats) {
+        ObjectStatusData status = new ObjectStatusData(); status.objectId = objectId; status.pos = new WorldPosData(); status.stats = stats; return status;
     }
 
     private void identify() throws Exception {

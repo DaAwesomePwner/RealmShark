@@ -15,11 +15,13 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.CharacterJournal;
+import tomato.gui.glance.character.CharacterSheet;
 import tomato.realmshark.RealmCharacter;
 import static org.junit.Assert.*;
 
 /** Headless Swing state checks: no frames, rendering, native focus or sleeping timers. */
 public class CharacterJournalFreshnessRefreshTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     @Test public void unchangedJournalRefreshAdvancesAgeWithoutTouchingTablesSelectionOrDraft() throws Exception {
@@ -30,17 +32,19 @@ public class CharacterJournalFreshnessRefreshTest {
         AtomicLong clock = new AtomicLong(100_000);
         tomato.backend.data.RosterDefinitions definitions = tomato.backend.data.RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterJournalGUI panel = new CharacterJournalGUI(journal, clock::get, () -> definitions);
+            CharacterRosterView view = RosterFixtures.view(journal, clock::get, () -> definitions);
+            CharacterJournalGUI panel = view.listPanel(); CharacterSheet sheet = view.sheet();
             JTable roster = named(panel, "character-roster", JTable.class);
-            JTextArea notes = named(panel, "character-notes", JTextArea.class);
-            JTextArea evidence = named(panel, "character-snapshot-evidence", JTextArea.class);
-            JTabbedPane tabs = named(panel, "character-detail-tabs", JTabbedPane.class);
             roster.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
-            tabs.setSelectedIndex(3); notes.setText("Unsaved draft remains editable"); notes.setCaretPosition(5);
             assertTrue(roster.getValueAt(roster.getSelectedRow(), 0).toString().endsWith("#7"));
+            RosterFixtures.enter(view);
+            assertEquals(account + ":7", sheet.key());
+            JTextArea notes = named(sheet, "character-notes", JTextArea.class);
+            JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class);
+            sheet.tabs().select("notes"); notes.setText("Unsaved draft remains editable"); notes.setCaretPosition(5);
             assertTrue(evidence.getText().contains("Snapshot update age: 0s"));
             int selected = roster.getSelectedRow(); long revision = journal.revision();
-            List<JTable> tables = new ArrayList<>(); collectTables(panel, tables);
+            List<JTable> tables = new ArrayList<>(); collectTables(view, tables);
             AtomicInteger modelChanges = new AtomicInteger(), selectionChanges = new AtomicInteger(), noteChanges = new AtomicInteger();
             for (JTable table : tables) table.getModel().addTableModelListener(e -> modelChanges.incrementAndGet());
             roster.getSelectionModel().addListSelectionListener(e -> selectionChanges.incrementAndGet());
@@ -49,13 +53,13 @@ public class CharacterJournalFreshnessRefreshTest {
                 public void removeUpdate(DocumentEvent e) { noteChanges.incrementAndGet(); }
                 public void changedUpdate(DocumentEvent e) { noteChanges.incrementAndGet(); }
             });
-            clock.set(105_000); panel.refresh();
+            clock.set(105_000); panel.refresh(); sheet.refresh();
             assertTrue(evidence.getText(), evidence.getText().contains("Snapshot update age: 5s"));
-            clock.set(160_000); panel.refresh();
+            clock.set(160_000); panel.refresh(); sheet.refresh();
             assertTrue(evidence.getText(), evidence.getText().contains("Snapshot update age: 60s"));
             assertEquals(revision, journal.revision());
             assertEquals(0, modelChanges.get()); assertEquals(0, selectionChanges.get()); assertEquals(0, noteChanges.get());
-            assertEquals(selected, roster.getSelectedRow()); assertEquals(3, tabs.getSelectedIndex());
+            assertEquals(selected, roster.getSelectedRow()); assertEquals("notes", sheet.selectedTab());
             assertEquals("Unsaved draft remains editable", notes.getText()); assertEquals(5, notes.getCaretPosition());
             assertEquals("Saved notes", journal.characters().stream().filter(r -> r.characterId == 7).findFirst().get().notes);
         });
@@ -69,17 +73,21 @@ public class CharacterJournalFreshnessRefreshTest {
         AtomicLong clock = new AtomicLong(120_000);
         tomato.backend.data.RosterDefinitions definitions = tomato.backend.data.RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterJournalGUI panel = new CharacterJournalGUI(journal, clock::get, () -> definitions);
-            JTextArea evidence = named(panel, "character-snapshot-evidence", JTextArea.class);
+            CharacterRosterView view = RosterFixtures.view(journal, clock::get, () -> definitions);
+            CharacterSheet sheet = view.sheet();
+            RosterFixtures.enter(view);
+            JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class);
             assertTrue(evidence.getText().contains("Snapshot update age: 20s"));
-            clock.set(90_000); panel.refresh();
+            clock.set(90_000); sheet.refresh();
             assertTrue(evidence.getText().contains("Snapshot update age: 0s"));
-            JTextField search = named(panel, "character-search", JTextField.class);
-            search.setText("unknown-timestamp-only");
+            view.showList();
+            JTextField search = named(view.listPanel(), "character-search", JTextField.class);
+            search.setText("unknown-timestamp-only"); RosterFixtures.enter(view);
+            assertEquals(account + ":8", sheet.key());
             assertTrue(evidence.getText().contains("Snapshot update age: Unknown"));
-            clock.set(200_000); panel.refresh();
+            clock.set(200_000); sheet.refresh();
             assertTrue(evidence.getText().contains("Snapshot update age: Unknown"));
-            search.setText("no matching character"); panel.refresh();
+            view.showSheet(account + ":404", null, view::showList);
             assertEquals(" ", evidence.getText());
         });
     }

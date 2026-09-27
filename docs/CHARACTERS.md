@@ -2,13 +2,15 @@
 
 The **Characters → Roster** tab remembers your own characters as capture sees them. Start capture, then enter the game on a character. The existing character-list response, when available from the Pet Yard or Daily Quest Room, also adds characters. Nearby players are not added. Characters missing from a later response are retained.
 
-The roster supports literal-text search (class, account, character ID, item name/ID, or notes), task filters and sortable columns. Equipment search accepts decimal and hexadecimal IDs as well as names. Select a character for:
+The roster opens as a **gallery** of character cards: skin sprite, class, level and fame, an 8-pip maxed meter (**—** when unknown, never 0/8), a **Seasonal** chip, when the character last played, and a **Playing now** marker for the character in game. Characters marked dead are grouped in a collapsed **Graveyard** below. **Sort** orders the cards by last played, fame, class or maxed; unknown values sort last. The existing roster table is the **Table view**: in Simple mode choose **Table view** or **Gallery view** in the ⋯ menu; in Analyst mode use the Gallery/Table switch in the filter row, where cards also show character IDs. Both views show exactly the characters the one search and filter drawer select, and the view and sort are remembered. **Save view state** and **Reset saved view state** are in the ⋯ menu; the page warns only when saving fails.
 
-- Base stats, class caps, maxed-stat count such as **6/8**, and remaining standard potions.
-- Last observed weapon, ability, armor, ring, inventory and backpack, with local item names and icons where available.
-- Account/class exalt levels, completion counts and the next threshold.
-- Editable notes, first/last seen dates, level and fame.
-- Field source/receipt evidence in stats and equipment, plus a **Snapshot evidence** tab for character metadata.
+The roster supports literal-text search (class, account, character ID, item name/ID, or notes), task filters and sortable table columns. Equipment search accepts decimal and hexadecimal IDs as well as names. Open a character (Enter or double-click on a card or table row, or click the Home hero) for its full-page **character sheet**; **‹ Characters** or Back returns to the list where you were. The sheet's tabs can be reordered and hidden:
+
+- **Overview**: base stats against class caps (with the live boost while you play), what each stat still needs (with vault potions and how long ago they were counted, when known), equipped gear and a class exalt summary.
+- **Gear**: equipped items, inventory and backpack; unknown and empty slots stay distinct.
+- **Exalts**: this class's eight stats with tier, completions, the distance to the next tier and where to earn it.
+- **Build**: weapon damage and recovery estimates for the character you are playing, or after capture stops the last one you played (formerly My Info). Other characters' sheets point to it.
+- **Goals** and **Notes**, **Death annotation** for a character marked dead, and in Analyst mode **Snapshot evidence** (field source and receipt times, also shown under the header).
 
 Combine account, class, manual life state and season with **Needs Life**, stat coverage, maxed-count range and snapshot age. For example, select an account, **Needs Life** and **All base stats captured** to find known deficits; use **Life need unknown** or **Missing cap definitions** to find records that need better evidence. **Maxed** and **Potions remaining** sort numerically. A total needs all eight base stats and cap definitions: unknown is not zero.
 
@@ -20,7 +22,7 @@ The **Exalts** tab shows saved progress for observed classes across accounts. Se
 
 The final cleanup retires five legacy panels that were no longer constructed by the application. The mounted Roster/Exalts/Pets views and live completion, vault, equipped-pet, fame, and journal tracking remain. This does not add replacements for the old unmounted collection grid, completion matrix, aggregate exalt rows, quickslot display, or multi-character/vault potion planner. See the [retirement disposition](STEP-4-CLEANUP.md#legacy-character-retirement).
 
-At compact sizes or enlarged fonts, scroll the page to move between the roster and details. Their minimum sizes reserve usable data rows; detail tabs wrap instead of hiding part of the selected label. Keyboard focus reveals controls through nested scroll panes. Draft notes survive background roster refreshes and are saved against the selected character identity when selection changes. Fame uses the display locale, while IDs stay ungrouped and dates use the shared full timestamp format.
+At compact sizes or enlarged fonts the gallery wraps to fewer cards per row and the page scrolls; the table view keeps usable data rows, and sheet tabs wrap instead of hiding part of a label. Keyboard focus reveals controls through nested scroll panes. Draft notes survive background refreshes and are saved to their character when you leave the sheet or another character's sheet opens. Fame uses the display locale, while IDs stay ungrouped and dates use the shared full timestamp format.
 
 ## Data and accuracy
 
@@ -31,6 +33,8 @@ Missing stats and equipment remain unknown; an observed empty equipment slot is 
 **Last observed alive**, **Roster received** and **Marked dead manually** describe different evidence. Snapshot age and known-field counts do not mean every field was refreshed together: omitted fields retain earlier values, and field details identify older observations. Times are local receipt times. Older journals keep their values with **Legacy / provenance unknown** rather than invented timestamps; absent seasonal metadata stays unknown.
 
 Writes replace the journal through a temporary file. If saving fails, the status line shows the failure and the application retries. If an existing journal is corrupt or has an unsupported version, it is preserved and saving is disabled with a visible explanation. Preview mode reads saved records but does not start capture, make requests, or save roster edits.
+
+The journal is saved as **version 5** (pet, dungeon completions, experience, backpack, per-class exalt times and vault potions). The first save of an older file keeps a one-time copy beside it as `journal.v4.bak` before writing version 5, so a rollback is never left without the pre-upgrade data. Older RealmShark builds open the upgraded journal **read-only**: they cannot save new capture over version 5 fields they do not understand. To roll back manually, copy `journal.v4.bak` over `journal.json`; anything captured since the upgrade will not be in it.
 
 ## Pets and feeding estimates
 

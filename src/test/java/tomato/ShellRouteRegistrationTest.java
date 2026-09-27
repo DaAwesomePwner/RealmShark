@@ -31,7 +31,10 @@ public class ShellRouteRegistrationTest {
         String temporaryDirectory = System.getProperty("java.io.tmpdir");
         System.setProperty("java.io.tmpdir", temp.newFolder("scratch").getAbsolutePath());
         SessionStore store = new SessionStore(temp.newFolder().toPath(), false, "synthetic");
-        TomatoGUI gui = new TomatoGUI(new TomatoData());
+        TomatoData data = new TomatoData();
+        // An empty temporary journal: with no character the Build route stays on page 6 (with one it opens the sheet's Build tab).
+        tomato.gui.glance.character.SheetFixtures.inject(data, new tomato.backend.data.CharacterJournal(temp.newFolder().toPath().resolve("journal.json")));
+        TomatoGUI gui = new TomatoGUI(data);
         AtomicReference<JComponent> shell = new AtomicReference<>();
         try {
             storeField.set(null, store);
@@ -51,6 +54,13 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.issuesFor(Destination.RUNS))));
                 assertFalse("Only allowlisted packets of the affected view are routable",
                     navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.packetFor(Destination.RUNS, "TEXT"))));
+                String character = "0".repeat(64) + ":7";
+                assertTrue("A character's sheet has its own route",
+                    navigator.canOpen(Route.to(Destination.CHARACTER_SHEET).withPayload(new tomato.gui.glance.character.SheetFocus(character, "goals"))));
+                assertFalse("A sheet route needs a character", navigator.canOpen(Route.to(Destination.CHARACTER_SHEET)));
+                assertTrue(navigator.canOpen(Route.to(Destination.CHARACTERS)));
+                assertFalse("The list takes no payload",
+                    navigator.canOpen(Route.to(Destination.CHARACTERS).withPayload(new tomato.gui.glance.character.SheetFocus(character, null))));
                 tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
                 int landing = workspace.getSelectedPage();
                 assertTrue("Build keeps its route although the sidebar never lists it", navigator.open(Route.to(Destination.MY_INFO)));

@@ -137,6 +137,38 @@ public class WorkspaceShellLayoutTest {
             assertEquals("Reading never rewrites the saved order", "quests", store.get(NavLayout.ORDER_KEY));
         });
     }
+    @Test public void hidingARowNeverAnchorsOnAHiddenRowAndFocusFallsToThePage() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
+            for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
+            JButton build = new JButton("Estimate");
+            pages[6].add(build);
+            WorkspaceShell shell = new WorkspaceShell(pages, () -> {}, true, null, null, null, new NavLayout(store::get, store::put));
+            JFrame frame = new JFrame("Hidden row focus");
+            frame.setContentPane(shell); frame.setSize(1240, 800); frame.setVisible(true);   // the focus traversal policy orders only a showing window
+            try {
+                shell.select(6);   // Build: unlisted, no row
+                click(shell.contextMenu(8), "nav-menu-hide");
+                assertFalse(named(shell, "nav-8", AbstractButton.class).isVisible());
+                assertNull("No visible row to anchor on while Build is current", shell.scrollAnchor());
+                assertSame("Focus goes into Build, which has no row", build, shell.focusTarget(6));
+                click(shell.contextMenu(3), "nav-menu-show-8");
+                shell.select(8);
+                click(shell.contextMenu(8), "nav-menu-hide");   // the current page's own row
+                AbstractButton lootRow = named(shell, "nav-8", AbstractButton.class);
+                assertTrue("The current page's row stays listed while it is current", lootRow.isVisible());
+                assertSame("…so it still anchors and takes focus", lootRow, shell.scrollAnchor());
+                assertSame(lootRow, shell.focusTarget(8));
+                shell.select(3);
+                assertFalse("Once another page is current, the hidden row leaves the sidebar", lootRow.isVisible());
+                click(shell.contextMenu(10), "nav-menu-hide");
+                JToggleButton characters = named(shell, "nav-3", JToggleButton.class);
+                assertSame("A visible current row anchors and takes focus", characters, shell.scrollAnchor());
+                assertSame(characters, shell.focusTarget(3));
+            } finally { frame.dispose(); }
+        });
+    }
+
     private final Map<String, String> store = new HashMap<>();
 
     private WorkspaceShell shell() {

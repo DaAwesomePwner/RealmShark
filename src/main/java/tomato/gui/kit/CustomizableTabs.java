@@ -5,6 +5,7 @@ import java.awt.event.*;
 import java.util.*;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -13,7 +14,7 @@ import util.PropertiesManager;
 
 /**
  * A JTabbedPane whose tabs have stable IDs and can be reordered (drag, menu or Ctrl+Shift+Left/Right)
- * and hidden. Analyst-only tabs are skipped in Simple mode without changing the saved order.
+ * and hidden. Analyst-only tabs are skipped in Simple mode, and conditional tabs while their condition is false, without changing the saved order.
  */
 public class CustomizableTabs {
     public static final String PREFIX = "ui.tabs.";
@@ -23,9 +24,13 @@ public class CustomizableTabs {
         final String id, title;
         final Component component;
         final boolean analystOnly;
-        Entry(String id, String title, Component component, boolean analystOnly) {
-            this.id = id; this.title = title; this.component = component; this.analystOnly = analystOnly;
+        /** Null: always offered. Otherwise offered only while it is true; {@link #refreshConditions} re-checks it. */
+        final BooleanSupplier condition;
+        Entry(String id, String title, Component component, boolean analystOnly, BooleanSupplier condition) {
+            this.id = id; this.title = title; this.component = component; this.analystOnly = analystOnly; this.condition = condition;
         }
+        /** Neither Analyst-only nor conditional: only such a tab may be the one a view keeps when the others are hidden. */
+        boolean steady() { return !analystOnly && condition == null; }
     }
 
     private final String group;
@@ -57,13 +62,24 @@ public class CustomizableTabs {
 
     public JTabbedPane component() { return tabs; }
 
-    public CustomizableTabs add(String id, String title, Component component) { return add(id, title, component, false); }
-    public CustomizableTabs addAnalyst(String id, String title, Component component) { return add(id, title, component, true); }
+    public CustomizableTabs add(String id, String title, Component component) { return add(id, title, component, false, null); }
+    public CustomizableTabs addAnalyst(String id, String title, Component component) { return add(id, title, component, true, null); }
+    /**
+     * A tab offered only while {@code visible} is true (the sheet's Death annotation for a character marked dead). Like an
+     * Analyst-only tab it is skipped without changing the saved order or hidden set (spec §4.4); call {@link #refreshConditions}
+     * after the condition may have changed.
+     */
+    public CustomizableTabs addWhen(String id, String title, Component component, BooleanSupplier visible) {
+        return add(id, title, component, false, Objects.requireNonNull(visible, "visible"));
+    }
 
-    private CustomizableTabs add(String id, String title, Component component, boolean analystOnly) {
+    /** Re-checks the conditional tabs and shows or skips each; the saved order and hidden set are never rewritten. EDT. */
+    public void refreshConditions() { rebuild(); }
+
+    private CustomizableTabs add(String id, String title, Component component, boolean analystOnly, BooleanSupplier condition) {
         if (!ID.matcher(id).matches()) throw new IllegalArgumentException("Tab IDs use lowercase letters, digits and hyphens: " + id);
         if (entries.containsKey(id)) throw new IllegalArgumentException("Duplicate tab ID " + id);
-        entries.put(id, new Entry(id, title, component, analystOnly));
+        entries.put(id, new Entry(id, title, component, analystOnly, condition));
         rebuild();
         return this;
     }
@@ -81,7 +97,7 @@ public class CustomizableTabs {
         for (String id : order()) if (shown(entries.get(id))) result.add(id);
         // Corrupt/older preferences, or a mode change, must not strand a view with no tab.
         if (result.isEmpty()) for (String id : order()) {
-            if (!entries.get(id).analystOnly || mode.analyst()) { result.add(id); break; }
+            if (offered(entries.get(id))) { result.add(id); break; }
         }
         return result;
     }
@@ -123,7 +139,7 @@ public class CustomizableTabs {
     public boolean hide(String id) {
         List<String> visible = visibleIds();
         if (!visible.contains(id) || visible.size() <= 1) return false;
-        if (!entries.get(id).analystOnly && visible.stream().filter(key -> !entries.get(key).analystOnly).count() <= 1) return false;
+        if (entries.get(id).steady() && visible.stream().filter(key -> entries.get(key).steady()).count() <= 1) return false;
         hidden.add(id);
         save();
         rebuild();
@@ -144,7 +160,9 @@ public class CustomizableTabs {
         rebuild();
     }
 
-    private boolean shown(Entry entry) { return !hidden.contains(entry.id) && (!entry.analystOnly || mode.analyst()); }
+    private boolean shown(Entry entry) { return !hidden.contains(entry.id) && offered(entry); }
+    /** Offered by the display mode and, for a conditional tab, by its condition. */
+    private boolean offered(Entry entry) { return (!entry.analystOnly || mode.analyst()) && (entry.condition == null || entry.condition.getAsBoolean()); }
 
     private void load(String saved) {
         if (saved == null || saved.isEmpty()) return;
