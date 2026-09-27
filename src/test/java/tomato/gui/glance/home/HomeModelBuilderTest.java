@@ -35,9 +35,14 @@ public class HomeModelBuilderTest {
             base, new int[]{1001, 1002, 0, 1004}, 12_345, 1_200, 70, null, null, observedAt);
     }
     private static BuildEstimates.Estimates estimates(Double dps, Double mp) { return new BuildEstimates.Estimates(dps, mp); }
+    /** A current character (lastSeenAt 0), a journal record or nothing; a cleared one gives its boundary with the overload below. */
     private static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
                                       CharacterJournal.AccountRecord account, long lastSeenAt) {
-        return HomeModelBuilder.hero(live, estimates, last, account, lastSeenAt, NOW, CAPS_OF, NAMES);
+        return hero(live, estimates, last, account, lastSeenAt, null);
+    }
+    private static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
+                                      CharacterJournal.AccountRecord account, long lastSeenAt, LiveCharacter.Boundary boundary) {
+        return HomeModelBuilder.hero(live, estimates, last, account, lastSeenAt, boundary, NOW, CAPS_OF, NAMES);
     }
     private static CharacterJournal.AccountRecord account(int... exalts) {
         CharacterJournal.AccountRecord account = new CharacterJournal.AccountRecord(); account.key = "account-A";
@@ -96,7 +101,7 @@ public class HomeModelBuilderTest {
         assertEquals("No estimates: unknown, never 0", DisplayValue.State.UNKNOWN, h.weaponDps().state);
         assertEquals(DisplayValue.State.UNKNOWN, h.mpPerSecond().state);
         HomeModel.Hero bare = HomeModelBuilder.hero(new LiveCharacter.Snapshot("account-A", 7, 999, null, null, null, 0L, null, null, null,
-            null, null, null, null, null, NOW), estimates(null, null), null, null, 0, NOW, CAPS_OF, NAMES);
+            null, null, null, null, null, NOW), estimates(null, null), null, null, 0, null, NOW, CAPS_OF, NAMES);
         assertEquals("Class #999", bare.className());
         assertEquals("Class definitions missing: caps and potions unknown", -1, bare.maxed());
         assertArrayEquals(UNKNOWN8, bare.caps()); assertArrayEquals(UNKNOWN8, bare.potionsNeeded()); assertArrayEquals(UNKNOWN8, bare.totals());
@@ -109,9 +114,10 @@ public class HomeModelBuilderTest {
     @Test public void mapChangeGraceKeepsTheHeroLiveForFiveSeconds() {
         LiveCharacter.Snapshot known = live(CAPS.clone(), 100L);
         BuildEstimates.Estimates some = estimates(10.0, 1.0);
-        assertEquals(State.LIVE, hero(known, some, null, null, NOW - 4_999).state());
-        assertEquals(State.LIVE, hero(known, some, null, null, NOW - 5_000).state());
-        HomeModel.Hero stale = hero(known, some, null, null, NOW - 5_001);
+        LiveCharacter.Boundary mapChange = LiveCharacter.Boundary.TRANSIENT;
+        assertEquals(State.LIVE, hero(known, some, null, null, NOW - 4_999, mapChange).state());
+        assertEquals(State.LIVE, hero(known, some, null, null, NOW - 5_000, mapChange).state());
+        HomeModel.Hero stale = hero(known, some, null, null, NOW - 5_001, mapChange);
         assertEquals(State.STALE, stale.state()); assertEquals(NOW - 5_001, stale.lastSeenAt());
         assertEquals(DisplayValue.State.STALE, stale.fame().state); assertEquals(DisplayFormat.formatInteger(100), stale.fame().text());
         assertEquals("Estimates stay marked as estimates", DisplayValue.State.ESTIMATE, stale.weaponDps().state);
@@ -129,6 +135,16 @@ public class HomeModelBuilderTest {
         assertEquals(State.STALE, stale.state());
         assertEquals("A stale hero is labeled, so saved values may fill the gaps", DisplayFormat.formatInteger(50) + " stars · "
             + DisplayFormat.formatInteger(999) + " account fame · " + DisplayFormat.formatInteger(1_200) + " gold", stale.accountLine());
+    }
+
+    @Test public void captureStopAndIdentityChangesGetNoGrace() {
+        LiveCharacter.Snapshot known = live(CAPS.clone(), 100L);
+        assertEquals(State.LIVE, hero(known, null, null, null, NOW - 1, LiveCharacter.Boundary.TRANSIENT).state());
+        assertEquals("Capture stopped: stale at once", State.STALE, hero(known, null, null, null, NOW - 1, LiveCharacter.Boundary.STOPPED).state());
+        assertEquals("Another account or character: stale at once", State.STALE, hero(known, null, null, null, NOW - 1, LiveCharacter.Boundary.IDENTITY).state());
+        assertEquals("No known reason: never live", State.STALE, hero(known, null, null, null, NOW - 1, null).state());
+        assertTrue(HomeModelBuilder.stillCurrent(0, null, NOW));
+        assertFalse(HomeModelBuilder.stillCurrent(NOW - 1, LiveCharacter.Boundary.STOPPED, NOW));
     }
 
     @Test public void journalRecordIsStaleAndNothingIsEmpty() {

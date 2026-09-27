@@ -1,5 +1,6 @@
 package tomato.backend.data;
 
+import java.io.IOException;
 import org.junit.Test;
 import packets.data.StatData;
 import packets.data.enums.StatType;
@@ -20,19 +21,27 @@ public class LiveCharacterTest {
     @Test public void publishClearAndLastKnownFollowTheCharacterInGame() {
         LiveCharacter live = new LiveCharacter();
         assertNull(live.current()); assertNull(live.lastKnown()); assertEquals(0, live.lastSeenAt()); assertEquals(0, live.revision());
-        live.clear(500);
+        live.clear(500, LiveCharacter.Boundary.STOPPED);
         assertEquals("Clearing with nothing in game is not a change", 0, live.revision()); assertEquals(0, live.lastSeenAt());
+        assertNull("No character has stopped being current yet", live.lastBoundary());
         LiveCharacter.Snapshot first = snapshot(1000), second = snapshot(2000);
         live.publish(first);
         assertSame(first, live.current()); assertSame(first, live.lastKnown()); assertEquals(1, live.revision()); assertEquals(0, live.lastSeenAt());
         live.publish(second);
         assertSame(second, live.current()); assertEquals(2, live.revision());
-        live.clear(2500);
+        live.clear(2500, LiveCharacter.Boundary.TRANSIENT);
         assertNull(live.current()); assertSame(second, live.lastKnown()); assertEquals(2500, live.lastSeenAt()); assertEquals(3, live.revision());
-        live.clear(9000);
+        assertEquals(LiveCharacter.Boundary.TRANSIENT, live.lastBoundary());
+        live.clear(9000, LiveCharacter.Boundary.TRANSIENT);
         assertEquals(2500, live.lastSeenAt()); assertEquals(3, live.revision());
+        live.clear(9500, LiveCharacter.Boundary.IDENTITY);
+        assertEquals("A later identity change replaces a transient reason", LiveCharacter.Boundary.IDENTITY, live.lastBoundary());
+        assertEquals("It is a change for Home", 4, live.revision()); assertEquals("The character still left at its first clear", 2500, live.lastSeenAt());
+        live.clear(9900, LiveCharacter.Boundary.TRANSIENT); live.clear(9900, LiveCharacter.Boundary.STOPPED);
+        assertEquals("Never back to transient; one lasting reason is enough", LiveCharacter.Boundary.IDENTITY, live.lastBoundary());
+        assertEquals(4, live.revision());
         live.publish(first);
-        assertSame(first, live.current()); assertEquals(2500, live.lastSeenAt()); assertEquals(4, live.revision());
+        assertSame(first, live.current()); assertEquals(2500, live.lastSeenAt()); assertEquals(5, live.revision());
         try { live.publish(null); fail("Use clear() when no character is in game"); } catch (IllegalArgumentException expected) {}
     }
 
@@ -54,6 +63,46 @@ public class LiveCharacterTest {
         data.captureStarted();
         live.publish(delayed);
         assertSame(delayed, live.current());
+    }
+
+    /** Only a reset that may keep the same account and character is transient (Home keeps the character live briefly). */
+    @Test public void everyIdentityResetSaysWhetherTheSameCharacterMayReturn() throws Exception {
+        TomatoData data = new TomatoData((token, endpoint) -> { throw new IOException("offline fixture"); });
+        LiveCharacter live = data.liveCharacter;
+        data.updateToken("token-A"); assertTrue(data.awaitMetadataIdle(2000));
+        live.publish(snapshot(1000));   // account "account", character 7
+        data.clear();
+        assertEquals("Map change", LiveCharacter.Boundary.TRANSIENT, live.lastBoundary());
+        data.updateToken("token-A"); assertTrue(data.awaitMetadataIdle(2000));
+        assertEquals("HELLO with the same credential", LiveCharacter.Boundary.TRANSIENT, live.lastBoundary());
+        data.setUserId(1, 7, "AAAAAA==");
+        assertEquals("CREATE for the same character", LiveCharacter.Boundary.TRANSIENT, live.lastBoundary());
+        data.setUserId(1, 8, "AAAAAA==");
+        assertEquals("CREATE for another character", LiveCharacter.Boundary.IDENTITY, live.lastBoundary());
+        live.publish(snapshot(2000));
+        data.captureBoundary();
+        assertEquals("Transport reset: who follows is not known yet", LiveCharacter.Boundary.TRANSIENT, live.lastBoundary());
+        data.updateToken("token-B"); assertTrue(data.awaitMetadataIdle(2000));
+        assertEquals("HELLO with another credential is another account", LiveCharacter.Boundary.IDENTITY, live.lastBoundary());
+        live.publish(snapshot(3000));
+        data.captureStopped();
+        assertEquals("Capture stop", LiveCharacter.Boundary.STOPPED, live.lastBoundary());
+    }
+
+    /** The identity My Info resets to (unknown parts null or negative) against the last published character. */
+    @Test public void resetIsTransientUnlessAKnownAccountOrCharacterDiffers() {
+        for (Object[] c : new Object[][] {{null, -1, LiveCharacter.Boundary.TRANSIENT}, {"account", 7, LiveCharacter.Boundary.TRANSIENT},
+                {null, 7, LiveCharacter.Boundary.TRANSIENT}, {"account", -1, LiveCharacter.Boundary.TRANSIENT},
+                {"other", 7, LiveCharacter.Boundary.IDENTITY}, {null, 8, LiveCharacter.Boundary.IDENTITY}}) {
+            LiveCharacter live = new LiveCharacter();
+            live.publish(snapshot(1000));   // account "account", character 7
+            live.reset(2000, (String) c[0], (Integer) c[1]);
+            assertNull(live.current()); assertEquals(c[0] + "/" + c[1], c[2], live.lastBoundary()); assertEquals(2000, live.lastSeenAt());
+        }
+        LiveCharacter unknownAccount = new LiveCharacter();
+        unknownAccount.publish(new LiveCharacter.Snapshot(null, 7, 782, null, null, null, null, null, null, null, null, null, null, null, null, 1000));
+        unknownAccount.reset(2000, "account", 7);
+        assertEquals("An account that was not known is not a different one", LiveCharacter.Boundary.TRANSIENT, unknownAccount.lastBoundary());
     }
 
     @Test public void snapshotsCopyArraysInAndOutAndRejectWrongShapes() {

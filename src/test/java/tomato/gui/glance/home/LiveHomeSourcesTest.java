@@ -99,6 +99,29 @@ public class LiveHomeSourcesTest {
         assertEquals("Captured data remains useful despite a failed saved journal", HomeModel.State.LIVE, sources.hero(1000).state());
     }
 
+    @Test public void onlyAMapChangeKeepsTheLastCharacterLiveForTheGrace() throws Exception {
+        TomatoData data = isolated();
+        LiveHomeSources sources = new LiveHomeSources(data, () -> null);
+        LiveCharacter live = data.liveCharacter;
+        LiveCharacter.Snapshot sample = new LiveCharacter.Snapshot(CharacterJournal.accountKey("live-home-sources"), 7, 782, "Sample", null, 20,
+            null, null, null, null, null, null, null, null, null, 1000);
+        live.publish(sample);
+        data.clear();   // map change
+        long left = live.lastSeenAt();
+        assertEquals("A map change: still live within the grace", HomeModel.State.LIVE, sources.hero(left + 4_000).state());
+        assertEquals("and stale after it", HomeModel.State.STALE, sources.hero(left + HomeModelBuilder.MAP_CHANGE_GRACE_MILLIS + 1).state());
+        long token = sources.revisions().hero();
+        data.setUserId(1, 8, "AAAAAA==");   // CREATE for another character
+        assertTrue("An identity change moves the hero token", sources.revisions().hero() > token);
+        assertEquals("Another character: stale at once, even within the grace", HomeModel.State.STALE, sources.hero(left + 1).state());
+        live.publish(sample);
+        data.setUserId(1, 9, "AAAAAA==");   // another character without a map change first
+        assertEquals(HomeModel.State.STALE, sources.hero(live.lastSeenAt()).state());
+        live.publish(sample);
+        data.captureStopped();
+        assertEquals("Capture stopped: stale at once", HomeModel.State.STALE, sources.hero(live.lastSeenAt()).state());
+    }
+
     @Test public void everySectionIsEmptyWithoutCaptureHistoryOrQuests() throws Exception {
         LiveHomeSources sources = new LiveHomeSources(isolated(), () -> null);
         sources.revisions();

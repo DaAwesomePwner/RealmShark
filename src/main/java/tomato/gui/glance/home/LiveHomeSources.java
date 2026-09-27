@@ -70,7 +70,7 @@ public final class LiveHomeSources implements HomeSources {
     @Override public Revisions revisions() {
         LiveCharacter live = data.liveCharacter;
         boolean graceOver = live.current() == null && live.lastKnown() != null
-            && System.currentTimeMillis() - live.lastSeenAt() > HomeModelBuilder.MAP_CHANGE_GRACE_MILLIS;
+            && !HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), System.currentTimeMillis());
         DiscoveryLog.CurrentVisit visit = DiscoveryLog.INSTANCE.currentVisit();
         return new Revisions(
             heroToken.of(Arrays.asList(live.revision(), data.characterJournal().revision(), graceOver)),
@@ -84,13 +84,13 @@ public final class LiveHomeSources implements HomeSources {
         CharacterJournal journal = data.characterJournal();
         CharacterJournal.CharacterRecord last = journal.mostRecentCharacter();
         LiveCharacter.Snapshot current = live.current();
-        if (current != null) return HomeModelBuilder.hero(current, estimates(current), last, account(journal, current.account()), 0, now);
+        if (current != null) return HomeModelBuilder.hero(current, estimates(current), last, account(journal, current.account()), 0, null, now);
         LiveCharacter.Snapshot known = live.lastKnown();
         if (known == null && !journal.readable())
             return HomeModel.Hero.placeholder(HomeModel.State.UNAVAILABLE, journal.storageStatus());
         long seen = known == null ? 0 : live.lastSeenAt() > 0 ? live.lastSeenAt() : Math.max(1, known.observedAt());
         String account = known != null ? known.account() : last != null ? last.account : null;
-        return HomeModelBuilder.hero(known, estimates(known), last, account(journal, account), seen, now);
+        return HomeModelBuilder.hero(known, estimates(known), last, account(journal, account), seen, live.lastBoundary(), now);
     }
     private static CharacterJournal.AccountRecord account(CharacterJournal journal, String key) { return key == null ? null : journal.accountCopy(key); }
 

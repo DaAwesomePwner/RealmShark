@@ -20,7 +20,7 @@ import tomato.realmshark.enums.CharacterClass;
 
 /** Pure, static builders for Home's sections. No Swing (DisplayValue only); called on the refresh threads. */
 public final class HomeModelBuilder {
-    /** A cleared live snapshot counts as live this long after its clear (map changes clear it briefly). */
+    /** A live snapshot cleared by a transient boundary (a map change clears it briefly) counts as live this long after its clear. */
     static final long MAP_CHANGE_GRACE_MILLIS = 5_000;
     /** Quest lists a day old are stale even while capture continues: dailies reset. */
     static final long QUEST_LIST_STALE_MILLIS = 24L * 60 * 60 * 1000;
@@ -40,20 +40,29 @@ public final class HomeModelBuilder {
 
     /**
      * {@code live} is LiveCharacter.current() with {@code lastSeenAt} 0, or (not in game) LiveCharacter.lastKnown() with
-     * LiveCharacter.lastSeenAt(); within MAP_CHANGE_GRACE_MILLIS of that time it is still LIVE. {@code estimates} are Build's
-     * estimates from {@code live}'s detached inputs (null = none). {@code last} is the journal's most recent character;
-     * {@code account} the saved record of the shown character's account.
+     * LiveCharacter.lastSeenAt() and {@code boundary}, LiveCharacter.lastBoundary(); see {@link #stillCurrent}.
+     * {@code estimates} are Build's estimates from {@code live}'s detached inputs (null = none). {@code last} is the journal's
+     * most recent character; {@code account} the saved record of the shown character's account.
      */
     public static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
-                                      CharacterJournal.AccountRecord account, long lastSeenAt, long now) {
-        return hero(live, estimates, last, account, lastSeenAt, now, CLASS_CAPS, CLASS_NAMES);
+                                      CharacterJournal.AccountRecord account, long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
+        return hero(live, estimates, last, account, lastSeenAt, boundary, now, CLASS_CAPS, CLASS_NAMES);
     }
 
     static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
-                               CharacterJournal.AccountRecord account, long lastSeenAt, long now, IntFunction<int[]> caps, IntFunction<String> names) {
-        if (live != null) return fromLive(live, estimates, account, lastSeenAt <= 0 || now - lastSeenAt <= MAP_CHANGE_GRACE_MILLIS, lastSeenAt, caps, names);
+                               CharacterJournal.AccountRecord account, long lastSeenAt, LiveCharacter.Boundary boundary, long now,
+                               IntFunction<int[]> caps, IntFunction<String> names) {
+        if (live != null) return fromLive(live, estimates, account, stillCurrent(lastSeenAt, boundary, now), lastSeenAt, caps, names);
         if (last != null) return fromJournal(last, account, caps, names);
         return HomeModel.Hero.placeholder(State.EMPTY, "No character captured yet. Start capture and enter the game to see your character.");
+    }
+
+    /**
+     * True while the live character is in game ({@code lastSeenAt} 0) or was cleared by a TRANSIENT boundary at most
+     * MAP_CHANGE_GRACE_MILLIS ago; a capture stop, another account or character, or an unknown reason ends it at once.
+     */
+    static boolean stillCurrent(long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
+        return lastSeenAt <= 0 || boundary == LiveCharacter.Boundary.TRANSIENT && now - lastSeenAt <= MAP_CHANGE_GRACE_MILLIS;
     }
 
     /** A live hero carries no packet time: an unchanged character builds an equal Hero, so Home does not redraw it. */

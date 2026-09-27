@@ -1,5 +1,6 @@
 package tomato.backend.data;
 
+import java.util.Objects;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.gui.myinfo.BuildEstimates;
@@ -7,9 +8,17 @@ import tomato.gui.myinfo.BuildEstimates;
 /**
  * The character in game right now, for Home. The capture thread publishes detached snapshots from
  * {@link TomatoData#publishMyInfoPlayer} and clears them when the local identity resets (every map change, CREATE, HELLO,
- * account change) or capture stops. Any thread may read; snapshots are immutable (arrays are copied in and out).
+ * account change) or capture stops, saying why ({@link Boundary}). Any thread may read; snapshots are immutable (arrays are
+ * copied in and out).
  */
 public final class LiveCharacter {
+    /**
+     * Why the last published character stopped being current. TRANSIENT: a map change, reconnect or connection reset that
+     * may keep the same account and character (Home rides it out briefly). IDENTITY: another account or character. STOPPED:
+     * capture stopped.
+     */
+    public enum Boundary { TRANSIENT, IDENTITY, STOPPED }
+
     private static final StatType[] TOTALS = {StatType.MAX_HP_STAT, StatType.MAX_MP_STAT, StatType.ATTACK_STAT,
         StatType.DEFENSE_STAT, StatType.SPEED_STAT, StatType.DEXTERITY_STAT, StatType.VITALITY_STAT, StatType.WISDOM_STAT};
     private static final StatType[] BOOSTS = {StatType.MAX_HP_BOOST_STAT, StatType.MAX_MP_BOOST_STAT, StatType.ATTACK_BOOST_STAT,
@@ -42,6 +51,7 @@ public final class LiveCharacter {
     }
 
     private Snapshot current, lastKnown;
+    private Boundary boundary;
     private boolean accepting = true;
     private long revision, lastSeenAt;
 
@@ -51,15 +61,30 @@ public final class LiveCharacter {
         if (!accepting) return; // A producer may finish detaching after capture stop was requested.
         current = value; lastKnown = value; revision++;
     }
-    /** Capture thread (or capture stop): no character is in game. Only an actual change bumps the revision. */
-    public synchronized void clear(long at) {
-        if (current == null) return;
-        current = null; lastSeenAt = at; revision++;
+    /**
+     * Capture thread (or capture stop): no character is in game, because of {@code why}. Only an actual change bumps the
+     * revision: clearing the current character, or a lasting reason (IDENTITY, STOPPED) replacing a TRANSIENT one when the
+     * account or character turns out to have changed after a map change already cleared it. lastSeenAt stays the first clear.
+     */
+    public synchronized void clear(long at, Boundary why) {
+        Objects.requireNonNull(why, "why");
+        if (current != null) { current = null; lastSeenAt = at; boundary = why; revision++; }
+        else if (lastKnown != null && boundary == Boundary.TRANSIENT && why != Boundary.TRANSIENT) { boundary = why; revision++; }
+    }
+    /**
+     * Capture thread: the local identity reset to {@code account} and {@code characterId} (null or negative = not known yet).
+     * TRANSIENT unless a part known on both sides differs from the last published character: then IDENTITY.
+     */
+    public synchronized void reset(long at, String account, int characterId) {
+        Snapshot last = lastKnown;
+        boolean other = last != null && (account != null && last.account() != null && !account.equals(last.account())
+            || characterId >= 0 && last.characterId() >= 0 && characterId != last.characterId());
+        clear(at, other ? Boundary.IDENTITY : Boundary.TRANSIENT);
     }
     /** Start follows termination of the previous capture worker, so no old publication can cross this boundary. */
     public synchronized void start() { accepting = true; }
     /** Atomically reject late producer publications and clear the current character. */
-    public synchronized void stop(long at) { accepting = false; clear(at); }
+    public synchronized void stop(long at) { accepting = false; clear(at, Boundary.STOPPED); }
     public synchronized long revision() { return revision; }
     /** The character in game now, or null. */
     public synchronized Snapshot current() { return current; }
@@ -67,6 +92,8 @@ public final class LiveCharacter {
     public synchronized Snapshot lastKnown() { return lastKnown; }
     /** When a published character last stopped being current (epoch ms); 0 until that first happens. */
     public synchronized long lastSeenAt() { return lastSeenAt; }
+    /** Why the last published character stopped being current; null until that first happens. */
+    public synchronized Boundary lastBoundary() { return boundary; }
 
     /** Capture thread only: a snapshot of the capture-owned local player entity; the estimates wait for a reader. */
     static Snapshot read(String account, int characterId, Entity player, BuildEstimates.Inputs build, long observedAt) {
