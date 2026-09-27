@@ -89,18 +89,24 @@ public final class LiveHomeSources implements HomeSources {
             questToken.of(Arrays.asList(progressionChanges.get(), QuestPinning.revision())));
     }
 
+    /**
+     * The hero on "home-refresh". A live or last-known hero's pet chip comes from its own journal record, read here by the
+     * snapshot's journal key (journal::characterCopy, a deep copy); the saved fallback's from the record already in hand. The
+     * hero token already includes the journal revision, so a new pet reading rebuilds the hero.
+     */
     @Override public HomeModel.Hero hero(long now) {
         LiveCharacter live = data.liveCharacter;
         CharacterJournal journal = data.characterJournal();
         CharacterJournal.CharacterRecord last = journal.mostRecentCharacter();
         LiveCharacter.Snapshot current = live.current();
-        if (current != null) return HomeModelBuilder.hero(current, estimates(current), last, account(journal, current.account()), 0, null, now);
+        if (current != null)
+            return HomeModelBuilder.hero(current, estimates(current), last, account(journal, current.account()), journal::characterCopy, 0, null, now);
         LiveCharacter.Snapshot known = live.lastKnown();
         if (known == null && !journal.readable())
             return HomeModel.Hero.placeholder(HomeModel.State.UNAVAILABLE, journal.storageStatus());
         long seen = known == null ? 0 : live.lastSeenAt() > 0 ? live.lastSeenAt() : Math.max(1, known.observedAt());
         String account = known != null ? known.account() : last != null ? last.account : null;
-        return HomeModelBuilder.hero(known, estimates(known), last, account(journal, account), seen, live.lastBoundary(), now);
+        return HomeModelBuilder.hero(known, estimates(known), last, account(journal, account), journal::characterCopy, seen, live.lastBoundary(), now);
     }
     private static CharacterJournal.AccountRecord account(CharacterJournal journal, String key) { return key == null ? null : journal.accountCopy(key); }
 

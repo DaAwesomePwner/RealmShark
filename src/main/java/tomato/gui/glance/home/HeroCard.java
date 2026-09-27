@@ -21,10 +21,11 @@ import tomato.gui.modern.DisplayFormat;
 /**
  * The current or last known character (spec §6.1), compact so the whole Home fits a 1240×800 window (S1). The header row
  * holds the character's name as the card title, the Build action and Evidence. On a wide page one row holds the 54 px skin
- * sprite, class · level · fame and the maxed / exalt / last-seen chips, the four equipped slots with tier labels, and the
+ * sprite, class · level · fame and the maxed / exalt / pet / last-seen chips, the four equipped slots with tier labels, and the
  * Weapon DPS and MP/sec estimate tiles (it wraps below 1000 px); then eight base-versus-cap bars (2 × 4) with the live boost;
  * then the needs line (left) and the account line (right) on one line. The whole card opens its sheet (the Characters list
- * without a journal key); Build opens the Build page. The pet rarity chip arrives with pet data in P3.
+ * without a journal key); Build opens the Build page. The pet chip ("Legendary pet", "No pet") comes from the character's journal
+ * record and is hidden while the pet or its rarity is unknown.
  */
 final class HeroCard extends HomeCard {
     /** Canonical stat order: life, mana, atk, def, spd, dex, vit, wis. */
@@ -40,6 +41,8 @@ final class HeroCard extends HomeCard {
     private final KitText meta = HomeViews.named(HomeViews.caption(""), "home-hero-meta");
     private final Chip maxed = HomeViews.named(new Chip("", Tokens.Tone.WARN), "home-hero-maxed");
     private final Chip exalts = HomeViews.named(new Chip("", Tokens.Tone.ACCENT), "home-hero-exalts");
+    /** Game meaning (rarity) never signals status: neutral. */
+    private final Chip pet = HomeViews.named(new Chip("", Tokens.Tone.NEUTRAL), "home-hero-pet");
     private final Chip seen = HomeViews.named(new Chip("", Tokens.Tone.NEUTRAL), "home-hero-seen");
     private final ItemSlot[] gear = new ItemSlot[4];
     private final StatBar[] bars = new StatBar[8];
@@ -82,7 +85,7 @@ final class HeroCard extends HomeCard {
 
     private JComponent layoutContent() {
         exalts.setToolTipText("Exaltation tiers completed for this class across the eight stats");
-        JPanel identity = HomeViews.beside(HomeViews.stack(Tokens.XS, meta, HomeViews.wrap(maxed, exalts, seen)), sprite, BorderLayout.WEST, Tokens.M);
+        JPanel identity = HomeViews.beside(HomeViews.stack(Tokens.XS, meta, HomeViews.wrap(maxed, exalts, pet, seen)), sprite, BorderLayout.WEST, Tokens.M);
         JPanel slots = HomeViews.clear(new FlowLayout(FlowLayout.LEADING, Tokens.S, 0));
         for (int i = 0; i < gear.length; i++) {
             gear[i] = HomeViews.named(new ItemSlot(32), "home-hero-slot-" + i);
@@ -185,6 +188,10 @@ final class HeroCard extends HomeCard {
             exalts.setText("Exalts " + tiers + "/" + EXALT_TIERS);
             exalts.setTone(tiers >= EXALT_TIERS ? Tokens.Tone.GOOD : Tokens.Tone.ACCENT);
         }
+        String chip = hero.petChip(); // null: the pet or its rarity is unknown, never guessed
+        pet.setVisible(chip != null);
+        pet.setText(chip == null ? "" : chip);
+        pet.setToolTipText(chip == null ? null : "This character's pet as capture last read it (the character list or the Pet Yard)");
         seen.setVisible(!seenText.isEmpty());
         seen.setText(seenText);
     }

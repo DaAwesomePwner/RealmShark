@@ -31,7 +31,8 @@ public final class HomeModels {
             DisplayValue.estimate("1,480", "Average weapon damage × rate of fire against 0 DEF"),
             DisplayValue.estimate("18.4", "MP regeneration from WIS at the base rate"),
             "70 stars · 12,345 account fame · 1,200 gold", live ? 0L : now - 2 * 3_600_000L,
-            "Live stats from the current map; caps from the class definition; estimates use the Build page's default scenario.", KEY);
+            "Live stats from the current map; caps from the class definition; estimates use the Build page's default scenario.", KEY,
+            "Legendary pet"); // CharacterFixtures' Wizard (KEY) has a Legendary pet
     }
     public static HomeModel.Now now(long now) {
         return new HomeModel.Now(HomeModel.State.LIVE, true, "Lost Halls", now - 750_000L, List.of(
@@ -71,7 +72,13 @@ public final class HomeModels {
     public static HomeModel.Hero withKey(HomeModel.Hero h, String key) {
         return new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(), h.base(), h.caps(),
             h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), h.equipment(), h.weaponDps(), h.mpPerSecond(), h.accountLine(),
-            h.lastSeenAt(), h.evidence(), key);
+            h.lastSeenAt(), h.evidence(), key, h.petChip());
+    }
+    /** The same hero with another pet chip (null: hidden). */
+    public static HomeModel.Hero withPetChip(HomeModel.Hero h, String petChip) {
+        return new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(), h.base(), h.caps(),
+            h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), h.equipment(), h.weaponDps(), h.mpPerSecond(), h.accountLine(),
+            h.lastSeenAt(), h.evidence(), h.key(), petChip);
     }
     public static HomeModel populated(long now) {
         return new HomeModel(hero(HomeModel.State.LIVE, now), now(now), today(HomeArchive.Window.TODAY, now),
@@ -82,7 +89,7 @@ public final class HomeModels {
         String none = "No character captured yet";
         return new HomeModel(
             new HomeModel.Hero(HomeModel.State.EMPTY, null, 0, null, null, null, DisplayValue.unknown(none), -1, null, null, null, null,
-                "", -1, null, DisplayValue.unknown(none), DisplayValue.unknown(none), "", 0L, "No character has been captured on this computer yet.", null),
+                "", -1, null, DisplayValue.unknown(none), DisplayValue.unknown(none), "", 0L, "No character has been captured on this computer yet.", null, null),
             new HomeModel.Now(HomeModel.State.EMPTY, false, null, null, List.of(), 0, 0, null),
             new HomeModel.Today(HomeModel.State.EMPTY, HomeArchive.Window.TODAY, null, null),
             new HomeModel.Runs(HomeModel.State.EMPTY, List.of(), null),
@@ -97,7 +104,7 @@ public final class HomeModels {
         String reason = "Saved history is not available: the history folder could not be opened.";
         return new HomeModel(
             new HomeModel.Hero(HomeModel.State.UNAVAILABLE, null, 0, null, null, null, DisplayValue.unknown(reason), -1, null, null, null,
-                null, "", -1, null, DisplayValue.unknown(reason), DisplayValue.unknown(reason), "", 0L, "The character journal could not be read.", null),
+                null, "", -1, null, DisplayValue.unknown(reason), DisplayValue.unknown(reason), "", 0L, "The character journal could not be read.", null, null),
             new HomeModel.Now(HomeModel.State.UNAVAILABLE, false, null, null, List.of(), 0, 0, null),
             new HomeModel.Today(HomeModel.State.UNAVAILABLE, HomeArchive.Window.TODAY, null, reason),
             new HomeModel.Runs(HomeModel.State.UNAVAILABLE, List.of(), reason),
