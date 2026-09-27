@@ -86,6 +86,9 @@ public final class CharacterJournalGUI extends JPanel {
     private java.util.function.Supplier<String> liveKey = () -> null;
     /** The saved view's status, shown only while it is a failure (the actions themselves are in the ⋯ menu). */
     private final Banner stateBanner = new Banner("character-view-state");
+    /** The gallery's last-seen storage problem: save() runs on a background writer and never bumps revision, so this is
+     * compared on every refresh() instead of only when a data change already calls filter(). */
+    private String galleryProblem;
 
     public CharacterJournalGUI(CharacterJournal journal) {
         this(journal, System::currentTimeMillis);
@@ -273,6 +276,11 @@ public final class CharacterJournalGUI extends JPanel {
         if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
         if (rosterDirty && (isShowing() || detached)) filter();
         else if ((isShowing() || detached) && ageFilter.getSelectedIndex() != 0 && !matchingKeys().equals(filteredKeys())) filter();
+        // save() runs on a background writer and changes the storage problem without bumping revision, so this is checked on
+        // every refresh() instead of only when filter() already ran from a data change; the gallery's banner would otherwise
+        // go stale (never appearing, or not clearing after a later successful save).
+        String problem = journal.storageProblem();
+        if (!Objects.equals(problem, galleryProblem)) { galleryProblem = problem; views.refresh(); }
         String storageStatus = journal.storageStatus();
         if (records.isEmpty() && storageStatus.startsWith("Saved"))
             storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";

@@ -91,10 +91,17 @@ public final class CharacterGallery extends JPanel {
     /** Where the user's card selection goes (the roster list selects the same character, so views and saved state follow it). */
     public void onSelect(Consumer<String> listener) { selected = Objects.requireNonNull(listener, "listener"); }
 
-    /** Selects {@code key}'s card, living or in the Graveyard, and scrolls it into view; null or an unknown key clears both lists. */
-    public void select(String key) {
+    /** Selects {@code key}'s card, living or in the Graveyard, and always scrolls it into view; null or an unknown key clears both lists. */
+    public void select(String key) { select(key, true); }
+
+    /**
+     * Selects {@code key}'s card; scrolls it into view when the selection actually changes, or always when {@code reveal} is
+     * true. A refresh that repeats the same selection (e.g. the gallery's periodic live-key check) passes {@code reveal=false}
+     * so it never fights a user who scrolled elsewhere; an explicit selection (Back from the sheet) always reveals.
+     */
+    public void select(String key, boolean reveal) {
         selecting = true;
-        try { alive.selectKey(key); dead.selectKey(key); } finally { selecting = false; }
+        try { alive.selectKey(key, reveal); dead.selectKey(key, reveal); } finally { selecting = false; }
     }
 
     /** The list keyboard focus returns to from the sheet: the Graveyard's while it is open and holds the selection, else the cards. */
@@ -183,9 +190,15 @@ public final class CharacterGallery extends JPanel {
                 if (cards.getElementAt(i).key().equals(selected.key())) { setSelectedIndex(i); break; }
         }
 
-        void selectKey(String key) {
+        /** Reveals the resolved card only when its index differs from the current selection, or when {@code reveal} forces it. */
+        void selectKey(String key, boolean reveal) {
             for (int i = 0; key != null && i < cards.getSize(); i++)
-                if (cards.getElementAt(i).key().equals(key)) { if (getSelectedIndex() != i) setSelectedIndex(i); ensureIndexIsVisible(i); return; }
+                if (cards.getElementAt(i).key().equals(key)) {
+                    boolean changed = getSelectedIndex() != i;
+                    if (changed) setSelectedIndex(i);
+                    if (changed || reveal) ensureIndexIsVisible(i);
+                    return;
+                }
             if (!isSelectionEmpty()) clearSelection();
         }
 
@@ -221,11 +234,25 @@ public final class CharacterGallery extends JPanel {
         boolean set(List<CharacterCardModel> next) {
             List<CharacterCardModel> copy = List.copyOf(next);
             if (copy.equals(cards)) return false;
+            if (sameKeys(copy)) {
+                // Only field values changed (e.g. a live tick's "Played N ago"): update in place so the selection is untouched
+                // and no interval event fires, instead of a remove+insert that would clear it every second.
+                cards = copy;
+                if (!copy.isEmpty()) fireContentsChanged(this, 0, copy.size() - 1);
+                return true;
+            }
             int before = cards.size();
             cards = List.of();
             if (before > 0) fireIntervalRemoved(this, 0, before - 1);
             cards = copy;
             if (!copy.isEmpty()) fireIntervalAdded(this, 0, copy.size() - 1);
+            return true;
+        }
+
+        /** Same cards in the same order (by key), so the change is field-only and needs no structural list event. */
+        private boolean sameKeys(List<CharacterCardModel> next) {
+            if (next.size() != cards.size()) return false;
+            for (int i = 0; i < next.size(); i++) if (!next.get(i).key().equals(cards.get(i).key())) return false;
             return true;
         }
     }

@@ -186,6 +186,30 @@ public class CharacterGalleryTest {
         });
     }
 
+    /** Regression for the P3a review fix: a live tick only changes a card's fields (e.g. "Played N ago"), never its key order. */
+    @Test public void aFieldOnlyChangeLikeALiveTickUpdatesCardsInPlaceWithoutClearingOrReportingTheSelection() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            List<String> selected = new ArrayList<>();
+            CharacterGallery gallery = new CharacterGallery(opened::add, mode);
+            gallery.apply(ALIVE, DEAD);
+            JList<CharacterCardModel> cards = list(gallery, "character-cards");
+            cards.setSelectedIndex(1);
+            gallery.onSelect(selected::add); // observe only what the tick below reports
+            int[] contentsChanged = {0};
+            cards.getModel().addListDataListener(new ListDataListener() {
+                @Override public void intervalAdded(ListDataEvent e) { fail("A same-keys update must not rebuild the list"); }
+                @Override public void intervalRemoved(ListDataEvent e) { fail("A same-keys update must not rebuild the list"); }
+                @Override public void contentsChanged(ListDataEvent e) { contentsChanged[0]++; }
+            });
+            List<CharacterCardModel> ticked = new ArrayList<>(ALIVE);
+            ticked.set(0, CharacterFixtures.card(101, "Wizard", 20, 1_234L, 7, false, true, false, NOW - HOUR / 2)); // lastPlayed advances
+            gallery.apply(ticked, DEAD);
+            assertEquals("Exactly one contentsChanged event, never a rebuild", 1, contentsChanged[0]);
+            assertEquals("The selection is untouched by an in-place update", 1, cards.getSelectedIndex());
+            assertTrue("An in-place update is never reported through onSelect", selected.isEmpty());
+        });
+    }
+
     @Test public void analystModeShowsCharacterIdsOnTheCards() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             CharacterGallery gallery = new CharacterGallery(opened::add, mode);

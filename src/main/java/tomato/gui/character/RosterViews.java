@@ -153,7 +153,9 @@ final class RosterViews {
         }
         shownLive = key;
         gallery.apply(alive, dead, visible.isEmpty() && source.saved(), source.problem());
-        gallery.select(source.selectedKey());
+        // A refresh repeats the same selection far more often than it changes it (e.g. the periodic live-key check while in
+        // game), so it must not fight a user who scrolled elsewhere; only a genuine selection change reveals it here.
+        gallery.select(source.selectedKey(), false);
     }
 
     /** Shows the gallery or the table; the other stays in the tree, hidden and unmeasured. A user's choice is remembered. */

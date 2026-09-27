@@ -2,6 +2,8 @@ package tomato.gui.character;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -14,6 +16,7 @@ import tomato.gui.glance.character.CharacterCardModel;
 import tomato.gui.glance.character.CharacterFixtures;
 import tomato.gui.glance.character.CharacterGallery;
 import tomato.gui.history.WrapRow;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.SegmentedControl;
@@ -161,6 +164,105 @@ public class RosterViewsTest {
         }
     }
 
+    /**
+     * Regression for the P3a review fix: in game, lastObservedAlive advances every tick, so refresh() runs about once a second.
+     * That must not fight a user who scrolled away from the selected card (e.g. to look at the Graveyard); only a genuine
+     * selection change, or an explicit select (as focusRoster() does), may scroll the gallery.
+     */
+    @Test public void refreshWithAnUnchangedSelectionNeverScrollsButAChangeOrAnExplicitSelectStillReveals() throws Exception {
+        List<CharacterRosterQuery.Row> rows = CharacterFixtures.manyRows(CharacterFixtures.definitions(), 60, NOW);
+        String near = rows.get(1).record.key, far = rows.get(59).record.key, farther = rows.get(58).record.key; // all three alive (i % 10 != 0)
+        String[] selected = {near};
+        RosterViews[] views = new RosterViews[1];
+        JFrame[] frame = new JFrame[1];
+        JScrollPane[] page = new JScrollPane[1];
+        SwingUtilities.invokeAndWait(() -> {
+            table = new JPanel(); table.setName("table-stand-in");
+            bar = new FilterBar("characters-scroll-test");
+            row = new WrapRow();
+            bar.search(row);
+            views[0] = new RosterViews(table, bar, row, new RosterViews.Source() {
+                @Override public List<CharacterRosterQuery.Row> rows() { return rows; }
+                @Override public boolean saved() { return true; }
+                @Override public String problem() { return null; }
+                @Override public String liveKey() { return null; }
+                @Override public String selectedKey() { return selected[0]; }
+                @Override public void select(String key) { }
+                @Override public void open(String key) { }
+            }, mode, prefs::get, prefs::put);
+            views[0].refresh();
+            page[0] = ContentStyle.page(null, views[0].body(), null);
+            frame[0] = new JFrame("Gallery scroll - synthetic validation");
+            frame[0].setContentPane(page[0]);
+            frame[0].setSize(900, 340); // short viewport: 54 alive cards overflow it
+            frame[0].setVisible(true);
+        });
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                UiTestLayout.settle(frame[0]);
+                JList<?> cards = named(views[0].body(), "character-cards", JList.class);
+                selected[0] = far;
+                views[0].gallery().select(far); // explicit, as focusRoster() does: always reveals
+                UiTestLayout.settle(frame[0]);
+                assertTrue("An explicit select scrolls the far card into view", visible(cards, indexOfKey(cards, far)));
+                page[0].getViewport().setViewPosition(new Point(0, 0)); // the user scrolls back to the top
+                assertFalse("Sanity: the far card is indeed off-screen from the top", visible(cards, indexOfKey(cards, far)));
+                views[0].refresh(); // e.g. the periodic rows/live refresh, same selection
+                UiTestLayout.settle(frame[0]);
+                assertEquals("An unchanged selection must not fight the user's scroll", 0, page[0].getViewport().getViewPosition().y);
+                assertFalse("Still off-screen: the refresh did not reveal it", visible(cards, indexOfKey(cards, far)));
+                selected[0] = farther; // a genuinely different (but still off-screen from the top) selection
+                views[0].refresh();
+                UiTestLayout.settle(frame[0]);
+                assertTrue("A changed selection still scrolls to reveal it", visible(cards, indexOfKey(cards, farther)));
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> frame[0].dispose());
+        }
+    }
+
+    /**
+     * Regression for the P3a review fix: CharacterJournal.save() runs on a background writer and changes storageStatus
+     * without bumping revision, so CharacterJournalGUI.refresh() must recheck the storage problem on every call, not only
+     * when filter() runs from a revision change.
+     */
+    @Test public void aBackgroundSaveFailureShowsTheBannerWithoutARevisionChangeAndALaterSaveClearsIt() throws Exception {
+        String view = PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        RosterDefinitions definitions = CharacterFixtures.definitions();
+        Path blocked = temp.getRoot().toPath().resolve("blocked-save");
+        Files.write(blocked, new byte[]{1}); // a regular file stands in for the journal's directory
+        CharacterJournal failing = CharacterFixtures.journal(blocked.resolve("journal.json"), NOW);
+        CharacterJournalGUI[] panel = new CharacterJournalGUI[1];
+        Banner[] storage = new Banner[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                panel[0] = new CharacterJournalGUI(failing, () -> NOW, () -> definitions);
+                CharacterGallery gallery = named(panel[0], "character-gallery", CharacterGallery.class);
+                storage[0] = named(gallery, "character-gallery-storage", Banner.class);
+                assertFalse("No problem yet", storage[0].isVisible());
+            });
+            long revisionBeforeSave = failing.revision();
+            failing.save(); // fails: "blocked-save" is a regular file, not a directory
+            assertEquals("A save never bumps the revision (the defect's premise)", revisionBeforeSave, failing.revision());
+            SwingUtilities.invokeAndWait(() -> {
+                panel[0].refresh(); // e.g. the page's 1 s timer tick; no rows/revision change happened
+                assertTrue("A background save failure must show the banner without waiting for a data change", storage[0].isVisible());
+                assertTrue(storage[0].warns());
+                assertTrue(storage[0].text(), storage[0].text().startsWith("Save failed"));
+            });
+            Files.delete(blocked); // "blocked-save" is now free to become a real directory
+            failing.save(); // now succeeds
+            SwingUtilities.invokeAndWait(() -> {
+                panel[0].refresh();
+                assertFalse("A later successful save must clear the banner without a data change", storage[0].isVisible());
+            });
+        } finally {
+            failing.close();
+            PropertiesManager.setProperties(RosterViews.VIEW_KEY, view == null ? "" : view);
+        }
+    }
+
     /** Spec §9: 500 characters sort, map and apply within 50 ms on the EDT (every sample); one viewport paint is logged. */
     @Test public void fiveHundredCharactersRefreshWithinFiftyMillisecondsAndPaintOnePass() throws Exception {
         List<CharacterRosterQuery.Row> rows = CharacterFixtures.manyRows(CharacterFixtures.definitions(), 500, NOW);
@@ -211,6 +313,15 @@ public class RosterViewsTest {
         }
     }
 
+    /** Whether the card at {@code index} intersects the list's current visible rectangle (i.e. is on-screen, at least partly). */
+    private static boolean visible(JList<?> list, int index) {
+        Rectangle cell = list.getCellBounds(index, index);
+        return cell != null && list.getVisibleRect().intersects(cell);
+    }
+    private static int indexOfKey(JList<?> list, String key) {
+        for (int i = 0; i < list.getModel().getSize(); i++) if (((CharacterCardModel) list.getModel().getElementAt(i)).key().equals(key)) return i;
+        throw new AssertionError("Key not found in gallery: " + key);
+    }
     private static List<String> ids(List<CharacterCardModel> cards) { return cards.stream().map(CharacterCardModel::characterId).collect(Collectors.toList()); }
     private static List<String> rowKeys(List<CharacterRosterQuery.Row> rows) { return rows.stream().map(r -> r.record.key).sorted().collect(Collectors.toList()); }
     private static List<String> cardKeys(CharacterGallery gallery) { return gallery.cards().stream().map(CharacterCardModel::key).sorted().collect(Collectors.toList()); }
