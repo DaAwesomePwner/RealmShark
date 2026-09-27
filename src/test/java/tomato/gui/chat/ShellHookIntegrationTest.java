@@ -151,6 +151,28 @@ public class ShellHookIntegrationTest {
         });
     }
 
+    @Test public void charactersRoutesOpenTheListOrOneSheetAndBackRestoresEach() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            tomato.gui.character.CharacterRosterView roster = find(shell, tomato.gui.character.CharacterRosterView.class);
+            assertNotNull("The Characters Roster tab hosts the list and the sheet", roster);
+            shell.select(0);
+            String unknown = "0".repeat(64) + ":404";
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.CHARACTER_SHEET)
+                .withPayload(new tomato.gui.glance.character.SheetFocus(unknown, null))));
+            assertEquals(3, shell.getSelectedPage());
+            assertTrue(roster.showingSheet());
+            tomato.gui.activity.SnapshotTestSupport.await(roster.sheet()::ready); // at once here; from Task 5 the sheet reads off the EDT
+            assertTrue("An unknown key shows the unavailable state",
+                named(roster, "character-sheet-unavailable", tomato.gui.kit.EmptyState.class).isVisible());
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.CHARACTERS)));
+            assertFalse("A plain Characters route shows the list", roster.showingSheet());
+            assertTrue(navigator.back());
+            assertTrue("Back restores the sheet", roster.showingSheet()); assertEquals(unknown, roster.sheet().key());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+        });
+    }
+
     @Test public void homeIsPageFourteenAndBuildOpensFromSearchUnderItsNewTitle() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();

@@ -21,6 +21,30 @@ public class CustomizableTabsTest {
         });
     }
 
+    @Test public void aConditionalTabIsSkippedWithoutRewritingTheSavedOrder() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            boolean[] dead = {false};
+            store.put("ui.tabs.character", "death,overview,gear,exalts,evidence|");
+            CustomizableTabs tabs = tabs().addWhen("death", "Death annotation", new JPanel(), () -> dead[0]);
+            assertEquals(Arrays.asList("overview", "gear", "exalts"), tabs.visibleIds());
+            assertEquals("Every known tab keeps its saved place", Arrays.asList("death", "overview", "gear", "exalts", "evidence"), tabs.order());
+            dead[0] = true;
+            assertEquals("Nothing changes until the conditions are re-checked", 3, tabs.component().getTabCount());
+            tabs.refreshConditions();
+            assertEquals(Arrays.asList("death", "overview", "gear", "exalts"), tabs.visibleIds());
+            assertEquals("Death annotation", tabs.component().getTitleAt(0));
+            tabs.select("death"); assertEquals("death", tabs.selectedId());
+            dead[0] = false; tabs.refreshConditions();
+            assertEquals(Arrays.asList("overview", "gear", "exalts"), tabs.visibleIds());
+            assertNotEquals("death", tabs.selectedId());
+            assertEquals("A condition never rewrites the saved order", "death,overview,gear,exalts,evidence|", store.get("ui.tabs.character"));
+            assertTrue(tabs.hide("overview")); assertTrue(tabs.hide("gear"));
+            dead[0] = true; tabs.refreshConditions();
+            assertFalse("A tab that may disappear never counts as the view's last tab", tabs.hide("exalts"));
+            assertTrue(tabs.hide("death"));
+        });
+    }
+
     private final Map<String, String> store = new HashMap<>();
     private final DisplayModeModel mode = new DisplayModeModel(store::get, store::put);
 

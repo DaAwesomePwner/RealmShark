@@ -14,6 +14,7 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import packets.data.enums.StatType;
 import tomato.backend.data.*;
+import tomato.gui.glance.character.CharacterSheet;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.VioletTheme;
@@ -26,6 +27,8 @@ public class CharacterJournalLayoutTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private CharacterJournal journal;
     private CharacterJournalGUI panel;
+    private CharacterRosterView view;
+    private CharacterSheet sheet;
     private WorkspaceShell shell;
     private JFrame frame;
     private Font oldFont;
@@ -39,7 +42,7 @@ public class CharacterJournalLayoutTest {
         journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
         SwingUtilities.invokeAndWait(() -> {
             oldFont = ContentStyle.body(); oldLookAndFeel = UIManager.getLookAndFeel();
-            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character-detail", "ui.filters.characters.open"}) {
+            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character", "ui.filters.characters.open"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -84,6 +87,8 @@ public class CharacterJournalLayoutTest {
             @Override public CharacterJournal characterJournal() { return journal; }
         });
         panel = find(pages[3], CharacterJournalGUI.class);
+        view = find(pages[3], CharacterRosterView.class); sheet = view.sheet();
+        view.bindNavigator(tomato.gui.route.Navigator.NONE); // Enter switches cards in place even if another test left a navigator installed.
         shell = new WorkspaceShell(pages, () -> {}, false);
         shell.select(3);
         ContentStyle.refreshFonts(shell);
@@ -104,17 +109,7 @@ public class CharacterJournalLayoutTest {
                 settle();
                 exerciseTabs(populated);
                 SwingUtilities.invokeAndWait(() -> {
-                    JSplitPane split = named(panel, "character-roster-detail-split", JSplitPane.class);
-                    int before = split.getDividerLocation();
-                    int minimum = split.getMinimumDividerLocation(), maximum = split.getMaximumDividerLocation();
-                    assertTrue("Divider must have a valid range", maximum >= minimum);
-                    split.setDividerLocation(0);
-                    layout(shell);
-                    assertRows(find((Container)split.getTopComponent(), JTable.class));
-                    split.setDividerLocation(split.getHeight());
-                    layout(shell);
-                    assertRows(find((Container)named(panel, "character-detail-tabs", JTabbedPane.class).getComponentAt(0), JTable.class));
-                    split.setDividerLocation(before);
+                    assertNull("The roster has no side-by-side detail pane", named(panel, "character-roster-detail-split", JSplitPane.class));
                     assertEquals("No huge-frame workaround", size, shell.getSize());
                 });
             }
@@ -158,6 +153,8 @@ public class CharacterJournalLayoutTest {
     }
 
     private void exerciseTabs(boolean populated) throws Exception {
+        SwingUtilities.invokeAndWait(() -> view.showList());
+        settle();
         SwingUtilities.invokeAndWait(() -> {
             JTable roster = named(panel, "character-roster", JTable.class);
             assertEquals(populated ? 20 : 0, roster.getRowCount());
@@ -176,19 +173,30 @@ public class CharacterJournalLayoutTest {
             }
             reachable(named(panel, "character-search", JTextField.class));
             assertControlsReachable(panel);
-            reachable(button(panel, "Mark dead"));
-            assertEquals(populated, button(panel, "Mark dead").isEnabled());
+            assertWrappingTextFits(panel);
         });
-        for (int tab = 0; tab < 4; tab++) {
-            final int index = tab;
-            SwingUtilities.invokeAndWait(() -> named(panel, "character-detail-tabs", JTabbedPane.class).setSelectedIndex(index));
+        if (!populated) return; // No row to open: the empty roster shows its invitation instead of a sheet.
+        SwingUtilities.invokeAndWait(() -> {
+            named(panel, "character-roster", JTable.class).getActionMap().get("open-character").actionPerformed(null);
+            assertTrue("Enter opens the selected character's sheet", view.showingSheet());
+        });
+        settle();
+        SwingUtilities.invokeAndWait(() -> {
+            reachable(named(sheet, "character-sheet-back", JButton.class));
+            reachable(button(sheet, "Mark dead"));
+            assertTrue(button(sheet, "Mark dead").isEnabled());
+        });
+        for (String id : new String[]{"overview", "gear", "exalts", "notes"}) {
+            SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
             settle();
             SwingUtilities.invokeAndWait(() -> {
-                JTabbedPane tabs = named(panel, "character-detail-tabs", JTabbedPane.class);
-                assertEquals("Detail navigation must wrap instead of clipping a scrolling tab strip", JTabbedPane.WRAP_TAB_LAYOUT, tabs.getTabLayoutPolicy());
+                JTabbedPane tabs = named(sheet, "character-tabs", JTabbedPane.class);
+                assertEquals(id, sheet.selectedTab());
+                int index = tabs.getSelectedIndex();
+                assertEquals("Sheet navigation must wrap instead of clipping a scrolling tab strip", JTabbedPane.WRAP_TAB_LAYOUT, tabs.getTabLayoutPolicy());
                 Rectangle tabBounds = tabs.getBoundsAt(index);
                 tabs.scrollRectToVisible(tabBounds);
-                assertTrue("Selected detail tab must remain reachable: tab=" + index + ", bounds=" + tabBounds
+                assertTrue("Selected sheet tab must remain reachable: tab=" + id + ", bounds=" + tabBounds
                         + ", visible=" + tabs.getVisibleRect() + ", shell=" + shell.getSize() + ", font=" + tabs.getFont(),
                         tabs.getVisibleRect().contains(tabBounds));
                 for (Component child : tabs.getComponents()) if (child instanceof JViewport) {
@@ -197,46 +205,47 @@ public class CharacterJournalLayoutTest {
                     assertTrue("The internal horizontal tab viewport must contain the whole selected tab: " + tabInStrip
                             + " within " + strip.getViewRect(), strip.getViewRect().contains(tabInStrip));
                 }
-                if (index < 3) {
+                if (!"notes".equals(id)) {
                     JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
                     assertRows(table);
-                    if (populated) {
-                        reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
-                        if (index == 0) {
-                            assertEquals("Unknown", table.getValueAt(0, 1));
-                            assertEquals(70, table.getValueAt(2, 1));
-                        }
+                    reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
+                    if ("overview".equals(id)) {
+                        assertEquals("Unknown", table.getValueAt(0, 1));
+                        assertEquals(70, table.getValueAt(2, 1));
                     }
                 } else {
-                    JTextArea notes = named(panel, "character-notes", JTextArea.class);
-                    assertTrue("Three editable lines must survive detail chrome", ((JViewport)notes.getParent()).getExtentSize().height
+                    JTextArea notes = named(sheet, "character-notes", JTextArea.class);
+                    assertTrue("Three editable lines must survive sheet chrome", ((JViewport)notes.getParent()).getExtentSize().height
                             >= notes.getFontMetrics(notes.getFont()).getHeight() * 3);
-                    assertEquals(populated ? LONG_NOTES : "", notes.getText());
-                    if (populated) {
-                        try {
-                            Rectangle lastLine = notes.modelToView(notes.getDocument().getLength());
-                            revealRegion(notes, lastLine);
-                            assertTrue("The end of long notes must be scroll reachable", notes.getVisibleRect().contains(lastLine));
-                        } catch (BadLocationException e) { throw new AssertionError(e); }
-                    }
-                    reachable(button(panel, "Save notes"));
-                    assertEquals(populated, button(panel, "Save notes").isEnabled());
+                    assertEquals(LONG_NOTES, notes.getText());
+                    try {
+                        Rectangle lastLine = notes.modelToView(notes.getDocument().getLength());
+                        revealRegion(notes, lastLine);
+                        assertTrue("The end of long notes must be scroll reachable", notes.getVisibleRect().contains(lastLine));
+                    } catch (BadLocationException e) { throw new AssertionError(e); }
+                    reachable(button(sheet, "Save notes"));
+                    assertTrue(button(sheet, "Save notes").isEnabled());
                 }
-                assertWrappingTextFits(panel);
+                assertWrappingTextFits(sheet);
             });
         }
+        SwingUtilities.invokeAndWait(() -> named(sheet, "character-sheet-back", JButton.class).doClick());
+        settle();
+        SwingUtilities.invokeAndWait(() -> assertFalse("The back link returns to the list", view.showingSheet()));
     }
 
-    @Test public void backgroundSnapshotRefreshPreservesDraftAndSelectionSavesIt() throws Exception {
+    @Test public void backgroundSnapshotRefreshPreservesDraftAndLeavingTheSheetSavesIt() throws Exception {
         populate();
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicReference<String> draftKey = new AtomicReference<>(), savedKey = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> {
             createShell(24);
-            JTextArea notes = named(panel, "character-notes", JTextArea.class);
             JTable roster = named(panel, "character-roster", JTable.class);
-            String character = roster.getValueAt(roster.getSelectedRow(), 0).toString();
             draftKey.set(keyForSelectedCharacter(roster));
+            roster.getActionMap().get("open-character").actionPerformed(null);
+            assertEquals(draftKey.get(), sheet.key());
+            tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
+            JTextArea notes = named(sheet, "character-notes", JTextArea.class);
             notes.setText("Draft survives capture and background save");
             Thread capture = new Thread(() -> {
                 try { journal.observe(CharacterJournalTest.player("layout-account", 782), 1); journal.save(); }
@@ -245,16 +254,22 @@ public class CharacterJournalLayoutTest {
             capture.start();
             try { capture.join(3000); } catch (InterruptedException e) { throw new AssertionError(e); }
             assertFalse("Journal work must not wait for EDT", capture.isAlive()); assertNull(failure.get());
-            panel.refresh();
-            assertEquals(character, roster.getValueAt(roster.getSelectedRow(), 0));
+            panel.refresh(); sheet.refresh();
+            assertEquals("A background save does not move the sheet", draftKey.get(), sheet.key());
             assertEquals("Draft survives capture and background save", notes.getText());
-            assertEquals(draftKey.get(), keyForSelectedCharacter(roster));
+            assertEquals("A refresh saves nothing", LONG_NOTES, notesFor(journal, draftKey.get()));
+            view.showList();
+            assertEquals("Back saves the draft to its own character", "Draft survives capture and background save", notesFor(journal, draftKey.get()));
+            assertEquals("The list keeps its selection", draftKey.get(), keyForSelectedCharacter(roster));
             int differentRow = (roster.getSelectedRow() + 1) % roster.getRowCount();
             roster.setRowSelectionInterval(differentRow, differentRow);
             savedKey.set(keyForSelectedCharacter(roster));
             assertNotEquals("Exercise an actual identity change after last-seen reordering", draftKey.get(), savedKey.get());
-            assertEquals("Draft survives capture and background save", notesFor(journal, draftKey.get()));
-            notes.setText("Explicitly saved notes"); button(panel, "Save notes").doClick();
+            roster.getActionMap().get("open-character").actionPerformed(null);
+            tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
+            assertEquals("Opening another character never moves the draft", "Draft survives capture and background save", notesFor(journal, draftKey.get()));
+            assertEquals(LONG_NOTES, notes.getText());
+            notes.setText("Explicitly saved notes"); button(sheet, "Save notes").doClick();
             assertEquals("Explicitly saved notes", notesFor(journal, savedKey.get()));
         });
         journal.save();

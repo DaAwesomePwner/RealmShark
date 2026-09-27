@@ -36,7 +36,7 @@ public class FilterBarEvidenceTest {
 
     @Before public void isolatePreferences() throws Exception {
         edt(() -> {
-            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.character-detail", "ui.tabs.quests",
+            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.character", "ui.tabs.quests",
                     "ui.filters.runs.open", "ui.filters.loot.open", "ui.filters.chat.open", "ui.filters.keypops.open",
                     "ui.filters.characters.open", "ui.filters.quests.open"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));

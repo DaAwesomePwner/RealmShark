@@ -727,7 +727,7 @@ public final class WorkspaceShell extends JPanel {
     public static int pageOf(Destination destination) {
         switch (destination) {
             case INSPECT: return 2;
-            case CHARACTERS: return 3;
+            case CHARACTERS: case CHARACTER_SHEET: return 3; // The sheet is a card on the Characters Roster tab.
             case STATISTICS: return 4;
             case QUESTS: return 5;
             case MY_INFO: return 6;

@@ -7,6 +7,7 @@ import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.*;
 import tomato.realmshark.RealmCharacter;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonObject;
 import static org.junit.Assert.*;
 import static tomato.gui.roster.RosterStateTestSupport.*;
 
@@ -39,16 +40,38 @@ public class CharacterViewStateTest {
         SwingUtilities.invokeAndWait(() -> {
             // The automatic save queued by B's selection must persist B, without an explicit save call.
             assertEquals(b + ":1", savedSelection(memory));
-            CharacterJournalGUI reopened = new CharacterJournalGUI(journal, () -> 5000, () -> definitions); reopened.bindViewState(memory.store);
+            CharacterRosterView reopenedRoster = RosterFixtures.view(journal, () -> 5000, () -> definitions);
+            CharacterJournalGUI reopened = reopenedRoster.listPanel(); reopened.bindViewState(memory.store);
             JTable table = named(reopened, "character-roster", JTable.class);
             assertEquals(0, table.getSelectedRow()); assertTrue(table.getValueAt(0, 1).toString().contains(b.substring(0, 6)));
-            assertEquals("needle", named(reopened, "character-notes", JTextArea.class).getText());
+            RosterFixtures.enter(reopenedRoster);
+            assertEquals("needle", named(reopenedRoster.sheet(), "character-notes", JTextArea.class).getText());
             assertEquals("A still hidden after B selection", journal.characters().stream().filter(r -> r.account.equals(a)).findFirst().get().notes);
         });
     }
     private static String savedSelection(Memory memory) {
         return JsonParser.parseString(memory.values.get("ux.archive.characters-live-roster")).getAsJsonObject()
             .getAsJsonObject("last").getAsJsonObject("query").getAsJsonObject("facets").getAsJsonObject("values").get("selected").getAsString();
+    }
+    private static JsonObject savedValues(Memory memory) {
+        return JsonParser.parseString(memory.values.get("ux.archive.characters-live-roster")).getAsJsonObject()
+            .getAsJsonObject("last").getAsJsonObject("query").getAsJsonObject("facets").getAsJsonObject("values");
+    }
+    @Test public void aViewSavedBeforeTheSheetOpensTheSheetAtTheSameTab() throws Exception {
+        CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("legacy.json"));
+        RealmCharacter character = new RealmCharacter(); character.charId = 1; character.classNum = 782; character.receivedAt = 1000; character.supplied("class");
+        journal.mergeRoster(CharacterJournal.accountKey("legacy-tab"), Collections.singletonList(character));
+        Memory memory = new Memory(); RosterDefinitions definitions = RosterDefinitions.empty();
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterJournalGUI first = new CharacterJournalGUI(journal, () -> 5000, () -> definitions); first.bindViewState(memory.store); first.saveViewState();
+            JsonObject document = JsonParser.parseString(memory.values.get("ux.archive.characters-live-roster")).getAsJsonObject();
+            JsonObject values = document.getAsJsonObject("last").getAsJsonObject("query").getAsJsonObject("facets").getAsJsonObject("values");
+            values.addProperty("tab", "5"); values.remove("sheetTab");
+            memory.values.put("ux.archive.characters-live-roster", document.toString());
+            CharacterRosterView roster = RosterFixtures.view(journal, () -> 5000, () -> definitions); roster.listPanel().bindViewState(memory.store);
+            RosterFixtures.enter(roster);
+            assertEquals("Index 5 was the side pane's Goals tab", "goals", roster.sheet().selectedTab());
+        });
     }
     @Test public void recreatedFiltersRetainUnknownsAccountIdentitySortAndNotesOwnership() throws Exception {
         CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
@@ -59,7 +82,8 @@ public class CharacterViewStateTest {
         journal.notes(a + ":1", "Account A notes"); journal.notes(b + ":1", "Account B notes");
         Memory memory = new Memory(); RosterDefinitions definitions = RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterJournalGUI view = new CharacterJournalGUI(journal, () -> 5000, () -> definitions); view.bindViewState(memory.store);
+            CharacterRosterView roster = RosterFixtures.view(journal, () -> 5000, () -> definitions);
+            CharacterJournalGUI view = roster.listPanel(); view.bindViewState(memory.store);
             JComboBox<?> account = named(view, "character-facet-0", JComboBox.class);
             for (int i = 0; i < account.getItemCount(); i++) if (account.getItemAt(i).toString().contains(b.substring(0, 6))) account.setSelectedIndex(i);
             named(view, "character-facet-2", JComboBox.class).setSelectedIndex(3);
@@ -69,18 +93,24 @@ public class CharacterViewStateTest {
             named(view, "character-facet-5", JSpinner.class).setValue(2); named(view, "character-facet-6", JSpinner.class).setValue(7);
             JTable table = named(view, "character-roster", JTable.class); assertEquals(1, table.getRowCount()); assertNull(table.getValueAt(0, 8));
             table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(8, SortOrder.DESCENDING))); table.getColumnModel().getColumn(0).setWidth(211);
-            named(view, "character-detail-tabs", JTabbedPane.class).setSelectedIndex(3);
-            named(view, "character-notes", JTextArea.class).setText("B unsaved draft"); view.saveViewState();
-            CharacterJournalGUI reopened = new CharacterJournalGUI(journal, () -> 5000, () -> definitions); reopened.bindViewState(memory.store);
+            RosterFixtures.enter(roster); roster.sheet().tabs().select("notes");
+            named(roster.sheet(), "character-notes", JTextArea.class).setText("B unsaved draft"); view.saveViewState();
+            JsonObject values = savedValues(memory);
+            assertEquals("The saved index keeps its pre-sheet meaning (3 = Notes)", "3", values.get("tab").getAsString());
+            assertEquals("notes", values.get("sheetTab").getAsString());
+            CharacterRosterView reopenedRoster = RosterFixtures.view(journal, () -> 5000, () -> definitions);
+            CharacterJournalGUI reopened = reopenedRoster.listPanel(); reopened.bindViewState(memory.store);
             JTable restored = named(reopened, "character-roster", JTable.class); assertEquals(1, restored.getRowCount());
             assertTrue(restored.getValueAt(restored.getSelectedRow(), 1).toString().contains(b.substring(0, 6))); assertNull(restored.getValueAt(0, 8));
             assertEquals(3, named(reopened, "character-facet-2", JComboBox.class).getSelectedIndex());
             assertEquals(3, named(reopened, "character-facet-7", JComboBox.class).getSelectedIndex());
             assertEquals(2, named(reopened, "character-facet-5", JSpinner.class).getValue());
             assertEquals(211, restored.getColumnModel().getColumn(0).getWidth()); assertEquals(8, restored.getRowSorter().getSortKeys().get(0).getColumn());
-            assertEquals(3, named(reopened, "character-detail-tabs", JTabbedPane.class).getSelectedIndex());
-            assertEquals("Account B notes", named(reopened, "character-notes", JTextArea.class).getText());
-            assertEquals("B unsaved draft", named(view, "character-notes", JTextArea.class).getText());
+            assertNull("Restoring the list leaves the sheet closed", reopenedRoster.sheet().key());
+            RosterFixtures.enter(reopenedRoster);
+            assertEquals("The restored tab is selected when the sheet opens", "notes", reopenedRoster.sheet().selectedTab());
+            assertEquals("Account B notes", named(reopenedRoster.sheet(), "character-notes", JTextArea.class).getText());
+            assertEquals("B unsaved draft", named(roster.sheet(), "character-notes", JTextArea.class).getText());
             assertFalse(memory.values.toString().contains("Account A notes")); assertFalse(memory.values.toString().contains("unsaved draft"));
             assertEquals("Account A notes", journal.characters().stream().filter(r -> r.account.equals(a)).findFirst().get().notes);
         });

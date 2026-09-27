@@ -136,7 +136,8 @@ public class TomatoGUI {
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
-        registerRetainedPage(Destination.CHARACTERS);
+        // The Roster tab's list (CHARACTERS) and one character's sheet (CHARACTER_SHEET) share one view and one Back state.
+        for (RouteTarget target : characterPanel.routeTargets()) navigator.register(target);
         registerRetainedPage(Destination.QUESTS);
         // Home's Now card opens the DPS Logger page as it is. This target accepts plain routes only and is registered before
         // DpsGUI's encounter target, which is therefore tried first: exact recording routes keep resolving there.
@@ -302,6 +303,7 @@ public class TomatoGUI {
             tomato.gui.search.ActionRegistry.application().clear();
             closeArchiveWorkspaces(mainPanel);
             if (home != null) home.close();
+            if (characterPanel != null) characterPanel.sheet().saveDraft(); // a notes draft survives closing the workspace
         });
     }
 
@@ -456,7 +458,7 @@ public class TomatoGUI {
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
             "Bridge settings and journal use their configured local paths", () -> shell.select(12));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
-            "Characters/plans.json; death notes in Characters/journal.json", () -> { navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)); characterPanel.openGoals(); });
+            "Characters/plans.json; death notes in Characters/journal.json", () -> characterPanel.openGoals());
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
             "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
         registerSearch("build.open", "Build (weapon damage and recovery)", "build my info weapon damage dps recovery mana estimates equipment",
