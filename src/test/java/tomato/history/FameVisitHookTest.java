@@ -46,8 +46,12 @@ public class FameVisitHookTest {
             Path raw = store.directory().resolve(store.currentId()).resolve("fame.jsonl");
             String first = new String(Files.readAllBytes(raw), java.nio.charset.StandardCharsets.UTF_8).split("\n")[0];
             assertFalse("Unlinked samples keep the legacy JSON shape", first.contains("visit") || first.contains("map"));
+            // P3b fame provenance: the 4-argument producer records no account, so the legacy shape also has no account field.
+            assertFalse("A sample without an account keeps the legacy JSON shape", first.contains("account"));
+            for (AppHistory.FameSample sample : samples) assertNull(sample.account);
             AppHistory.FameSample legacy = SessionStore.JSON.fromJson("{\"character\":7,\"fame\":5,\"time\":9,\"className\":\"Priest\"}", AppHistory.FameSample.class);
             assertNull(legacy.visit()); assertNull(legacy.map); assertEquals(5, legacy.fame);
+            assertNull("Legacy JSON has no recorded account", legacy.account);
 
             AppHistory.FameSample foreign = new AppHistory.FameSample(7, 1, 1, "Priest", new VisitRef("other", "x:1"), "Lost Halls");
             assertEquals("other", foreign.visit().sessionId);

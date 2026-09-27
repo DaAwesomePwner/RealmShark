@@ -149,9 +149,7 @@ public class TomatoData {
     /** Capture-thread entry point, including the legacy callback from Entity.updateStats(). */
     public void publishMyInfoPlayer(Entity value) {
         if (value == null || value != player || metadataAwaitingCreate || worldPlayerId < 0 || value.id != worldPlayerId) return;
-        StatData stat = value.stat.get(StatType.ACCOUNT_ID_STAT);
-        String account = stat == null || stat.stringStatValue == null || stat.stringStatValue.trim().isEmpty()
-            ? null : CharacterJournal.accountKey(stat.stringStatValue);
+        String account = CharacterJournal.accountKeyOf(value);
         MyInfoIdentity identity = myInfoIdentity;
         if (!Objects.equals(account, identity.account) || charId != identity.characterId
             || worldPlayerId != identity.worldPlayerId || (myInfoOwner != null && myInfoOwner != value)) {
@@ -200,9 +198,8 @@ public class TomatoData {
     public void rememberCharacter() {
         if (!progression.scope().accepting) return;
         if (player == null || metadataAwaitingCreate || (metadataConnection > 0 && player.id != worldPlayerId)) return;
-        StatData identity = player.stat.get(StatType.ACCOUNT_ID_STAT);
-        if (identity == null || identity.stringStatValue == null || identity.stringStatValue.trim().isEmpty()) return;
-        String observedAccount = CharacterJournal.accountKey(identity.stringStatValue);
+        String observedAccount = CharacterJournal.accountKeyOf(player);
+        if (observedAccount == null) return;
         if (journalAccount != null && !journalAccount.equals(observedAccount)) {
             // Capture changed accounts without a HELLO: the retained credential still
             // belongs to the previous account. Only a new HELLO may supply a credential.
@@ -1323,8 +1320,8 @@ public class TomatoData {
     }
 
     private static boolean hasPetFields(RealmCharacter c) {
-        // "pet.none" only records an explicitly empty <Pet/> (see CharacterJournal.rosterPet); it is not a stat to publish.
-        for (String field : c.presence.keySet()) if (field.startsWith("pet.") && !field.equals("pet.none")) return true;
+        // PET_NONE only records an explicitly empty <Pet/> (see CharacterJournal.rosterPet); it is not a stat to publish.
+        for (String field : c.presence.keySet()) if (field.startsWith("pet.") && !field.equals(RealmCharacter.PET_NONE)) return true;
         return false;
     }
 
@@ -1656,7 +1653,7 @@ public class TomatoData {
                     break;
                 case "Pet":
                     // An explicitly empty <Pet/> is a known absence (the journal saves "no pet"); omitted or partial metadata stays unknown.
-                    if (!field.hasAttributes() && children(field).isEmpty() && value.isEmpty()) c.supplied("pet.none");
+                    if (!field.hasAttributes() && children(field).isEmpty() && value.isEmpty()) c.supplied(RealmCharacter.PET_NONE);
                     c.petCreatedOn=field.getAttribute("createdOn"); c.petName=field.getAttribute("name");
                     c.petInstanceId=attributeInt(field,"instanceId"); c.petMaxAbilityPower=attributeInt(field,"maxAbilityPower");
                     c.petRarity=attributeInt(field,"rarity"); c.petSkin=attributeInt(field,"skin"); c.petType=attributeInt(field,"type");

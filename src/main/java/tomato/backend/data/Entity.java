@@ -712,7 +712,9 @@ public void genericDamageHit(
         } else {
             className = getClassNameFromObjectType(charId);
         }
-        FameTableBridge.observeFame(charId, fame, time, className);
+        // The sample's provenance: this entity's own account stat (the account of this update), hashed exactly as the journal
+        // keys it; null until the stat arrives. My Info's published identity can still be the previous account at this point.
+        FameTableBridge.observeFame(charId, CharacterJournal.accountKeyOf(this), fame, time, className);
     }
 
     /**
