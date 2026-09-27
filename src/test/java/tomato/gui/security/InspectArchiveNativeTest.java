@@ -1,5 +1,10 @@
 package tomato.gui.security;
 
+import java.util.Collections;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.Motion;
+import util.PropertiesManager;
+
 import java.awt.Component;
 import java.nio.file.Path;
 import java.util.List;
@@ -67,17 +72,21 @@ public class InspectArchiveNativeTest {
                     completeButton(button(roster,"Reset display filters")); completeButton(button(roster,"Actions…"));
                     archiveControls(workspace,"inspect","saved-activity-table",null);
                 });
-                JToggleButton filters = edt(() -> named(cached,"inspect-display-filters",JToggleButton.class));
-                key(filters, java.awt.event.KeyEvent.VK_SPACE);
-                await(filters::isSelected);
-                edt(() -> {
-                    JComboBox<?> season = named(cached,"inspect-facet-2",JComboBox.class);
-                    reachable(season); season.setSelectedIndex(1); return null;
-                });
-                await(() -> "Display filters (1)".equals(filters.getText()));
-                edt(() -> { filters.doClick(); assertFalse(filters.isSelected()); assertEquals("Display filters (1)",filters.getText());
-                    assertTrue(filters.getAccessibleContext().getAccessibleDescription().contains("1 active"));
-                    button(cached,"Reset display filters").doClick(); return null; });
+                FilterBar rosterFilters = edt(() -> named(cached,"inspect-roster-filter-bar",FilterBar.class));
+                JButton filters = edt(() -> named(cached,"inspect-roster-filters",JButton.class));
+                String motion = PropertiesManager.getProperty(Motion.REDUCE_KEY); PropertiesManager.setProperties(Motion.REDUCE_KEY, "true");
+                try {
+                    key(filters, java.awt.event.KeyEvent.VK_SPACE);
+                    await(() -> rosterFilters.drawerOpen());
+                    edt(() -> {
+                        JComboBox<?> season = named(cached,"inspect-facet-2",JComboBox.class);
+                        reachable(season); season.setSelectedIndex(1); return null;
+                    });
+                    await(() -> "Filters · 1".equals(filters.getText()));
+                    edt(() -> { filters.doClick(); assertFalse(rosterFilters.drawerOpen()); assertEquals("Filters · 1",filters.getText());
+                        assertEquals(Collections.singletonList("Seasonal"),chipLabels(rosterFilters));
+                        button(cached,"Reset display filters").doClick(); return null; });
+                } finally { PropertiesManager.setProperties(Motion.REDUCE_KEY, motion == null ? "" : motion); }
                 await(() -> "Display filters (0)".equals(filters.getText()) && find(cached,JTable.class,c -> true).getRowCount() == 1);
                 String preview = preview(workspace,evidence,"inspect-linked-preview");
                 assertTrue(preview.contains(sources.get(1))); assertTrue(preview.contains("8 linked Timeline events"));

@@ -106,6 +106,5 @@ public class ArchiveExportHookTest {
     private static <T>T edt(Checked<T> work)throws Exception{AtomicReference<T> value=new AtomicReference<>();AtomicReference<Throwable> failure=new AtomicReference<>();SwingUtilities.invokeAndWait(()->{try{value.set(work.get());}catch(Throwable e){failure.set(e);}});if(failure.get()!=null)throw new AssertionError(failure.get());return value.get();}
     private static void await(BooleanSupplier condition)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(15);while(System.nanoTime()<end){if(edt(condition::getAsBoolean))return;Thread.sleep(20);}fail("EDT did not settle");}
     private static void awaitOffEdt(BooleanSupplier condition)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);while(System.nanoTime()<end){if(condition.getAsBoolean())return;Thread.sleep(20);}fail("Cleanup did not settle");}
-    private static void awaitExportIdle(ArchiveWorkspace<?,?,?> workspace)throws Exception{await(()->enabledExport(workspace));}
-    private static boolean enabledExport(java.awt.Container root){for(java.awt.Component component:root.getComponents()){if(component instanceof JButton&&"Export all matches…".equals(((JButton)component).getText()))return component.isEnabled();if(component instanceof java.awt.Container&&enabledExport((java.awt.Container)component))return true;}return false;}
+    private static void awaitExportIdle(ArchiveWorkspace<?,?,?> workspace)throws Exception{await(()->ArchiveNativeSupport.action(workspace,"Export all matches…").isEnabled());}
 }

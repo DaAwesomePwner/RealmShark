@@ -2,6 +2,8 @@ package tomato.gui.activity;
 
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.history.*;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.FilterBar;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.archive.*;
 import javax.swing.*;
@@ -67,6 +69,10 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         if(currentView!=null)currentView.retire();
         currentView=new View(page,state,binding);return currentView;
     }
+    /** The facets of the view just rendered, for the workspace drawer; exact-link and window actions stay beside the view. */
+    @Override public ArchiveFilters filters(ArchivePage<Row> page,ViewState<Filters,Sort> state,Binding<Filters,Sort> binding) {
+        return currentView!=null&&currentView.binding==binding?currentView.filters():null;
+    }
     private final class View extends JPanel {
         private final ArchivePage<Row> page;
         private ViewState<Filters,Sort> state;
@@ -106,14 +112,13 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 protected void setValue(Object value){setText(value==null?"Unknown time":java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss").format(((Instant)value).atZone(zone)));setToolTipText(zone.getId());}
             });
             scroll=ContentStyle.tableScroll(table,4);
-            ViewState.Table defaults=defaults(columns);
+            ViewState.Table defaults=defaults(columns,table);
             HistoryTables.applyColumns(table,state.tables.getOrDefault("activity",defaults));
             Map<String,List<String>> presets=new LinkedHashMap<>();
             presets.put("Compact",mode==ActivityPanel.Mode.TIMELINE?Arrays.asList("time","map","kind","summary","assignment")
                     :Arrays.asList("map","time","duration","outcome","coverage"));
             List<String> all=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns)all.add(column.id);presets.put("Evidence",all);
             JPanel top=new JPanel();top.setLayout(new BoxLayout(top,BoxLayout.Y_AXIS));
-            top.add(queryControls());
             top.add(HistoryTables.controls(table,defaults,presets,layout->{this.state=this.state.withTable("activity",layout);remember();}));
             JTextArea counts=ContentStyle.wrappingText(counts(page)+(mode==ActivityPanel.Mode.TIMELINE?"":
                     "\nVisit summary rows · Export selected visit + Timeline below includes full linked evidence."));counts.setName("activity-archive-counts");top.add(counts);
@@ -121,6 +126,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 window.setName("timeline-window");window.getAccessibleContext().setAccessibleName("Timeline window, exact visit link and linked outcome");
                 window.setText(windowText()+(exact?"\nLinked outcome: reading from this revision…":""));top.add(window);
             }
+            JPanel links=linkActions();if(links.getComponentCount()>0)top.add(links);
             add(top,BorderLayout.NORTH);
             message.setName("activity-archive-detail");message.getAccessibleContext().setAccessibleName("Saved activity details and origin");
             message.setRows(6);
@@ -220,18 +226,42 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 }catch(RuntimeException failure){message.setText("Duration not applied: "+failure.getMessage());}});controls.add(duration);
             }
             JButton dates=new JButton("Date bounds…");dates.addActionListener(e->dates());controls.add(dates);
-            ArchiveQuery.Bounds span=state.query.bounds();
+            return controls;
+        }
+        /** Window and exact-link actions act on the displayed window, so they stay beside it instead of in the Filters drawer. */
+        private JPanel linkActions() {
+            JPanel actions=ContentStyle.controls();Filters f=state.query.facets();ArchiveQuery.Bounds span=state.query.bounds();
             if(mode==ActivityPanel.Mode.TIMELINE&&span.from!=null&&span.until!=null) {
                 JButton widen=new JButton("Widen window ±30 s");widen.setName("timeline-widen-window");
                 widen.setToolTipText("Adjust both half-open bounds by 30 seconds; displayed rows and exports keep using one query");
                 widen.addActionListener(e->binding.queryChanged(state.query.withBounds(new ArchiveQuery.Bounds(span.from-ActivityRoutes.AROUND_MILLIS,
-                        span.until+ActivityRoutes.AROUND_MILLIS,ZoneId.of(span.zone),span.mode,span.includeUnknown))));controls.add(widen);
+                        span.until+ActivityRoutes.AROUND_MILLIS,ZoneId.of(span.zone),span.mode,span.includeUnknown))));actions.add(widen);
             }
             if(!f.visitId.isEmpty()) {
                 JButton clear=new JButton("Clear exact visit link");clear.setToolTipText(f.visitSession+" / "+f.visitId);
-                clear.addActionListener(e->{Filters next=this.state.query.facets();next.visitId=next.visitSession="";change(next);});controls.add(clear);
+                clear.addActionListener(e->{Filters next=this.state.query.facets();next.visitId=next.visitSession="";change(next);});actions.add(clear);
             }
-            return controls;
+            return actions;
+        }
+        /** This view's existing facet controls for the Filters drawer, and one chip per narrowing facet. */
+        ArchiveFilters filters() {
+            List<FilterBar.ActiveFilter> chips=new ArrayList<>();Filters f=state.query.facets();
+            if(mode==ActivityPanel.Mode.TIMELINE) {
+                if(!f.kinds.isEmpty())chips.add(chip("Types: "+ArchiveFilters.summary(f.kinds),next->next.kinds=new LinkedHashSet<>()));
+                if(f.assignment!=Assignment.ALL)chips.add(chip(f.assignment==Assignment.ASSIGNED?"Assigned events":"Unassigned events",next->next.assignment=Assignment.ALL));
+            } else {
+                if(!f.outcomes.isEmpty())chips.add(chip("Outcome: "+ArchiveFilters.summary(f.outcomes),next->next.outcomes=new LinkedHashSet<>()));
+                if(!f.evidence.isEmpty())chips.add(chip("Evidence: "+ArchiveFilters.summary(f.evidence),next->next.evidence=new LinkedHashSet<>()));
+                if(f.captureIssues!=Presence.ANY)chips.add(chip(f.captureIssues==Presence.PRESENT?"With capture issues":"No capture issues",next->next.captureIssues=Presence.ANY));
+                if(f.timingGaps!=Presence.ANY)chips.add(chip(f.timingGaps==Presence.PRESENT?"With timing gaps":"No timing gaps",next->next.timingGaps=Presence.ANY));
+                if(f.minimumDurationMillis!=null||f.maximumDurationMillis!=null)chips.add(chip("Duration "+durationLabel(f),next->{next.minimumDurationMillis=null;next.maximumDurationMillis=null;}));
+            }
+            if(!f.visitId.isEmpty())chips.add(chip("Exact visit",next->next.visitId=next.visitSession=""));
+            ArchiveFilters.dates(chips,state.query,binding::queryChanged);
+            return new ArchiveFilters(queryControls(),chips);
+        }
+        private FilterBar.ActiveFilter chip(String label,Consumer<Filters> reset) {
+            return new FilterBar.ActiveFilter(label,()->{Filters next=state.query.facets();reset.accept(next);change(next);});
         }
         private void change(Filters f) { binding.queryChanged(state.query.withFacets(f)); }
         private void dates() {
@@ -256,7 +286,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             if(visitRenderer!=null||mode==ActivityPanel.Mode.RUNS){details.removeAll();details.add(new JScrollPane(message));details.revalidate();details.repaint();}
             if(row==null){pending=null;message.setText(page.matches==0?(exact&&mode!=ActivityPanel.Mode.TIMELINE?unavailable()
                     :exact?"No saved Timeline events for this exact visit"+(state.query.bounds().from!=null?" in this window":"")+". Recording coverage is unknown; an empty window is not proof that nothing happened."
-                    :"No saved matches in this query. Reset filters or change scope; recording coverage is unknown."):"Select a saved visit or event for full details.");return;}
+                    :"No saved matches in this query. Clear filters or change scope; recording coverage is unknown."):"Select a saved visit or event for full details.");return;}
             message.setText(origin(row)+"\n"+row.value.summary+"\n"+row.value.detail);
             if(mode==ActivityPanel.Mode.TIMELINE) {
                 pending=null;message.append("\n"+(row.value.assigned?"Assigned by recorded visit ID: "+row.value.visitId:"Unassigned; no visit inferred")
@@ -353,32 +383,30 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
     }
     private List<HistoryTables.Column<Row,?>> columns(Map<String,Sort> sorts) {
         List<HistoryTables.Column<Row,?>> columns=new ArrayList<>();
-        if(mode!=ActivityPanel.Mode.TIMELINE)columns.add(new HistoryTables.Column<>("map","Dungeon / area",String.class,r->r.map,null));
-        columns.add(new HistoryTables.Column<>("time",mode==ActivityPanel.Mode.TIMELINE?"Time":"Entered",Instant.class,r->r.time==null?null:Instant.ofEpochMilli(r.time),null));
+        if(mode!=ActivityPanel.Mode.TIMELINE)columns.add(new HistoryTables.Column<>("map","Dungeon / area",String.class,r->r.map,null,ColumnKind.DUNGEON));
+        columns.add(new HistoryTables.Column<>("time",mode==ActivityPanel.Mode.TIMELINE?"Time":"Entered",Instant.class,r->r.time==null?null:Instant.ofEpochMilli(r.time),null,ColumnKind.DATE_TIME));
         if(mode==ActivityPanel.Mode.TIMELINE) {
-            columns.add(new HistoryTables.Column<>("map","Area",String.class,r->r.map,null));
-            columns.add(new HistoryTables.Column<>("kind","Activity",String.class,r->r.kind,null));
-            columns.add(new HistoryTables.Column<>("summary","Summary",String.class,r->r.summary,null));
-            columns.add(new HistoryTables.Column<>("assignment","Assignment",String.class,r->r.assigned?"Assigned":"Unassigned",null));
+            columns.add(new HistoryTables.Column<>("map","Area",String.class,r->r.map,null,ColumnKind.DUNGEON));
+            columns.add(new HistoryTables.Column<>("kind","Activity",String.class,r->r.kind,null,ColumnKind.STATUS));
+            columns.add(new HistoryTables.Column<>("summary","Summary",String.class,r->r.summary,null,ColumnKind.TEXT));
+            columns.add(new HistoryTables.Column<>("assignment","Assignment",String.class,r->r.assigned?"Assigned":"Unassigned",null,ColumnKind.STATUS));
         } else {
-            columns.add(new HistoryTables.Column<>("duration","Seconds",Double.class,r->r.durationMillis==null?null:r.durationMillis/1000.0,null));
-            columns.add(new HistoryTables.Column<>("outcome","Outcome",String.class,r->r.outcome.toString(),null));
-            columns.add(new HistoryTables.Column<>("coverage","Coverage",String.class,Row::coverage,null));
-            columns.add(new HistoryTables.Column<>("evidence","Evidence source",String.class,r->r.evidence.toString(),null));
-            columns.add(new HistoryTables.Column<>("issues","Capture issues",Long.class,r->r.issues,null));
-            columns.add(new HistoryTables.Column<>("gaps","Timing gaps",Long.class,r->r.gaps,null));
-            columns.add(new HistoryTables.Column<>("players","Players",Integer.class,r->r.players,null));
-            columns.add(new HistoryTables.Column<>("damage","Damage",Long.class,r->r.damage,null));
+            columns.add(new HistoryTables.Column<>("duration","Seconds",Double.class,r->r.durationMillis==null?null:r.durationMillis/1000.0,null,ColumnKind.DURATION));
+            columns.add(new HistoryTables.Column<>("outcome","Outcome",String.class,r->r.outcome.toString(),null,ColumnKind.STATUS));
+            columns.add(new HistoryTables.Column<>("coverage","Coverage",String.class,Row::coverage,null,ColumnKind.TEXT));
+            columns.add(new HistoryTables.Column<>("evidence","Evidence source",String.class,r->r.evidence.toString(),null,ColumnKind.TEXT));
+            columns.add(new HistoryTables.Column<>("issues","Capture issues",Long.class,r->r.issues,null,ColumnKind.COUNT));
+            columns.add(new HistoryTables.Column<>("gaps","Timing gaps",Long.class,r->r.gaps,null,ColumnKind.COUNT));
+            columns.add(new HistoryTables.Column<>("players","Players",Integer.class,r->r.players,null,ColumnKind.COUNT));
+            columns.add(new HistoryTables.Column<>("damage","Damage",Long.class,r->r.damage,null,ColumnKind.NUMBER));
         }
         for(Sort sort:Sort.values())sorts.put(sort.name().toLowerCase(Locale.ROOT),sort);
         return columns;
     }
-    private ViewState.Table defaults(List<HistoryTables.Column<Row,?>> columns) {
+    /** Compact defaults: the first five columns, each at its column-kind width (what Reset columns returns to). */
+    private ViewState.Table defaults(List<HistoryTables.Column<Row,?>> columns,JTable table) {
         List<ViewState.Column> layout=new ArrayList<>();
-        for(int i=0;i<columns.size();i++) {
-            String id=columns.get(i).id;int width="map".equals(id)?145:"time".equals(id)?150:"duration".equals(id)?80:"summary".equals(id)?360:180;
-            layout.add(new ViewState.Column(id,width,i<5));
-        }
+        for(int i=0;i<columns.size();i++)layout.add(new ViewState.Column(columns.get(i).id,table.getColumnModel().getColumn(i).getPreferredWidth(),i<5));
         return new ViewState.Table("Compact",layout);
     }
     private static String counts(ArchivePage<Row> page) {
@@ -403,6 +431,11 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             JMenuItem clear=new JMenuItem("All / clear "+name);clear.addActionListener(change->changed.accept(new LinkedHashSet<>()));menu.add(clear);menu.show(button,0,button.getHeight());});return button;
     }
     private static String seconds(Long millis) { return millis==null?"":java.math.BigDecimal.valueOf(millis,3).stripTrailingZeros().toPlainString(); }
+    /** "30–600 s", "≥ 30 s" or "≤ 600 s": chip text for a duration facet (saved and live Runs). */
+    static String durationLabel(Filters f) {
+        String min=seconds(f.minimumDurationMillis),max=seconds(f.maximumDurationMillis);
+        return f.minimumDurationMillis!=null&&f.maximumDurationMillis!=null?min+"–"+max+" s":f.minimumDurationMillis!=null?"≥ "+min+" s":"≤ "+max+" s";
+    }
     private static Long millis(String seconds) { return seconds.trim().isEmpty()?null:new java.math.BigDecimal(seconds.trim()).movePointRight(3).longValueExact(); }
     private static Long bound(String text) { return text.trim().isEmpty()?null:OffsetDateTime.parse(text.trim()).toInstant().toEpochMilli(); }
 }

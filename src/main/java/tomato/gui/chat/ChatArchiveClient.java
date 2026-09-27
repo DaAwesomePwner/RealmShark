@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import tomato.gui.history.*;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.FilterBar;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
@@ -41,6 +43,8 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
     private final ChatBookmarkIntents bookmarks;
     private long generation;
     private final Map<String,String> policies = new ConcurrentHashMap<>();
+    private SocialQueryControls.State<Row,Facets,Sort> rendered;
+    private Binding<Facets,Sort> renderedBinding;
     ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch) {
         this(store, filters, live, scratch, ChatBookmarkIntents.forStore(store));
     }
@@ -137,25 +141,14 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
             @Override public void addNotify() { super.addNotify(); filters.addListener(policyChanged); if (live != null) live.addBookmarkListener(policyChanged); policyChanged.run(); }
             @Override public void removeNotify() { filters.removeListener(policyChanged); if (live != null) live.removeBookmarkListener(policyChanged); super.removeNotify(); }
         };
-        Facets f = initial.query.facets(); JPanel controls = ContentStyle.controls();
-        JComboBox<ChatMessage.Channel> channel = new JComboBox<>(ChatMessage.Channel.values()); channel.setSelectedItem(ChatMessage.Channel.valueOf(f.channel));
-        JTextField player = new JTextField(f.player, 12); JCheckBox stars = new JCheckBox("Starred only", f.starredOnly), ignored = new JCheckBox("Show ignored players", f.showIgnoredPlayers);
-        controls.add(SocialQueryControls.labeled("Channel", channel, "chat-archive-channel"));
-        controls.add(SocialQueryControls.labeled("Sender or recipient contains", player, "chat-archive-player")); controls.add(stars); controls.add(ignored);
-        JButton apply = new JButton("Apply Chat filters"); controls.add(apply);
-        Runnable change = () -> { Facets next = new Facets(); next.channel = ((ChatMessage.Channel)channel.getSelectedItem()).name();
-            next.player = player.getText(); next.starredOnly = stars.isSelected(); next.showIgnoredPlayers = ignored.isSelected(); state.query(state.value.query.withFacets(next)); };
-        apply.addActionListener(e -> change.run()); player.addActionListener(e -> change.run()); channel.addActionListener(e -> change.run());
-        stars.addActionListener(e -> change.run()); ignored.addActionListener(e -> change.run());
-        JPanel header = new JPanel(new BorderLayout(0, 6)); header.add(controls, BorderLayout.NORTH);
-        header.add(SocialQueryControls.dates(initial.query.bounds(), true, b -> state.query(state.value.query.withBounds(b))));
+        rendered = state; renderedBinding = binding;
         JTextArea detail = ContentStyle.wrappingText("Select a saved message. Classification and stars describe the pinned revision."); detail.setName("chat-archive-detail");
         List<HistoryTables.Column<Row,?>> columns = Arrays.asList(
-            new HistoryTables.Column<>("star", "Starred", Boolean.class, r -> r.starred, null),
-            new HistoryTables.Column<>("time", "Local receipt", LocalDateTime.class, r -> r.message.received, null),
-            new HistoryTables.Column<>("channel", "Channel", String.class, r -> r.message.channel.label + (r.reason.isEmpty() ? "" : " · Ignored"), null),
-            new HistoryTables.Column<>("player", "Player", String.class, r -> r.message.playerLabel(), null),
-            new HistoryTables.Column<>("message", "Message", String.class, r -> r.message.text, null));
+            new HistoryTables.Column<>("star", "Starred", Boolean.class, r -> r.starred, null, ColumnKind.STATUS),
+            new HistoryTables.Column<>("time", "Local receipt", LocalDateTime.class, r -> r.message.received, null, ColumnKind.DATE_TIME),
+            new HistoryTables.Column<>("channel", "Channel", String.class, r -> r.message.channel.label + (r.reason.isEmpty() ? "" : " · Ignored"), null, ColumnKind.STATUS),
+            new HistoryTables.Column<>("player", "Player", String.class, r -> r.message.playerLabel(), null, ColumnKind.PLAYER),
+            new HistoryTables.Column<>("message", "Message", String.class, r -> r.message.text, null, ColumnKind.TEXT));
         Map<String,Sort> sorts = new LinkedHashMap<>(); sorts.put("star", Sort.STARRED); sorts.put("time", Sort.TIME); sorts.put("channel", Sort.CHANNEL); sorts.put("player", Sort.PLAYER); sorts.put("message", Sort.MESSAGE);
         JTable table = HistoryTables.queried("chat-archive-messages", columns, page, sorts, initial.query, state::query,
             row -> detail.setText(row.value.transcript() + "\n" + row.value.timeInterpretation + (row.value.message.gameIgnored ? "\nIn-game ignore observed at receipt." : "")));
@@ -208,6 +201,32 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(actions, BorderLayout.NORTH); footer.add(detail);
         footer.add(ContentStyle.wrappingText(page.description() + " · use workspace Export selected / page / all matches (CSV or JSON).\n" + (page.rows.isEmpty() ? "No saved messages match this query; adjust filters or Refresh." : "")), BorderLayout.SOUTH);
         JPanel lower = new JPanel(new BorderLayout()); lower.add(footer); lower.add(saveStatus, BorderLayout.SOUTH);
-        view.add(ContentStyle.page(header, body, lower)); state.owner(view); policyChanged.run(); return view;
+        view.add(ContentStyle.page(null, body, lower)); state.owner(view); policyChanged.run(); return view;
+    }
+    /** Channel, player, star and ignore facets plus dates of the view just rendered; they share its State. */
+    @Override public ArchiveFilters filters(ArchivePage<Row> page, ViewState<Facets,Sort> initial, Binding<Facets,Sort> binding) {
+        if (rendered == null || renderedBinding != binding) return null;
+        SocialQueryControls.State<Row,Facets,Sort> state = rendered; Facets f = initial.query.facets(); JPanel controls = ContentStyle.controls();
+        JComboBox<ChatMessage.Channel> channel = new JComboBox<>(ChatMessage.Channel.values()); channel.setSelectedItem(ChatMessage.Channel.valueOf(f.channel));
+        JTextField player = new JTextField(f.player, 12); JCheckBox stars = new JCheckBox("Starred only", f.starredOnly), ignored = new JCheckBox("Show ignored players", f.showIgnoredPlayers);
+        controls.add(SocialQueryControls.labeled("Channel", channel, "chat-archive-channel"));
+        controls.add(SocialQueryControls.labeled("Sender or recipient contains", player, "chat-archive-player")); controls.add(stars); controls.add(ignored);
+        JButton apply = new JButton("Apply Chat filters"); controls.add(apply);
+        Runnable change = () -> { Facets next = new Facets(); next.channel = ((ChatMessage.Channel)channel.getSelectedItem()).name();
+            next.player = player.getText(); next.starredOnly = stars.isSelected(); next.showIgnoredPlayers = ignored.isSelected(); state.query(state.value.query.withFacets(next)); };
+        apply.addActionListener(e -> change.run()); player.addActionListener(e -> change.run()); channel.addActionListener(e -> change.run());
+        stars.addActionListener(e -> change.run()); ignored.addActionListener(e -> change.run());
+        JPanel drawer = new JPanel(new BorderLayout(0, 6)); drawer.add(controls, BorderLayout.NORTH);
+        drawer.add(SocialQueryControls.dates(initial.query.bounds(), true, b -> state.query(state.value.query.withBounds(b))));
+        List<FilterBar.ActiveFilter> chips = new ArrayList<>(); boolean ignoredDefault = initialQuery().facets().showIgnoredPlayers;
+        if (!"ALL".equals(f.channel)) chips.add(chip(state, "Channel: " + ChatMessage.Channel.valueOf(f.channel).label, next -> next.channel = "ALL"));
+        if (!f.player.isEmpty()) chips.add(chip(state, "Player: " + f.player, next -> next.player = ""));
+        if (f.starredOnly) chips.add(chip(state, "Starred only", next -> next.starredOnly = false));
+        if (f.showIgnoredPlayers != ignoredDefault) chips.add(chip(state, f.showIgnoredPlayers ? "Ignored players shown" : "Ignored players hidden", next -> next.showIgnoredPlayers = ignoredDefault));
+        ArchiveFilters.dates(chips, initial.query, state::query);
+        return new ArchiveFilters(drawer, chips);
+    }
+    private static FilterBar.ActiveFilter chip(SocialQueryControls.State<Row,Facets,Sort> state, String label, java.util.function.Consumer<Facets> reset) {
+        return new FilterBar.ActiveFilter(label, () -> { Facets next = state.value.query.facets(); reset.accept(next); state.query(state.value.query.withFacets(next)); });
     }
 }

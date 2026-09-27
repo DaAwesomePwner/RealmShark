@@ -9,6 +9,8 @@ import java.util.*;
 import java.util.List;
 import javax.swing.*;
 import tomato.gui.history.*;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.FilterBar;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.route.*;
@@ -25,23 +27,26 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     public Path scratchDirectory(){return scratch;}
     public int pageSize(){return 100;}
     public ArchiveAdapter<Row,Facets,Sort> adapter(ArchiveQuery<Facets,Sort> q){View view=q.facets().view;return view.loot()?new LootArchiveAdapter(q):view==View.COHORTS?new CohortArchiveAdapter(q):new StatisticsArchiveAdapter(q);}
-    public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){return new Render(page,state,binding);}
+    private Render rendered;
+    public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){rendered=new Render(page,state,binding);return rendered;}
+    /** The rendered view's facet and date controls for the drawer; drill-down actions and cohort inputs stay in the view. */
+    @Override public ArchiveFilters filters(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){return rendered!=null&&rendered.binding==binding?rendered.filters():null;}
     public List<ArchiveExport.Column<Row>> exportColumns(){
         List<ArchiveExport.Column<Row>> result=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns())result.add(new ArchiveExport.Column<>(column.label,column.value));
         result.add(new ArchiveExport.Column<>("Exact enchantment evidence",r->r.enchantEvidence));
         result.add(new ArchiveExport.Column<>("Captured drop context",r->r.dropContext));return result;
     }
-    private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value){return new HistoryTables.Column<>(id,label,type,value,null);}
+    private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value,ColumnKind kind){return new HistoryTables.Column<>(id,label,type,value,null,kind);}
     static List<HistoryTables.Column<Row,?>> columns(){return Arrays.asList(
-        col("type","Row unit/type",String.class,r->r.type),new HistoryTables.Column<>("time","Timestamp (epoch ms)",Long.class,r->r.time,timeRenderer()),col("name","Name",String.class,r->r.name),
-        col("session","Source session",String.class,r->r.session),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId),col("dungeon","Dungeon",String.class,r->r.dungeon),col("bag","Bag",String.class,r->r.bag),col("dropper","Dropper",String.class,r->r.dropper),
-        col("item","Item ID",Integer.class,r->r.itemId),col("tier","Tier",String.class,r->r.tier),col("rarity","Rarity",String.class,r->r.rarity),col("slots","Slots",Integer.class,r->r.slots),col("applied","Applied enchants",Integer.class,r->r.applied),
-        col("count","Occurrences / sample observations / count",Long.class,r->r.count),col("bags","Bags",Long.class,r->r.bags),col("items","Items",Long.class,r->r.items),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs),new HistoryTables.Column<>("millis","Observed / finalized milliseconds",Long.class,r->r.millis,durationRenderer()),new HistoryTables.Column<>("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis,durationRenderer()),
-        col("whites","White bags",Long.class,r->r.whites),col("uts","UT gear",Long.class,r->r.uts),col("sts","ST gear",Long.class,r->r.sts),col("potions","Stat potions",Long.class,r->r.potions),col("completed","Completed",Long.class,r->r.completed),col("unknown","Excluded unknown visits",Long.class,r->r.unknownRuns),col("imports","Excluded imported visits",Long.class,r->r.importedRuns),
-        col("rate","Items / hour",Double.class,r->r.perHour),col("perRun","Items / run",Double.class,r->r.perRun),col("utHour","UT / hour",Double.class,r->r.utPerHour),col("whiteRun","Whites / run",Double.class,r->r.whitesPerRun),col("utRun","UT / run",Double.class,r->r.utPerRun),col("stRun","ST / run",Double.class,r->r.stPerRun),col("potionRun","Potions / run",Double.class,r->r.potionsPerRun),
-        col("character","Character ID (within session)",Integer.class,r->r.character),col("class","Class",String.class,r->r.className),col("first","First fame",Double.class,r->r.firstFame),col("last","Last fame",Double.class,r->r.lastFame),col("gain","Fame change",Double.class,r->r.gain),col("enemy","Enemy ID",Integer.class,r->r.enemyId),col("hits","Hit events",Long.class,r->r.hits),col("damage","Damage",Long.class,r->r.damage),col("build","Build",String.class,r->r.build),col("ongoing","Ongoing contribution at counter snapshot",String.class,r->"COUNTERS".equals(r.type)?r.ongoingActivity==null?"Not captured":r.ongoingActivity?"Included; time not finalized":"None at snapshot":null),col("runLink","Recorded run link",String.class,r->r.runLinked==null?null:r.runLinked?"Verified":"Unavailable"),col("zeroLoot","Eligible runs with no linked bags",Long.class,r->r.zeroLootRuns),col("unassigned","Unassigned bags",Long.class,r->r.unassignedBags),
-        col("minRun","Minimum items / run",Long.class,r->r.minPerRun),col("median","Median items / run",Double.class,r->r.medianPerRun),col("maxRun","Maximum items / run",Long.class,r->r.maxPerRun),col("runChange","Items / run change (% of baseline)",Double.class,r->r.perRunChange),col("hourChange","Items / hour change (% of baseline)",Double.class,r->r.perHourChange),
-        col("evidence","Calculation / coverage",String.class,r->r.evidence));}
+        col("type","Row unit/type",String.class,r->r.type,ColumnKind.STATUS),new HistoryTables.Column<>("time","Timestamp (epoch ms)",Long.class,r->r.time,timeRenderer(),ColumnKind.DATE_TIME),col("name","Name",String.class,r->r.name,ColumnKind.ITEM),
+        col("session","Source session",String.class,r->r.session,ColumnKind.ID),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId,ColumnKind.ID),col("dungeon","Dungeon",String.class,r->r.dungeon,ColumnKind.DUNGEON),col("bag","Bag",String.class,r->r.bag,ColumnKind.STATUS),col("dropper","Dropper",String.class,r->r.dropper,ColumnKind.TEXT),
+        col("item","Item ID",Integer.class,r->r.itemId,ColumnKind.ID),col("tier","Tier",String.class,r->r.tier,ColumnKind.STATUS),col("rarity","Rarity",String.class,r->r.rarity,ColumnKind.STATUS),col("slots","Slots",Integer.class,r->r.slots,ColumnKind.COUNT),col("applied","Applied enchants",Integer.class,r->r.applied,ColumnKind.COUNT),
+        col("count","Occurrences / sample observations / count",Long.class,r->r.count,ColumnKind.COUNT),col("bags","Bags",Long.class,r->r.bags,ColumnKind.COUNT),col("items","Items",Long.class,r->r.items,ColumnKind.COUNT),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs,ColumnKind.COUNT),new HistoryTables.Column<>("millis","Observed / finalized milliseconds",Long.class,r->r.millis,durationRenderer(),ColumnKind.DURATION),new HistoryTables.Column<>("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis,durationRenderer(),ColumnKind.DURATION),
+        col("whites","White bags",Long.class,r->r.whites,ColumnKind.COUNT),col("uts","UT gear",Long.class,r->r.uts,ColumnKind.COUNT),col("sts","ST gear",Long.class,r->r.sts,ColumnKind.COUNT),col("potions","Stat potions",Long.class,r->r.potions,ColumnKind.COUNT),col("completed","Completed",Long.class,r->r.completed,ColumnKind.COUNT),col("unknown","Excluded unknown visits",Long.class,r->r.unknownRuns,ColumnKind.COUNT),col("imports","Excluded imported visits",Long.class,r->r.importedRuns,ColumnKind.COUNT),
+        col("rate","Items / hour",Double.class,r->r.perHour,ColumnKind.NUMBER),col("perRun","Items / run",Double.class,r->r.perRun,ColumnKind.NUMBER),col("utHour","UT / hour",Double.class,r->r.utPerHour,ColumnKind.NUMBER),col("whiteRun","Whites / run",Double.class,r->r.whitesPerRun,ColumnKind.NUMBER),col("utRun","UT / run",Double.class,r->r.utPerRun,ColumnKind.NUMBER),col("stRun","ST / run",Double.class,r->r.stPerRun,ColumnKind.NUMBER),col("potionRun","Potions / run",Double.class,r->r.potionsPerRun,ColumnKind.NUMBER),
+        col("character","Character ID (within session)",Integer.class,r->r.character,ColumnKind.ID),col("class","Class",String.class,r->r.className,ColumnKind.CLASS),col("first","First fame",Double.class,r->r.firstFame,ColumnKind.NUMBER),col("last","Last fame",Double.class,r->r.lastFame,ColumnKind.NUMBER),col("gain","Fame change",Double.class,r->r.gain,ColumnKind.NUMBER),col("enemy","Enemy ID",Integer.class,r->r.enemyId,ColumnKind.ID),col("hits","Hit events",Long.class,r->r.hits,ColumnKind.COUNT),col("damage","Damage",Long.class,r->r.damage,ColumnKind.NUMBER),col("build","Build",String.class,r->r.build,ColumnKind.TEXT),col("ongoing","Ongoing contribution at counter snapshot",String.class,r->"COUNTERS".equals(r.type)?r.ongoingActivity==null?"Not captured":r.ongoingActivity?"Included; time not finalized":"None at snapshot":null,ColumnKind.STATUS),col("runLink","Recorded run link",String.class,r->r.runLinked==null?null:r.runLinked?"Verified":"Unavailable",ColumnKind.STATUS),col("zeroLoot","Eligible runs with no linked bags",Long.class,r->r.zeroLootRuns,ColumnKind.COUNT),col("unassigned","Unassigned bags",Long.class,r->r.unassignedBags,ColumnKind.COUNT),
+        col("minRun","Minimum items / run",Long.class,r->r.minPerRun,ColumnKind.COUNT),col("median","Median items / run",Double.class,r->r.medianPerRun,ColumnKind.NUMBER),col("maxRun","Maximum items / run",Long.class,r->r.maxPerRun,ColumnKind.COUNT),col("runChange","Items / run change (% of baseline)",Double.class,r->r.perRunChange,ColumnKind.PERCENT),col("hourChange","Items / hour change (% of baseline)",Double.class,r->r.perHourChange,ColumnKind.PERCENT),
+        col("evidence","Calculation / coverage",String.class,r->r.evidence,ColumnKind.TEXT));}
     /** Compact on-screen headers; the full analytical label stays in the header tooltip, details and CSV export. */
     static final Map<String,String> HEADERS;static{Map<String,String> h=new HashMap<>();String[] pairs={
         "type","Row type","time","Time","session","Session","visit","Visit ID","item","Item ID","applied","Applied","count","Count",
@@ -57,14 +62,16 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         setText(value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatDurationHMS(((Number)value).longValue()));}};cell.setHorizontalAlignment(SwingConstants.RIGHT);return cell;}
     /** Short headers with full-label tooltips; every column is at least as wide as its header and sized to this page's values (capped). */
     static void sizeColumns(JTable table){
-        javax.swing.table.TableCellRenderer base=table.getTableHeader().getDefaultRenderer();Map<String,String> labels=new HashMap<>();for(HistoryTables.Column<Row,?> c:columns())labels.put(c.id,c.label);
+        javax.swing.table.TableCellRenderer base=table.getTableHeader().getDefaultRenderer();Map<String,String> labels=new HashMap<>();Map<String,ColumnKind> kinds=new HashMap<>();
+        for(HistoryTables.Column<Row,?> c:columns()){labels.put(c.id,c.label);kinds.put(c.id,c.kind);}
         for(javax.swing.table.TableColumn column:Collections.list(table.getColumnModel().getColumns())){
             String id=column.getIdentifier().toString(),full=labels.getOrDefault(id,String.valueOf(column.getHeaderValue()));
             column.setHeaderValue(HEADERS.getOrDefault(id,full));
             column.setHeaderRenderer((t,value,selected,focus,row,index)->{Component c=base.getTableCellRendererComponent(t,value,selected,focus,row,index);if(c instanceof JComponent)((JComponent)c).setToolTipText(full);return c;});
             int header=headerWidth(table,column),content=0,model=column.getModelIndex();
             for(int row=0;row<table.getRowCount();row++)content=Math.max(content,table.prepareRenderer(table.getCellRenderer(row,table.convertColumnIndexToView(model)),row,table.convertColumnIndexToView(model)).getPreferredSize().width);
-            int width=Math.max(header,Math.min(content+table.getIntercellSpacing().width+2,320));
+            // The column kind is the floor; Loot still grows a column to its page's values (capped at 320 px) so no value is cut.
+            ColumnKind kind=kinds.get(id);int width=Math.max(header,Math.max(kind==null?0:kind.width(table.getFont()),Math.min(content+table.getIntercellSpacing().width+2,320)));
             column.setMinWidth(header);column.setPreferredWidth(width);column.setWidth(width);
         }
         // A later font refresh (theme, scaling or evidence fonts) must not truncate headers again.
@@ -102,9 +109,9 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             if(!views.contains(view))views.add(view);for(View v:views)tabs.addTab(v.toString(),new JPanel());tabs.setSelectedIndex(views.indexOf(view));
             JPanel body=new JPanel(new BorderLayout(0,4));tabs.setComponentAt(tabs.getSelectedIndex(),body);add(tabs);
             JPanel top=new JPanel(new BorderLayout(0,4));
-            if(view.loot())top.add(new LootFacetControls(state.query.facets(),choices("facet.bag."),choices("facet.dungeon."),f->query(current.query.withFacets(f))),BorderLayout.NORTH);
-            else top.add(analyticalFilters(view),BorderLayout.NORTH);
-            top.add(dateControls(),BorderLayout.CENTER);countText=ContentStyle.wrappingText(description(view)+"\n"+countDescription(page));countText.setName("loot-archive-counts");top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
+            // Cohort inputs define the comparison itself, so they stay in the view; every other facet lives in the Filters drawer.
+            if(view==View.COHORTS)top.add(analyticalFilters(view),BorderLayout.NORTH);
+            countText=ContentStyle.wrappingText(description(view)+"\n"+countDescription(page));countText.setName("loot-archive-counts");top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
             table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);sizeColumns(table);
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
@@ -168,6 +175,16 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             rateStatus.setText(rateStatus(r));rateStatus.getAccessibleContext().setAccessibleName(rateStatus.getText());
         }
         private void query(ArchiveQuery<Facets,Sort> q){binding.queryChanged(q);}
+        ArchiveFilters filters(){
+            View view=current.query.facets().view;JPanel drawer=new JPanel(new BorderLayout(0,4));
+            if(view.loot())drawer.add(new LootFacetControls(current.query.facets(),choices("facet.bag."),choices("facet.dungeon."),f->query(current.query.withFacets(f))),BorderLayout.NORTH);
+            else if(view!=View.COHORTS)drawer.add(analyticalFilters(view),BorderLayout.NORTH);
+            drawer.add(dateControls(),BorderLayout.CENTER);
+            List<FilterBar.ActiveFilter> chips=LootFacetChips.chips(current.query::facets,f->query(current.query.withFacets(f)));
+            ArchiveFilters.dates(chips,current.query,this::query);
+            return new ArchiveFilters(drawer,chips);
+        }
+
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
         private Set<String> choices(String prefix){Set<String> values=new TreeSet<>();for(String key:page.counts.keySet())if(key.startsWith(prefix))values.add(key.substring(prefix.length()));return values;}
         private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"");

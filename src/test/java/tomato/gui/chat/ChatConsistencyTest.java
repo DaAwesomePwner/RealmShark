@@ -28,6 +28,7 @@ public class ChatConsistencyTest {
     }
     @After public void restoreTheme() throws Exception {
         SwingUtilities.invokeAndWait(() -> { ContentStyle.setBodyFont(previousFont); setLaf(previousLaf); });
+        PropertiesManager.setProperties("ui.filters.chat-live.open", "false");
     }
 
     @Test public void shellColumnsHeadersAndSelectedDetailsFitAcrossFontThemeAndWidthTransitions() throws Exception {
@@ -39,6 +40,7 @@ public class ChatConsistencyTest {
             theme(new VioletTheme(), 13);
             ChatFilters.Settings settings = filters.settings(); settings.ignoredPlayers.add(sender); filters.apply(settings, false);
             chat[0] = new ChatExplorer(() -> {}, filters, () -> "Remote whisper identities may be unavailable.");
+            tomato.gui.history.ArchiveNativeSupport.drawer(find(chat[0], "chat-live-filter-bar", tomato.gui.kit.FilterBar.class), true);
             JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
             for (int i = 0; i < pages.length; i++) pages[i] = i == 0 ? chat[0] : new JPanel();
             shell[0] = new WorkspaceShell(pages, () -> {}, true);

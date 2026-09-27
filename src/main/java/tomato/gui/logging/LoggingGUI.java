@@ -21,6 +21,9 @@ import tomato.gui.modern.CollectionControl;
 import tomato.gui.activity.SnapshotRefresh;
 import tomato.gui.history.ViewState;
 import tomato.gui.history.ViewStateStore;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.history.HistoryTables;
 
 /** A searchable, bounded view over sanitized discovery data, refreshed only on the EDT. */
 public final class LoggingGUI extends JPanel {
@@ -37,7 +40,9 @@ public final class LoggingGUI extends JPanel {
     private final CollectionControl enabled;
     private final JCheckBox save = new JCheckBox("Save diagnostic samples");
     private final JComboBox<String> sampling = new JComboBox<>(new String[] {"Sampled", "Detailed"});
-    private final JTabbedPane tabs = new JTabbedPane();
+    private final CustomizableTabs tabGroup = new CustomizableTabs("logging");
+    private final JTabbedPane tabs = tabGroup.component();
+    private boolean tabSyncPending;
     private final JPanel facets = ContentStyle.controls(), chips = ContentStyle.controls();
     private final JLabel counts = new JLabel();
     private final JComboBox<String> packetFacet = new JComboBox<>(), statFacet = new JComboBox<>(), objectFacet = new JComboBox<>(), areaFacet = new JComboBox<>(), outcomeFacet = new JComboBox<>();
@@ -125,8 +130,10 @@ public final class LoggingGUI extends JPanel {
         for (JLabel label : new JLabel[]{summary, losses, exportStatus}) label.setFont(ContentStyle.metadata(ContentStyle.body()));
         summary.setBorder(BorderFactory.createEmptyBorder(4, 8, 2, 8)); top.add(summary);
         losses.setBorder(BorderFactory.createEmptyBorder(2, 8, 6, 8)); top.add(losses);
-        tabs.addTab("Discovery", discoveries.scroll()); tabs.addTab("Re-entry trace", reentry.scroll()); tabs.addTab("Packets", packets.scroll());
-        tabs.addTab("Stat explorer", stats.scroll()); tabs.addTab("Event samples", events.scroll()); tabs.addTab("Field catalog", fields.scroll());
+        // Tab IDs are the saved-state keys (TAB_KEYS), so saved Logging views survive reordering and hiding.
+        tabGroup.add("discovery", "Discovery", discoveries.scroll()).add("reentry", "Re-entry trace", reentry.scroll()).add("packets", "Packets", packets.scroll())
+            .add("stats", "Stat explorer", stats.scroll()).add("events", "Event samples", events.scroll()).add("fields", "Field catalog", fields.scroll());
+        activeTab = activeIndex();
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         details.setEditable(false); details.setLineWrap(true); details.setWrapStyleWord(true);
         details.setFont(ContentStyle.report(ContentStyle.body())); details.setMargin(new Insets(6,8,6,8));
@@ -179,9 +186,8 @@ public final class LoggingGUI extends JPanel {
         issuesOnly.addActionListener(e -> { packets.filters.issues=issuesOnly.isSelected(); filter(); });
         tabs.addChangeListener(e -> {
             if (applyingState) return;
-            activeTab=tabs.getSelectedIndex(); applyingState=true;
-            try { search.setText(activeTable().filters.text); } finally { applyingState=false; }
-            refreshTables(); updateFacets(); filter(); stateChanged();
+            if (tabGroup.isRebuilding()) { syncTabLater(); return; }
+            tabChanged();
         });
         String[] names = {"Packet diagnostics", "Stat observations", "Retained event samples", "Decoder field catalog", "Diagnostic discovery", "Retained re-entry trace"};
         DataTable[] all = allTables();
@@ -328,7 +334,20 @@ public final class LoggingGUI extends JPanel {
         if (!refreshing) showDetails();
         stateChanged();
     }
-    private DataTable activeTable() { return new DataTable[] {discoveries, reentry, packets, stats, events, fields}[tabs.getSelectedIndex()]; }
+    private DataTable activeTable() { return tabTables()[activeIndex()]; }
+    /** The selected tab as an index into TAB_KEYS/tabTables(), whatever its visible position. */
+    private int activeIndex() { return Math.max(0, Arrays.asList(TAB_KEYS).indexOf(tabGroup.selectedId())); }
+    private void showTab(String id) { tabGroup.show(id); tabGroup.select(id); }
+    private void tabChanged() {
+        activeTab=activeIndex(); applyingState=true;
+        try { search.setText(activeTable().filters.text); } finally { applyingState=false; }
+        refreshTables(); updateFacets(); filter(); stateChanged();
+    }
+    /** A rebuild (reorder, hide) passes through transient selections; sync once on the final one. */
+    private void syncTabLater() {
+        if (tabSyncPending) return;
+        tabSyncPending = true; SwingUtilities.invokeLater(() -> { tabSyncPending = false; if (!applyingState) tabChanged(); });
+    }
     private void configureFacet(JComboBox<String> box, String label) {
         box.setName("logging-facet-" + label.toLowerCase(Locale.ROOT));
         box.getAccessibleContext().setAccessibleName(label + " equals");
@@ -418,7 +437,7 @@ public final class LoggingGUI extends JPanel {
         else if (selected instanceof DiscoveryLog.PacketRow) target.packet=((DiscoveryLog.PacketRow)selected).name;
         else if (selected instanceof String) target.packet=(String)selected;
         else return;
-        events.filters=target; tabs.setSelectedIndex(4); updateFacets(); filter();
+        events.filters=target; showTab("events"); updateFacets(); filter();
     }
     private void openField() {
         Object selected=activeTable().selected();
@@ -427,7 +446,7 @@ public final class LoggingGUI extends JPanel {
         String path=(String)fieldChoice.getSelectedItem();
         if (event==null || path==null) return;
         fields.filters=new LoggingQuery(); fields.filters.packet=event.packet; fields.filters.fieldPath=path;
-        tabs.setSelectedIndex(5); updateFacets(); filter(); fields.restore(event.packet + "|" + path); showDetails();
+        showTab("fields"); updateFacets(); filter(); fields.restore(event.packet + "|" + path); showDetails();
     }
     private void showDetails() {
         DataTable table = activeTable();
@@ -538,7 +557,7 @@ public final class LoggingGUI extends JPanel {
                     TableColumn actual=table.table.getColumnModel().getColumn(target); actual.setPreferredWidth(column.width); actual.setWidth(column.width);
                 }
             }
-            activeTab=Arrays.asList(TAB_KEYS).indexOf(state.tab); tabs.setSelectedIndex(activeTab);
+            activeTab=Arrays.asList(TAB_KEYS).indexOf(state.tab); showTab(TAB_KEYS[activeTab]);
             search.setText(activeTable().filters.text); split.setDividerLocation(state.divider);
         } finally { applyingState=false; }
         updateFacets(); filter(); updateSummary(); if (stateReady) refresh();
@@ -735,13 +754,21 @@ public final class LoggingGUI extends JPanel {
                     return shown.equals(raw)?shown:shown+"\n"+raw;
                 }
             });
-            for(int i=0;i<columns.length;i++) {
-                String c=columns[i];
-                int width=c.equals("Time") ? 175 : c.equals("Area") && columns.length==4 ? 215 : c.equals("ID") || c.equals("Area") ? 65
-                    : c.equals("Field path") || c.equals("Retention") || c.contains("values") || c.contains("evidence") ? 300
-                    : c.equals("Packet") || c.equals("Stat") || c.equals("Step") ? 215 : 130;
-                table.getColumnModel().getColumn(i).setPreferredWidth(width);
-                defaultColumns.add(new ViewState.Column(c,width,true));
+            Map<String,ColumnKind> kinds=new HashMap<>();for(String c:columns)kinds.put(c,kind(c,columns.length));
+            HistoryTables.kinds(table,kinds);
+            for(int i=0;i<columns.length;i++)defaultColumns.add(new ViewState.Column(columns[i],table.getColumnModel().getColumn(i).getPreferredWidth(),true));
+        }
+        /** Column kind by header; Area is a map name in Discovery (four columns) and a numeric area ID elsewhere. */
+        private static ColumnKind kind(String column,int count) {
+            switch (column) {
+                case "Time": return ColumnKind.DATE_TIME;
+                case "Area": return count==4 ? ColumnKind.DUNGEON : ColumnKind.ID;
+                case "ID": return ColumnKind.ID;
+                case "Direction": case "Evidence": case "Outcome": case "Java type": return ColumnKind.STATUS;
+                case "Count": case "Bytes": case "Observations": case "Changes": case "Withheld": case "Decode errors": case "Trailing": case "Type listeners": return ColumnKind.COUNT;
+                case "Latest": case "Secondary": case "Min": case "Max": return ColumnKind.NUMBER;
+                case "Since prior": return ColumnKind.DURATION;
+                default: return ColumnKind.TEXT;
             }
         }
         private static String displayValue(String column,Object value) {

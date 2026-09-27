@@ -3,7 +3,11 @@ package tomato.gui.history;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import tomato.gui.activity.SnapshotRefresh;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.OverflowMenu;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.LineIcon;
 import util.PreferencesStore;
 import javax.swing.*;
 import java.awt.*;
@@ -18,13 +22,15 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     private final SessionStore store;private final String name;private final ArchiveClient<R,F,S> client;private final ViewStateStore states;
     private final SnapshotRefresh<Update<R>> refresh=new SnapshotRefresh<>();
     private final SnapshotRefresh<List<SessionStore.SessionEntry>> catalog=new SnapshotRefresh<>();
-    private final JComboBox<Choice> sessions=new JComboBox<>();private final JTextField search=new JTextField(18),viewName=new JTextField(12);
-    private final JComboBox<String> named=new JComboBox<>();
-    private final JPanel cards=new JPanel(new CardLayout()),saved=new JPanel(new BorderLayout()),archiveTools=new JPanel(new BorderLayout());
+    private final JComboBox<Choice> sessions=new JComboBox<>();private final JTextField search=new JTextField(18);
+    private final JPanel cards=new JPanel(new CardLayout()),saved=new JPanel(new BorderLayout()),footer=new JPanel(new BorderLayout(0,4));
     private final JTextArea status=ContentStyle.wrappingText("Current live view"),saveStatus=ContentStyle.wrappingText("");
     private final JButton previous=new JButton("Previous page"),next=new JButton("Next page"),browse=new JButton("Browse saved");
-    private final JButton exportAll=new JButton("Export all matches…"),exportPage=new JButton("Export page…"),exportSelected=new JButton("Export selected…");
-    private final JButton openFolder=new JButton("Open export folder");
+    private final JButton stop=new JButton("Cancel read"),cancelExport=new JButton("Cancel export");
+    private final KitButton reload=KitButton.icon(new LineIcon(LineIcon.REFRESH,16),"Refresh");
+    private final FilterBar filterBar;private final WrapRow searchRow=new WrapRow();private final JPanel scopeRow=new JPanel(new FlowLayout(FlowLayout.RIGHT,6,0));
+    private final JMenuItem exportAll,exportPage,exportSelected,openFolder;private final JMenu views;
+    private boolean narrowScope=true;
     private Path exportFolder;
     private String librarySelection;
     private ViewState<F,S> state;private ArchiveResult<R> result;private ArchiveQuery<F,S> resultQuery;
@@ -49,42 +55,34 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         state=ViewState.initial(client.initialQuery());
         try{state=states.load(name,state);}catch(RuntimeException failure){stateLoadFailed=true;saveStatus.setText(failure.getMessage());}
         setName(name+"-session-view");sessions.setName(name+"-session-picker");sessions.getAccessibleContext().setAccessibleName(name+" session");
-        sessions.setPrototypeDisplayValue(new Choice("","Session · 2026-09-20 12:00:00"));
+        sessions.setToolTipText("Session scope");sessions.setPrototypeDisplayValue(new Choice("","Session · 2026-09-20 12:00:00"));
         DefaultListCellRenderer literal=new DefaultListCellRenderer();literal.putClientProperty("html.disable",true);sessions.setRenderer(literal);
-        JPanel top=ContentStyle.controls();top.add(new JLabel("Session"));top.add(sessions);top.add(browse);
-        JButton reload=new JButton("Refresh"),library=new JButton("History library…"),stop=new JButton("Cancel read");
-        top.add(reload);top.add(library);top.add(stop);
         cards.add(live,"live");cards.add(saved,"saved");
         search.setName(name+"-history-search");search.getAccessibleContext().setAccessibleName("Search all saved "+name+" records");
         search.putClientProperty("JTextField.placeholderText","Search entire scope; press Enter");
-        JPanel paging=ContentStyle.controls();paging.add(search);paging.add(previous);paging.add(next);
-        JButton resetFilters=new JButton("Reset filters");paging.add(resetFilters);archiveTools.add(paging,BorderLayout.NORTH);
-        JPanel tools=new JPanel();tools.setLayout(new BoxLayout(tools,BoxLayout.Y_AXIS));
-        JPanel views=ContentStyle.controls();named.setName(name+"-named-views");named.getAccessibleContext().setAccessibleName("Named "+name+" views");
-        viewName.getAccessibleContext().setAccessibleName("Saved view name");JButton saveView=new JButton("Save view"),loadView=new JButton("Load view"),deleteView=new JButton("Delete view"),resetState=new JButton("Reset saved state");
-        views.add(named);views.add(loadView);views.add(viewName);views.add(saveView);views.add(deleteView);views.add(resetState);
-        JPanel exports=ContentStyle.controls();exports.add(exportSelected);exports.add(exportPage);exports.add(exportAll);
-        openFolder.setEnabled(false);exports.add(openFolder);openFolder.addActionListener(e->{
+        filterBar=new FilterBar(name);scopeRow.setOpaque(false);OverflowMenu more=filterBar.overflow();
+        more.add("History library…",this::openLibrary);more.addSeparator();views=more.submenu("Saved views");more.addSeparator();
+        exportSelected=more.add("Export selected…",()->chooseExport(ExportSelection.selected(state.selected)));
+        exportPage=more.add("Export page…",()->{if(displayed!=null)chooseExport(ExportSelection.page(displayed.page,displayed.size));});
+        exportAll=more.add("Export all matches…",()->chooseExport(ExportSelection.all()));
+        openFolder=more.add("Open export folder",()->{
             if(exportFolder==null||!Desktop.isDesktopSupported())return;
             try{Desktop.getDesktop().open(exportFolder.toFile());}catch(Exception failure){status.setText("Could not open the export folder: "+failure.getMessage());}
-        });
-        JButton cancelExport=new JButton("Cancel export");exports.add(cancelExport);
-        tools.add(views);tools.add(exports);tools.add(status);tools.add(saveStatus);archiveTools.add(tools,BorderLayout.SOUTH);
-        add(ContentStyle.page(top,cards,archiveTools));
+        });openFolder.setEnabled(false);
+        placeScope(false);
+        JPanel paging=ContentStyle.controls();paging.add(previous);paging.add(next);paging.add(stop);paging.add(cancelExport);stop.setVisible(false);cancelExport.setVisible(false);
+        JPanel texts=new JPanel();texts.setLayout(new BoxLayout(texts,BoxLayout.Y_AXIS));texts.add(status);texts.add(saveStatus);
+        footer.setName(name+"-archive-footer");footer.add(paging,BorderLayout.NORTH);footer.add(texts,BorderLayout.CENTER);
+        add(ContentStyle.page(filterBar,cards,footer));
         sessions.addActionListener(e->{if(!restoring){Choice selected=(Choice)sessions.getSelectedItem();if(selected!=null)selectSession(selected.id);}});
         browse.addActionListener(e->{state=state.withArchive(!state.archive);persist();request(false);});
-        reload.addActionListener(e->{reloadCatalog();request(true);});library.addActionListener(e->openLibrary());
+        reload.addActionListener(e->{reloadCatalog();request(true);});
         stop.addActionListener(e->{invalidateView();cancel.cancel();refresh.invalidate();loading=false;status.setText("Read cancelled. Refresh to retry.");updateActions();});
         search.addActionListener(e->changeQuery(state.query.withText(search.getText())));
-        resetFilters.addActionListener(e->changeQuery(client.initialQuery().withScope(state.query.scope())));
         previous.addActionListener(e->selectPage(Math.max(0,state.page-1)));next.addActionListener(e->selectPage(state.page+1));
-        saveView.addActionListener(e->{try{saveNamed(viewName.getText());reloadNames();}catch(RuntimeException failure){saveStatus.setText(failure.getMessage());}});
-        loadView.addActionListener(e->{if(named.getSelectedItem()!=null)loadNamed(named.getSelectedItem().toString());});
-        deleteView.addActionListener(e->{if(named.getSelectedItem()!=null){watchSave(states.deleteNamed(name,named.getSelectedItem().toString()));reloadNames();}});
-        resetState.addActionListener(e->{watchSave(states.reset(name));stateLoadFailed=false;state=ViewState.initial(client.initialQuery());reloadNames();syncControls();request(true);});
-        exportAll.addActionListener(e->chooseExport(ExportSelection.all()));
-        exportPage.addActionListener(e->{if(displayed!=null)chooseExport(ExportSelection.page(displayed.page,displayed.size));});
-        exportSelected.addActionListener(e->chooseExport(ExportSelection.selected(state.selected)));cancelExport.addActionListener(e->exportCancel.cancel());
+        cancelExport.addActionListener(e->exportCancel.cancel());
+        filterBar.addComponentListener(new ComponentAdapter(){public void componentResized(ComponentEvent e){fitScope();}});
+        search.addPropertyChangeListener("font",e->fitScope());
         addHierarchyListener(e->{if((e.getChangeFlags()&HierarchyEvent.SHOWING_CHANGED)!=0){
             // A load started while hidden (for example an atomic restore before its page is shown) continues.
             if(isShowing()){if(!closed&&!loading)request(false);}else{invalidateView();cancel.cancel();refresh.invalidate();loading=false;updateActions();}
@@ -95,6 +93,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     public ViewState<F,S> state(){requireEdt();return state;}
     public ArchivePage<R> displayedPage(){requireEdt();return displayed;}
     public boolean loading(){requireEdt();return loading;}
+    /** The workspace's filter row: search, the module's Filters drawer and chips, scope and the ⋯ menu. */
+    public FilterBar filterBar(){requireEdt();return filterBar;}
     public void selectSession(String id){
         requireEdt();String scope=store.currentId().equals(id)?ArchiveQuery.CURRENT:id;
         state=state.withQuery(state.query.withScope(scope)).withArchive(!ArchiveQuery.CURRENT.equals(scope));persist();syncControls();request(false);
@@ -116,13 +116,47 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     }
     public void selectPage(long page){requireEdt();if(page<0)throw new IllegalArgumentException("Negative page");state=state.withPage(page);persist();request(false);}
     public void refresh(){requireEdt();request(true);}
-    public CompletionStage<PreferencesStore.SaveResult> saveNamed(String label){requireEdt();CompletionStage<PreferencesStore.SaveResult> save=states.saveNamed(name,label,state);watchSave(save);return save;}
+    public CompletionStage<PreferencesStore.SaveResult> saveNamed(String label){requireEdt();CompletionStage<PreferencesStore.SaveResult> save=states.saveNamed(name,label,state);watchSave(save);reloadNames();return save;}
     public void loadNamed(String label){
         requireEdt();try{state=states.loadNamed(name,label,ViewState.initial(client.initialQuery()));persist();syncControls();request(false);}
         catch(RuntimeException failure){saveStatus.setText("Saved view was not applied: "+failure.getMessage());}
     }
-    private void reloadNames(){try{Object selected=named.getSelectedItem();named.removeAllItems();for(String value:states.names(name))named.addItem(value);if(selected!=null)named.setSelectedItem(selected);}
-        catch(RuntimeException failure){saveStatus.setText(failure.getMessage());}}
+    /** Scope controls use the row's right slot when it has room; on narrow rows they wrap after the search field. */
+    private void fitScope(){if(!closed)SwingUtilities.invokeLater(()->{if(!closed&&narrowFit()!=narrowScope)placeScope(!narrowScope);});}
+    private boolean narrowFit(){
+        int needed=search.getPreferredSize().width+browse.getPreferredSize().width+sessions.getPreferredSize().width+reload.getPreferredSize().width
+            +filterBar.overflow().getPreferredSize().width+14*search.getFontMetrics(search.getFont()).charWidth('m');
+        return filterBar.getWidth()>0&&filterBar.getWidth()<needed;
+    }
+    private void placeScope(boolean narrow){
+        narrowScope=narrow;FilterChips.keepingFocus(()->{
+            searchRow.removeAll();scopeRow.removeAll();searchRow.add(search);
+            JPanel target=narrow?searchRow:scopeRow;target.add(browse);target.add(sessions);target.add(reload);
+            filterBar.search(searchRow).scope(narrow?null:scopeRow);
+        });
+    }
+    private void reloadNames(){
+        List<String> names;
+        try{names=states.names(name);}catch(RuntimeException failure){saveStatus.setText(failure.getMessage());names=Collections.emptyList();}
+        views.removeAll();JMenuItem save=new JMenuItem("Save current view…");save.addActionListener(e->promptSave());views.add(save);
+        if(!names.isEmpty())views.addSeparator();
+        for(String label:names){JMenuItem load=new JMenuItem("Load: "+label);load.addActionListener(e->loadNamed(label));views.add(load);}
+        views.addSeparator();
+        JMenuItem delete=new JMenuItem("Delete view…");delete.setEnabled(!names.isEmpty());delete.addActionListener(e->promptDelete());views.add(delete);
+        JMenuItem reset=new JMenuItem("Reset saved state");reset.addActionListener(e->resetSavedState());views.add(reset);
+    }
+    private void promptSave(){
+        String label=JOptionPane.showInputDialog(this,"Name for this view","Save view",JOptionPane.PLAIN_MESSAGE);
+        if(label==null||closed)return;
+        try{saveNamed(label);}catch(RuntimeException failure){saveStatus.setText(failure.getMessage());}
+    }
+    private void promptDelete(){
+        List<String> names;try{names=states.names(name);}catch(RuntimeException failure){saveStatus.setText(failure.getMessage());return;}
+        if(names.isEmpty())return;
+        Object label=JOptionPane.showInputDialog(this,"Delete which saved view?","Delete view",JOptionPane.PLAIN_MESSAGE,null,names.toArray(),names.get(0));
+        if(label==null||closed)return;watchSave(states.deleteNamed(name,label.toString()));reloadNames();
+    }
+    private void resetSavedState(){watchSave(states.reset(name));stateLoadFailed=false;state=ViewState.initial(client.initialQuery());reloadNames();syncControls();request(true);}
     private void syncControls(){
         restoring=true;try{
             if(sessions.getItemCount()==0){sessions.addItem(new Choice(ArchiveQuery.CURRENT,"Current Session"));sessions.addItem(new Choice(SessionStore.ALL,"All Sessions"));}
@@ -142,8 +176,11 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     private void request(boolean fresh){
         requireEdt();if(closed)return;invalidateView();cancel.cancel();refresh.invalidate();cancel=new Cancellation();
         ((CardLayout)cards.getLayout()).show(cards,state.archive?"saved":"live");
-        archiveTools.setVisible(state.archive);browse.setText(state.archive?"Current live view":"Browse saved");
-        if(!state.archive){loading=false;updateActions();return;}
+        footer.setVisible(state.archive);search.setVisible(state.archive);browse.setText(state.archive?"Current live view":"Browse saved");
+        if(!state.archive){
+            FilterChips.keepingFocus(()->{filterBar.drawer(null);FilterChips.update(filterBar,Collections.<FilterBar.ActiveFilter>emptyList(),null,true);});
+            loading=false;updateActions();return;
+        }
         final ViewState<F,S> requested=state;final Cancellation token=cancel;
         final ArchiveResult<R> existing=!fresh&&result!=null&&state.query.equals(resultQuery)?result:null;
         final ArchiveAdapter<R,F,S> adapter;
@@ -163,19 +200,25 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     }
     private void apply(Update<R> update,ArchiveQuery<F,S> query){
         if(closed||!state.archive||!query.equals(state.query)){update.discard();return;}long ticket=++viewGeneration;
-        ViewState<F,S> nextState=state.withPage(update.page.page);JComponent view;
-        restoring=true;
-        try{view=client.render(update.page,nextState,new ArchiveClient.Binding<F,S>(){
+        ViewState<F,S> nextState=state.withPage(update.page.page);JComponent view;ArchiveFilters filters;
+        ArchiveClient.Binding<F,S> binding=new ArchiveClient.Binding<F,S>(){
             private boolean current(){requireEdt();return !restoring&&!closed&&!loading&&isVisible()&&state.archive&&ticket==viewGeneration&&query.equals(state.query);}
             public void queryChanged(ArchiveQuery<F,S> value){if(current())changeQuery(value);}
             public void refresh(){if(current())request(true);}
             public void viewChanged(ViewState<F,S> value){if(current()&&value.query.equals(state.query)){
                 state=new ViewState<>(state.query,state.archive,state.page,value.tab,value.selected,value.anchor,value.anchorOffset,value.tables);persist();updateActions();}}
-        });}catch(RuntimeException failure){update.discard();throw failure;}finally{restoring=false;}
+        };
+        restoring=true;
+        try{view=client.render(update.page,nextState,binding);filters=client.filters(update.page,nextState,binding);}catch(RuntimeException failure){update.discard();throw failure;}finally{restoring=false;}
         ArchiveResult<R> old=result;result=update.result;resultQuery=query;displayed=update.page;state=nextState;
         saved.removeAll();activeView=view;saved.add(view);restoreEnabled(saved);saved.revalidate();saved.repaint();loading=false;
+        FilterChips.keepingFocus(()->{
+            filterBar.drawer(filters==null?null:filters.drawer);
+            FilterChips.update(filterBar,filters==null?Collections.<FilterBar.ActiveFilter>emptyList():filters.active,()->changeQuery(client.initialQuery().withScope(state.query.scope())),true);
+            filterBar.setDrawerEnabled(true);
+        });
         List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(sortLabel(item));
-        String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; try Reset filters. "):"";
+        String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; use Clear to reset filters. "):"";
         status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
         if(old!=null&&old!=result)old.close();persist();updateActions();
     }
@@ -192,7 +235,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         }));
     }
     private boolean canExport(){return !closed&&!loading&&!exporting&&state.archive&&result!=null&&state.query.equals(resultQuery);}
-    private void invalidateView(){viewGeneration++;activeView=null;disable(saved);}
+    private void invalidateView(){viewGeneration++;activeView=null;disable(saved);filterBar.setDrawerEnabled(false);}
     private void disable(Component component){
         if(!disabledStates.containsKey(component)){
             disabledStates.put(component,component.isEnabled());component.addHierarchyListener(reuseListener);
@@ -225,7 +268,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         disabledStates.clear();
     }
     private void updateActions(){boolean ready=canExport();exportAll.setEnabled(ready);exportPage.setEnabled(ready);exportSelected.setEnabled(ready&&!state.selected.isEmpty());
-        previous.setEnabled(!loading&&state.page>0);next.setEnabled(!loading&&displayed!=null&&displayed.more());}
+        previous.setEnabled(!loading&&state.page>0);next.setEnabled(!loading&&displayed!=null&&displayed.more());
+        stop.setVisible(loading);cancelExport.setVisible(exporting);views.setEnabled(state.archive);}
     public SwingWorker<Path,Void> exportTo(Path directory,String base,ExportSelection selection,ArchiveExport.Format format)throws java.io.IOException {
         requireEdt();if(!canExport())throw new IllegalStateException("Wait for the displayed query revision before exporting");
         return startExport(result.lease(),directory,base,selection,format);
@@ -243,7 +287,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
             }
         });
     }
-    /** Shared toolbar and headless tests use the same asynchronous pre-confirmation path. */
+    /** The ⋯ export items and headless tests use the same asynchronous pre-confirmation path. */
     SwingWorker<String,Void> prepareExport(ExportSelection selection,java.util.function.BiPredicate<ArchiveResult.Lease<R>,String> confirm)throws java.io.IOException {
         requireEdt();if(!canExport())throw new IllegalStateException("Wait for the displayed query revision before exporting");
         ArchiveResult.Lease<R> lease=result.lease();

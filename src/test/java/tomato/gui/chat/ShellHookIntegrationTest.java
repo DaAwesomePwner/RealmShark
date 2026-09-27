@@ -181,7 +181,7 @@ public class ShellHookIntegrationTest {
                 assertFalse(module, workspace.state().archive);
                 assertEquals(module, ArchiveQuery.CURRENT, workspace.state().query.scope());
                 assertNull(module, workspace.displayedPage());
-                AbstractButton library = button(workspace, "History library…");
+                JMenuItem library = tomato.gui.history.ArchiveNativeSupport.action(workspace, "History library…");
                 assertNotNull(module, library); assertTrue(library.isEnabled());
                 assertTrue(library.isVisible()); assertEquals(1, library.getActionListeners().length);
             }

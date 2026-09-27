@@ -7,6 +7,8 @@ import java.time.Instant;
 import java.util.List;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.KitTables;
 import tomato.history.archive.*;
 import javax.swing.table.*;
 import java.util.*;
@@ -37,11 +39,16 @@ public final class HistoryTables {
     public static final class Column<R,V> {
         public final String id,label;public final Class<V> type;public final Function<R,V> value;
         public final TableCellRenderer renderer;
-        public Column(String id,String label,Class<V> type,Function<R,V> value,TableCellRenderer renderer){
+        /** Shared width/alignment family (spec §5.5); null keeps the legacy 240/145 px default. */
+        public final ColumnKind kind;
+        public Column(String id,String label,Class<V> type,Function<R,V> value,TableCellRenderer renderer){this(id,label,type,value,renderer,null);}
+        public Column(String id,String label,Class<V> type,Function<R,V> value,TableCellRenderer renderer,ColumnKind kind){
             this.id=Objects.requireNonNull(id);this.label=Objects.requireNonNull(label);this.type=Objects.requireNonNull(type);
-            this.value=Objects.requireNonNull(value);this.renderer=renderer;
+            this.value=Objects.requireNonNull(value);this.renderer=renderer;this.kind=kind;
         }
     }
+    /** Kinds whose kit renderer only lays text out (alignment, "—" for missing); numbers and times keep typed renderers. */
+    private static final Set<ColumnKind> TEXT_KINDS=EnumSet.of(ColumnKind.TEXT,ColumnKind.PLAYER,ColumnKind.DUNGEON,ColumnKind.CLASS,ColumnKind.ITEM,ColumnKind.STATUS,ColumnKind.ID);
     /** The model is already globally ordered. Header/keyboard sorting sends query intent upstream. */
     public static <R,F,S extends Enum<S>> JTable queried(String name,List<Column<R,?>> columns,ArchivePage<R> page,
             Map<String,S> sorts,ArchiveQuery<F,S> query,Consumer<ArchiveQuery<F,S>> changed,Consumer<ArchiveRow<R>> detail) {
@@ -50,7 +57,10 @@ public final class HistoryTables {
         for(int c=0;c<columns.size();c++){Column<R,?> column=columns.get(c);if(!ids.add(column.id))throw new IllegalArgumentException("Duplicate column ID");labels[c]=column.label;types[c]=column.type;}
         for(ArchiveRow<R> row:page.rows){Object[] values=new Object[columns.size()];for(int c=0;c<columns.size();c++)values[c]=columns.get(c).value.apply(row.value);rows.add(values);}
         JTable table=table(name,labels,types,rows);table.setAutoCreateRowSorter(false);table.setRowSorter(null);
-        for(int c=0;c<columns.size();c++){TableColumn column=table.getColumnModel().getColumn(c);column.setIdentifier(columns.get(c).id);if(columns.get(c).renderer!=null)column.setCellRenderer(columns.get(c).renderer);}
+        for(int c=0;c<columns.size();c++){TableColumn column=table.getColumnModel().getColumn(c);Column<R,?> spec=columns.get(c);column.setIdentifier(spec.id);
+            if(spec.renderer!=null)column.setCellRenderer(spec.renderer);
+            else if(spec.kind!=null&&spec.type==String.class&&TEXT_KINDS.contains(spec.kind))column.setCellRenderer(KitTables.renderer(spec.kind));
+            if(spec.kind!=null){int width=kindWidth(table,column,spec.kind);column.setPreferredWidth(width);column.setWidth(width);}}
         Consumer<ArchiveQuery.Direction> sort=direction->{
             int view=table.getSelectedColumn();if(view<0)view=0;if(table.getColumnCount()==0)return;
             S field=sorts.get(table.getColumnModel().getColumn(view).getIdentifier().toString());
@@ -70,6 +80,20 @@ public final class HistoryTables {
         table.addMouseListener(new MouseAdapter(){public void mouseClicked(MouseEvent event){if(event.getClickCount()==2)inspect.run();}});
         table.getAccessibleContext().setAccessibleDescription(page.description()+". Enter: details; Ctrl+C: copy; Ctrl+Shift+Up/Down: sort selected column globally.");
         table.putClientProperty("archive.columns",allColumns(table));return table;
+    }
+    /**
+     * Ad-hoc tables: ColumnKind widths by column identifier (the header text when none was set). Renderers are left
+     * alone; they carry each table's units, zones and "Unknown" wording, so displayed text, sorting and exports stay identical.
+     */
+    public static void kinds(JTable table,Map<String,ColumnKind> kinds){
+        for(TableColumn column:allColumns(table)){ColumnKind kind=kinds.get(String.valueOf(column.getIdentifier()));if(kind==null)continue;
+            int width=kindWidth(table,column,kind);column.setPreferredWidth(width);column.setWidth(width);}
+    }
+    /** The kind's width, never narrower than the column's minimum or its header text. */
+    private static int kindWidth(JTable table,TableColumn column,ColumnKind kind){
+        TableCellRenderer header=column.getHeaderRenderer()!=null?column.getHeaderRenderer():table.getTableHeader()==null?null:table.getTableHeader().getDefaultRenderer();
+        int title=header==null?0:header.getTableCellRendererComponent(table,column.getHeaderValue(),false,false,-1,0).getPreferredSize().width;
+        return Math.max(column.getMinWidth(),Math.max(title,kind.width(table.getFont())));
     }
     private static void action(JTable table,String stroke,String name,Runnable run){
         table.getInputMap().put(KeyStroke.getKeyStroke(stroke),name);table.getActionMap().put(name,new AbstractAction(){public void actionPerformed(ActionEvent e){run.run();}});

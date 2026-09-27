@@ -177,6 +177,7 @@ public class ChatExplorerTest {
     @Test public void renderDesktopCompactFilteredAndEmptyStates() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             VioletTheme.install(); ChatExplorer ui = new ChatExplorer(() -> {}); JFrame frame = new JFrame("Chat · sample data");
+            tomato.gui.kit.FilterBar filterBar = find(ui, tomato.gui.kit.FilterBar.class, "chat-live-filter-bar"); tomato.gui.history.ArchiveNativeSupport.drawer(filterBar, true);
             frame.setContentPane(ui);
             sample(ui);
             JTable table = find(ui, JTable.class, "chat-messages"); table.setRowSelectionInterval(2, 2); button(ui, "Star").doClick();
@@ -191,12 +192,16 @@ public class ChatExplorerTest {
                         assertTrue(tab.getWidth() >= tab.getPreferredSize().width);
                     }
                     snapshot(frame, "chat-" + width);
+                    tomato.gui.history.ArchiveNativeSupport.drawer(filterBar, false);
+                    UiTestLayout.settle(frame);
+                    tomato.gui.modern.ContentStyle.reveal(table, new Rectangle(0, 0, 1, 120));
                     assertTrue("Message viewport at " + width + ": " + table.getVisibleRect(), table.getVisibleRect().getHeight() > 100);
+                    tomato.gui.history.ArchiveNativeSupport.drawer(filterBar, true);
                 }
                 frame.setSize(1060, 740); search(ui).setText("shatters"); ui.refresh(false); table.setRowSelectionInterval(0, 0); frame.validate(); snapshot(frame, "chat-search");
                 search(ui).setText("no-such-message"); ui.refresh(false); frame.validate(); snapshot(frame, "chat-no-results");
                 ui.clear(); button(ui, "Reset").doClick(); frame.validate(); snapshot(frame, "chat-empty");
-            } finally { frame.dispose(); }
+            } finally { frame.dispose(); tomato.gui.history.ArchiveNativeSupport.drawer(filterBar, false); }
         });
     }
 

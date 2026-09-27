@@ -7,6 +7,11 @@ import tomato.backend.data.ProgressionData;
 import tomato.backend.data.TomatoData;
 import tomato.gui.stats.Formatters;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.history.FilterChips;
+import tomato.gui.history.WrapRow;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.FilterBar;
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.table.*;
@@ -42,7 +47,8 @@ public class QuestGUI extends JPanel {
     private final JTextField requirementItem = new JTextField(12);
     private final JSpinner requirementCount = new JSpinner(new SpinnerNumberModel(0, 0, Integer.MAX_VALUE, 1));
     private QuestPlanPanel plans;
-    private final JTabbedPane tabs = new JTabbedPane();
+    private final CustomizableTabs views = new CustomizableTabs("quests");
+    private final JTabbedPane tabs = views.component();
     private final JComboBox<String> sort = new JComboBox<>(new String[] {
         "Pinned first", "Reward name", "Quest type", "Fewest required items", "Quest name"
     });
@@ -58,6 +64,8 @@ public class QuestGUI extends JPanel {
     private boolean refreshing;
     private boolean captured;
     private boolean columnSizingPending;
+    private final FilterBar filterBar = new FilterBar("quests");
+    private Runnable clearFilters = () -> {};
 
     public QuestGUI() {
         this(id -> {
@@ -83,7 +91,7 @@ public class QuestGUI extends JPanel {
 
     /** Supply detached known account keys from the character journal for offline selection. */
     public void knownPlanningAccounts(Collection<String> accounts) { plans.knownAccounts(accounts); }
-    public void openPlans() { tabs.setSelectedComponent(plans); tabs.requestFocusInWindow(); }
+    public void openPlans() { views.show("plans"); views.select("plans"); tabs.requestFocusInWindow(); }
 
     private void listen() { if (source != null && !listening) { source.addListener(publicationListener); listening = true; } }
     @Override public void addNotify() { super.addNotify(); listen(); if (source != null) schedulePublication(); ageTimer.start(); }
@@ -149,8 +157,7 @@ public class QuestGUI extends JPanel {
         descriptions.add(context, BorderLayout.NORTH); descriptions.add(summary, BorderLayout.SOUTH);
         header.add(descriptions, BorderLayout.NORTH);
         search.putClientProperty("JTextField.placeholderText", "Search quests, rewards, marks or tokens…");
-        search.getAccessibleContext().setAccessibleName("Search quests");
-        header.add(search, BorderLayout.CENTER);
+        search.getAccessibleContext().setAccessibleName("Search quests"); search.setColumns(22);
         JPanel filters = new JPanel(new BorderLayout(0, 6));
         // Wrap whole labeled fields using their font-aware preferred sizes, not 180px cells.
         JPanel selects = ContentStyle.controls();
@@ -160,7 +167,7 @@ public class QuestGUI extends JPanel {
             if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeRewardChoice();
         });
         sizeRewardChoice();
-        selects.add(field("Quest type", type)); selects.add(field("Reward", reward)); selects.add(field("Sort by", sort));
+        selects.add(field("Quest type", type)); selects.add(field("Reward", reward));
         selects.add(field("Repeatability", repeatMode)); selects.add(field("Reward mode", rewardMode));
         selects.add(field("Expiration", expirationMode)); selects.add(field("Required item name / ID", requirementItem));
         selects.add(field("Minimum quantity of item", requirementCount));
@@ -179,8 +186,11 @@ public class QuestGUI extends JPanel {
             requirementItem.setText(""); requirementCount.setValue(0);
             refreshing = false; refresh();
         });
-        options.add(onlyPinned); options.add(completed); options.add(labels); options.add(reset);
-        filters.add(options, BorderLayout.CENTER); header.add(filters, BorderLayout.SOUTH);
+        options.add(onlyPinned); options.add(completed);
+        filters.add(options, BorderLayout.CENTER);
+        // One filter row: search, reset, sort and type labels stay visible; every narrowing filter lives in the drawer.
+        filterBar.search(new WrapRow(search, reset, field("Sort by", sort), labels)).drawer(filters); clearFilters = reset::doClick;
+        header.add(filterBar, BorderLayout.CENTER);
 
         ContentStyle.table(table, ContentStyle.Density.COMFORTABLE);
         ContentStyle.tableFont(table, ContentStyle.body(), 32); // Room for 24px reward icons.
@@ -240,11 +250,11 @@ public class QuestGUI extends JPanel {
         JPanel pinActions = ContentStyle.controls(); pinActions.add(removeGlobal); pinActions.add(pin); footer.add(pinActions, BorderLayout.EAST);
         JButton plan = new JButton("Add to account plan"); plan.setName("quest-add-plan"); pinActions.add(plan);
         plans = new QuestPlanPanel(tomato.planning.PlanningStore.shared(), this::itemName);
-        plan.addActionListener(e -> { Quest q = selected(); tabs.setSelectedIndex(1); if (q != null) plans.importQuest(q, globalPinned.contains(key(q)) ? key(q) : null); });
+        plan.addActionListener(e -> { Quest q = selected(); views.show("plans"); views.select("plans"); if (q != null) plans.importQuest(q, globalPinned.contains(key(q)) ? key(q) : null); });
         JScrollPane page = ContentStyle.page(header, split, footer);
         page.setName("quest-page-scroll");
         page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
-        tabs.addTab("Captured quests", page); tabs.addTab("Saved plans", plans); add(tabs, BorderLayout.CENTER);
+        views.add("captured", "Captured quests", page).add("plans", "Saved plans", plans); add(tabs, BorderLayout.CENTER);
         for (JComponent control : new JComponent[]{search, type, reward, sort, repeatMode, rewardMode, expirationMode,
                 requirementItem, requirementCount, onlyPinned, completed, labels, reset, pin, removeGlobal, plan}) revealOnFocus(control);
         // Swing transfers spinner keyboard focus to its editor, not to the spinner itself.
@@ -288,14 +298,14 @@ public class QuestGUI extends JPanel {
 
     private void sizeColumns() {
         String[] examples = {"Global interest", "Quest name", "Category 99999", "Choose: Quest Chest", "999", "Repeatable • completed before"};
-        int[] preferred = {40, 210, 105, 210, 75, 110};
+        ColumnKind[] kinds = {ColumnKind.STATUS, ColumnKind.TEXT, ColumnKind.STATUS, ColumnKind.ITEM, ColumnKind.COUNT, ColumnKind.STATUS};
         for (int column = 0; column < examples.length; column++) {
             TableColumn value = table.getColumnModel().getColumn(column);
             Component heading = table.getTableHeader().getDefaultRenderer().getTableCellRendererComponent(
                 table, value.getHeaderValue(), false, false, -1, column);
             int minimum = Math.max(heading.getPreferredSize().width + 8, table.getFontMetrics(table.getFont()).stringWidth(examples[column]) + 16);
             value.setMinWidth(minimum);
-            value.setPreferredWidth(Math.max(minimum, Math.round(preferred[column] * table.getFont().getSize2D() / ContentStyle.FONT_SIZE)));
+            value.setPreferredWidth(Math.max(minimum, kinds[column].width(table.getFont())));
         }
     }
 
@@ -359,8 +369,21 @@ public class QuestGUI extends JPanel {
         combo.setSelectedIndex(0);
     }
 
+    /** Active quest filters as removable chips; sort order is not a filter. */
+    private void updateChips() {
+        List<FilterBar.ActiveFilter> chips = new ArrayList<>();
+        for (JComboBox<String> box : Arrays.asList(type, reward, repeatMode, rewardMode, expirationMode))
+            if (box.getSelectedIndex() > 0) chips.add(new FilterBar.ActiveFilter(String.valueOf(box.getSelectedItem()), () -> box.setSelectedIndex(0)));
+        String item = requirementItem.getText().trim(); int quantity = (Integer) requirementCount.getValue();
+        if (!item.isEmpty() || quantity > 0) chips.add(new FilterBar.ActiveFilter("Needs " + (item.isEmpty() ? "any item" : item) + (quantity > 0 ? " ≥ " + quantity : ""),
+            () -> { requirementItem.setText(""); requirementCount.setValue(0); }));
+        if (onlyPinned.isSelected()) chips.add(new FilterBar.ActiveFilter("Pinned only", onlyPinned::doClick));
+        if (completed.isSelected()) chips.add(new FilterBar.ActiveFilter("Completed shown", completed::doClick));
+        FilterChips.update(filterBar, chips, clearFilters, false);
+    }
     private void refresh() {
         if (refreshing) return;
+        updateChips();
         Quest selected = selected();
         String selectedKey = selected == null ? null : key(selected);
         String query = search.getText().trim().toLowerCase(Locale.ROOT);

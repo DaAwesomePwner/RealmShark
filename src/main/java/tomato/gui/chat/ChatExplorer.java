@@ -15,6 +15,7 @@ import javax.swing.text.DefaultHighlighter;
 import tomato.gui.modern.ContentStyle;
 import util.PropertiesManager;
 import tomato.gui.history.*;
+import tomato.gui.kit.FilterBar;
 import tomato.history.archive.*;
 
 /** Session-local, bounded chat history. All model and Swing changes happen on the EDT. */
@@ -92,6 +93,7 @@ final class ChatExplorer extends JPanel {
     private final JCheckBox descending = new JCheckBox("Descending");
     private final JPanel extra = new JPanel(new BorderLayout(0, 6)), dates = new JPanel(new BorderLayout());
     private final JTextArea liveStateStatus = ContentStyle.wrappingText("");
+    private final FilterBar filterBar = new FilterBar("chat-live");
     private ViewStateStore stateStore;
     private boolean restoringState, rebuilding;
     private long stateSave;
@@ -153,16 +155,11 @@ final class ChatExplorer extends JPanel {
             menu.show(actions, 0, actions.getHeight());
         });
         JPanel filters = new JPanel(new BorderLayout(0, 6));
-        JPanel searchRow = new JPanel(new BorderLayout(8, 0));
         search.setName("chat-search"); search.putClientProperty("JTextField.placeholderText", "Search messages, players, or dates…");
-        search.getAccessibleContext().setAccessibleName("Search chat history");
+        search.getAccessibleContext().setAccessibleName("Search chat history"); search.setColumns(22);
         search.setToolTipText("Literal, case-insensitive search within the selected channel. Ctrl+F to focus; Esc to clear.");
-        searchRow.add(search, BorderLayout.CENTER);
         JButton reset = new JButton("Reset"); reset.setToolTipText("Reset all search and channel filters");
         reset.addActionListener(e -> resetFilters());
-        JPanel searchActions = new JPanel(new GridLayout(1, 2, 6, 0));
-        searchActions.add(reset); searchActions.add(actions); searchRow.add(searchActions, BorderLayout.EAST);
-        filters.add(searchRow, BorderLayout.NORTH);
         JPanel filterRow = ContentStyle.controls();
         JPanel playerRow = new JPanel(new BorderLayout(8, 0));
         JLabel playerLabel = new JLabel("Player"); playerLabel.setLabelFor(player);
@@ -170,12 +167,13 @@ final class ChatExplorer extends JPanel {
         player.getAccessibleContext().setAccessibleName("Filter by player");
         player.setColumns(12);
         playerRow.add(playerLabel, BorderLayout.WEST); playerRow.add(player, BorderLayout.CENTER);
-        filterRow.add(playerRow); filterRow.add(starredOnly); filterRow.add(follow); filterRow.add(showIgnoredPlayers);
-        JButton advanced = new JButton("Dates / view state"); filterRow.add(advanced);
-        extra.setVisible(false); advanced.addActionListener(e -> { extra.setVisible(!extra.isVisible()); revalidate(); });
+        filterRow.add(playerRow); filterRow.add(starredOnly); filterRow.add(showIgnoredPlayers);
         arrivals.setName("chat-new-messages"); arrivals.setVisible(false);
         arrivals.addActionListener(e -> { follow.setSelected(true); unseen.clear(); updateArrivals(); scrollToLatest(); rememberState(); });
-        filterRow.add(arrivals);
+        // Search, reset, actions, follow and the new-message jump stay visible; player, star, ignore, sort, dates and views live in the drawer.
+        JPanel drawer = new JPanel(new BorderLayout(0, 6)); drawer.add(filterRow, BorderLayout.NORTH); drawer.add(extra, BorderLayout.CENTER);
+        filterBar.search(new WrapRow(search, reset, actions, follow, arrivals)).drawer(drawer);
+        filters.add(filterBar, BorderLayout.NORTH);
         showIgnoredPlayers.setName("chat-show-ignored-players");
         showIgnoredPlayers.setSelected(Boolean.parseBoolean(PropertiesManager.getProperty(SHOW_IGNORED_PLAYERS)));
         showIgnoredPlayers.setToolTipText("Show captured messages from locally or in-game ignored players in All and their original channels. Still logged and silent; spam-only matches stay in Ignored.");
@@ -187,7 +185,6 @@ final class ChatExplorer extends JPanel {
         });
         starredOnly.setToolTipText("Show starred messages retained in this session");
         follow.setToolTipText("Scroll to new matching messages. Turn off to read earlier history.");
-        filters.add(filterRow, BorderLayout.CENTER);
         ((FlowLayout) channelRow.getLayout()).setHgap(4);
         ((FlowLayout) channelRow.getLayout()).setVgap(0);
         ButtonGroup group = new ButtonGroup();
@@ -216,7 +213,7 @@ final class ChatExplorer extends JPanel {
         editFilters.addActionListener(e -> openFilters());
         menu.insert(editFilters, 3);
         actions.setToolTipText("Copy, export, chat filters and alert rules");
-        JPanel context = new JPanel(new BorderLayout()); context.add(filterStatus, BorderLayout.NORTH); context.add(extra);
+        JPanel context = new JPanel(new BorderLayout()); context.add(filterStatus, BorderLayout.NORTH);
         rebuildDates(); extra.add(dates); extra.add(liveStateStatus, BorderLayout.SOUTH);
         JPanel sorting = ContentStyle.controls(); sorting.add(SocialQueryControls.labeled("Sort retained messages", sort, "chat-live-sort")); sorting.add(descending);
         extra.add(sorting, BorderLayout.NORTH); header.add(context, BorderLayout.SOUTH);
@@ -525,7 +522,18 @@ final class ChatExplorer extends JPanel {
             int row = visible.indexOf(anchor);
             if (row >= 0) scroll.getViewport().setViewPosition(new Point(0, row * table.getRowHeight() + offset));
         } else if (!arriving) scroll.getViewport().setViewPosition(new Point(0, 0));
-        updateArrivals(); rebuilding = false; rememberState();
+        updateArrivals(); updateChips(); rebuilding = false; rememberState();
+    }
+
+    /** Player, star, ignored-player and date filters as removable chips; the channel pills and search show themselves. */
+    private void updateChips() {
+        List<FilterBar.ActiveFilter> chips = new ArrayList<>();
+        if (!player.getText().trim().isEmpty()) chips.add(new FilterBar.ActiveFilter("Player: " + player.getText().trim(), () -> { player.setText(""); refresh(false); }));
+        if (starredOnly.isSelected()) chips.add(new FilterBar.ActiveFilter("Starred", () -> { starredOnly.setSelected(false); refresh(false); }));
+        if (showIgnoredPlayers.isSelected()) chips.add(new FilterBar.ActiveFilter("Ignored players shown", showIgnoredPlayers::doClick));
+        if (timeBounds.from != null || timeBounds.until != null) chips.add(new FilterBar.ActiveFilter(ArchiveFilters.dateLabel(timeBounds), () -> {
+            timeBounds = new ArchiveQuery.Bounds(null, null, java.time.ZoneId.of(timeBounds.zone), timeBounds.mode, timeBounds.includeUnknown); rebuildDates(); refresh(false); }));
+        FilterChips.update(filterBar, chips, this::resetFilters, false);
     }
 
     int unseenMatchingCount() { int count = 0; for (ChatMessage message : visible) if (unseen.contains(message)) count++; return count; }

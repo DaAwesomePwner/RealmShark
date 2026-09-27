@@ -7,6 +7,7 @@ import tomato.backend.data.DpsSnapshot;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import util.PropertiesManager;
+import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
@@ -77,7 +78,8 @@ public class DpsGUI extends JPanel {
     private EncounterCatalog.Entry selectedEncounter;
     private boolean selectionChosen;
     boolean hasSelectionIntent() { return selectionChosen; }
-    private final JTabbedPane combatTabs = new JTabbedPane();
+    private final CustomizableTabs combatViews = new CustomizableTabs("dps");
+    private final JTabbedPane combatTabs = combatViews.component();
     private final JComponent resourcesWorkspace;
     public EncounterCatalog encounters() { return encounterCatalog; }
     public String currentEncounterId() { return liveUpdates || selectedEncounter == null ? null : selectedEncounter.id; }
@@ -214,9 +216,7 @@ public class DpsGUI extends JPanel {
         JScrollPane damageScroll = new JScrollPane(damagePage, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         damageScroll.setName("dps-damage-scroll"); damageScroll.setBorder(BorderFactory.createEmptyBorder());
         damageScroll.getVerticalScrollBar().setUnitIncrement(24);
-        combatTabs.setName("dps-tabs");
-        combatTabs.addTab("Damage meters", damageScroll);
-        combatTabs.addTab("Resources & buffs", resourcesWorkspace);
+        combatViews.add("meters", "Damage meters", damageScroll).add("resources", "Resources & buffs", resourcesWorkspace);
         JButton savedResources = new JButton("Saved resources"); savedResources.setName("dps-open-saved-resources");
         savedResources.setEnabled(resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel);
         savedResources.addActionListener(e -> browseSavedResources()); dpsTopPanel.add(savedResources);
@@ -230,7 +230,7 @@ public class DpsGUI extends JPanel {
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshLiveView();
         });
-        combatTabs.addChangeListener(e -> refreshLiveView());
+        combatTabs.addChangeListener(e -> { if (!combatViews.isRebuilding()) refreshLiveView(); });
         INSTANCE = this;
     }
 
@@ -242,7 +242,7 @@ public class DpsGUI extends JPanel {
         else if (resourcesWorkspace instanceof tomato.gui.history.SessionPanel)
             ((tomato.gui.history.SessionPanel)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
         else return false;
-        combatTabs.setSelectedComponent(resourcesWorkspace); return true;
+        showCombat("resources"); return true;
     }
 
     @Override public void addNotify() { super.addNotify(); refreshTimer.start(); }
@@ -431,11 +431,11 @@ public class DpsGUI extends JPanel {
 
     /** Detached origin/destination state of the DPS Logger page for Back. */
     private static final class RouteState {
-        final int tab; final boolean live; final String entry; final Object resources;
-        RouteState(int tab, boolean live, String entry, Object resources) { this.tab = tab; this.live = live; this.entry = entry; this.resources = resources; }
+        final String tab; final boolean live; final String entry; final Object resources;
+        RouteState(String tab, boolean live, String entry, Object resources) { this.tab = tab; this.live = live; this.entry = entry; this.resources = resources; }
     }
     private RouteState captureRouteState(RouteTarget resources) {
-        return new RouteState(combatTabs.getSelectedIndex(), liveUpdates, selectedEncounter == null ? null : selectedEncounter.id,
+        return new RouteState(combatViews.selectedId(), liveUpdates, selectedEncounter == null ? null : selectedEncounter.id,
             resources == null ? null : resources.captureState());
     }
     private void restoreRouteState(Object value, RouteTarget resources) {
@@ -443,7 +443,7 @@ public class DpsGUI extends JPanel {
         RouteState state = (RouteState) value;
         if (resources != null && state.resources != null) resources.restoreState(state.resources);
         if (state.live || state.entry == null || !showEncounter(state.entry)) { if (!liveUpdates) setIndex(-1); }
-        if (state.tab >= 0 && state.tab < combatTabs.getTabCount()) combatTabs.setSelectedIndex(state.tab);
+        if (state.tab != null) combatViews.select(state.tab);
     }
 
     /** Resolves exactly one library recording; an ambiguous recording or unverified local object is rejected. */
@@ -475,7 +475,7 @@ public class DpsGUI extends JPanel {
                 if (entry == null) throw new IllegalArgumentException("Recording is not in this library");
                 viewMode.setSelectedIndex(0);
                 if (!showEncounter(entry.id)) throw new IllegalArgumentException("Recording is not in this library");
-                combatTabs.setSelectedIndex(0);
+                showCombat("meters");
                 if (route.localObjectId != null) {
                     String notice = historicalNotice(entry, route.localObjectId);
                     if (!displayMeter.focusPlayer(route.localObjectId, notice))
@@ -501,12 +501,13 @@ public class DpsGUI extends JPanel {
             public Destination destination() { return Destination.RESOURCES; }
             public boolean accepts(Route route) { return delegate.accepts(route); }
             public Object captureState() { return captureRouteState(delegate); }
-            public void open(Route route) { delegate.open(route); combatTabs.setSelectedComponent(resourcesWorkspace); }
+            public void open(Route route) { delegate.open(route); showCombat("resources"); }
             public void restoreState(Object state) { restoreRouteState(state, delegate); }
         };
     }
     MeterDpsGUI meter() { return displayMeter; }
     JTabbedPane combatTabs() { return combatTabs; }
+    private void showCombat(String id) { combatViews.show(id); combatViews.select(id); }
 
     private List<Entity> getSortedEntityList(Entity[] entityHitList) {
         if (DpsDisplayOptions.sortOption == 1) {

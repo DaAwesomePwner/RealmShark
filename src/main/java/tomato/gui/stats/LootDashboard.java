@@ -17,6 +17,9 @@ import tomato.gui.modern.DisplayFormat;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.LootBags;
 import tomato.gui.history.ViewStateStore;
+import tomato.gui.history.FilterChips;
+import tomato.gui.history.WrapRow;
+import tomato.gui.kit.FilterBar;
 
 /** Session summaries shared by Statistics and the Loot workspace; filters are view-local. */
 public final class LootDashboard extends JPanel {
@@ -48,6 +51,8 @@ public final class LootDashboard extends JPanel {
     private final Map<Drop,String> recentKeys=new IdentityHashMap<>();
     private StatisticsLiveState viewState;
     private LootFacetControls facetEditor;
+    private final FilterBar filterBar = new FilterBar("loot-live");
+    private Runnable clearFilters = () -> {};
 
     public LootDashboard() { this(new State()); }
     LootDashboard(LootDashboard shared) { this(shared.state); }
@@ -60,10 +65,13 @@ public final class LootDashboard extends JPanel {
         synchronized (state) { state.views.add(this); }
         bagFilter.setName("loot-bag-filter"); dungeonFilter.setName("loot-dungeon-filter"); recentRange.setName("loot-recent-range");
         dungeonFilter.setPrototypeDisplayValue("All dungeons / Lost Halls");
-        JPanel controls = StatsUi.controls(); controls.add(search); controls.add(bagFilter); controls.add(dungeonFilter);
-        JButton reset = new JButton("Reset filters"); controls.add(reset);
+        // One filter row (search + reset); bag/dungeon choices and the multi-select facets live in the drawer.
+        JButton reset = new JButton("Reset filters");
+        JPanel locations = StatsUi.controls(); locations.add(bagFilter); locations.add(dungeonFilter);
+        JPanel drawer = new JPanel(new BorderLayout(0, 4)); drawer.add(locations, BorderLayout.NORTH); drawer.add(facetControls, BorderLayout.CENTER);
+        filterBar.search(new WrapRow(search, reset)).drawer(drawer); clearFilters = reset::doClick;
         add(StatsUi.stack(StatsUi.heading("Loot explorer", (historical ? "Saved drops in the selected session scope. " : "Observed drops this app session. ") + "Facets/search filter full aggregates; tab categories narrow the displayed rows."),
-            StatsUi.metrics(metrics, "Matching bags", "Matching items", "Matching stat potions", "Matching white bags"), controls,facetControls), BorderLayout.NORTH);
+            StatsUi.metrics(metrics, "Matching bags", "Matching items", "Matching stat potions", "Matching white bags"), filterBar), BorderLayout.NORTH);
         enchantTotals.setName("loot-enchant-totals");
         views.setName("loot-views");
         for (int i = 0; i < models.length; i++) {
@@ -138,6 +146,7 @@ public final class LootDashboard extends JPanel {
     private void rebuildFacetControls(){
         Set<String> bags=new TreeSet<>(),dungeons=new TreeSet<>();synchronized(state){dungeons.addAll(state.buckets.keySet());for(Map<String,Bucket> bucket:state.buckets.values())bags.addAll(bucket.keySet());}
         facetControls.removeAll();facetEditor=new LootFacetControls(facets,bags,dungeons,this::applyFacets);facetControls.add(facetEditor);facetControls.revalidate();
+        FilterChips.update(filterBar,LootFacetChips.chips(()->tomato.history.SessionStore.JSON.fromJson(tomato.history.SessionStore.JSON.toJson(facets),LootQuery.Facets.class),this::applyFacets),clearFilters,false);
     }
 
     public void receive(MapInfoPacket map, Entity bag, Entity dropper, long time) {

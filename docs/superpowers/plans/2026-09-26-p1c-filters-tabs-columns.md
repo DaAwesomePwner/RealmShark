@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- Branch from verified main as feat/redesign-p1c-adoption in its own worktree; no direct commits to main; no force pushes; no hook bypasses.
+- Continue on `claude/realmshark-ui-ux-redesign-cb0914`, synchronized with verified main after P1b PR #19 (`0abafe4`, including `a011bfd`); no direct commits to main, force pushes or hook bypasses.
 - Gradle, from the worktree root in Git Bash:
   RS_TOOLS="C:/Users/dap/Downloads/RealmShark-realmshark/.tools"
   export JAVA_HOME="$RS_TOOLS/jdk-17.0.20.1+1" GRADLE_USER_HOME="$RS_TOOLS/gradle-home"
@@ -24,7 +24,7 @@
 - Colors via tomato.gui.kit.Tokens; fonts via ContentStyle.font; motion only via Motion.run (FilterBar handles it).
 - Commit messages end with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 - Every command below is `./gradlew.bat --offline --no-daemon --console=plain --project-cache-dir build/p1c-cache -PrealmSharkBuildDir=build/p1c …` run after the two `export` lines above; it is abbreviated as `GRADLE …`.
-- Use only public P1a APIs (`FilterBar`, `FilterBar.ActiveFilter`, `OverflowMenu`, `KitButton`, `Chip`, `CustomizableTabs`, `ColumnKind`, `KitTables`, `DisplayModeModel`); do not edit `tomato.gui.kit`, `WorkspaceShell`, `TomatoGUI` or the sidebar (P1b owns those). No P1b API is used.
+- Use the merged P1a APIs (`FilterBar`, `FilterBar.ActiveFilter`, `OverflowMenu`, `KitButton`, `Chip`, `CustomizableTabs`, `ColumnKind`, `KitTables`, `DisplayModeModel`). P1b shell work is already merged. Tests that change application Simple/Analyst mode must restore it: Appearance and the header now share that setting.
 - Keep component names that tests use (`*-session-picker`, `*-history-search`, `activity-search`, `chat-player`, `inspect-facet-N`, `character-facet-N`, `quest-*`, `loot-*`, `keypop-*`, tab names such as `inspect-tabs`, `character-detail-tabs`, `dps-tabs`, `statistics-tabs`, `activity-resource-tabs`).
 - FilterBar drawer state (`ui.filters.<name>.open`), tab order (`ui.tabs.<group>`) and `ui.mode` persist through `PropertiesManager` into `build/p1c/ui-test/realmShark.properties`; every test that opens a drawer, writes a tab order or changes `DisplayModeModel.application()` restores it in `finally`/`@After`.
 - Tasks run in order: later tasks anchor import edits on lines added by earlier tasks.
@@ -5117,7 +5117,7 @@ git add src/test/java/tomato/gui/history/FilterBarEvidenceTest.java
 git commit -m "Add P1c filter bar evidence screenshots
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push -u origin feat/redesign-p1c-adoption
+git push -u origin claude/realmshark-ui-ux-redesign-cb0914
 gh pr create --title "Redesign P1c: filter bars, customizable tabs and column kinds" --body "Implements P1c of docs/superpowers/specs/2026-09-26-ui-ux-redesign-design.md (§4.4, §5.5, §5.6, S6):
 
 - Archive workspaces (Runs, Timeline, Resources, Inspect, Loot, Statistics, Chat, Key-pops) show one filter row: whole-scope search, a collapsed Filters drawer holding each module's existing facet controls, removable chips, Clear, the scope controls (Browse saved / Current live view, session, Refresh) and a ⋯ menu with History library, Saved views and exports. Paging, Cancel read/export and status move to a footer.
@@ -5173,7 +5173,7 @@ Request an independent review of the final PR head before merging.
 
 - Per-render tab sets: `loot-archive-tabs` (LootArchiveClient, rebuilt per query; P6 replaces it with a view selector), `keypop-archive-tabs` (one tab per mode, rebuilt per query), `saved-resource-tabs` (ActivityArchiveClient view, rebuilt per render; its tab is stored by name in `ViewState.tab`), `historical-statistics-tabs` (legacy loaded page).
 - `LootDashboard` `loot-views` (9 index-coupled tabs; spec §6.4/P6 replaces them with one view selector), `LootGUI` views, `FameTablePanel` views and `DungeonStats` `dungeon-views` (nested inside Statistics, which P5 dissolves).
-- `NotificationsGUI` tabs (P1b moves Notifications into Settings in parallel; titles come from sound groups), `ChatFilterPanel` lists (dialog internals), `FameSessionViewer` (standalone per-session window).
+- `NotificationsGUI` tabs (already hosted in Settings by merged P1b; dynamic titles come from sound groups and remain P6 cleanup), `ChatFilterPanel` lists (dialog internals), `FameSessionViewer` (standalone per-session window).
 - Column tools (Copy selected, Details…, Column preset, Columns…, Reset columns) moving into ⋯: needs a view-to-overflow contribution API; they are table tools, not filter controls, so S6 is unaffected.
 - `TIME_RELATIVE` as the Simple-mode default and hiding Analyst-only (`ID`) columns: P1a `KitTables` has no mode-aware API; archive time columns keep exact, zone-labelled timestamps.
 - Remaining filter walls not in P1c's scope list, so S6 is not yet met on these pages: Logging (controls/search/facet/chip rows), Bridge review (search + five choices + Reset filters), Encounter library and DPS meter filters, Statistics › Fame table and Dungeon stats search rows. Proposed for P6 ("Advanced pages restyle") or a follow-up P1c.1 using the same `FilterBar` + `FilterChips` pattern.
@@ -5181,7 +5181,7 @@ Request an independent review of the final PR head before merging.
 **Risks**
 
 - Tests that interact with drawer controls need the drawer open (done with `ArchiveNativeSupport.drawer`, which also disables the 100 ms animation for that call); new tests restore every persisted drawer/tab/mode preference.
-- `QuestConsistencyTest` and `ShellHookIntegrationTest` may also be edited by P0/P1b; the edits here anchor on lines those plans do not change, but a rebase may still need a manual merge.
+- Reconcile test anchors with merged P0/P1b before applying these examples; retain the setup message assertion in `a011bfd`.
 - Kind widths are narrower than a few old fixed widths (e.g. Inspect party "Character mode", Loot IDs): full values stay in tooltips/details and header text is never cut; the Task 12 screenshots are the check.
 - `CustomizableTabs` binds a `DisplayModeModel` listener per group; panels that are never displayed keep theirs (P1a behaviour), which only costs a rebuild on mode switches.
 - `FilterBar.setActive` rebuilds its row; `FilterChips` restores focus, but a chip's own remove button necessarily disappears when clicked.

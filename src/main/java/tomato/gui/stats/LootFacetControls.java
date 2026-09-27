@@ -52,7 +52,7 @@ final class LootFacetControls extends JPanel {
         return parts.length()==0?"Facets: none (all saved loot)":"Facets: "+parts;
     }
     private static void values(StringJoiner parts,String name,Set<String> values){if(values!=null&&!values.isEmpty())parts.add(name+" "+String.join(", ",values));}
-    private static String kind(Kind kind){switch(kind){case UT_EQUIPMENT:return "UT equipment";case ST:return "ST items";case STAT_POTION:return "Stat potions";case HIGH_TIER:return "High tier";default:return kind.toString();}}
+    static String kind(Kind kind){switch(kind){case UT_EQUIPMENT:return "UT equipment";case ST:return "ST items";case STAT_POTION:return "Stat potions";case HIGH_TIER:return "High tier";default:return kind.toString();}}
     private static void range(StringJoiner parts,String name,Range r){
         if(r==null||r.min==null&&r.max==null&&r.unknown==Unknown.INCLUDE)return;
         String bounds=r.min!=null&&r.max!=null?r.min+"–"+r.max:r.min!=null?"≥ "+r.min:r.max!=null?"≤ "+r.max:"any";

@@ -20,6 +20,12 @@ import tomato.realmshark.ParseDungeon;
 import tomato.gui.history.HistoryTables;
 import tomato.gui.history.ViewState;
 import tomato.gui.history.ViewStateStore;
+import tomato.gui.history.ArchiveFilters;
+import tomato.gui.history.FilterChips;
+import tomato.gui.history.WrapRow;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.FilterBar;
 import tomato.gui.roster.RosterViewState;
 import tomato.history.SessionStore;
 
@@ -82,7 +88,8 @@ public final class ActivityPanel extends JPanel {
     private final AbstractTableModel model;
     private final TableRowSorter<TableModel> sorter;
     private final CombatTimelineChart chart=new CombatTimelineChart();
-    private final JTabbedPane combatViews=new JTabbedPane();
+    private final CustomizableTabs combatTabs;
+    private final JTabbedPane combatViews;
     private ActivityJournal.State state=new ActivityJournal.State();
     private final javax.swing.Timer timer;
     private boolean refreshing;
@@ -98,6 +105,7 @@ public final class ActivityPanel extends JPanel {
     private final JButton outcomeFilter=new JButton(), evidenceFilter=new JButton();
     private final JComboBox<ActivityQueries.Presence> issuesFilter=new JComboBox<>(ActivityQueries.Presence.values()), gapsFilter=new JComboBox<>(ActivityQueries.Presence.values());
     private final JTextField minimumDuration=new JTextField(6), maximumDuration=new JTextField(6);
+    private final FilterBar filterBar;
     private final JPanel stateHost=new JPanel(new BorderLayout());
     private RosterViewState liveState;
     private boolean restoringState, restorePending, selectionRequired;
@@ -106,6 +114,7 @@ public final class ActivityPanel extends JPanel {
 
     public ActivityPanel(DiscoveryLog log, Mode mode) {
         super(new BorderLayout(0,8)); this.log=log; this.mode=mode; setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
+        combatTabs=mode==Mode.COMBAT?new CustomizableTabs("activity-combat"):null;combatViews=combatTabs==null?new JTabbedPane():combatTabs.component();
         record=new CollectionControl(log,this::refresh);
         String[] columns=mode==Mode.RUNS ? new String[]{"Dungeon","Entered","Observed minutes","Outcome","Coverage","Progress increase","Use requests","Capture issues","Timing gaps","Evidence source","Damage","DPS"}
             : mode==Mode.TIMELINE ? new String[]{"Time","Area","Activity","Summary","Meaning"}
@@ -147,16 +156,18 @@ public final class ActivityPanel extends JPanel {
                 return shown.equals(raw)?shown:shown+"\n"+raw;
             }
         });
-        for(int c=0;c<columns.length;c++)table.getColumnModel().getColumn(c).setPreferredWidth(c==1?190:c==0?150:160);
-        for(int c=0;c<columns.length;c++)table.getColumnModel().getColumn(c).setIdentifier("column-"+c);
-        if(mode==Mode.RUNS){int[] widths={145,150,85,175,150};for(int c=0;c<widths.length;c++){
-            table.getColumnModel().getColumn(c).setPreferredWidth(widths[c]);table.getColumnModel().getColumn(c).setWidth(widths[c]);}}
-        if(mode==Mode.TIMELINE){table.getColumnModel().getColumn(3).setPreferredWidth(320);table.getColumnModel().getColumn(4).setPreferredWidth(370);}
+        ColumnKind[] kinds=mode==Mode.RUNS?new ColumnKind[]{ColumnKind.DUNGEON,ColumnKind.DATE_TIME,ColumnKind.DURATION,ColumnKind.STATUS,ColumnKind.TEXT,ColumnKind.COUNT,
+                ColumnKind.COUNT,ColumnKind.COUNT,ColumnKind.COUNT,ColumnKind.TEXT,ColumnKind.NUMBER,ColumnKind.NUMBER}
+            :mode==Mode.TIMELINE?new ColumnKind[]{ColumnKind.DATE_TIME,ColumnKind.DUNGEON,ColumnKind.STATUS,ColumnKind.TEXT,ColumnKind.TEXT}
+            :new ColumnKind[]{ColumnKind.TEXT,ColumnKind.DURATION,ColumnKind.DURATION,ColumnKind.PERCENT};
+        Map<String,ColumnKind> byId=new HashMap<>();
+        for(int c=0;c<columns.length;c++){table.getColumnModel().getColumn(c).setIdentifier("column-"+c);byId.put("column-"+c,kinds[c]);}
+        HistoryTables.kinds(table,byId);
         JPanel top=new JPanel(); top.setLayout(new BoxLayout(top,BoxLayout.Y_AXIS));
         JPanel controls=ContentStyle.controls();controls.setAlignmentX(LEFT_ALIGNMENT);
         search.setName("activity-search");search.getAccessibleContext().setAccessibleName("Search "+mode.name().toLowerCase(Locale.ROOT));
         search.putClientProperty("JTextField.placeholderText","Search this view");
-        search.setToolTipText("Search this module; text is matched literally"); controls.add(labeled("Search",search));
+        search.setToolTipText("Search this module; text is matched literally");
         displayedEnabled=record.isSelected();
         JButton export=new JButton("Export displayed history (unfiltered)"); export.addActionListener(e->export());
         export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
@@ -174,14 +185,17 @@ public final class ActivityPanel extends JPanel {
             }
             refresh();
         });
-        top.add(controls);
-        if(mode==Mode.RUNS)top.add(runFilterControls());
+        // One filter row: search (and the visit/type selectors for Timeline and Resources); Runs keeps its facets in the drawer.
+        filterBar=new FilterBar("activity-"+mode.name().toLowerCase(Locale.ROOT));filterBar.setAlignmentX(LEFT_ALIGNMENT);
+        // Not "scope": the constructor already declares a JTextArea scope further down.
+        WrapRow searchRow=new WrapRow(labeled("Search",search));
         if(mode!=Mode.RUNS){
-            JPanel filters=ContentStyle.controls();filters.setAlignmentX(LEFT_ALIGNMENT);
             visitPicker.setName("activity-visit"); visitPicker.setPrototypeDisplayValue(new VisitChoice("","09-09 22:00 · Recorded visit"));
             visitPicker.getAccessibleContext().setAccessibleName("Recorded visit");kind.setName("activity-kind");kind.getAccessibleContext().setAccessibleName("Activity type");
-            filters.add(labeled("Visit",visitPicker)); if(mode==Mode.TIMELINE)filters.add(kind); top.add(filters);
+            searchRow.add(labeled("Visit",visitPicker)); if(mode==Mode.TIMELINE)searchRow.add(kind);
         }
+        filterBar.search(searchRow);if(mode==Mode.RUNS)filterBar.drawer(runFilterControls());
+        top.add(filterBar);top.add(controls);
         summary.setName("activity-summary");summary.setFont(ContentStyle.metadata(ContentStyle.body()));saved.setFont(ContentStyle.metadata(ContentStyle.body()));
         summary.setBorder(BorderFactory.createEmptyBorder(4,8,4,0));summary.setAlignmentX(LEFT_ALIGNMENT); top.add(summary); add(top,BorderLayout.NORTH);
         detail.setEditable(false); detail.setLineWrap(true); detail.setWrapStyleWord(true); detail.setMargin(new Insets(6,8,6,8));
@@ -198,11 +212,11 @@ public final class ActivityPanel extends JPanel {
             inspectionScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
             plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspectionScroll,BorderLayout.SOUTH);
             combatViews.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-            combatViews.addTab("Buff timeline & resources",plot); combatViews.addTab("Uptime summary",ContentStyle.tableScroll(table,3));
             // Live visits are not yet saved-session references: window analysis works, Timeline handoffs explain why not.
-            combatViews.addTab("Selected window",ResourceWindowPanel.scroll(new ResourceWindowPanel(chart,()->null)));
+            combatTabs.add("timeline","Buff timeline & resources",plot).add("uptime","Uptime summary",ContentStyle.tableScroll(table,3))
+                .add("window","Selected window",ResourceWindowPanel.scroll(new ResourceWindowPanel(chart,()->null)));
             combatViews.setName("activity-resource-tabs");
-            combatViews.addChangeListener(e->{if(!refreshing&&!restoringState){fill(false);rememberLiveState();}});
+            combatViews.addChangeListener(e->{if(!refreshing&&!restoringState&&!combatTabs.isRebuilding()){fill(false);rememberLiveState();}});
             add(split(combatViews,new JScrollPane(detail),.78),BorderLayout.CENTER);
         }else add(split(ContentStyle.tableScroll(table,3),new JScrollPane(detail),.70),BorderLayout.CENTER);
         JTextArea scope=new JTextArea(mode==Mode.COMBAT
@@ -261,7 +275,20 @@ public final class ActivityPanel extends JPanel {
         outcomeFilter.setToolTipText(runFilters.outcomes.toString());evidenceFilter.setToolTipText(runFilters.evidence.toString());
         issuesFilter.setSelectedItem(runFilters.captureIssues);gapsFilter.setSelectedItem(runFilters.timingGaps);
         minimumDuration.setText(durationSeconds(runFilters.minimumDurationMillis));maximumDuration.setText(durationSeconds(runFilters.maximumDurationMillis));
-    }finally{restoringState=previous;}}
+    }finally{restoringState=previous;}updateRunChips();}
+    /** Live run facets as removable chips; Clear resets them like "Reset run filters". */
+    private void updateRunChips(){
+        if(filterBar==null||mode!=Mode.RUNS)return;List<FilterBar.ActiveFilter> chips=new ArrayList<>();ActivityQueries.Filters f=runFilters;
+        if(!f.outcomes.isEmpty())chips.add(runChip("Outcome: "+ArchiveFilters.summary(f.outcomes),next->next.outcomes=new LinkedHashSet<>()));
+        if(!f.evidence.isEmpty())chips.add(runChip("Evidence: "+ArchiveFilters.summary(f.evidence),next->next.evidence=new LinkedHashSet<>()));
+        if(f.captureIssues!=ActivityQueries.Presence.ANY)chips.add(runChip(f.captureIssues==ActivityQueries.Presence.PRESENT?"With capture issues":"No capture issues",next->next.captureIssues=ActivityQueries.Presence.ANY));
+        if(f.timingGaps!=ActivityQueries.Presence.ANY)chips.add(runChip(f.timingGaps==ActivityQueries.Presence.PRESENT?"With timing gaps":"No timing gaps",next->next.timingGaps=ActivityQueries.Presence.ANY));
+        if(f.minimumDurationMillis!=null||f.maximumDurationMillis!=null)chips.add(runChip("Duration "+ActivityArchiveClient.durationLabel(f),next->{next.minimumDurationMillis=null;next.maximumDurationMillis=null;}));
+        FilterChips.update(filterBar,chips,()->setRunFilters(new ActivityQueries.Filters()),false);
+    }
+    private FilterBar.ActiveFilter runChip(String label,java.util.function.Consumer<ActivityQueries.Filters> reset){
+        return new FilterBar.ActiveFilter(label,()->{ActivityQueries.Filters next=runFilters();reset.accept(next);setRunFilters(next);});
+    }
     private static Long durationMillis(String text){return text.trim().isEmpty()?null:new java.math.BigDecimal(text.trim()).movePointRight(3).longValueExact();}
     private static String durationSeconds(Long value){return value==null?"":java.math.BigDecimal.valueOf(value,3).stripTrailingZeros().toPlainString();}
 
@@ -277,7 +304,7 @@ public final class ActivityPanel extends JPanel {
     private Map<String,String> captureLiveState(){
         Map<String,String> values=new LinkedHashMap<>();values.put("activityVersion","1");values.put("search",search.getText());
         values.put("kind",Objects.toString(kind.getSelectedItem(),"All activities"));values.put("unit",unit().name());
-        values.put("tab",mode==Mode.COMBAT&&combatViews.getSelectedIndex()==1?"uptime":"primary");
+        values.put("tab",uptimeShown()?"uptime":"primary");
         values.put("visit",restorePending?restoredVisit:choice());values.put("row",restorePending?restoredRow:selectedKey());
         values.put("requireSelection",Boolean.toString(selectionRequired));values.put("runQuery",ActivityQueries.initial().withFacets(runFilters).toJson().toString());
         RosterViewState.captureTable(values,table);values.put("layout",SessionStore.JSON.toJson(HistoryTables.columnState(table,"Live")));return values;
@@ -299,7 +326,7 @@ public final class ActivityPanel extends JPanel {
         final ViewState.Table restoredLayout=layout;
         return ()->{restoringState=true;try{
             runFilters=filters;syncRunControls();search.setText(text);kind.setSelectedIndex(kindIndex);durationUnit.setSelectedItem(units);
-            if(mode==Mode.COMBAT)combatViews.setSelectedIndex(tab);columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
+            if(mode==Mode.COMBAT)combatTabs.select(tab==1?"uptime":"timeline");columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
             restoredVisit=visit;restoredRow=row;restorePending=!visit.isEmpty()||!row.isEmpty();selectionRequired=required==1;
         }finally{restoringState=false;}filter();};
     }
@@ -408,7 +435,7 @@ public final class ActivityPanel extends JPanel {
     private void fill(boolean explicit){
         String selected=mode==Mode.COMBAT&&explicit?"":selectedKey(); refreshing=true;
         List<Object[]> nextRows=new ArrayList<>();List<Object> nextItems=new ArrayList<>();
-        boolean updateTable=mode!=Mode.COMBAT||explicit||!tableInitialized||combatViews.getSelectedIndex()==1;
+        boolean updateTable=mode!=Mode.COMBAT||explicit||!tableInitialized||uptimeShown();
         if(mode==Mode.RUNS){for(int i=state.visits.size()-1;i>=0;i--){ActivityJournal.Visit v=state.visits.get(i);
             if(!ParseDungeon.isDungeon(v.map))continue;
             ActivityQueries.Row projection=ActivityQueries.visit(v);
@@ -419,7 +446,7 @@ public final class ActivityPanel extends JPanel {
             add(nextRows,nextItems,e,Instant.ofEpochMilli(e.time),e.map,e.kind,eventText(e),e.detail);}}
         else {
             ActivityJournal.Visit v=selectedVisit();
-            if(explicit||combatViews.getSelectedIndex()!=1)chart.setVisit(v);
+            if(explicit||!uptimeShown())chart.setVisit(v);
             if(updateTable&&v!=null){uptimes(nextRows,nextItems,v.conditions,v.conditionObservedMillis,"");uptimes(nextRows,nextItems,v.extraConditions,v.extraConditionObservedMillis," (extra)");}
         }
         if(updateTable){
@@ -489,6 +516,7 @@ public final class ActivityPanel extends JPanel {
     }
     public static String time(long millis){return DisplayFormat.formatTimestamp(millis);}
     private RunDurationUnit unit(){return (RunDurationUnit)durationUnit.getSelectedItem();}
+    private boolean uptimeShown(){return combatTabs!=null&&"uptime".equals(combatTabs.selectedId());}
     private static String range(Integer a,Integer b){return a==null&&b==null?DisplayFormat.UNAVAILABLE:number(a)+"–"+number(b);}
     private static String seconds(long millis){return DisplayFormat.formatDurationSeconds(millis,1);}
     private static String number(Object value){return value instanceof Number?DisplayFormat.formatExact((Number)value):DisplayFormat.UNAVAILABLE;}
