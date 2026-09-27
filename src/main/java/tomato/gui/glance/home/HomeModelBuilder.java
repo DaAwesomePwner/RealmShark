@@ -79,7 +79,8 @@ public final class HomeModelBuilder {
             live.skin(), live.level(), fame, maxed, base, cap, live.totals(), need, needsLine(need, maxed), exalt, equipment(live.equipment()),
             estimate(dps, 0, basis + " with the Build page's method; not a recorded measurement", DPS_UNKNOWN),
             estimate(mp, 1, basis + " with the Build page's method", MP_UNKNOWN),
-            accountLine(live.rankStars(), live.accountFame(), live.gold(), account), seen, evidence);
+            // A live hero carries no stale label, so saved values may fill the account line only on a stale one (spec §1).
+            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence);
     }
 
     private static HomeModel.Hero fromJournal(CharacterJournal.CharacterRecord last, CharacterJournal.AccountRecord account,
@@ -132,7 +133,7 @@ public final class HomeModelBuilder {
         if (live != null) for (int i = 0; i < Math.min(4, live.length); i++) slots[i] = live[i] > 0 ? live[i] : 0;
         return slots;
     }
-    /** Live values first, then the saved account record; unknown parts are omitted. */
+    /** Live values first, then the saved account record (null for a live hero: live values only); unknown parts are omitted. */
     static String accountLine(Integer stars, Integer fame, Integer gold, CharacterJournal.AccountRecord account) {
         Long s = stars != null ? Long.valueOf(stars) : account != null && account.rankStars != null ? Long.valueOf(account.rankStars) : null;
         Long f = fame != null ? Long.valueOf(fame) : account != null ? account.accountFame : null;

@@ -118,6 +118,19 @@ public class HomeModelBuilderTest {
         assertTrue(stale.evidence().startsWith("Not in game."));
     }
 
+    @Test public void aLiveHeroShowsOnlyLiveAccountValuesAndOnlyAStaleHeroFillsGapsFromTheSavedRecord() {
+        CharacterJournal.AccountRecord saved = account(); saved.rankStars = 50; saved.accountFame = 999L; saved.gold = 77L;
+        LiveCharacter.Snapshot goldOnly = new LiveCharacter.Snapshot("account-A", 7, CLASS, "Tester", 900, 20, 100L, null, CAPS.clone(), null,
+            null, 1_200, null, null, null, NOW - 500);
+        HomeModel.Hero live = hero(goldOnly, null, null, saved, 0);
+        assertEquals(State.LIVE, live.state());
+        assertEquals("A live hero shows what the live snapshot has, never unlabeled saved values", DisplayFormat.formatInteger(1_200) + " gold", live.accountLine());
+        HomeModel.Hero stale = hero(goldOnly, null, null, saved, NOW - 60_000);
+        assertEquals(State.STALE, stale.state());
+        assertEquals("A stale hero is labeled, so saved values may fill the gaps", DisplayFormat.formatInteger(50) + " stars · "
+            + DisplayFormat.formatInteger(999) + " account fame · " + DisplayFormat.formatInteger(1_200) + " gold", stale.accountLine());
+    }
+
     @Test public void journalRecordIsStaleAndNothingIsEmpty() {
         CharacterJournal.CharacterRecord last = new CharacterJournal.CharacterRecord();
         last.name = "Saved"; last.classId = CLASS; last.className = "Wizard"; last.characterId = 3; last.fame = 900L; last.lastSeen = NOW - 7_200_000;
