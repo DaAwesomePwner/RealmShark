@@ -34,7 +34,7 @@ Missing stats and equipment remain unknown; an observed empty equipment slot is 
 
 Writes replace the journal through a temporary file. If saving fails, the status line shows the failure and the application retries. If an existing journal is corrupt or has an unsupported version, it is preserved and saving is disabled with a visible explanation. Preview mode reads saved records but does not start capture, make requests, or save roster edits.
 
-The journal is saved as **version 5** (pet, dungeon completions, experience, backpack, per-class exalt times and vault potions). The first save of an older file keeps a one-time copy beside it as `journal.v4.bak` before writing version 5, so a rollback is never left without the pre-upgrade data. Builds older than P3a open the upgraded journal **read-only**: they cannot save new capture over version 5 fields they do not understand.
+The journal is saved as **version 5** (pet, dungeon completions, experience, backpack, per-class exalt times and vault potions). The first save of an older file keeps a one-time copy beside it as `journal.v4.bak` before writing version 5, so a rollback is never left without the pre-upgrade data. Older RealmShark builds open the upgraded journal **read-only**: they cannot save new capture over version 5 fields they do not understand. To roll back manually, copy `journal.v4.bak` over `journal.json`; anything captured since the upgrade will not be in it.
 
 ## Pets and feeding estimates
 
