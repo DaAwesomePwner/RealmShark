@@ -14,11 +14,18 @@ import tomato.gui.route.RouteTarget;
  * - {@link Destination#CHARACTERS} without a payload shows the character list.
  * - {@link Destination#CHARACTER_SHEET} with a {@link SheetFocus} shows that character's sheet; its tab, when named, is shown and selected.
  * Both targets share one view and capture {@link CharactersState}, so Back from a sheet returns to the list with its filters,
- * selection and scroll. Opening a route and Back both bring the Roster tab forward. EDT only.
+ * selection and scroll. Opening a route brings the Roster tab forward; Back does so only when the Roster tab was in front when its
+ * state was captured, so Back returns to the Characters tab the user left from. EDT only.
  */
 public final class CharactersRouteTarget implements RouteTarget {
-    /** Detached Back state: whether the sheet was showing, and its character and tab. */
-    public record CharactersState(boolean sheet, String key, String tab) { }
+    /**
+     * Detached Back state: whether the sheet was showing, its character and tab, and whether the Roster tab was in front of the
+     * Characters page when the state was captured ({@code roster}).
+     */
+    public record CharactersState(boolean sheet, String key, String tab, boolean roster) {
+        /** A state without the flag (older callers) means the Roster tab was in front. */
+        public CharactersState(boolean sheet, String key, String tab) { this(sheet, key, tab, true); }
+    }
 
     /** The Back entry the next open pushes, and the Characters view it returns to, as last captured. */
     private static final class Origin { long token; CharactersState state; }
@@ -70,9 +77,11 @@ public final class CharactersRouteTarget implements RouteTarget {
     @Override public void restoreState(Object state) {
         if (!(state instanceof CharactersState)) throw new IllegalArgumentException("Not a Characters view state");
         CharactersState saved = (CharactersState) state;
-        // Back is explicit navigation, as routes are: after a plain click on another Characters tab (Exalts, Pets), the restored
-        // list or sheet must be the one in front, or Back looks like it did nothing.
-        view.reveal();
+        // Back returns where you were. Captured with the Roster tab in front (e.g. the list a sheet was opened from), the restored
+        // list or sheet must be in front again, even after a plain click on Exalts or Pets, or Back looks like it did nothing.
+        // Captured with another Characters tab in front (a route left the page from Exalts), that tab stays in front and the
+        // roster is restored behind it.
+        if (saved.roster()) view.reveal();
         if (saved.sheet() && saved.key() != null) view.showSheet(saved.key(), saved.tab(), view::showList);
         else view.showList();
     }

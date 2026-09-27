@@ -51,6 +51,8 @@ public class CharacterPanelGUI extends JPanel {
         routeTargets = CharactersRouteTarget.of(roster); // built once: both targets share one Back origin
         // Routes are explicit navigation, so they may bring the Roster tab forward even when it is hidden.
         roster.onReveal(() -> { tabs.show("roster"); tabs.select("roster"); });
+        // Back returns to the Characters tab the user left from: it brings Roster forward only when Roster was in front then.
+        roster.onInFront(() -> "roster".equals(tabs.selectedId()));
         tabs.add("roster", "Roster", roster).add("exalts", "Exalts", journal.exaltPanel()).add("pets", "Pets", new CharacterPetsGUI(data));
         // Another Characters tab refreshes the list and keeps the sheet's notes draft.
         tabs.component().addChangeListener(e -> { journal.refresh(); sheet.saveDraft(); });

@@ -21,6 +21,7 @@ public final class CharacterRosterView extends JPanel {
     private final CharacterSheet sheet;
     private Navigator navigator;
     private Runnable reveal = () -> { };
+    private java.util.function.BooleanSupplier inFront = () -> true;
     private boolean sheetShowing;
 
     public CharacterRosterView(CharacterJournalGUI list, CharacterSheet sheet) {
@@ -40,6 +41,8 @@ public final class CharacterRosterView extends JPanel {
     /** Brings the Roster tab forward on the Characters page; routes use it because they are explicit navigation. */
     void onReveal(Runnable action) { reveal = Objects.requireNonNull(action); }
     void reveal() { reveal.run(); }
+    /** Whether the Roster tab is the Characters tab in front (Back state records it); true until the page installs a check. */
+    void onInFront(java.util.function.BooleanSupplier check) { inFront = Objects.requireNonNull(check); }
 
     /**
      * Shows one character's sheet.
@@ -64,7 +67,9 @@ public final class CharacterRosterView extends JPanel {
     public boolean showingSheet() { return sheetShowing; }
     public CharacterJournalGUI listPanel() { return list; }
     public CharacterSheet sheet() { return sheet; }
-    CharactersRouteTarget.CharactersState state() { return new CharactersRouteTarget.CharactersState(sheetShowing, sheet.key(), sheet.selectedTab()); }
+    CharactersRouteTarget.CharactersState state() {
+        return new CharactersRouteTarget.CharactersState(sheetShowing, sheet.key(), sheet.selectedTab(), inFront.getAsBoolean());
+    }
     /** The sheet's character while it shows, else the list's selected character; null when neither. */
     String currentKey() { return sheetShowing && sheet.key() != null ? sheet.key() : list.selectedKey(); }
 
