@@ -1,7 +1,10 @@
 package tomato.gui.glance.home;
 
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import javax.swing.*;
@@ -15,11 +18,13 @@ public class HeroCardTest {
     private static final long NOW = 1_790_000_000_000L;
     private final Map<String, String> store = new HashMap<>();
     private final DisplayModeModel mode = new DisplayModeModel(store::get, store::put);
-    private final int[] opened = new int[2]; // [0] Characters, [1] Build
+    private final int[] opened = new int[2]; // [0] Characters (the hero's sheet or the list), [1] Build
+    /** The journal key each whole-card click passed (null: the Characters list). */
+    private final List<String> keys = new ArrayList<>();
     private Locale previous;
     @Before public void usFormat() { previous = Locale.getDefault(Locale.Category.FORMAT); Locale.setDefault(Locale.Category.FORMAT, Locale.US); }
     @After public void restoreFormat() { Locale.setDefault(Locale.Category.FORMAT, previous); }
-    private HeroCard card() { return new HeroCard(() -> opened[0]++, () -> opened[1]++, mode); }
+    private HeroCard card() { return new HeroCard(key -> { opened[0]++; keys.add(key); }, () -> opened[1]++, mode); }
     @Test public void liveHeroShowsIdentityChipsGearBarsAndEstimates() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             HeroCard card = card();
@@ -48,7 +53,7 @@ public class HeroCardTest {
             assertEquals(DisplayValue.State.ESTIMATE, dps.value().state);
             assertEquals("Estimates carry ≈", DisplayValue.estimate("1,480", "x").text(), dps.value().text());
             assertEquals("70 stars · 12,345 account fame · 1,200 gold", named(card, "home-hero-account", JLabel.class).getText());
-            assertEquals("Sharkbait, Wizard level 20, 7 of 8 maxed. Open Characters", card.getAccessibleContext().getAccessibleName());
+            assertEquals("Sharkbait, Wizard level 20, 7 of 8 maxed. Open character sheet", card.getAccessibleContext().getAccessibleName());
             assertNotNull(named(card, "home-hero-content", JComponent.class));
         });
     }
@@ -59,7 +64,7 @@ public class HeroCardTest {
             // Hero.equipment: item id > 0, 0 empty, -1 not captured (a journal record without that slot).
             card.apply(new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(),
                 h.base(), h.caps(), h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), new int[]{2593, 0, -1, -1},
-                h.weaponDps(), h.mpPerSecond(), h.accountLine(), h.lastSeenAt(), h.evidence()), NOW);
+                h.weaponDps(), h.mpPerSecond(), h.accountLine(), h.lastSeenAt(), h.evidence(), h.key()), NOW);
             assertEquals(ItemSlot.State.ITEM, named(card, "home-hero-slot-0", ItemSlot.class).state());
             assertEquals(ItemSlot.State.EMPTY, named(card, "home-hero-slot-1", ItemSlot.class).state());
             assertEquals("-1 is a slot that was not captured, never an empty one", ItemSlot.State.UNKNOWN,
@@ -90,7 +95,7 @@ public class HeroCardTest {
             assertEquals(Tokens.color(Tokens.Role.TEXT_MUTED), named(card, "home-hero-name", JLabel.class).getForeground());
             assertEquals("Wizard · Level 20 · Fame 1,234 (stale)", named(card, "home-hero-meta", JLabel.class).getText());
             assertFalse("No live boost when not in game", named(card, "home-hero-boost-0", JLabel.class).isVisible());
-            assertEquals("Sharkbait, Wizard level 20, 7 of 8 maxed, not in game. Open Characters", card.getAccessibleContext().getAccessibleName());
+            assertEquals("Sharkbait, Wizard level 20, 7 of 8 maxed, not in game. Open character sheet", card.getAccessibleContext().getAccessibleName());
             assertEquals("The ticking age is the description, never the name", "Last seen 2 h ago",
                 card.getAccessibleContext().getAccessibleDescription());
         });
@@ -140,6 +145,21 @@ public class HeroCardTest {
             build.doClick();
             assertEquals(1, opened[1]);
             assertEquals("Build does not also open Characters", 2, opened[0]);
+        });
+    }
+    @Test public void theHeroOpensItsOwnSheetByJournalKeyAndTheListWithoutOne() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HeroCard card = card();
+            card.apply(HomeModels.hero(HomeModel.State.LIVE, NOW), NOW);
+            card.getActionMap().get("open-card").actionPerformed(null);
+            assertEquals("The hero passes its journal key", List.of(HomeModels.KEY), keys);
+            card.apply(HomeModels.withKey(HomeModels.hero(HomeModel.State.STALE, NOW), null), NOW);
+            assertEquals("Sharkbait, Wizard level 20, 7 of 8 maxed, not in game. Open Characters", card.getAccessibleContext().getAccessibleName());
+            card.getActionMap().get("open-card").actionPerformed(null);
+            assertEquals("Without a key it asks for the Characters list", Arrays.asList(HomeModels.KEY, null), keys);
+            card.apply(HomeModels.empty().hero(), NOW);
+            card.getActionMap().get("open-card").actionPerformed(null);
+            assertNull("No character, no key", keys.get(2));
         });
     }
     @Test public void evidenceIsCollapsedInSimpleAndExpandedInAnalyst() throws Exception {

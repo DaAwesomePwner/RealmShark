@@ -482,7 +482,7 @@ public class TomatoGUI {
     /** Home's drill-downs go through the navigator, so Back returns to Home. */
     private static tomato.gui.glance.home.HomeActions homeActions() {
         return new tomato.gui.glance.home.HomeActions(
-            () -> openFromHome(tomato.gui.route.Route.to(Destination.CHARACTERS)),
+            TomatoGUI::openCharacterFromHome,
             () -> openFromHome(tomato.gui.route.Route.to(Destination.MY_INFO)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.ENCOUNTER)),
             // The exact VisitRef first; plain Runs only when no exact-visit target exists (no saved history store).
@@ -499,6 +499,14 @@ public class TomatoGUI {
     private static void openFromHome(tomato.gui.route.Route... routes) {
         if (navigator == null) return;
         for (tomato.gui.route.Route route : routes) if (navigator.open(route)) return;
+    }
+
+    /** The Home hero opens its own character's sheet at Overview; without a journal key (no character yet), the Characters list. */
+    private static void openCharacterFromHome(String key) {
+        tomato.gui.route.Route list = tomato.gui.route.Route.to(Destination.CHARACTERS);
+        if (key == null) openFromHome(list);
+        else openFromHome(tomato.gui.route.Route.to(Destination.CHARACTER_SHEET)
+            .withPayload(new tomato.gui.glance.character.SheetFocus(key, "overview")), list);
     }
 
 

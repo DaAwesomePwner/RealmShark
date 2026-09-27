@@ -211,7 +211,7 @@ public class HomeRefreshTimingTest {
         base[7] = value;
         return new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(), base, h.caps(),
             h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), h.equipment(), h.weaponDps(), h.mpPerSecond(), h.accountLine(),
-            h.lastSeenAt(), h.evidence());
+            h.lastSeenAt(), h.evidence(), h.key());
     }
 
     private static final class Recording implements HomeSources {

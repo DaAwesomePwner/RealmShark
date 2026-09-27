@@ -1,6 +1,7 @@
 package tomato.gui.glance.home;
 
 import java.awt.*;
+import java.util.function.Consumer;
 import javax.swing.*;
 import tomato.gui.kit.Chip;
 import tomato.gui.kit.DisplayModeModel;
@@ -22,8 +23,8 @@ import tomato.gui.modern.DisplayFormat;
  * holds the character's name as the card title, the Build action and Evidence. On a wide page one row holds the 54 px skin
  * sprite, class · level · fame and the maxed / exalt / last-seen chips, the four equipped slots with tier labels, and the
  * Weapon DPS and MP/sec estimate tiles (it wraps below 1000 px); then eight base-versus-cap bars (2 × 4) with the live boost;
- * then the needs line (left) and the account line (right) on one line. The whole card opens Characters; Build opens the
- * Build page. The pet rarity chip arrives with pet data in P3.
+ * then the needs line (left) and the account line (right) on one line. The whole card opens its sheet (the Characters list
+ * without a journal key); Build opens the Build page. The pet rarity chip arrives with pet data in P3.
  */
 final class HeroCard extends HomeCard {
     /** Canonical stat order: life, mana, atk, def, spd, dex, vit, wis. */
@@ -54,7 +55,7 @@ final class HeroCard extends HomeCard {
     private HomeModel.Hero shown;
     private String shownSeen = "";
 
-    HeroCard(Runnable openCharacters, Runnable openBuild, DisplayModeModel mode) {
+    HeroCard(Consumer<String> openCharacter, Runnable openBuild, DisplayModeModel mode) {
         super(mode, "home-hero", "No capture evidence yet.");
         title(NO_NAME);
         name = titleLabel(header(), NO_NAME);
@@ -65,7 +66,8 @@ final class HeroCard extends HomeCard {
         build.addActionListener(e -> openBuild.run());
         header().actions().add(build, 0);
         content = layoutContent();
-        onOpen("Open Characters", openCharacters);
+        // The shown hero's own sheet at Overview (TomatoGUI routes by its journal key); without a key, the Characters list.
+        onOpen("Open Characters", () -> openCharacter.accept(shown == null ? null : shown.key()));
         status(HomeViews.LOADING, "Character: loading");
     }
 
@@ -144,7 +146,8 @@ final class HeroCard extends HomeCard {
         footer.setVisible(needs.isVisible() || account.isVisible());
         // The name stays stable while time passes; "Last seen N ago" is the description, so assistive technology is not re-announced.
         getAccessibleContext().setAccessibleName(who + ", " + kind + (hero.level() == null ? "" : " level " + hero.level())
-            + (hero.maxed() >= 0 ? ", " + hero.maxed() + " of 8 maxed" : "") + (live ? "" : ", not in game") + ". Open Characters");
+            + (hero.maxed() >= 0 ? ", " + hero.maxed() + " of 8 maxed" : "") + (live ? "" : ", not in game")
+            + (hero.key() == null ? ". Open Characters" : ". Open character sheet"));
         getAccessibleContext().setAccessibleDescription(live ? null : seenText);
         body(content);
     }
