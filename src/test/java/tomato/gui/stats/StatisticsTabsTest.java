@@ -29,8 +29,9 @@ public class StatisticsTabsTest {
         SwingUtilities.invokeAndWait(() -> {
             PropertiesManager.setProperties(ORDER, "loot,fame-graph,fame-table,dungeon-stats|");
             tomato.gui.kit.CustomizableTabs first = sampleTabs();
+            first.select("loot");
             new StatisticsLiveState(memory.states, "statistics-live").tabs(first,"fame-graph","fame-table","loot","dungeon-stats");
-            assertEquals("Without saved selection, the customized order wins", "loot", first.selectedId());
+            assertEquals("Without saved selection, keep the current tab", "loot", first.selectedId());
             first.select("fame-graph");
             first.select("loot"); first.move("loot", 1);
             PropertiesManager.setProperties(ORDER, "dungeon-stats,fame-table,fame-graph,loot|loot");

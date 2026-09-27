@@ -74,7 +74,7 @@ public class ArchiveFilterBarTest {
                 await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==31);
                 edt(()->{
                     assertTrue("Text-only queries expose Clear",named(workspace,"facet-bar-clear-filters").isVisible());
-                    ArchiveNativeSupport.removeChip(workspace.filterBar(),"Search: Message 1");return null;});
+                    ArchiveNativeSupport.removeChip(workspace.filterBar(),"Search active");return null;});
                 await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==120);
                 edt(()->{workspace.changeQuery(workspace.state().query.withText("no matching synthetic message"));return null;});
                 await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==0);

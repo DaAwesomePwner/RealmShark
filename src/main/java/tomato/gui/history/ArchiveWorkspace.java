@@ -216,8 +216,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
             filterBar.drawer(filters==null?null:filters.drawer);
             List<FilterBar.ActiveFilter> active=new ArrayList<>();
             if(!query.text().isEmpty()){
-                String label=query.text().length()>60?query.text().substring(0,57)+"…":query.text();
-                active.add(new FilterBar.ActiveFilter("Search: "+label,()->binding.queryChanged(query.withText(""))));
+                // The field already exposes the full query; keep the remove action reachable at large fonts.
+                active.add(new FilterBar.ActiveFilter("Search active",()->binding.queryChanged(query.withText(""))));
             }
             if(filters!=null)active.addAll(filters.active);
             FilterChips.update(filterBar,active,()->changeQuery(client.initialQuery().withScope(state.query.scope())),true);
