@@ -144,3 +144,20 @@ failed" banner (the Task 10 record already noted this as an intermittent test-ha
 deferred to P3b; not reproduced here, so left alone).
 
 Final-head JAR smoke (after fix round 2, coordinator): `shadowJar` built `RealmShark-v1.2.3.jar`; isolated `java -jar … --help` exited 0. The full suite was not re-run on this head (last full run: 1308/0/0/0 at `a6b8fa8`); both fix rounds ran their focused tests as recorded above.
+
+### PR review fixes (Codex threads on PR #22)
+
+Codex raised two P2 findings on `CharacterJournal`'s v5 pet merge. Both are fixed:
+
+- **Older Pet Yard snapshots.** `yardPet` now ignores an observation whose `observedAt` predates the stored pet's, as the
+  character-list and other v5 paths already do. Before, it overwrote the values and kept only the newer timestamp.
+- **Partial `<Pet>` entries.** `rosterPet` now starts from the known pet when the list reports the same instance id and
+  overlays only the fields present, matching the retained-field rule in `docs/CHARACTERS.md`. A different or unidentified
+  pet (no reported instance id) still starts from unknown. Before, only the Pet Yard family was carried forward.
+
+Tests: two new methods in `CharacterJournalV5Test` (`anOlderPetYardObservationNeverReplacesANewerPet`,
+`aPartialListEntryForTheSamePetKeepsItsOmittedValues`), added beside the existing ones; no assertion replaced. RED on the
+unfixed code (each failed on exactly the reported defect: rarity overwritten by the older snapshot; omitted ability
+levels reset to -1), GREEN after. Focused run on Linux (JDK 17, Xvfb): the journal, publication, freshness and
+character GUI classes that touch pet merging, **95 tests, 0 failures, 0 errors, 0 skipped, across 15 classes**. Not a
+full-suite run.

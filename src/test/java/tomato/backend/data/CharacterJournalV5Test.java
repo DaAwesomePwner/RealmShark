@@ -148,6 +148,60 @@ public class CharacterJournalV5Test {
         assertEquals("A newer list keeps the family of the same pet", Integer.valueOf(4), j.characterCopy(KEY).pet.family);
     }
 
+    @Test public void anOlderPetYardObservationNeverReplacesANewerPet() {
+        CharacterJournal j = new CharacterJournal(file());
+        j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3)));
+        CharacterJournal.PetRecord yard = new CharacterJournal.PetRecord();
+        yard.instanceId = 42L; yard.family = 4; yard.rarity = 3; yard.abilityLevel = new int[]{55, -1, -1}; yard.observedAt = 9_000;
+        j.yardPet(ACCOUNT, yard);
+        long revision = j.revision();
+        CharacterJournal.PetRecord stale = new CharacterJournal.PetRecord();
+        stale.instanceId = 42L; stale.family = 2; stale.rarity = 1; stale.name = "Old"; stale.abilityLevel = new int[]{10, 10, 10}; stale.observedAt = 8_000;
+        j.yardPet(ACCOUNT, stale);
+        CharacterJournal.PetRecord pet = j.characterCopy(KEY).pet;
+        assertEquals("An older Pet Yard snapshot changes nothing", revision, j.revision());
+        assertEquals(Integer.valueOf(4), pet.family); assertEquals(Integer.valueOf(3), pet.rarity); assertEquals("Pup", pet.name);
+        assertArrayEquals(new int[]{55, 40, 30}, pet.abilityLevel); assertEquals(9_000, pet.observedAt);
+        j.mergeRoster(ACCOUNT, List.of(listed(9_500, 3)));
+        revision = j.revision();
+        j.yardPet(ACCOUNT, stale);
+        pet = j.characterCopy(KEY).pet;
+        assertEquals("nor one older than the list's pet", revision, j.revision());
+        assertEquals(Integer.valueOf(2), pet.rarity); assertEquals(Integer.valueOf(4), pet.family); assertEquals(9_500, pet.observedAt);
+    }
+
+    @Test public void aPartialListEntryForTheSamePetKeepsItsOmittedValues() {
+        CharacterJournal j = new CharacterJournal(file());
+        j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3)));
+        CharacterJournal.PetRecord yard = new CharacterJournal.PetRecord(); yard.instanceId = 42L; yard.family = 4; yard.observedAt = 6_000;
+        j.yardPet(ACCOUNT, yard);
+        RealmCharacter partial = new RealmCharacter(); partial.charId = 7; partial.receivedAt = 7_000;
+        partial.petInstanceId = 42; partial.petRarity = 3; partial.petAbilitys = new int[]{0, 60, 0, 0, 0, 0, 0, 0, 0};
+        for (int field : new int[]{81, 84, 90}) partial.supplied("pet." + field, 7_000, "Character list");
+        j.mergeRoster(ACCOUNT, List.of(partial));
+        CharacterJournal.PetRecord pet = j.characterCopy(KEY).pet;
+        assertEquals("Reported values replace", Integer.valueOf(3), pet.rarity); assertArrayEquals(new int[]{60, 40, 30}, pet.abilityLevel);
+        assertEquals("Omitted values of the same pet stay", "Pup", pet.name); assertEquals(Integer.valueOf(3), pet.type);
+        assertEquals(Integer.valueOf(100), pet.skin); assertEquals(Integer.valueOf(70), pet.maxAbilityPower); assertEquals(Integer.valueOf(4), pet.family);
+        assertArrayEquals(new int[]{407, 408, 406}, pet.abilityType); assertArrayEquals(new int[]{1000, 800, 600}, pet.abilityPoints);
+        assertEquals(7_000, pet.observedAt); assertEquals("Character list", pet.source);
+
+        RealmCharacter other = new RealmCharacter(); other.charId = 7; other.receivedAt = 8_000;
+        other.petInstanceId = 43; other.petName = "Kit";
+        for (int field : new int[]{81, 82}) other.supplied("pet." + field, 8_000, "Character list");
+        j.mergeRoster(ACCOUNT, List.of(other));
+        pet = j.characterCopy(KEY).pet;
+        assertEquals(Long.valueOf(43), pet.instanceId); assertEquals("Kit", pet.name);
+        assertNull("A different pet keeps nothing of the old one", pet.rarity); assertNull(pet.family); assertNull(pet.type);
+        assertArrayEquals(new int[]{-1, -1, -1}, pet.abilityLevel);
+
+        RealmCharacter unidentified = new RealmCharacter(); unidentified.charId = 7; unidentified.receivedAt = 9_000; unidentified.petName = "Kit";
+        unidentified.supplied("pet.82", 9_000, "Character list");
+        j.mergeRoster(ACCOUNT, List.of(unidentified));
+        pet = j.characterCopy(KEY).pet;
+        assertNull("Without an instance id the list cannot prove it is the same pet", pet.instanceId); assertEquals("Kit", pet.name);
+    }
+
     @Test public void anExplicitlyEmptyPetIsSavedAsNoPetAndAMissingOneStaysUnknown() throws Exception {
         Path path = file();
         CharacterJournal j = new CharacterJournal(path);

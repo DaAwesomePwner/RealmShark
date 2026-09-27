@@ -350,14 +350,15 @@ public final class CharacterJournal implements AutoCloseable {
     }
     /**
      * A Pet Yard pet: each of the account's characters whose pet has this instance id takes its family and other reported values
-     * (null values and -1 abilities keep what is known). Values seen again unchanged do not dirty the journal.
+     * (null values and -1 abilities keep what is known). An observation older than the known pet is ignored, and values seen again
+     * unchanged do not dirty the journal.
      */
     public synchronized void yardPet(String accountKey, PetRecord seen) {
         if (accountKey == null || seen == null || seen.instanceId == null || !validPet(seen)) return;
         for (CharacterRecord record : document.characters) {
             if (!accountKey.equals(record.account)) continue;
             CharacterRecord r = record.dead ? pendingAlive.get(record.key) : record;
-            if (r == null || r.pet == null || !seen.instanceId.equals(r.pet.instanceId)) continue;
+            if (r == null || r.pet == null || !seen.instanceId.equals(r.pet.instanceId) || seen.observedAt < r.pet.observedAt) continue;
             PetRecord next = copy(r.pet);
             if (seen.name != null) next.name = seen.name;
             if (seen.type != null) next.type = seen.type;
@@ -400,15 +401,21 @@ public final class CharacterJournal implements AutoCloseable {
         try { RealmCharacterStats stats = new RealmCharacterStats(); stats.decode(pcStats); return stats.completionCounts(); }
         catch (RuntimeException malformed) { return null; }
     }
-    /** The list's pet, or null when it reported none or is older than the known pet; the same pet keeps its Pet Yard family. */
+    /**
+     * The list's pet, or null when it reported none or is older than the known pet. The same pet (a reported instance id equal to
+     * the known one) keeps every value the list omits, including its Pet Yard family; any other pet starts from unknown.
+     */
     private static PetRecord rosterPet(RealmCharacter c, PetRecord known) {
         boolean reported = false;
         for (String field : c.presence.keySet()) if (field.startsWith("pet.")) { reported = true; break; }
         if (!reported || known != null && c.receivedAt < known.observedAt) return null;
-        PetRecord pet = new PetRecord();
         // An explicitly empty pet element: no pet is equipped (known), unlike a list that says nothing about pets (unknown).
-        if (c.presence.containsKey("pet.none")) { pet.absent = Boolean.TRUE; pet.observedAt = c.receivedAt; pet.source = "Character list"; return pet; }
-        if (c.presence.containsKey("pet.81")) pet.instanceId = (long) c.petInstanceId;
+        if (c.presence.containsKey("pet.none")) {
+            PetRecord none = new PetRecord(); none.absent = Boolean.TRUE; none.observedAt = c.receivedAt; none.source = "Character list"; return none;
+        }
+        Long instanceId = c.presence.containsKey("pet.81") ? Long.valueOf(c.petInstanceId) : null;
+        PetRecord pet = instanceId != null && known != null && instanceId.equals(known.instanceId) ? copy(known) : new PetRecord();
+        pet.instanceId = instanceId;
         if (c.presence.containsKey("pet.82")) pet.name = c.petName;
         if (c.presence.containsKey("pet.83")) pet.type = c.petType;
         if (c.presence.containsKey("pet.84")) pet.rarity = c.petRarity;
@@ -419,7 +426,6 @@ public final class CharacterJournal implements AutoCloseable {
             if (c.presence.containsKey("pet." + (90 + i))) pet.abilityLevel[i] = c.petAbilitys[i * 3 + 1];
             if (c.presence.containsKey("pet." + (93 + i))) pet.abilityType[i] = c.petAbilitys[i * 3 + 2];
         }
-        if (known != null && known.family != null && Objects.equals(known.instanceId, pet.instanceId)) pet.family = known.family;
         pet.observedAt = c.receivedAt; pet.source = "Character list";
         return pet;
     }
