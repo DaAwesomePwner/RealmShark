@@ -14,6 +14,7 @@ import tomato.backend.data.TomatoData;
 import tomato.gui.activity.ActivityPanel;
 import tomato.gui.activity.ActivityQueries;
 import tomato.gui.character.CharacterJournalGUI;
+import tomato.gui.character.TableViewRule;
 import tomato.gui.chat.ChatArchiveClient;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.keypop.KeyPopArchiveClient;
@@ -30,6 +31,7 @@ import static tomato.gui.chat.SocialArchiveTestSupport.edt;
 
 /** S6 evidence: adopted pages with filters collapsed and open, 1240×800 and 680×520, fonts 13 and 18. Synthetic data only; no capture. */
 public class FilterBarEvidenceTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public VisualEvidence evidence = new VisualEvidence("redesign-p1c");
     private final Map<String, String> savedPreferences = new LinkedHashMap<>();

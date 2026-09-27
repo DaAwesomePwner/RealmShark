@@ -22,6 +22,10 @@ import tomato.gui.history.HistoryTables;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.Banner;
+import tomato.gui.kit.Tokens;
+import util.PropertiesManager;
 
 /** Searchable persistent roster with explicit unknowns. Enter or a double-click opens a character's sheet (CharacterRosterView). */
 public final class CharacterJournalGUI extends JPanel {
@@ -76,6 +80,12 @@ public final class CharacterJournalGUI extends JPanel {
     private boolean restoringState;
     private final FilterBar filterBar = new FilterBar("characters");
     private Runnable clearFilters = () -> {};
+    /** Gallery | Table below the one filter row: both show visibleRows(), and either opens the sheet (spec §6.2). */
+    private final RosterViews views;
+    /** The live character's journal key for the gallery's "Playing now"; CharacterPanelGUI supplies it (exact key, never a name). */
+    private java.util.function.Supplier<String> liveKey = () -> null;
+    /** The saved view's status, shown only while it is a failure (the actions themselves are in the ⋯ menu). */
+    private final Banner stateBanner = new Banner("character-view-state");
 
     public CharacterJournalGUI(CharacterJournal journal) {
         this(journal, System::currentTimeMillis);
@@ -98,6 +108,7 @@ public final class CharacterJournalGUI extends JPanel {
         search.setToolTipText("Search class, account name, character ID, item names or notes");
         search.setName("character-search"); search.getAccessibleContext().setAccessibleName("Search saved characters");
         life.getAccessibleContext().setAccessibleName("Character life state"); season.getAccessibleContext().setAccessibleName("Character season");
+        life.setName("character-life"); season.setName("character-season");
         filters.add(life); filters.add(season);
         boundChoiceWidth(accountFilter, "Account name · 000000");
         boundChoiceWidth(classFilter, "Class name (#00000)");
@@ -107,7 +118,8 @@ public final class CharacterJournalGUI extends JPanel {
         filters.add(ageFilter); filters.add(ageHours);
         // One filter row (search + reset); life, season and every roster facet live in the drawer.
         JButton reset = new JButton("Reset filters");
-        filterBar.search(new WrapRow(search, reset)).drawer(filters); clearFilters = reset::doClick; top.add(filterBar);
+        WrapRow searchRow = new WrapRow(search, reset);
+        filterBar.search(searchRow).drawer(filters); clearFilters = reset::doClick; top.add(filterBar);
         String[] facetNames = {"Account", "Class", "Life need", "Stat coverage", "Maxed count", "Minimum maxed stats", "Maximum maxed stats", "Snapshot update age", "Age in hours"};
         JComponent[] facets = {accountFilter, classFilter, needsLife, missing, maxedFilter, minMaxed, maxMaxed, ageFilter, ageHours};
         for (int i = 0; i < facets.length; i++) { facets[i].setName("character-facet-" + i); facets[i].getAccessibleContext().setAccessibleName(facetNames[i]); }
@@ -152,8 +164,23 @@ public final class CharacterJournalGUI extends JPanel {
         });
         // A user sort reorders the visible rows; filter() reports its own rebuild once.
         roster.getRowSorter().addRowSorterListener(e -> { if (e.getType() == RowSorterEvent.Type.SORTED && !refreshing) rowsChanged(); });
-        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH); footer.add(stateHost, BorderLayout.CENTER); stateHost.setVisible(false);
-        JScrollPane page = ContentStyle.page(top, ContentStyle.tableScroll(roster, 3), footer); pageScroll = page;
+        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH);
+        // Saved views live in the ⋯ menu (spec §3.2); a failure shows as a warn banner under the filter row, nothing else does.
+        stateBanner.setTone(Tokens.Tone.WARN); stateBanner.setVisible(false); stateHost.add(stateBanner); stateHost.setVisible(false);
+        top.add(stateHost, BorderLayout.SOUTH);
+        // Gallery | Table below the one filter row (spec §6.2): both views show visibleRows(), and either opens the sheet.
+        JComponent rosterArea = ContentStyle.tableScroll(roster, 3);
+        views = new RosterViews(rosterArea, filterBar, searchRow, new RosterViews.Source() {
+            @Override public List<CharacterRosterQuery.Row> rows() { return visibleRows(); }
+            @Override public boolean saved() { return !records.isEmpty(); }
+            @Override public String problem() { return journal.storageProblem(); }
+            @Override public String liveKey() { return liveKey.get(); }
+            @Override public String selectedKey() { return selectedKey; }
+            @Override public void select(String key) { selectKey(key); }
+            @Override public void open(String key) { openSheet.accept(key); }
+        }, DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
+        addRowsListener(views::refresh);
+        JScrollPane page = ContentStyle.page(top, views.body(), footer); pageScroll = page;
         page.setName("character-page-scroll");
         page.getAccessibleContext().setAccessibleName("Characters; scroll for the roster and its actions at large text sizes");
         add(page, BorderLayout.CENTER);
@@ -189,6 +216,19 @@ public final class CharacterJournalGUI extends JPanel {
     @Override public void addNotify() { super.addNotify(); timer.start(); refresh(); }
     @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
     public JPanel exaltPanel() { return exalts; }
+    /** Where the gallery reads the live character's journal key (null when no character is in game). EDT. */
+    public void setLiveKey(java.util.function.Supplier<String> source) { liveKey = Objects.requireNonNull(source); views.refresh(); }
+    RosterViews views() { return views; }
+    /** Selects {@code key}'s row, as a card selection in the gallery does, so currentKey() and the saved selection follow it. EDT. */
+    void selectKey(String key) {
+        for (int i = 0; key != null && i < filtered.size(); i++) if (filtered.get(i).key.equals(key)) {
+            int view = roster.convertRowIndexToView(i);
+            if (view >= 0 && roster.getSelectedRow() != view) roster.setRowSelectionInterval(view, view);
+            return;
+        }
+    }
+    /** Where Back from the sheet puts keyboard focus: the gallery's selected card while the gallery shows, else the table. */
+    JComponent focusTarget() { return views.galleryShown() ? views.gallery().focusTarget() : roster; }
     /** Enter or a double-click on a row passes that character's journal key here; the Roster tab opens its sheet. */
     public void onOpenSheet(java.util.function.Consumer<String> open) { openSheet = Objects.requireNonNull(open); }
     /** The rows the search and filters keep, in the table's current sort order (the gallery shows exactly these). EDT only. */
@@ -207,7 +247,11 @@ public final class CharacterJournalGUI extends JPanel {
     String sheetTab() { return sheetTab; }
     /** The sheet's settled tab changed; remember it with the list's view state. */
     void sheetTabSelected(String id) { if (id != null && !id.equals(sheetTab)) { sheetTab = id; rememberViewState(); } }
-    void focusRoster() { roster.requestFocusInWindow(); }
+    /** Back from the sheet: the selected card again (in view) while the gallery shows, else the roster table (spec §10). */
+    void focusRoster() {
+        if (views.galleryShown()) views.gallery().select(selectedKey);
+        focusTarget().requestFocusInWindow();
+    }
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
         boolean project = false;
@@ -302,12 +346,24 @@ public final class CharacterJournalGUI extends JPanel {
     public void bindViewState(ViewStateStore store) {
         if (viewState != null) return;
         viewState = new RosterViewState(store, "characters-live-roster", this::captureViewState, this::prepareViewState);
-        stateHost.add(viewState.controls()); stateHost.setVisible(true);
+        // Saved views live in the ⋯ menu in both modes (spec §3.2); the page shows their status only when it is a failure.
+        filterBar.overflow().add("Save view state", () -> viewState.save()).setName("character-save-view");
+        filterBar.overflow().add("Reset saved view state", viewState::resetSaved).setName("character-reset-view");
+        viewState.onStatus(this::viewStateChanged);
+        viewStateChanged();
         RosterViewState.listenTable(roster, this::rememberViewState);
         pageScroll.getViewport().addChangeListener(e -> { if (isShowing()) rememberViewState(); });
     }
     public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
         if (viewState == null) throw new IllegalStateException("View state is not bound"); return viewState.save();
+    }
+    /** The saved view's status shows only while it is a failure: a save failed, or the saved state could not be read. */
+    private void viewStateChanged() {
+        boolean problem = viewState.statusProblem();
+        stateBanner.setText(problem ? viewState.statusText() : "");
+        stateBanner.setVisible(problem);
+        stateHost.setVisible(problem);
+        stateHost.revalidate();
     }
     private void rememberViewState() { if (viewState != null && !refreshing && !restoringState) viewState.changed(); }
     private Map<String, String> captureViewState() {

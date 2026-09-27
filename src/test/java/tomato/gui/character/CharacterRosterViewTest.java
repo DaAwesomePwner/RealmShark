@@ -9,6 +9,7 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
+import tomato.gui.glance.character.CharacterCardModel;
 import tomato.realmshark.RealmCharacter;
 import static org.junit.Assert.*;
 
@@ -94,6 +95,31 @@ public class CharacterRosterViewTest {
                 assertEquals("death", view.listPanel().sheetTab());
             });
         }
+    }
+
+    @Test public void backFocusesTheOpenedCardInTheGalleryAndTheRowInTheTable() throws Exception {
+        String saved = util.PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        try (CharacterJournal journal = journal()) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                JList<?> cards = RosterFixtures.named(view.listPanel(), "character-cards", JList.class);
+                cards.setSelectedIndex(1);
+                String key = ((CharacterCardModel) cards.getSelectedValue()).key();
+                assertEquals("A card selection is the list's selection", key, view.currentKey());
+                cards.getActionMap().get("open-character").actionPerformed(null);
+                assertTrue(view.showingSheet()); assertEquals(key, view.sheet().key());
+                RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+                assertFalse(view.showingSheet());
+                assertSame("Back focuses the gallery", cards, view.listPanel().focusTarget());
+                assertEquals("…on the card that was open", key, ((CharacterCardModel) cards.getSelectedValue()).key());
+                view.listPanel().views().showGallery(false, false);
+                RosterFixtures.enter(view);
+                RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+                assertSame("In the Table view, Back focuses the table", RosterFixtures.named(view.listPanel(), "character-roster", JTable.class),
+                    view.listPanel().focusTarget());
+            });
+        } finally { util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, saved == null ? "" : saved); }
     }
 
     @Test public void visibleRowsFollowSearchAndSortAndNotifyListeners() throws Exception {

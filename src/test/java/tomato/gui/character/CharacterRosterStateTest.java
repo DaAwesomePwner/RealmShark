@@ -11,6 +11,7 @@ import tomato.realmshark.RealmCharacter;
 import static org.junit.Assert.*;
 
 public class CharacterRosterStateTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Test @SuppressWarnings({"rawtypes", "unchecked"}) public void capturedMarkupLabelsStayLiteralInBoundedChoiceTooltips() throws Exception {
         String name = "<html><img src='https://invalid.example/image'>Account & <b>name</b>";

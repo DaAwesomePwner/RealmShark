@@ -10,6 +10,7 @@ import tomato.gui.kit.ColumnKind;
 import static org.junit.Assert.*;
 
 public class CharacterTableKindsTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     @Test public void rosterUsesColumnKindWidths() throws Exception {

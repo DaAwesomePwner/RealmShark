@@ -34,6 +34,11 @@ public class CharacterPanelGUI extends JPanel {
         setLayout(new BorderLayout());
         characters = context.journal();
         journal = new CharacterJournalGUI(context.journal(), context.clock(), context.definitions());
+        // The gallery's "Playing now": the exact journal key of the character in game, with Home's map-change grace (no flicker).
+        journal.setLiveKey(() -> {
+            tomato.backend.data.LiveCharacter.Snapshot live = tomato.gui.glance.character.SheetModelBuilder.inGame(data.liveCharacter, System.currentTimeMillis());
+            return live == null ? null : live.journalKey();
+        });
         journal.bindViewState(ViewStateStore.application());
         sheet = new CharacterSheet(context);
         roster = new CharacterRosterView(journal, sheet);

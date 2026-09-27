@@ -16,6 +16,7 @@ import tomato.realmshark.RealmCharacter;
 
 /** Synthetic native fixtures. Screenshot production alone is not a visual/a11y pass. */
 public class CharacterWaveFourEvidenceTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public ui.WaveThreeEvidence.FixtureZone zone = new ui.WaveThreeEvidence.FixtureZone();
     @Test public void populatedEmptyAndUnavailablePlanningEquipmentAndDeathSurfaces() throws Exception {

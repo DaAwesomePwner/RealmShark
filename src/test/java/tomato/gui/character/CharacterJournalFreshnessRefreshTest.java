@@ -21,6 +21,7 @@ import static org.junit.Assert.*;
 
 /** Headless Swing state checks: no frames, rendering, native focus or sleeping timers. */
 public class CharacterJournalFreshnessRefreshTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     @Test public void unchangedJournalRefreshAdvancesAgeWithoutTouchingTablesSelectionOrDraft() throws Exception {

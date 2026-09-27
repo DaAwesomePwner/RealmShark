@@ -24,6 +24,7 @@ import static org.junit.Assert.*;
 
 /** Exact client-size fixtures complement the native-window checks on scaled/capped desktops. */
 public class CharacterJournalLayoutTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private CharacterJournal journal;
     private CharacterJournalGUI panel;

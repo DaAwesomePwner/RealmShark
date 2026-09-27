@@ -7,6 +7,7 @@ import java.nio.file.*;
 import java.util.*;
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import org.junit.Rule;
 import org.junit.Test;
 import static org.junit.Assert.*;
 import tomato.backend.data.*;
@@ -15,9 +16,18 @@ import tomato.gui.modern.VioletTheme;
 import tomato.realmshark.RealmCharacter;
 
 public class CharacterJournalGuiTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     private static <T> T find(Container root, Class<T> type) {
         for (Component c : root.getComponents()) { if (type.isInstance(c)) return type.cast(c);
             if (c instanceof Container) { T found = find((Container)c, type); if (found != null) return found; } }
+        return null;
+    }
+    /** The life-state facet by name: the filter row's Sort combo precedes the drawer's facets in the tree. */
+    private static JComboBox<?> lifeFilter(Container root) {
+        for (Component c : root.getComponents()) {
+            if (c instanceof JComboBox && "character-life".equals(c.getName())) return (JComboBox<?>) c;
+            if (c instanceof Container) { JComboBox<?> found = lifeFilter((Container) c); if (found != null) return found; }
+        }
         return null;
     }
     private static JButton button(Container root, String text) {
@@ -70,7 +80,7 @@ public class CharacterJournalGuiTest {
             assertEquals("Finish Life and Wisdom",j.characters().stream().filter(r -> r.characterId == 101).findFirst().get().notes);
             view.showList(); search.setText(""); roster.getRowSorter().toggleSortOrder(6);
             assertEquals(900L, roster.getValueAt(0,6));
-            JComboBox<?> filter = find(panel,JComboBox.class); filter.setSelectedItem("Marked dead manually"); assertEquals(1,roster.getRowCount());
+            JComboBox<?> filter = lifeFilter(panel); filter.setSelectedItem("Marked dead manually"); assertEquals(1,roster.getRowCount());
             filter.setSelectedItem("Not marked dead"); assertEquals(5,roster.getRowCount()); filter.setSelectedItem("All characters");
             search.setText("");
             JFrame frame = new JFrame("Characters — sample data"); frame.setContentPane(view);

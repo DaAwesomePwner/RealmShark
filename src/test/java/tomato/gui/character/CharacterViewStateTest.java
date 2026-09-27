@@ -6,12 +6,16 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.*;
 import tomato.realmshark.RealmCharacter;
+import tomato.gui.kit.Banner;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.FilterBar;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonObject;
 import static org.junit.Assert.*;
 import static tomato.gui.roster.RosterStateTestSupport.*;
 
 public class CharacterViewStateTest {
+    @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Test public void explicitSelectionSupersedesAnUnresolvedRestoredCharacterAcrossRefreshAndRecreation() throws Exception {
         CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("selection.json"));
@@ -49,6 +53,40 @@ public class CharacterViewStateTest {
             assertEquals("A still hidden after B selection", journal.characters().stream().filter(r -> r.account.equals(a)).findFirst().get().notes);
         });
     }
+    @Test public void savedViewActionsAreInTheOverflowMenuAndOnlyAFailureShows() throws Exception {
+        CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("menu.json"));
+        Memory memory = new Memory(); RosterDefinitions definitions = RosterDefinitions.empty();
+        CharacterJournalGUI[] view = new CharacterJournalGUI[1];
+        SwingUtilities.invokeAndWait(() -> {
+            DisplayModeModel.Mode before = DisplayModeModel.application().mode();
+            view[0] = new CharacterJournalGUI(journal, () -> 5000, () -> definitions); view[0].bindViewState(memory.store);
+            FilterBar bar = named(view[0], "characters-filter-bar", FilterBar.class);
+            try {
+                for (DisplayModeModel.Mode mode : DisplayModeModel.Mode.values()) {
+                    DisplayModeModel.application().set(mode);
+                    assertNotNull(mode + ": Save view state is in the ⋯ menu (spec §3.2)", bar.overflow().item("Save view state"));
+                    assertNotNull(mode + ": so is Reset saved view state", bar.overflow().item("Reset saved view state"));
+                    assertTrue(mode + ": the ⋯ menu shows", bar.overflow().isVisible());
+                }
+            } finally { DisplayModeModel.application().set(before); }
+            assertNull("No view-state buttons in the page", named(view[0], "characters-live-roster-save-state", JButton.class));
+            assertFalse("A good state says nothing", named(view[0], "character-view-state", Banner.class).isVisible());
+            memory.fail = true;
+            bar.overflow().item("Save view state").doClick();
+        });
+        SwingUtilities.invokeAndWait(() -> { }); // the save's status arrives on the EDT
+        SwingUtilities.invokeAndWait(() -> {
+            Banner banner = named(view[0], "character-view-state", Banner.class);
+            assertTrue("A failed save warns in the page", banner.isVisible()); assertTrue(banner.warns());
+            assertTrue(banner.text(), banner.text().startsWith("View state save failed"));
+            memory.fail = false;
+            named(view[0], "characters-filter-bar", FilterBar.class).overflow().item("Save view state").doClick();
+        });
+        SwingUtilities.invokeAndWait(() -> { });
+        SwingUtilities.invokeAndWait(() -> assertFalse("A later good save clears the warning", named(view[0], "character-view-state", Banner.class).isVisible()));
+        journal.close();
+    }
+
     private static String savedSelection(Memory memory) {
         return JsonParser.parseString(memory.values.get("ux.archive.characters-live-roster")).getAsJsonObject()
             .getAsJsonObject("last").getAsJsonObject("query").getAsJsonObject("facets").getAsJsonObject("values").get("selected").getAsString();
