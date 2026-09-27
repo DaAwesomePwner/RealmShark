@@ -1,5 +1,9 @@
 # Four-wave UX implementation handoff
 
+**Latest redesign handoff (2026-09-27): read [the redesign handoff](superpowers/plans/2026-09-27-redesign-handoff.md) first.**
+- It covers the state, open PR #22 and its two Codex threads, the user's decisions, the review and implementation process, build and test notes, and the P3b plan inputs.
+- It supersedes session-local notes when you switch machines, including cloud sessions.
+
 Current redesign handoff (2026-09-27): the four waves are complete. P0 merged
 in PR #17 (`9b6844a`); P1a design kit merged in PR #18 (`7b3e0c5`), including fix `ee8d085`.
 Use the [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md)

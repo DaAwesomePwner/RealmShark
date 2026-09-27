@@ -30,6 +30,10 @@ Evidence: [P0 validation](2026-09-26-p0-validation.md),
 
 ## Resume
 
+**Latest handoff: [2026-09-27-redesign-handoff.md](2026-09-27-redesign-handoff.md).**
+- It covers the current state, next steps, decisions, process and build notes, and the P3b inputs.
+- Read it before anything else when resuming on a new machine or in a cloud session.
+
 Read AGENTS.md, the spec, this roadmap and the plan for the earliest phase not marked merged. Reconcile branches, PRs and `main` with GitHub before continuing. Never overwrite unfamiliar work.
 
 **Where the documents live.** The spec and plans landed on `main` with P0. All
