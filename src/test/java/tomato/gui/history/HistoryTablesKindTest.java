@@ -18,6 +18,7 @@ import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.activity.ActivityPanel;
 import tomato.gui.activity.ActivityQueries;
 import tomato.gui.kit.ColumnKind;
+import tomato.gui.modern.ContentStyle;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import static org.junit.Assert.*;
@@ -57,6 +58,34 @@ public class HistoryTablesKindTest {
             });
         }
     }
+
+    @Test public void queriedAndAdHocKindWidthsFollowTheFont() throws Exception {
+        Path root = temp.newFolder().toPath(), scratch = temp.newFolder().toPath(); String id = session(root, 5);
+        Font previous = ContentStyle.body();
+        try (SessionStore store = new SessionStore(root, false, "test"); ArchiveResult<Event> result = ArchiveResult.open(store, query(id), adapter(), scratch, new Cancellation())) {
+            ArchivePage<Event> page = result.page(0, 5, new Cancellation());
+            JTable[] tables = new JTable[2];
+            SwingUtilities.invokeAndWait(() -> {
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, 13));
+                tables[0] = HistoryTables.queried("kinds-font", columns(), page, Collections.emptyMap(), query(id), q -> {}, row -> {});
+                tables[1] = new JTable(new DefaultTableModel(new Object[]{"When", "Who"}, 0)); ContentStyle.table(tables[1]);
+                Map<String, ColumnKind> kinds = new HashMap<>(); kinds.put("When", ColumnKind.DATE_TIME); kinds.put("Who", ColumnKind.PLAYER);
+                HistoryTables.kinds(tables[1], kinds);
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, 26));
+                for (JTable table : tables) ContentStyle.refreshFonts(table);
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                Font font = tables[0].getFont();
+                assertEquals(26f, font.getSize2D(), 0.01f);
+                assertEquals(ColumnKind.COUNT.width(font), tables[0].getColumnModel().getColumn(0).getPreferredWidth());
+                assertEquals(ColumnKind.TEXT.width(font), tables[0].getColumnModel().getColumn(1).getPreferredWidth());
+                assertEquals("Columns without a kind keep the legacy width", 145, tables[0].getColumnModel().getColumn(2).getPreferredWidth());
+                assertEquals(ColumnKind.DATE_TIME.width(tables[1].getFont()), tables[1].getColumnModel().getColumn(0).getPreferredWidth());
+                assertEquals(ColumnKind.PLAYER.width(tables[1].getFont()), tables[1].getColumnModel().getColumn(1).getPreferredWidth());
+            });
+        } finally { SwingUtilities.invokeAndWait(() -> ContentStyle.setBodyFont(previous)); }
+    }
+
 
     @Test public void savedRunsColumnsDefaultToTheirKinds() throws Exception {
         Path scratch = temp.newFolder().toPath(); ArchiveNativeSupport.Memory memory = new ArchiveNativeSupport.Memory();

@@ -60,7 +60,7 @@ public final class HistoryTables {
         for(int c=0;c<columns.size();c++){TableColumn column=table.getColumnModel().getColumn(c);Column<R,?> spec=columns.get(c);column.setIdentifier(spec.id);
             if(spec.renderer!=null)column.setCellRenderer(spec.renderer);
             else if(spec.kind!=null&&spec.type==String.class&&TEXT_KINDS.contains(spec.kind))column.setCellRenderer(KitTables.renderer(spec.kind));
-            if(spec.kind!=null){int width=kindWidth(table,column,spec.kind);column.setPreferredWidth(width);column.setWidth(width);}}
+            if(spec.kind!=null)KitTables.fitKind(table,column,spec.kind);}
         Consumer<ArchiveQuery.Direction> sort=direction->{
             int view=table.getSelectedColumn();if(view<0)view=0;if(table.getColumnCount()==0)return;
             S field=sorts.get(table.getColumnModel().getColumn(view).getIdentifier().toString());
@@ -82,18 +82,12 @@ public final class HistoryTables {
         table.putClientProperty("archive.columns",allColumns(table));return table;
     }
     /**
-     * Ad-hoc tables: ColumnKind widths by column identifier (the header text when none was set). Renderers are left
-     * alone; they carry each table's units, zones and "Unknown" wording, so displayed text, sorting and exports stay identical.
+     * Ad-hoc tables: ColumnKind widths by column identifier (the header text when none was set), following later font
+     * changes (KitTables.fitKind). Renderers are left alone; they carry each table's units, zones and "Unknown" wording,
+     * so displayed text, sorting and exports stay identical.
      */
     public static void kinds(JTable table,Map<String,ColumnKind> kinds){
-        for(TableColumn column:allColumns(table)){ColumnKind kind=kinds.get(String.valueOf(column.getIdentifier()));if(kind==null)continue;
-            int width=kindWidth(table,column,kind);column.setPreferredWidth(width);column.setWidth(width);}
-    }
-    /** The kind's width, never narrower than the column's minimum or its header text. */
-    private static int kindWidth(JTable table,TableColumn column,ColumnKind kind){
-        TableCellRenderer header=column.getHeaderRenderer()!=null?column.getHeaderRenderer():table.getTableHeader()==null?null:table.getTableHeader().getDefaultRenderer();
-        int title=header==null?0:header.getTableCellRendererComponent(table,column.getHeaderValue(),false,false,-1,0).getPreferredSize().width;
-        return Math.max(column.getMinWidth(),Math.max(title,kind.width(table.getFont())));
+        for(TableColumn column:allColumns(table)){ColumnKind kind=kinds.get(String.valueOf(column.getIdentifier()));if(kind!=null)KitTables.fitKind(table,column,kind);}
     }
     private static void action(JTable table,String stroke,String name,Runnable run){
         table.getInputMap().put(KeyStroke.getKeyStroke(stroke),name);table.getActionMap().put(name,new AbstractAction(){public void actionPerformed(ActionEvent e){run.run();}});
