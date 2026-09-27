@@ -30,6 +30,7 @@ final class SheetPresenter {
     private final SheetHeader header = new SheetHeader();
     private final OverviewTab overview;
     private final GearTab gear;
+    private final ExaltsTab exalts = new ExaltsTab();
     private String key;
     private Token token;
     private long generation;
@@ -51,6 +52,7 @@ final class SheetPresenter {
         sheet.setTab("overview", SheetViews.scroll(overview));
         gear = new GearTab(context.mode());
         sheet.setTab("gear", SheetViews.scroll(gear));
+        sheet.setTab("exalts", SheetViews.scroll(exalts));
     }
 
     /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
@@ -75,6 +77,7 @@ final class SheetPresenter {
         if (model == null) return;
         header.apply(model.identity());
         overview.apply(model); // re-reads only the vault age
+        exalts.apply(model.exalts()); // and when this class's counts last changed
     }
 
     /**
@@ -144,5 +147,6 @@ final class SheetPresenter {
         header.apply(value == null ? null : value.identity());
         overview.apply(value);
         gear.apply(value == null ? null : value.gear());
+        exalts.apply(value == null ? null : value.exalts());
     }
 }

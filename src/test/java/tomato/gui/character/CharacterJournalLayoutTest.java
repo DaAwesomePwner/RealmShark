@@ -216,10 +216,8 @@ public class CharacterJournalLayoutTest {
                     // The Gear tab: the equipped slots and the last inventory slot scroll into view.
                     reachable(named(sheet, "character-gear-slot-0", JComponent.class));
                     reachable(named(sheet, "character-gear-slot-11", JComponent.class));
-                } else if (!"notes".equals(id)) {
-                    JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
-                    assertRows(table);
-                    reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
+                } else if ("exalts".equals(id)) {
+                    reachable(named(sheet, "character-exalts-empty", JComponent.class));
                 } else {
                     JTextArea notes = named(sheet, "character-notes", JTextArea.class);
                     assertTrue("Three editable lines must survive sheet chrome", ((JViewport)notes.getParent()).getExtentSize().height

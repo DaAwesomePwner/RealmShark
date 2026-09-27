@@ -6,7 +6,6 @@ import java.util.*;
 import java.util.List;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.FieldCapture;
@@ -61,9 +60,7 @@ public final class CharacterSheet extends JPanel {
     /** The journal cannot be read, or its last save failed. */
     private final Banner storage = new Banner("character-sheet-storage");
     private final JTextArea notes = new JTextArea(3, 30);
-    private final DefaultTableModel exaltModel = model("Stat", "Level", "Completions", "Next tier");
     private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
-    private final JScrollPane exaltTable;
     private final CharacterPlanningPanel planning;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
@@ -113,7 +110,6 @@ public final class CharacterSheet extends JPanel {
         header.add(backRow, BorderLayout.NORTH); header.add(identity, BorderLayout.CENTER);
         header.add(KitLayouts.stack(Tokens.XS, status, storage, seen), BorderLayout.SOUTH);
 
-        exaltTable = ContentStyle.tableScroll(table(exaltModel), 3);
         JPanel notePanel = new JPanel(new BorderLayout(8, 8)); notes.setLineWrap(true); notes.setWrapStyleWord(true);
         notes.setName("character-notes"); notes.setFont(ContentStyle.body()); notes.getAccessibleContext().setAccessibleName("Character notes");
         JScrollPane noteScroll = new JScrollPane(notes) {
@@ -125,7 +121,7 @@ public final class CharacterSheet extends JPanel {
         notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH);
         tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
             .add("gear", "Gear", slot("gear", new JPanel())) // SheetPresenter sets the Gear tab
-            .add("exalts", "Exalts", slot("exalts", exaltTable))
+            .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab
             .add("goals", "Goals", planning)
             .add("notes", "Notes", notePanel)
             // Raw field provenance is diagnostic: Analyst mode only (spec §3.2); the saved order still includes it.
@@ -255,9 +251,6 @@ public final class CharacterSheet extends JPanel {
         tabs.select(pendingTab);
         if (pendingTab.equals(tabs.selectedId())) pendingTab = null;
     }
-    /** The moved class-exalts table (Task 7 replaces it). */
-    JComponent exaltTable() { return exaltTable; }
-
     /** Asks the presenter for a new read when a token moved, then advances the snapshot age. EDT; skipped while hidden. */
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
@@ -321,7 +314,7 @@ public final class CharacterSheet extends JPanel {
 
     private void fill() {
         CharacterRecord r = record;
-        exaltModel.setRowCount(0); metadataModel.setRowCount(0);
+        metadataModel.setRowCount(0);
         actions();
         cards.show(body, ready() && r == null ? UNAVAILABLE_CARD : TABS_CARD);
         // A refresh never replaces an unsaved draft; only a different character does.
@@ -336,12 +329,6 @@ public final class CharacterSheet extends JPanel {
         String[] fields = {"class", "level", "skin", "fame", "seasonal", "created"};
         Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
         for (int i = 0; i < fields.length; i++) metadataModel.addRow(new Object[]{fields[i], unknown(values[i]), evidence(r, fields[i], values[i] != null)});
-        int[] exalt = null;
-        for (AccountRecord a : accounts) if (a.key.equals(r.account)) exalt = a.exalts.get(r.classId);
-        for (int i = 0; i < 8; i++) {
-            Integer count = exalt == null ? null : exalt[CharacterJournal.EXALT_ORDER[i]];
-            exaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
-        }
     }
 
     /** Time advances even after capture stops; refresh just this text, not tables or editable drafts. */
@@ -366,7 +353,6 @@ public final class CharacterSheet extends JPanel {
         if (field == null) return "Legacy / provenance unknown";
         return SheetViews.fieldEvidence(field.source, field.at, r.lastSeen);
     }
-    private static String next(int count) { for (int goal : new int[]{5, 15, 30, 50, 75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }
     private static Object unknown(Object value) { return value == null ? "Unknown" : value; }
     private static String date(long time) { return time <= 0 ? "Unknown" : Formatters.formatTimestamp(time); }
     private static DefaultTableModel model(String... columns) { return new DefaultTableModel(columns, 0) { @Override public boolean isCellEditable(int row, int col) { return false; }
