@@ -19,7 +19,7 @@ Use **Preview-RealmShark.cmd** to inspect the UI without capture, startup API re
 
 - **Launch-RealmShark.cmd** starts the current built application through protected, immutable runtime-JAR staging.
 - **Preview-RealmShark.cmd** opens preview mode.
-- These launchers prefer the project-local JDK and otherwise use Java from PATH.
+- These launchers probe every `.tools/jdk-*` folder and select the newest Java 17+ runtime by version. They use Java from PATH only when no compatible local runtime exists.
 
 The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 17** for development and the included Gradle **7.6.4** wrapper.
 

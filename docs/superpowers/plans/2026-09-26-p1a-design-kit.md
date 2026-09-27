@@ -1,5 +1,13 @@
 # P1a Design Kit Implementation Plan
 
+Implementation update (2026-09-26): implemented on
+`claude/realmshark-ui-ux-redesign-cb0914`, as required by the current roadmap.
+The separate branch command below is historical. Validation and review evidence
+are recorded in [P1a validation](2026-09-26-p1a-validation.md). Existing pages
+adopt the kit in later phases; P1b has not started. The checklist below preserves
+the original implementation recipe rather than claiming every proposed red/green
+command was executed verbatim.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the reusable `tomato.gui.kit` design system (tokens, value display, column kinds, buttons, chips, cards, tiles, collapsibles, filter bar, customizable tabs, game widgets, Simple/Analyst mode, motion) with tests and a screenshot gallery, without changing any existing page yet.

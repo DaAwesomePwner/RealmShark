@@ -1,5 +1,12 @@
 # Four-wave UX implementation handoff
 
+Current redesign handoff (2026-09-26): the four waves are complete. P0 merged
+in PR #17 (`9b6844a`); P1a design kit is implemented, pending its PR merge.
+Use the [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md)
+and [P1a validation](superpowers/plans/2026-09-26-p1a-validation.md) for current
+scope and evidence. Every phase uses `claude/realmshark-ui-ux-redesign-cb0914`.
+P1b has not started. The older resumption instructions below are historical.
+
 Current policy (user approved 2026-09-26): CI is manual-only, not required for
 merges. Follow AGENTS.md for focused local validation; historical CI gates below
 are superseded. Wave 4 PR #15 merged as `337c7f0` with PR/main CI passing.

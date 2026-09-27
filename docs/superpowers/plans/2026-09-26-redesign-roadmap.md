@@ -1,33 +1,36 @@
 # Presentation redesign roadmap
 
-This is the execution index for the redesign in `docs/superpowers/specs/2026-09-26-ui-ux-redesign-design.md`. Phases run in order, each as its own branch and PR from verified `main`, each independently reviewed before merge (AGENTS.md). Detailed task-by-task plans exist for P0–P1c. P2–P6 get their own detailed plan (superpowers:writing-plans) at phase start, because they build on the kit and shell APIs as merged.
+This is the execution index for the redesign in `docs/superpowers/specs/2026-09-26-ui-ux-redesign-design.md`. Phases run in order on `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase/sub-phase. Synchronize the branch with verified `main` after each merge, and independently review each final PR head before merging (AGENTS.md). Detailed task-by-task plans exist for P0–P1c. P2–P6 get their own detailed plan (superpowers:writing-plans) at phase start, because they build on the kit and shell APIs as merged.
 
 ## Status
 
 | Phase | Plan | Branch | State |
 |---|---|---|---|
-| P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented and locally verified; PR not merged |
-| P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `feat/redesign-p1a-kit` | Planned |
-| P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `feat/redesign-p1b-shell` | Planned |
-| P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `feat/redesign-p1c-adoption` | Planned |
-| P2 Home | written at phase start | `feat/redesign-p2-home` | Outline below |
-| P3 Characters | written at phase start | `feat/redesign-p3-characters` | Outline below |
-| P4 Quests | written at phase start | `feat/redesign-p4-quests` | Outline below |
-| P5 Runs and DPS | written at phase start | `feat/redesign-p5-runs` | Outline below |
-| P6 Loot and cleanup | written at phase start | `feat/redesign-p6-cleanup` | Outline below |
+| P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #17 (`9b6844a`) |
+| P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented and locally validated; PR merge pending |
+| P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned |
+| P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned |
+| P2 Home | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P3 Characters | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P4 Quests | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
 Update the State column when a phase's PR merges and `main` is verified.
 
-P0 is implemented on the existing redesign branch at the user's request. The
-branch includes the planning documents as well as P0; no separate docs merge is
-needed for this delivery. Fresh evidence is recorded in
-[P0 validation](2026-09-26-p0-validation.md). P1 has not started.
+P0 merged in PR #17 as `9b6844a`; its merge tree matches the reviewed P0 source.
+P1a is implemented and locally validated, pending PR merge. P1b and later phases
+have not started. Evidence: [P0 validation](2026-09-26-p0-validation.md),
+[P1a validation](2026-09-26-p1a-validation.md).
 
 ## Resume
 
 Read AGENTS.md, the spec, this roadmap and the plan for the earliest phase not marked merged. Reconcile branches, PRs and `main` with GitHub before continuing. Never overwrite unfamiliar work.
 
-**Where the documents live.** The spec, the plans and this roadmap were written on branch `claude/realmshark-ui-ux-redesign-cb0914` (pushed to `origin`). Until that branch is merged into `main` as a docs-only PR, fetch it (`git fetch origin claude/realmshark-ui-ux-redesign-cb0914`) to read them. Merging it first is simplest: every phase plan says "branch from verified `main`", and the plans are then present on every phase branch.
+**Where the documents live.** The spec and plans landed on `main` with P0. All
+phases continue on `claude/realmshark-ui-ux-redesign-cb0914` per the user update.
+Historical commands naming separate phase branches are superseded by this
+workflow; keep separate PRs and independent review for each phase.
 
 **On another workstation.** The plans set `RS_TOOLS="C:/Users/dap/Downloads/RealmShark-realmshark/.tools"`, the tools folder of the original machine (it contains `jdk-17.0.20.1+1` and a pre-populated `gradle-home` for `--offline` builds). Point `RS_TOOLS`, `JAVA_HOME` and `GRADLE_USER_HOME` at that machine's JDK 17 and Gradle home instead. If its Gradle home has no cached dependencies yet, run the first build without `--offline` so Gradle can download them. Everything else in the plans (build directories, commands, test names) is machine-independent.
 

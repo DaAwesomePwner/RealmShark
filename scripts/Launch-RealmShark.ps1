@@ -3,6 +3,7 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]] $ApplicationArg
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'RuntimeJar.ps1')
+. (Join-Path $PSScriptRoot 'JavaRuntime.ps1')
 
 try {
     $sourceJar = Join-Path $projectDirectory 'build\libs\RealmShark-v1.2.3.jar'
@@ -12,25 +13,7 @@ try {
         throw 'Build RealmShark first with gradlew.bat shadowJar using JDK 17 (including generateBranding).'
     }
     $runtimeJar = New-RealmSharkRuntimeJar -SourceJar $sourceJar -RuntimeDirectory (Join-Path $projectDirectory '.runtime')
-    $javaCommand = 'javaw.exe'
-    foreach ($jdk in Get-ChildItem -LiteralPath (Join-Path $projectDirectory '.tools') -Directory -Filter 'jdk-*' -ErrorAction SilentlyContinue) {
-        $candidate = Join-Path $jdk.FullName 'bin\javaw.exe'
-        if (Test-Path -LiteralPath $candidate) { $javaCommand = $candidate }
-    }
-    # javaw has no console, so ask its sibling java.exe for the runtime version before a hidden launch.
-    $probe = if ($javaCommand -eq 'javaw.exe') { 'java.exe' } else { $javaCommand -replace 'javaw\.exe$', 'java.exe' }
-    # java -XshowSettings writes to stderr; Windows PowerShell 5.1 turns redirected native stderr into a
-    # terminating error under 'Stop' (see Test-BuildMaintenance.ps1), so relax it for this call only.
-    $previousPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        $specification = & $probe -XshowSettings:properties -version 2>&1 |
-            ForEach-Object { if ("$_" -match 'java\.specification\.version = (\S+)') { $Matches[1] } } | Select-Object -First 1
-    } finally { $ErrorActionPreference = $previousPreference }
-    $feature = if ($specification) { [int]($specification -replace '^1\.', '') } else { 0 }
-    if ($feature -lt 17) {
-        throw "RealmShark needs Java 17 or newer, but '$probe' reports '$specification'. Install JDK 17 or place it in .tools\jdk-17*."
-    }
+    $javaCommand = Find-RealmSharkJavaw -ToolsDirectory (Join-Path $projectDirectory '.tools')
 
     # Quote argv for Windows' process command-line parser, including spaces and trailing slashes.
     $javaArguments = @("-Drealmshark.launcher=$launcher", "-Drealmshark.icon=$icon", '-jar', $runtimeJar) + @($ApplicationArguments)
