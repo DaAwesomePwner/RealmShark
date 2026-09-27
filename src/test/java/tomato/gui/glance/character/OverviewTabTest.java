@@ -20,7 +20,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE; // seasonal characters show no vault count
         SheetModel model = model(regular, account, live(ACCOUNT, 7, "Sharkbait", null));
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, id -> id == 2_001 ? "UT" : "");
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
             tab.apply(model);
             assertEquals("20/25", text(tab, "character-overview-value-3"));
             assertTrue(named(tab, "character-overview-bar-0", StatBar.class).maxed());
@@ -43,7 +43,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord record = record(); record.stats[3] = null;
         SheetModel model = model(record, account(), live(ACCOUNT, 8, "Ann", null));
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, id -> "");
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
             tab.apply(model);
             for (int i = 0; i < 8; i++) assertFalse("No boost for a character not in game", named(tab, "character-overview-boost-" + i, JLabel.class).isVisible());
             assertEquals("—", text(tab, "character-overview-value-3"));
@@ -61,7 +61,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE;
         SheetModel model = model(regular, account, null);
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, id -> "");
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
             tab.apply(model);
             KitText need = named(tab, "character-overview-need-0", KitText.class);
             assertEquals("DEF needs 5 · 3 in vault (yesterday)", need.getText());
@@ -84,7 +84,7 @@ public class OverviewTabTest {
             SheetModel model = model(record, account(), null); // no vault data: vaultAge() is always "", so it never masks this bug
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    OverviewTab tab = new OverviewTab(mode, id -> "");
+                    OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
                     clock.set(null, (java.util.function.LongSupplier) () -> NOW + 30_000); // 30 s later: "just now"
                     tab.apply(model);
                     assertEquals("Marked dead just now", text(tab, "character-overview-death-text"));
@@ -101,7 +101,7 @@ public class OverviewTabTest {
         CharacterJournal.CharacterRecord record = record(); record.dead = true; record.diedAt = NOW - 24 * HOUR;
         SheetModel model = model(record, account(), null);
         SwingUtilities.invokeAndWait(() -> {
-            OverviewTab tab = new OverviewTab(mode, id -> "");
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis);
             tab.apply(model);
             Collapsible table = named(tab, "character-stat-table", Collapsible.class);
             assertFalse("Simple mode hides the stat table", table.isVisible());
@@ -112,6 +112,60 @@ public class OverviewTabTest {
             assertTrue(String.valueOf(rows.getValueAt(3, 4)).startsWith("Captured total minus boost · "));
             assertTrue(named(tab, "character-overview-death", Card.class).isVisible());
             assertTrue(text(tab, "character-overview-death-text").startsWith("Marked dead "));
+        });
+    }
+
+    /**
+     * While playing, every rebuild stamps the build time into the identity, so the whole model is unequal each time. The
+     * Analyst stat table (and the needs row) refill only when the stats changed: selection and scroll survive an identity-only
+     * rebuild, and a real stat change still shows at once.
+     */
+    @Test public void theAnalystStatTableIsNotRefilledWhenOnlyTheIdentityChanged() throws Exception {
+        SheetModel first = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null));
+        SheetModel later = seenAgain(first, first.identity().lastSeen() + 1_000);
+        CharacterJournal.CharacterRecord raised = record(); raised.stats[3] = 22; // DEF 20 -> 22: two potions fewer to max
+        SheetModel changed = model(raised, account(), null);
+        assertNotEquals("The two rebuilds are unequal models", first, later);
+        assertEquals(first.stats(), later.stats());
+        SwingUtilities.invokeAndWait(() -> {
+            OverviewTab tab = new OverviewTab(mode, () -> NOW);
+            mode.set(DisplayModeModel.Mode.ANALYST);
+            tab.apply(first);
+            JTable rows = named(tab, "character-stat-rows", JTable.class);
+            rows.setRowSelectionInterval(3, 3);
+            java.util.concurrent.atomic.AtomicInteger events = new java.util.concurrent.atomic.AtomicInteger();
+            rows.getModel().addTableModelListener(e -> events.incrementAndGet());
+            KitText need = named(tab, "character-overview-need-0", KitText.class);
+            tab.apply(later);
+            assertEquals("An identity-only rebuild fires no row events", 0, events.get());
+            assertEquals("…so the selected row stays selected", 3, rows.getSelectedRow());
+            assertSame("…and the needs row is not rebuilt either", need, named(tab, "character-overview-need-0", KitText.class));
+            tab.apply(changed);
+            assertTrue("A real stat change refills the table at once", events.get() > 0);
+            assertEquals(3, rows.getValueAt(3, 3));
+            assertEquals("DEF needs 3", text(tab, "character-overview-need-0"));
+        });
+    }
+
+    /** Staleness is judged by the sheet's clock (SheetContext.clock), so it is testable and consistent; the system clock is irrelevant. */
+    @Test public void vaultStalenessUsesTheSheetClock() throws Exception {
+        CharacterJournal.AccountRecord account = account();
+        account.vaultPotions = new int[]{0, 0, 0, 3, 0, 0, 0, 7};
+        account.vaultPotionsObservedAt = NOW; // years before the system clock
+        CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE;
+        SheetModel model = model(regular, account, null);
+        long[] clock = {NOW + HOUR};
+        SwingUtilities.invokeAndWait(() -> {
+            OverviewTab tab = new OverviewTab(mode, () -> clock[0]);
+            tab.apply(model);
+            KitText need = named(tab, "character-overview-need-0", KitText.class);
+            assertEquals("An hour old by the sheet's clock: current, whatever the system clock says", Tokens.Role.TEXT, need.role());
+            assertFalse(need.getToolTipText(), need.getToolTipText().contains("open the vault"));
+            clock[0] = NOW + 25 * HOUR;
+            tab.apply(model); // the very same model: only the sheet's clock moved past a day
+            need = named(tab, "character-overview-need-0", KitText.class);
+            assertEquals("25 h old by the sheet's clock: dimmed as stale", Tokens.Role.TEXT_MUTED, need.role());
+            assertTrue(need.getToolTipText(), need.getToolTipText().endsWith("; open the vault with capture on to update it"));
         });
     }
 

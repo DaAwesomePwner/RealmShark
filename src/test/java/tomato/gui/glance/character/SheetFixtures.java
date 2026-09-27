@@ -37,11 +37,17 @@ public final class SheetFixtures {
         return () -> field.set(null, previous);
     }
 
-    /** Wizard caps (life, mana, atk, def, spd, dex, vit, wis) = 720, 252, 75, 25, 50, 75, 40, 60, from a players.xml fragment. */
+    /**
+     * Wizard caps (life, mana, atk, def, spd, dex, vit, wis) = 720, 252, 75, 25, 50, 75, 40, 60, from a players.xml fragment, and
+     * three items from an equip.xml fragment: 2_001 "UT", 2_004 "T6" (numeric tier), 2_010 "T12" (an explicit tier label).
+     * Items 2_003 (the live armor) and 3_000 have no definition, so their slots carry no tier label.
+     */
     public static RosterDefinitions defs() {
         String xml = "<Objects><Object type=\"782\"><MaxHitPoints max=\"720\"/><MaxMagicPoints max=\"252\"/><Attack max=\"75\"/>"
             + "<Defense max=\"25\"/><Speed max=\"50\"/><Dexterity max=\"75\"/><HpRegen max=\"40\"/><MpRegen max=\"60\"/></Object></Objects>";
-        try { return RosterDefinitions.parse(new StringReader(xml), null); } catch (IOException e) { throw new AssertionError(e); }
+        String equipment = "<Objects><Object type=\"2001\"><Labels>UT,WEAPON</Labels><Tier>14</Tier></Object>"
+            + "<Object type=\"2004\"><Tier>6</Tier></Object><Object type=\"2010\"><Labels>T12,ARMOR</Labels><Tier>11</Tier></Object></Objects>";
+        try { return RosterDefinitions.parse(new StringReader(xml), new StringReader(equipment)); } catch (IOException e) { throw new AssertionError(e); }
     }
 
     /** Wizard #7, 5 of 8 maxed (DEF needs 5, VIT 3, WIS 12); weapon and ring equipped, ability empty, armor not captured. */
@@ -82,6 +88,14 @@ public final class SheetFixtures {
     /** The builder with the fixture caps and no dungeon mapping (as while PlanningMetadata loads). */
     public static SheetModel model(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live) {
         return SheetModelBuilder.build(record, account, live, defs(), null, NOW);
+    }
+
+    /** {@code model} with only its identity's lastSeen moved: what two rebuilds of an unchanged character differ by while playing. */
+    public static SheetModel seenAgain(SheetModel model, long lastSeen) {
+        SheetModel.Identity i = model.identity();
+        SheetModel.Identity moved = new SheetModel.Identity(i.name(), i.classId(), i.className(), i.skin(), i.level(), i.fame(), i.seasonal(),
+            i.dead(), lastSeen, i.lastPlayed(), i.playing(), i.maxed());
+        return new SheetModel(model.key(), moved, model.stats(), model.gear(), model.exalts(), model.death(), model.live());
     }
 
     /** Observes one Wizard #7 of the synthetic account (name "Sample") and returns its journal key. */

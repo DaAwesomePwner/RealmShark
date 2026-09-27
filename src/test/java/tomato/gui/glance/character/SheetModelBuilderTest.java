@@ -99,6 +99,29 @@ public class SheetModelBuilderTest {
         assertEquals("Unknown timing never renders as an epoch date", "Captured total minus boost · Unknown", m.stats().evidence().get(0));
     }
 
+    /**
+     * Tier labels are part of the model, computed off the EDT from the definitions this build was given (never the global
+     * RosterDefinitions.current()), so the gear section changes, and the tabs repaint, when the definitions finish loading.
+     */
+    @Test public void tierLabelsComeFromTheDefinitionsPassedToTheBuild() {
+        SheetModel.Gear gear = model(record(), account(), null).gear();
+        assertEquals("One label per slot", 28, gear.tiers().size());
+        assertEquals("Weapon UT; ability empty and armor not captured have none; ring T6", List.of("UT", "", "", "T6"), gear.tiers().subList(0, 4));
+        assertEquals("An explicit tier label on an inventory item", "T12", gear.tiers().get(4));
+        assertEquals("Empty and not-captured inventory and backpack slots have none", Collections.nCopies(23, ""), gear.tiers().subList(5, 28));
+        CharacterJournal.CharacterRecord undefined = record(); undefined.equipment[5] = 3_000;
+        assertEquals("An item the definitions do not hold has no label", "", model(undefined, account(), null).gear().tiers().get(5));
+        SheetModel.Gear playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null)).gear();
+        assertEquals("The live equipped four are labeled too (2_003 has no definition)", List.of("UT", "", "", "T6"), playing.tiers().subList(0, 4));
+
+        SheetModel.Gear loading = SheetModelBuilder.build(record(), account(), null, RosterDefinitions.empty(), null, NOW).gear();
+        assertEquals("While the definitions load (or without them) every label is empty", Collections.nCopies(28, ""), loading.tiers());
+        assertEquals("…and a null definitions reference reads as empty definitions", Collections.nCopies(28, ""),
+            SheetModelBuilder.build(record(), account(), null, null, null, NOW).gear().tiers());
+        assertEquals("The slots themselves do not depend on the definitions", loading.slots(), gear.slots());
+        assertNotEquals("Labels arriving with the definitions change the gear section, so GearTab repaints it", loading, gear);
+    }
+
     @Test public void aMapChangesBriefClearStillCountsAsInGame() {
         LiveCharacter live = new LiveCharacter();
         LiveCharacter.Snapshot wizard = live(ACCOUNT, 7, "Sharkbait", null);

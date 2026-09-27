@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.event.HierarchyEvent;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.Executor;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.CharacterJournal.AccountRecord;
@@ -88,7 +89,10 @@ public final class CharacterSheet extends JPanel {
     private RosterDefinitions definitions = RosterDefinitions.empty();
     private long revision = -1;
 
-    public CharacterSheet(SheetContext context) {
+    public CharacterSheet(SheetContext context) { this(context, null); }
+
+    /** Tests: {@code worker} runs the presenter's builds one at a time (null: the shared "character-sheet" thread). */
+    CharacterSheet(SheetContext context, Executor worker) {
         super(new BorderLayout());
         this.context = Objects.requireNonNull(context, "context");
         setName("character-sheet");
@@ -168,8 +172,12 @@ public final class CharacterSheet extends JPanel {
             if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); saveDraft(); }
         });
         fill();
-        presenter = new SheetPresenter(this, context); // after every tab exists: it sets the identity and the tabs it owns
+        // After every tab exists: the presenter sets the identity and the tabs it owns.
+        presenter = worker == null ? new SheetPresenter(this, context) : new SheetPresenter(this, context, worker);
     }
+
+    /** EDT: the model the presenter last applied, or null (loading, failed, or a key the journal lacks). */
+    SheetModel model() { return presenter.model(); }
 
     @Override public void removeNotify() { saveDraft(); timer.stop(); super.removeNotify(); }
 
@@ -283,8 +291,11 @@ public final class CharacterSheet extends JPanel {
         shown();
     }
 
-    /** A build failed (spec §7: never silent): a warn banner; nothing acts until a later build shows this character. */
-    void failed(RuntimeException failure) {
+    /**
+     * A build failed (spec §7: never silent), with any Throwable, Errors included: a warn banner; nothing acts until a later
+     * build shows this character. The presenter has already logged it with its stack trace.
+     */
+    void failed(Throwable failure) {
         String reason = failure.getMessage() == null || failure.getMessage().isBlank() ? failure.getClass().getSimpleName() : failure.getMessage();
         status.setTone(Tokens.Tone.WARN); status.setText("This character could not be shown: " + reason); status.setVisible(true);
     }

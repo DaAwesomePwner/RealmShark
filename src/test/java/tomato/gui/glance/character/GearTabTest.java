@@ -1,12 +1,15 @@
 package tomato.gui.glance.character;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
 import org.junit.Test;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.Entity;
+import tomato.backend.data.FieldCapture;
+import tomato.backend.data.RosterDefinitions;
 import tomato.backend.data.TomatoData;
 import tomato.gui.kit.Collapsible;
 import tomato.gui.kit.DisplayModeModel;
@@ -23,7 +26,7 @@ public class GearTabTest {
     @Test public void emptyAndNotCapturedSlotsStayDistinctAndEquippedItemsShowTiers() throws Exception {
         SheetModel model = model(record(), account(), null);
         SwingUtilities.invokeAndWait(() -> {
-            GearTab tab = new GearTab(mode, id -> id == 2_001 ? "UT" : id == 2_004 ? "T6" : "");
+            GearTab tab = new GearTab(mode);
             tab.apply(model.gear());
             assertEquals(ItemSlot.State.ITEM, slot(tab, 0).state());
             assertEquals(ItemSlot.State.EMPTY, slot(tab, 1).state());
@@ -44,7 +47,7 @@ public class GearTabTest {
         CharacterJournal.CharacterRecord owned = record(); owned.hasBackpack = Boolean.TRUE;
         for (int i = 12; i < 28; i++) owned.equipment[i] = -1;
         SwingUtilities.invokeAndWait(() -> {
-            GearTab tab = new GearTab(mode, id -> "");
+            GearTab tab = new GearTab(mode);
             tab.apply(model(none, account(), null).gear());
             assertTrue(named(tab, "character-gear-no-backpack", JLabel.class).isVisible());
             assertFalse(named(tab, "character-gear-backpack", JPanel.class).isVisible());
@@ -72,7 +75,7 @@ public class GearTabTest {
         assertEquals(List.of(1, 0, 0, -1), playing.gear().enchants());
         assertNull("Another character's enchants never describe this one", other.gear().enchants());
         SwingUtilities.invokeAndWait(() -> {
-            GearTab tab = new GearTab(mode, id -> "");
+            GearTab tab = new GearTab(mode);
             tab.apply(playing.gear());
             EnchantDots weapon = named(tab, "character-gear-enchant-0", EnchantDots.class);
             assertTrue(weapon.isVisible());
@@ -86,9 +89,68 @@ public class GearTabTest {
         });
     }
 
+    /**
+     * Labels come from the model (computed with the definitions the build used), so the tab never reads the global
+     * RosterDefinitions.current() on the EDT, and a gear section whose slots did not change still repaints when the labels
+     * arrive with the definitions.
+     */
+    @Test public void tierLabelsFollowTheModel() throws Exception {
+        SheetModel.Gear loading = SheetModelBuilder.build(record(), account(), null, RosterDefinitions.empty(), null, NOW).gear();
+        SheetModel.Gear loaded = model(record(), account(), null).gear();
+        SwingUtilities.invokeAndWait(() -> {
+            GearTab tab = new GearTab(mode);
+            tab.apply(loading);
+            assertEquals("No label while the definitions load: the slot name shows", "Weapon", named(tab, "character-gear-tier-0", JLabel.class).getText());
+            assertEquals("Ring", named(tab, "character-gear-tier-3", JLabel.class).getText());
+            tab.apply(loaded); // the same slots; only the labels arrived
+            assertEquals("UT", named(tab, "character-gear-tier-0", JLabel.class).getText());
+            assertEquals("T6", named(tab, "character-gear-tier-3", JLabel.class).getText());
+            assertTrue("Inventory slots carry their label too", slot(tab, 4).getToolTipText().endsWith(" · T12"));
+            assertEquals("Armor", named(tab, "character-gear-tier-2", JLabel.class).getText());
+            tab.apply(loading);
+            assertEquals("Labels leave with the model that had them", "Weapon", named(tab, "character-gear-tier-0", JLabel.class).getText());
+        });
+    }
+
+    /**
+     * While playing, every capture moves the record's times and hands the tab a new copy. The Analyst slot table re-renders only
+     * when what it shows changed (a slot's item, state or field evidence, the character, or the definitions), so the user's
+     * selection survives, and a real change still shows at once.
+     */
+    @Test public void theAnalystSlotTableIsNotRerenderedForAnUnchangedRecord() throws Exception {
+        CharacterJournal.CharacterRecord first = record(), later = record(), changed = record();
+        for (CharacterJournal.CharacterRecord r : List.of(first, later, changed)) r.fields.put("equipment.0", new FieldCapture(NOW - 3 * HOUR, "Captured"));
+        later.lastSeen = first.lastSeen + 60_000; later.lastObservedAlive = later.lastSeen; // a later observation of the same character
+        changed.lastSeen = later.lastSeen; changed.equipment[5] = 3_000; // …that picked up an item
+        RosterDefinitions defs = defs();
+        SwingUtilities.invokeAndWait(() -> {
+            GearTab tab = new GearTab(mode);
+            mode.set(DisplayModeModel.Mode.ANALYST);
+            tab.analyst(first, defs);
+            JTable table = named(tab, "character-equipment", JTable.class);
+            table.setRowSelectionInterval(3, 3);
+            AtomicInteger events = new AtomicInteger();
+            table.getModel().addTableModelListener(e -> events.incrementAndGet());
+            tab.analyst(later, defs);
+            assertEquals("A copy showing the same slots re-renders nothing", 0, events.get());
+            assertEquals("…so the selected row stays selected", 3, table.getSelectedRow());
+            tab.analyst(changed, defs);
+            assertTrue("A slot change re-renders at once", events.get() > 0);
+            assertEquals(3_000, table.getModel().getValueAt(5, 4));
+            events.set(0);
+            tab.analyst(changed, defs());
+            assertTrue("New definitions re-render (their details are part of each slot)", events.get() > 0);
+            events.set(0);
+            CharacterJournal.CharacterRecord other = record(); other.key = ACCOUNT + ":8"; other.characterId = 8;
+            other.fields.putAll(changed.fields); other.lastSeen = changed.lastSeen; other.equipment[5] = 3_000;
+            tab.analyst(other, defs);
+            assertTrue("Another character re-renders even with identical slots", events.get() > 0);
+        });
+    }
+
     @Test public void theSlotTableIsAnalystOnly() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            GearTab tab = new GearTab(mode, id -> "");
+            GearTab tab = new GearTab(mode);
             tab.analyst(record(), defs());
             Collapsible table = named(tab, "character-gear-slot-table", Collapsible.class);
             assertFalse(table.isVisible());
