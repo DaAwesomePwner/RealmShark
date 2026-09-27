@@ -19,6 +19,7 @@ import tomato.planning.PlanningStore;
 import tomato.realmshark.RealmCharacter;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
+import static tomato.gui.activity.SnapshotTestSupport.await;
 
 public class CharacterSheetTest {
     private static final String ORDER = "ui.tabs.character";
@@ -48,6 +49,8 @@ public class CharacterSheetTest {
     private static CharacterSheet sheet(CharacterJournal journal) {
         return new CharacterSheet(new SheetContext(new TomatoData(), journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
     }
+    /** Opens {@code key} and waits (running the EDT) until the sheet shows its read: the model is built off the EDT. */
+    private static void open(CharacterSheet sheet, String key, String tab) { sheet.open(key, tab); await(sheet::ready); }
     private static List<String> titles(JTabbedPane tabs) {
         List<String> titles = new ArrayList<>();
         for (int i = 0; i < tabs.getTabCount(); i++) titles.add(tabs.getTitleAt(i));
@@ -67,8 +70,8 @@ public class CharacterSheetTest {
                 assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
                 DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
                 assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
-                sheet.open(ACCOUNT + ":1", "notes"); assertEquals("notes", sheet.selectedTab());
-                sheet.open(ACCOUNT + ":1", "goals"); assertEquals("An explicit tab is selected", "goals", sheet.selectedTab());
+                open(sheet, ACCOUNT + ":1", "notes"); assertEquals("notes", sheet.selectedTab());
+                open(sheet, ACCOUNT + ":1", "goals"); assertEquals("An explicit tab is selected", "goals", sheet.selectedTab());
                 JPanel replacement = new JPanel();
                 sheet.setTab("overview", replacement);
                 assertEquals("A replaced slot keeps its id and place", order, sheet.tabs().order());
@@ -84,24 +87,27 @@ public class CharacterSheetTest {
                 CharacterSheet sheet = sheet(journal);
                 AtomicInteger backs = new AtomicInteger();
                 sheet.onBack(backs::incrementAndGet);
-                sheet.open(ACCOUNT + ":7", null);
-                assertEquals(ACCOUNT + ":7", sheet.key()); assertTrue(sheet.ready());
+                open(sheet, ACCOUNT + ":7", null);
+                assertEquals(ACCOUNT + ":7", sheet.key());
                 AbstractButton back = named(sheet, "character-sheet-back", AbstractButton.class);
                 assertEquals("‹ Characters", back.getText());
                 back.doClick(); assertEquals(1, backs.get());
-                JTextArea title = named(sheet, "character-sheet-title", JTextArea.class);
-                assertTrue(title.getText(), title.getText().contains("#7") && title.getText().contains("Level 20"));
+                assertTrue("The fixture has no name: the header reads \"<class> #7\"", named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#7"));
+                assertTrue(named(sheet, "character-sheet-meta", JLabel.class).getText().contains("Level 20"));
                 AbstractButton death = named(sheet, "character-sheet-death", AbstractButton.class), restore = named(sheet, "character-sheet-restore", AbstractButton.class);
                 assertEquals("Mark dead", death.getText()); assertTrue(death.isVisible()); assertFalse(restore.isVisible());
                 assertFalse("An alive character has no Death annotation tab", sheet.tabs().visibleIds().contains("death"));
                 death.doClick();
                 assertTrue(journal.characterCopy(ACCOUNT + ":7").dead);
+                assertFalse("Nothing acts again until the re-read shows the new state", sheet.ready());
+                await(sheet::ready);
                 assertFalse(death.isVisible()); assertTrue(restore.isVisible()); assertEquals("Restore alive", restore.getText());
-                assertTrue(title.getText().contains("Marked dead manually"));
+                assertTrue(named(sheet, "character-sheet-dead", JComponent.class).isVisible());
                 assertTrue("Marking dead shows the Death annotation tab", sheet.tabs().visibleIds().contains("death"));
                 assertEquals("…without rewriting the saved order", "", PropertiesManager.getProperty(ORDER));
                 restore.doClick();
                 assertFalse(journal.characterCopy(ACCOUNT + ":7").dead);
+                await(sheet::ready);
                 assertTrue(death.isVisible()); assertEquals("Mark dead", death.getText());
                 assertFalse(sheet.tabs().visibleIds().contains("death"));
             });
@@ -112,13 +118,13 @@ public class CharacterSheetTest {
         try (CharacterJournal journal = journal("unknown.json", 1)) {
             SwingUtilities.invokeAndWait(() -> {
                 CharacterSheet sheet = sheet(journal);
-                sheet.open(ACCOUNT + ":404", null);
+                open(sheet, ACCOUNT + ":404", null);
                 EmptyState missing = named(sheet, "character-sheet-unavailable", EmptyState.class);
                 assertTrue(missing.isVisible());
                 assertEquals(CharacterSheet.UNAVAILABLE, missing.getAccessibleContext().getAccessibleName());
                 assertFalse(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
                 assertEquals(" ", named(sheet, "character-snapshot-evidence", JTextArea.class).getText());
-                sheet.open(ACCOUNT + ":1", null);
+                open(sheet, ACCOUNT + ":1", null);
                 assertFalse(missing.isVisible());
                 assertTrue(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
             });
@@ -129,7 +135,7 @@ public class CharacterSheetTest {
         try (CharacterJournal journal = journal("notes.json", 1, 2)) {
             SwingUtilities.invokeAndWait(() -> {
                 CharacterSheet sheet = sheet(journal);
-                sheet.open(ACCOUNT + ":1", "notes");
+                open(sheet, ACCOUNT + ":1", "notes");
                 JTextArea notes = named(sheet, "character-notes", JTextArea.class);
                 notes.setText("Draft for one"); sheet.refresh();
                 assertEquals("A refresh keeps the draft", "Draft for one", notes.getText());
@@ -137,8 +143,53 @@ public class CharacterSheetTest {
                 sheet.open(ACCOUNT + ":2", null);
                 assertEquals("Opening another character saves the draft", "Draft for one", journal.characterCopy(ACCOUNT + ":1").notes);
                 assertEquals("", notes.getText());
+                await(sheet::ready);
                 notes.setText("Saved for two"); named(sheet, "character-notes-save", AbstractButton.class).doClick();
                 assertEquals("Saved for two", journal.characterCopy(ACCOUNT + ":2").notes);
+            });
+        }
+    }
+
+    @Test public void openingShowsLoadingUntilItsOwnReadAndDropsAnEarlierCharactersResult() throws Exception {
+        try (CharacterJournal journal = journal("loading.json", 1, 2)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", null);
+                Banner status = named(sheet, "character-sheet-status", Banner.class);
+                assertFalse(status.isVisible());
+                sheet.open(ACCOUNT + ":2", null);
+                assertTrue("Loading shows until the new character's read applies", status.isVisible());
+                assertEquals("Loading…", status.text()); assertFalse(status.warns());
+                assertFalse(sheet.ready());
+                assertEquals("Nothing of the previous character stays", "", named(sheet, "character-sheet-name", JLabel.class).getText());
+                assertFalse("Nothing acts while loading", named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+                sheet.open(ACCOUNT + ":1", null); // #2's build may still arrive: it is for another key now, so it is dropped
+                await(sheet::ready);
+                assertFalse(status.isVisible());
+                assertEquals(ACCOUNT + ":1", sheet.key());
+                assertTrue(named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
+                long settled = System.currentTimeMillis() + 200;
+                await(() -> System.currentTimeMillis() >= settled); // runs the EDT, so a late result would arrive now
+                assertTrue("A late result for #2 never replaces #1", named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
+                assertTrue(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+            });
+        }
+    }
+
+    @Test public void aFailedBuildShowsAWarnBannerAndNothingActs() throws Exception {
+        RosterDefinitions none = RosterDefinitions.empty();
+        try (CharacterJournal journal = journal("failure.json", 1)) {
+            SheetContext failing = new SheetContext(new TomatoData(), journal, () -> {
+                if ("character-sheet".equals(Thread.currentThread().getName())) throw new IllegalStateException("Synthetic build failure");
+                return none;
+            }, DisplayModeModel.application(), () -> 5000, PlanningStore.shared());
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = new CharacterSheet(failing);
+                sheet.open(ACCOUNT + ":1", null);
+                Banner status = named(sheet, "character-sheet-status", Banner.class);
+                await(status::warns);
+                assertTrue(status.isVisible()); assertTrue(status.text(), status.text().contains("Synthetic build failure"));
+                assertFalse(sheet.ready()); assertFalse(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
             });
         }
     }
@@ -149,7 +200,7 @@ public class CharacterSheetTest {
                 CharacterSheet sheet = sheet(journal);
                 JFrame frame = new JFrame("Sheet hide"); frame.setContentPane(sheet); frame.setSize(900, 600); frame.setVisible(true);
                 try {
-                    sheet.open(ACCOUNT + ":1", "notes");
+                    open(sheet, ACCOUNT + ":1", "notes");
                     named(sheet, "character-notes", JTextArea.class).setText("Kept when the sheet hides");
                     sheet.setVisible(false); // what another card, Back or another Characters tab does
                     assertEquals("Kept when the sheet hides", journal.characterCopy(ACCOUNT + ":1").notes);
@@ -163,7 +214,7 @@ public class CharacterSheetTest {
             SwingUtilities.invokeAndWait(() -> {
                 DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
                 CharacterSheet sheet = sheet(journal);
-                sheet.open(ACCOUNT + ":1", null);
+                open(sheet, ACCOUNT + ":1", null);
                 JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class), hint = named(sheet, "character-sheet-hint", JTextArea.class);
                 assertFalse("Simple hides provenance (spec §3.2)", evidence.isVisible()); assertFalse(hint.isVisible());
                 assertTrue("The text is still kept current", evidence.getText().contains("Snapshot update age"));
@@ -181,11 +232,11 @@ public class CharacterSheetTest {
         try (CharacterJournal unreadable = new CharacterJournal(broken); CharacterJournal failing = journal(new CharacterJournal(blocker.resolve("journal.json")), 1)) {
             SwingUtilities.invokeAndWait(() -> {
                 CharacterSheet sheet = sheet(unreadable);
-                sheet.open(ACCOUNT + ":1", null);
+                open(sheet, ACCOUNT + ":1", null);
                 Banner storage = named(sheet, "character-sheet-storage", Banner.class);
                 assertTrue(storage.isVisible()); assertTrue(storage.warns()); assertTrue(storage.text(), storage.text().startsWith("Cannot read"));
                 shown[0] = sheet(failing);
-                shown[0].open(ACCOUNT + ":1", "notes");
+                open(shown[0], ACCOUNT + ":1", "notes");
                 assertFalse("Nothing has failed yet", named(shown[0], "character-sheet-storage", Banner.class).isVisible());
                 named(shown[0], "character-notes", JTextArea.class).setText("Never reaches the disk");
                 named(shown[0], "character-notes-save", AbstractButton.class).doClick();

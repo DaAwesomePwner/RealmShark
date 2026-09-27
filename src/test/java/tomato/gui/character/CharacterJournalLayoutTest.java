@@ -180,6 +180,8 @@ public class CharacterJournalLayoutTest {
             named(panel, "character-roster", JTable.class).getActionMap().get("open-character").actionPerformed(null);
             assertTrue("Enter opens the selected character's sheet", view.showingSheet());
         });
+        // The sheet's model is built off the EDT.
+        tomato.gui.activity.SnapshotTestSupport.await(() -> named(sheet, "character-overview-value-2", JLabel.class).getText().startsWith("70"));
         settle();
         SwingUtilities.invokeAndWait(() -> {
             reachable(named(sheet, "character-sheet-back", JButton.class));
@@ -205,14 +207,15 @@ public class CharacterJournalLayoutTest {
                     assertTrue("The internal horizontal tab viewport must contain the whole selected tab: " + tabInStrip
                             + " within " + strip.getViewRect(), strip.getViewRect().contains(tabInStrip));
                 }
-                if (!"notes".equals(id)) {
+                if ("overview".equals(id)) {
+                    assertEquals("Life is not captured: unknown, never 0", DisplayFormat.UNAVAILABLE, named(sheet, "character-overview-value-0", JLabel.class).getText());
+                    assertTrue(named(sheet, "character-overview-value-2", JLabel.class).getText().startsWith("70"));
+                    reachable(named(sheet, "character-overview-value-7", JLabel.class));
+                    reachable(named(sheet, "character-overview-exalts", JLabel.class));
+                } else if (!"notes".equals(id)) {
                     JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
                     assertRows(table);
                     reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
-                    if ("overview".equals(id)) {
-                        assertEquals("Unknown", table.getValueAt(0, 1));
-                        assertEquals(70, table.getValueAt(2, 1));
-                    }
                 } else {
                     JTextArea notes = named(sheet, "character-notes", JTextArea.class);
                     assertTrue("Three editable lines must survive sheet chrome", ((JViewport)notes.getParent()).getExtentSize().height

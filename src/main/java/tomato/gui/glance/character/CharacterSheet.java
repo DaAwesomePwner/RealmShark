@@ -20,29 +20,28 @@ import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.KitButton;
 import tomato.gui.kit.KitLayouts;
-import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
-import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.Navigator;
 import tomato.gui.stats.Formatters;
-import tomato.realmshark.enums.CharacterClass;
 
 /**
- * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, a storage
- * warning and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear and Exalts are slots whose
- * content later tasks replace with {@link #setTab}; Death annotation shows only while the character is marked dead (spec §6.2).
+ * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
+ * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear and Exalts are slots whose
+ * content SheetPresenter sets ({@link #setTab}); Death annotation shows only while the character is marked dead (spec §6.2).
+ * - SheetPresenter reads the journal and builds the model off the EDT; {@link #loaded} shows each read. Until the read of the
+ *   opened key arrives the sheet says "Loading…" and nothing acts ({@link #ready}); a failed build shows a warn banner (spec §7).
  * - Snapshot evidence and the tab hint are provenance: Analyst mode only (spec §3.2).
- * - Mark dead, Restore alive and Save notes act only on the character this sheet has loaded ({@link #ready}).
  * - A notes draft is saved when another character opens and whenever the sheet hides (another card, Back, another Characters
  *   tab, closing the workspace); refreshes never replace it.
- * - An unreadable journal or a failed save shows a warn banner (spec §7).
- * While it shows, the sheet re-reads the journal on the EDT when its revision moves (checked once a second, by a timer that
- * runs only while the sheet shows), as the roster's side pane did. EDT only.
+ * - An unreadable journal or a failed save shows a warn banner.
+ * The refresh timer runs only while the sheet shows. EDT only.
  */
 public final class CharacterSheet extends JPanel {
     /** Title of the unavailable state, for a key the journal does not hold. */
     public static final String UNAVAILABLE = "This character is not in the journal";
+    /** The static loading line (spec §5.8: no animated loaders). */
+    static final String LOADING = "Loading…";
     private static final String TABS_CARD = "tabs", UNAVAILABLE_CARD = "unavailable";
 
     private final SheetContext context;
@@ -51,23 +50,27 @@ public final class CharacterSheet extends JPanel {
     private final CardLayout cards = new CardLayout();
     private final JPanel body = new JPanel(cards);
     private final KitButton back = KitButton.ghost("‹ Characters");
-    private final JLabel sprite = new JLabel();
-    private final JTextArea title = ContentStyle.wrappingText(" "), seen = ContentStyle.wrappingText(" ");
+    private final JTextArea seen = ContentStyle.wrappingText(" ");
     private final JTextArea hint = ContentStyle.wrappingText("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
+    /** The header row: SheetHeader's identity block (setIdentity) and Mark dead / Restore alive. */
+    private final JPanel identity = new JPanel(new BorderLayout(8, 0));
     /** Marking a character dead is destructive; Restore alive takes its place while the character is marked dead. */
     private final KitButton death = KitButton.danger("Mark dead"), restore = KitButton.secondary("Restore alive");
     private final KitButton saveNotes = KitButton.secondary("Save notes");
+    /** "Loading…" until the opened character's read arrives; a failed build in the warn tone. */
+    private final Banner status = new Banner("character-sheet-status");
     /** The journal cannot be read, or its last save failed. */
     private final Banner storage = new Banner("character-sheet-storage");
     private final JTextArea notes = new JTextArea(3, 30);
-    private final DefaultTableModel statModel = model("Stat", "Base", "Cap", "Potions to max", "Field evidence");
     private final DefaultTableModel exaltModel = model("Stat", "Level", "Completions", "Next tier");
     private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
-    private final JScrollPane statTable, exaltTable;
+    private final JScrollPane exaltTable;
     private final CharacterEquipmentPanel equipment = new CharacterEquipmentPanel();
     private final CharacterPlanningPanel planning;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
+    /** Header identity and the Overview, Gear, Exalts and Build tabs (Tasks 5–8), built off the EDT. */
+    private final SheetPresenter presenter;
     private Runnable backAction = () -> { };
     /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
     private String key, filledKey, loadedKey;
@@ -87,34 +90,18 @@ public final class CharacterSheet extends JPanel {
         back.setName("character-sheet-back"); back.setToolTipText("Back to the character list");
         back.getAccessibleContext().setAccessibleName("Back to Characters");
         back.addActionListener(e -> backAction.run());
-        sprite.setName("character-sheet-sprite");
-        title.setName("character-sheet-title"); ContentStyle.font(title, Type.emphasis());
         death.setName("character-sheet-death"); restore.setName("character-sheet-restore"); saveNotes.setName("character-notes-save");
         restore.setVisible(false);
         seen.setName("character-snapshot-evidence"); hint.setName("character-sheet-hint");
+        status.setVisible(false);
         storage.setTone(Tokens.Tone.WARN); storage.setVisible(false);
         JPanel backRow = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0)); backRow.add(back);
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, Tokens.XS, 0)); actions.add(death); actions.add(restore);
-        JPanel identity = new JPanel(new BorderLayout(8, 0));
-        identity.add(sprite, BorderLayout.WEST); identity.add(title, BorderLayout.CENTER); identity.add(actions, BorderLayout.EAST);
+        identity.add(actions, BorderLayout.EAST); // SheetHeader takes the center (setIdentity)
         JPanel header = new JPanel(new BorderLayout(0, 4)); header.setName("character-sheet-header");
         header.add(backRow, BorderLayout.NORTH); header.add(identity, BorderLayout.CENTER);
-        header.add(KitLayouts.stack(Tokens.XS, storage, seen), BorderLayout.SOUTH);
+        header.add(KitLayouts.stack(Tokens.XS, status, storage, seen), BorderLayout.SOUTH);
 
-        JTable stats = table(statModel);
-        stats.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell() {
-            @Override public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
-                super.getTableCellRendererComponent(t, v, s, f, row, col);
-                setHorizontalAlignment(RIGHT);
-                if (!s) setForeground(t.getForeground());
-                if (v instanceof Integer) {
-                    if ((Integer)v == 0) { setText("Maxed"); if (!s) setForeground(ContentStyle.color("mint")); }
-                    else if (!s) setForeground(ContentStyle.color("violet"));
-                }
-                return this;
-            }
-        });
-        statTable = ContentStyle.tableScroll(stats, 3);
         exaltTable = ContentStyle.tableScroll(table(exaltModel), 3);
         JPanel notePanel = new JPanel(new BorderLayout(8, 8)); notes.setLineWrap(true); notes.setWrapStyleWord(true);
         notes.setName("character-notes"); notes.setFont(ContentStyle.body()); notes.getAccessibleContext().setAccessibleName("Character notes");
@@ -125,7 +112,7 @@ public final class CharacterSheet extends JPanel {
             }
         };
         notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH);
-        tabs.add("overview", "Overview", slot("overview", statTable))
+        tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
             .add("gear", "Gear", slot("gear", equipment))
             .add("exalts", "Exalts", slot("exalts", exaltTable))
             .add("goals", "Goals", planning)
@@ -170,19 +157,28 @@ public final class CharacterSheet extends JPanel {
             if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); saveDraft(); }
         });
         fill();
+        presenter = new SheetPresenter(this, context); // after every tab exists: it sets the identity and the tabs it owns
     }
 
     @Override public void removeNotify() { saveDraft(); timer.stop(); super.removeNotify(); }
 
     /**
-     * Shows one character. If the key differs, the previous character's changed notes are saved first. A non-null tab is
-     * explicit navigation: it is shown if hidden, then selected. A key the journal does not hold shows the unavailable state.
+     * Shows one character. A different key first saves the previous character's changed notes and clears everything shown, so
+     * nothing of that character stays on screen or acts while this one loads. A non-null tab is explicit navigation: it is shown
+     * if hidden, then selected. A key the journal does not hold shows the unavailable state once its read arrives.
      */
     public void open(String key, String tab) {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open the character sheet on the EDT");
-        if (!Objects.equals(this.key, key)) saveDraft();
-        this.key = key;
-        reload(true);
+        if (!Objects.equals(this.key, key)) {
+            saveDraft();
+            this.key = key;
+            record = null; loadedKey = null;
+            fill();
+            tabs.refreshConditions();
+            shown();
+            status.setTone(Tokens.Tone.NEUTRAL); status.setText(LOADING); status.setVisible(true);
+        }
+        presenter.open(key);
         if (tab != null) { tabs.show(tab); tabs.select(tab); }
     }
     public String key() { return key; }
@@ -214,17 +210,17 @@ public final class CharacterSheet extends JPanel {
         if (slot == null) throw new IllegalArgumentException("Not a replaceable sheet tab: " + id);
         slot.removeAll(); slot.add(content, BorderLayout.CENTER); slot.revalidate(); slot.repaint();
     }
-    /** The moved stat-maxing table (Task 5 keeps it in Analyst). */
-    JComponent statTable() { return statTable; }
+    /** Puts the header's identity block (SheetHeader) beside Mark dead; the back link, banners and snapshot evidence stay. */
+    void setIdentity(JComponent value) { identity.add(value, BorderLayout.CENTER); identity.revalidate(); identity.repaint(); }
     /** The moved 28-slot equipment table (Task 6 keeps it in Analyst). */
     CharacterEquipmentPanel equipmentPanel() { return equipment; }
     /** The moved class-exalts table (Task 7 replaces it). */
     JComponent exaltTable() { return exaltTable; }
 
-    /** Re-reads the journal when its revision or the definitions moved, then advances the snapshot age. EDT; skipped while hidden. */
+    /** Asks the presenter for a new read when a token moved, then advances the snapshot age. EDT; skipped while hidden. */
     public void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
-        if (key != null && (isShowing() || !isDisplayable())) reload(false);
+        if (key != null && (isShowing() || !isDisplayable())) { presenter.refresh(); shown(); }
     }
 
     private JPanel slot(String id, JComponent content) {
@@ -233,34 +229,25 @@ public final class CharacterSheet extends JPanel {
         return slot;
     }
 
-    /** Reads the journal (deep copies) when forced or when its revision or the definitions moved; the shown state refreshes always. */
-    private void reload(boolean force) {
-        RosterDefinitions next = context.definitions().get();
-        CharacterJournal journal = context.journal();
-        CharacterRecord read = null;
-        List<CharacterRecord> all = null;
-        List<AccountRecord> known = null;
-        long at;
-        synchronized (journal) {
-            at = journal.revision();
-            if (force || at != revision || next != definitions) {
-                read = key == null ? null : journal.characterCopy(key); all = journal.characters(); known = journal.accounts();
-            }
-        }
-        if (all != null) loaded(key, read, all, known, next, at); else shown();
-    }
-
     /**
-     * Shows one journal read made for {@code forKey}; a read for any other key is ignored. The tables, notes and actions refill
-     * only when the character, the journal revision or the definitions changed. The Death annotation tab follows the dead flag.
+     * Shows one journal read the presenter made for {@code forKey} off the EDT; a read for any other key is ignored. The tables,
+     * notes and actions refill only when the character, the journal revision or the definitions changed. The Death annotation
+     * tab follows the dead flag.
      */
     void loaded(String forKey, CharacterRecord read, List<CharacterRecord> all, List<AccountRecord> known, RosterDefinitions defs, long at) {
         if (!Objects.equals(forKey, key)) return;
         boolean changed = !Objects.equals(forKey, loadedKey) || at != revision || defs != definitions;
         record = read; records = all; accounts = known; definitions = defs; revision = at; loadedKey = forKey;
+        status.setVisible(false);
         if (changed) fill();
         tabs.refreshConditions();
         shown();
+    }
+
+    /** A build failed (spec §7: never silent): a warn banner; nothing acts until a later build shows this character. */
+    void failed(RuntimeException failure) {
+        String reason = failure.getMessage() == null || failure.getMessage().isBlank() ? failure.getClass().getSimpleName() : failure.getMessage();
+        status.setTone(Tokens.Tone.WARN); status.setText("This character could not be shown: " + reason); status.setVisible(true);
     }
 
     /** On every refresh: the snapshot age (time advances after capture stops), the storage warning, the death panel and Goals. */
@@ -291,7 +278,7 @@ public final class CharacterSheet extends JPanel {
 
     private void fill() {
         CharacterRecord r = record;
-        statModel.setRowCount(0); exaltModel.setRowCount(0); metadataModel.setRowCount(0);
+        exaltModel.setRowCount(0); metadataModel.setRowCount(0);
         equipment.showRecord(r, definitions);
         actions();
         cards.show(body, ready() && r == null ? UNAVAILABLE_CARD : TABS_CARD);
@@ -299,24 +286,14 @@ public final class CharacterSheet extends JPanel {
         if (r == null) { notes.setText(""); filledKey = null; }
         else if (!r.key.equals(filledKey)) { notes.setText(r.notes); filledKey = r.key; }
         if (r == null) {
-            title.setText(key == null ? "Select a character" : "Character unavailable"); sprite.setIcon(null);
             seen.setToolTipText(null);
             return;
         }
-        title.setText((r.name == null || r.name.isEmpty() ? "" : r.name + " · ") + className(r.classId) + " #" + r.characterId
-            + " · " + (r.level == null ? "Level unknown" : "Level " + r.level) + (r.dead ? " • Marked dead manually" : ""));
-        sprite.setIcon(Sprites.sprite(r.skin == null || r.skin == 0 ? r.classId : r.skin, 28));
-        sprite.getAccessibleContext().setAccessibleName(className(r.classId));
         restore.setText(r.observedAgainAt > 0 ? "Observed again—restore?" : "Restore alive");
         seen.setToolTipText(r.source);
         String[] fields = {"class", "level", "skin", "fame", "seasonal", "created"};
         Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
         for (int i = 0; i < fields.length; i++) metadataModel.addRow(new Object[]{fields[i], unknown(values[i]), evidence(r, fields[i], values[i] != null)});
-        for (int i = 0; i < 8; i++) {
-            Integer cap = definitions.cap(r.classId, i);
-            statModel.addRow(new Object[]{CharacterJournal.STATS[i], unknown(r.stats[i]), unknown(cap),
-                cap == null || r.stats[i] == null ? "Unknown" : CharacterJournal.potions(r.stats[i], cap, i), evidence(r, "stat." + i, r.stats[i] != null)});
-        }
         int[] exalt = null;
         for (AccountRecord a : accounts) if (a.key.equals(r.account)) exalt = a.exalts.get(r.classId);
         for (int i = 0; i < 8; i++) {
@@ -349,7 +326,6 @@ public final class CharacterSheet extends JPanel {
     }
     private static String next(int count) { for (int goal : new int[]{5, 15, 30, 50, 75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }
     private static Object unknown(Object value) { return value == null ? "Unknown" : value; }
-    private static String className(int id) { String name = CharacterClass.getName(id); return name == null ? "Class " + id : name; }
     private static String date(long time) { return time <= 0 ? "Unknown" : Formatters.formatTimestamp(time); }
     private static DefaultTableModel model(String... columns) { return new DefaultTableModel(columns, 0) { @Override public boolean isCellEditable(int row, int col) { return false; }
         @Override public Class<?> getColumnClass(int col) { for (int i = 0; i < getRowCount(); i++) { Object v = getValueAt(i, col); if (v != null) return v instanceof Number ? v.getClass() : String.class; } return String.class; }

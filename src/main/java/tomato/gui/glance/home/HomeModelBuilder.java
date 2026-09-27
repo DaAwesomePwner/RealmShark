@@ -38,6 +38,9 @@ public final class HomeModelBuilder {
 
     private HomeModelBuilder() {}
 
+    /** Short canonical stat label: LIFE, MANA, ATT, DEF, SPD, DEX, VIT, WIS (the character sheet uses Home's wording). */
+    public static String statLabel(int index) { return STAT_LABELS[index]; }
+
     /**
      * {@code live} is LiveCharacter.current() with {@code lastSeenAt} 0, or (not in game) LiveCharacter.lastKnown() with
      * LiveCharacter.lastSeenAt() and {@code boundary}, LiveCharacter.lastBoundary(); see {@link #stillCurrent}.
@@ -61,7 +64,7 @@ public final class HomeModelBuilder {
      * True while the live character is in game ({@code lastSeenAt} 0) or was cleared by a TRANSIENT boundary at most
      * MAP_CHANGE_GRACE_MILLIS ago; a capture stop, another account or character, or an unknown reason ends it at once.
      */
-    static boolean stillCurrent(long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
+    public static boolean stillCurrent(long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
         return lastSeenAt <= 0 || boundary == LiveCharacter.Boundary.TRANSIENT && now - lastSeenAt <= MAP_CHANGE_GRACE_MILLIS;
     }
 
@@ -112,12 +115,12 @@ public final class HomeModelBuilder {
             DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence);
     }
 
-    static int[] potionsNeeded(int[] base, int[] caps) {
+    public static int[] potionsNeeded(int[] base, int[] caps) {
         int[] need = new int[8];
         for (int i = 0; i < 8; i++) need[i] = base[i] < 0 || caps[i] < 0 ? -1 : CharacterJournal.potions(base[i], caps[i], i);   // -1 = unknown
         return need;
     }
-    static int maxed(int[] need) { int count = 0; for (int n : need) { if (n < 0) return -1; if (n == 0) count++; } return count; }
+    public static int maxed(int[] need) { int count = 0; for (int n : need) { if (n < 0) return -1; if (n == 0) count++; } return count; }
     static String needsLine(int[] need, int maxed) {
         if (maxed < 0 || maxed == 8) return "";
         List<String> parts = new ArrayList<>();
