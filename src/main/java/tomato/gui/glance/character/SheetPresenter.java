@@ -29,6 +29,7 @@ final class SheetPresenter {
     private final SheetContext context;
     private final SheetHeader header = new SheetHeader();
     private final OverviewTab overview;
+    private final GearTab gear;
     private String key;
     private Token token;
     private long generation;
@@ -48,6 +49,8 @@ final class SheetPresenter {
         overview = new OverviewTab(context.mode());
         sheet.setIdentity(header);
         sheet.setTab("overview", SheetViews.scroll(overview));
+        gear = new GearTab(context.mode());
+        sheet.setTab("gear", SheetViews.scroll(gear));
     }
 
     /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
@@ -132,6 +135,7 @@ final class SheetPresenter {
         Read read = built.read();
         sheet.loaded(built.key(), read.record(), read.records(), read.accounts(), built.definitions(), read.revision());
         show(built.model());
+        gear.analyst(read.record(), built.definitions());
     }
 
     /** EDT: the header and the tabs this presenter owns show {@code value}; null (loading, or not in the journal) clears them. */
@@ -139,5 +143,6 @@ final class SheetPresenter {
         model = value;
         header.apply(value == null ? null : value.identity());
         overview.apply(value);
+        gear.apply(value == null ? null : value.gear());
     }
 }

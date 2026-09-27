@@ -12,7 +12,6 @@ import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.FieldCapture;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.character.CharacterDeathPanel;
-import tomato.gui.character.CharacterEquipmentPanel;
 import tomato.gui.character.CharacterPlanningPanel;
 import tomato.gui.kit.Banner;
 import tomato.gui.kit.CustomizableTabs;
@@ -65,7 +64,6 @@ public final class CharacterSheet extends JPanel {
     private final DefaultTableModel exaltModel = model("Stat", "Level", "Completions", "Next tier");
     private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
     private final JScrollPane exaltTable;
-    private final CharacterEquipmentPanel equipment = new CharacterEquipmentPanel();
     private final CharacterPlanningPanel planning;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
@@ -126,7 +124,7 @@ public final class CharacterSheet extends JPanel {
         };
         notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH);
         tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
-            .add("gear", "Gear", slot("gear", equipment))
+            .add("gear", "Gear", slot("gear", new JPanel())) // SheetPresenter sets the Gear tab
             .add("exalts", "Exalts", slot("exalts", exaltTable))
             .add("goals", "Goals", planning)
             .add("notes", "Notes", notePanel)
@@ -257,8 +255,6 @@ public final class CharacterSheet extends JPanel {
         tabs.select(pendingTab);
         if (pendingTab.equals(tabs.selectedId())) pendingTab = null;
     }
-    /** The moved 28-slot equipment table (Task 6 keeps it in Analyst). */
-    CharacterEquipmentPanel equipmentPanel() { return equipment; }
     /** The moved class-exalts table (Task 7 replaces it). */
     JComponent exaltTable() { return exaltTable; }
 
@@ -326,7 +322,6 @@ public final class CharacterSheet extends JPanel {
     private void fill() {
         CharacterRecord r = record;
         exaltModel.setRowCount(0); metadataModel.setRowCount(0);
-        equipment.showRecord(r, definitions);
         actions();
         cards.show(body, ready() && r == null ? UNAVAILABLE_CARD : TABS_CARD);
         // A refresh never replaces an unsaved draft; only a different character does.

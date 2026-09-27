@@ -55,6 +55,9 @@ public final class BuildEstimates {
 
         /** Build's default (in-combat) scenario over the copies. Costs a weapon lookup and an enchant decode: memoize per snapshot. */
         public Estimates estimate() { return of(player, pet, pets, false); }
+
+        /** The detached player's equipped enchant evidence; decoding the copy is safe on any thread. */
+        public ParseEnchants.EquippedCapture enchants() { return ParseEnchants.equippedCapture(player); }
     }
 
     /** Copies only the build statistics on the producer; combat histories are not needed by Build or Home. */

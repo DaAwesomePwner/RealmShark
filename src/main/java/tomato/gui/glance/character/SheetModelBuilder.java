@@ -12,6 +12,7 @@ import tomato.gui.glance.home.HomeModelBuilder;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.modern.DisplayFormat;
 import tomato.planning.PlanningMetadata;
+import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.CharacterClass;
 
 /**
@@ -93,14 +94,23 @@ public final class SheetModelBuilder {
             vault == null ? 0 : account.vaultPotionsObservedAt, List.copyOf(needs), unknown, maxed, List.copyOf(evidence));
     }
 
-    /** Saved slots, with the live equipped four while this character plays. Enchant rarity arrives in Task 6. */
+    /** Saved slots, with the live equipped four and their enchant rarity while this character plays. */
     private static SheetModel.Gear gear(CharacterRecord r, LiveCharacter.Snapshot live, boolean playing) {
         int[] equipped = playing ? live.equipment() : null, slots = new int[28];
         for (int i = 0; i < 28; i++) {
             Integer item = i < 4 && equipped != null ? Integer.valueOf(equipped[i]) : r.equipment != null && i < r.equipment.length ? r.equipment[i] : null;
             slots[i] = item == null ? -1 : item > 0 ? item : 0;
         }
-        return new SheetModel.Gear(list(slots), r.hasBackpack, null);
+        return new SheetModel.Gear(list(slots), r.hasBackpack, playing ? enchants(live) : null);
+    }
+
+    /** Unlocked enchant slots of the 4 equipped items from the live snapshot's detached inputs; -1 where not decodable. */
+    static List<Integer> enchants(LiveCharacter.Snapshot live) {
+        if (live.build() == null) return null;
+        ParseEnchants.EquippedCapture capture = live.build().enchants();
+        int[] slots = new int[4];
+        for (int i = 0; i < 4; i++) slots[i] = capture.unlockedSlots(i);
+        return list(slots);
     }
 
     /** Exalt arrays are in RealmCharacter order (dex, spd, vit, wis, def, atk, mana, life); EXALT_ORDER maps canonical stats into them. */

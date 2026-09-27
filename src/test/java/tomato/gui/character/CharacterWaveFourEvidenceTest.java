@@ -44,7 +44,9 @@ public class CharacterWaveFourEvidenceTest {
                     ContentStyle.reveal(goals, goals.getCellRect(0, 0, true)); capture(frame, "goals-populated");
                     frame.setSize(680, 520); frame.validate(); ContentStyle.reveal(goals, goals.getCellRect(0, 0, true)); capture(frame, "goals-compact");
                     named(panel, "planning-7", JTextField.class).setText("no-matching-fixture"); assertEquals(0, goals.getRowCount()); capture(frame, "goals-empty-search"); named(panel, "planning-7", JTextField.class).setText("");
-                    tabs.setSelectedIndex(tabs.indexOfTab("Gear")); JTable gear = named(panel, "character-equipment", JTable.class); assertEquals(28, gear.getRowCount()); ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
+                    tabs.setSelectedIndex(tabs.indexOfTab("Gear")); JTable gear = named(panel, "character-equipment", JTable.class);
+                    tomato.gui.activity.SnapshotTestSupport.await(() -> gear.getRowCount() == 28); // the Gear tab's slot table fills off the EDT
+                    ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
                     tabs.setSelectedIndex(tabs.indexOfTab("Death annotation")); JTextField occurred = named(panel, "death-occurred", JTextField.class); ContentStyle.reveal(occurred, new Rectangle(0, 0, occurred.getWidth(), occurred.getHeight())); capture(frame, "death-unavailable-link");
                     ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 22)); ContentStyle.applyFontDefaults(); ContentStyle.refreshFonts(frame); ui.UiTestLayout.settle(frame);
                     float metadataSize = ContentStyle.metadata(ContentStyle.body()).getSize2D();

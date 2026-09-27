@@ -212,6 +212,10 @@ public class CharacterJournalLayoutTest {
                     assertTrue(named(sheet, "character-overview-value-2", JLabel.class).getText().startsWith("70"));
                     reachable(named(sheet, "character-overview-value-7", JLabel.class));
                     reachable(named(sheet, "character-overview-exalts", JLabel.class));
+                } else if ("gear".equals(id)) {
+                    // The Gear tab: the equipped slots and the last inventory slot scroll into view.
+                    reachable(named(sheet, "character-gear-slot-0", JComponent.class));
+                    reachable(named(sheet, "character-gear-slot-11", JComponent.class));
                 } else if (!"notes".equals(id)) {
                     JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
                     assertRows(table);
