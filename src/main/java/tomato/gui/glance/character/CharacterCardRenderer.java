@@ -62,6 +62,9 @@ public final class CharacterCardRenderer extends JComponent implements ListCellR
         return new Dimension(width + GAP, height + GAP);
     }
 
+    /** The kit TileList sizes its fixed cells from the renderer's preferred size: the cell. */
+    @Override public Dimension getPreferredSize() { return cellSize(); }
+
     @Override public Component getListCellRendererComponent(JList<? extends CharacterCardModel> list, CharacterCardModel value, int index,
                                                             boolean isSelected, boolean cellHasFocus) {
         card = value;
