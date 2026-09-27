@@ -14,6 +14,8 @@ public class ItemSlot extends JComponent implements Accessible {
     @Override public AccessibleContext getAccessibleContext() {
         if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
             @Override public AccessibleRole getAccessibleRole() { return AccessibleRole.LABEL; }
+            /** Resolved when asked, so a slot filled before assets loaded reads its item's name afterwards. */
+            @Override public String getAccessibleName() { return accessibleName != null ? accessibleName : text(); }
         };
         return accessibleContext;
     }
@@ -29,25 +31,50 @@ public class ItemSlot extends JComponent implements Accessible {
         setUnknown();
     }
 
+    /** The description last announced to assistive technology; a refill that reads the same announces nothing. */
+    private String described;
+
     public void setItem(int objectId, String tierLabel) {
         if (objectId <= 0) { setEmpty(); return; }
-        state = State.ITEM;
-        itemId = objectId;
-        tier = tierLabel == null ? "" : tierLabel;
-        String name = Sprites.name(objectId);
-        describe(tier.isEmpty() ? name : name + " · " + tier);
+        show(State.ITEM, objectId, tierLabel == null ? "" : tierLabel);
     }
 
-    public void setEmpty() { state = State.EMPTY; itemId = -1; tier = ""; describe("Empty slot"); }
-    public void setUnknown() { state = State.UNKNOWN; itemId = -1; tier = ""; describe("Slot not captured"); }
+    public void setEmpty() { show(State.EMPTY, -1, ""); }
+    public void setUnknown() { show(State.UNKNOWN, -1, ""); }
     public State state() { return state; }
     public int itemId() { return itemId; }
 
-    private void describe(String text) {
-        setToolTipText(text);
-        getAccessibleContext().setAccessibleName(text);
-        repaint();
+    /** The slot's description with the item's current name; "Unknown item #id" only while assets cannot name it. */
+    private String text() {
+        switch (state) {
+            case ITEM: { String name = Sprites.name(itemId); return tier.isEmpty() ? name : name + " · " + tier; }
+            case EMPTY: return "Empty slot";
+            default: return "Slot not captured";
+        }
     }
+
+    /** Refilling a slot with what it already shows repaints and announces nothing (pages refresh slots every second). */
+    private void show(State next, int id, String label) {
+        boolean redraw = state != next || itemId != id || !tier.equals(label);
+        state = next;
+        itemId = id;
+        tier = label;
+        describe();
+        if (redraw) repaint();
+    }
+
+    /** Registers the tooltip and announces a changed description; both texts are resolved again on every request. */
+    private void describe() {
+        String text = text();
+        super.setToolTipText(text);
+        if (!text.equals(described)) {
+            String previous = described;
+            described = text;
+            getAccessibleContext().firePropertyChange(AccessibleContext.ACCESSIBLE_NAME_PROPERTY, previous, text);
+        }
+    }
+
+    @Override public String getToolTipText() { return text(); }
 
     @Override public Dimension getPreferredSize() { return new Dimension(size + 6, size + 6); }
     @Override public Dimension getMinimumSize() { return getPreferredSize(); }
