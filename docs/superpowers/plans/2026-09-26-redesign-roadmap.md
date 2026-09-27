@@ -73,8 +73,8 @@ Outline:
 2. Character sheet (`Destination.CHARACTER_SHEET`), with header and `CustomizableTabs("character")`: Overview, Gear, Exalts, Pet, Fame, Build (from P2), Goals, Notes, Snapshot evidence (Analyst), Death annotation (dead characters only).
 3. Exalts grid: one tile per observed class, header tiles for loot boost and fully exalted classes, class drill-down with `PipMeter`s, "N to next tier" and "where to earn it" (`exaltationConfig.xml`).
 4. Pets gallery with rarity, family and ability bars; the feeding calculator goes in a drawer.
-5. Journal v4, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
-6. Evidence and journal migration tests (v3 → v4 load, partial rendering).
+5. Journal v5, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
+6. Evidence and journal migration tests (v4 → v5 load, partial rendering).
 7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar). Deferred from P3a's plan review (2026-09-27) to P3b: the sheet Overview's pet card (it needs P3b's pet names and rarity) and Goals restyled as cards with progress (P3a moves the Goals tab unchanged).
 8. Status (2026-09-27): P3a implements items 1, 2 (without the Pet and Fame tabs), 5 (as journal version 5) and 7 (except the pet rarity chip). P3b covers items 3 and 4, the Pet and Fame tabs, the pet rarity chip, the Overview pet card and Goals restyled as cards with progress.
 

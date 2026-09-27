@@ -412,7 +412,7 @@ Restyle only: channel tabs become segmented pills with counts; FilterBar (search
 - Migration of the saved `theme` property: Darcula, HighContrast Dark, Solarized Dark → Violet Dark; IntelliJ, Solarized Light → Violet Light; HighContrast Light → Violet Light + Increase contrast. HighContrast Dark also enables Increase contrast.
 - Only `TomatoMenuBar` and `TomatoGUI` reference Darklaf today; theme-switch tests are updated accordingly.
 
-### 8.3 Save more character data (journal version 4)
+### 8.3 Save more character data (journal version 5)
 
 All new fields are optional. Old records load unchanged and render as partial. No backfill guesses.
 - **Version 4 (P2)** added the `AccountRecord` live fields.
