@@ -73,3 +73,29 @@ Final-source S9 measurements (50 samples, median / p95 / max µs):
 Final-source archive benchmark: cold 34 ms, warm 32 ms. S1 geometry remains as recorded above. All 16 Home captures and both shell captures were regenerated; the changed empty/populated layouts were inspected again. Preserved follow-up XML: build/p2/evidence/review-fixes/test-results/test/. Full-suite XML/HTML: build/p2/evidence/final-full/.
 
 The first review-fix runner invocation put --tests after shadowJar, which Gradle rejected during configuration; no checks ran. The corrected invocation passed (review-fixes-retry.log).
+
+## Post-review fixes (Claude, before merge)
+
+A review of PR head 0a11930 found seven issues. Each one was fixed test-first: the new or extended test failed on 0a11930, either on an assertion or at compile time where the fix adds API (NowCard.tick, LiveCharacter.Boundary, Totals.runsRecorded). The fix was then made and the test passed. Fix 2 was also checked by reverting its grace rule, and both new tests for it failed.
+
+1. The Now card's elapsed time moved in 10 s steps while idle in a run. HomePage now runs a 1 s EDT timer that calls NowCard.tick, which updates only the elapsed label and only when its text changes. The pop age and the spoken description stay on the 10 s tick. The timer runs only while Home is showing, not minimized and not closed, and while the applied Now is LIVE with a start time (a53a861).
+2. The previous character stayed LIVE for 5 s after a capture stop or an identity change. Each clear now records a LiveCharacter.Boundary:
+   - TRANSIENT: a map change, a HELLO with the same credential, a transport reset, or a CREATE or publication for the same character. Only these get the 5 s grace.
+   - IDENTITY: a different known account or character, a new HELLO credential, or an account change seen without HELLO.
+   - STOPPED: capture stop.
+   A later IDENTITY or STOPPED replaces a TRANSIENT reason. The boundary reaches HomeModelBuilder.hero through LiveHomeSources (be3d961).
+3. When a re-read failed, the last good archive read was kept only for the window read most recently. HomeRefresher now keeps the last good read and its time for each window. A failed re-read shows that window's own totals as STALE, and UNAVAILABLE appears only if that window never had a good read (f10bd7d).
+4. Runs showed "0" when no runs had been recorded. HomeArchive.Totals.runsRecorded is true when any runs-module visit, dungeon or not, was saved in the window's sessions. Without one, TodayTiles shows Runs as unknown with the reason "No runs were saved for this period" (5180541).
+5. A LIVE hero showed saved account values without a label. A LIVE hero's account line now uses live values only. Saved values fill gaps only on a STALE hero, which is already labeled (816c95f).
+6. After a restart, Home could show the wrong last-known character. CharacterJournal.mostRecentCharacter now ranks by lastObservedAlive, then lastSeen, then file order. A character-list merge sets lastSeen for every character, so lastSeen alone is not reliable (a9d738c).
+7. Opening Build with Alt+7, the compact menu's destination listener or Back sent focus to the hidden nav-6 row. For an unlisted page, focus now moves to the page's first focusable component in traversal order, and falls back to the page container, workspace-cards (a57a88d).
+
+Tests run: one serialized Gradle invocation with build dir build/p2fix, covering 28 classes. Totals from build/p2fix/test-results/test are 188 tests, 0 failures, 0 errors and 0 skipped.
+
+- tomato.gui.glance.home.*: 11 classes, 70 tests.
+- tomato.gui.modern.*: 7 classes, 38 tests.
+- tomato.backend.data: LiveCharacterTest, CharacterJournalV4Test, CharacterJournalTest, CharacterFreshnessTest, and AccountMetadataTest (added because the HELLO and account-reset path changed).
+- ui: WorkspaceShellNavigationTest, WorkspaceUiTest and HomeEvidenceTest.
+- tomato.gui.chat.ShellHookIntegrationTest and tomato.ShellRouteRegistrationTest.
+
+The full suite and the JAR smoke were not re-run for these focused fixes, following the current review and validation policy.
