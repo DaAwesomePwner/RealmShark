@@ -632,9 +632,11 @@ public final class CharacterJournal implements AutoCloseable {
                 for (CharacterRecord r : document.characters) snapshot.characters.add(copy(r));
                 document.accounts.forEach((key, value) -> snapshot.accounts.put(key, copy(value)));
             }
+            // Every failure below is caught, RuntimeExceptions included (an invalid path, say): one escaping save() would cancel
+            // the scheduled saver for good, silently. A failure keeps dirty (and backupPending), so the next save retries.
             try {
                 backupOnce(); // before version 5 first replaces an older file
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 // Name the backup path: a stuck/invalid journal.v4.bak is a different, more diagnosable problem than a plain
                 // write failure, and "check access to Characters/journal.json" would point at the wrong file.
                 // A failed backup leaves the older file untouched and backupPending/dirty set, so the saver retries both.
@@ -653,7 +655,7 @@ public final class CharacterJournal implements AutoCloseable {
                     saveFailed = false;
                     storageStatus = "Saved locally • Characters/journal.json";
                 }
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 synchronized (this) { saveFailed = true; storageStatus = "Save failed • check access to Characters/journal.json"; }
             }
         }

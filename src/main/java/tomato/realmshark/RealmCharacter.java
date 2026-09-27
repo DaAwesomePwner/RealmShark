@@ -100,13 +100,14 @@ public class RealmCharacter {
      * group has no counts or a count below 5.
      *
      * @param counts      class id to its 8 completion counts in RealmCharacter order (dex, spd, vit, wis, def, atk, mana, life).
-     * @param weaponGroup the class ids sharing the class's weapon ({@code CharacterClass.weaponClasses}); never null.
+     * @param weaponGroup the class ids sharing the class's weapon ({@code CharacterClass.weaponClasses}); never null unless
+     *                    fully exalted (35 needs no weapon group, as before P3b).
      */
     public static int exaltLootBonus(Map<Integer, int[]> counts, int[] weaponGroup) {
-        Objects.requireNonNull(weaponGroup, "weaponGroup");
         if (fullyExalted(counts)) {
             return 35;
         }
+        Objects.requireNonNull(weaponGroup, "weaponGroup");
         int bonus = 25;
         for (int c : weaponGroup) {
             int[] ints = counts.get(c);

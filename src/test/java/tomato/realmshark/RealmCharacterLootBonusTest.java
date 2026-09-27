@@ -54,9 +54,29 @@ public class RealmCharacterLootBonusTest {
         assertFalse(RealmCharacter.fullyExalted(new TreeMap<>()));
     }
 
-    @Test public void aMissingWeaponGroupIsAnError() {
-        try { RealmCharacter.exaltLootBonus(classes(100, 19, all(75)), null); fail("A null weapon group must throw"); }
+    @Test public void aMissingWeaponGroupIsAnErrorUnlessFullyExalted() {
+        try { RealmCharacter.exaltLootBonus(classes(100, 18, all(75)), null); fail("A null weapon group must throw"); }
         catch (NullPointerException expected) { }
+        assertEquals("Fully exalted needs no weapon group", 35, RealmCharacter.exaltLootBonus(classes(100, 19, all(75)), null));
+    }
+
+    /** As before P3b: a fully exalted live account gets 35% even when the selected assets give no weapon groups. */
+    @Test public void theLiveFormGivesThirtyFiveWhenFullyExaltedWithoutAssetWeaponGroups() throws Exception {
+        TreeMap<Integer, int[]> previousExalts = RealmCharacter.exalts;
+        Field weapons = CharacterClass.class.getDeclaredField("WEAPON_CLASSES"); weapons.setAccessible(true);
+        Object previousWeapons = weapons.get(null);
+        try {
+            weapons.set(null, new TreeMap<Integer, int[]>());   // no class data in the selected assets
+            RealmCharacter.exalts = new TreeMap<>(classes(9001, 19, all(75)));
+            assertNull(CharacterClass.weaponClasses(9001));
+            assertEquals(35, RealmCharacter.exaltLootBonus(9001));
+            RealmCharacter.exalts = new TreeMap<>(classes(9001, 18, all(75)));
+            try { RealmCharacter.exaltLootBonus(9001); fail("Not fully exalted and no weapon group: callers must check the group first"); }
+            catch (NullPointerException expected) { }
+        } finally {
+            RealmCharacter.exalts = previousExalts;
+            weapons.set(null, previousWeapons);
+        }
     }
 
     @Test public void theLiveFormDelegatesToTheLiveCountsAndTheAssetWeaponGroup() throws Exception {

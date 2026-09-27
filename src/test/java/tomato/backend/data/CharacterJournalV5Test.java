@@ -309,6 +309,30 @@ public class CharacterJournalV5Test {
         assertEquals("Unsaved changes after a success read as saving", "Saving locally…", j.storageStatus());
     }
 
+    /**
+     * A RuntimeException from the store is a failed save like an IOException: save() never throws it (the scheduled saver would be
+     * cancelled for good), the status says so, and the change stays dirty so the next save retries. The backup copy has no
+     * injectable seam, so only the write path is driven here.
+     */
+    @Test public void aRuntimeFailureInTheWriteIsAFailedSaveAndTheNextSaveRetries() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+        Path path = temp.newFolder().toPath().resolve("journal.json");
+        CharacterJournal j = new CharacterJournal(path, (target, json) -> {
+            if (fail.getAndSet(false)) throw new java.nio.file.InvalidPathException(target.getFileName().toString(), "Synthetic runtime failure");
+            Files.write(target, json.getBytes(StandardCharsets.UTF_8));
+        });
+        j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3)));
+        j.save();   // must not throw
+        assertTrue(j.readable());
+        assertNotNull("A runtime failure is a failed save", j.storageProblem());
+        assertEquals("The same text as a write IOException", "Save failed • check access to Characters/journal.json", j.storageProblem());
+        assertFalse("Nothing was written", Files.exists(path));
+        j.save();   // still dirty: retried
+        assertNull("The retry succeeds and clears the problem", j.storageProblem());
+        assertTrue(read(path).contains("\"version\": 5"));
+        assertEquals(Long.valueOf(30_000), new CharacterJournal(path).characterCopy(KEY).exp);
+    }
+
     @Test public void aNoPetRecordWithAnyPetValueLoadsAsUnknown() throws Exception {
         for (String value : new String[]{"\"skin\":100", "\"maxAbilityPower\":70", "\"abilityLevel\":[-1,5,-1]",
                 "\"abilityType\":[407,-1,-1]", "\"abilityPoints\":[-1,-1,0]"}) {
