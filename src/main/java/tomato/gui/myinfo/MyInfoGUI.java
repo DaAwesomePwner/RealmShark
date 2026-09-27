@@ -46,7 +46,7 @@ public class MyInfoGUI extends JPanel {
     private final JLabel count = new JLabel("No captured character");
 
     private static final String[] SLOT_NAMES = {"Weapon", "Ability", "Armor", "Ring"};
-    private static final float[] petRegenTimeMpHp = {
+    static final float[] petRegenTimeMpHp = {
         10.00f,
         9.35f,
         8.69f,
@@ -148,7 +148,7 @@ public class MyInfoGUI extends JPanel {
         1.04f,
         1.00f,
     };
-    private static final int[] petManaPerLevel = {
+    static final int[] petManaPerLevel = {
         1,
         1,
         1,
@@ -506,7 +506,7 @@ public class MyInfoGUI extends JPanel {
         MyInfoGUI view = INSTANCE;
         if (view == null || source == null || view.data != source
             || !source.isCurrentMyInfoSnapshot(identity, player, pet, availability)) return;
-        BuildSnapshot snapshot = new BuildSnapshot(identity, copyStats(player), copyStats(pet), availability);
+        BuildSnapshot snapshot = new BuildSnapshot(identity, BuildEstimates.copyStats(player), BuildEstimates.copyStats(pet), availability);
         synchronized (view.pendingLock) {
             if (!source.isCurrentMyInfoSnapshot(identity, player, pet, availability)
                 || identity.generation < view.latestGeneration) return;
@@ -539,21 +539,6 @@ public class MyInfoGUI extends JPanel {
         BuildSnapshot(TomatoData.MyInfoIdentity identity, Entity player, Entity pet, TomatoData.PetAvailability availability) {
             this.identity = identity; this.player = player; this.pet = pet; this.availability = availability;
         }
-    }
-
-    /** Copy only build statistics on the producer; combat histories are not needed by this view. */
-    private static Entity copyStats(Entity source) {
-        if (source == null) return null;
-        Entity copy = new Entity(null, source.id, 0); copy.objectType = source.objectType;
-        for (StatType type : StatType.values()) {
-            StatData value = source.stat.get(type);
-            if (value == null) continue;
-            StatData stat = new StatData();
-            stat.statType = value.statType; stat.statTypeNum = value.statTypeNum;
-            stat.statValue = value.statValue; stat.statValueTwo = value.statValueTwo;
-            stat.stringStatValue = value.stringStatValue; copy.stat.set(type, stat);
-        }
-        return copy;
     }
 
     private Double stat(Entity entity, StatType type) {
@@ -626,10 +611,13 @@ public class MyInfoGUI extends JPanel {
                 if (id != null && id >= 0) displayImg(icons[i], id.intValue());
                 String enchant = enchants.description(i);
                 add("Equipment", SLOT_NAMES[i], id, "item ID", item + (enchant.isEmpty() ? "" : "\n" + enchant));
-                if (i == 0 && id != null && id >= 0) weapon = Equip.get(id.intValue());
+                if (i == 0) weapon = BuildEstimates.weapon(player);
             }
             damage(weapon);
             recovery(enchants);
+            BuildEstimates.Estimates estimates = BuildEstimates.of(player, pet, petAvailability, outOfCombatCheck.isSelected());
+            summary[2].setText(estimates.weaponDps() == null ? "—" : format(estimates.weaponDps()));
+            summary[3].setText(estimates.mpPerSecond() == null ? "—" : format(estimates.mpPerSecond()));
             dust();
         } else status.setText("Enter the game during capture to see your build.");
         model.fireTableDataChanged();
@@ -654,8 +642,7 @@ public class MyInfoGUI extends JPanel {
             total = 0d;
             int index = 1;
             for (Bullet bullet : weapon.bullets) {
-                double dps = (bullet.min + bullet.max) / 2d * (exalt / 1000d) * (0.5 + atk / 50d)
-                    * bullet.numProj * (1.5 + 6.5 * dex / 75d) * bullet.rof;
+                double dps = BuildEstimates.projectileDps(bullet, atk, dex, exalt);
                 add("Damage", "Projectile group " + index++, dps, "dmg/sec",
                     DisplayFormat.formatInteger(bullet.numProj) + " projectiles • " + DisplayFormat.formatInteger(bullet.min) + "–" + DisplayFormat.formatInteger(bullet.max) + " base damage • "
                         + DisplayFormat.formatExact(bullet.rof) + "× rate of fire. " + assumptions);
@@ -668,7 +655,6 @@ public class MyInfoGUI extends JPanel {
         if (dex == null) missing.add("dexterity");
         if (exalt == null) missing.add("exaltation damage multiplier");
         add("Damage", "Weapon total", total, "dmg/sec", (total == null ? "Missing inputs: " + String.join(", ", missing) + ". " : "") + assumptions);
-        summary[2].setText(total == null ? "—" : format(total));
         double petDps = 0;
         int[] types = {406, 402, 404, 405};
         String[] names = {"Electric", "Attack close", "Attack mid", "Attack far"};
@@ -694,22 +680,19 @@ public class MyInfoGUI extends JPanel {
     private void recovery(ParseEnchants.EquippedCapture enchants) {
         Double wis = stat(player, StatType.WISDOM_STAT), maxMp = stat(player, StatType.MAX_MP_STAT),
             maxHp = stat(player, StatType.MAX_HP_STAT);
-        Double manaEnchant = null, hpEnchant = null;
+        Double hpEnchant = null;
         String mode = "Estimate scenario: " + (outOfCombatCheck.isSelected() ? "out of combat" : "in combat");
         String[] raw = enchants.completeCodes();
-        if (raw != null) {
-            if (maxMp != null) manaEnchant = (double) ParseEnchants.getManaRegenPerSecondFromEnchants(raw, maxMp.intValue(), outOfCombatCheck.isSelected());
-            if (maxHp != null) hpEnchant = (double) ParseEnchants.getLifeRegenPerSecondFromEnchants(raw, maxHp.intValue(), outOfCombatCheck.isSelected());
-        }
-        Double base = wis == null ? null : wis * .12;
+        Double manaEnchant = BuildEstimates.enchantMana(raw, maxMp, outOfCombatCheck.isSelected());
+        if (raw != null && maxHp != null) hpEnchant = (double) ParseEnchants.getLifeRegenPerSecondFromEnchants(raw, maxHp.intValue(), outOfCombatCheck.isSelected());
+        Double base = BuildEstimates.wisdomMana(wis);
         add("Recovery", "Wisdom mana recovery", base, "mana/sec", "Existing estimate: Wisdom × " + DisplayFormat.formatExact(.12) + ".");
         add("Recovery", "Enchant mana recovery", manaEnchant, "mana/sec", mode + " • Supported enchant effects; requires maximum mana. " + enchants.evidence());
         int level = getPetStat(408);
-        double petMana = level < 1 ? 0 : petManaPerLevel[level - 1] / (double) petRegenTimeMpHp[level - 1];
+        double petMana = BuildEstimates.petMana(level);
         if (level > 0) add("Pet", "Magic heal", petMana, "mana/sec", "Level " + DisplayFormat.formatInteger(level) + " • "
             + DisplayFormat.formatInteger(petManaPerLevel[level - 1]) + " mana every " + DisplayFormat.formatExact(petRegenTimeMpHp[level - 1]) + " sec.");
-        Double total = base == null || manaEnchant == null || petAvailability == TomatoData.PetAvailability.UNKNOWN
-            ? null : base + manaEnchant + petMana;
+        Double total = BuildEstimates.manaTotal(base, manaEnchant, petMana, petAvailability);
         List<String> missing = new ArrayList<>();
         if (wis == null) missing.add("wisdom not captured");
         if (maxMp == null) missing.add("maximum mana not captured");
@@ -719,7 +702,6 @@ public class MyInfoGUI extends JPanel {
             + enchants.evidence() + (missing.isEmpty() ? "" : " Missing inputs: " + String.join("; ", missing) + ".")
             + (petAvailability == TomatoData.PetAvailability.ABSENT ? " Explicitly no equipped pet: pet contribution 0."
                 : petAvailability == TomatoData.PetAvailability.PRESENT && level < 1 ? " Complete pet metadata has no active Magic Heal: pet contribution 0." : ""));
-        summary[3].setText(total == null ? "—" : format(total));
         add("Recovery", "Enchant health recovery", hpEnchant, "hp/sec", mode + " • Partial estimate only. Base Vitality recovery and pet Heal are not included. " + enchants.evidence());
     }
 
@@ -738,15 +720,7 @@ public class MyInfoGUI extends JPanel {
         catch (RuntimeException e) { return null; }
     }
 
-    private int getPetStat(int type) {
-        StatType[] types = {StatType.PET_FIRST_ABILITY_TYPE_STAT, StatType.PET_SECOND_ABILITY_TYPE_STAT, StatType.PET_THIRD_ABILITY_TYPE_STAT};
-        StatType[] powers = {StatType.PET_FIRST_ABILITY_POWER_STAT, StatType.PET_SECOND_ABILITY_POWER_STAT, StatType.PET_THIRD_ABILITY_POWER_STAT};
-        for (int i = 0; i < types.length; i++) {
-            Double ability = stat(pet, types[i]), level = stat(pet, powers[i]);
-            if (ability != null && ability == type && level != null && level >= 1 && level <= 100) return level.intValue();
-        }
-        return -1;
-    }
+    private int getPetStat(int type) { return BuildEstimates.petStat(pet, type); }
 
     private String pair(StatType current, StatType max) {
         Double a = stat(player, current), b = stat(player, max);
