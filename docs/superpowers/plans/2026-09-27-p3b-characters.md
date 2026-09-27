@@ -216,7 +216,7 @@ public record PetSummary(State state, Long instanceId, String name, Integer skin
 **Steps:**
 - [ ] Read R3 §6 (gallery pattern) and R5 items 2, 6–11.
 - [ ] Extract `TileList` test-first (`GRADLE test --tests "tomato.gui.kit.TileListTest"` fails, then passes); switch `CharacterGallery` over; run `GRADLE test --tests "tomato.gui.glance.character.*"` (all existing gallery tests pass unchanged).
-- [ ] Write the failing tests for items 2–7; implement; run `GRADLE test --tests "tomato.gui.kit.*" --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*" --tests "ui.WorkspaceUiTest" --tests "ui.CharactersEvidenceTest" --tests "tomato.ShellHookIntegrationTest"`; all pass.
+- [ ] Write the failing tests for items 2–7; implement; run `GRADLE test --tests "tomato.gui.kit.*" --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*" --tests "ui.WorkspaceUiTest" --tests "ui.CharactersEvidenceTest" --tests "tomato.gui.chat.ShellHookIntegrationTest"`; all pass.
 - [ ] Commit ("Extract a shared painted tile list from the gallery", "Show one honest empty state in the Characters gallery", "Bring the Roster tab forward on Back and isolate Characters evidence").
 
 ### Task 4: Sheet presenter and tab hardening
@@ -242,7 +242,7 @@ public record PetSummary(State state, Long instanceId, String name, Integer skin
 - [ ] Read R1 §2–4, §6, §9 (a)–(f), §10.
 - [ ] Write the failing tests; run `GRADLE test --tests "tomato.gui.glance.character.*"`; confirm the new tests fail for the expected reasons.
 - [ ] Implement items 1–6. Update every `SheetModel.Gear` construction site.
-- [ ] Run `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*" --tests "tomato.ShellHookIntegrationTest" --tests "ui.CharactersEvidenceTest"`; all pass.
+- [ ] Run `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*" --tests "tomato.gui.chat.ShellHookIntegrationTest" --tests "ui.CharactersEvidenceTest"`; all pass.
 - [ ] Commit ("Log and retry failed sheet builds; test the generation guard", "Keep Analyst sheet tables stable and compute tier labels off the EDT").
 
 ---
@@ -284,7 +284,7 @@ Starts from the integration branch after all Wave A tasks are merged and the coo
 **Steps:**
 - [ ] Read R1 §1–6 and §12, R2 §8, R4 §5 and §7.
 - [ ] Write the failing tests; run `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.glance.home.*" --tests "tomato.gui.character.*"`; confirm failures.
-- [ ] Implement; run the same tests plus `tomato.ShellHookIntegrationTest`, `ui.HomeEvidenceTest`, `ui.CharactersEvidenceTest`; all pass.
+- [ ] Implement; run the same tests plus `tomato.gui.chat.ShellHookIntegrationTest`, `ui.HomeEvidenceTest`, `ui.CharactersEvidenceTest`; all pass.
 - [ ] Commit ("Add the Pet tab and the Overview pet card to the character sheet", "Show the hero's pet rarity on Home").
 
 ### Task 6: Account Exalts grid
@@ -329,7 +329,7 @@ final class AccountExaltsBuilder {
 **Steps:**
 - [ ] Read R3 §1–4, §6, §7.4.
 - [ ] Write the failing tests; run `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*"`; confirm failures.
-- [ ] Implement; run the same plus `tomato.ShellHookIntegrationTest`, `ui.CharactersEvidenceTest`; all pass.
+- [ ] Implement; run the same plus `tomato.gui.chat.ShellHookIntegrationTest`, `ui.CharactersEvidenceTest`; all pass.
 - [ ] Commit ("Replace the Exalts table with an account Exalts grid and class drill-down").
 
 ### Task 7: Pets gallery
@@ -476,6 +476,8 @@ static List<GoalCard> build(CharacterJournal.CharacterRecord record, PlanData.Ac
 - Pets not equipped by any character are not remembered after leaving the Pet Yard (user decision); a later journal version could persist them.
 - Fame readings recorded before P3b have no account and are never attributed to a character.
 - The Build card follows a character switch within the sheet's 1 s refresh (no live-character listener).
+- While playing, the Analyst "Full slot details" dialog's "Snapshot updated" line can lag until the slots, the character or the definitions change (Task 4 skips re-rendering an unchanged slot table); P6 builds the details when the dialog opens (`CharacterEquipmentPanel`).
+- Fame readers other than Home and the Fame tab (`LootArchiveClient.readFame`, `StatisticsArchiveAdapter`, `HistoricalStatistics`) still group by the bare character id; P5/P6 moves them to the account key.
 - P5: the `LiveHomeSources` reprojection test checks map identity only (handoff §6).
 - P6: every handoff §6 "P6 de-duplication" and "P6 hardening" item, and the numeric page API replacement.
 
