@@ -1,9 +1,13 @@
 package tomato.gui.glance.character;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.AccountRecord;
@@ -18,15 +22,23 @@ import tomato.planning.PlanningMetadata;
  * shows, whenever a cheap token moved (CharacterSheet.refresh checks once a second): the key, the journal and live-character
  * revisions, the loaded definitions and the dungeon mapping. The "character-sheet" thread reads the journal's deep copies (reused
  * while the journal's revision is unchanged) and runs SheetModelBuilder. The EDT applies a result only while it is the newest
- * request and its key is still the sheet's, so a late result for another character is dropped. A failed build is reported in the
- * sheet (spec §7), never swallowed, and tried again on the next refresh.
+ * request and its key is still the sheet's, so a late result for another character, or an older one for this character, is
+ * dropped. A failed build (any Throwable, applying included) is logged with its stack trace, reported in the sheet (spec §7),
+ * never swallowed or rethrown on the EDT, and tried again on the next refresh.
  */
 final class SheetPresenter {
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "character-sheet"); thread.setDaemon(true); return thread;
     });
+    /**
+     * Where a failed build is logged, with its stack trace: standard error, where TomatoData's printStackTrace and Home's
+     * refresher report failures (Util.printLogs would print to standard output, as the app configures it). Tests replace it.
+     */
+    static volatile Consumer<String> errorLog = message -> System.err.println(message); // reads System.err when it logs
     private final CharacterSheet sheet;
     private final SheetContext context;
+    /** Runs one build at a time: the shared "character-sheet" thread, or a test's executor. */
+    private final Executor worker;
     private final SheetHeader header = new SheetHeader();
     private final OverviewTab overview;
     private final GearTab gear;
@@ -38,6 +50,8 @@ final class SheetPresenter {
     private SheetModel model;
     /** The build thread's last journal read, reused while the key and the journal revision are unchanged (build thread only). */
     private Read lastRead;
+    /** The failure last logged, so one that repeats on every retry is logged once until a build applies again (EDT only). */
+    private String logged;
 
     private record Token(String key, long journal, long live, boolean graceOver, RosterDefinitions definitions, PlanningMetadata planning) {}
     /** One journal read at one revision: the character's record (null when the journal lacks it) and the lists Goals shows. */
@@ -45,9 +59,16 @@ final class SheetPresenter {
     /** One build for {@code key}. */
     private record Built(String key, SheetModel model, Read read, RosterDefinitions definitions) {}
 
-    SheetPresenter(CharacterSheet sheet, SheetContext context) {
+    SheetPresenter(CharacterSheet sheet, SheetContext context) { this(sheet, context, WORKER); }
+
+    /**
+     * {@code worker} must run builds one at a time ({@link #lastRead} is confined to whichever thread runs the current build);
+     * tests pass one that holds builds and runs them in any order, to prove only the newest result applies.
+     */
+    SheetPresenter(CharacterSheet sheet, SheetContext context, Executor worker) {
         this.sheet = sheet;
         this.context = context;
+        this.worker = Objects.requireNonNull(worker, "worker");
         overview = new OverviewTab(context.mode());
         sheet.setIdentity(header);
         sheet.setTab("overview", SheetViews.scroll(overview));
@@ -103,21 +124,50 @@ final class SheetPresenter {
         CharacterJournal journal = context.journal();
         LiveCharacter live = live();
         long now = context.clock().getAsLong();
-        WORKER.execute(() -> {
+        worker.execute(() -> {
             Built built = null;
-            RuntimeException failure = null;
+            Throwable failure = null;
+            // Any Throwable: an Error escaping here would kill the thread silently, leaving the sheet on "Loading…" (or on the
+            // previous model with no warning) and, since the token already moved, never retried.
             try { built = build(target, journal, live, now); }
-            catch (RuntimeException e) { failure = e; }
+            catch (Throwable e) {
+                failure = e;
+                // build() declares no InterruptedException; if one is thrown anyway, keep the thread's interrupt status.
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            }
             Built result = built;
-            RuntimeException failed = failure;
-            SwingUtilities.invokeLater(() -> {
-                // Only the newest request for the key the sheet still shows applies; a late result for another character is dropped.
-                if (requested != generation || !Objects.equals(target, key)) return;
-                // The next refresh tries again; meanwhile Build shows no one (live state may have moved on since the last model).
-                if (failed != null) { token = null; build.loading(); sheet.failed(failed); return; }
-                apply(result);
-            });
+            Throwable failed = failure;
+            SwingUtilities.invokeLater(() -> deliver(requested, target, result, failed));
         });
+    }
+
+    /**
+     * EDT: one build's outcome. Every failure is logged, even one whose result is dropped. Only the newest request for the key
+     * the sheet still shows applies; a failure there (building or applying) is reported in the sheet and retried on the next
+     * refresh. Nothing is rethrown on the EDT.
+     */
+    private void deliver(long requested, String target, Built result, Throwable failure) {
+        if (failure != null) log(failure);
+        if (requested != generation || !Objects.equals(target, key)) return;
+        if (failure == null) {
+            try { apply(result); logged = null; return; }
+            catch (RuntimeException | Error e) { log(e); failure = e; }
+        }
+        // The cleared token makes the next refresh try again; meanwhile Build says it is unavailable and shows no one (live
+        // state may have moved on since the last model).
+        token = null;
+        build.failed();
+        sheet.failed(failure);
+    }
+
+    /** Logs {@code failure} with its stack trace, once while the same failure repeats on every retry. EDT. */
+    private void log(Throwable failure) {
+        StringWriter trace = new StringWriter();
+        try (PrintWriter out = new PrintWriter(trace)) { failure.printStackTrace(out); }
+        String text = trace.toString();
+        if (text.equals(logged)) return;
+        logged = text;
+        errorLog.accept("[Character sheet] A sheet build failed; it is retried on the next refresh: " + text);
     }
 
     /** The build thread: one journal read (reused while the revision is unchanged) and the model, over deep copies. */

@@ -5,7 +5,10 @@ import java.awt.Container;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
@@ -286,30 +289,103 @@ public class CharacterSheetTest {
         }
     }
 
-    @Test public void openingShowsLoadingUntilItsOwnReadAndDropsAnEarlierCharactersResult() throws Exception {
-        try (CharacterJournal journal = journal("loading.json", 1, 2)) {
+    /**
+     * Replaces the P3a late-result test, which could not fail: the shared worker and invokeLater are both FIFO, so an earlier
+     * build always reached the EDT first. Here a manual executor holds the builds and runs them newest first, so the older
+     * results really do arrive last. Only the newest request's result for the key the sheet still shows may apply: the older
+     * request for the same key and the one for another character are both dropped. While the builds are held the sheet says
+     * "Loading…", shows nothing of the previous character, and nothing acts (the P3a test's loading checks, kept).
+     */
+    @Test public void onlyTheNewestBuildForTheShownKeyApplies() throws Exception {
+        try (CharacterJournal journal = journal("newest.json", 1, 2)) {
+            long[] clock = {5_000};
+            RosterDefinitions defs = RosterDefinitions.empty(); // one stable instance: the token moves only when this test moves it
+            TomatoData data = new TomatoData();
+            // #1 is in game, so its model carries its request's time (Identity.lastSeen is the build's "now" while playing).
+            data.liveCharacter.publish(SheetFixtures.live(ACCOUNT, 1, "Sharkbait", null));
+            ManualExecutor worker = new ManualExecutor();
+            CharacterSheet[] shown = new CharacterSheet[1];
             SwingUtilities.invokeAndWait(() -> {
-                CharacterSheet sheet = sheet(journal);
-                open(sheet, ACCOUNT + ":1", null);
+                shown[0] = new CharacterSheet(new SheetContext(data, journal, () -> defs, DisplayModeModel.application(), () -> clock[0], PlanningStore.shared()), worker);
+                shown[0].open(ACCOUNT + ":1", null);
+            });
+            CharacterSheet sheet = shown[0];
+            assertEquals(1, worker.size());
+            worker.run(0); // on this thread, off the EDT, as the "character-sheet" thread would
+            await(sheet::ready);
+            SwingUtilities.invokeAndWait(() -> {
                 Banner status = named(sheet, "character-sheet-status", Banner.class);
                 assertFalse(status.isVisible());
-                sheet.open(ACCOUNT + ":2", null);
+                assertEquals(5_000, sheet.model().identity().lastSeen());
+                sheet.open(ACCOUNT + ":2", null); // build A: another character
                 assertTrue("Loading shows until the new character's read applies", status.isVisible());
                 assertEquals("Loading…", status.text()); assertFalse(status.warns());
                 assertFalse(sheet.ready());
+                assertNull(sheet.model());
                 assertEquals("Nothing of the previous character stays", "", named(sheet, "character-sheet-name", JLabel.class).getText());
                 assertFalse("Nothing acts while loading", named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
-                sheet.open(ACCOUNT + ":1", null); // #2's build may still arrive: it is for another key now, so it is dropped
-                await(sheet::ready);
-                assertFalse(status.isVisible());
+                clock[0] = 6_000; sheet.open(ACCOUNT + ":1", null); // build B: back to #1
+                clock[0] = 7_000; sheet.open(ACCOUNT + ":1", null); // build C: #1 again, the newest request
+            });
+            assertEquals(3, worker.size());
+            worker.run(2); worker.run(1); worker.run(0); // C, then the older B, then A for #2: each posts its result in this order
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue(sheet.ready());
                 assertEquals(ACCOUNT + ":1", sheet.key());
-                assertTrue(named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
-                long settled = System.currentTimeMillis() + 200;
-                await(() -> System.currentTimeMillis() >= settled); // runs the EDT, so a late result would arrive now
                 assertTrue("A late result for #2 never replaces #1", named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
+                assertEquals("The older request for the same key never replaces the newest one's result", 7_000, sheet.model().identity().lastSeen());
+                assertFalse(named(sheet, "character-sheet-status", Banner.class).isVisible());
                 assertTrue(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
             });
         }
+    }
+
+    /**
+     * An Error (not only a RuntimeException) in a build is caught on the build thread, logged once with its stack trace and
+     * reported in the sheet; nothing is rethrown on the EDT, and the next refresh retries and applies a model.
+     */
+    @Test public void anErrorInABuildIsReportedAndRetried() throws Exception {
+        RosterDefinitions none = RosterDefinitions.empty();
+        AtomicBoolean thrown = new AtomicBoolean();
+        List<String> logged = Collections.synchronizedList(new ArrayList<>());
+        Consumer<String> previousLog = SheetPresenter.errorLog;
+        SheetPresenter.errorLog = logged::add;
+        try (CharacterJournal journal = journal("error.json", 1)) {
+            SheetContext failing = new SheetContext(new TomatoData(), journal, () -> {
+                // Once, and only on the build thread: the EDT reads the definitions for the presenter's token too.
+                if ("character-sheet".equals(Thread.currentThread().getName()) && thrown.compareAndSet(false, true)) throw new SyntheticBuildError();
+                return none;
+            }, DisplayModeModel.application(), () -> 5000, PlanningStore.shared());
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = new CharacterSheet(failing);
+                sheet.open(ACCOUNT + ":1", null);
+                Banner status = named(sheet, "character-sheet-status", Banner.class);
+                await(status::warns);
+                assertTrue(status.isVisible()); assertTrue(status.text(), status.text().contains("Synthetic build error"));
+                assertFalse(sheet.ready()); assertFalse(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+                assertEquals("Logged once", 1, logged.size());
+                assertTrue(logged.get(0), logged.get(0).contains(SyntheticBuildError.class.getName() + ": Synthetic build error"));
+                assertTrue("…with its stack trace: " + logged.get(0), logged.get(0).contains("at " + CharacterSheetTest.class.getName()));
+                sheet.refresh(); // the failure cleared the presenter's token: the next refresh retries
+                await(sheet::ready);
+                assertFalse("A model applied: the banner is gone", status.isVisible());
+                assertTrue(named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
+                assertTrue(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+                assertEquals("A successful build logs nothing", 1, logged.size());
+            });
+        } finally { SheetPresenter.errorLog = previousLog; }
+    }
+
+    /** A build failure that is not a RuntimeException. */
+    private static final class SyntheticBuildError extends Error { SyntheticBuildError() { super("Synthetic build error"); } }
+
+    /** Holds queued builds until the test runs them, one at a time and in any order (the shared worker runs them FIFO). */
+    private static final class ManualExecutor implements Executor {
+        private final List<Runnable> queued = new ArrayList<>();
+        @Override public synchronized void execute(Runnable task) { queued.add(task); }
+        synchronized int size() { return queued.size(); }
+        /** Runs (and removes) the queued build at {@code index} on the calling thread. */
+        void run(int index) { Runnable task; synchronized (this) { task = queued.remove(index); } task.run(); }
     }
 
     @Test public void aFailedBuildShowsAWarnBannerAndNothingActs() throws Exception {
