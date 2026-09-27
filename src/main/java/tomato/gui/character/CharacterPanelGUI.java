@@ -7,6 +7,7 @@ import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
 import tomato.backend.data.TomatoData;
 import tomato.gui.glance.character.CharacterSheet;
+import tomato.gui.glance.character.ExaltsGrid;
 import tomato.gui.glance.character.SheetContext;
 import tomato.gui.glance.character.SheetFocus;
 import tomato.gui.history.ViewStateStore;
@@ -17,7 +18,7 @@ import tomato.gui.route.Navigator;
 import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
-/** Characters (shell page 3): the Roster tab (the character list or one character's sheet), Exalts and Pets. */
+/** Characters (shell page 3): the Roster tab (the character list or one character's sheet), the account Exalts grid and Pets. */
 public class CharacterPanelGUI extends JPanel {
     private final CharacterJournal characters;
     private final CharacterJournalGUI journal;
@@ -53,7 +54,7 @@ public class CharacterPanelGUI extends JPanel {
         roster.onReveal(() -> { tabs.show("roster"); tabs.select("roster"); });
         // Back returns to the Characters tab the user left from: it brings Roster forward only when Roster was in front then.
         roster.onInFront(() -> "roster".equals(tabs.selectedId()));
-        tabs.add("roster", "Roster", roster).add("exalts", "Exalts", journal.exaltPanel()).add("pets", "Pets", new CharacterPetsGUI(data));
+        tabs.add("roster", "Roster", roster).add("exalts", "Exalts", new ExaltsGrid(context)).add("pets", "Pets", new CharacterPetsGUI(data));
         // Another Characters tab refreshes the list and keeps the sheet's notes draft.
         tabs.component().addChangeListener(e -> { journal.refresh(); sheet.saveDraft(); });
         add(tabs.component(), BorderLayout.CENTER);

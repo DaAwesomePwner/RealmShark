@@ -91,7 +91,7 @@ public class CharacterJournalGuiTest {
                 assertTrue(button(sheet,"Mark dead").getX() >= 0);
                 sheet.tabs().select("gear"); render(frame,"characters-equipment.png",1080);
                 sheet.tabs().select("exalts"); render(frame,"characters-class-exalts.png",1080);
-                frame.setContentPane(panel.exaltPanel()); render(frame,"characters-account-exalts.png",1080);
+                // The account exalts table became the Characters › Exalts grid (ExaltsGridTest); its capture is in the P3b evidence.
             } finally { frame.dispose(); }
         });
         j.close();
