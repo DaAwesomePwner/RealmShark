@@ -28,6 +28,8 @@ final class TodayTiles extends HomeCard {
     private final StatTile potions = HomeViews.named(new StatTile("Potions"), "home-tile-potions");
     private final Sparkline trend = HomeViews.named(new Sparkline(), "home-today-fame-trend");
     private final HomeViews.Reason note = new HomeViews.Reason("home-today-note");
+    private final HomeViews.Reason unreadable = new HomeViews.Reason("home-today-unreadable");
+    private final JPanel banners = HomeViews.stack(Tokens.XS, note, unreadable);
     private final EmptyState emptyToday = HomeViews.named(new EmptyState("Nothing recorded today",
         "Start capture and run a dungeon; today's runs, fame and loot add up here.", null), "home-today-empty");
     private final EmptyState emptySession = HomeViews.named(new EmptyState("Nothing recorded this session",
@@ -54,8 +56,10 @@ final class TodayTiles extends HomeCard {
         grid.setOpaque(false);
         for (StatTile tile : new StatTile[] {runs, fame, loot, potions}) grid.add(tile);
         note.setVisible(false);
-        // The stale banner sits above the tiles and takes no space (nor gap) while hidden.
-        content = HomeViews.named(HomeViews.stack(0, HomeViews.beside(grid, note, BorderLayout.NORTH, Tokens.S)), "home-today-content");
+        unreadable.setVisible(false);
+        banners.setVisible(false);
+        // The stale and unreadable-sessions banners sit above the tiles and take no space (nor gap) while hidden.
+        content = HomeViews.named(HomeViews.stack(0, HomeViews.beside(grid, banners, BorderLayout.NORTH, Tokens.S)), "home-today-content");
         status(HomeViews.LOADING, "Progress: loading");
     }
 
@@ -85,43 +89,57 @@ final class TodayTiles extends HomeCard {
             return;
         }
         boolean stale = today.state() == HomeModel.State.STALE;
+        // Sessions that could not be read may hold part of this period: the totals that exist are partial, with a warn line.
+        String partial = totals.unreadableSessions() == 0 ? null : unreadableText(totals.unreadableSessions());
         String source = label + " from saved history";
         // Without any saved visit the run counts are unknown, not zero (spec §1); visits but no dungeon run is a real zero.
         boolean visited = totals.runsRecorded();
-        runs.setValue(visited ? count(totals.runsCompleted(), "Completed dungeon runs, " + source, stale) : DisplayValue.unknown(NO_RUNS),
+        runs.setValue(visited ? count(totals.runsCompleted(), "Completed dungeon runs, " + source, stale, partial) : DisplayValue.unknown(NO_RUNS),
             visited ? totals.runsEntered() + " entered" : null);
         Long gain = totals.fameGained();
-        fame.setValue(gain == null ? DisplayValue.unknown("No fame readings in this window yet") : gained(gain, source, stale), rate(totals));
+        fame.setValue(gain == null ? DisplayValue.unknown("No fame readings in this window yet") : gained(gain, source, stale, partial), rate(totals));
         boolean trended = gain != null && totals.fameSeries() != null && totals.fameSeries().length > 1;
         trend.setValues(trended ? totals.fameSeries() : null);
         trend.setVisible(trended);
         // Without any saved loot the counts are unknown, not zero (spec §1).
         boolean looted = totals.lootRecorded();
-        loot.setValue(looted ? count(totals.untiered() + totals.setTiered(), "UT and ST drops, " + source, stale) : DisplayValue.unknown(NO_LOOT),
+        loot.setValue(looted ? count(totals.untiered() + totals.setTiered(), "UT and ST drops, " + source, stale, partial) : DisplayValue.unknown(NO_LOOT),
             looted ? totals.untiered() + " UT · " + totals.setTiered() + " ST · " + totals.whiteBags() + (totals.whiteBags() == 1 ? " white bag" : " white bags") : null);
-        potions.setValue(looted ? count(totals.potions(), "Potion drops, " + source, stale) : DisplayValue.unknown(NO_LOOT), null);
+        potions.setValue(looted ? count(totals.potions(), "Potion drops, " + source, stale, partial) : DisplayValue.unknown(NO_LOOT), null);
         String reason = stale ? text(today.reason(), "Showing the last successful read of saved history.") : "";
         note.setText(reason, true);
         note.setVisible(!reason.isEmpty());
+        if (partial != null) unreadable.setText(partial, true);
+        unreadable.setVisible(partial != null);
+        banners.setVisible(note.isVisible() || unreadable.isVisible());
         explain(label + ": saved history from " + DisplayFormat.formatTimestamp(totals.from()) + " to " + DisplayFormat.formatTimestamp(totals.until())
             + ". Runs are dungeon visits in the runs history; completed uses the same rule as the Runs page. Fame is each character's gain"
             + " between its first and last fame reading (decreases and new characters are ignored); fame/hour divides it by the time"
             + " covered by readings in each session. Notable loot counts UT and ST drops by item tier and white bags by bag type; potions"
-            + " use the item potion flag. Run counts are unknown when no visit was saved in this period, and loot counts when no loot was.");
-        getAccessibleContext().setAccessibleName("Progress: " + label + (stale ? ", last successful read" : ""));
-        getAccessibleContext().setAccessibleDescription(reason.isEmpty() ? null : reason);
+            + " use the item potion flag. Run counts are unknown when no visit was saved in this period, and loot counts when no loot was."
+            + " Saved sessions whose details cannot be read are left out and counted in a warning; the totals are then partial.");
+        getAccessibleContext().setAccessibleName("Progress: " + label + (stale ? ", last successful read" : "") + (partial != null ? ", partial" : ""));
+        String described = (reason + " " + (partial == null ? "" : partial)).trim();
+        getAccessibleContext().setAccessibleDescription(described.isEmpty() ? null : described);
         body(content);
     }
 
-    private static DisplayValue count(long value, String source, boolean stale) {
-        return stale ? DisplayValue.stale(DisplayFormat.formatInteger(value), source) : DisplayValue.count(value, source, null);
+    /** Stale wins; then partial (unreadable sessions) with the missing part as its detail; else a plain count. */
+    private static DisplayValue count(long value, String source, boolean stale, String partial) {
+        if (stale) return DisplayValue.stale(DisplayFormat.formatInteger(value), source);
+        if (partial != null) return DisplayValue.partial(DisplayFormat.formatInteger(value), partial);
+        return DisplayValue.count(value, source, null);
     }
 
-    private static DisplayValue gained(long gain, String source, boolean stale) {
+    private static DisplayValue gained(long gain, String source, boolean stale, String partial) {
         String text = (gain > 0 ? "+" : "") + DisplayFormat.formatInteger(gain);
         if (stale) return DisplayValue.stale(text, "Fame gained, " + source);
+        if (partial != null) return DisplayValue.partial(text, partial);
         return gain == 0 ? DisplayValue.zero("Fame gained, " + source) : DisplayValue.known(text, "Fame gained, " + source);
     }
+
+    /** "1 saved session could not be read", "3 saved sessions could not be read". */
+    static String unreadableText(int sessions) { return sessions + (sessions == 1 ? " saved session" : " saved sessions") + " could not be read"; }
 
     private static String rate(HomeArchive.Totals totals) {
         if (totals.famePerHour() != null) return DisplayFormat.formatInteger(Math.round(totals.famePerHour())) + " fame/hour";

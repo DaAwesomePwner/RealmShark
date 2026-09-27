@@ -419,11 +419,20 @@ public class DpsGUI extends JPanel {
     EncounterLink shownLink() { return shownLink; }
 
     /** Project detached catalog entries on a background worker. Archived graphs are frozen; live data is never included. */
-    public static List<RecordedEncounter> recordedEncounters() {
+    public static List<RecordedEncounter> recordedEncounters() { return recordedEncounters(new HashMap<>()); }
+
+    /**
+     * As {@link #recordedEncounters()}, reusing {@code known}'s projections by catalog entry id: an entry's graph is frozen, so
+     * only entries missing from {@code known} are projected. {@code known} is then replaced with this call's projections
+     * (entries that left the catalog are forgotten). One caller per map, off the EDT.
+     */
+    public static List<RecordedEncounter> recordedEncounters(Map<String, RecordedEncounter> known) {
         DpsGUI view = INSTANCE;
         List<RecordedEncounter> result = new ArrayList<>();
-        if (view == null) return result;
-        for (EncounterCatalog.Entry entry : view.encounterCatalog.entries()) {
+        Map<String, RecordedEncounter> next = new HashMap<>();
+        if (view != null) for (EncounterCatalog.Entry entry : view.encounterCatalog.entries()) {
+            RecordedEncounter kept = known.get(entry.id);
+            if (kept != null) { next.put(entry.id, kept); result.add(kept); continue; }
             DpsData data = entry.data;
             String map = data.map == null ? null : Objects.toString(data.map.displayName, "").isEmpty() ? data.map.name : data.map.displayName;
             EncounterLink link = EncounterLink.of(data, entry.origin != null);
@@ -437,10 +446,14 @@ public class DpsGUI extends JPanel {
                 for (CombatMeterData.Row row : meter.rows) if (row.player.id == link.localObjectId) localDamage = row.damage;
                 window = meter.seconds;
             }
-            result.add(new RecordedEncounter(data.getRecordingId(), map == null || map.isEmpty() ? "Unknown encounter" : map,
+            RecordedEncounter projected = new RecordedEncounter(data.getRecordingId(), map == null || map.isEmpty() ? "Unknown encounter" : map,
                 data.dungeonStartTime > 0 ? data.dungeonStartTime : null, data.totalDungeonPcTime > 0 ? data.totalDungeonPcTime : null,
-                link, localDamage, window));
+                link, localDamage, window);
+            next.put(entry.id, projected);
+            result.add(projected);
         }
+        known.clear();
+        known.putAll(next);
         return result;
     }
 

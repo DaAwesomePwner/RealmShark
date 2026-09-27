@@ -60,6 +60,25 @@ public class TodayTilesTest {
             assertEquals("Showing the last successful read of saved history.", note.text());
         });
     }
+    @Test public void unreadableSessionsWarnAndMarkTheTotalsPartial() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode);
+            tiles.apply(new HomeModel.Today(HomeModel.State.LIVE, TODAY, new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 2, 3, true, 120L, null, null, 1, 0, 1, 2, true, 2), null));
+            HomeViews.Reason banner = named(tiles, "home-today-unreadable", HomeViews.Reason.class);
+            assertTrue(banner.isVisible()); assertTrue(banner.warns()); assertEquals("2 saved sessions could not be read", banner.text());
+            for (String tile : new String[] {"home-tile-runs", "home-tile-fame", "home-tile-loot", "home-tile-potions"}) {
+                DisplayValue value = named(tiles, tile, StatTile.class).value();
+                assertEquals(tile, DisplayValue.State.PARTIAL, value.state); assertEquals(tile, "2 saved sessions could not be read", value.detail);
+            }
+            assertFalse("Not stale", named(tiles, "home-today-note", HomeViews.Reason.class).isVisible());
+            tiles.apply(new HomeModel.Today(HomeModel.State.LIVE, TODAY, new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 2, 3, true, 120L, null, null, 1, 0, 1, 2, true, 1), null));
+            assertEquals("1 saved session could not be read", banner.text());
+            tiles.apply(HomeModels.today(TODAY, NOW));
+            assertFalse("Every session readable: no banner", banner.isVisible());
+            assertEquals(DisplayValue.State.KNOWN, named(tiles, "home-tile-runs", StatTile.class).value().state);
+        });
+    }
+
     @Test public void runsAreUnknownWhenNoVisitWasSaved() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode);

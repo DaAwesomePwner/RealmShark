@@ -186,7 +186,9 @@ public final class HomeModelBuilder {
         if (failure != null) return new HomeModel.Today(State.UNAVAILABLE, window, null, "Saved history could not be read: " + oneLine(failure));
         if (result == null) return HomeModel.Today.placeholder(State.LOADING, window);
         HomeArchive.Totals t = result.totals();
-        boolean empty = t.runsEntered() == 0 && t.fameGained() == null && t.untiered() + t.setTiered() + t.whiteBags() + t.potions() == 0;
+        // Unreadable sessions may hold this period's records: never "nothing recorded" while any exist.
+        boolean empty = t.unreadableSessions() == 0 && t.runsEntered() == 0 && t.fameGained() == null
+            && t.untiered() + t.setTiered() + t.whiteBags() + t.potions() == 0;
         return new HomeModel.Today(empty ? State.EMPTY : State.LIVE, window, t, !empty ? ""
             : window == HomeArchive.Window.TODAY ? "Nothing recorded today yet. Enter a dungeon with capture on."
             : "Nothing recorded this session yet. Enter a dungeon with capture on.");
@@ -195,8 +197,11 @@ public final class HomeModelBuilder {
     public static HomeModel.Runs runs(HomeArchive.Result result, Exception failure) {
         if (failure != null) return HomeModel.Runs.placeholder(State.UNAVAILABLE, "Saved runs could not be read: " + oneLine(failure));
         if (result == null) return HomeModel.Runs.placeholder(State.LOADING, "");
-        if (result.recent().isEmpty()) return HomeModel.Runs.placeholder(State.EMPTY, "No dungeon runs recorded yet. Enter a dungeon with capture on.");
-        return new HomeModel.Runs(State.LIVE, result.recent(), "");
+        // Saved sessions that could not be read may hold newer runs: say so above the rows instead of implying the list is complete.
+        String skipped = result.unreadableRecent() == 0 ? "" : TodayTiles.unreadableText(result.unreadableRecent());
+        if (result.recent().isEmpty() && skipped.isEmpty())
+            return HomeModel.Runs.placeholder(State.EMPTY, "No dungeon runs recorded yet. Enter a dungeon with capture on.");
+        return new HomeModel.Runs(State.LIVE, result.recent(), skipped);
     }
 
     /** A re-read failed after a good read of the same window (read at {@code readAt}): keep its totals, labeled stale with age and reason (spec §7). */

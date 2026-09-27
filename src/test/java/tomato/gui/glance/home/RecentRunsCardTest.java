@@ -99,6 +99,22 @@ public class RecentRunsCardTest {
         });
     }
 
+    @Test public void aLiveReadNamesTheSessionsItCouldNotRead() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RecentRunsCard card = new RecentRunsCard(opened::add, mode);
+            card.apply(new HomeModel.Runs(HomeModel.State.LIVE, HomeModels.runs(NOW), "2 saved sessions could not be read"), NOW);
+            HomeViews.Reason note = named(card, "home-runs-note", HomeViews.Reason.class);
+            assertTrue(note.isVisible()); assertTrue(note.warns()); assertEquals("2 saved sessions could not be read", note.text());
+            assertTrue("The readable rows stay", named(card, "home-run-0", JPanel.class).isVisible());
+            assertEquals("2 saved sessions could not be read", card.getAccessibleContext().getAccessibleDescription());
+            card.apply(new HomeModel.Runs(HomeModel.State.LIVE, List.of(), "1 saved session could not be read"), NOW);
+            assertTrue("No readable run: the empty state keeps the warning", note.isVisible());
+            assertNotNull(named(card, "home-runs-empty", EmptyState.class));
+            card.apply(HomeModels.empty().runs(), NOW);
+            assertFalse("An empty history's reason is the empty state, never a warning", note.isVisible());
+        });
+    }
+
     @Test public void inProgressFewerRowsStatesAndEvidence() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             RecentRunsCard card = new RecentRunsCard(opened::add, mode);

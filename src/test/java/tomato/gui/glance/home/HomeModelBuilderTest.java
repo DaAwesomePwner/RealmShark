@@ -222,6 +222,17 @@ public class HomeModelBuilderTest {
         assertNotEquals("Whether runs were saved is content", some, new HomeArchive.Totals(TODAY, 0, 1, 1, 2, false, 0L, null, new double[12], 0, 0, 0, 0, true));
     }
 
+    @Test public void aPeriodWithUnreadableSessionsIsNeverEmpty() {
+        HomeArchive.Totals nothing = new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false, 1);
+        assertEquals("Its runs may be in the unreadable session", State.LIVE, HomeModelBuilder.today(TODAY, new HomeArchive.Result(nothing, List.of()), null).state());
+        assertEquals("The P2 constructor: every session readable", 0, new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false).unreadableSessions());
+        assertNotEquals(nothing, new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false, 2));
+        HomeModel.Runs skipped = HomeModelBuilder.runs(new HomeArchive.Result(nothing, List.of(), 2), null);
+        assertEquals("No readable run, but two sessions may hold newer ones: not empty", State.LIVE, skipped.state());
+        assertEquals("2 saved sessions could not be read", skipped.reason());
+        assertEquals("The P2 constructor: nothing skipped", State.EMPTY, HomeModelBuilder.runs(new HomeArchive.Result(nothing, List.of()), null).state());
+    }
+
     @Test public void questsShowPinnedQuestsOnlyWithCountsAndStaleness() {
         ProgressionData progression = new ProgressionData(); progression.reset("account-A", "identified");
         assertTrue(progression.quests(progression.scope(), new QuestData[]{quest("q1", "Open repeatable", true, false, 11), quest("q2", "Pinned done", false, true, 12),

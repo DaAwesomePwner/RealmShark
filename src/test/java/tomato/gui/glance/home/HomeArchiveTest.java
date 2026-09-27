@@ -37,19 +37,49 @@ public class HomeArchiveTest {
     }
 
 
-    @Test public void unreadableSessionMetadataNeverBecomesCompleteTotals() throws Exception {
-        Path root = fixture();
-        Files.writeString(root.resolve(MORNING).resolve("session.json"), "{broken");
+    @Test public void unreadableSessionsAreSkippedCountedAndNeverFailThisSession() throws Exception {
+        Path root = fixture(), broken = root.resolve(MORNING);
+        Files.writeString(broken.resolve("session.json"), "{broken");
         try (SessionStore store = new SessionStore(root, true, "fixture")) {
             assertTrue(store.catalog().stream().anyMatch(entry -> !entry.readable()));
-            for (HomeArchive.Window window : HomeArchive.Window.values()) {
-                try {
-                    HomeArchive.read(store, window, NOW, ZONE, List.of());
-                    fail("Unreadable historical metadata must mark the combined archive result incomplete");
-                } catch (java.io.IOException expected) {
-                    assertTrue(expected.getMessage().contains("Unreadable session " + MORNING));
-                }
+            HomeArchive.Result today = HomeArchive.read(store, TODAY, NOW, ZONE, List.of());
+            assertEquals("The broken session's files changed today: counted, not read", 1, today.totals().unreadableSessions());
+            assertEquals("Only the after-midnight Lost Halls remains", 1, today.totals().runsEntered());
+            assertEquals(Long.valueOf(100), today.totals().fameGained());
+            assertEquals("Recent runs skip it too", List.of(ref(ACROSS, "b2"), ref(ACROSS, "b1"), ref(YESTERDAY, "y2"), ref(YESTERDAY, "y1")),
+                today.recent().stream().map(HomeArchive.RecentRun::visit).collect(Collectors.toList()));
+            assertEquals("…and say it may hold a newer run: fewer than five are listed", 1, today.unreadableRecent());
+            assertEquals("This session reads only the current session", 0,
+                HomeArchive.read(store, SESSION, store.started() + MINUTE, ZONE, List.of()).totals().unreadableSessions());
+            try (Stream<Path> files = Files.walk(broken)) {
+                for (Path file : files.collect(Collectors.toList())) Files.setLastModifiedTime(file, FileTime.fromMillis(MIDNIGHT - HOUR));
             }
+            assertEquals("Unchanged since before today: it cannot hold today's records", 0,
+                HomeArchive.read(store, TODAY, NOW, ZONE, List.of()).totals().unreadableSessions());
+            store.append("fame", new AppHistory.FameSample(4, 500, store.started() + 1_000, "Knight"));
+            store.flush();   // publishes the current session's folder and metadata
+            Files.writeString(root.resolve(store.currentId()).resolve("session.json"), "{broken");
+            try { HomeArchive.read(store, SESSION, store.started() + MINUTE, ZONE, List.of()); fail("The current session's metadata must be readable"); }
+            catch (java.io.IOException expected) { assertTrue(expected.getMessage().contains("Unreadable session " + store.currentId())); }
+        }
+    }
+
+    @Test public void aCacheReusesClosedSessionsUntilTheirFilesChange() throws Exception {
+        Path root = fixture(), fame = root.resolve(MORNING).resolve("fame.jsonl");
+        HomeArchive.Cache cache = new HomeArchive.Cache();
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            assertEquals(Long.valueOf(310), HomeArchive.read(store, TODAY, NOW, ZONE, List.of(), cache).totals().fameGained());
+            assertTrue("Closed sessions' facts are kept", cache.size() > 0);
+            FileTime written = Files.getLastModifiedTime(fame);
+            String text = Files.readString(fame);
+            assertTrue(text.contains("\"fame\":1600"));
+            Files.writeString(fame, text.replace("\"fame\":1600", "\"fame\":1700"));   // same size
+            Files.setLastModifiedTime(fame, written);
+            assertEquals("Same name, size and time: the kept facts are used", Long.valueOf(310),
+                HomeArchive.read(store, TODAY, NOW, ZONE, List.of(), cache).totals().fameGained());
+            assertEquals("A new cache reads the file", Long.valueOf(410), HomeArchive.read(store, TODAY, NOW, ZONE, List.of()).totals().fameGained());
+            Files.setLastModifiedTime(fame, FileTime.fromMillis(written.toMillis() + 2_000));
+            assertEquals("A changed stamp reads it again", Long.valueOf(410), HomeArchive.read(store, TODAY, NOW, ZONE, List.of(), cache).totals().fameGained());
         }
     }
 
