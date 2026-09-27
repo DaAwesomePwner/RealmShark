@@ -34,10 +34,17 @@ public class StatisticsTabsTest {
             assertEquals("Without saved selection, keep the current tab", "loot", first.selectedId());
             first.select("fame-graph");
             first.select("loot"); first.move("loot", 1);
-            PropertiesManager.setProperties(ORDER, "dungeon-stats,fame-table,fame-graph,loot|loot");
+            PropertiesManager.setProperties(ORDER, "dungeon-stats,fame-table,fame-graph,loot|");
             tomato.gui.kit.CustomizableTabs restored = sampleTabs();
             new StatisticsLiveState(memory.states, "statistics-live").tabs(restored,"fame-graph","fame-table","loot","dungeon-stats");
             assertEquals("loot", restored.selectedId());
+            // Tab hiding persists: the saved selection never un-hides a tab at startup.
+            PropertiesManager.setProperties(ORDER, "dungeon-stats,fame-table,fame-graph,loot|loot");
+            tomato.gui.kit.CustomizableTabs hidden = sampleTabs();
+            new StatisticsLiveState(memory.states, "statistics-live").tabs(hidden,"fame-graph","fame-table","loot","dungeon-stats");
+            assertFalse("The hidden Loot tab stays hidden", hidden.visibleIds().contains("loot"));
+            assertTrue("A visible tab stays selected", hidden.visibleIds().contains(hidden.selectedId()));
+            assertEquals("dungeon-stats,fame-table,fame-graph,loot|loot", PropertiesManager.getProperty(ORDER));
         });
     }
 

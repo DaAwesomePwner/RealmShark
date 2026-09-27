@@ -43,7 +43,8 @@ public class CharacterTabsTest {
         return null;
     }
 
-    @Test public void savedViewRestoresAHiddenNotesTab() throws Exception {
+    /** Tab hiding persists (spec §12 P1 exit): restoring the saved view at startup must not un-hide the last selected tab. */
+    @Test public void savedViewKeepsAHiddenNotesTabHidden() throws Exception {
         tomato.gui.history.ArchiveNativeSupport.Memory memory = new tomato.gui.history.ArchiveNativeSupport.Memory();
         CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("tabs.json"));
         try {
@@ -57,7 +58,10 @@ public class CharacterTabsTest {
                 CharacterJournalGUI restored = new CharacterJournalGUI(journal, () -> 5000, RosterDefinitions::empty);
                 restored.bindViewState(memory.states);
                 JTabbedPane shown = find(restored, JTabbedPane.class, "character-detail-tabs");
-                assertEquals("Notes", shown.getTitleAt(shown.getSelectedIndex()));
+                assertEquals("The hidden Notes tab stays hidden", -1, shown.indexOfTab("Notes"));
+                assertEquals("The first visible tab stays selected", "Stat maxing", shown.getTitleAt(shown.getSelectedIndex()));
+                assertEquals("Restoring does not rewrite the hidden set", "stats,equipment,exalts,notes,evidence,goals,death|notes",
+                    PropertiesManager.getProperty(ORDER));
             });
             SwingUtilities.invokeAndWait(() -> {});
         } finally { journal.close(); }

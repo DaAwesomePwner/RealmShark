@@ -423,7 +423,7 @@ public final class CharacterJournalGUI extends JPanel {
                 selectChoice(classFilter, clazz, clazz == null ? "All classes" : className(clazz));
                 needsLife.setSelectedIndex(need.ordinal()); missing.setSelectedIndex(coverage.ordinal()); maxedFilter.setSelectedIndex(maxed.ordinal()); ageFilter.setSelectedIndex(age.ordinal());
                 minMaxed.setValue(minimum); maxMaxed.setValue(maximum); ageHours.setValue(hours);
-                if(values.containsKey("tab")){detailTabs.show(DETAIL_TABS[tab]);detailTabs.select(DETAIL_TABS[tab]);}
+                if(values.containsKey("tab"))detailTabs.select(DETAIL_TABS[tab]); // A hidden tab stays hidden at startup.
                 pendingSelectionKey = selected.isEmpty() ? null : selected;
                 refreshing = false; filter(); tableState.run();
                 SwingUtilities.invokeLater(() -> pageScroll.getViewport().setViewPosition(new Point(0, Math.min(y,

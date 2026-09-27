@@ -86,7 +86,7 @@ public class SecurityGUI extends JPanel {
         if(liveState!=null)return;runs.bindViewState(store);
         liveState=new RosterViewState(store,"inspect-live-container",()->{
             java.util.Map<String,String> values=new java.util.LinkedHashMap<>();values.put("tab",tabs.selectedId()==null?"area":tabs.selectedId());return values;
-        },values->{int tab=RosterViewState.option(values,"tab",0,"area","runs","ability");return ()->{if(values.containsKey("tab")){tabs.show(TAB_IDS[tab]);tabs.select(TAB_IDS[tab]);}};});
+        },values->{int tab=RosterViewState.option(values,"tab",0,"area","runs","ability");return ()->{if(values.containsKey("tab"))tabs.select(TAB_IDS[tab]);};});
         stateHost.add(liveState.controls());
     }
     public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState(){
