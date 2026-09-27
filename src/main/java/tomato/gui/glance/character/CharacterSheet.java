@@ -29,7 +29,7 @@ import tomato.planning.PlanningStore;
 /**
  * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
  * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear, Exalts, Pet, Fame and Build are
- * slots whose content SheetPresenter sets ({@link #setTab}; Fame is an empty placeholder until the Fame tab fills it); Death
+ * slots whose content SheetPresenter sets ({@link #setTab}; Fame through its own FamePresenter); Death
  * annotation shows only while the character is marked dead (spec §6.2).
  * - SheetPresenter reads the journal and builds the model off the EDT; {@link #loaded} shows each read. Until the read of the
  *   opened key arrives the sheet says "Loading…" and nothing acts ({@link #ready}); a failed build shows a warn banner (spec §7).
@@ -74,7 +74,7 @@ public final class CharacterSheet extends JPanel {
     private GoalInputs goalsShown;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
-    /** Header identity and the Overview, Gear, Exalts, Pet and Build tabs, built off the EDT. */
+    /** Header identity and the Overview, Gear, Exalts, Pet, Fame and Build tabs, built off the EDT. */
     private final SheetPresenter presenter;
     private Runnable backAction = () -> { };
     /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
@@ -138,7 +138,7 @@ public final class CharacterSheet extends JPanel {
             .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab
             // P3b: new users get Pet and Fame here; a saved order gets them appended (CustomizableTabs.order), as Build was.
             .add("pet", "Pet", slot("pet", new JPanel())) // SheetPresenter sets the Pet tab
-            .add("fame", "Fame", slot("fame", new JPanel())) // an empty placeholder until the Fame tab sets it
+            .add("fame", "Fame", slot("fame", new JPanel())) // SheetPresenter sets the Fame tab (FamePresenter)
             .add("build", "Build", slot("build", new JPanel())) // SheetPresenter hosts Build (MyInfoGUI) here
             .add("goals", "Goals", goalsTab()) // the goal cards, then Manage goals (the account-wide panel)
             .add("notes", "Notes", notePanel)
