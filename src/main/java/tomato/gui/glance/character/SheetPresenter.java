@@ -69,7 +69,7 @@ final class SheetPresenter {
         this.sheet = sheet;
         this.context = context;
         this.worker = Objects.requireNonNull(worker, "worker");
-        overview = new OverviewTab(context.mode());
+        overview = new OverviewTab(context.mode(), context.clock());
         sheet.setIdentity(header);
         sheet.setTab("overview", SheetViews.scroll(overview));
         gear = new GearTab(context.mode());
@@ -192,7 +192,7 @@ final class SheetPresenter {
         Read read = built.read();
         sheet.loaded(built.key(), read.record(), read.records(), read.accounts(), built.definitions(), read.revision());
         show(built.model());
-        gear.analyst(read.record(), built.definitions());
+        gear.analyst(read.record(), built.definitions()); // re-renders only when the slots it shows or the definitions changed
         build.apply(built.model(), BuildTab.shownKey(live())); // Build shows only on the sheet of the character it describes
     }
 
