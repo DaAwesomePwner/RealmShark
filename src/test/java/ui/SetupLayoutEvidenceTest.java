@@ -32,7 +32,7 @@ public class SetupLayoutEvidenceTest {
             SwingUtilities.invokeAndWait(() -> {
                 String name = "setup-error-" + width + "-" + font; evidence.capture(name);
                 assertFalse(named(shell[0], "capture-toggle", JButton.class).isEnabled());
-                assertEquals(failure, named(shell[0], "capture-setup-message", JTextArea.class).getText());
+                assertTrue("Missing assets show the setup banner", named(shell[0], "setup-banner", JComponent.class).isShowing());
                 layouts.checkSucceeds(() -> {
                     completeText(named(shell[0], "capture-setup-message", JTextArea.class));
                     for (String action : new String[]{"choose-assets", "retry-assets", "browse-history"}) {
@@ -54,6 +54,9 @@ public class SetupLayoutEvidenceTest {
             assertTrue(named(shell[0], "browse-history", JButton.class).isEnabled());
             shell[0].setSetupState(failure, false, false);
             assertTrue(named(shell[0], "retry-assets", JButton.class).isEnabled());
+            shell[0].setSetupState("Assets ready · Enter a fresh area or reconnect the game after capture starts.", true, false);
+            assertFalse("Ready assets need no banner", named(shell[0], "setup-banner", JComponent.class).isVisible());
+            assertTrue("Saved history stays in the header", named(shell[0], "browse-history", JButton.class).isShowing());
         });
     }
 }

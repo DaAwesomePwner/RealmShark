@@ -38,6 +38,8 @@ public class ShellRouteRegistrationTest {
             VisitRef visit = new VisitRef(store.currentId(), "journal:1");
             SwingUtilities.invokeAndWait(() -> {
                 shell.set(gui.createWorkspace());
+                assertEquals("The app lands on the first visible core destination",
+                    new tomato.gui.modern.NavLayout().landing().page(), ((tomato.gui.modern.WorkspaceShell) shell.get()).getSelectedPage());
                 Navigator navigator = Navigator.current();
                 assertNotSame(Navigator.NONE, navigator);
                 assertTrue("Loot resolves an exact visit through the analytics target",

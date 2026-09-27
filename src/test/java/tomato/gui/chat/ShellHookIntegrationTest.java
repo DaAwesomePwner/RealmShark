@@ -28,6 +28,36 @@ import static tomato.gui.activity.ActivityArchiveUiTest.edt;
 
 /** Actual shell wiring with synthetic history; no frame, focus, remote rules, or capture. */
 public class ShellHookIntegrationTest {
+    @Test public void settingsHostsNotificationsAndAppearanceAndAssetReloadsClearSprites() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.settings.SettingsPage settings = find(shell, tomato.gui.settings.SettingsPage.class);
+            assertNotNull("Settings is shell page 13", settings);
+            tomato.gui.notifications.NotificationsGUI notifications = find(settings, tomato.gui.notifications.NotificationsGUI.class);
+            assertNotNull("Notifications keeps its page, inside Settings", notifications);
+            assertNotNull(named(settings, "settings-appearance", JComponent.class));
+            settings.showSection(tomato.gui.settings.SettingsPage.APPEARANCE);
+            shell.select(0);
+            TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS);
+            assertEquals(13, shell.getSelectedPage());
+            assertEquals(tomato.gui.settings.SettingsPage.NOTIFICATIONS, settings.currentSection());
+            JTabbedPane tabs = find(notifications, JTabbedPane.class);
+            assertEquals(tomato.gui.notifications.NotificationsGUI.KEY_POPS, tabs.getTitleAt(tabs.getSelectedIndex()));
+            settings.showSection(tomato.gui.settings.SettingsPage.APPEARANCE);
+            shell.select(0);
+            assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.NOTIFICATIONS)));
+            assertEquals(13, shell.getSelectedPage());
+            assertEquals("The Notifications route shows its section", tomato.gui.settings.SettingsPage.NOTIFICATIONS, settings.currentSection());
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals(0, shell.getSelectedPage());
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            assertTrue(registry.search("appearance.settings").get(0).open());
+            assertEquals(13, shell.getSelectedPage());
+            assertEquals(tomato.gui.settings.SettingsPage.APPEARANCE, settings.currentSection());
+            Icon before = tomato.gui.kit.Sprites.sprite(987_654_321, 24);
+            TomatoGUI.assetsReloaded();
+            assertNotSame("Asset reloads drop cached sprites", before, tomato.gui.kit.Sprites.sprite(987_654_321, 24));
+        });
+    }
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private final Map<Field,Object> original = new LinkedHashMap<>();
     private WorkspaceShell shell;
@@ -121,7 +151,8 @@ public class ShellHookIntegrationTest {
             "IntegrationAnn", "", "IntegrationAnn", "synthetic conversation", "");
         store.append("chat", message); store.flush();
         ArchiveWorkspace<?,?,?> panel = workspace("chat");
-        SwingUtilities.invokeAndWait(() -> panel.selectSession(SessionStore.ALL));
+        // The app now opens on the first core page; saved-history bindings only act while their page is shown.
+        SwingUtilities.invokeAndWait(() -> { shell.select(0); panel.selectSession(SessionStore.ALL); });
         await(() -> !panel.loading() && named(panel, "chat-archive-messages", JTable.class) != null);
         Field field = ChatGUI.class.getDeclaredField("filters"); field.setAccessible(true);
         ChatFilters livePolicy = (ChatFilters)field.get(find(panel, ChatGUI.class));

@@ -1,11 +1,11 @@
 # UX implementation execution and recovery
 
 Current redesign (2026-09-26): P0 merged in PR #17 (`9b6844a`); P1a design kit
-is implemented and awaiting its PR merge. Continue from the
+merged in PR #18 (`7b3e0c5`), including fix `ee8d085`. P1b is in progress. Continue from the
 [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md) and
 [P1a validation](superpowers/plans/2026-09-26-p1a-validation.md). Every redesign
 phase uses `claude/realmshark-ui-ux-redesign-cb0914`. The wave history below is
-completed background; P1b starts only after P1a is merged and main is verified.
+completed background. P1a main was verified before P1b began.
 
 Current policy (user approved 2026-09-26): CI is manual-only, not a merge gate.
 Use focused local checks and relevant build/launch smoke checks; no routine full
