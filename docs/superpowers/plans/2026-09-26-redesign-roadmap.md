@@ -8,7 +8,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 |---|---|---|---|
 | P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #17 (`9b6844a`) |
 | P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #18 (`7b3e0c5`) |
-| P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implementing |
+| P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending |
 | P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned |
 | P2 Home | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P3 Characters | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
@@ -20,8 +20,9 @@ Update the State column when a phase's PR merges and `main` is verified.
 
 P0 merged in PR #17 as `9b6844a`; its merge tree matches the reviewed P0 source.
 P1a merged in PR #18 as `7b3e0c5`, including the brand-icon correction `ee8d085`.
-P1b is in progress; P1c and later phases have not started. Evidence: [P0 validation](2026-09-26-p0-validation.md),
-[P1a validation](2026-09-26-p1a-validation.md).
+P1b is implemented, pending PR merge; P1c and later phases have not started.
+Evidence: [P0 validation](2026-09-26-p0-validation.md),
+[P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md).
 
 ## Resume
 
