@@ -25,6 +25,18 @@ public final class WrapRow extends JPanel {
 
     @Override public Dimension getMinimumSize() { return getPreferredSize(); }
 
+    @Override public void doLayout() {
+        super.doLayout();
+        Insets insets = getInsets();
+        int gap = ((FlowLayout)getLayout()).getHgap();
+        int available = Math.max(0, getWidth() - insets.left - insets.right - 2 * gap);
+        // A large-font search field can be wider than an entire compact row. FlowLayout
+        // wraps it alone but does not shrink it; keep its editable viewport inside the page.
+        for (Component child : getComponents()) if (child.isVisible() && child.getWidth() > available) {
+            child.setBounds(insets.left + gap, child.getY(), available, child.getHeight());
+        }
+    }
+
     /** Mirrors FlowLayout.layoutContainer's line breaking for a row of the given width. */
     private Dimension size(int width) {
         FlowLayout flow = (FlowLayout) getLayout();

@@ -42,4 +42,24 @@ public class CharacterTabsTest {
         }
         return null;
     }
+
+    @Test public void savedViewRestoresAHiddenNotesTab() throws Exception {
+        tomato.gui.history.ArchiveNativeSupport.Memory memory = new tomato.gui.history.ArchiveNativeSupport.Memory();
+        CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("tabs.json"));
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                PropertiesManager.setProperties(ORDER, "");
+                CharacterJournalGUI first = new CharacterJournalGUI(journal, () -> 5000, RosterDefinitions::empty);
+                first.bindViewState(memory.states);
+                JTabbedPane tabs = find(first, JTabbedPane.class, "character-detail-tabs");
+                tabs.setSelectedIndex(tabs.indexOfTab("Notes")); first.saveViewState();
+                PropertiesManager.setProperties(ORDER, "stats,equipment,exalts,notes,evidence,goals,death|notes");
+                CharacterJournalGUI restored = new CharacterJournalGUI(journal, () -> 5000, RosterDefinitions::empty);
+                restored.bindViewState(memory.states);
+                JTabbedPane shown = find(restored, JTabbedPane.class, "character-detail-tabs");
+                assertEquals("Notes", shown.getTitleAt(shown.getSelectedIndex()));
+            });
+            SwingUtilities.invokeAndWait(() -> {});
+        } finally { journal.close(); }
+    }
 }

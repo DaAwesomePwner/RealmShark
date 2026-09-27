@@ -214,7 +214,13 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         saved.removeAll();activeView=view;saved.add(view);restoreEnabled(saved);saved.revalidate();saved.repaint();loading=false;
         FilterChips.keepingFocus(()->{
             filterBar.drawer(filters==null?null:filters.drawer);
-            FilterChips.update(filterBar,filters==null?Collections.<FilterBar.ActiveFilter>emptyList():filters.active,()->changeQuery(client.initialQuery().withScope(state.query.scope())),true);
+            List<FilterBar.ActiveFilter> active=new ArrayList<>();
+            if(!query.text().isEmpty()){
+                String label=query.text().length()>60?query.text().substring(0,57)+"…":query.text();
+                active.add(new FilterBar.ActiveFilter("Search: "+label,()->binding.queryChanged(query.withText(""))));
+            }
+            if(filters!=null)active.addAll(filters.active);
+            FilterChips.update(filterBar,active,()->changeQuery(client.initialQuery().withScope(state.query.scope())),true);
             filterBar.setDrawerEnabled(true);
         });
         List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(sortLabel(item));

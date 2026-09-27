@@ -32,8 +32,8 @@ final class StatisticsLiveState {
     /** Keep legacy numeric values canonical even when presentation tabs are reordered or hidden. */
     void tabs(tomato.gui.kit.CustomizableTabs tabs, String... canonicalIds){
         List<String> ids=Arrays.asList(canonicalIds);String key=tabs.component().getName();
-        int index=parse(value(key,"0"),0);
-        if(index>=0&&index<ids.size())tabs.select(ids.get(index));
+        int index=parse(value(key,"-1"),-1);
+        if(index>=0&&index<ids.size()){tabs.show(ids.get(index));tabs.select(ids.get(index));}
         tabs.onSelect(id->{int canonical=ids.indexOf(id);if(canonical>=0)put(key,Integer.toString(canonical));});
     }
     void text(JTextField field){field.setText(value(field.getName(),field.getText()));field.getDocument().addDocumentListener(new DocumentListener(){private void save(){put(field.getName(),field.getText());}public void insertUpdate(DocumentEvent e){save();}public void removeUpdate(DocumentEvent e){save();}public void changedUpdate(DocumentEvent e){save();}});}

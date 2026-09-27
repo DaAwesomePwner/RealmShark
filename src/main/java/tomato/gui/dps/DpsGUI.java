@@ -443,7 +443,7 @@ public class DpsGUI extends JPanel {
         RouteState state = (RouteState) value;
         if (resources != null && state.resources != null) resources.restoreState(state.resources);
         if (state.live || state.entry == null || !showEncounter(state.entry)) { if (!liveUpdates) setIndex(-1); }
-        if (state.tab != null) combatViews.select(state.tab);
+        if (state.tab != null) showCombat(state.tab);
     }
 
     /** Resolves exactly one library recording; an ambiguous recording or unverified local object is rejected. */

@@ -87,7 +87,7 @@ public class InspectArchiveNativeTest {
                         assertEquals(Collections.singletonList("Seasonal"),chipLabels(rosterFilters));
                         button(cached,"Reset display filters").doClick(); return null; });
                 } finally { PropertiesManager.setProperties(Motion.REDUCE_KEY, motion == null ? "" : motion); }
-                await(() -> "Display filters (0)".equals(filters.getText()) && find(cached,JTable.class,c -> true).getRowCount() == 1);
+                await(() -> "Filters".equals(filters.getText()) && find(cached,JTable.class,c -> true).getRowCount() == 1);
                 String preview = preview(workspace,evidence,"inspect-linked-preview");
                 assertTrue(preview.contains(sources.get(1))); assertTrue(preview.contains("8 linked Timeline events"));
             } finally { edt(() -> { workspace.close(); evidence.closeWindow(); ParsePanelGUI.clear(); return null; }); }

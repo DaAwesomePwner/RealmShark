@@ -72,6 +72,14 @@ public class ArchiveFilterBarTest {
                 edt(()->{assertTrue(ArchiveNativeSupport.action(workspace,"Delete view…").isEnabled());
                     workspace.changeQuery(workspace.state().query.withText("Message 1"));return null;});
                 await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==31);
+                edt(()->{
+                    assertTrue("Text-only queries expose Clear",named(workspace,"facet-bar-clear-filters").isVisible());
+                    ArchiveNativeSupport.removeChip(workspace.filterBar(),"Search: Message 1");return null;});
+                await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==120);
+                edt(()->{workspace.changeQuery(workspace.state().query.withText("no matching synthetic message"));return null;});
+                await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==0);
+                edt(()->{((AbstractButton)named(workspace,"facet-bar-clear-filters")).doClick();return null;});
+                await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==120);
                 edt(()->{ArchiveNativeSupport.action(workspace,"Load: Everything").doClick();return null;});
                 await(()->ArchiveNativeSupport.ready(workspace)&&workspace.displayedPage().matches==120);
             }finally{edt(()->{workspace.close();return null;});}

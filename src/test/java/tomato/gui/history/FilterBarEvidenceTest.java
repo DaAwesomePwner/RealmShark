@@ -32,6 +32,25 @@ import static tomato.gui.chat.SocialArchiveTestSupport.edt;
 public class FilterBarEvidenceTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public VisualEvidence evidence = new VisualEvidence("redesign-p1c");
+    private final Map<String, String> savedPreferences = new LinkedHashMap<>();
+
+    @Before public void isolatePreferences() throws Exception {
+        edt(() -> {
+            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.character-detail", "ui.tabs.quests",
+                    "ui.filters.runs.open", "ui.filters.loot.open", "ui.filters.chat.open", "ui.filters.keypop.open",
+                    "ui.filters.characters.open", "ui.filters.quests.open"}) {
+                savedPreferences.put(key, util.PropertiesManager.getProperty(key));
+                util.PropertiesManager.setProperties(key, "");
+            }
+            return null;
+        });
+    }
+
+    @After public void restorePreferences() throws Exception {
+        // Disposal can queue a final view-state save; restore only after that EDT work drains.
+        edt(() -> null);
+        edt(() -> { savedPreferences.forEach((key, value) -> util.PropertiesManager.setProperties(key, value == null ? "" : value)); return null; });
+    }
 
     private static final class Page {
         final String name; final JComponent root; final FilterBar bar; final BooleanSupplier ready;

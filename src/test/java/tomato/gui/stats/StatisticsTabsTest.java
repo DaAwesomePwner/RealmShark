@@ -30,9 +30,10 @@ public class StatisticsTabsTest {
             PropertiesManager.setProperties(ORDER, "loot,fame-graph,fame-table,dungeon-stats|");
             tomato.gui.kit.CustomizableTabs first = sampleTabs();
             new StatisticsLiveState(memory.states, "statistics-live").tabs(first,"fame-graph","fame-table","loot","dungeon-stats");
-            assertEquals("Legacy default remains Fame Graph", "fame-graph", first.selectedId());
+            assertEquals("Without saved selection, the customized order wins", "loot", first.selectedId());
+            first.select("fame-graph");
             first.select("loot"); first.move("loot", 1);
-            PropertiesManager.setProperties(ORDER, "dungeon-stats,fame-table,fame-graph,loot|");
+            PropertiesManager.setProperties(ORDER, "dungeon-stats,fame-table,fame-graph,loot|loot");
             tomato.gui.kit.CustomizableTabs restored = sampleTabs();
             new StatisticsLiveState(memory.states, "statistics-live").tabs(restored,"fame-graph","fame-table","loot","dungeon-stats");
             assertEquals("loot", restored.selectedId());

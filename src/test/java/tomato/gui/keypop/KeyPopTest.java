@@ -169,6 +169,9 @@ public class KeyPopTest {
         SwingUtilities.invokeAndWait(() -> {
             VioletTheme.install();
             KeyPopDashboard ui = new KeyPopDashboard(sample());
+            tomato.gui.kit.FilterBar bar = (tomato.gui.kit.FilterBar) SwingUtilities.getAncestorOfClass(tomato.gui.kit.FilterBar.class, ui.item);
+            String previousDrawer = util.PropertiesManager.getProperty("ui.filters.keypops-live.open");
+            tomato.gui.history.ArchiveNativeSupport.drawer(bar, true);
             JFrame frame = new JFrame("Key pops preview"); frame.setContentPane(ui);
             try {
                 File folder = new File("screenshots"); folder.mkdirs();
@@ -185,7 +188,7 @@ public class KeyPopTest {
                         assertTrue("Item filter at " + width + ": " + ui.item.getBounds() + ", parent " + ui.item.getParent().getBounds(), ui.item.getWidth() > 130);
                     }
                 }
-            } catch (Exception e) { throw new AssertionError(e); } finally { frame.dispose(); }
+            } catch (Exception e) { throw new AssertionError(e); } finally { frame.dispose(); util.PropertiesManager.setProperties("ui.filters.keypops-live.open", previousDrawer == null ? "" : previousDrawer); }
         });
     }
 }

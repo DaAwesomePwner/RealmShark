@@ -326,7 +326,7 @@ public final class ActivityPanel extends JPanel {
         final ViewState.Table restoredLayout=layout;
         return ()->{restoringState=true;try{
             runFilters=filters;syncRunControls();search.setText(text);kind.setSelectedIndex(kindIndex);durationUnit.setSelectedItem(units);
-            if(mode==Mode.COMBAT)combatTabs.select(tab==1?"uptime":"timeline");columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
+            if(mode==Mode.COMBAT&&values.containsKey("tab")){String id=tab==1?"uptime":"timeline";combatTabs.show(id);combatTabs.select(id);}columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
             restoredVisit=visit;restoredRow=row;restorePending=!visit.isEmpty()||!row.isEmpty();selectionRequired=required==1;
         }finally{restoringState=false;}filter();};
     }
