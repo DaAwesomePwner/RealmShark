@@ -472,6 +472,17 @@ Merged into the integration branch at `86b2699`; combined focused run 101 classe
 - **Characters Back** (Task 3): `CharactersState(sheet, key, tab, roster)`; Back brings the Roster tab forward only when it was in front when the state was captured.
 - **Test class paths:** `tomato.gui.chat.ShellHookIntegrationTest`.
 
+## Wave B outcomes (for Waves C–D)
+
+Merged into the integration branch at `5db70c9`; combined focused run 107 classes, 642 tests, 0 failures.
+- **Sheet** (Task 5): `SheetModel(key, identity, stats, gear, exalts, PetSummary pet, death, live)`. Public builder `SheetModelBuilder.build(record, account, live, PetDefinitions pets, RosterDefinitions defs, long now)`; package overloads with `IntFunction<List<String>> dungeons` (7 arguments) and the legacy 6-argument test form (no pet names). `CharacterSheet.openTab(String)` (shows, then selects), public `selectedTab()`, slots `pet` and `fame` (Fame an empty placeholder panel). `OverviewTab(DisplayModeModel, LongSupplier clock, Runnable openPet)`; the Overview grid is `responsiveGrid(3, 260, M)`.
+- **Tab counts** with the new tabs: Simple 8, Analyst 9 for a character not marked dead; new users get pet and fame at indices 3 and 4; a saved order gets them appended after its last id.
+- **Home** (Task 5): `HomeModel.Hero` ends with `String petChip`; `HomeModelBuilder.hero(..., Function<String, CharacterRecord> records, lastSeenAt, boundary, now)` reads a live hero's record by its journal key.
+- **Fixtures:** `CharacterFixtures`' Wizard (`KEY`) has a Legendary pet, the Priest "No pet"; `HomeModels`' hero shows "Legendary pet". `ExaltFixtures`, `PetFixtures` exist for the grid and the gallery.
+- **Exalts grid** (Task 6): `ExaltsGrid(SheetContext)` is the Characters page's `exalts` tab; `ExaltsTab(String prefix)`; `CharacterJournalGUI.exaltPanel()` is gone; a failed grid build shows `character-exalts-failed`.
+- **Pets gallery** (Task 7): `CharacterPetsGUI` shows `pet-cards`/`pet-empty` and the calculator in `pets-feeding`; `PetGalleryModel.build(records, account, List<YardPet>, defs)`.
+- **P6 de-duplication:** the current-account rule exists twice (`AccountExaltsBuilder.currentAccount`, `PetGalleryModel.account`).
+
 ## Local validation
 
 | Check | Command | Record |
