@@ -13,6 +13,7 @@ import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.LiveCharacter;
+import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.glance.home.HomeModelBuilder;
 import tomato.planning.PlanningMetadata;
@@ -20,8 +21,8 @@ import tomato.planning.PlanningMetadata;
 /**
  * Feeds the character sheet (spec §3.1: glance screens own no data). It rebuilds when the sheet opens a key and, while the sheet
  * shows, whenever a cheap token moved (CharacterSheet.refresh checks once a second): the key, the journal and live-character
- * revisions, the loaded definitions and the dungeon mapping. The "character-sheet" thread reads the journal's deep copies (reused
- * while the journal's revision is unchanged) and runs SheetModelBuilder. The EDT applies a result only while it is the newest
+ * revisions, the loaded definitions, the pet names and the dungeon mapping. The "character-sheet" thread reads the journal's
+ * deep copies (reused while the journal's revision is unchanged) and runs SheetModelBuilder. The EDT applies a result only while it is the newest
  * request and its key is still the sheet's, so a late result for another character, or an older one for this character, is
  * dropped. A failed build (any Throwable, applying included) is logged with its stack trace, reported in the sheet (spec §7),
  * never swallowed or rethrown on the EDT, and tried again on the next refresh.
@@ -43,6 +44,7 @@ final class SheetPresenter {
     private final OverviewTab overview;
     private final GearTab gear;
     private final ExaltsTab exalts = new ExaltsTab();
+    private final PetTab pet = new PetTab();
     private final BuildTab build = new BuildTab(key -> tomato.gui.route.Navigator.current().open(tomato.gui.myinfo.BuildRoute.sheet(key)));
     private String key;
     private Token token;
@@ -53,7 +55,9 @@ final class SheetPresenter {
     /** The failure last logged, so one that repeats on every retry is logged once until a build applies again (EDT only). */
     private String logged;
 
-    private record Token(String key, long journal, long live, boolean graceOver, RosterDefinitions definitions, PlanningMetadata planning) {}
+    /** {@code pets}, like {@code definitions} and {@code planning}, compares by identity: a new object once the pet names load. */
+    private record Token(String key, long journal, long live, boolean graceOver, RosterDefinitions definitions, PetDefinitions pets,
+                         PlanningMetadata planning) {}
     /** One journal read at one revision: the character's record (null when the journal lacks it) and the lists Goals shows. */
     private record Read(String key, long revision, CharacterRecord record, List<CharacterRecord> records, List<AccountRecord> accounts) {}
     /** One build for {@code key}. */
@@ -69,13 +73,15 @@ final class SheetPresenter {
         this.sheet = sheet;
         this.context = context;
         this.worker = Objects.requireNonNull(worker, "worker");
-        overview = new OverviewTab(context.mode(), context.clock());
+        // Opening the Overview's pet card is explicit navigation: it may show a hidden Pet tab.
+        overview = new OverviewTab(context.mode(), context.clock(), () -> sheet.openTab("pet"));
         sheet.setIdentity(header);
         sheet.setTab("overview", SheetViews.scroll(overview));
         gear = new GearTab(context.mode());
         sheet.setTab("gear", SheetViews.scroll(gear));
         sheet.setTab("exalts", SheetViews.scroll(exalts));
-        sheet.setTab("build", build); // the sheet's build slot, added below right after exalts
+        sheet.setTab("pet", SheetViews.scroll(pet)); // the Fame slot stays the sheet's placeholder until the Fame tab sets it
+        sheet.setTab("build", build); // the sheet's build slot, registered right after Fame
     }
 
     /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
@@ -96,12 +102,13 @@ final class SheetPresenter {
         else times();
     }
 
-    /** Relative times ("Played …", the vault's age) change without a new model. */
+    /** Relative times ("Played …", the vault's age, the pet's "Observed …") change without a new model. */
     private void times() {
         if (model == null) return;
         header.apply(model.identity());
         overview.apply(model); // re-reads only the vault age
         exalts.apply(model.exalts()); // and when this class's counts last changed
+        pet.apply(model.pet()); // and when the pet was observed
     }
 
     /**
@@ -114,7 +121,8 @@ final class SheetPresenter {
         long now = context.clock().getAsLong();
         boolean graceOver = live.current() == null && live.lastKnown() != null
             && !HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), now);
-        return new Token(key, context.journal().revision(), live.revision(), graceOver, context.definitions().get(), PlanningMetadata.current());
+        return new Token(key, context.journal().revision(), live.revision(), graceOver, context.definitions().get(), PetDefinitions.current(),
+            PlanningMetadata.current());
     }
 
     private void request() {
@@ -173,6 +181,7 @@ final class SheetPresenter {
     /** The build thread: one journal read (reused while the revision is unchanged) and the model, over deep copies. */
     private Built build(String target, CharacterJournal journal, LiveCharacter live, long now) {
         RosterDefinitions definitions = context.definitions().get();
+        PetDefinitions pets = PetDefinitions.current(); // never blocks: loading() until the pet names are read
         Read read = lastRead;
         synchronized (journal) {
             long revision = journal.revision();
@@ -182,7 +191,7 @@ final class SheetPresenter {
         lastRead = read;
         AccountRecord account = null;
         if (read.record() != null) for (AccountRecord a : read.accounts()) if (a.key.equals(read.record().account)) account = a;
-        return new Built(target, SheetModelBuilder.build(read.record(), account, SheetModelBuilder.inGame(live, now), definitions, now), read, definitions);
+        return new Built(target, SheetModelBuilder.build(read.record(), account, SheetModelBuilder.inGame(live, now), pets, definitions, now), read, definitions);
     }
 
     private LiveCharacter live() { return context.data().liveCharacter; }
@@ -206,5 +215,6 @@ final class SheetPresenter {
         overview.apply(value);
         gear.apply(value == null ? null : value.gear());
         exalts.apply(value == null ? null : value.exalts());
+        pet.apply(value == null ? null : value.pet());
     }
 }

@@ -26,8 +26,9 @@ import tomato.gui.stats.Formatters;
 
 /**
  * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
- * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear, Exalts and Build are slots whose
- * content SheetPresenter sets ({@link #setTab}); Death annotation shows only while the character is marked dead (spec §6.2).
+ * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear, Exalts, Pet, Fame and Build are
+ * slots whose content SheetPresenter sets ({@link #setTab}; Fame is an empty placeholder until the Fame tab fills it); Death
+ * annotation shows only while the character is marked dead (spec §6.2).
  * - SheetPresenter reads the journal and builds the model off the EDT; {@link #loaded} shows each read. Until the read of the
  *   opened key arrives the sheet says "Loading…" and nothing acts ({@link #ready}); a failed build shows a warn banner (spec §7).
  * - Snapshot evidence and the tab hint are provenance: Analyst mode only (spec §3.2).
@@ -65,7 +66,7 @@ public final class CharacterSheet extends JPanel {
     private final CharacterPlanningPanel planning;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
-    /** Header identity and the Overview, Gear, Exalts and Build tabs (Tasks 5–8), built off the EDT. */
+    /** Header identity and the Overview, Gear, Exalts, Pet and Build tabs, built off the EDT. */
     private final SheetPresenter presenter;
     private Runnable backAction = () -> { };
     /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
@@ -126,6 +127,9 @@ public final class CharacterSheet extends JPanel {
         tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
             .add("gear", "Gear", slot("gear", new JPanel())) // SheetPresenter sets the Gear tab
             .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab
+            // P3b: new users get Pet and Fame here; a saved order gets them appended (CustomizableTabs.order), as Build was.
+            .add("pet", "Pet", slot("pet", new JPanel())) // SheetPresenter sets the Pet tab
+            .add("fame", "Fame", slot("fame", new JPanel())) // an empty placeholder until the Fame tab sets it
             .add("build", "Build", slot("build", new JPanel())) // SheetPresenter hosts Build (MyInfoGUI) here
             .add("goals", "Goals", planning)
             .add("notes", "Notes", notePanel)
@@ -216,8 +220,14 @@ public final class CharacterSheet extends JPanel {
      * forced by a conditional tab (Death) disappearing, not the tab of the character now opening.
      */
     public boolean resettingTabs() { return resettingTabs; }
+    /** The selected tab's id (the Fame tab reads history only while it shows). */
     public String selectedTab() { return tabs.selectedId(); }
     public CustomizableTabs tabs() { return tabs; }
+    /**
+     * Explicit navigation within the open sheet (the Overview's pet card): shows the tab if the user hid it, then selects it. A
+     * conditional tab not offered yet is retried once, as {@link #open} does.
+     */
+    void openTab(String id) { requestTab(Objects.requireNonNull(id, "id"), true); }
     /**
      * Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. A conditional tab (Death)
      * may not be offered yet while the record loads, so this is retried once, select-only, from {@link #loaded}.
@@ -239,7 +249,7 @@ public final class CharacterSheet extends JPanel {
         context.journal().notes(filledKey, notes.getText()); record.notes = notes.getText();
     }
 
-    /** Replaces a slot tab's content (overview, gear, exalts, build); its id, title, order and hidden state are unchanged. */
+    /** Replaces a slot tab's content (overview, gear, exalts, pet, fame, build); its id, title, order and hidden state are unchanged. */
     void setTab(String id, JComponent content) {
         JPanel slot = slots.get(id);
         if (slot == null) throw new IllegalArgumentException("Not a replaceable sheet tab: " + id);

@@ -38,9 +38,13 @@ public class CharacterTabsTest {
             DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
             CharacterSheet sheet = RosterFixtures.sheet(journal, () -> 5000, RosterDefinitions::empty);
             JTabbedPane tabs = find(sheet, JTabbedPane.class, "character-tabs");
-            assertEquals("Goals", tabs.getTitleAt(0)); assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+            // A saved order from before Build, Pet and Fame keeps its tabs in place; the newer ones follow in registration order.
+            assertEquals(java.util.Arrays.asList("goals", "overview", "gear", "exalts", "notes", "evidence", "death", "pet", "fame", "build"),
+                sheet.tabs().order());
+            assertEquals("Goals", tabs.getTitleAt(0)); assertEquals(8, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
             DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
-            assertEquals(7, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));
+            assertEquals(9, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));
+            assertEquals(6, tabs.indexOfTab("Pet")); assertEquals(7, tabs.indexOfTab("Fame")); assertEquals(8, tabs.indexOfTab("Build"));
             sheet.open(key, null); tabs.setSelectedIndex(tabs.indexOfTab("Notes")); sheet.open(key, "goals");
             assertEquals("Goals", tabs.getTitleAt(tabs.getSelectedIndex()));
         });

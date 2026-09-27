@@ -67,20 +67,48 @@ public class CharacterSheetTest {
                 DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
                 CharacterSheet sheet = sheet(journal);
                 assertEquals("character-sheet", sheet.getName());
-                List<String> order = Arrays.asList("overview", "gear", "exalts", "build", "goals", "notes", "evidence", "death");
+                // Pet and Fame are registered right after Exalts (P3b): new users get this order.
+                List<String> order = Arrays.asList("overview", "gear", "exalts", "pet", "fame", "build", "goals", "notes", "evidence", "death");
                 assertEquals(order, sheet.tabs().order());
                 JTabbedPane tabs = sheet.tabs().component();
                 assertEquals("character-tabs", tabs.getName());
-                assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Build", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
+                assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Pet", "Fame", "Build", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
                 DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
-                assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+                assertEquals(8, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+                assertEquals(3, tabs.indexOfTab("Pet")); assertEquals(4, tabs.indexOfTab("Fame"));
                 open(sheet, ACCOUNT + ":1", "notes"); assertEquals("notes", sheet.selectedTab());
                 open(sheet, ACCOUNT + ":1", "goals"); assertEquals("An explicit tab is selected", "goals", sheet.selectedTab());
                 JPanel replacement = new JPanel();
                 sheet.setTab("overview", replacement);
                 assertEquals("A replaced slot keeps its id and place", order, sheet.tabs().order());
                 assertTrue(SwingUtilities.isDescendingFrom(replacement, tabs.getComponentAt(0)));
-                try { sheet.setTab("notes", new JPanel()); fail("Only overview, gear, exalts and build are slots"); } catch (IllegalArgumentException expected) { }
+                JPanel fame = new JPanel();
+                sheet.setTab("fame", fame); // the Fame tab's slot: an empty placeholder until the Fame tab sets it
+                assertTrue(SwingUtilities.isDescendingFrom(fame, tabs.getComponentAt(tabs.indexOfTab("Fame"))));
+                assertEquals(order, sheet.tabs().order());
+                try { sheet.setTab("notes", new JPanel()); fail("Only overview, gear, exalts, pet, fame and build are slots"); } catch (IllegalArgumentException expected) { }
+            });
+        }
+    }
+
+    /**
+     * The Overview's pet card is explicit navigation: it shows the Pet tab even when the user hid it, then selects it. The fixture
+     * roster says nothing about pets, so the Pet tab shows the unknown state (never "No pet").
+     */
+    @Test public void thePetCardOpensThePetTabEvenWhenItIsHidden() throws Exception {
+        try (CharacterJournal journal = journal("pet.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", "notes");
+                assertTrue(sheet.tabs().hide("pet")); // saved to ui.tabs.character; @After restores it
+                assertFalse(sheet.tabs().visibleIds().contains("pet"));
+                named(sheet, "character-overview-pet", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null);
+                assertEquals("pet", sheet.selectedTab());
+                assertTrue("Explicit navigation shows the hidden tab", sheet.tabs().visibleIds().contains("pet"));
+                assertTrue(named(sheet, "character-pet-empty", EmptyState.class).isVisible());
+                assertFalse(named(sheet, "character-pet-none", EmptyState.class).isVisible());
+                sheet.openTab("fame");
+                assertEquals("fame", sheet.selectedTab());
             });
         }
     }

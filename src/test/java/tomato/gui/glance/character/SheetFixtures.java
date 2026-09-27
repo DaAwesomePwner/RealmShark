@@ -85,9 +85,45 @@ public final class SheetFixtures {
             new int[]{9, 9, 9, 9, 9, 9, 9, 9}, build, NOW - 500);
     }
 
-    /** The builder with the fixture caps and no dungeon mapping (as while PlanningMetadata loads). */
+    /** The builder with the fixture caps, no dungeon mapping (as while PlanningMetadata loads) and no pet names (as while PetDefinitions loads). */
     public static SheetModel model(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live) {
-        return SheetModelBuilder.build(record, account, live, defs(), null, NOW);
+        return model(record, account, live, PetDefinitions.loading());
+    }
+
+    /** {@link #model(CharacterRecord, AccountRecord, LiveCharacter.Snapshot)} with the given pet names. */
+    public static SheetModel model(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, PetDefinitions pets) {
+        return SheetModelBuilder.build(record, account, live, pets, defs(), null, NOW);
+    }
+
+    /**
+     * A Rare pet (max ability level 70) as the character list reports it, observed at {@code observedAt}: Heal level 45 (7,200
+     * points), Magic heal level 30 (2,100 points) and Electric, locked below max level 90 (level 1, 0 points). Type 0x7001, which
+     * {@link #petNames} names "Canine"; skin 0 (no sprite: the placeholder).
+     */
+    public static CharacterJournal.PetRecord pet(long observedAt) {
+        CharacterJournal.PetRecord p = new CharacterJournal.PetRecord();
+        p.instanceId = 5_001L; p.name = "Sample pet"; p.type = 0x7001; p.rarity = 2; p.skin = 0; p.maxAbilityPower = 70;
+        p.abilityType = new int[]{407, 408, 406}; p.abilityLevel = new int[]{45, 30, 1}; p.abilityPoints = new int[]{7_200, 2_100, 0};
+        p.observedAt = observedAt; p.source = "Character list";
+        return p;
+    }
+
+    /** A known "No pet": the character list reported an empty pet element. */
+    public static CharacterJournal.PetRecord noPet(long observedAt) {
+        CharacterJournal.PetRecord p = new CharacterJournal.PetRecord();
+        p.absent = Boolean.TRUE; p.observedAt = observedAt; p.source = "Character list";
+        return p;
+    }
+
+    /**
+     * Pet names read from a synthetic {@code xml/pets.xml} under {@code root} (PetDefinitions.parse is package-private): type 0x7001
+     * is "Canine"; no other type is named.
+     */
+    public static PetDefinitions petNames(java.nio.file.Path root) throws IOException {
+        java.nio.file.Path xml = root.resolve("xml/pets.xml");
+        java.nio.file.Files.createDirectories(xml.getParent());
+        java.nio.file.Files.writeString(xml, "<Objects><Object type=\"0x7001\" id=\"Sample\"><Family>Canine</Family></Object></Objects>");
+        return PetDefinitions.read(root);
     }
 
     /** {@code model} with only its identity's lastSeen moved: what two rebuilds of an unchanged character differ by while playing. */
@@ -95,7 +131,7 @@ public final class SheetFixtures {
         SheetModel.Identity i = model.identity();
         SheetModel.Identity moved = new SheetModel.Identity(i.name(), i.classId(), i.className(), i.skin(), i.level(), i.fame(), i.seasonal(),
             i.dead(), lastSeen, i.lastPlayed(), i.playing(), i.maxed());
-        return new SheetModel(model.key(), moved, model.stats(), model.gear(), model.exalts(), model.death(), model.live());
+        return new SheetModel(model.key(), moved, model.stats(), model.gear(), model.exalts(), model.pet(), model.death(), model.live());
     }
 
     /** Observes one Wizard #7 of the synthetic account (name "Sample") and returns its journal key. */

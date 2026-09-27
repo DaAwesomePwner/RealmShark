@@ -16,8 +16,9 @@ import static tomato.gui.glance.character.SheetViews.*;
 
 /**
  * Sheet › Overview (spec §6.2). It shows base-versus-cap bars with the live "+N" boost, then the potions each stat still needs
- * (with vault counts only when known). Below those come the four equipped slots, this class's exalt summary and, for a dead
- * character, its death annotation. The full stat table, with field evidence, is an Analyst-only Collapsible. EDT only.
+ * (with vault counts only when known). Below those come the four equipped slots, this class's exalt summary, the pet card (which
+ * opens the Pet tab) and, for a dead character, its death annotation. The full stat table, with field evidence, is an
+ * Analyst-only Collapsible. EDT only.
  */
 final class OverviewTab extends JPanel {
     private static final String NEEDS_RULE = "Life and Mana take one potion per 5 points, other stats one per point. "
@@ -30,6 +31,11 @@ final class OverviewTab extends JPanel {
     private final JPanel needs = named(row(), "character-overview-needs");
     private final KitText exalts = named(KitText.body(""), "character-overview-exalts");
     private final KitText deathText = named(KitText.body(""), "character-overview-death-text");
+    private final JLabel petSprite = named(new JLabel(), "character-overview-pet-sprite");
+    private final KitText petName = named(KitText.body(""), "character-overview-pet-name");
+    private final Chip petRarity = named(new Chip("", Tokens.Tone.NEUTRAL), "character-overview-pet-rarity");
+    /** Wrapping text: three ability names and levels must not be cut in a narrow card or at font 18. */
+    private final JTextArea petAbilities = named(ContentStyle.wrappingText(""), "character-overview-pet-abilities");
     private final Card death;
     private final DefaultTableModel table = new DefaultTableModel(new String[]{"Stat", "Base", "Cap", "Potions to max", "Field evidence"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
@@ -45,10 +51,13 @@ final class OverviewTab extends JPanel {
      * while playing, every rebuild stamps the build time into the identity, and refilling unchanged rows would reset the Analyst
      * table's selection and scroll and rebuild the needs row once a second.
      */
-    private Object statsShown = NOT_SHOWN, gearShown = NOT_SHOWN, tableShown = NOT_SHOWN;
+    private Object statsShown = NOT_SHOWN, gearShown = NOT_SHOWN, tableShown = NOT_SHOWN, petShown = NOT_SHOWN;
 
-    /** {@code clock}: the sheet's clock (SheetContext.clock), which judges whether a vault count is stale. */
-    OverviewTab(DisplayModeModel mode, LongSupplier clock) {
+    /**
+     * {@code clock}: the sheet's clock (SheetContext.clock), which judges whether a vault count is stale. {@code openPet}: what
+     * opening the pet card does (the sheet shows and selects its Pet tab: explicit navigation).
+     */
+    OverviewTab(DisplayModeModel mode, LongSupplier clock, Runnable openPet) {
         super(new BorderLayout());
         this.clock = Objects.requireNonNull(clock, "clock");
         setOpaque(false);
@@ -71,10 +80,14 @@ final class OverviewTab extends JPanel {
             tiers[i].setHorizontalAlignment(SwingConstants.CENTER);
             slots.add(beside(gear[i], tiers[i], BorderLayout.SOUTH, 2));
         }
-        JPanel pair = ContentStyle.responsiveGrid(2, 260, Tokens.M);
+        petSprite.getAccessibleContext().setAccessibleName("Pet sprite");
+        JPanel pet = beside(KitLayouts.stack(Tokens.XS, row(petName, petRarity), petAbilities), petSprite, BorderLayout.WEST, Tokens.S);
+        // Three cards across on a wide sheet, two and one when narrower, one per row when narrow (responsiveGrid balances rows).
+        JPanel pair = ContentStyle.responsiveGrid(3, 260, Tokens.M);
         pair.setOpaque(false);
         pair.add(card(mode, "Gear", slots, "character-overview-gear"));
         pair.add(card(mode, "Class exalts", exalts, "character-overview-class-exalts"));
+        pair.add(card(mode, "Pet", pet, "character-overview-pet").onOpen("Open pet", Objects.requireNonNull(openPet, "openPet")));
         death = card(mode, "Death", deathText, "character-overview-death");
         JTable rows = named(new JTable(table), "character-stat-rows");
         ContentStyle.table(rows, ContentStyle.Density.DENSE);
@@ -130,6 +143,12 @@ final class OverviewTab extends JPanel {
         exalts.setText(known ? classExalts.summary() : DisplayFormat.UNAVAILABLE);
         exalts.setToolTipText(known ? "Exaltation tiers for this class; the Exalts tab lists every stat"
             : "Exalt progress arrives when capture reads your character list");
+        // The pet card has no relative age, so an unchanged pet is simply left as it is. Loading (no model) reads as unknown.
+        PetSummary pet = model == null ? PetSummary.UNKNOWN : model.pet();
+        if (!Objects.equals(pet, petShown)) {
+            pet(pet);
+            petShown = pet;
+        }
         SheetModel.Death dead = model == null ? null : model.death();
         death.setVisible(dead != null);
         if (dead != null) deathText.setText("Marked dead " + deathAge
@@ -152,6 +171,31 @@ final class OverviewTab extends JPanel {
         shownStale = stale;
         revalidate();
         repaint();
+    }
+
+    /** The pet card: sprite, name, rarity chip and one line of the three abilities; "No pet"; or "—" with why it is unknown. */
+    private void pet(PetSummary pet) {
+        boolean known = pet.state() == PetSummary.State.KNOWN;
+        petSprite.setVisible(known);
+        if (known) petSprite.setIcon(Sprites.sprite(pet.skin() == null ? 0 : pet.skin(), 32)); // an id <= 0 is the placeholder
+        petName.setText(known ? pet.title() : pet.state() == PetSummary.State.NONE ? "No pet" : DisplayFormat.UNAVAILABLE);
+        petName.setToolTipText(pet.state() == PetSummary.State.UNKNOWN ? PetTab.UNKNOWN_REASON
+            : pet.state() == PetSummary.State.NONE ? "No pet was equipped when capture last read the character list" : null);
+        petRarity.setVisible(known && pet.rarity() != null); // unknown rarity: no chip, never a guess
+        petRarity.setText(known && pet.rarity() != null ? pet.rarity() : "");
+        petAbilities.setVisible(known);
+        petAbilities.setText(known ? abilities(pet) : "");
+        petAbilities.setToolTipText(known ? "Ability levels; the Pet tab shows each toward the max level and a feeding estimate" : null);
+    }
+
+    /** "Heal 45 · Magic heal 30 · Electric locked": each slot's name and level, "—" where unknown (never 0). */
+    static String abilities(PetSummary pet) {
+        List<String> parts = new java.util.ArrayList<>(3);
+        for (PetSummary.Ability a : pet.abilities()) {
+            if (a.name() == null) parts.add(DisplayFormat.UNAVAILABLE);
+            else parts.add(a.name() + " " + (a.locked() ? "locked" : a.level() == null ? DisplayFormat.UNAVAILABLE : String.valueOf(a.level())));
+        }
+        return String.join(" · ", parts);
     }
 
     private void needs(SheetModel.Stats stats, String age, boolean stale) {
