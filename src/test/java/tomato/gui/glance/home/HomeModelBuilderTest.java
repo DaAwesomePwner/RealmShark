@@ -177,8 +177,8 @@ public class HomeModelBuilderTest {
     }
 
     @Test public void todayAndRunsStates() {
-        HomeArchive.Totals none = new HomeArchive.Totals(TODAY, 0, 1, 0, 0, null, null, null, 0, 0, 0, 0, false);
-        HomeArchive.Totals some = new HomeArchive.Totals(TODAY, 0, 1, 1, 2, 0L, null, new double[12], 0, 0, 0, 0, true);
+        HomeArchive.Totals none = new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false);
+        HomeArchive.Totals some = new HomeArchive.Totals(TODAY, 0, 1, 1, 2, true, 0L, null, new double[12], 0, 0, 0, 0, true);
         assertEquals(State.LOADING, HomeModelBuilder.today(TODAY, null, null).state());
         HomeModel.Today empty = HomeModelBuilder.today(TODAY, new HomeArchive.Result(none, List.of()), null);
         assertEquals(State.EMPTY, empty.state()); assertFalse(empty.reason().isEmpty());
@@ -202,7 +202,8 @@ public class HomeModelBuilderTest {
         HomeModel.Runs staleRuns = HomeModelBuilder.staleRuns(good, NOW - 5 * 60_000, new IOException("disk full"), NOW);
         assertEquals(State.STALE, staleRuns.state()); assertEquals(List.of(run), staleRuns.rows());
         assertEquals("Last updated 5 min ago · disk full", staleRuns.reason());
-        assertEquals("Totals compare by content", some, new HomeArchive.Totals(TODAY, 0, 1, 1, 2, 0L, null, new double[12], 0, 0, 0, 0, true));
+        assertEquals("Totals compare by content", some, new HomeArchive.Totals(TODAY, 0, 1, 1, 2, true, 0L, null, new double[12], 0, 0, 0, 0, true));
+        assertNotEquals("Whether runs were saved is content", some, new HomeArchive.Totals(TODAY, 0, 1, 1, 2, false, 0L, null, new double[12], 0, 0, 0, 0, true));
     }
 
     @Test public void questsShowPinnedQuestsOnlyWithCountsAndStaleness() {

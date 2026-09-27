@@ -20,7 +20,7 @@ import tomato.gui.modern.DisplayFormat;
  * with a warn banner saying when they were read and why the new read failed.
  */
 final class TodayTiles extends HomeCard {
-    static final String NO_LOOT = "No loot was saved for this period";
+    static final String NO_RUNS = "No runs were saved for this period", NO_LOOT = "No loot was saved for this period";
     private final SegmentedControl window = new SegmentedControl("home-today-window", "Today", "This session");
     private final StatTile runs = HomeViews.named(new StatTile("Runs"), "home-tile-runs");
     private final StatTile fame = HomeViews.named(new StatTile("Fame"), "home-tile-fame");
@@ -86,7 +86,10 @@ final class TodayTiles extends HomeCard {
         }
         boolean stale = today.state() == HomeModel.State.STALE;
         String source = label + " from saved history";
-        runs.setValue(count(totals.runsCompleted(), "Completed dungeon runs, " + source, stale), totals.runsEntered() + " entered");
+        // Without any saved visit the run counts are unknown, not zero (spec §1); visits but no dungeon run is a real zero.
+        boolean visited = totals.runsRecorded();
+        runs.setValue(visited ? count(totals.runsCompleted(), "Completed dungeon runs, " + source, stale) : DisplayValue.unknown(NO_RUNS),
+            visited ? totals.runsEntered() + " entered" : null);
         Long gain = totals.fameGained();
         fame.setValue(gain == null ? DisplayValue.unknown("No fame readings in this window yet") : gained(gain, source, stale), rate(totals));
         boolean trended = gain != null && totals.fameSeries() != null && totals.fameSeries().length > 1;
@@ -104,7 +107,7 @@ final class TodayTiles extends HomeCard {
             + ". Runs are dungeon visits in the runs history; completed uses the same rule as the Runs page. Fame is each character's gain"
             + " between its first and last fame reading (decreases and new characters are ignored); fame/hour divides it by the time"
             + " covered by readings in each session. Notable loot counts UT and ST drops by item tier and white bags by bag type; potions"
-            + " use the item potion flag. Loot counts are unknown when no loot was saved in this period.");
+            + " use the item potion flag. Run counts are unknown when no visit was saved in this period, and loot counts when no loot was.");
         getAccessibleContext().setAccessibleName("Progress: " + label + (stale ? ", last successful read" : ""));
         getAccessibleContext().setAccessibleDescription(reason.isEmpty() ? null : reason);
         body(content);

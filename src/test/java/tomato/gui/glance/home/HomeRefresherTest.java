@@ -229,7 +229,7 @@ public class HomeRefresherTest {
             check("archive", "home-archive"); windows.add(window); archiveCalls.incrementAndGet(); archiveEntered.countDown();
             CountDownLatch gate = archiveGate; if (gate != null) gate.await(5, TimeUnit.SECONDS);
             Exception failure = archiveFailure; if (failure != null) throw failure;
-            return new HomeArchive.Result(new HomeArchive.Totals(window, 0, now, 1, 2, 10L, null, new double[12], 0, 0, 0, 0, true), List.of());
+            return new HomeArchive.Result(new HomeArchive.Totals(window, 0, now, 1, 2, true, 10L, null, new double[12], 0, 0, 0, 0, true), List.of());
         }
     }
 }

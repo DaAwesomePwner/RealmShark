@@ -39,7 +39,7 @@ public final class HomeModels {
             new KeypopGUI.LastPop("Ann", "Lost Halls", Instant.ofEpochMilli(now - 60_000L)));
     }
     public static HomeArchive.Totals totals(HomeArchive.Window window, long now) {
-        return new HomeArchive.Totals(window, now - (window == HomeArchive.Window.TODAY ? 6 : 2) * 3_600_000L, now, 4, 5, 1_234L, 540.0,
+        return new HomeArchive.Totals(window, now - (window == HomeArchive.Window.TODAY ? 6 : 2) * 3_600_000L, now, 4, 5, true, 1_234L, 540.0,
             new double[]{0, 40, 95, 180, 260, 340, 455, 610, 720, 860, 1_020, 1_234}, 2, 1, 3, 6, true);
     }
     public static HomeModel.Today today(HomeArchive.Window window, long now) {

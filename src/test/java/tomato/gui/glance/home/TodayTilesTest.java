@@ -34,7 +34,8 @@ public class TodayTilesTest {
     @Test public void unknownFameIsNeverZeroAndZeroRunsAreARealZero() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode);
-            HomeArchive.Totals none = new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 0, 0, null, null, null, 0, 0, 0, 0, false);
+            // Visits were saved (runsRecorded) but none was a dungeon run: zero runs is a real zero.
+            HomeArchive.Totals none = new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 0, 0, true, null, null, null, 0, 0, 0, 0, false);
             tiles.apply(new HomeModel.Today(HomeModel.State.LIVE, TODAY, none, null));
             for (String tile : new String[] {"home-tile-loot", "home-tile-potions"}) {
                 DisplayValue loot = named(tiles, tile, StatTile.class).value();
@@ -46,7 +47,7 @@ public class TodayTilesTest {
             assertEquals("—", fame.text());
             assertFalse(named(tiles, "home-today-fame-trend", Sparkline.class).isVisible());
             assertEquals(DisplayValue.State.ZERO, named(tiles, "home-tile-runs", StatTile.class).value().state);
-            HomeArchive.Totals looted = new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 0, 0, null, null, null, 0, 0, 0, 0, true);
+            HomeArchive.Totals looted = new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 0, 0, true, null, null, null, 0, 0, 0, 0, true);
             tiles.apply(new HomeModel.Today(HomeModel.State.LIVE, TODAY, looted, null));
             assertEquals("Loot was saved and none dropped: a real zero", DisplayValue.State.ZERO, named(tiles, "home-tile-loot", StatTile.class).value().state);
             assertEquals(DisplayValue.State.ZERO, named(tiles, "home-tile-potions", StatTile.class).value().state);
@@ -57,6 +58,17 @@ public class TodayTilesTest {
             assertEquals("Last updated 2 min ago · disk full", note.text());
             tiles.apply(new HomeModel.Today(HomeModel.State.STALE, TODAY, HomeModels.totals(TODAY, NOW), null));
             assertEquals("Showing the last successful read of saved history.", note.text());
+        });
+    }
+    @Test public void runsAreUnknownWhenNoVisitWasSaved() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode);
+            HomeArchive.Totals unrecorded = new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 0, 0, false, 250L, null, null, 0, 0, 0, 0, false);
+            tiles.apply(new HomeModel.Today(HomeModel.State.LIVE, TODAY, unrecorded, null));
+            DisplayValue runs = named(tiles, "home-tile-runs", StatTile.class).value();
+            assertEquals("No visits saved: unknown, never 0", DisplayValue.State.UNKNOWN, runs.state);
+            assertEquals(TodayTiles.NO_RUNS, runs.detail);
+            assertFalse("No \"0 entered\" line either", spoken(tiles, "home-tile-runs").contains("entered"));
         });
     }
     @Test public void windowChoiceNotifiesAndWaitsForItsOwnResult() throws Exception {

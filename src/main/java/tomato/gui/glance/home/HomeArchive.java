@@ -25,9 +25,11 @@ public final class HomeArchive {
 
     /**
      * {@code fameGained} null = no fame readings in the window; {@code fameSeries} is then empty, else 12 cumulative buckets.
-     * {@code lootRecorded} is false when no loot bag was saved in the window's sessions: the loot counts are then unknown, not zero.
+     * {@code runsRecorded} is false when no visit (dungeon or not) was saved in the window's sessions: the run counts are then
+     * unknown, not zero. {@code lootRecorded} is false when no loot bag was saved in the window's sessions: the loot counts
+     * are then unknown, not zero.
      */
-    public record Totals(Window window, long from, long until, int runsCompleted, int runsEntered,
+    public record Totals(Window window, long from, long until, int runsCompleted, int runsEntered, boolean runsRecorded,
                          Long fameGained, Double famePerHour, double[] fameSeries,
                          int untiered, int setTiered, int whiteBags, int potions, boolean lootRecorded) {
         public Totals {
@@ -38,13 +40,13 @@ public final class HomeArchive {
         /** Content equality (the series by value), so an unchanged re-read is recognized as unchanged. */
         @Override public boolean equals(Object other) {
             return other instanceof Totals t && window == t.window && from == t.from && until == t.until && runsCompleted == t.runsCompleted
-                && runsEntered == t.runsEntered && Objects.equals(fameGained, t.fameGained) && Objects.equals(famePerHour, t.famePerHour)
-                && Arrays.equals(fameSeries, t.fameSeries) && untiered == t.untiered && setTiered == t.setTiered && whiteBags == t.whiteBags
-                && potions == t.potions && lootRecorded == t.lootRecorded;
+                && runsEntered == t.runsEntered && runsRecorded == t.runsRecorded && Objects.equals(fameGained, t.fameGained)
+                && Objects.equals(famePerHour, t.famePerHour) && Arrays.equals(fameSeries, t.fameSeries) && untiered == t.untiered
+                && setTiered == t.setTiered && whiteBags == t.whiteBags && potions == t.potions && lootRecorded == t.lootRecorded;
         }
         @Override public int hashCode() {
-            return Objects.hash(window, from, until, runsCompleted, runsEntered, fameGained, famePerHour, Arrays.hashCode(fameSeries),
-                untiered, setTiered, whiteBags, potions, lootRecorded);
+            return Objects.hash(window, from, until, runsCompleted, runsEntered, runsRecorded, fameGained, famePerHour,
+                Arrays.hashCode(fameSeries), untiered, setTiered, whiteBags, potions, lootRecorded);
         }
     }
     /** {@code ended} null while in progress; {@code localDps} only from a recording linked to exactly this visit. */
@@ -114,7 +116,9 @@ public final class HomeArchive {
 
     private static Totals totals(Cache cache, List<SessionStore.Session> sessions, Span span) throws IOException {
         int entered = 0, completed = 0;
+        boolean runsRecorded = false;
         for (SessionStore.Session session : sessions) for (ActivityJournal.Visit visit : cache.runs(session)) {
+            runsRecorded = true;   // visits were saved in this window's sessions, so a run count of 0 is a real zero
             if (!span.keeps(visit.started) || !ParseDungeon.isDungeon(visit.map)) continue;   // runs count by entry time
             entered++;
             if (outcome(visit) == ActivityQueries.Outcome.COMPLETED) completed++;
@@ -153,7 +157,7 @@ public final class HomeArchive {
             if (bag.white()) whites++;
             for (LootFacts.Item item : bag.items()) { if (item.untiered()) untiered++; if (item.setTiered()) setTiered++; if (item.potion()) potions++; }
         }
-        return new Totals(span.window(), span.from(), span.until(), completed, entered, gained, perHour, series,
+        return new Totals(span.window(), span.from(), span.until(), completed, entered, runsRecorded, gained, perHour, series,
             untiered, setTiered, whites, potions, lootRecorded);
     }
 

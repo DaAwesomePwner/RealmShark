@@ -60,6 +60,7 @@ public class HomeArchiveTest {
         assertEquals("Only runs with completion evidence", 2, t.runsCompleted());
         assertEquals(1, t.untiered()); assertEquals(1, t.setTiered()); assertEquals(2, t.whiteBags()); assertEquals(2, t.potions());
         assertTrue("Loot was saved in today's sessions, so these counts are real", t.lootRecorded());
+        assertTrue("Visits were saved in today's sessions, so the run counts are real", t.runsRecorded());
     }
 
     @Test public void fameGainIgnoresDecreasesAndNewCharacterBaselines() throws Exception {
@@ -81,6 +82,7 @@ public class HomeArchiveTest {
         assertNull("No readings: unknown, not zero", t.fameGained()); assertNull(t.famePerHour()); assertEquals(0, t.fameSeries().length);
         assertEquals(0, t.untiered() + t.setTiered() + t.whiteBags() + t.potions());
         assertFalse("No loot was saved that day: the loot counts are unknown, not zero", t.lootRecorded());
+        assertFalse("No visit was saved that day: the run counts are unknown, not zero", t.runsRecorded());
         assertEquals("Recent runs are not limited to the window", 5, result.recent().size());
     }
 
@@ -92,7 +94,7 @@ public class HomeArchiveTest {
             store.flush();
             HomeArchive.Totals t = HomeArchive.read(store, SESSION, start + 15 * MINUTE, ZONE, List.of()).totals();
             assertEquals(Long.valueOf(40), t.fameGained()); assertNull("Under ten minutes between readings", t.famePerHour());
-            assertFalse("Only fame was saved", t.lootRecorded());
+            assertFalse("Only fame was saved", t.lootRecorded()); assertFalse("Only fame was saved", t.runsRecorded());
             store.append("fame", new AppHistory.FameSample(3, 160, start + 1_000 + 10 * MINUTE, "Rogue"));
             store.flush();
             t = HomeArchive.read(store, SESSION, start + 15 * MINUTE, ZONE, List.of()).totals();
@@ -120,6 +122,17 @@ public class HomeArchiveTest {
             assertTrue(t.lootRecorded());
             assertEquals("Recent runs span sessions; the current one is newest", new VisitRef(id, "s1"), result.recent().get(0).visit());
             assertEquals("Notable first", List.of(9, 8), result.recent().get(0).lootIds());
+        }
+    }
+
+    @Test public void hubVisitsAloneMakeZeroRunsARealZero() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
+            long start = store.started();
+            store.put("runs", "n1", visit("n1", "Nexus", start + MINUTE, start + 2 * MINUTE, false));
+            store.flush();
+            HomeArchive.Totals t = HomeArchive.read(store, SESSION, start + 5 * MINUTE, ZONE, List.of()).totals();
+            assertEquals("A hub visit is not a dungeon run", 0, t.runsEntered());
+            assertTrue("A visit was saved, so no runs is a real zero", t.runsRecorded());
         }
     }
 
