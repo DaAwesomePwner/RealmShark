@@ -355,9 +355,15 @@ public class WorkspaceUiTest {
         SwingUtilities.invokeAndWait(() -> {
             int before = shell.getSelectedPage();
             try {
-                assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
-                assertEquals(6, shell.getSelectedPage());
-                assertEquals("Build", pageTitle(shell).getText());
+                // Build lands on page 6 only while no character exists: pin an empty journal, then put the app's own back.
+                tomato.backend.data.TomatoData app = appData();
+                tomato.backend.data.CharacterJournal previous = app.characterJournal();
+                tomato.gui.glance.character.SheetFixtures.inject(app, emptyJournal());
+                try {
+                    assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
+                    assertEquals(6, shell.getSelectedPage());
+                    assertEquals("Build", pageTitle(shell).getText());
+                } finally { tomato.gui.glance.character.SheetFixtures.inject(app, previous); }
                 assertFalse("Build stays out of the sidebar while it is current", findButton(shell, "nav-6").isVisible());
                 assertTrue(tomato.gui.route.Navigator.current().back());
                 assertEquals(before, shell.getSelectedPage());
@@ -370,6 +376,17 @@ public class WorkspaceUiTest {
             if (c instanceof Container) { JLabel found = pageTitle((Container) c); if (found != null) return found; }
         }
         return null;
+    }
+    private static tomato.backend.data.TomatoData appData() {
+        try {
+            java.lang.reflect.Field field = TomatoGUI.class.getDeclaredField("data"); field.setAccessible(true);
+            return (tomato.backend.data.TomatoData) field.get(null);
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+    /** A journal with no character, in a new temporary folder. */
+    private static tomato.backend.data.CharacterJournal emptyJournal() {
+        try { return new tomato.backend.data.CharacterJournal(java.nio.file.Files.createTempDirectory("workspace-build-").resolve("journal.json")); }
+        catch (java.io.IOException e) { throw new AssertionError(e); }
     }
 
     private static AbstractButton findButton(Container root, String name) {

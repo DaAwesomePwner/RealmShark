@@ -25,7 +25,7 @@ import tomato.gui.stats.Formatters;
 
 /**
  * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
- * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear and Exalts are slots whose
+ * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear, Exalts and Build are slots whose
  * content SheetPresenter sets ({@link #setTab}); Death annotation shows only while the character is marked dead (spec §6.2).
  * - SheetPresenter reads the journal and builds the model off the EDT; {@link #loaded} shows each read. Until the read of the
  *   opened key arrives the sheet says "Loading…" and nothing acts ({@link #ready}); a failed build shows a warn banner (spec §7).
@@ -122,6 +122,7 @@ public final class CharacterSheet extends JPanel {
         tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
             .add("gear", "Gear", slot("gear", new JPanel())) // SheetPresenter sets the Gear tab
             .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab
+            .add("build", "Build", slot("build", new JPanel())) // SheetPresenter hosts Build (MyInfoGUI) here
             .add("goals", "Goals", planning)
             .add("notes", "Notes", notePanel)
             // Raw field provenance is diagnostic: Analyst mode only (spec §3.2); the saved order still includes it.
@@ -196,6 +197,8 @@ public final class CharacterSheet extends JPanel {
         presenter.open(key);
         requestTab(tab, true); // explicit navigation may show a hidden tab
     }
+    /** Hosts the app's single Build page (MyInfoGUI) in this sheet's Build tab; TomatoGUI calls this once. */
+    public void hostBuild(JComponent build) { presenter.hostBuild(build); }
     public String key() { return key; }
     /** True once the sheet shows the journal's read of its current key: that character, or its unavailable state. */
     public boolean ready() { return key != null && key.equals(loadedKey); }
@@ -228,7 +231,7 @@ public final class CharacterSheet extends JPanel {
         context.journal().notes(filledKey, notes.getText()); record.notes = notes.getText();
     }
 
-    /** Replaces a slot tab's content (overview, gear, exalts); its id, title, order and hidden state are unchanged. */
+    /** Replaces a slot tab's content (overview, gear, exalts, build); its id, title, order and hidden state are unchanged. */
     void setTab(String id, JComponent content) {
         JPanel slot = slots.get(id);
         if (slot == null) throw new IllegalArgumentException("Not a replaceable sheet tab: " + id);

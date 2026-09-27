@@ -38,9 +38,9 @@ public class CharacterTabsTest {
             DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
             CharacterSheet sheet = RosterFixtures.sheet(journal, () -> 5000, RosterDefinitions::empty);
             JTabbedPane tabs = find(sheet, JTabbedPane.class, "character-tabs");
-            assertEquals("Goals", tabs.getTitleAt(0)); assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+            assertEquals("Goals", tabs.getTitleAt(0)); assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
             DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
-            assertEquals(6, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));
+            assertEquals(7, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));
             sheet.open(key, null); tabs.setSelectedIndex(tabs.indexOfTab("Notes")); sheet.open(key, "goals");
             assertEquals("Goals", tabs.getTitleAt(tabs.getSelectedIndex()));
         });

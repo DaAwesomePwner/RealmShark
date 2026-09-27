@@ -188,7 +188,11 @@ public class CharacterJournalLayoutTest {
             reachable(button(sheet, "Mark dead"));
             assertTrue(button(sheet, "Mark dead").isEnabled());
         });
-        for (String id : new String[]{"overview", "gear", "exalts", "notes"}) {
+        for (String id : new String[]{"overview", "gear", "exalts", "build", "goals", "notes", "death"}) {
+            if ("death".equals(id)) { // shown only for a character marked dead: mark it here, restore it after the loop
+                SwingUtilities.invokeAndWait(() -> button(sheet, "Mark dead").doClick());
+                tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
+            }
             SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
             settle();
             SwingUtilities.invokeAndWait(() -> {
@@ -218,6 +222,15 @@ public class CharacterJournalLayoutTest {
                     reachable(named(sheet, "character-gear-slot-11", JComponent.class));
                 } else if ("exalts".equals(id)) {
                     reachable(named(sheet, "character-exalts-empty", JComponent.class));
+                } else if ("build".equals(id)) {
+                    // Build fills its tab and scrolls itself, so it is checked for its place and width rather than for fitting whole.
+                    JComponent build = named(sheet, "character-build", JComponent.class);
+                    assertTrue("Build is the selected tab's content", SwingUtilities.isDescendingFrom(build, tabs.getSelectedComponent()));
+                    assertTrue("Build never overflows the sheet sideways: " + build.getWidth() + " > " + tabs.getWidth(), build.getWidth() <= tabs.getWidth());
+                } else if ("goals".equals(id)) {
+                    reachable(named(sheet, "planning-0", JComponent.class));
+                } else if ("death".equals(id)) {
+                    reachable(named(sheet, "death-occurred", JComponent.class)); // the annotation's first field
                 } else {
                     JTextArea notes = named(sheet, "character-notes", JTextArea.class);
                     assertTrue("Three editable lines must survive sheet chrome", ((JViewport)notes.getParent()).getExtentSize().height
@@ -234,6 +247,8 @@ public class CharacterJournalLayoutTest {
                 assertWrappingTextFits(sheet);
             });
         }
+        SwingUtilities.invokeAndWait(() -> button(sheet, "Restore alive").doClick());
+        tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
         SwingUtilities.invokeAndWait(() -> named(sheet, "character-sheet-back", JButton.class).doClick());
         settle();
         SwingUtilities.invokeAndWait(() -> assertFalse("The back link returns to the list", view.showingSheet()));

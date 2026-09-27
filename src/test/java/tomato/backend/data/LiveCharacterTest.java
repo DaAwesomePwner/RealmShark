@@ -212,6 +212,15 @@ public class LiveCharacterTest {
         return status;
     }
 
+    @Test public void journalKeyIsTheJournalsExactKeyOrNull() {
+        String account = CharacterJournal.accountKey("sample-account");
+        assertEquals(account + ":7", new LiveCharacter.Snapshot(account, 7, 782, null, null, null, null, TOTALS, null, null, null, null, null,
+            null, null, 0).journalKey());
+        assertNull("Not a hashed account key", snapshot(0).journalKey());
+        assertNull("No character id", new LiveCharacter.Snapshot(account, -1, 782, null, null, null, null, TOTALS, null, null, null, null, null,
+            null, null, 0).journalKey());
+    }
+
     private static void put(Entity entity, StatType type, int value) { StatData stat = new StatData(); stat.statValue = value; entity.stat.set(type, stat); }
     private static void text(Entity entity, StatType type, String value) { StatData stat = new StatData(); stat.stringStatValue = value; entity.stat.set(type, stat); }
 }

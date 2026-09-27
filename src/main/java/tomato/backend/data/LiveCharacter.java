@@ -44,6 +44,10 @@ public final class LiveCharacter {
         @Override public int[] base() { return copy(base); }
         @Override public int[] equipment() { return copy(equipment); }
         @Override public int[] exaltBonus() { return copy(exaltBonus); }
+        /** The character journal's key, "<account>:<characterId>", or null when the account is not a journal account key. */
+        public String journalKey() {
+            return account != null && account.matches("[0-9a-f]{64}") && characterId >= 0 ? account + ":" + characterId : null;
+        }
         private static int[] copy(int[] values) { return values == null ? null : values.clone(); }
         /** The same character state: every value and array by content, Build inputs from the same observations; observedAt ignored. */
         public boolean sameContent(Snapshot other) {

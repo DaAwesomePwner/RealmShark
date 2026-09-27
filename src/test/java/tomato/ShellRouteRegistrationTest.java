@@ -31,7 +31,10 @@ public class ShellRouteRegistrationTest {
         String temporaryDirectory = System.getProperty("java.io.tmpdir");
         System.setProperty("java.io.tmpdir", temp.newFolder("scratch").getAbsolutePath());
         SessionStore store = new SessionStore(temp.newFolder().toPath(), false, "synthetic");
-        TomatoGUI gui = new TomatoGUI(new TomatoData());
+        TomatoData data = new TomatoData();
+        // An empty temporary journal: with no character the Build route stays on page 6 (with one it opens the sheet's Build tab).
+        tomato.gui.glance.character.SheetFixtures.inject(data, new tomato.backend.data.CharacterJournal(temp.newFolder().toPath().resolve("journal.json")));
+        TomatoGUI gui = new TomatoGUI(data);
         AtomicReference<JComponent> shell = new AtomicReference<>();
         try {
             storeField.set(null, store);

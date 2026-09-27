@@ -31,6 +31,7 @@ final class SheetPresenter {
     private final OverviewTab overview;
     private final GearTab gear;
     private final ExaltsTab exalts = new ExaltsTab();
+    private final BuildTab build = new BuildTab(key -> tomato.gui.route.Navigator.current().open(tomato.gui.myinfo.BuildRoute.sheet(key)));
     private String key;
     private Token token;
     private long generation;
@@ -53,6 +54,7 @@ final class SheetPresenter {
         gear = new GearTab(context.mode());
         sheet.setTab("gear", SheetViews.scroll(gear));
         sheet.setTab("exalts", SheetViews.scroll(exalts));
+        sheet.setTab("build", build); // the sheet's build slot, added below right after exalts
     }
 
     /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
@@ -139,7 +141,11 @@ final class SheetPresenter {
         sheet.loaded(built.key(), read.record(), read.records(), read.accounts(), built.definitions(), read.revision());
         show(built.model());
         gear.analyst(read.record(), built.definitions());
+        build.apply(built.model(), BuildTab.shownKey(live())); // Build shows only on the sheet of the character it describes
     }
+
+    /** EDT: parents the app's single MyInfoGUI in the Build tab. */
+    void hostBuild(javax.swing.JComponent value) { build.host(value); }
 
     /** EDT: the header and the tabs this presenter owns show {@code value}; null (loading, or not in the journal) clears them. */
     private void show(SheetModel value) {

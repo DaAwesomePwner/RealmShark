@@ -91,6 +91,8 @@ public class ShellHookIntegrationTest {
                 field.setAccessible(true); original.put(field, field.get(null));
             }
         data = new TomatoData();
+        // Build now follows the journal (live or most recent character): an empty temporary journal keeps Build on page 6 here.
+        tomato.gui.glance.character.SheetFixtures.inject(data, new tomato.backend.data.CharacterJournal(temp.newFolder().toPath().resolve("journal.json")));
         SwingUtilities.invokeAndWait(this::buildShell);
     }
     private void buildShell() { gui = new TomatoGUI(data); shell = (WorkspaceShell)gui.createWorkspace(); }
@@ -191,6 +193,7 @@ public class ShellHookIntegrationTest {
             assertTrue(registry.search("build.open").get(0).open());
             assertEquals(6, shell.getSelectedPage());
             assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
+            assertNotNull("With no character, page 6 says that Build moved", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
             assertFalse("Build never takes a sidebar row", named(shell, "nav-6", AbstractButton.class).isVisible());
             assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
         });
@@ -215,6 +218,7 @@ public class ShellHookIntegrationTest {
             }
             named(home, "home-build", AbstractButton.class).doClick();
             assertEquals("The hero's Build action opens page 6", 6, shell.getSelectedPage());
+            assertNotNull("With no character yet, that is the Build moved page", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
             assertTrue(navigator.back());
             assertEquals(14, shell.getSelectedPage());
             named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);

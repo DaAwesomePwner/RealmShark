@@ -47,6 +47,8 @@ public class CharacterPanelGUI extends JPanel {
     }
 
     public void bindNavigator(Navigator navigator) { roster.bindNavigator(navigator); sheet.bindNavigator(navigator); }
+    /** Hosts the app's single Build page (MyInfoGUI) in the character sheet's Build tab. */
+    public void hostBuild(javax.swing.JComponent build) { sheet.hostBuild(build); }
     /** The CHARACTERS and CHARACTER_SHEET targets; TomatoGUI registers both with the shell navigator. */
     public List<RouteTarget> routeTargets() { return routeTargets; }
     public CharacterRosterView roster() { return roster; }

@@ -64,20 +64,20 @@ public class CharacterSheetTest {
                 DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
                 CharacterSheet sheet = sheet(journal);
                 assertEquals("character-sheet", sheet.getName());
-                List<String> order = Arrays.asList("overview", "gear", "exalts", "goals", "notes", "evidence", "death");
+                List<String> order = Arrays.asList("overview", "gear", "exalts", "build", "goals", "notes", "evidence", "death");
                 assertEquals(order, sheet.tabs().order());
                 JTabbedPane tabs = sheet.tabs().component();
                 assertEquals("character-tabs", tabs.getName());
-                assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
+                assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Build", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
                 DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
-                assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+                assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
                 open(sheet, ACCOUNT + ":1", "notes"); assertEquals("notes", sheet.selectedTab());
                 open(sheet, ACCOUNT + ":1", "goals"); assertEquals("An explicit tab is selected", "goals", sheet.selectedTab());
                 JPanel replacement = new JPanel();
                 sheet.setTab("overview", replacement);
                 assertEquals("A replaced slot keeps its id and place", order, sheet.tabs().order());
                 assertTrue(SwingUtilities.isDescendingFrom(replacement, tabs.getComponentAt(0)));
-                try { sheet.setTab("notes", new JPanel()); fail("Only overview, gear and exalts are slots"); } catch (IllegalArgumentException expected) { }
+                try { sheet.setTab("notes", new JPanel()); fail("Only overview, gear, exalts and build are slots"); } catch (IllegalArgumentException expected) { }
             });
         }
     }
