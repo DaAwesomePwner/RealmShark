@@ -23,6 +23,8 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.Navigator;
 import tomato.gui.stats.Formatters;
+import tomato.planning.PlanningMetadata;
+import tomato.planning.PlanningStore;
 
 /**
  * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
@@ -35,6 +37,8 @@ import tomato.gui.stats.Formatters;
  * - A notes draft is saved when another character opens and whenever the sheet hides (another card, Back, another Characters
  *   tab, closing the workspace); refreshes never replace it.
  * - An unreadable journal or a failed save shows a warn banner.
+ * - Goals shows this character's goal cards (GoalCards) over the account-wide Manage goals panel; the cards rebuild only when
+ *   the journal read, the goals store's saved plan for this character's account, the definitions or the dungeon mapping moved.
  * The refresh timer runs only while the sheet shows. EDT only.
  */
 public final class CharacterSheet extends JPanel {
@@ -64,6 +68,10 @@ public final class CharacterSheet extends JPanel {
     private final JTextArea notes = new JTextArea(3, 30);
     private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
     private final CharacterPlanningPanel planning;
+    /** The Goals tab: this character's goal cards, with {@link #planning} (Manage goals) below them. */
+    private final GoalCards goals;
+    /** What the goal cards last showed; they rebuild only when one of these inputs moved. */
+    private GoalInputs goalsShown;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
     /** Header identity and the Overview, Gear, Exalts, Pet and Build tabs, built off the EDT. */
@@ -99,6 +107,7 @@ public final class CharacterSheet extends JPanel {
         setName("character-sheet");
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         planning = new CharacterPlanningPanel(context.plans());
+        goals = new GoalCards(context.mode(), planning);
         deathPanel = new CharacterDeathPanel(context.journal());
         back.setName("character-sheet-back"); back.setToolTipText("Back to the character list");
         back.getAccessibleContext().setAccessibleName("Back to Characters");
@@ -131,7 +140,7 @@ public final class CharacterSheet extends JPanel {
             .add("pet", "Pet", slot("pet", new JPanel())) // SheetPresenter sets the Pet tab
             .add("fame", "Fame", slot("fame", new JPanel())) // an empty placeholder until the Fame tab sets it
             .add("build", "Build", slot("build", new JPanel())) // SheetPresenter hosts Build (MyInfoGUI) here
-            .add("goals", "Goals", planning)
+            .add("goals", "Goals", goalsTab()) // the goal cards, then Manage goals (the account-wide panel)
             .add("notes", "Notes", notePanel)
             // Raw field provenance is diagnostic: Analyst mode only (spec §3.2); the saved order still includes it.
             .addAnalyst("evidence", "Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3))
@@ -278,6 +287,25 @@ public final class CharacterSheet extends JPanel {
         if (key != null && (isShowing() || !isDisplayable())) { presenter.refresh(); shown(); }
     }
 
+    /**
+     * The Goals tab: the cards and Manage goals scroll inside the tab, as the other card tabs do. Its minimum height stays Manage
+     * goals' own, as when that panel was the whole tab: the tab strip's minimum is its tallest tab's, and it is what the sheet page
+     * keeps for every tab before it scrolls instead of squeezing them, so moving the panel under the cards (collapsed in Simple)
+     * does not shrink the other tabs in a small window.
+     */
+    private JComponent goalsTab() {
+        JScrollPane scroll = SheetViews.scroll(goals);
+        JPanel tab = new JPanel(new BorderLayout()) {
+            @Override public Dimension getMinimumSize() {
+                Dimension own = super.getMinimumSize();
+                return new Dimension(own.width, Math.max(own.height, planning.getMinimumSize().height));
+            }
+        };
+        tab.setOpaque(false);
+        tab.add(scroll, BorderLayout.CENTER);
+        return tab;
+    }
+
     private JPanel slot(String id, JComponent content) {
         JPanel slot = new JPanel(new BorderLayout()); slot.setName("character-tab-" + id);
         slot.add(content, BorderLayout.CENTER); slots.put(id, slot);
@@ -318,6 +346,36 @@ public final class CharacterSheet extends JPanel {
         storage.setVisible(problem != null);
         deathPanel.showRecord(record);
         planning.refresh(records, accounts, definitions);
+        goalCards();
+    }
+
+    /**
+     * The inputs of the goal cards: the journal read (its record and revision), the goals store's saved plan for the record's
+     * account (revision, readiness and status), and the definitions and dungeon mapping, which compare by identity (each is a new
+     * object once it loads).
+     */
+    private record GoalInputs(CharacterRecord record, long revision, long planRevision, boolean ready, boolean readOnly, String status,
+                              RosterDefinitions definitions, PlanningMetadata metadata) {}
+
+    /**
+     * Rebuilds the goal cards when an input moved, else leaves them alone (refresh runs once a second). They read only the saved
+     * plan of the record's own account (a detached in-memory copy, read on the EDT as Manage goals reads it) and that account's
+     * record, never the account chosen in Manage goals. Until the store has read the saved plans, or when it cannot, the cards
+     * area shows the store's status instead of "No goals": the goals are unknown then.
+     */
+    private void goalCards() {
+        CharacterRecord r = record;
+        PlanningStore.Snapshot saved = r == null ? null : context.plans().snapshot(r.account);
+        PlanningMetadata metadata = PlanningMetadata.current();
+        GoalInputs inputs = new GoalInputs(r, revision, saved == null ? -1 : saved.revision, saved != null && saved.ready,
+            saved != null && saved.readOnly, saved == null ? null : saved.status, definitions, metadata);
+        if (inputs.equals(goalsShown)) return;
+        goalsShown = inputs;
+        if (r == null) { goals.apply("Goals", null, null); return; } // loading, or not in the journal: nothing to show
+        AccountRecord account = null;
+        for (AccountRecord a : accounts) if (Objects.equals(a.key, r.account)) account = a;
+        goals.apply(GoalCardsModel.title(r), saved.ready ? GoalCardsModel.build(r, saved.plan(), account, definitions, metadata) : List.of(),
+            saved.ready && !saved.readOnly ? null : saved.status);
     }
 
     /** Mark dead or Restore alive, then wait for the re-read that shows the new state: a second click never acts on the old one. */

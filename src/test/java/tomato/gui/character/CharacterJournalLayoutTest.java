@@ -43,7 +43,8 @@ public class CharacterJournalLayoutTest {
         journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
         SwingUtilities.invokeAndWait(() -> {
             oldFont = ContentStyle.body(); oldLookAndFeel = UIManager.getLookAndFeel();
-            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character", "ui.filters.characters.open"}) {
+            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character", "ui.filters.characters.open",
+                    "ui.collapse.character-goals-manage"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -195,6 +196,7 @@ public class CharacterJournalLayoutTest {
                 tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
             }
             SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
+            if ("goals".equals(id)) showManageGoals(); // P3b: the goals panel sits below the goal cards
             settle();
             SwingUtilities.invokeAndWait(() -> {
                 JTabbedPane tabs = named(sheet, "character-tabs", JTabbedPane.class);
@@ -303,6 +305,22 @@ public class CharacterJournalLayoutTest {
             assertEquals("Draft survives capture and background save", notesFor(reopened, draftKey.get()));
             assertEquals("Explicitly saved notes", notesFor(reopened, savedKey.get()));
         }
+    }
+
+    /**
+     * P3b: the account-wide goals panel sits below the goal cards; Simple mode keeps it in the collapsed "Manage goals" section.
+     * Open it as the user does and let its opening motion (at most Motion.MAX_MILLIS) finish before measuring.
+     */
+    private void showManageGoals() throws Exception {
+        boolean[] opened = {false};
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.kit.Collapsible manage = named(sheet, "character-goals-manage", tomato.gui.kit.Collapsible.class);
+            assertNotNull("Manage goals sits below the goal cards", manage);
+            if (manage.isVisible() && !manage.expanded()) { manage.toggle().doClick(); opened[0] = true; } // Analyst shows the panel already
+        });
+        if (!opened[0]) return;
+        long settled = System.nanoTime() + 4L * tomato.gui.kit.Motion.MAX_MILLIS * 1_000_000L;
+        tomato.gui.activity.SnapshotTestSupport.await(() -> System.nanoTime() >= settled); // the EDT runs the motion's timer meanwhile
     }
 
     private static String keyForSelectedCharacter(JTable roster) {
