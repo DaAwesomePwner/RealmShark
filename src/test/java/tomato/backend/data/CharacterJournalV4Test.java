@@ -124,6 +124,26 @@ public class CharacterJournalV4Test {
         assertEquals("accounts() copies the live fields too", Integer.valueOf(70), j.accounts().get(0).rankStars);
     }
 
+    @Test public void mostRecentCharacterIsTheLastOneObservedAliveEvenAfterACharacterListTiesEveryone() throws Exception {
+        Path path = file();
+        CharacterJournal j = new CharacterJournal(path);
+        AtomicLong clock = new AtomicLong(1000);
+        String account = j.observe(observed(clock, 2, 782), 2);   // first in the file
+        clock.set(2000); j.observe(observed(clock, 1, 784), 1);    // played last
+        java.util.ArrayList<tomato.realmshark.RealmCharacter> roster = tomato.realmshark.RealmCharacter.getCharList("<Chars>"
+            + "<Char id='1'><ObjectType>784</ObjectType></Char><Char id='2'><ObjectType>782</ObjectType></Char>"
+            + "<Char id='3'><ObjectType>797</ObjectType></Char></Chars>");
+        for (tomato.realmshark.RealmCharacter c : roster) c.receivedAt = 5000;   // one character list: one time for everyone
+        j.mergeRoster(account, roster);
+        assertEquals("The roster ties every lastSeen", 3, j.characters().stream().filter(r -> r.lastSeen == 5000).count());
+        assertEquals("The character last observed alive, not the first in the file", 1, j.mostRecentCharacter().characterId);
+        j.save();
+        assertEquals("After a restart too", 1, new CharacterJournal(path).mostRecentCharacter().characterId);
+        CharacterJournal unobserved = new CharacterJournal(temp.newFolder().toPath().resolve("Characters/journal.json"));
+        unobserved.mergeRoster(account, roster);
+        assertEquals("Nothing observed and a tied roster: file order", 1, unobserved.mostRecentCharacter().characterId);
+    }
+
     @Test public void newerOrMalformedJournalsStayReadOnly() throws Exception {
         Path path = file(); String newer = v3Document(ACCOUNT).replace("\"version\":3", "\"version\":5");
         write(path, newer);

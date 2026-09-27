@@ -321,10 +321,14 @@ public final class CharacterJournal implements AutoCloseable {
         AccountRecord a = accountKey == null ? null : document.accounts.get(accountKey);
         return a == null ? null : copy(a);
     }
-    /** Deep copy of the non-dead character seen most recently (greatest lastSeen), or null. */
+    /**
+     * Deep copy of the non-dead character last observed alive in game, or null. A character list sets lastSeen for every
+     * character it names, so lastSeen only breaks ties, then file order.
+     */
     public synchronized CharacterRecord mostRecentCharacter() {
         CharacterRecord best = null;
-        for (CharacterRecord r : document.characters) if (!r.dead && (best == null || r.lastSeen > best.lastSeen)) best = r;
+        for (CharacterRecord r : document.characters) if (!r.dead && (best == null || r.lastObservedAlive > best.lastObservedAlive
+            || r.lastObservedAlive == best.lastObservedAlive && r.lastSeen > best.lastSeen)) best = r;
         return best == null ? null : copy(best);
     }
     public synchronized void markDead(String key, boolean dead) {
