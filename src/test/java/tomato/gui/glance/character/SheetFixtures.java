@@ -10,6 +10,9 @@ import tomato.backend.data.*;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.gui.myinfo.BuildEstimates;
+import tomato.planning.CharacterGoals;
+import tomato.planning.PlanData;
+import tomato.planning.PlanningMetadata;
 import tomato.realmshark.enums.CharacterClass;
 
 /** Synthetic character-sheet inputs: one Wizard of a hashed synthetic account. No capture and no personal data. */
@@ -124,6 +127,26 @@ public final class SheetFixtures {
         java.nio.file.Files.createDirectories(xml.getParent());
         java.nio.file.Files.writeString(xml, "<Objects><Object type=\"0x7001\" id=\"Sample\"><Family>Canine</Family></Object></Objects>");
         return PetDefinitions.read(root);
+    }
+
+    /** Pins a stat goal for the Wizard with journal key {@code key}, as Manage goals does (the target must be within the cap). */
+    public static void statGoal(PlanData.AccountPlan plan, String key, int stat, int target, RosterDefinitions defs, long now) {
+        CharacterRecord r = new CharacterRecord(); r.key = key; r.classId = WIZARD;
+        CharacterGoals.pinCharacter(plan, r, stat, target, defs, now);
+    }
+
+    /** Pins an exalt goal for {@code classId}, stamped with {@code metadata}'s version, as Manage goals does. */
+    public static void exaltGoal(PlanData.AccountPlan plan, int classId, int stat, int tier, PlanningMetadata metadata, long now) {
+        CharacterGoals.pinExalt(plan, classId, stat, tier, metadata, now);
+    }
+
+    /** A dungeon mapping read from a synthetic {@code xml/exaltationConfig.xml} under {@code root}: Life is earned in two dungeons, no other stat is mapped. */
+    public static PlanningMetadata dungeonMapping(java.nio.file.Path root) throws IOException {
+        java.nio.file.Path xml = root.resolve("xml/exaltationConfig.xml");
+        java.nio.file.Files.createDirectories(xml.getParent());
+        java.nio.file.Files.writeString(xml, "<Exaltation><Dungeons><Dungeon><Name>Fixture Vault</Name><PowerUp>LIFE</PowerUp></Dungeon>"
+            + "<Dungeon><Name>Second Vault</Name><PowerUp>LIFE</PowerUp></Dungeon></Dungeons></Exaltation>");
+        return PlanningMetadata.read(root);
     }
 
     /** {@code model} with only its identity's lastSeen moved: what two rebuilds of an unchanged character differ by while playing. */

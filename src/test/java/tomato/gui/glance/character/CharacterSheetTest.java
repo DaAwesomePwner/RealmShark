@@ -19,6 +19,8 @@ import tomato.backend.data.TomatoData;
 import tomato.gui.kit.Banner;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
+import tomato.planning.PlanData;
+import tomato.planning.PlanningMetadata;
 import tomato.planning.PlanningStore;
 import tomato.realmshark.RealmCharacter;
 import util.PropertiesManager;
@@ -109,6 +111,72 @@ public class CharacterSheetTest {
                 assertFalse(named(sheet, "character-pet-none", EmptyState.class).isVisible());
                 sheet.openTab("fame");
                 assertEquals("fame", sheet.selectedTab());
+            });
+        }
+    }
+
+    /**
+     * P3b: the Goals tab shows cards for its own character only: this character's stat goals and this class's exalt goals from its
+     * own account's saved plan (another character, another class, and another account's character with the same id show none).
+     * A saved change shows on the next refresh; an unchanged refresh keeps the cards; another character shows its own cards. The
+     * account-wide Manage goals panel stays below the cards: in Simple inside its collapsed section, in Analyst shown.
+     */
+    @Test public void theGoalsTabShowsCardsForItsOwnCharacterOnly() throws Exception {
+        String otherAccount = CharacterJournal.accountKey("another-sheet-fixture");
+        RosterDefinitions defs = SheetFixtures.defs(); // one stable instance: the cards rebuild only when an input moves
+        try (CharacterJournal journal = journal("goals.json", 1, 2); PlanningStore plans = PlanningStore.memory()) {
+            PlanData.AccountPlan plan = new PlanData.AccountPlan();
+            SheetFixtures.statGoal(plan, ACCOUNT + ":1", 3, 25, defs, 1_000);
+            SheetFixtures.statGoal(plan, ACCOUNT + ":2", 6, 40, defs, 1_000);
+            SheetFixtures.exaltGoal(plan, SheetFixtures.WIZARD, 0, 2, PlanningMetadata.unavailable(), 1_000);
+            SheetFixtures.exaltGoal(plan, SheetFixtures.PRIEST, 1, 1, PlanningMetadata.unavailable(), 1_000);
+            assertTrue(plans.update(ACCOUNT, 0, plan).get().saved);
+            PlanData.AccountPlan other = new PlanData.AccountPlan();
+            SheetFixtures.statGoal(other, otherAccount + ":1", 0, 700, defs, 1_000); // the same character id on another account
+            assertTrue(plans.update(otherAccount, 0, other).get().saved);
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE); // @After restores the mode
+                CharacterSheet sheet = new CharacterSheet(new SheetContext(new TomatoData(), journal, () -> defs, DisplayModeModel.application(), () -> 5000, plans));
+                open(sheet, ACCOUNT + ":1", "goals");
+                assertEquals("goals", sheet.selectedTab());
+                String title = named(sheet, "character-goals-title", JLabel.class).getText();
+                assertTrue(title, title.startsWith("Goals for ") && title.endsWith(" #1"));
+                JPanel grid = named(sheet, "character-goals-cards", JPanel.class);
+                assertEquals("This character's DEF goal and this class's Life exalt goal only", 2, grid.getComponentCount());
+                tomato.gui.kit.Card def = named(sheet, "character-goal-stat-3", tomato.gui.kit.Card.class);
+                assertNotNull(def);
+                assertNotNull(named(sheet, "character-goal-exalt-0", tomato.gui.kit.Card.class));
+                assertNull("Character #2's goal", named(sheet, "character-goal-stat-6", tomato.gui.kit.Card.class));
+                assertNull("The Priest's exalt goal", named(sheet, "character-goal-exalt-1", tomato.gui.kit.Card.class));
+                assertNull("Another account's #1", named(sheet, "character-goal-stat-0", tomato.gui.kit.Card.class));
+                assertEquals("The roster read no stats: unknown, never 0", "Unknown: base not captured",
+                    named(sheet, "character-goal-stat-3-remaining", JTextArea.class).getText());
+                assertFalse(named(sheet, "character-goals-empty", EmptyState.class).isVisible());
+
+                tomato.gui.kit.Collapsible manage = named(sheet, "character-goals-manage", tomato.gui.kit.Collapsible.class);
+                JComboBox<?> account = named(sheet, "planning-0", JComboBox.class);
+                assertTrue("Simple: Manage goals is a section below the cards", manage.isVisible());
+                assertTrue(SwingUtilities.isDescendingFrom(account, manage));
+                DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+                assertFalse(manage.isVisible());
+                assertFalse(SwingUtilities.isDescendingFrom(account, manage));
+                for (java.awt.Component at = account; at != sheet; at = at.getParent()) assertTrue("Analyst shows the panel: " + at, at.isVisible());
+                DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
+
+                sheet.refresh();
+                assertSame("An unchanged refresh keeps the cards", def, named(sheet, "character-goal-stat-3", tomato.gui.kit.Card.class));
+                PlanData.AccountPlan more = plans.snapshot(ACCOUNT).plan();
+                SheetFixtures.statGoal(more, ACCOUNT + ":1", 7, 60, defs, 2_000);
+                try { assertTrue(plans.update(ACCOUNT, plans.snapshot(ACCOUNT).revision, more).get().saved); } catch (Exception e) { throw new AssertionError(e); }
+                sheet.refresh();
+                assertNotNull("A saved goal shows on the next refresh", named(sheet, "character-goal-stat-7", tomato.gui.kit.Card.class));
+                assertEquals(3, grid.getComponentCount());
+
+                open(sheet, ACCOUNT + ":2", "goals");
+                assertNotNull(named(sheet, "character-goal-stat-6", tomato.gui.kit.Card.class));
+                assertNotNull("The same class's exalt goal", named(sheet, "character-goal-exalt-0", tomato.gui.kit.Card.class));
+                assertNull(named(sheet, "character-goal-stat-3", tomato.gui.kit.Card.class));
+                assertEquals(2, grid.getComponentCount());
             });
         }
     }
