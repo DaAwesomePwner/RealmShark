@@ -75,11 +75,14 @@ Fixes from the whole-branch review, after Task 10 (full details, file:line and R
 
 1. Build pointer worded by the live character's **class**, not the account name it shares with every
    character (`SheetModel.Live`, `SheetModelBuilder.liveRef`, `BuildTab.pointer`): "Your Wizard is in
-   game now." / "Open the Wizard's Build".
+   game now." / "Open the Wizard's Build" (round 2 below adds the character id, since class alone does
+   not disambiguate same-class characters).
 2. Keyboard focus regressions vs P2 (spec §10): explicit navigation into the sheet (Alt+7's Build
    redirect and the Goals search entry, both resolving through `CharactersRouteTarget.open`) now
-   focuses the back link; `CharacterJournalGUI.focusTarget()` no longer points at the gallery's card
-   list once an EmptyState has taken its place in the tree (falls back to the search field).
+   focuses the back link (round 2 below fixes this to actually work from another page, not just when
+   the sheet was already visible); `CharacterJournalGUI.focusTarget()` no longer points at the
+   gallery's card list once an EmptyState has taken its place in the tree (falls back to the search
+   field).
 3. Relative times stop aging once capture stops: the gallery's 1 s timer now repaints every tick even
    without a live-key change; `OverviewTab`'s unchanged-model skip now also compares the death
    annotation's relative age, so "Played `<ago>`" and "Marked dead `<ago>`" keep advancing.
@@ -108,6 +111,29 @@ predicted, then passed after the fix. The Build-pointer wording (item 1) is RED 
 new assertions name the fixed text). The other focus half (`CharactersRouteTarget.open()`'s
 `focusBackLink()` call), the aging fixes (item 3) and the closeWorkspace ordering (item 5) are
 reasoned/new-test RED rather than a literal revert-and-rerun; see the fix report for which.
+
+**Head of the last run above: `45aecbc`** (round 1's code+test commit; `a3680af`/`7488b86` are docs-only).
+
+### Fix round 2 (re-review findings)
+
+The re-reviewer caught two gaps the round-1 report had flagged as "reasoned, not executed" rather than
+run: `CharactersRouteTarget.open()`'s `focusBackLink()` call was still synchronous, so from another
+page (the main Alt+7 case — the round-1 focus test used a single-page harness where the sheet was
+already part of the visible content, which could not reproduce this) focus never actually reached the
+back link; and the class-only Build pointer wording assumed one character per class per account, which
+is false. Both are now fixed (details, file:line and RED/GREEN evidence in
+`.superpowers/sdd/final-fix-report.md`'s "Fix round 2" section); also: the backup-failure status names
+`journal.v4.bak`, and `docs/CHARACTERS.md`'s v5 paragraph drops the internal "P3a" phase name and adds
+a manual-rollback hint.
+
+Commits: `fe80cc0` (code + tests), `3cf67ca` (docs).
+
+**Head of this run: `3cf67ca`.** Tests run (not the full suite): `BuildTabTest`,
+`CharactersRouteTargetTest`, `SheetModelBuilderTest`, `CharacterJournalV5Test`,
+`ShellHookIntegrationTest`, `ui.WorkspaceUiTest`, `ui.CharactersEvidenceTest` — **62 tests, 0
+failures, 0 errors, 0 skipped, across 7 test classes**. The full suite / `shadowJar` has not been
+re-run since Task 10 (source head `a6b8fa8`, 1308/0/0/0); do not read the 237- or 62-test totals above
+as full-suite runs.
 
 Evidence: re-ran `ui.CharactersEvidenceTest` (3/3 passed, 21 captures).
 `p3a-sheet-build-other-1240-13-simple.png` now reads "Your Wizard is in game now." / "Open the
