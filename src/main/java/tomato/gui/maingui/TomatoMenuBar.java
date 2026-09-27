@@ -258,6 +258,12 @@ public class TomatoMenuBar implements ActionListener {
         increaseContrast.addActionListener(this);
         theme.add(increaseContrast);
         setThemeRadioButton();
+        // Settings › Appearance changes the theme too; show the saved choice whenever the menu opens.
+        ((JMenu) theme).addMenuListener(new javax.swing.event.MenuListener() {
+            @Override public void menuSelected(javax.swing.event.MenuEvent e) { setThemeRadioButton(); }
+            @Override public void menuDeselected(javax.swing.event.MenuEvent e) { }
+            @Override public void menuCanceled(javax.swing.event.MenuEvent e) { }
+        });
 
         ButtonGroup groupFontSize = new ButtonGroup();
         JMenuItem modernFont = new JMenuItem("Compact default (Segoe UI, " + ContentStyle.FONT_SIZE + ")");

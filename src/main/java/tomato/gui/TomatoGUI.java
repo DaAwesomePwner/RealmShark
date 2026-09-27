@@ -35,6 +35,9 @@ import tomato.history.SessionStore;
 import util.PropertiesManager;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
+import tomato.gui.kit.Sprites;
+import tomato.gui.settings.AppearanceSection;
+import tomato.gui.settings.SettingsPage;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.ArchiveRouteTarget;
 import tomato.gui.route.Destination;
@@ -67,6 +70,7 @@ public class TomatoGUI {
     private static JComponent runsWorkspace;
     private static ShellNavigator navigator;
     private static tomato.gui.notifications.NotificationsGUI notifications;
+    private static SettingsPage settings;
 
     public TomatoGUI(TomatoData data) {
         this.data = data;
@@ -101,6 +105,8 @@ public class TomatoGUI {
 
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
+        // Settings (page 13) hosts the existing Notifications page unchanged, beside Appearance.
+        settings = new SettingsPage(notifications, () -> notifications.selectSection(null), new AppearanceSection(TomatoGUI::refreshContentFonts));
 
         SessionStore store = AppHistory.store();
         ViewStateStore states = ViewStateStore.application();
@@ -122,7 +128,7 @@ public class TomatoGUI {
             logging,
             runsWorkspace,
             timelineWorkspace,
-            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), notifications},
+            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
@@ -135,8 +141,7 @@ public class TomatoGUI {
         registerLoot(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerLoot(navigator, Destination.LOOT, lootWorkspace);
         navigator.register(new tomato.gui.logging.LoggingRouteTarget(logging));
-        navigator.register(tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
-            () -> shell.select(WorkspaceShell.pageOf(Destination.NOTIFICATIONS))));
+        registerSettingsNotifications(navigator, settings, notifications);
         navigator.register(tomato.gui.notifications.AlertRouteTargets.alertDraft());
         // Investigation targets resolve exact visits and windows; null for live-only (no saved history) views.
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.RUNS, runsWorkspace));
@@ -145,6 +150,8 @@ public class TomatoGUI {
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).resourcesRouteTarget());
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).encounterRouteTarget());
         Navigator.install(navigator);
+        // The app opens on the first visible core destination; shells built directly keep page 0.
+        shell.selectLanding();
         characterPanel.bindNavigator(navigator);
 
         // Capture explicit heading/report roles before legacy views update their cached fonts.
@@ -157,6 +164,26 @@ public class TomatoGUI {
         refreshContentFonts();
         return mainPanel;
     }
+
+    /** Page 13 owns both the Settings section and the nested notification view. Back restores both. */
+    private static void registerSettingsNotifications(ShellNavigator navigator, SettingsPage page,
+            tomato.gui.notifications.NotificationsGUI notifications) {
+        RouteTarget delegate = tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
+                () -> page.showSection(SettingsPage.NOTIFICATIONS));
+        navigator.register(new RouteTarget() {
+            public Destination destination() { return delegate.destination(); }
+            public boolean accepts(tomato.gui.route.Route route) { return delegate.accepts(route); }
+            public Object captureState() { return new SettingsRouteState(page.currentSection(), delegate.captureState()); }
+            public void open(tomato.gui.route.Route route) { delegate.open(route); }
+            public void restoreState(Object state) {
+                SettingsRouteState saved = (SettingsRouteState) state;
+                delegate.restoreState(saved.notifications());
+                page.showSection(saved.section());
+            }
+        });
+    }
+
+    private record SettingsRouteState(String section, Object notifications) { }
 
     private static void registerIfPresent(ShellNavigator navigator, RouteTarget target) {
         if (target != null) navigator.register(target);
@@ -371,6 +398,7 @@ public class TomatoGUI {
     }
     public static void assetsReloaded() {
         onEdt(() -> {
+            Sprites.clear(); // Cached sprites were scaled from the previous assets.
             if (shell != null) SwingUtilities.updateComponentTreeUI(shell);
             refreshContentFonts();
             ParsePanelGUI.update();
@@ -404,19 +432,21 @@ public class TomatoGUI {
                 text.setEditable(false); text.setColumns(48); text.setRows(6);
                 JOptionPane.showMessageDialog(frame, new JScrollPane(text), "Local storage locations", JOptionPane.INFORMATION_MESSAGE);
             });
-        registerSearch("notifications.open", "Sound and notifications", "volume mute alerts notification", "Notifications",
+        registerSearch("notifications.open", "Sound and notifications", "volume mute alerts notification", "Settings > Notifications",
             "Local notification settings; rule editors show their save state", TomatoGUI::openNotifications);
-        registerSearch("alerts.item", "Create or edit item alert", "item alert drop ping", "Notifications > Item rules",
+        registerSearch("alerts.item", "Create or edit item alert", "item alert drop ping", "Settings > Notifications > Item rules",
             "Local typed alert rules; changes require Save in the editor", TomatoGUI::openItemPing);
-        registerSearch("alerts.chat", "Chat message alerts", "chat pm whisper keyword ping", "Notifications > Chat rules",
+        registerSearch("alerts.chat", "Chat message alerts", "chat pm whisper keyword ping", "Settings > Notifications > Chat rules",
             "Local typed alert rules; changes require Save in the editor", TomatoGUI::openChatPingMessage);
-        registerSearch("alerts.enchant", "Enchantment alerts", "enchant alert slots effects", "Notifications > Enchant rules",
+        registerSearch("alerts.enchant", "Enchantment alerts", "enchant alert slots effects", "Settings > Notifications > Enchant rules",
             "Local typed alert rules; changes require Save in the editor", TomatoGUI::openEnchantPing);
+        registerSearch("appearance.settings", "Appearance settings", "appearance theme dark light contrast motion simple analyst mode",
+            "Settings > Appearance", "App-folder realmShark.properties", () -> openSettings(SettingsPage.APPEARANCE));
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
             "Bridge settings and journal use their configured local paths", () -> shell.select(12));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
             "Characters/plans.json; death notes in Characters/journal.json", () -> { navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)); characterPanel.openGoals(); });
-        registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Daily Quests",
+        registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
             "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
             java.awt.event.InputEvent.CTRL_DOWN_MASK), "find-settings");
@@ -446,9 +476,15 @@ public class TomatoGUI {
     /**
      * Opens chat message ping window.
      */
+    /** Opens Settings (shell page 13) on one of its sections, such as {@link SettingsPage#APPEARANCE}. */
+    public static void openSettings(String section) {
+        if (shell != null) shell.select(WorkspaceShell.pageOf(Destination.NOTIFICATIONS));
+        if (settings != null) settings.showSection(section);
+    }
+
     public static void openNotifications() { openNotifications(null); }
     public static void openNotifications(String section) {
-        if (shell != null) shell.select(13);
+        openSettings(SettingsPage.NOTIFICATIONS);
         if (notifications != null) notifications.selectSection(section);
     }
 

@@ -40,7 +40,9 @@ The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 1
 | Guild exports, loot review and delivery diagnostics | [Bridge Review](docs/BRIDGE.md) |
 | Packet coverage, stat changes and diagnostic exports | [Logging](docs/LOGGING.md) |
 
-**Inspect** provides current-area and saved-run player/build inspection, damage rankings and ability activity. Chat, Key-pops, Loot, Statistics, Inspect, Runs, Timeline and Resources & buffs offer independent historical views with whole-scope saved queries, named views and explicit selected/page/all-match exports. Their history is retained under `%LOCALAPPDATA%\RealmShark\history` across app restarts and build folders. **My Info** shows the current character's captured stats, equipment and explicitly labeled local estimates. **Alt+M** opens labeled workspace navigation; **Ctrl+Shift+S** starts or stops capture.
+**Party** (formerly Inspect, now under Advanced) provides current-area and saved-run player/build inspection, damage rankings and ability activity. Chat, Key-pops, Loot, Statistics, Party, Runs, Timeline and Resources & buffs offer independent historical views with whole-scope saved queries, named views and explicit selected/page/all-match exports. Their history is retained under `%LOCALAPPDATA%\RealmShark\history` across app restarts and build folders. **My Info** shows the current character's captured stats, equipment and explicitly labeled local estimates. **Alt+M** opens labeled workspace navigation; **Ctrl+Shift+S** starts or stops capture.
+
+Right-click a sidebar destination (or press **Shift+F10**) to reorder, hide, pin Advanced pages, restore hidden pages or reset navigation. **Ctrl+Shift+Up/Down** moves the focused core row. The app opens on the first visible core destination in your saved order. **Settings** stays at the bottom: **Alt+,** opens Notifications and Appearance settings. The header and Appearance share the **Simple/Analyst** switch (**Ctrl+Shift+A**); pages adopt those display choices as the redesign progresses.
 
 ## Build and validate
 

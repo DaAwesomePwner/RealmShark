@@ -22,12 +22,13 @@ public class BridgeUiTest {
             service.configure(new BridgeConfig(p),false,false);
             service.receive(Arrays.asList(drop("Test Sword (Shiny)","Damage Boost(1)\nLoot Bonus(2)"),drop("Unlisted ST","")));service.awaitIdle(3000);
             SwingUtilities.invokeAndWait(()->{
-                VioletTheme.install();BridgeReviewGUI panel=new BridgeReviewGUI(service);JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length];Arrays.fill(pages,new JPanel());pages[pages.length-1]=panel;
-                // Each CardLayout page must own a different component.
-                for(int i=0;i<pages.length-1;i++)pages[i]=new JPanel();
+                VioletTheme.install();BridgeReviewGUI panel=new BridgeReviewGUI(service);JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length];
+                // Each CardLayout page owns a different component. Bridge Review is page 12; page 13 is Settings.
+                Arrays.setAll(pages,i->new JPanel());int bridgePage=WorkspaceShell.pageOf(tomato.gui.route.Destination.BRIDGE_REVIEW);pages[bridgePage]=panel;
+                assertEquals("Bridge Review",WorkspaceShell.TITLES[bridgePage]);
                 WorkspaceShell shell=new WorkspaceShell(pages,()->{},true);JFrame frame=new JFrame("Bridge preview");frame.setContentPane(shell);
                 try {
-                    frame.setSize(1240,800);frame.setVisible(true);shell.select(pages.length-1);frame.validate();
+                    frame.setSize(1240,800);frame.setVisible(true);shell.select(bridgePage);frame.validate();
                     JTable table=(JTable)find(panel,"bridge-review-table");assertEquals(2,table.getRowCount());
                     JTextField search=(JTextField)find(panel,"bridge-search");search.setText("Shiny");assertEquals(1,table.getRowCount());table.setRowSelectionInterval(0,0);
                     JTextArea details=(JTextArea)find(panel,"bridge-details");assertTrue(details.getText().contains("Damage Boost"));assertTrue(details.getText().contains("[redacted]"));assertFalse(details.getText().contains("test-secret"));
@@ -37,7 +38,7 @@ public class BridgeUiTest {
                     JTabbedPane tabs=findType(panel,JTabbedPane.class);assertEquals(4,tabs.getTabCount());
                     JTable logs=(JTable)find(panel,"bridge-log-table");logs.setRowSelectionInterval(2,2);JTextArea logDetail=(JTextArea)find(panel,"bridge-log-details");assertTrue(logDetail.getText().contains("POST"));assertTrue(logDetail.getText().contains("[redacted]"));assertFalse(logDetail.getText().contains("test-secret"));
                     for(int width:new int[]{1240,680}){
-                        frame.setSize(width,width==680?620:800);frame.validate();shell.dispatchEvent(new java.awt.event.ComponentEvent(shell,java.awt.event.ComponentEvent.COMPONENT_RESIZED));frame.validate();shell.select(pages.length-1);
+                        frame.setSize(width,width==680?620:800);frame.validate();shell.dispatchEvent(new java.awt.event.ComponentEvent(shell,java.awt.event.ComponentEvent.COMPONENT_RESIZED));frame.validate();shell.select(bridgePage);
                         // Native scaled runs clamp/scale the realized client, so compact mode follows the shell's actual width.
                         assertEquals("Native compact mode follows the realized client",shell.getWidth()<1000,shell.isCompact());if(width==680)assertTrue("The compact layout is exercised",shell.isCompact());
                         for(int tab=0;tab<tabs.getTabCount();tab++){

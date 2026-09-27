@@ -278,7 +278,7 @@ public class ParsePanelRefreshTest {
                 SecurityGUI inspect = new SecurityGUI(log);
                 panel = find(inspect, ParsePanelGUI.class);
                 JTabbedPane tabs = find(inspect, JTabbedPane.class);
-                assertEquals("Inspect", WorkspaceShell.TITLES[2]);
+                assertEquals("Party", WorkspaceShell.TITLES[2]);
                 assertEquals("Current Area", tabs.getTitleAt(tabs.getSelectedIndex()));
                 ParsePanelGUI.addPlayer(1, player(1, "Here now", "Current guild"));
                 frame = new JFrame(); frame.setContentPane(inspect); frame.setSize(1000, 750); frame.setVisible(true);

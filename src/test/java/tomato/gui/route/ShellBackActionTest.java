@@ -46,7 +46,7 @@ public class ShellBackActionTest {
             assertEquals("Runs", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.RUNS)]);
             assertEquals("Timeline", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.TIMELINE)]);
             assertEquals("Loot", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.LOOT)]);
-            assertEquals("Inspect", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.INSPECT)]);
+            assertEquals("Party", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.INSPECT)]);
             return null;
         });
     }

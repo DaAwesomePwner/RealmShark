@@ -17,8 +17,42 @@ import static org.junit.Assert.*;
 
 /** Exercises the actual Swing application in preview mode, with no packet capture. */
 public class WorkspaceUiTest {
+    @Test public void appearanceSettingsAndTheThemeMenuStayInStep() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            shell.select(13);
+            tomato.gui.settings.SettingsPage settings = findType(shell, tomato.gui.settings.SettingsPage.class);
+            assertNotNull("Settings is shell page 13", settings);
+            settings.showSection(tomato.gui.settings.SettingsPage.APPEARANCE);
+            try {
+                findButton(shell, "settings-theme-1").doClick();
+                assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletLightTheme);
+                JMenu themes = (JMenu) menuItem(frame.getJMenuBar(), "Theme");
+                for (javax.swing.event.MenuListener listener : themes.getMenuListeners())
+                    listener.menuSelected(new javax.swing.event.MenuEvent(themes));
+                assertTrue("The menu shows the choice made in Settings", menuItem(frame.getJMenuBar(), "Violet Light").isSelected());
+                menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
+                assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme);
+                assertTrue("Settings follows the menu", findButton(shell, "settings-theme-0").isSelected());
+            } finally {
+                if (!(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme)) menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
+                settings.showSection(tomato.gui.settings.SettingsPage.NOTIFICATIONS);
+                shell.select(0);
+            }
+        });
+    }
+    private static <T> T findType(Container root, Class<T> type) {
+        for (Component c : root.getComponents()) {
+            if (type.isInstance(c)) return type.cast(c);
+            if (c instanceof Container) { T found = findType((Container) c, type); if (found != null) return found; }
+        }
+        return null;
+    }
+    @Test public void applicationOpensOnTheFirstVisibleCoreDestination() {
+        assertEquals(new tomato.gui.modern.NavLayout().landing().page(), openedOn);
+    }
     private static JFrame frame;
     private static WorkspaceShell shell;
+    private static int openedOn = -1;
 
     @BeforeClass public static void openApplication() throws Exception {
         Tomato.main(new String[] {"--preview"});
@@ -26,6 +60,7 @@ public class WorkspaceUiTest {
             frame = TomatoGUI.getFrame();
             assertNotNull("The actual application must open", frame);
             shell = (WorkspaceShell) frame.getContentPane();
+            openedOn = shell.getSelectedPage();
         });
     }
 
@@ -79,32 +114,35 @@ public class WorkspaceUiTest {
 
     @Test public void allOriginalSectionsRemainReachableAtRealizedNativeSizes() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            for (int width : new int[] {1240, 760, 680}) {
-                frame.setSize(width, width == 680 ? 520 : 800); frame.validate();
-                // Deliver the same layout event used when the user resizes the window.
-                shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
-                frame.validate();
-                System.out.println("Native workspace requested=" + width + ", frame=" + frame.getSize()
-                    + ", client=" + shell.getSize() + ", screen=" + frame.getGraphicsConfiguration().getBounds()
-                    + ", transform=" + frame.getGraphicsConfiguration().getDefaultTransform());
-                // The native peer may clamp the requested outer size at high display scaling.
-                assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
-                for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
-                    AbstractButton button = findButton(shell, "nav-" + i);
-                    assertTrue(button.isShowing()); button.doClick();
-                    assertEquals(i, shell.getSelectedPage());
-                    assertTrue(button.isSelected());
-                    assertTrue(button.getWidth() >= 32);
-                    assertTrue(button.getHeight() >= 32);
-                    button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
-                    assertEquals("Native destination must be reachable", button.getHeight(), button.getVisibleRect().height);
+            String advanced = expandAdvanced();
+            try {
+                for (int width : new int[] {1240, 760, 680}) {
+                    frame.setSize(width, width == 680 ? 520 : 800); frame.validate();
+                    // Deliver the same layout event used when the user resizes the window.
+                    shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
+                    frame.validate();
+                    System.out.println("Native workspace requested=" + width + ", frame=" + frame.getSize()
+                        + ", client=" + shell.getSize() + ", screen=" + frame.getGraphicsConfiguration().getBounds()
+                        + ", transform=" + frame.getGraphicsConfiguration().getDefaultTransform());
+                    // The native peer may clamp the requested outer size at high display scaling.
+                    assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
+                    for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
+                        AbstractButton button = findButton(shell, "nav-" + i);
+                        assertTrue(button.isShowing()); button.doClick();
+                        assertEquals(i, shell.getSelectedPage());
+                        assertTrue(button.isSelected());
+                        assertTrue(button.getWidth() >= 32);
+                        assertTrue(button.getHeight() >= 32);
+                        button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
+                        assertEquals("Native destination must be reachable", button.getHeight(), button.getVisibleRect().height);
+                    }
                 }
-            }
+            } finally { restoreAdvanced(advanced); }
         });
     }
-
     @Test public void allOriginalSectionsRemainReachableAtExactClientSizes() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
+            String advanced = expandAdvanced();
             // Use the actual application's panels, detached from the native size-constrained peer.
             frame.setContentPane(new JPanel());
             try {
@@ -126,11 +164,28 @@ public class WorkspaceUiTest {
                     System.out.println("Exact application client=" + size + ", compact=" + shell.isCompact());
                 }
             } finally {
+                restoreAdvanced(advanced);
                 frame.setContentPane(shell); frame.validate();
                 shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
                 frame.validate();
             }
         });
+    }
+
+    /** Advanced pages start collapsed; reachability opens the group the way a user would. Returns the saved value. */
+    private static String expandAdvanced() {
+        String saved = util.PropertiesManager.getProperty(tomato.gui.modern.NavLayout.ADVANCED_KEY);
+        AbstractButton toggle = findButton(shell, "nav-advanced");
+        if ("Collapsed".equals(toggle.getAccessibleContext().getAccessibleDescription())) toggle.doClick();
+        return saved;
+    }
+
+    /** Puts the group and the saved preference back as they were before the test. */
+    private static void restoreAdvanced(String saved) {
+        AbstractButton toggle = findButton(shell, "nav-advanced");
+        boolean open = "Expanded".equals(toggle.getAccessibleContext().getAccessibleDescription());
+        if (open != "true".equals(saved)) toggle.doClick();
+        util.PropertiesManager.setProperties(tomato.gui.modern.NavLayout.ADVANCED_KEY, saved == null ? "" : saved);
     }
 
     private static void layoutTree(Container root) {
