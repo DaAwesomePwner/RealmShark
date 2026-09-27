@@ -26,11 +26,17 @@ public class CharacterPanelGUI extends JPanel {
     private final List<RouteTarget> routeTargets;
     private final CustomizableTabs tabs = new CustomizableTabs("characters");
 
-    public CharacterPanelGUI(TomatoData data) {
-        this(data, new SheetContext(data, data.characterJournal(), RosterDefinitions::current, DisplayModeModel.application()));
+    public CharacterPanelGUI(TomatoData data) { this(data, ViewStateStore.application()); }
+
+    /** {@code viewState}: where the roster list keeps its saved view (TomatoGUI's store; tests pass an isolated one). */
+    public CharacterPanelGUI(TomatoData data, ViewStateStore viewState) {
+        this(data, new SheetContext(data, data.characterJournal(), RosterDefinitions::current, DisplayModeModel.application()), viewState);
     }
 
-    public CharacterPanelGUI(TomatoData data, SheetContext context) {
+    public CharacterPanelGUI(TomatoData data, SheetContext context) { this(data, context, ViewStateStore.application()); }
+
+    public CharacterPanelGUI(TomatoData data, SheetContext context, ViewStateStore viewState) {
+        java.util.Objects.requireNonNull(viewState, "viewState");
         setLayout(new BorderLayout());
         characters = context.journal();
         journal = new CharacterJournalGUI(context.journal(), context.clock(), context.definitions());
@@ -39,12 +45,14 @@ public class CharacterPanelGUI extends JPanel {
             tomato.backend.data.LiveCharacter.Snapshot live = tomato.gui.glance.character.SheetModelBuilder.inGame(data.liveCharacter, System.currentTimeMillis());
             return live == null ? null : live.journalKey();
         });
-        journal.bindViewState(ViewStateStore.application());
+        journal.bindViewState(viewState);
         sheet = new CharacterSheet(context);
         roster = new CharacterRosterView(journal, sheet);
         routeTargets = CharactersRouteTarget.of(roster); // built once: both targets share one Back origin
         // Routes are explicit navigation, so they may bring the Roster tab forward even when it is hidden.
         roster.onReveal(() -> { tabs.show("roster"); tabs.select("roster"); });
+        // Back returns to the Characters tab the user left from: it brings Roster forward only when Roster was in front then.
+        roster.onInFront(() -> "roster".equals(tabs.selectedId()));
         tabs.add("roster", "Roster", roster).add("exalts", "Exalts", journal.exaltPanel()).add("pets", "Pets", new CharacterPetsGUI(data));
         // Another Characters tab refreshes the list and keeps the sheet's notes draft.
         tabs.component().addChangeListener(e -> { journal.refresh(); sheet.saveDraft(); });

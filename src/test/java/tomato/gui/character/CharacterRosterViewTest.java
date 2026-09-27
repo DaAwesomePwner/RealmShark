@@ -104,6 +104,88 @@ public class CharacterRosterViewTest {
         }
     }
 
+    /**
+     * P3a deferred finding 7: the remembered Death tab through showSheet(key, null), the select-only path a plain open takes.
+     * Death is not offered until the record loads, so the request waits for it; an alive character's Overview fallback is never
+     * saved over the remembered tab.
+     */
+    @Test public void aRememberedDeathTabOpensThroughShowSheetWithoutAnExplicitTab() throws Exception {
+        try (CharacterJournal journal = journal()) {
+            journal.markDead(ACCOUNT + ":1", true);
+            journal.markDead(ACCOUNT + ":2", true);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                view.listPanel().sheetTabSelected("death"); // as a restored saved view leaves it
+                view.showSheet(ACCOUNT + ":1", null, view::showList);
+                assertEquals("Not forgotten while the record loads", "death", view.listPanel().sheetTab());
+                tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
+                assertEquals("A dead character opens on the remembered Death tab", "death", view.sheet().selectedTab());
+                view.showSheet(ACCOUNT + ":2", null, view::showList);
+                assertEquals("Switching dead characters keeps it", "death", view.listPanel().sheetTab());
+                tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
+                assertEquals("death", view.sheet().selectedTab());
+                view.showSheet(ACCOUNT + ":3", null, view::showList); // alive: no Death tab
+                tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
+                assertEquals("An alive character falls back to Overview", "overview", view.sheet().selectedTab());
+                assertEquals("…which is never saved over the remembered tab", "death", view.listPanel().sheetTab());
+                view.showSheet(ACCOUNT + ":1", null, view::showList);
+                tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
+                assertEquals("The next dead character opens on Death again", "death", view.sheet().selectedTab());
+            });
+        }
+    }
+
+    /**
+     * P3a deferred finding 8: Back from the sheet really moves keyboard focus. A shown, focused frame, and the actual focus owner
+     * (the focus traversal policy orders only a showing window), not what focusTarget() would return. The table variant too.
+     */
+    @Test public void backFromTheSheetMovesRealKeyboardFocus() throws Exception {
+        String saved = util.PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        JFrame frame = new JFrame("Roster Back focus - synthetic validation");
+        try (CharacterJournal journal = journal()) {
+            CharacterRosterView[] view = new CharacterRosterView[1];
+            JList<?>[] cards = new JList<?>[1];
+            JTable[] table = new JTable[1];
+            AbstractButton[] back = new AbstractButton[1];
+            String[] opened = new String[1];
+            SwingUtilities.invokeAndWait(() -> {
+                view[0] = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                cards[0] = RosterFixtures.named(view[0].listPanel(), "character-cards", JList.class);
+                table[0] = RosterFixtures.named(view[0].listPanel(), "character-roster", JTable.class);
+                back[0] = RosterFixtures.named(view[0].sheet(), "character-sheet-back", AbstractButton.class);
+                frame.setContentPane(view[0]);
+                frame.setSize(900, 600);
+                frame.setVisible(true);
+                frame.toFront();
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(frame::isFocused);
+            SwingUtilities.invokeAndWait(() -> {
+                cards[0].setSelectedIndex(1);
+                opened[0] = ((CharacterCardModel) cards[0].getSelectedValue()).key();
+                cards[0].getActionMap().get("open-character").actionPerformed(null);
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(() -> focusOwner() == back[0]); // opening moved focus into the sheet
+            SwingUtilities.invokeAndWait(back[0]::doClick);
+            tomato.gui.activity.SnapshotTestSupport.await(() -> focusOwner() == cards[0]);
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(view[0].showingSheet());
+                assertEquals("Back focuses the card that was open", opened[0], ((CharacterCardModel) cards[0].getSelectedValue()).key());
+                view[0].listPanel().views().showGallery(false, false);
+                RosterFixtures.enter(view[0]);
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(() -> focusOwner() == back[0]);
+            SwingUtilities.invokeAndWait(back[0]::doClick);
+            tomato.gui.activity.SnapshotTestSupport.await(() -> focusOwner() == table[0]);
+            SwingUtilities.invokeAndWait(() -> assertSame("In the Table view, Back focuses the table", table[0], focusOwner()));
+        } finally {
+            SwingUtilities.invokeAndWait(frame::dispose);
+            util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, saved == null ? "" : saved);
+        }
+    }
+
+    private static java.awt.Component focusOwner() { return java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(); }
+
     @Test public void backFocusesTheOpenedCardInTheGalleryAndTheRowInTheTable() throws Exception {
         String saved = util.PropertiesManager.getProperty(RosterViews.VIEW_KEY);
         util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");

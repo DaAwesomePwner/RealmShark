@@ -62,6 +62,7 @@ public class RosterViewsTest {
             @Override public List<CharacterRosterQuery.Row> rows() { return rows; }
             @Override public boolean saved() { return !rows.isEmpty(); }
             @Override public String problem() { return null; }
+            @Override public boolean unreadable() { return false; }
             @Override public String liveKey() { return live[0]; }
             @Override public String selectedKey() { return null; }
             @Override public void select(String key) { }
@@ -226,6 +227,7 @@ public class RosterViewsTest {
                 @Override public List<CharacterRosterQuery.Row> rows() { return rows; }
                 @Override public boolean saved() { return true; }
                 @Override public String problem() { return null; }
+                @Override public boolean unreadable() { return false; }
                 @Override public String liveKey() { return null; }
                 @Override public String selectedKey() { return selected[0]; }
                 @Override public void select(String key) { }
@@ -304,6 +306,94 @@ public class RosterViewsTest {
         }
     }
 
+    /** P3a deferred finding 2, integrated: a failed save with every card filtered away is "no match" under its banner, not unavailable. */
+    @Test public void aBlockedSaveWithNoVisibleCardSaysNoMatchNotUnavailable() throws Exception {
+        String view = PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        RosterDefinitions definitions = CharacterFixtures.definitions();
+        Path blocked = temp.getRoot().toPath().resolve("blocked-save");
+        Files.write(blocked, new byte[]{1}); // a regular file stands in for the journal's directory
+        CharacterJournal failing = CharacterFixtures.journal(blocked.resolve("journal.json"), NOW);
+        CharacterJournalGUI[] panel = new CharacterJournalGUI[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> panel[0] = new CharacterJournalGUI(failing, () -> NOW, () -> definitions));
+            failing.save(); // fails: "blocked-save" is a regular file, not a directory
+            SwingUtilities.invokeAndWait(() -> {
+                panel[0].refresh();
+                assertTrue("Sanity: the save failed", failing.readable() && failing.storageProblem() != null);
+                named(panel[0], "character-search", JTextField.class).setText("no such character");
+                CharacterGallery gallery = named(panel[0], "character-gallery", CharacterGallery.class);
+                assertNotNull("Filters hid every card", named(gallery, "character-gallery-no-match", tomato.gui.kit.EmptyState.class));
+                assertNull("A readable journal whose save failed is never \"unavailable\"",
+                    named(gallery, "character-gallery-unavailable", tomato.gui.kit.EmptyState.class));
+                Banner storage = named(gallery, "character-gallery-storage", Banner.class);
+                assertTrue("The save failure stays visible above the empty state",
+                    storage != null && storage.isVisible() && storage.text().startsWith("Save failed"));
+                assertEquals("One \"nothing here\" message", List.of("No characters match"), nothingHere(panel[0]));
+                assertEquals("The banner names the failure; the footer does not repeat it", 1,
+                    shownText(panel[0]).stream().filter(text -> text.startsWith("Save failed")).count());
+            });
+        } finally {
+            failing.close();
+            PropertiesManager.setProperties(RosterViews.VIEW_KEY, view == null ? "" : view);
+        }
+    }
+
+    /** P3a deferred finding 9: an empty journal says so exactly once, in the Gallery view and in the Table view. */
+    @Test public void anEmptyJournalSaysNothingIsHereExactlyOnceInTheGalleryAndInTheTable() throws Exception {
+        String view = PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        RosterDefinitions definitions = CharacterFixtures.definitions();
+        CharacterJournal empty = new CharacterJournal(temp.getRoot().toPath().resolve("empty").resolve("journal.json"));
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterJournalGUI panel = new CharacterJournalGUI(empty, () -> NOW, () -> definitions);
+                panel.refresh();
+                assertTrue(panel.views().galleryShown());
+                assertEquals("Gallery: the empty state alone", List.of("No characters yet"), nothingHere(panel));
+                assertFalse("No summary while nothing is saved", named(panel, "character-summary", JTextArea.class).isVisible());
+                panel.views().showGallery(false, false); // the footer follows the view at once, not on the next 1 s refresh
+                List<String> table = nothingHere(panel);
+                assertEquals("Table: the footer's guidance alone: " + table, 1, table.size());
+                assertTrue(table.get(0), table.get(0).startsWith("Start capture and enter the game on a character"));
+                panel.refresh();
+                assertEquals(table, nothingHere(panel));
+                panel.views().showGallery(true, false);
+                assertEquals(List.of("No characters yet"), nothingHere(panel));
+            });
+        } finally {
+            empty.close();
+            PropertiesManager.setProperties(RosterViews.VIEW_KEY, view == null ? "" : view);
+        }
+    }
+
+    /** "Characters unavailable" is the unreadable journal's one message; the Table view says it once, in the footer. */
+    @Test public void anUnreadableJournalIsUnavailableOnceInEitherView() throws Exception {
+        String view = PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        RosterDefinitions definitions = CharacterFixtures.definitions();
+        Path file = temp.getRoot().toPath().resolve("unreadable").resolve("journal.json");
+        Files.createDirectories(file.getParent());
+        Files.write(file, "{ not a journal".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        CharacterJournal unreadable = new CharacterJournal(file);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse("Sanity: the journal cannot be read", unreadable.readable());
+                CharacterJournalGUI panel = new CharacterJournalGUI(unreadable, () -> NOW, () -> definitions);
+                panel.refresh();
+                assertNotNull(named(panel, "character-gallery-unavailable", tomato.gui.kit.EmptyState.class));
+                assertEquals("Gallery: the unavailable state alone", List.of("Characters unavailable"), nothingHere(panel));
+                panel.views().showGallery(false, false);
+                List<String> table = nothingHere(panel);
+                assertEquals("Table: the footer names it once: " + table, 1, table.size());
+                assertTrue(table.get(0), table.get(0).startsWith("Cannot read Characters/journal.json"));
+            });
+        } finally {
+            unreadable.close();
+            PropertiesManager.setProperties(RosterViews.VIEW_KEY, view == null ? "" : view);
+        }
+    }
+
     /** Spec §9: 500 characters sort, map and apply within 50 ms on the EDT (every sample); one viewport paint is logged. */
     @Test public void fiveHundredCharactersRefreshWithinFiftyMillisecondsAndPaintOnePass() throws Exception {
         List<CharacterRosterQuery.Row> rows = CharacterFixtures.manyRows(CharacterFixtures.definitions(), 500, NOW);
@@ -354,6 +444,26 @@ public class RosterViewsTest {
         }
     }
 
+    /** Texts that say there is nothing to show; an EmptyState counts once, by its title. */
+    private static final List<String> NOTHING_HERE = List.of("No characters yet", "No characters match", "Characters unavailable",
+        "Your saved characters will appear here", "Start capture", "No matching characters", "Cannot read");
+    /** The visible "nothing here" messages under {@code root} (visible up to it: there is no window). */
+    private static List<String> nothingHere(Container root) {
+        List<String> found = new ArrayList<>();
+        for (String text : shownText(root)) if (NOTHING_HERE.stream().anyMatch(text::contains)) found.add(text);
+        return found;
+    }
+    /** Every visible EmptyState's title and every visible, non-empty text area's text under {@code root}. */
+    private static List<String> shownText(Container root) {
+        List<String> texts = new ArrayList<>();
+        for (Component child : root.getComponents()) {
+            if (!child.isVisible()) continue;
+            if (child instanceof tomato.gui.kit.EmptyState) texts.add(child.getAccessibleContext().getAccessibleName());
+            else if (child instanceof JTextArea) { String text = ((JTextArea) child).getText(); if (!text.isEmpty()) texts.add(text); }
+            else if (child instanceof Container) texts.addAll(shownText((Container) child));
+        }
+        return texts;
+    }
     /** Whether the card at {@code index} intersects the list's current visible rectangle (i.e. is on-screen, at least partly). */
     private static boolean visible(JList<?> list, int index) {
         Rectangle cell = list.getCellBounds(index, index);
