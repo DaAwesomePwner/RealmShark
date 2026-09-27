@@ -1,5 +1,7 @@
 package tomato.gui.security;
 
+import tomato.gui.kit.DisplayModeModel;
+
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import packets.data.enums.StatType;
@@ -21,6 +23,10 @@ import static tomato.gui.modern.FormattingTestSupport.field;
 public class InspectRosterOwnershipTest {
     @Rule public TemporaryFolder temp=new TemporaryFolder();
     @After public void clearLivePlayers()throws Exception{edt(()->{ParsePanelGUI.clear();return null;});}
+    private DisplayModeModel.Mode previousMode;
+    /** These tests switch to Ability Use (index 2), which is Analyst-only since P1c. */
+    @Before public void analystTabs()throws Exception{edt(()->{previousMode=DisplayModeModel.application().mode();DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);return null;});}
+    @After public void restoreMode()throws Exception{edt(()->{DisplayModeModel.application().set(previousMode);return null;});}
 
     @Test public void freshAndRestoredCurrentAreaRetainThirtyPlayersThroughBindingAndRunTimeChanges()throws Exception {
         for(boolean restored:new boolean[]{false,true})for(boolean populateBeforeBind:new boolean[]{false,true}) {

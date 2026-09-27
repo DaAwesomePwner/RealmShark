@@ -6,7 +6,9 @@ import java.awt.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -14,10 +16,14 @@ import java.util.function.BooleanSupplier;
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import org.junit.rules.ErrorCollector;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.Motion;
+import tomato.gui.kit.OverflowMenu;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.history.archive.*;
 import ui.VisualEvidence;
 import util.PreferencesStore;
+import util.PropertiesManager;
 import static org.junit.Assert.*;
 import static ui.VisualEvidence.*;
 import static tomato.gui.chat.SocialArchiveTestSupport.edt;
@@ -130,10 +136,48 @@ public final class ArchiveNativeSupport {
         tableRows(rows);
         reachable(named(workspace, module + "-session-picker", JComboBox.class));
         reachable(named(workspace, module + "-history-search", JTextField.class));
-        for (String label : new String[]{"Current live view", "Previous page", "Next page", "Save view", "Load view",
-                "Export selected…", "Export page…", "Export all matches…"}) completeButton(button(workspace, label));
+        for (String label : new String[]{"Current live view", "Previous page", "Next page"}) completeButton(button(workspace, label));
+        OverflowMenu more = more(workspace); reachable(more);
+        for (String label : new String[]{"History library…", "Saved views", "Save current view…", "Reset saved state",
+                "Export selected…", "Export page…", "Export all matches…", "Open export folder"}) assertNotNull("Overflow action " + label, more.item(label));
         completeButton(find(workspace, AbstractButton.class, b -> b.isShowing() && "Columns…".equals(b.getText())));
         if (detail != null) completeText(named(workspace, detail, JTextArea.class));
+    }
+
+    /** The workspace's ⋯ menu: exports, saved views and History library live there since P1c. */
+    public static OverflowMenu more(ArchiveWorkspace<?,?,?> workspace) {
+        String module = workspace.getName().substring(0, workspace.getName().length() - "-session-view".length());
+        return named(workspace, module + "-more", OverflowMenu.class);
+    }
+
+    public static JMenuItem action(ArchiveWorkspace<?,?,?> workspace, String label) {
+        JMenuItem item = more(workspace).item(label); assertNotNull("Overflow action " + label, item); return item;
+    }
+
+    /** Chip labels in display order, read from each chip's remove button ("Remove filter: <label>"). */
+    public static List<String> chipLabels(FilterBar bar) { List<String> labels = new ArrayList<>(); collectChips(bar, labels); return labels; }
+
+    private static void collectChips(Container root, List<String> labels) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof AbstractButton && "remove-filter".equals(child.getName()))
+                labels.add(((AbstractButton)child).getAccessibleContext().getAccessibleName().substring("Remove filter: ".length()));
+            else if (child instanceof Container) collectChips((Container)child, labels);
+        }
+    }
+
+    public static void removeChip(FilterBar bar, String label) {
+        find(bar, AbstractButton.class, b -> "remove-filter".equals(b.getName())
+            && ("Remove filter: " + label).equals(b.getAccessibleContext().getAccessibleName())).doClick();
+    }
+
+    /**
+     * Opens or closes a filter drawer without its 100 ms animation (Reduce motion for this call only), so geometry
+     * assertions see the final layout. Tests that open a drawer close it again in finally: the state persists.
+     */
+    public static void drawer(FilterBar bar, boolean open) {
+        String motion = PropertiesManager.getProperty(Motion.REDUCE_KEY);
+        PropertiesManager.setProperties(Motion.REDUCE_KEY, "true");
+        try { bar.setDrawerOpen(open); } finally { PropertiesManager.setProperties(Motion.REDUCE_KEY, motion == null ? "" : motion); }
     }
 
     public static boolean textPresent(Container root, String text) {
@@ -158,14 +202,14 @@ public final class ArchiveNativeSupport {
             SwingWorker<Path,Void> worker = edt(() -> workspace.exportTo(blocked, "synthetic", ExportSelection.all(), ArchiveExport.Format.JSON));
             try { worker.get(15, TimeUnit.SECONDS); fail("Export destination is a file"); }
             catch (ExecutionException expected) { assertTrue(expected.getCause() instanceof IOException); }
-            await(() -> textPresent(workspace, "Export failed:") && button(workspace, "Export all matches…").isEnabled());
+            await(() -> textPresent(workspace, "Export failed:") && action(workspace, "Export all matches…").isEnabled());
         } finally { Files.deleteIfExists(blocked); }
     }
 
     /** Exercise the actual toolbar's modal population preview, then cancel before a destination chooser. */
     public static String preview(ArchiveWorkspace<?,?,?> workspace, VisualEvidence evidence, String name) throws Exception {
-        await(() -> button(workspace, "Export selected…").isEnabled());
-        SwingUtilities.invokeLater(() -> button(workspace, "Export selected…").doClick());
+        await(() -> action(workspace, "Export selected…").isEnabled());
+        SwingUtilities.invokeLater(() -> action(workspace, "Export selected…").doClick());
         await(() -> dialog("Export pinned revision") != null);
         JDialog preview = edt(() -> dialog("Export pinned revision"));
         try {
@@ -175,7 +219,7 @@ public final class ArchiveNativeSupport {
             });
         } finally {
             edt(() -> { button(preview, "Cancel").doClick(); return null; });
-            await(() -> !preview.isShowing() && button(workspace, "Export all matches…").isEnabled());
+            await(() -> !preview.isShowing() && action(workspace, "Export all matches…").isEnabled());
         }
     }
 

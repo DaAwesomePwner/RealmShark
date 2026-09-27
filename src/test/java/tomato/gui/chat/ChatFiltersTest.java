@@ -214,6 +214,7 @@ public class ChatFiltersTest {
                 assertTrue("Editor rectangle: " + find(editor, JTextArea.class, "chat-ignored-players").getVisibleRect(),
                         find(editor, JTextArea.class, "chat-ignored-players").getVisibleRect().height > 90);
                 ChatExplorer ui = new ChatExplorer(() -> {}, filters, () -> "");
+                tomato.gui.history.ArchiveNativeSupport.drawer(find(ui, tomato.gui.kit.FilterBar.class, "chat-live-filter-bar"), true);
                 ui.accept(pm("Buy at shop.example - fast delivery!"));
                 ui.accept(message("Friend", "Aster", "Meet at nexus"));
                 ui.accept(message("ExampleVendor", "Aster", "Another offer"));
@@ -222,14 +223,16 @@ public class ChatFiltersTest {
                 for (int width : new int[]{1060, 500}) {
                     frame.setSize(width, width == 500 ? 600 : 740); frame.validate();
                     UiTestLayout.settle(frame);
+                    tomato.gui.modern.ContentStyle.reveal(table, new Rectangle(0, 0, 1, 120));
                     assertTrue(table.getVisibleRect().height > 100);
                     assertTrue(button(ui, "chat-channel-IGNORED").getWidth() >= 60);
                     AbstractButton toggle = button(ui, "chat-show-ignored-players");
+                    tomato.gui.modern.ContentStyle.reveal(toggle, new Rectangle(0, 0, toggle.getWidth(), toggle.getHeight()));
                     assertTrue(toggle.isShowing());
                     assertEquals(new Rectangle(0, 0, toggle.getWidth(), toggle.getHeight()), toggle.getVisibleRect());
                     snapshot(frame, "chat-ignored-" + width);
                 }
-            } finally { frame.dispose(); }
+            } finally { frame.dispose(); PropertiesManager.setProperties("ui.filters.chat-live.open", "false"); }
         }); } finally { PropertiesManager.setProperties("chat.filters", old == null ? "{}" : old); }
     }
     private static void snapshot(JFrame frame, String name) {

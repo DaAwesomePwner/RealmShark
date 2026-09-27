@@ -1,5 +1,8 @@
 package tomato.gui.quest;
 
+import tomato.gui.history.ArchiveNativeSupport;
+import tomato.gui.kit.FilterBar;
+
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
@@ -53,6 +56,7 @@ public class QuestConsistencyTest {
     @After public void restorePresentation() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             MenuSelectionManager.defaultManager().clearSelectedPath();
+            if (quest != null) ArchiveNativeSupport.drawer(named(quest, "quests-filter-bar", FilterBar.class), false);
             if (frame != null) {
                 for (Window owned : frame.getOwnedWindows()) owned.dispose();
                 frame.dispose();
@@ -77,6 +81,8 @@ public class QuestConsistencyTest {
             if (id == 998) throw new IllegalStateException("Unavailable icon");
             return null;
         }, preferences);
+        // The shell matrix measures every filter control, so it runs with the Quests filter drawer open.
+        ArchiveNativeSupport.drawer(named(quest, "quests-filter-bar", FilterBar.class), true);
         JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
         Arrays.setAll(pages, i -> new JPanel());
         pages[5] = quest;
@@ -227,10 +233,13 @@ public class QuestConsistencyTest {
                 awaitFocus(search());
                 postKey(search(), KeyEvent.VK_TAB, 0);
                 SwingUtilities.invokeAndWait(() -> {
-                    JComboBox<?> type = named(quest, "quest-type", JComboBox.class);
-                    assertSame("Posted Tab must traverse into the first filter", type, KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner());
-                    fullyVisible(type);
+                    Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                    assertNotNull("Posted Tab must keep a focus owner", owner); assertNotSame("Posted Tab must leave the search field", search(), owner);
+                    assertTrue("Posted Tab must reach the next filter-row control, not a static label: " + owner,
+                        SwingUtilities.isDescendingFrom(owner, named(quest, "quests-filter-bar", FilterBar.class)) && !staticLabel(owner));
                 });
+                awaitFocus(named(quest, "quest-type", JComboBox.class));
+                SwingUtilities.invokeAndWait(() -> fullyVisible(named(quest, "quest-type", JComboBox.class)));
                 for (String name : new String[]{"quest-repeat-mode", "quest-reward-mode", "quest-expiration-mode",
                         "quest-requirement-item", "quest-requirement-count", "quest-add-plan"}) {
                     JComponent control = named(quest, name, JComponent.class);

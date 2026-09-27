@@ -9,6 +9,8 @@ import java.util.List;
 import javax.swing.*;
 import tomato.gui.chat.SocialQueryControls;
 import tomato.gui.history.*;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.FilterBar;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
@@ -132,36 +134,26 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
         new ArchiveExport.Column<>("Player",r->r.player),new ArchiveExport.Column<>("Dungeon / item",r->r.item),new ArchiveExport.Column<>("Type",r->r.kind),
         new ArchiveExport.Column<>("Pops",r->r.pops),new ArchiveExport.Column<>("Keys",r->r.keys),new ArchiveExport.Column<>("Runes",r->r.runes),new ArchiveExport.Column<>("Vials",r->r.vials),
         new ArchiveExport.Column<>("Incs",r->r.incs),new ArchiveExport.Column<>("Players",r->r.players),new ArchiveExport.Column<>("Matching pop-event denominator (no callouts)",r->r.matchingEvents),new ArchiveExport.Column<>("Share %",r->r.share));}
+    private SocialQueryControls.State<Row,Facets,Sort> rendered;private Binding<Facets,Sort> renderedBinding;
     public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> initial,Binding<Facets,Sort> binding){
         long ticket=++generation;SocialQueryControls.State<Row,Facets,Sort> state=new SocialQueryControls.State<>(initial,binding,()->generation==ticket);
-        Facets f=initial.query.facets();JPanel header=new JPanel(new BorderLayout(0,6)),filters=ContentStyle.responsiveGrid(2,220,8);
-        JTextField player=new JTextField(f.exactPlayer);JTextArea items=new JTextArea(String.join("\n",f.items),3,18);
-        filters.add(SocialQueryControls.labeled("Player equals (case-insensitive)",player,"keypop-archive-player"));filters.add(SocialQueryControls.labeled("Exact dungeons/items — one per line; empty = all",new JScrollPane(items),"keypop-archive-items"));
-        JPanel types=ContentStyle.controls();Map<String,JCheckBox> choices=new LinkedHashMap<>();
-        for(String kind:Arrays.asList("KEY","RUNE","VIAL","INC","OTHER","UNKNOWN")){JCheckBox box=new JCheckBox(kind,f.kinds.contains(kind));choices.put(kind,box);types.add(box);}
-        JButton apply=new JButton("Apply contribution filters"),clearPlayer=new JButton("Clear exact player");types.add(apply);types.add(clearPlayer);
-        clearPlayer.setName("keypop-archive-exact-player"); clearPlayer.setVisible(!f.exactPlayer.isEmpty());
-        clearPlayer.setText("Player equals " + f.exactPlayer + " · Clear");
-        Runnable change=()->{Facets next=state.value.query.facets();next.exactPlayer=player.getText().trim();next.items=SocialQueryControls.lines(items.getText());next.kinds.clear();choices.forEach((kind,box)->{if(box.isSelected())next.kinds.add(kind);});state.query(state.value.query.withFacets(next));};
-        apply.addActionListener(e->change.run());player.addActionListener(e->change.run());clearPlayer.addActionListener(e->{player.setText("");change.run();});
-        JPanel facets=new JPanel(new BorderLayout());facets.add(filters);facets.add(types,BorderLayout.SOUTH);header.add(facets,BorderLayout.NORTH);
-        header.add(SocialQueryControls.dates(initial.query.bounds(),false,b->state.query(state.value.query.withBounds(b))));
+        rendered=state;renderedBinding=binding;Facets f=initial.query.facets();
         JTabbedPane tabs=new JTabbedPane();tabs.setName("keypop-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         for(String tab:Arrays.asList("Events","By player","By dungeon / item"))tabs.addTab(tab,new JPanel());tabs.setSelectedIndex(f.mode.ordinal());
         JTextArea detail=ContentStyle.wrappingText("Select a row for its full values.");detail.setName("keypop-archive-detail");
         List<HistoryTables.Column<Row,?>> columns=new ArrayList<>();Map<String,Sort> sorts=new LinkedHashMap<>();
-        if(f.mode!=Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("player","Player",String.class,r->r.player,null));sorts.put("player",Sort.PLAYER);}
-        if(f.mode!=Mode.BY_PLAYER){columns.add(new HistoryTables.Column<>("item","Dungeon / item",String.class,r->r.item,null));sorts.put("item",Sort.ITEM);}
-        columns.add(new HistoryTables.Column<>("time",f.mode==Mode.EVENTS?"Time":"Last pop",Instant.class,r->r.time,null));sorts.put("time",Sort.TIME);
-        if(f.mode==Mode.EVENTS){columns.add(new HistoryTables.Column<>("kind","Type",String.class,r->r.kind,null));sorts.put("kind",Sort.KIND);}
+        if(f.mode!=Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("player","Player",String.class,r->r.player,null,ColumnKind.PLAYER));sorts.put("player",Sort.PLAYER);}
+        if(f.mode!=Mode.BY_PLAYER){columns.add(new HistoryTables.Column<>("item","Dungeon / item",String.class,r->r.item,null,ColumnKind.DUNGEON));sorts.put("item",Sort.ITEM);}
+        columns.add(new HistoryTables.Column<>("time",f.mode==Mode.EVENTS?"Time":"Last pop",Instant.class,r->r.time,null,ColumnKind.DATE_TIME));sorts.put("time",Sort.TIME);
+        if(f.mode==Mode.EVENTS){columns.add(new HistoryTables.Column<>("kind","Type",String.class,r->r.kind,null,ColumnKind.STATUS));sorts.put("kind",Sort.KIND);}
         else{
-            columns.add(new HistoryTables.Column<>("pops","Pops",Long.class,r->r.pops,null));sorts.put("pops",Sort.POPS);
-            columns.add(new HistoryTables.Column<>("keys","Keys",Long.class,r->r.keys,null));sorts.put("keys",Sort.KEYS);
-            columns.add(new HistoryTables.Column<>("runes","Runes",Long.class,r->r.runes,null));sorts.put("runes",Sort.RUNES);
-            columns.add(new HistoryTables.Column<>("vials","Vials",Long.class,r->r.vials,null));sorts.put("vials",Sort.VIALS);
-            columns.add(new HistoryTables.Column<>("incs","Incs",Long.class,r->r.incs,null));sorts.put("incs",Sort.INCS);
-            if(f.mode==Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("players","Players",Long.class,r->r.players,null));sorts.put("players",Sort.PLAYERS);}
-            columns.add(new HistoryTables.Column<>("share","Share %",Double.class,r->r.share,null));sorts.put("share",Sort.SHARE);
+            columns.add(new HistoryTables.Column<>("pops","Pops",Long.class,r->r.pops,null,ColumnKind.COUNT));sorts.put("pops",Sort.POPS);
+            columns.add(new HistoryTables.Column<>("keys","Keys",Long.class,r->r.keys,null,ColumnKind.COUNT));sorts.put("keys",Sort.KEYS);
+            columns.add(new HistoryTables.Column<>("runes","Runes",Long.class,r->r.runes,null,ColumnKind.COUNT));sorts.put("runes",Sort.RUNES);
+            columns.add(new HistoryTables.Column<>("vials","Vials",Long.class,r->r.vials,null,ColumnKind.COUNT));sorts.put("vials",Sort.VIALS);
+            columns.add(new HistoryTables.Column<>("incs","Incs",Long.class,r->r.incs,null,ColumnKind.COUNT));sorts.put("incs",Sort.INCS);
+            if(f.mode==Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("players","Players",Long.class,r->r.players,null,ColumnKind.COUNT));sorts.put("players",Sort.PLAYERS);}
+            columns.add(new HistoryTables.Column<>("share","Share %",Double.class,r->r.share,null,ColumnKind.PERCENT));sorts.put("share",Sort.SHARE);
         }
         JTable table=HistoryTables.queried("keypop-archive-rows",columns,page,sorts,initial.query,state::query,row->{Row r=row.value;detail.setText((r.mode==Mode.EVENTS?"Event":"Whole-query summary")+" · "+r.player+" "+r.item+"\n"+r.pops+" / "+r.matchingEvents+" matching observed pop events = "+r.share+"%. Callouts excluded.\n"+"Last/event timestamp: "+r.time+" · "+r.kind);});
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&table.getSelectedRow()>=0)table.getActionMap().get("archive-details").actionPerformed(null);});
@@ -190,6 +182,33 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
         long denominator=page.counts.containsKey("events")?page.counts.get("events").value:0;
         JTextArea note=ContentStyle.wrappingText(page.description()+"\n"+denominator+" matching observed pop events across the whole query; callouts excluded from totals and share denominator.\n"+export+": use workspace Export selected / page / all matches, CSV or JSON. The export follows this tab's pinned rows.");note.setName("keypop-archive-population");
         JPanel footer=new JPanel(new BorderLayout(0,4));footer.add(actions,BorderLayout.NORTH);footer.add(detail);footer.add(note,BorderLayout.SOUTH);
-        JComponent view = ContentStyle.page(header,tabs,footer); state.owner(view); return view;
+        JComponent view = ContentStyle.page(null,tabs,footer); state.owner(view); return view;
     }
+    /** Contribution facets and dates of the view just rendered, for the workspace drawer; they share its State. */
+    @Override public ArchiveFilters filters(ArchivePage<Row> page,ViewState<Facets,Sort> initial,Binding<Facets,Sort> binding){
+        if(rendered==null||renderedBinding!=binding)return null;SocialQueryControls.State<Row,Facets,Sort> state=rendered;Facets f=initial.query.facets();
+        JPanel drawer=new JPanel(new BorderLayout(0,6)),filters=ContentStyle.responsiveGrid(2,220,8);
+        JTextField player=new JTextField(f.exactPlayer);JTextArea items=new JTextArea(String.join("\n",f.items),3,18);
+        filters.add(SocialQueryControls.labeled("Player equals (case-insensitive)",player,"keypop-archive-player"));filters.add(SocialQueryControls.labeled("Exact dungeons/items — one per line; empty = all",new JScrollPane(items),"keypop-archive-items"));
+        JPanel types=ContentStyle.controls();Map<String,JCheckBox> choices=new LinkedHashMap<>();
+        for(String kind:Arrays.asList("KEY","RUNE","VIAL","INC","OTHER","UNKNOWN")){JCheckBox box=new JCheckBox(kind,f.kinds.contains(kind));choices.put(kind,box);types.add(box);}
+        JButton apply=new JButton("Apply contribution filters"),clearPlayer=new JButton("Clear exact player");types.add(apply);types.add(clearPlayer);
+        clearPlayer.setName("keypop-archive-exact-player"); clearPlayer.setVisible(!f.exactPlayer.isEmpty());
+        clearPlayer.setText("Player equals " + f.exactPlayer + " · Clear");
+        Runnable change=()->{Facets next=state.value.query.facets();next.exactPlayer=player.getText().trim();next.items=SocialQueryControls.lines(items.getText());next.kinds.clear();choices.forEach((kind,box)->{if(box.isSelected())next.kinds.add(kind);});state.query(state.value.query.withFacets(next));};
+        apply.addActionListener(e->change.run());player.addActionListener(e->change.run());clearPlayer.addActionListener(e->{player.setText("");change.run();});
+        JPanel facets=new JPanel(new BorderLayout());facets.add(filters);facets.add(types,BorderLayout.SOUTH);drawer.add(facets,BorderLayout.NORTH);
+        drawer.add(SocialQueryControls.dates(initial.query.bounds(),false,b->state.query(state.value.query.withBounds(b))));
+        List<FilterBar.ActiveFilter> chips=new ArrayList<>();
+        if(!f.exactPlayer.isEmpty())chips.add(chip(state,"Player: "+f.exactPlayer,next->next.exactPlayer=""));
+        if(!f.kinds.isEmpty())chips.add(chip(state,"Types: "+kinds(f.kinds),next->next.kinds=new LinkedHashSet<>()));
+        if(!f.items.isEmpty())chips.add(chip(state,"Dungeons/items: "+ArchiveFilters.summary(f.items),next->next.items=new LinkedHashSet<>()));
+        ArchiveFilters.dates(chips,initial.query,state::query);
+        return new ArchiveFilters(drawer,chips);
+    }
+    private static FilterBar.ActiveFilter chip(SocialQueryControls.State<Row,Facets,Sort> state,String label,java.util.function.Consumer<Facets> reset){
+        return new FilterBar.ActiveFilter(label,()->{Facets next=state.value.query.facets();reset.accept(next);state.query(state.value.query.withFacets(next));});
+    }
+    /** Kind codes as the labels players see; unrecorded kinds stay "Unknown". */
+    static String kinds(Set<String> kinds){List<String> labels=new ArrayList<>();for(String kind:kinds)labels.add("UNKNOWN".equals(kind)?"Unknown":KeyPopEvent.Kind.valueOf(kind).label);return ArchiveFilters.summary(labels);}
 }

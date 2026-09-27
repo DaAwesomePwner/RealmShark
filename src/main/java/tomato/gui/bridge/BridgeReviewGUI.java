@@ -10,6 +10,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
+import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.modern.ContentStyle;
 
 /** The same Swing/FlatLaf surface as the surrounding workspace. */
@@ -31,7 +32,7 @@ public final class BridgeReviewGUI extends JPanel {
     private final JTable review=new JTable(reviewModel),logs=new JTable(logModel);
     private final JTextArea details=note("Detected drops will appear here once the bridge and network capture are enabled. Select a row to inspect enchants and the outgoing fields.");
     private final JTextArea logDetails=note("Select a diagnostic entry to read its full message.");
-    private final JTabbedPane tabs=new JTabbedPane();
+    private final CustomizableTabs views=new CustomizableTabs("bridge");private final JTabbedPane tabs=views.component();
     private final JButton save=new JButton("Save settings"),export=new JButton("Export review CSV"),exportLogs=new JButton("Export logs"),revert=new JButton("Revert to active");
     private final JButton alertDraft=new JButton("Item alert from this drop…");
     private final Rows savedModel=new Rows("Time (UTC)","Item","Outcome","Delivery status","Character","Dungeon","Session","Journal");
@@ -91,7 +92,7 @@ public final class BridgeReviewGUI extends JPanel {
         JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(review,3),detailScroll);split.setResizeWeight(.68);split.setBorder(null);
         // Short windows scroll the tab content instead of squeezing the table and details to nothing.
         reviewPage.add(ContentStyle.page(reviewTop,split,note("CSV controls what can be sent. Drops are observed in bags; pickup is not verified. Review retains the latest 1,000 items.")));
-        tabs.addTab("Review",reviewPage);tabs.addTab("Settings",settings());
+        views.add("review","Review",reviewPage).add("settings","Settings",settings());
         JPanel logPage=new JPanel(new BorderLayout(0,8));JPanel logTools=ContentStyle.controls();
         JTextField logSearch=new JTextField(18);logSearch.setDocument(search.getDocument());logSearch.getAccessibleContext().setAccessibleName("Search bridge logs and review");
         level.getAccessibleContext().setAccessibleName("Bridge log level");
@@ -103,7 +104,7 @@ public final class BridgeReviewGUI extends JPanel {
         JScrollPane logDetailScroll=new JScrollPane(logDetails);logDetailScroll.setMinimumSize(new Dimension(0,90));logDetailScroll.setPreferredSize(new Dimension(700,120));
         JSplitPane logSplit=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(logs,3),logDetailScroll);logSplit.setResizeWeight(.75);logSplit.setBorder(null);logPage.add(logSplit);
         logPage.add(note("Latest 500 diagnostic entries. Tokens and raw server responses are excluded. Search is shared with Review. No automatic retry: the bot cannot deduplicate a repeated submission."),BorderLayout.SOUTH);
-        tabs.addTab("Logs",logPage);tabs.addTab("Saved review",savedReview());tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);add(tabs);feedback.setName("bridge-feedback");feedback.setFont(ContentStyle.metadata(ContentStyle.body()));add(feedback,BorderLayout.SOUTH);
+        views.add("logs","Logs",logPage).add("saved-review","Saved review",savedReview());tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);add(tabs);feedback.setName("bridge-feedback");feedback.setFont(ContentStyle.metadata(ContentStyle.body()));add(feedback,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
         status.addActionListener(e->filter());level.addActionListener(e->filter());
         outcome.addActionListener(e->filter());character.addActionListener(e->{if(!rebuilding)filter();});dungeon.addActionListener(e->{if(!rebuilding)filter();});enchantFilter.addActionListener(e->filter());
@@ -336,7 +337,7 @@ public final class BridgeReviewGUI extends JPanel {
         BridgeService.Review r=selected();if(r==null)return;long id=r.id;
         tomato.realmshark.AlertRules.Draft draft=tomato.realmshark.AlertRules.Draft.item(tomato.realmshark.AlertRules.Mode.ITEM_ID,Integer.toString(r.drop.item.id),r.drop.item.id,r.drop.item.rawName,
             "Bridge review · "+r.time+" · "+characterLabel(r));
-        draftOpener.accept(draft,()->{for(int i=0;i<rows.size();i++)if(rows.get(i).id==id){int view=review.convertRowIndexToView(i);if(view>=0){tabs.setSelectedIndex(0);review.setRowSelectionInterval(view,view);review.scrollRectToVisible(review.getCellRect(view,0,true));review.requestFocusInWindow();return;}}
+        draftOpener.accept(draft,()->{for(int i=0;i<rows.size();i++)if(rows.get(i).id==id){int view=review.convertRowIndexToView(i);if(view>=0){views.show("review");views.select("review");review.setRowSelectionInterval(view,view);review.scrollRectToVisible(review.getCellRect(view,0,true));review.requestFocusInWindow();return;}}
             feedback.setText("The drop used for the alert draft is no longer shown (filters changed or it left the retained review).");});
     }
     private void showDetails(){BridgeService.Review r=selected();alertDraft.setEnabled(r!=null&&r.drop.item.id>0);if(r==null){details.setText(rows.isEmpty()?"No retained observations. Bridge Review only records drops while enabled.":review.getRowCount()==0?"No matching retained observations. Reset filters to see other drops.":"Select a detected drop to inspect its enchants, character and delivery details.");return;}BridgePayload.Item i=r.drop.item;details.setText("Observation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot+" (pickup not verified)\nRarity: "+i.rarity+" ("+i.raritySource+") | Enchant count: "+(i.enchantCount<0?"unknown":i.enchantCount)+" | Divine: "+i.divine+"\nEnchants: "+(i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)+"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail+"\nNext step: "+r.nextStep()+"\n\nOutgoing JSON (token redacted):\n"+(r.payload.isEmpty()?"No payload queued.":r.payload));details.setCaretPosition(0);}

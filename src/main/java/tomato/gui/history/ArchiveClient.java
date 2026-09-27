@@ -13,6 +13,12 @@ public interface ArchiveClient<R,F,S extends Enum<S>> {
     ArchiveAdapter<R,F,S> adapter(ArchiveQuery<F,S> query);
     JComponent render(ArchivePage<R> page,ViewState<F,S> state,Binding<F,S> binding);
     default int pageSize(){return 1000;}
+    /**
+     * Called on the EDT right after render(...) with the same page, state and Binding. The drawer holds the module's
+     * existing facet controls (they keep publishing binding.queryChanged); chips describe active facets and dates.
+     * Null: no Filters drawer and no chips.
+     */
+    default ArchiveFilters filters(ArchivePage<R> page,ViewState<F,S> state,Binding<F,S> binding){return null;}
     default List<ArchiveExport.Column<R>> exportColumns(){return Collections.emptyList();}
     /** Runs off the EDT before confirmation, with the same lease later supplied to writeExport. */
     default String previewExport(ArchiveResult.Lease<R> lease,ExportSelection selection,Cancellation cancel)throws java.io.IOException {

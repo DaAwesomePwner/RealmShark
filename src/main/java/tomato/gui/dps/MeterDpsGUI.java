@@ -12,6 +12,8 @@ import javax.swing.table.*;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
+import tomato.gui.history.HistoryTables;
+import tomato.gui.kit.ColumnKind;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 
@@ -117,7 +119,11 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         PlayerInspectMenu.install(table, row -> visible.get(row).player, () -> inspectOrigin);
         rank();
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        for (int i = 0; i < model.getColumnCount(); i++) table.getColumnModel().getColumn(i).setPreferredWidth(i == 0 ? 230 : 110);
+        Map<String, ColumnKind> kinds = new HashMap<>();
+        kinds.put("Player / meter", ColumnKind.TEXT); kinds.put("Class", ColumnKind.CLASS); kinds.put("Recorded share %", ColumnKind.PERCENT);
+        for (String number : new String[]{"Damage", "DPS", "Avg hit", "Max hit", "Taken (est.)"}) kinds.put(number, ColumnKind.NUMBER);
+        for (String count : new String[]{"Hits dealt", "Hits taken"}) kinds.put(count, ColumnKind.COUNT);
+        HistoryTables.kinds(table, kinds);
         table.getColumnModel().getColumn(0).setCellRenderer(new BarRenderer());
         table.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
             public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {

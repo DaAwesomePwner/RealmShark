@@ -30,6 +30,7 @@ public class CharacterJournalLayoutTest {
     private JFrame frame;
     private Font oldFont;
     private LookAndFeel oldLookAndFeel;
+    private final java.util.Map<String,String> savedPreferences = new java.util.LinkedHashMap<>();
     private static final String LONG_NAME = "AccountWithAnUnbrokenVeryLongName_ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789";
     private static final String LONG_NOTES = String.join("\n", java.util.Collections.nCopies(30,
             "Finish Life and Wisdom; keep the captured equipment and this unsaved note."));
@@ -38,6 +39,10 @@ public class CharacterJournalLayoutTest {
         journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
         SwingUtilities.invokeAndWait(() -> {
             oldFont = ContentStyle.body(); oldLookAndFeel = UIManager.getLookAndFeel();
+            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character-detail", "ui.filters.characters.open"}) {
+                savedPreferences.put(key, util.PropertiesManager.getProperty(key));
+                util.PropertiesManager.setProperties(key, "");
+            }
             VioletTheme.install();
         });
     }
@@ -51,6 +56,8 @@ public class CharacterJournalLayoutTest {
             catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
         });
         journal.close();
+        SwingUtilities.invokeAndWait(() -> {});
+        SwingUtilities.invokeAndWait(() -> savedPreferences.forEach((key, value) -> util.PropertiesManager.setProperties(key, value == null ? "" : value)));
     }
 
     private void populate() {

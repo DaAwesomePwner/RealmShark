@@ -53,8 +53,8 @@ public class ArchiveLifecycleRegressionTest {
                 SwingWorker<Path,Void> worker=edt(()->f.workspace.exportTo(f.output,"cancel",ExportSelection.all(),ArchiveExport.Format.CSV));
                 worker.addPropertyChangeListener(e->{if("state".equals(e.getPropertyName())&&e.getNewValue()==SwingWorker.StateValue.DONE)notified.countDown();});
                 assertTrue(entered.await(5,TimeUnit.SECONDS));assertTrue(worker.cancel(false));assertTrue(notified.await(5,TimeUnit.SECONDS));
-                assertFalse("Export must remain busy while its writer is blocked",edt(()->button(f.workspace,"Export all matches…").isEnabled()));
-                release.countDown();await(()->button(f.workspace,"Export all matches…").isEnabled());assertEquals(0,children(f.output));
+                assertFalse("Export must remain busy while its writer is blocked",edt(()->ArchiveNativeSupport.action(f.workspace,"Export all matches…").isEnabled()));
+                release.countDown();await(()->ArchiveNativeSupport.action(f.workspace,"Export all matches…").isEnabled());assertEquals(0,children(f.output));
             }finally{release.countDown();}
         }
     }

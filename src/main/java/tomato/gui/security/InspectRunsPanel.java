@@ -9,6 +9,7 @@ import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.CollectionControl;
 import tomato.realmshark.ParseDungeon;
 import tomato.gui.history.HistoryTables;
+import tomato.gui.kit.ColumnKind;
 import tomato.gui.history.ViewState;
 import tomato.gui.history.ViewStateStore;
 import tomato.gui.roster.RosterViewState;
@@ -115,8 +116,10 @@ final class InspectRunsPanel extends JPanel {
                 }
             });
         }
-        int[] widths = {160, 190, 70, 220, 110, 100, 130};
-        for (int i = 0; i < widths.length; i++){table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);table.getColumnModel().getColumn(i).setIdentifier("column-"+i);}
+        ColumnKind[] kinds = {ColumnKind.DATE_TIME, ColumnKind.DUNGEON, ColumnKind.COUNT, ColumnKind.TEXT, ColumnKind.NUMBER, ColumnKind.NUMBER, ColumnKind.DURATION};
+        Map<String, ColumnKind> byId = new HashMap<>();
+        for (int i = 0; i < kinds.length; i++){table.getColumnModel().getColumn(i).setIdentifier("column-"+i);byId.put("column-"+i,kinds[i]);}
+        HistoryTables.kinds(table, byId);
         JPanel controls = ContentStyle.controls();
         JLabel label = new JLabel("Search runs"); label.setLabelFor(search);
         search.setName("inspect-runs-search"); search.getAccessibleContext().setAccessibleName("Search dungeon runs");

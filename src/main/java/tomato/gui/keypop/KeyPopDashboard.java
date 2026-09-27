@@ -22,11 +22,22 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.chat.SocialQueryControls;
 import tomato.gui.history.*;
+import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.FilterBar;
 import tomato.history.archive.*;
 
 /** All three views and their metrics are derived from the same filtered history. */
 final class KeyPopDashboard extends JPanel {
     private static final String ALL_ITEMS = "All dungeons / items";
+    /** Header → column kind for the three live tables (widths only; the Player emphasis and Type badge renderers stay). */
+    private static final Map<String, ColumnKind> COLUMN_KINDS = new HashMap<>();
+    static {
+        for (String time : new String[]{"Time", "Last pop"}) COLUMN_KINDS.put(time, ColumnKind.DATE_TIME);
+        COLUMN_KINDS.put("Player", ColumnKind.PLAYER); COLUMN_KINDS.put("Type", ColumnKind.STATUS); COLUMN_KINDS.put("Dungeon / item", ColumnKind.DUNGEON);
+        for (String count : new String[]{"Pops", "Keys", "Runes", "Vials", "Incs", "Players"}) COLUMN_KINDS.put(count, ColumnKind.COUNT);
+        COLUMN_KINDS.put("Share %", ColumnKind.PERCENT);
+    }
     final JTextField search = new JTextField();
     private String exactPlayer;
     final JButton playerChip = new JButton();
@@ -45,7 +56,12 @@ final class KeyPopDashboard extends JPanel {
     final JTable events = table(eventsModel, "keypop-events");
     final JTable players = table(playersModel, "keypop-players");
     final JTable items = table(itemsModel, "keypop-items");
-    final JTabbedPane tabs = new JTabbedPane();
+    private final CustomizableTabs views = new CustomizableTabs("keypops-live");
+    final JTabbedPane tabs = views.component();
+    /** Tab IDs in Mode order; the live view state stores the mode, never a tab position. */
+    private static final String[] VIEW_IDS = {"events", "by-player", "by-item"};
+    private final JScrollPane eventsScroll = ContentStyle.tableScroll(events, 3), playersScroll = ContentStyle.tableScroll(players, 3), itemsScroll = ContentStyle.tableScroll(items, 3);
+    private final FilterBar filterBar = new FilterBar("keypops-live");
     private final javax.swing.Timer refreshTimer;
     private List<KeyPopEvent> filtered = Collections.emptyList();
     private long seenRevision = -1;
@@ -104,22 +120,22 @@ final class KeyPopDashboard extends JPanel {
             card.add(caption, BorderLayout.SOUTH); cards.add(card);
         }
         constraints.gridy++; top.add(cards, constraints);
-        JPanel searchRow = new JPanel(new BorderLayout(8, 0));
         search.setName("keypop-search"); search.putClientProperty("JTextField.placeholderText", "Search player, dungeon or item…");
-        search.getAccessibleContext().setAccessibleName("Search key-pops");
+        search.getAccessibleContext().setAccessibleName("Search key-pops"); search.setColumns(22);
         search.setToolTipText("Case-insensitive search; every word must match the event.");
-        searchRow.add(search); searchRow.add(button("Reset filters", this::resetFilters), BorderLayout.EAST);
-        constraints.gridy++; top.add(searchRow, constraints);
         playerChip.setName("keypop-exact-player"); playerChip.setVisible(false);
         playerChip.addActionListener(e -> selectPlayer(null));
-        constraints.gridy++; top.add(playerChip, constraints);
         JPanel filters = ContentStyle.responsiveGrid(3, 140, 8);
         filters.add(labeled("Event type", type, "keypop-type")); filters.add(labeled("Time range", period, "keypop-period"));
         item.setPrototypeDisplayValue(ALL_ITEMS); filters.add(labeled("Dungeon / item", item, "keypop-item"));
-        constraints.gridy++; constraints.insets = new Insets(0, 0, 0, 0); top.add(filters, constraints);
         JButton more = new JButton("Multi-select / absolute dates / view state");
         more.addActionListener(e -> { advanced.setVisible(!advanced.isVisible()); revalidate(); });
-        constraints.gridy++; top.add(more, constraints); constraints.gridy++; top.add(advanced, constraints); advanced.setVisible(false);
+        // One filter row (search + reset); the exact player, type/period/item and multi-select/date/view controls live in the drawer.
+        JPanel drawer = new JPanel(new GridBagLayout()); GridBagConstraints row = new GridBagConstraints(); row.gridx = 0; row.weightx = 1;
+        row.fill = GridBagConstraints.HORIZONTAL; row.insets = new Insets(0, 0, 6, 0);
+        for (JComponent part : new JComponent[]{playerChip, filters, more, advanced}) { row.gridy++; drawer.add(part, row); } advanced.setVisible(false);
+        filterBar.search(new WrapRow(search, button("Reset filters", this::resetFilters))).drawer(drawer);
+        constraints.gridy++; constraints.insets = new Insets(0, 0, 0, 0); top.add(filterBar, constraints);
         JPanel multis = ContentStyle.responsiveGrid(2, 200, 8);
         multis.add(SocialQueryControls.labeled("Additional types: KEY, RUNE, VIAL, INC, OTHER, UNKNOWN (one per line)", new JScrollPane(kindsInput), "keypop-live-kinds"));
         multis.add(SocialQueryControls.labeled("Additional exact dungeons/items (one per line)", new JScrollPane(itemsInput), "keypop-live-items"));
@@ -135,7 +151,7 @@ final class KeyPopDashboard extends JPanel {
         events.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
         players.getRowSorter().setSortKeys(Arrays.asList(new RowSorter.SortKey(1, SortOrder.DESCENDING), new RowSorter.SortKey(0, SortOrder.ASCENDING)));
         items.getRowSorter().setSortKeys(Arrays.asList(new RowSorter.SortKey(1, SortOrder.DESCENDING), new RowSorter.SortKey(0, SortOrder.ASCENDING)));
-        tabs.addTab("Events", ContentStyle.tableScroll(events, 3)); tabs.addTab("By player", ContentStyle.tableScroll(players, 3)); tabs.addTab("By dungeon / item", ContentStyle.tableScroll(items, 3));
+        views.add("events", "Events", eventsScroll).add("by-player", "By player", playersScroll).add("by-item", "By dungeon / item", itemsScroll);
         JPanel body = new JPanel(new BorderLayout(0, 4)) {
             public Dimension getMinimumSize() {
                 return new Dimension(0, tabs.getMinimumSize().height + (empty.isVisible() ? empty.getPreferredSize().height + 4 : 0));
@@ -152,12 +168,12 @@ final class KeyPopDashboard extends JPanel {
         onChange(search, this::refresh);
         type.addActionListener(e -> { if (!updating) refresh(); }); period.addActionListener(e -> { if (!updating) { resolvePeriod(); refresh(); } });
         item.addActionListener(e -> { if (!updating) refresh(); }); refresh();
-        tabs.addChangeListener(e -> rememberState());
+        tabs.addChangeListener(e -> { if (!views.isRebuilding()) rememberState(); });
         for (JTable table : new JTable[]{events, players, items}) {
             for (int i = 0; i < table.getColumnCount(); i++) table.getColumnModel().getColumn(i).setIdentifier("column-" + i);
             table.getSelectionModel().addListSelectionListener(e -> rememberState());
             table.getRowSorter().addRowSorterListener(e -> rememberState());
-            ((JScrollPane)tabs.getComponentAt(table == events ? 0 : table == players ? 1 : 2)).getViewport().addChangeListener(e -> rememberState());
+            scroll(table).getViewport().addChangeListener(e -> rememberState());
         }
     }
 
@@ -230,7 +246,21 @@ final class KeyPopDashboard extends JPanel {
             + (snapshot.discarded > 0 ? " · " + DisplayFormat.formatInteger(snapshot.discarded) + " older pops dropped" : ""));
         status.setToolTipText("Live view retains the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " events. Saved session history retains every pop; use Browse saved for older pages. CSV exports filtered events.");
         resolvedPeriod.setText(SocialQueryControls.boundsLabel(bounds, false) + "\nShare denominator: " + filtered.size() + " matching retained pop events; callouts excluded.");
-        rebuilding = false; rememberState();
+        updateChips(); rebuilding = false; rememberState();
+    }
+
+    /** Exact player, type, period or dates, dungeon/item and multi-select choices as removable chips. */
+    private void updateChips() {
+        List<FilterBar.ActiveFilter> chips = new ArrayList<>();
+        if (exactPlayer != null) chips.add(new FilterBar.ActiveFilter("Player: " + exactPlayer, () -> selectPlayer(null)));
+        if (type.getSelectedIndex() > 0) chips.add(new FilterBar.ActiveFilter("Type: " + type.getSelectedItem(), () -> type.setSelectedIndex(0)));
+        if (period.getSelectedIndex() > 0) chips.add(new FilterBar.ActiveFilter(String.valueOf(period.getSelectedItem()), () -> period.setSelectedIndex(0)));
+        else if (bounds.from != null || bounds.until != null) chips.add(new FilterBar.ActiveFilter(ArchiveFilters.dateLabel(bounds), () -> {
+            bounds = new ArchiveQuery.Bounds(null, null, ZoneId.of(bounds.zone), bounds.mode, bounds.includeUnknown); rebuildDates(); refresh(); }));
+        if (item.getSelectedIndex() > 0) chips.add(new FilterBar.ActiveFilter("Dungeon / item: " + item.getSelectedItem(), () -> item.setSelectedIndex(0)));
+        if (!extraKinds.isEmpty()) chips.add(new FilterBar.ActiveFilter("More types: " + ArchiveFilters.summary(extraKinds), () -> { extraKinds.clear(); kindsInput.setText(""); refresh(); }));
+        if (!extraItems.isEmpty()) chips.add(new FilterBar.ActiveFilter("More dungeons/items: " + ArchiveFilters.summary(extraItems), () -> { extraItems.clear(); itemsInput.setText(""); refresh(); }));
+        FilterChips.update(filterBar, chips, this::resetFilters, false);
     }
 
     private KeyPopArchiveClient.Facets liveFacets() {
@@ -258,14 +288,14 @@ final class KeyPopDashboard extends JPanel {
     }
     ViewState<LiveFacets,KeyPopArchiveClient.Sort> captureLiveState() {
         LiveFacets f = new LiveFacets(); f.exactPlayer = exactPlayer == null ? "" : exactPlayer; f.kinds.addAll(extraKinds); f.items.addAll(extraItems);
-        f.type = type.getSelectedItem().toString(); f.item = item.getSelectedItem().toString(); f.period = period.getSelectedItem().toString(); f.mode = KeyPopArchiveClient.Mode.values()[tabs.getSelectedIndex()];
+        f.type = type.getSelectedItem().toString(); f.item = item.getSelectedItem().toString(); f.period = period.getSelectedItem().toString(); f.mode = mode();
         Map<String,ViewState.Table> layouts = new LinkedHashMap<>();
         for (JTable table : new JTable[]{events,players,items}) { List<SortEntry> order = new ArrayList<>();
             for (RowSorter.SortKey key : table.getRowSorter().getSortKeys()) order.add(new SortEntry(key.getColumn(), key.getSortOrder().name()));
             f.sorts.put(table.getName(), order); layouts.put(table.getName(), HistoryTables.columnState(table,"Custom"));
         }
         ArchiveQuery<LiveFacets,KeyPopArchiveClient.Sort> q = ArchiveQuery.of(ArchiveQuery.CURRENT,f,LiveFacets.class,KeyPopArchiveClient.Sort.TIME).withText(search.getText()).withBounds(bounds);
-        JTable table = activeTable(); JScrollPane scroll = (JScrollPane)tabs.getSelectedComponent(); List<ArchiveRow.Ref> selection = new ArrayList<>();
+        JTable table = activeTable(); JScrollPane scroll = scroll(table); List<ArchiveRow.Ref> selection = new ArrayList<>();
         if (table.getSelectedRow() >= 0) selection.add(liveRef(table,table.getSelectedRow()));
         int row = table.rowAtPoint(scroll.getViewport().getViewPosition());
         return new ViewState<>(q,false,0,f.mode.name(),selection,row < 0 ? null : liveRef(table,row),row < 0 ? 0 : scroll.getViewport().getViewPosition().y - row * table.getRowHeight(),layouts);
@@ -282,16 +312,19 @@ final class KeyPopDashboard extends JPanel {
         try { exactPlayer = f.exactPlayer.isEmpty() ? null : f.exactPlayer; search.setText(state.query.text()); type.setSelectedItem(f.type); period.setSelectedItem(f.period);
             if (!ALL_ITEMS.equals(f.item)) { boolean found=false;for(int i=0;i<item.getItemCount();i++)if(f.item.equals(item.getItemAt(i)))found=true;if(!found)item.addItem(f.item); } item.setSelectedItem(f.item);
             extraKinds.clear();extraKinds.addAll(f.kinds);extraItems.clear();extraItems.addAll(f.items);kindsInput.setText(String.join("\n",extraKinds));itemsInput.setText(String.join("\n",extraItems));
-            bounds = state.query.bounds(); rebuildDates(); tabs.setSelectedIndex(f.mode.ordinal());
+            bounds = state.query.bounds(); rebuildDates(); showView(VIEW_IDS[f.mode.ordinal()]);
             for (JTable table : new JTable[]{events,players,items}) { if (state.tables.containsKey(table.getName())) HistoryTables.applyColumns(table,state.tables.get(table.getName()));
                 List<RowSorter.SortKey> keys=new ArrayList<>();for(SortEntry key:f.sorts.getOrDefault(table.getName(),Collections.emptyList()))keys.add(new RowSorter.SortKey(key.column,SortOrder.valueOf(key.direction)));table.getRowSorter().setSortKeys(keys); }
         } finally { updating = false; }
         playerChip.setVisible(exactPlayer != null);playerChip.setText(exactPlayer == null ? "" : "Player equals " + exactPlayer + " · Clear");refresh();rebuilding=true;
         JTable table=activeTable();table.clearSelection();for(int i=0;i<table.getRowCount();i++){ArchiveRow.Ref ref=liveRef(table,i);if(state.selected.contains(ref))table.addRowSelectionInterval(i,i);
-            if(ref.equals(state.anchor))((JScrollPane)tabs.getSelectedComponent()).getViewport().setViewPosition(new Point(0,Math.max(0,i*table.getRowHeight()+state.anchorOffset)));}
+            if(ref.equals(state.anchor))scroll(table).getViewport().setViewPosition(new Point(0,Math.max(0,i*table.getRowHeight()+state.anchorOffset)));}
         rebuilding=false;rememberState();
     }
-    private JTable activeTable(){return tabs.getSelectedIndex()==0?events:tabs.getSelectedIndex()==1?players:items;}
+    private JTable activeTable(){KeyPopArchiveClient.Mode mode=mode();return mode==KeyPopArchiveClient.Mode.EVENTS?events:mode==KeyPopArchiveClient.Mode.BY_PLAYER?players:items;}
+    private KeyPopArchiveClient.Mode mode(){return KeyPopArchiveClient.Mode.values()[Math.max(0,Arrays.asList(VIEW_IDS).indexOf(views.selectedId()))];}
+    private JScrollPane scroll(JTable table){return table==events?eventsScroll:table==players?playersScroll:itemsScroll;}
+    private void showView(String id){views.show(id);views.select(id);}
     private ArchiveRow.Ref liveRef(JTable table,int view){int row=table.convertRowIndexToModel(view);String key=table==events?Objects.toString(filtered.get(row).id,"missing"):Objects.toString(table.getModel().getValueAt(row,0),"");return new ArchiveRow.Ref("@live","keypops",table.getName(),key);}
     private void rememberState(){if(stateStore!=null&&!updating&&!rebuilding){stateSave++;if(!"Live view changes awaiting save…".equals(stateStatus.getText()))stateStatus.setText("Live view changes awaiting save…");remember.restart();}}
     private void persistLiveState(){if(stateStore==null||updating||rebuilding)return;long request=++stateSave;
@@ -305,7 +338,7 @@ final class KeyPopDashboard extends JPanel {
             int modelRow = table.convertRowIndexToModel(row);
             String value = (String)table.getModel().getValueAt(modelRow, 0);
             if (player) selectPlayer(value); else item.setSelectedItem(value);
-            tabs.setSelectedIndex(0);
+            showView("events");
         };
         table.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "show-events");
         table.getActionMap().put("show-events", new AbstractAction() {
@@ -336,7 +369,7 @@ final class KeyPopDashboard extends JPanel {
      * current tab has no such selection (By player). The value is observed text and is not resolved here.
      */
     String selectedDungeon() {
-        int tab = tabs.getSelectedIndex();
+        int tab = mode().ordinal();
         if (tab == 0 && events.getSelectedRow() >= 0) {
             int row = events.convertRowIndexToModel(events.getSelectedRow());
             return row < filtered.size() ? filtered.get(row).item : null;
@@ -372,7 +405,7 @@ final class KeyPopDashboard extends JPanel {
     }
 
     void exportCurrentTab() {
-        if (tabs.getSelectedIndex() == 0) { exportCsv(); return; }
+        if (mode() == KeyPopArchiveClient.Mode.EVENTS) { exportCsv(); return; }
         refresh(); JTable table = activeTable();
         List<String> headers = new ArrayList<>(); for (int c = 0; c < table.getColumnCount(); c++) headers.add(table.getColumnName(c));
         headers.add("Matching retained pop-event denominator (callouts excluded)");
@@ -448,10 +481,7 @@ final class KeyPopDashboard extends JPanel {
         table.setName(name); ContentStyle.table(table);
         table.setAutoCreateRowSorter(true); table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getTableHeader().setReorderingAllowed(false); table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        for (int i = 0; i < model.getColumnCount(); i++) {
-            int width = model.getColumnClass(i) == Instant.class ? 175 : model.getColumnClass(i) == String.class ? (model.getColumnName(i).equals("Dungeon / item") ? 270 : model.getColumnName(i).equals("Type") ? 86 : 160) : 86;
-            table.getColumnModel().getColumn(i).setPreferredWidth(width);
-        }
+        HistoryTables.kinds(table, COLUMN_KINDS);
         table.setDefaultRenderer(String.class, new ContentStyle.Cell() {
             @Override public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
                 super.getTableCellRendererComponent(t, value, selected, focus, row, column);

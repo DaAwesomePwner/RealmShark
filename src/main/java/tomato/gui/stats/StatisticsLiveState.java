@@ -29,6 +29,13 @@ final class StatisticsLiveState {
     String value(String key,String fallback){return fields.values.getOrDefault(key,fallback);}
     void put(String key,String value){if(restoring||Objects.equals(fields.values.get(key),value))return;fields.values.put(key,value);state=state.withQuery(state.query.withFacets(fields));save();}
     void tabs(JTabbedPane tabs){int index=parse(value(tabs.getName(),"0"),0);if(index>=0&&index<tabs.getTabCount())tabs.setSelectedIndex(index);tabs.addChangeListener(e->put(tabs.getName(),Integer.toString(tabs.getSelectedIndex())));}
+    /** Keep legacy numeric values canonical even when presentation tabs are reordered or hidden. */
+    void tabs(tomato.gui.kit.CustomizableTabs tabs, String... canonicalIds){
+        List<String> ids=Arrays.asList(canonicalIds);String key=tabs.component().getName();
+        int index=parse(value(key,"-1"),-1);
+        if(index>=0&&index<ids.size())tabs.select(ids.get(index)); // A hidden tab stays hidden; the current tab is kept.
+        tabs.onSelect(id->{int canonical=ids.indexOf(id);if(canonical>=0)put(key,Integer.toString(canonical));});
+    }
     void text(JTextField field){field.setText(value(field.getName(),field.getText()));field.getDocument().addDocumentListener(new DocumentListener(){private void save(){put(field.getName(),field.getText());}public void insertUpdate(DocumentEvent e){save();}public void removeUpdate(DocumentEvent e){save();}public void changedUpdate(DocumentEvent e){save();}});}
     void combo(JComboBox<?> combo){String selected=value(combo.getName(),String.valueOf(combo.getSelectedItem()));combo.setSelectedItem(selected);combo.addActionListener(e->put(combo.getName(),String.valueOf(combo.getSelectedItem())));}
     void check(JCheckBox check){check.setSelected(Boolean.parseBoolean(value(check.getName(),Boolean.toString(check.isSelected()))));check.addActionListener(e->put(check.getName(),Boolean.toString(check.isSelected())));}
