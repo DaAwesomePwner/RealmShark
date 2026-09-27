@@ -75,20 +75,36 @@
   - Tab ids: `overview`, `gear`, `exalts`, `build`, `goals`, `notes`, `evidence`, `death`.
   - A saved order for the retired `character-detail` group is not migrated; it existed for one day (P1c).
   - The roster's saved `tab` index maps to the matching sheet tab and is only selected.
-- **Death annotation tab.** It is always present, so the per-character state never rewrites the saved tab order. An alive character's tab explains how to mark the character dead.
+- **Death annotation tab** (spec §6.2: "shown when the character is marked dead"). It is a conditional tab (`CustomizableTabs.addWhen`), skipped like an Analyst-only tab without rewriting the saved order (spec §4.4); Mark dead makes it appear and Restore alive hides it again.
 - **The Characters page keeps its Roster / Exalts / Pets tabs.** They stay `CustomizableTabs("characters")` rather than the spec's segmented control: they are already customizable and saved, and P3b rebuilds Exalts and Pets inside them.
 - **Build.**
   - The single `MyInfoGUI` is hosted in the sheet's Build tab.
   - Page 6 (unlisted since P2) becomes a "Build moved" pointer until P6 deletes it.
   - Alt+7, the `build.open` search entry, the `MY_INFO` route and Home's Build action all open the sheet's Build tab for the character being played, else the most recent one.
-- **Vault potions** are summed over the vault chest, potion storage and gift chest as normal-potion equivalents (a greater potion counts 2). They compare directly with "potions needed".
+- **Vault potions** are summed over the regular vault's chest, potion storage and gift chest as normal-potion equivalents (a greater potion counts 2). They compare directly with "potions needed". The seasonal vault is not recorded, so a seasonal character's sheet shows no vault count.
 
-**Decisions made while writing Tasks 5–8:**
+**Sheet and Build decisions (Tasks 4–8):**
 
-- **Sheet presenter.** `SheetPresenter` feeds the header and the Overview, Gear, Exalts and Build tabs.
+- **Back link.** "‹ Characters" always leads to the list (spec §6.2).
+  - When the Back entry its open pushed is still on top and returns to the list, the link calls `navigator.back()`, which restores the list's selection and scroll and pops that entry.
+  - Otherwise (for example, opened from Home) it switches to the list in place, and shell Back still returns to where the sheet was opened from.
+  - Back does not restore the outer Roster / Exalts / Pets tab (as in P2); routes into Characters bring the Roster tab forward.
+- **Remembered tab.** The roster's view state keeps `tab`, the legacy index 0–6, so a rollback to P2 reads a valid tab. It gains `sheetTab`, the id, so Build and later tabs are remembered. Restore prefers `sheetTab`; either is only selected, when the sheet opens without an explicit tab.
+- **Notes drafts** are saved when another character's sheet opens and whenever the sheet hides: another card, Back, "‹ Characters", the page's other tabs, and closing the workspace. Refreshes and background saves never replace a draft.
+- **Titles.** "Gear" and "Exalts" replace "Equipment & inventory" and "Class exalts".
+- **Sheet presenter.** `SheetPresenter` feeds the header and the Overview, Gear, Exalts and Build tabs, and the sheet's own tabs (notes, Goals, death, evidence) through `CharacterSheet.loaded`.
   - It rebuilds when the sheet opens a key. While the sheet shows, it checks once a second whether any cheap token changed: the key, `journal.revision()`, `LiveCharacter.revision()`, and the identity of `RosterDefinitions.current()` and `PlanningMetadata.current()`.
-  - Builds run on one daemon thread, `character-sheet`, over `characterCopy`/`accountCopy` deep copies.
-  - The EDT applies only the newest result, and each tab skips a section equal to the one it shows.
+  - Builds run on one daemon thread, `character-sheet`, over deep copies (reused while the journal revision is unchanged); the sheet copies nothing on the EDT.
+  - Opening another character clears the sheet and shows "Loading…" until that key's result applies. Results carry their key; the EDT applies only the newest one for the key still shown, and each tab skips a section equal to the one it shows. A failed build shows a warn banner (spec §7) and is retried.
+  - Mark dead, Restore alive and Save notes act only once the header shows the opened character (`CharacterSheet.ready()`).
+- **Build tab after capture stops.** Build (`MyInfoGUI`) describes the character in game, else the last one (`LiveCharacter.lastKnown()`). It shows only on that character's sheet; other sheets say "Build shows the character you're playing", with an Open button only while someone is in game.
+- **Simple hides provenance** (spec §3.2): the sheet's snapshot evidence and tab hint are Analyst-only, so nothing in Simple ticks every second.
+- **States (spec §7).** An unreadable journal or a failed save shows a warn banner in the sheet and the gallery; with no character to show, the gallery says the characters are unavailable (with the journal's status), never "No characters yet".
+- **Saved views in the ⋯ menu** (spec §3.2, both modes): "Save view state" and "Reset saved view state"; the Characters page shows their status only as a warn banner when saving fails or the saved state cannot be read.
+- **Times (spec §5.7).** Cards and the sheet header say "Played <ago>" from the last time in game ("Seen <ago>" only when never played), matching the Last played sort; vault counts show their age and dim after 24 h; the Exalts tab says "Changed <ago>".
+- **Explicit "no pet".** An empty `<Pet/>` in the character list is saved as a known absence (`PetRecord.absent`), a missing one stays unknown.
+- **Journal backup.** The first save that writes version 5 over an older file copies it once to `journal.v4.bak` (never over an existing one).
+- **Deferred to P3b** (user decision after review, 2026-09-27): the Overview "pet card" (it needs P3b's pet names and rarity) and Goals "restyled as cards with progress" (P3a moves the Goals tab unchanged).
 - **Shared arithmetic with Home.** Caps come from `RosterDefinitions`, as the old stat table's did. The potions, maxed and "still current" rules are Home's (`HomeModelBuilder`, now public).
   - Live values apply only when the snapshot's account and character ID match the sheet's key.
   - A map change's brief clear does not flicker "Playing now".
@@ -102,39 +118,41 @@
 
 ---
 
----
-
 ## File map
 
 | File | Change | Task | Responsibility |
 |---|---|---|---|
-| `src/main/java/tomato/gui/glance/home/HomeArchive.java`, `LiveHomeSources.java`, `HomeModelBuilder.java`, `TodayTiles.java` | Modify | 1, 5, 10 | Unreadable sessions skipped and reported; per-session cache; recordings cache; shared maxed/potions helpers; hero key |
-| `src/main/java/tomato/backend/data/TomatoData.java`, `LiveCharacter.java` | Modify | 1, 2, 9 | Publish de-duplication; content-based revision; v5 feeding; `Snapshot.journalKey()` |
+| `src/main/java/tomato/gui/glance/home/HomeArchive.java`, `LiveHomeSources.java`, `HomeModelBuilder.java`, `TodayTiles.java`, `RecentRunsCard.java` | Modify | 1, 5, 10 | Unreadable sessions skipped and reported (Today and Recent runs); per-session cache; recordings cache; shared maxed/potions helpers; hero key |
+| `src/main/java/tomato/backend/data/TomatoData.java`, `LiveCharacter.java` | Modify | 1, 2, 8 | Publish de-duplication; content-based revision; v5 feeding (and an explicit no-pet); `Snapshot.journalKey()` |
 | `src/main/java/tomato/gui/modern/WorkspaceShell.java` | Modify | 1, 4 | Hidden-row focus fallback; `pageOf(CHARACTER_SHEET)` |
-| `src/main/java/tomato/backend/data/CharacterJournal.java` | Modify | 2 | Version 5 fields, `PetRecord`, load/copy/normalize, `characterCopy` |
+| `src/main/java/tomato/backend/data/CharacterJournal.java` | Modify | 2 | Version 5 fields, `PetRecord` (with `absent`), load/copy/normalize, `characterCopy`, `storageProblem`, the one-time `journal.v4.bak` |
+| `src/main/java/tomato/gui/kit/CustomizableTabs.java` | Modify | 4 | Conditional tabs (`addWhen`, `refreshConditions`) for Death annotation |
+| `src/main/java/tomato/gui/roster/RosterViewState.java` | Modify | 9 | Status for hosts that keep its actions in the ⋯ menu |
 | `src/main/java/tomato/gui/kit/Banner.java`, `KitLayouts.java`, `ItemTiers.java`, `KitText.java` | Create | 3 | Kit pieces promoted from Home |
 | `src/main/java/tomato/gui/glance/home/HomeViews.java`, `HeroCard.java`, `NowCard.java`, `QuestsCard.java`, `RecentRunsCard.java` | Modify | 3, 10 | Delegate to the kit; hero opens the sheet |
 | `src/main/java/tomato/gui/route/Destination.java`, `RouteTarget.java`, `ShellNavigator.java` | Modify | 4, 8 | `CHARACTER_SHEET`; one-hop redirect for `MY_INFO` |
-| `src/main/java/tomato/gui/glance/character/SheetFocus.java`, `CharacterSheet.java`, `SheetContext.java` | Create | 4 | Sheet route payload, sheet frame and context |
+| `src/main/java/tomato/gui/glance/character/SheetFocus.java`, `CharacterSheet.java`, `SheetContext.java` | Create; `CharacterSheet` modified | 4; 5–8 | Sheet route payload, sheet frame and context; presenter hooks, identity and the Build slot |
 | `src/main/java/tomato/gui/character/CharactersRouteTarget.java`, `CharacterRosterView.java` | Create | 4 | Characters list/sheet routing with Back; list/sheet cards |
-| `src/main/java/tomato/gui/character/CharacterJournalGUI.java`, `CharacterPanelGUI.java` | Modify | 4, 9 | Side pane retired; rows exposed; gallery/table views |
+| `src/main/java/tomato/gui/character/CharacterJournalGUI.java`, `CharacterPanelGUI.java` | Modify | 4, 8, 9 | Side pane retired; rows exposed; `hostBuild`; gallery/table views |
 | `src/main/java/tomato/gui/glance/character/SheetModel.java`, `SheetModelBuilder.java`, `SheetViews.java`, `SheetHeader.java`, `OverviewTab.java`, `SheetPresenter.java` | Create | 5 | Header and Overview built off the EDT |
-| `src/main/java/tomato/gui/glance/character/GearTab.java`, `EnchantDots.java`; `src/main/java/tomato/realmshark/ParseEnchants.java`, `src/main/java/tomato/gui/myinfo/BuildEstimates.java` | Create/Modify | 6 | Gear tab; enchant dots for the live character |
+| `src/main/java/tomato/gui/dps/DpsGUI.java` | Modify | 1 | Each recording projected once per catalog entry |
+| `src/main/java/tomato/gui/glance/character/GearTab.java`, `EnchantDots.java`; `src/main/java/tomato/realmshark/ParseEnchants.java`, `src/main/java/tomato/gui/myinfo/BuildEstimates.java` | Create/Modify | 6 (`BuildEstimates` also 1) | Gear tab; enchant dots for the live character; `Inputs.sameSource` |
 | `src/main/java/tomato/gui/glance/character/ExaltsTab.java` | Create | 7 | Class-scoped exalts with next tier, live bonus, where to earn |
-| `src/main/java/tomato/gui/glance/character/BuildTab.java`, `src/main/java/tomato/gui/myinfo/BuildRoute.java`, `BuildMovedPanel.java`; `src/main/java/tomato/gui/TomatoGUI.java`; `src/main/java/tomato/gui/modern/NavEntry.java` | Create/Modify | 8 | Build hosted in the sheet; Build entry points; page 6 pointer |
+| `src/main/java/tomato/gui/glance/character/BuildTab.java`, `src/main/java/tomato/gui/myinfo/BuildRoute.java`, `BuildMovedPanel.java`; `src/main/java/tomato/gui/modern/NavEntry.java` | Create/Modify | 8 | Build hosted in the sheet; Build entry points; page 6 pointer |
 | `src/main/java/tomato/gui/glance/character/CharacterCardModel.java`, `CharacterCardRenderer.java`, `CharacterGallery.java`; `src/main/java/tomato/gui/character/RosterViews.java` | Create | 9 | Painted gallery, Graveyard, sort, view switch |
-| `src/main/java/tomato/gui/glance/home/HomeModel.java`, `HomeActions.java`; `src/main/java/tomato/gui/TomatoGUI.java` | Modify | 10 | Hero key; hero opens the sheet |
-| Tests under `src/test/java/tomato/{backend/data,gui/kit,gui/glance/home,gui/glance/character,gui/character,gui/history,gui/chat,gui/route,gui/modern}`, `src/test/java/tomato/ShellRouteRegistrationTest.java`, `src/test/java/ui/` | Create/Modify | 1–10 | See each task's **Files** list |
-| `README.md`, `docs/CHARACTERS.md`, roadmap, `docs/UX-CHECKPOINT.json`, `docs/UX-EXECUTION.md`, `docs/UX-HANDOFF.md`, `docs/superpowers/plans/2026-09-27-p3a-validation.md` | Modify/Create | 10 | Docs, status and the validation record |
+| `src/main/java/tomato/gui/glance/home/HomeModel.java`, `HomeActions.java` | Modify | 10 | Hero key; hero opens the sheet |
+| `src/main/java/tomato/gui/TomatoGUI.java` | Modify | 4, 8, 10 | Characters route targets and goals; Build hosting, Alt+7 and page 6; the hero's sheet route |
+| Tests under `src/test/java/tomato/{backend/data,gui/kit,gui/glance/home,gui/glance/character,gui/character,gui/history,gui/chat,gui/route,gui/modern,gui/myinfo}`, `src/test/java/tomato/ShellRouteRegistrationTest.java`, `src/test/java/ui/` | Create/Modify | 1–10 | See each task's **Files** list |
+| `README.md`, `docs/CHARACTERS.md`, roadmap, `docs/UX-CHECKPOINT.json`, `docs/UX-EXECUTION.md`, `docs/UX-HANDOFF.md`, `docs/superpowers/plans/2026-09-27-p3a-validation.md` | Modify/Create | 1 (README), 10 | Docs, status and the validation record |
 
 ---
 
 ### Task 1: Baseline and P2 Home follow-ups
 
-Home's archive read no longer fails because one old session's metadata is unreadable. It keeps what it learned about closed sessions between its 30-second reads. The DPS page's recordings are projected once each. The capture thread detaches Home's copy of the local character once per observation instead of at least twice per tick. Hiding a sidebar row never leaves focus or the scroll anchor on a hidden row. The README describes the Now card correctly.
+Home's archive read no longer fails because one old session's metadata is unreadable: it skips that session, and Today and Recent runs say how many such sessions may hold their records. It keeps what it learned about closed sessions between its 30-second reads. The DPS page's recordings are projected once each. The capture thread detaches Home's copy of the local character once per observation instead of at least twice per tick. Hiding a sidebar row never leaves focus or the scroll anchor on a hidden row. The README describes the Now card correctly.
 
 **Files:**
-- Modify (`src/main/java/tomato/gui/glance/home/`): `HomeArchive.java`, `LiveHomeSources.java`, `HomeModelBuilder.java`, `TodayTiles.java`
+- Modify (`src/main/java/tomato/gui/glance/home/`): `HomeArchive.java`, `LiveHomeSources.java`, `HomeModelBuilder.java`, `TodayTiles.java`, `RecentRunsCard.java`
 - Modify:
   - `src/main/java/tomato/gui/dps/DpsGUI.java`
   - `src/main/java/tomato/backend/data/TomatoData.java` (`publishMyInfoPlayer`)
@@ -145,7 +163,7 @@ Home's archive read no longer fails because one old session's metadata is unread
 - Modify tests:
   - `src/test/java/tomato/gui/glance/home/`:
     - `HomeArchiveTest.java`: one replace, one add beside.
-    - `TodayTilesTest.java`, `HomeModelBuilderTest.java`, `LiveHomeSourcesTest.java`: add beside.
+    - `TodayTilesTest.java`, `HomeModelBuilderTest.java`, `LiveHomeSourcesTest.java`, `RecentRunsCardTest.java`: add beside.
   - `src/test/java/tomato/gui/myinfo/RecordedDpsHandoffTest.java`: add beside.
   - `src/test/java/tomato/backend/data/LiveCharacterTest.java`: one replace, one add beside.
   - `src/test/java/tomato/gui/modern/WorkspaceShellLayoutTest.java`: add beside.
@@ -164,28 +182,33 @@ Home's archive read no longer fails because one old session's metadata is unread
   - `HomeArchive.Totals` gets:
     - a 15th component, `int unreadableSessions`, included in equality;
     - a public 14-argument constructor in the P2 shape, which sets it to 0.
+  - `HomeArchive.Result` gets a third component, `int unreadableRecent`, and a public two-argument constructor in the P2 shape, which sets it to 0.
   - `public static final class HomeArchive.Cache` with `public Cache()` and a package-private `int size()`.
   - `public static Result HomeArchive.read(SessionStore, Window, long now, ZoneId, List<RecordedEncounter>, Cache)`:
     - The five-argument `read` delegates to it with a new `Cache`.
-    - Unreadable entries are skipped. TODAY counts them in `unreadableSessions`.
+    - Unreadable entries are skipped. TODAY counts in `unreadableSessions` those with a file (in the session folder or its module folders) modified at or after the day's start; only they can hold today's records.
     - SESSION reports 0. It still throws `IOException("Unreadable session <id>: …")` when the current session itself is unreadable.
+    - `unreadableRecent` counts the unreadable sessions that may hold a run newer than the oldest one listed: every one while fewer than five runs are listed, else those with a file modified at or after that run's start.
   - `public static List<RecordedEncounter> DpsGUI.recordedEncounters(Map<String, RecordedEncounter> known)`, keyed by catalog entry id.
   - A package-private six-argument `LiveHomeSources(..., Function<Map<String, RecordedEncounter>, List<RecordedEncounter>> recordings, HomeArchive.Cache cache)`. The P2 five-argument constructor delegates to it.
   - `TodayTiles` gets a warn `HomeViews.Reason` named `home-today-unreadable`:
     - The text is "1 saved session could not be read" or "N saved sessions could not be read".
     - Known counts become `DisplayValue.partial`, with that text as the detail. A stale value still wins.
-  - `HomeModelBuilder.today` is never EMPTY while `unreadableSessions > 0`.
+  - `HomeModelBuilder.today` is never EMPTY while `unreadableSessions > 0`. `HomeModelBuilder.runs` is LIVE with the reason "N saved sessions could not be read" while `unreadableRecent > 0`, even with no row.
+  - `RecentRunsCard` shows a LIVE reason as a warn line above the rows (or the empty state); a STALE reason as before.
   - `public boolean LiveCharacter.Snapshot.sameContent(Snapshot)`. `publish` bumps `revision` only when there is no current snapshot or its content differs.
   - `public boolean BuildEstimates.Inputs.sameSource(Inputs)` compares the observation revisions (a revision of 0 never matches), the presence of each entity and the pet state.
   - `WorkspaceShell` gets package-private `Component focusTarget(int page)` and `JToggleButton scrollAnchor()`.
 
-- [ ] **Step 1: Full-suite baseline on merged main (before any change)**
+- [ ] **Step 1: Full-suite baseline before any code change**
 
 Run in PowerShell from the worktree root, after the three `$env:` lines from the Global rules. `GRADLE` uses `build/p3a` and `build/p3a-cache`. The suite opens real windows: start it and leave the machine alone until it finishes.
 ```powershell
 git status --short --branch
 git pull --ff-only
 git log --oneline -1
+git merge-base --is-ancestor 94db6f6 HEAD; "contains 94db6f6: $($LASTEXITCODE -eq 0)"
+git log --oneline -1 -- docs/superpowers/plans/2026-09-27-p3a-characters.md
 New-Item -ItemType Directory -Force build/p3a/evidence | Out-Null
 GRADLE --continue test shadowJar
 $gradleExit = $LASTEXITCODE
@@ -193,35 +216,41 @@ $suites = Get-ChildItem build/p3a/test-results/test -Filter *.xml | ForEach-Obje
 function Total($name) { ($suites | ForEach-Object { [int]$_.GetAttribute($name) } | Measure-Object -Sum).Sum }
 $failed = foreach ($s in $suites) { foreach ($c in $s.testcase) { if ($c.failure -or $c.error) { "FAILED $($c.classname).$($c.name)" } } }
 $jar = if (Test-Path build/p3a/libs) { (Get-ChildItem build/p3a/libs -Filter *.jar).Name -join ', ' } else { 'not built' }
-@("P3a baseline on merged main $(git rev-parse --short HEAD), $(Get-Date -Format s)",
+@("P3a baseline at $(git rev-parse --short HEAD) (merged main 94db6f6 plus the plan), $(Get-Date -Format s)",
   "tests=$(Total 'tests') failures=$(Total 'failures') errors=$(Total 'errors') skipped=$(Total 'skipped') gradleExit=$gradleExit",
   "shadowJar: $jar") + $failed | Set-Content build/p3a/evidence/baseline.txt
 Get-Content build/p3a/evidence/baseline.txt
 ```
 Expected:
-- The branch is `claude/realmshark-ui-ux-redesign-cb0914` at `94db6f6`, or a later merged main.
-- The only local changes are the P3 spec, the roadmap and this plan.
+- The branch is `claude/realmshark-ui-ux-redesign-cb0914`. HEAD contains P2's merge and the commit that added this plan: the `merge-base` line prints `contains 94db6f6: True`, and the last `git log` line names the plan's commit (`8bf37d0` or a later revision of it). HEAD itself is not pinned; a later merged main is fine.
+- `git status --short` prints nothing: the P3 spec, the roadmap and this plan are committed.
 - `baseline.txt` holds the totals line and `shadowJar: RealmShark-<version>.jar`.
 
 If `failures` or `errors` is non-zero, **do not fix them in this task.** Report every `FAILED …` line to the coordinator and keep the file. Task 10 copies these numbers, and later tasks count only failures that are not in this list as regressions.
 
 - [ ] **Step 2: Write the failing archive, recordings and Progress tests**
 
-`src/test/java/tomato/gui/glance/home/HomeArchiveTest.java` — **replace** the whole method `unreadableSessionMetadataNeverBecomesCompleteTotals` (lines 40–54, which expect both windows to throw). The behavior changes on purpose, per the contract: unreadable entries are skipped as `ReadSnapshot` skips them under ALL scope, and SESSION never fails because of another session. The replacement, plus a new cache test:
+`src/test/java/tomato/gui/glance/home/HomeArchiveTest.java` — **replace** the whole method `unreadableSessionMetadataNeverBecomesCompleteTotals` (lines 40–54, which expect both windows to throw). The behavior changes on purpose: unreadable entries are skipped as `ReadSnapshot` skips them under ALL scope, and SESSION never fails because of another session. The replacement, plus a new cache test:
 ```java
     @Test public void unreadableSessionsAreSkippedCountedAndNeverFailThisSession() throws Exception {
-        Path root = fixture();
-        Files.writeString(root.resolve(MORNING).resolve("session.json"), "{broken");
+        Path root = fixture(), broken = root.resolve(MORNING);
+        Files.writeString(broken.resolve("session.json"), "{broken");
         try (SessionStore store = new SessionStore(root, true, "fixture")) {
             assertTrue(store.catalog().stream().anyMatch(entry -> !entry.readable()));
             HomeArchive.Result today = HomeArchive.read(store, TODAY, NOW, ZONE, List.of());
-            assertEquals("The broken session is counted, not read", 1, today.totals().unreadableSessions());
+            assertEquals("The broken session's files changed today: counted, not read", 1, today.totals().unreadableSessions());
             assertEquals("Only the after-midnight Lost Halls remains", 1, today.totals().runsEntered());
             assertEquals(Long.valueOf(100), today.totals().fameGained());
             assertEquals("Recent runs skip it too", List.of(ref(ACROSS, "b2"), ref(ACROSS, "b1"), ref(YESTERDAY, "y2"), ref(YESTERDAY, "y1")),
                 today.recent().stream().map(HomeArchive.RecentRun::visit).collect(Collectors.toList()));
+            assertEquals("…and say it may hold a newer run: fewer than five are listed", 1, today.unreadableRecent());
             assertEquals("This session reads only the current session", 0,
                 HomeArchive.read(store, SESSION, store.started() + MINUTE, ZONE, List.of()).totals().unreadableSessions());
+            try (Stream<Path> files = Files.walk(broken)) {
+                for (Path file : files.collect(Collectors.toList())) Files.setLastModifiedTime(file, FileTime.fromMillis(MIDNIGHT - HOUR));
+            }
+            assertEquals("Unchanged since before today: it cannot hold today's records", 0,
+                HomeArchive.read(store, TODAY, NOW, ZONE, List.of()).totals().unreadableSessions());
             store.append("fame", new AppHistory.FameSample(4, 500, store.started() + 1_000, "Knight"));
             store.flush();   // publishes the current session's folder and metadata
             Files.writeString(root.resolve(store.currentId()).resolve("session.json"), "{broken");
@@ -249,7 +278,7 @@ If `failures` or `errors` is non-zero, **do not fix them in this task.** Report 
         }
     }
 ```
-All imports already exist. Why the fame numbers come out as they do:
+All imports already exist (`Stream`, `FileTime` and `Collectors` among them). Why the fame numbers come out as they do:
 - Today's gain is 310: +100 across midnight, then +150 and +60 in the morning.
 - The edited reading adds 100, giving 410.
 - The current session starts in 2026, so it is outside the 2025 fixture day.
@@ -283,6 +312,10 @@ All imports already exist. Why the fame numbers come out as they do:
         assertEquals("Its runs may be in the unreadable session", State.LIVE, HomeModelBuilder.today(TODAY, new HomeArchive.Result(nothing, List.of()), null).state());
         assertEquals("The P2 constructor: every session readable", 0, new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false).unreadableSessions());
         assertNotEquals(nothing, new HomeArchive.Totals(TODAY, 0, 1, 0, 0, false, null, null, null, 0, 0, 0, 0, false, 2));
+        HomeModel.Runs skipped = HomeModelBuilder.runs(new HomeArchive.Result(nothing, List.of(), 2), null);
+        assertEquals("No readable run, but two sessions may hold newer ones: not empty", State.LIVE, skipped.state());
+        assertEquals("2 saved sessions could not be read", skipped.reason());
+        assertEquals("The P2 constructor: nothing skipped", State.EMPTY, HomeModelBuilder.runs(new HomeArchive.Result(nothing, List.of()), null).state());
     }
 ```
 
@@ -302,6 +335,26 @@ All imports already exist. Why the fame numbers come out as they do:
             assertEquals(2, maps.size()); assertSame("Each re-projection gets the projections kept so far", maps.get(0), maps.get(1));
             assertTrue("The archive read through the sources' cache", cache.size() > 0);
         }
+    }
+
+```
+
+`src/test/java/tomato/gui/glance/home/RecentRunsCardTest.java` — add beside. Insert before `    @Test public void inProgressFewerRowsStatesAndEvidence() throws Exception {`:
+```java
+    @Test public void aLiveReadNamesTheSessionsItCouldNotRead() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RecentRunsCard card = new RecentRunsCard(opened::add, mode);
+            card.apply(new HomeModel.Runs(HomeModel.State.LIVE, HomeModels.runs(NOW), "2 saved sessions could not be read"), NOW);
+            HomeViews.Reason note = named(card, "home-runs-note", HomeViews.Reason.class);
+            assertTrue(note.isVisible()); assertTrue(note.warns()); assertEquals("2 saved sessions could not be read", note.text());
+            assertTrue("The readable rows stay", named(card, "home-run-0", JPanel.class).isVisible());
+            assertEquals("2 saved sessions could not be read", card.getAccessibleContext().getAccessibleDescription());
+            card.apply(new HomeModel.Runs(HomeModel.State.LIVE, List.of(), "1 saved session could not be read"), NOW);
+            assertTrue("No readable run: the empty state keeps the warning", note.isVisible());
+            assertNotNull(named(card, "home-runs-empty", EmptyState.class));
+            card.apply(HomeModels.empty().runs(), NOW);
+            assertFalse("An empty history's reason is the empty state, never a warning", note.isVisible());
+        });
     }
 
 ```
@@ -335,7 +388,7 @@ Run: `GRADLE test --tests "tomato.gui.glance.home.*" --tests "tomato.gui.myinfo.
 Expected: FAIL with compilation errors, because none of these exist yet:
 - `unreadableSessions()`
 - `HomeArchive.Cache`
-- the 15-argument `Totals`
+- the 15-argument `Totals` and the three-argument `Result`
 - the six-argument `LiveHomeSources`
 - `recordedEncounters(Map)`
 
@@ -364,8 +417,9 @@ Replace:
 ```
 with:
 ```java
-     * are then unknown, not zero. {@code unreadableSessions} counts saved sessions whose metadata could not be read, so they
-     * are missing from these totals (Today only; This session reads only the current session and is always 0).
+     * are then unknown, not zero. {@code unreadableSessions} counts saved sessions whose metadata could not be read and whose
+     * files changed during the period, so they may hold records missing from these totals (Today only; This session reads only
+     * the current session and is always 0).
      */
     public record Totals(Window window, long from, long until, int runsCompleted, int runsEntered, boolean runsRecorded,
                          Long fameGained, Double famePerHour, double[] fameSeries,
@@ -389,6 +443,32 @@ Replace `                Arrays.hashCode(fameSeries), untiered, setTiered, white
 
 Replace:
 ```java
+    public record Result(Totals totals, List<RecentRun> recent) {
+        public Result {
+            Objects.requireNonNull(totals, "totals");
+            recent = recent == null ? List.of() : List.copyOf(recent);
+        }
+    }
+```
+with:
+```java
+    /**
+     * {@code unreadableRecent} counts saved sessions whose metadata could not be read and that may hold a run newer than the
+     * oldest one listed; Recent runs says so instead of implying the list is complete.
+     */
+    public record Result(Totals totals, List<RecentRun> recent, int unreadableRecent) {
+        public Result {
+            Objects.requireNonNull(totals, "totals");
+            recent = recent == null ? List.of() : List.copyOf(recent);
+            if (unreadableRecent < 0) throw new IllegalArgumentException("unreadableRecent must not be negative");
+        }
+        /** A read whose saved sessions were all readable. */
+        public Result(Totals totals, List<RecentRun> recent) { this(totals, recent, 0); }
+    }
+```
+
+Replace:
+```java
     public static Result read(SessionStore store, Window window, long now, ZoneId zone, List<RecordedEncounter> recordings) throws IOException {
         Objects.requireNonNull(store, "store"); Objects.requireNonNull(window, "window"); Objects.requireNonNull(zone, "zone");
         List<SessionStore.SessionEntry> catalog = store.catalog();   // listed once; every module read below reuses it
@@ -409,9 +489,10 @@ with:
 
     /**
      * As above, keeping {@code kept}'s per-session facts between reads ({@link Cache}). Unreadable catalog entries are skipped,
-     * as the archive queries skip them for all sessions: Today counts them in {@link Totals#unreadableSessions()}; This session
-     * reads only the current session, so another session never fails it, while its own unreadable metadata still does. Recent
-     * runs come from the readable sessions.
+     * as the archive queries skip them for all sessions. Today counts in {@link Totals#unreadableSessions()} those changed since
+     * the day began; This session reads only the current session, so another session never fails it, while its own unreadable
+     * metadata still does. Recent runs come from the readable sessions, and {@link Result#unreadableRecent()} counts the
+     * unreadable ones that may hold a newer run.
      */
     public static Result read(SessionStore store, Window window, long now, ZoneId zone, List<RecordedEncounter> recordings,
                               Cache kept) throws IOException {
@@ -419,22 +500,49 @@ with:
         Objects.requireNonNull(kept, "cache");
         List<SessionStore.SessionEntry> catalog = store.catalog();   // listed once; every module read below reuses it
         List<SessionStore.Session> sessions = new ArrayList<>();   // newest start first, as catalog() sorts them
-        int unreadable = 0;
-        for (SessionStore.SessionEntry entry : catalog) if (entry.readable()) sessions.add(entry.session()); else unreadable++;
+        List<SessionStore.SessionEntry> unreadable = new ArrayList<>();
+        for (SessionStore.SessionEntry entry : catalog) if (entry.readable()) sessions.add(entry.session()); else unreadable.add(entry);
         kept.prepare(store, catalog);
         Reader cache = new Reader(store, catalog, kept);   // this read's session facts
 ```
 
-Then make four one-line replacements:
-- `Math.min(now, until)));` becomes `Math.min(now, until)), unreadable);`
+Then make five replacements:
+- `Math.min(now, until)));` becomes `Math.min(now, until)), changedSince(store, unreadable, from));`
 - `Long.MIN_VALUE, Long.MAX_VALUE, now));` becomes `Long.MIN_VALUE, Long.MAX_VALUE, now), 0);`
 - `    private static Totals totals(Cache cache, List<SessionStore.Session> sessions, Span span) throws IOException {` becomes `    private static Totals totals(Reader cache, List<SessionStore.Session> sessions, Span span, int unreadable) throws IOException {`
 - `            untiered, setTiered, whites, potions, lootRecorded);` becomes `            untiered, setTiered, whites, potions, lootRecorded, unreadable);`
+- `        return new Result(totals, recent(cache, sessions, recordings == null ? List.of() : recordings));` becomes the lines below.
+```java
+        List<RecentRun> recent = recent(cache, sessions, recordings == null ? List.of() : recordings);
+        // An unreadable session can hold a newer run only if its files changed after the oldest listed run began.
+        long since = recent.size() < RECENT ? Long.MIN_VALUE : recent.get(recent.size() - 1).started();
+        return new Result(totals, recent, changedSince(store, unreadable, since));
+```
 
 In `recent`'s signature, replace `recent(Cache cache,` with `recent(Reader cache,`.
 
 Finally, replace the private class from `    /** One read per session and module per call, all over one catalog listing; recent runs reuse what the totals read. */` through its closing `    }`, which is the line before the file's final `}`, with:
 ```java
+    /**
+     * How many unreadable sessions have a file (in the session folder, or in its runs, loot, fame and fame-latest folders)
+     * modified at or after {@code since}: only those can hold records from then on. A folder that cannot be listed counts,
+     * because nothing rules it out; {@code since} Long.MIN_VALUE counts every unreadable session.
+     */
+    private static int changedSince(SessionStore store, List<SessionStore.SessionEntry> unreadable, long since) {
+        int count = 0;
+        for (SessionStore.SessionEntry entry : unreadable) {
+            if (since == Long.MIN_VALUE) { count++; continue; }
+            List<Stamp> stamp = new ArrayList<>();
+            Path folder = store.directory().resolve(entry.id);
+            try {
+                Reader.list(stamp, folder, "");
+                for (String module : Reader.FOLDERS) Reader.list(stamp, folder.resolve(module), module + "/");
+            } catch (IOException unlisted) { count++; continue; }
+            for (Stamp file : stamp) if (file.modified() >= since) { count++; break; }
+        }
+        return count;
+    }
+
     /**
      * Per-session facts kept between reads: a crashed session's end, runs, loot bags and fame readings. One reader thread owns
      * it (Home's "home-archive"). A closed or imported session's facts are reused while its stamp is unchanged: the name, size
@@ -663,6 +771,42 @@ with:
             && t.untiered() + t.setTiered() + t.whiteBags() + t.potions() == 0;
 ```
 
+Replace:
+```java
+        if (result.recent().isEmpty()) return HomeModel.Runs.placeholder(State.EMPTY, "No dungeon runs recorded yet. Enter a dungeon with capture on.");
+        return new HomeModel.Runs(State.LIVE, result.recent(), "");
+```
+with:
+```java
+        // Saved sessions that could not be read may hold newer runs: say so above the rows instead of implying the list is complete.
+        String skipped = result.unreadableRecent() == 0 ? "" : TodayTiles.unreadableText(result.unreadableRecent());
+        if (result.recent().isEmpty() && skipped.isEmpty())
+            return HomeModel.Runs.placeholder(State.EMPTY, "No dungeon runs recorded yet. Enter a dungeon with capture on.");
+        return new HomeModel.Runs(State.LIVE, result.recent(), skipped);
+```
+
+`src/main/java/tomato/gui/glance/home/RecentRunsCard.java`:
+1. In the class comment, replace ` * re-read keeps the last rows under a warn banner saying when they were read and why the new read failed.` with:
+```java
+ * re-read keeps the last rows under a warn banner saying when they were read and why the new read failed; a read that skipped
+ * unreadable saved sessions says how many, because they may hold newer runs.
+```
+2. Replace:
+```java
+        String reason = stale ? text(runs.reason(), "Showing the last successful read of saved history.") : "";
+        note.setText(reason, true);
+        note.setVisible(stale);
+```
+with:
+```java
+        // A stale read explains itself; a live read names the saved sessions it could not read. An EMPTY reason is the empty state.
+        String reason = stale ? text(runs.reason(), "Showing the last successful read of saved history.")
+            : runs.state() == HomeModel.State.LIVE ? runs.reason() : "";
+        note.setText(reason, true);
+        note.setVisible(!reason.isEmpty());
+```
+3. In both places, replace `setAccessibleDescription(stale ? reason : null);` with `setAccessibleDescription(reason.isEmpty() ? null : reason);`: the no-rows branch and the line after the rows.
+
 `src/main/java/tomato/gui/glance/home/TodayTiles.java`:
 
 Replace `    private final HomeViews.Reason note = new HomeViews.Reason("home-today-note");` with:
@@ -746,12 +890,12 @@ Replace the two formatters `count(long value, String source, boolean stale)` and
 - [ ] **Step 7: Run the focused tests**
 
 Run: `GRADLE test --tests "tomato.gui.glance.home.*" --tests "tomato.gui.myinfo.*" --tests "ui.HomeEvidenceTest"`
-Expected: PASS. The P2 Home tests still pass without edits (the EDT refusal, the crashed-session end, the large-history read), as does RecordedDpsHandoffTest's existing handoff test.
+Expected: PASS. The P2 Home tests still pass without edits (the EDT refusal, the crashed-session end, the large-history read, Recent runs' stale banners), as does RecordedDpsHandoffTest's existing handoff test.
 
 - [ ] **Step 8: Commit**
 ```powershell
-git add src/main/java/tomato/gui/glance/home/HomeArchive.java src/main/java/tomato/gui/glance/home/LiveHomeSources.java src/main/java/tomato/gui/glance/home/HomeModelBuilder.java src/main/java/tomato/gui/glance/home/TodayTiles.java src/main/java/tomato/gui/dps/DpsGUI.java src/test/java/tomato/gui/glance/home/HomeArchiveTest.java src/test/java/tomato/gui/glance/home/TodayTilesTest.java src/test/java/tomato/gui/glance/home/HomeModelBuilderTest.java src/test/java/tomato/gui/glance/home/LiveHomeSourcesTest.java src/test/java/tomato/gui/myinfo/RecordedDpsHandoffTest.java
-git commit -m "fix(home): skip unreadable sessions and cache closed-session reads" -m "Home's archive read counts unreadable saved sessions instead of failing, marks Today's totals partial with a warn line, keeps per-session facts between reads until a session's files change, and projects each DPS recording once." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add src/main/java/tomato/gui/glance/home/HomeArchive.java src/main/java/tomato/gui/glance/home/LiveHomeSources.java src/main/java/tomato/gui/glance/home/HomeModelBuilder.java src/main/java/tomato/gui/glance/home/TodayTiles.java src/main/java/tomato/gui/glance/home/RecentRunsCard.java src/main/java/tomato/gui/dps/DpsGUI.java src/test/java/tomato/gui/glance/home/HomeArchiveTest.java src/test/java/tomato/gui/glance/home/TodayTilesTest.java src/test/java/tomato/gui/glance/home/HomeModelBuilderTest.java src/test/java/tomato/gui/glance/home/LiveHomeSourcesTest.java src/test/java/tomato/gui/glance/home/RecentRunsCardTest.java src/test/java/tomato/gui/myinfo/RecordedDpsHandoffTest.java
+git commit -m "Skip unreadable saved sessions on Home and cache closed-session reads" -m "Home's archive read skips unreadable saved sessions instead of failing. Today counts those changed during the day and marks its totals partial with a warn line; Recent runs says how many may hold a newer run. Per-session facts are kept between reads until a session's files change, and each DPS recording is projected once." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 9: Write the failing publish de-duplication tests**
@@ -926,7 +1070,7 @@ Expected: PASS.
 - [ ] **Step 13: Commit**
 ```powershell
 git add src/main/java/tomato/gui/myinfo/BuildEstimates.java src/main/java/tomato/backend/data/LiveCharacter.java src/main/java/tomato/backend/data/TomatoData.java src/test/java/tomato/backend/data/LiveCharacterTest.java
-git commit -m "perf(home): detach the live character once per observation" -m "publishMyInfoPlayer skips Home's detach while the identity, player and pet observations and pet state are unchanged, and LiveCharacter moves its revision only when a snapshot's content changes." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Detach Home's live character once per observation" -m "publishMyInfoPlayer skips Home's detach while the identity, player and pet observations and pet state are unchanged, and LiveCharacter moves its revision only when a snapshot's content changes." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 14: Write the failing sidebar focus test**
@@ -937,12 +1081,12 @@ git commit -m "perf(home): detach the live character once per observation" -m "p
         SwingUtilities.invokeAndWait(() -> {
             JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
             for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
-            JButton build = new JButton("Estimate"), loot = new JButton("Filter");
-            pages[6].add(build); pages[8].add(loot);
+            JButton build = new JButton("Estimate");
+            pages[6].add(build);
             WorkspaceShell shell = new WorkspaceShell(pages, () -> {}, true, null, null, null, new NavLayout(store::get, store::put));
-            JFrame frame = new JFrame(); frame.setContentPane(shell); frame.pack();   // displayable: pages get a traversal policy
+            JFrame frame = new JFrame("Hidden row focus");
+            frame.setContentPane(shell); frame.setSize(1240, 800); frame.setVisible(true);   // the focus traversal policy orders only a showing window
             try {
-                resize(shell, 1240, 800);
                 shell.select(6);   // Build: unlisted, no row
                 click(shell.contextMenu(8), "nav-menu-hide");
                 assertFalse(named(shell, "nav-8", AbstractButton.class).isVisible());
@@ -951,9 +1095,12 @@ git commit -m "perf(home): detach the live character once per observation" -m "p
                 click(shell.contextMenu(3), "nav-menu-show-8");
                 shell.select(8);
                 click(shell.contextMenu(8), "nav-menu-hide");   // the current page's own row
-                assertNull(shell.scrollAnchor());
-                assertSame("A hidden current row: focus goes into the page", loot, shell.focusTarget(8));
+                AbstractButton lootRow = named(shell, "nav-8", AbstractButton.class);
+                assertTrue("The current page's row stays listed while it is current", lootRow.isVisible());
+                assertSame("…so it still anchors and takes focus", lootRow, shell.scrollAnchor());
+                assertSame(lootRow, shell.focusTarget(8));
                 shell.select(3);
+                assertFalse("Once another page is current, the hidden row leaves the sidebar", lootRow.isVisible());
                 click(shell.contextMenu(10), "nav-menu-hide");
                 JToggleButton characters = named(shell, "nav-3", JToggleButton.class);
                 assertSame("A visible current row anchors and takes focus", characters, shell.scrollAnchor());
@@ -1017,7 +1164,7 @@ Expected: PASS. `openingBuildMovesKeyboardFocusIntoThePageBecauseItHasNoRow` sti
 `README.md`: replace `what is happening now (area, the live meter's top three and the last key pop)` with `what is happening now (the area, and during a run the live meter's top three and the last key pop)`.
 ```powershell
 git add src/main/java/tomato/gui/modern/WorkspaceShell.java src/test/java/tomato/gui/modern/WorkspaceShellLayoutTest.java README.md
-git commit -m "fix(shell): keep focus off hidden sidebar rows" -m "Hiding a row falls back to the selected page's focus target and never leaves the scroll anchor on a hidden row. The README says the Now card shows meter rows and the last key pop only during a run." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Keep focus off hidden sidebar rows" -m "Hiding a row falls back to the selected page's focus target and never leaves the scroll anchor on a hidden row. The README says the Now card shows meter rows and the last key pop only during a run." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1029,7 +1176,9 @@ The journal saves version 5. It loads versions 1–4 unchanged; any other versio
 - A value that makes no sense is normalized to unknown (null, or 0 for a time).
 - Neither ever makes the journal read-only.
 
-The capture thread feeds the new fields from five sources: the character list, CREATE's PCStats, exaltation updates, the regular vault and Pet Yard pets. `copy(...)` copies every new field, because `save()` persists copies. `observe` writes no v5 field, so `sameObservation` is unchanged.
+The capture thread feeds the new fields from five sources: the character list, CREATE's PCStats, exaltation updates, the regular vault and Pet Yard pets. An explicitly empty `<Pet/>` in the character list is saved as a known "no pet"; a list that says nothing about pets leaves the pet unknown. `copy(...)` copies every new field, because `save()` persists copies. `observe` writes no v5 field, so `sameObservation` is unchanged.
+
+The first save that writes version 5 over an older file first copies that file once to `journal.v4.bak` beside it (never over an existing backup), so a rollback keeps the pre-v5 journal. `storageProblem()` reports an unreadable journal or a failed save for the sheet and gallery banners (Tasks 4 and 9).
 
 **Files:**
 - Modify: `src/main/java/tomato/backend/data/CharacterJournal.java`
@@ -1050,7 +1199,7 @@ The capture thread feeds the new fields from five sources: the character list, C
     - `petAbilitys` (`int[9]`, `[points, power, type]` × 3)
     - `petInstanceId/petName/petType/petRarity/petSkin/petMaxAbilityPower`
     - `exp`, `backpack`, `receivedAt`
-    - `charStats.dungeonStats`, in `CharacterStatistics.DUNGEON_NAMES` order
+    - `pcStats`, the list's PCStats string. The journal decodes it again, because capture overlays the decoded `charStats` of the character in game with CREATE's.
   - `RealmCharacterStats.completionCounts()`: null unless the decode was complete.
   - `VaultData.getVaultChestPots/getPotStoragePots/getGiftChestPots(int[8])`: each adds normal-potion equivalents in canonical order (greater = 2).
   - `StatType.PET_*` 81–95, `SKIN_ID`, `Entity.observedAt()`.
@@ -1062,6 +1211,7 @@ The capture thread feeds the new fields from five sources: the character list, C
     - `long dungeonCompletionsObservedAt`
     - `Long exp`, `Boolean hasBackpack`
   - `public static final class PetRecord`:
+    - `Boolean absent`: `TRUE` when the character list reported an explicitly empty pet (no pet equipped); every other value is then unknown. A missing `pet` stays unknown.
     - `Long instanceId; String name;`
     - `Integer type, rarity, family, skin, maxAbilityPower;`
     - `int[] abilityType, abilityLevel, abilityPoints`, each initialized to `{-1, -1, -1}`
@@ -1075,9 +1225,10 @@ The capture thread feeds the new fields from five sources: the character list, C
     - `void dungeonCompletions(String accountKey, int characterId, int[] counts, long observedAt)`
     - `void vaultPotions(String accountKey, int[] potions, long observedAt)`
     - `void yardPet(String accountKey, PetRecord seen)`
+    - `String storageProblem()`: null while the journal is readable and its last save succeeded, else `storageStatus()`.
   - `exalts(...)` stamps `exaltSeenByClass` for each class whose counts changed.
-  - `parseCharacter` supplies the presence keys `exp`, `backpack` and `dungeons` (the last only after a complete decode).
-  - Saved documents carry `"version": 5`.
+  - `parseCharacter` supplies the presence keys `exp`, `backpack` and `dungeons` (the last only after a complete decode), and `pet.none` for an explicitly empty `<Pet/>`.
+  - Saved documents carry `"version": 5`. The first save over a version 1–4 file copies it once to `<name>.v4.bak` (`journal.json` → `journal.v4.bak`); a failed copy fails that save, so the older file is never replaced without its backup.
 
 - [ ] **Step 1: Write the failing journal tests**
 
@@ -1120,7 +1271,7 @@ public class CharacterJournalV5Test {
     private static RealmCharacter listed(long at, int pirateCave) {
         RealmCharacter c = new RealmCharacter(); c.charId = 7; c.receivedAt = at;
         c.exp = 30_000; c.supplied("exp", at, "Character list"); c.backpack = true; c.supplied("backpack", at, "Character list");
-        c.charStats = new RealmCharacterStats(); c.charStats.decode(completions(pirateCave)); c.supplied("dungeons", at, "Character list");
+        c.pcStats = completions(pirateCave); c.charStats = new RealmCharacterStats(); c.charStats.decode(c.pcStats); c.supplied("dungeons", at, "Character list");
         c.petName = "Pup"; c.petInstanceId = 42; c.petType = 3; c.petRarity = 2; c.petSkin = 100; c.petMaxAbilityPower = 70;
         for (int field : new int[]{81, 82, 83, 84, 85, 25, 87, 88, 89, 90, 91, 92, 93, 94, 95}) c.supplied("pet." + field, at, "Character list");
         c.petAbilitys = new int[]{1000, 50, 407, 800, 40, 408, 600, 30, 406};
@@ -1233,6 +1384,67 @@ public class CharacterJournalV5Test {
         assertEquals("A newer list keeps the family of the same pet", Integer.valueOf(4), j.characterCopy(KEY).pet.family);
     }
 
+    @Test public void anExplicitlyEmptyPetIsSavedAsNoPetAndAMissingOneStaysUnknown() throws Exception {
+        Path path = file();
+        CharacterJournal j = new CharacterJournal(path);
+        RealmCharacter bare = new RealmCharacter(); bare.charId = 7; bare.receivedAt = 4_000;
+        j.mergeRoster(ACCOUNT, List.of(bare));
+        assertNull("A list that says nothing about a pet leaves it unknown", j.characterCopy(KEY).pet);
+        j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3)));
+        RealmCharacter none = new RealmCharacter(); none.charId = 7; none.receivedAt = 6_000; none.supplied("pet.none", 6_000, "Character list");
+        j.mergeRoster(ACCOUNT, List.of(none));
+        CharacterJournal.PetRecord pet = j.characterCopy(KEY).pet;
+        assertEquals("An explicitly empty pet is known: no pet", Boolean.TRUE, pet.absent);
+        assertNull(pet.instanceId); assertNull(pet.name); assertArrayEquals(new int[]{-1, -1, -1}, pet.abilityType);
+        assertEquals(6_000, pet.observedAt); assertEquals("Character list", pet.source);
+        CharacterJournal.PetRecord yard = new CharacterJournal.PetRecord(); yard.instanceId = 42L; yard.family = 4; yard.observedAt = 7_000;
+        j.yardPet(ACCOUNT, yard);
+        assertEquals("The Pet Yard never fills in a character without a pet", Boolean.TRUE, j.characterCopy(KEY).pet.absent);
+        j.save();
+        assertTrue(read(path).contains("\"absent\": true"));
+        assertEquals(Boolean.TRUE, new CharacterJournal(path).characterCopy(KEY).pet.absent);
+        j.mergeRoster(ACCOUNT, List.of(listed(8_000, 3)));
+        assertNull("A newer list with a pet replaces the absence", j.characterCopy(KEY).pet.absent);
+        assertEquals("Pup", j.characterCopy(KEY).pet.name);
+        Path contradictory = temp.newFolder().toPath().resolve("journal.json");
+        write(contradictory, v3().replace("\"version\":3", "\"version\":5")
+            .replace("\"source\":\"Captured character\"}", "\"source\":\"Captured character\",\"pet\":{\"absent\":true,\"instanceId\":42}}"));
+        CharacterJournal odd = new CharacterJournal(contradictory);
+        assertTrue(odd.readable()); assertNull("No pet and a pet at once is unknown, never a load failure", odd.characterCopy(KEY).pet);
+    }
+
+    @Test public void theFirstVersionFiveSaveKeepsOneBackupOfTheOlderFile() throws Exception {
+        Path path = file(), backup = path.resolveSibling("journal.v4.bak");
+        String v4 = v3().replace("\"version\":3", "\"version\":4");
+        write(path, v4);
+        CharacterJournal j = new CharacterJournal(path);
+        assertFalse("Loading alone writes nothing", Files.exists(backup));
+        j.notes(KEY, "first"); j.save();
+        assertEquals("The older file is kept once, byte for byte", v4, read(backup));
+        assertTrue(read(path).contains("\"version\": 5"));
+        j.notes(KEY, "second"); j.save();
+        assertEquals("Later saves never replace the backup", v4, read(backup));
+        Files.delete(backup);
+        CharacterJournal five = new CharacterJournal(path); five.notes(KEY, "third"); five.save();
+        assertFalse("A version 5 file needs no backup", Files.exists(backup));
+        Path other = temp.newFolder().toPath().resolve("journal.json"), kept = other.resolveSibling("journal.v4.bak");
+        write(other, v4); write(kept, "an earlier backup");
+        CharacterJournal again = new CharacterJournal(other); again.notes(KEY, "fourth"); again.save();
+        assertEquals("An existing backup is never overwritten", "an earlier backup", read(kept));
+        assertTrue(read(other).contains("fourth"));
+    }
+
+    @Test public void storageProblemsNameAnUnreadableFileAndAFailedSave() throws Exception {
+        Path path = file(); write(path, "{broken");
+        CharacterJournal broken = new CharacterJournal(path);
+        assertFalse(broken.readable()); assertTrue(broken.storageProblem().contains("Cannot read"));
+        CharacterJournal failing = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"),
+            (target, json) -> { throw new java.io.IOException("Synthetic save failure"); });
+        assertNull("Readable and never failed: no problem", failing.storageProblem());
+        failing.mergeRoster(ACCOUNT, List.of(listed(5_000, 3))); failing.save();
+        assertTrue(failing.storageProblem(), failing.storageProblem().startsWith("Save failed"));
+    }
+
     @Test public void copiesAreDeepAndEveryNewFieldSurvivesSaveAndReload() throws Exception {
         Path path = file();
         CharacterJournal j = new CharacterJournal(path);
@@ -1270,7 +1482,7 @@ Version literals (**replace**: the journal now writes and accepts version 5, so 
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `GRADLE test --tests "tomato.backend.data.CharacterJournal*" --tests "tomato.backend.data.CharacterFreshnessTest"`
-Expected: FAIL with compilation errors: `cannot find symbol: method characterCopy(String)`, `class PetRecord`, `method vaultPotions(...)`.
+Expected: FAIL with compilation errors: `cannot find symbol: method characterCopy(String)`, `class PetRecord`, `method vaultPotions(...)`, `method storageProblem()`.
 
 - [ ] **Step 3: Implement v5 in `CharacterJournal`**
 
@@ -1283,7 +1495,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 ```
-2. Replace `import tomato.realmshark.enums.CharacterClass;` with that line plus `import tomato.realmshark.enums.CharacterStatistics;`.
+2. Replace `import tomato.realmshark.RealmCharacter;` with that line plus `import tomato.realmshark.RealmCharacterStats;`, and `import tomato.realmshark.enums.CharacterClass;` with that line plus `import tomato.realmshark.enums.CharacterStatistics;`.
 
 3. Replace:
 ```java
@@ -1293,7 +1505,7 @@ import com.google.gson.reflect.TypeToken;
 with:
 ```java
         public DeathAnnotation deathAnnotation;
-        /** v5: the pet as the character list last reported it, refreshed (with its family) by the Pet Yard; null = unknown. */
+        /** v5: the pet as the character list last reported it (absent = TRUE: no pet), refreshed (with its family) by the Pet Yard; null = unknown. */
         public PetRecord pet;
         /** v5: dungeon name → completions from a complete PCStats decode, positive counts only. Null = unknown; absent in a map = 0. */
         public Map<String, Integer> dungeonCompletions;
@@ -1302,8 +1514,13 @@ with:
         public Long exp;
         public Boolean hasBackpack;
     }
-    /** v5: a character's pet. A null value was not reported; ability arrays are in slot order with -1 = unknown. */
+    /**
+     * v5: a character's pet. A null value was not reported; ability arrays are in slot order with -1 = unknown. {@code absent}
+     * TRUE means the character list said the character has no pet (an explicitly empty element): a known "No pet", with every
+     * other value unknown. A character whose record has no PetRecord at all is unknown, never "No pet".
+     */
     public static final class PetRecord {
+        public Boolean absent;
         public Long instanceId;
         public String name;
         public Integer type, rarity, family, skin, maxAbilityPower;
@@ -1327,7 +1544,11 @@ with:
         public long vaultPotionsObservedAt;
     }
 ```
-5. Replace `        int version = 4;` with `        int version = 5;`.
+5. Replace `        int version = 4;` with `        int version = 5;`, and `    private final Map<String, CharacterRecord> pendingAlive = new HashMap<>();` with that line followed by:
+```java
+    /** A loaded version 1-4 file not yet backed up: the first save copies it once to <name>.v4.bak (saver thread, saveLock held). */
+    private volatile boolean backupPending;
+```
 6. Replace:
 ```java
                 Document loaded = JSON.fromJson(reader, Document.class);
@@ -1342,16 +1563,21 @@ with:
 ```
 7. Replace `                    if (r.deathAnnotation != null) validateAnnotation(r.deathAnnotation);` with that line followed by `                    normalizeV5(r);`.
 8. Replace `                    if (a.accountStatsObservedAt < 0) throw new IOException("Invalid account observation time");` with that line followed by `                    normalizeV5(a);`.
-9. Replace `                loaded.version = 4;` with `                loaded.version = 5;`.
+9. Replace `                loaded.version = 4;` with:
+```java
+                backupPending = loaded.version < 5; // a pre-version-5 file is copied once before version 5 first replaces it
+                loaded.version = 5;
+```
 
 10. In `mergeRoster`, replace `            if (c.presence.containsKey("created")) r.created = c.date;` with:
 ```java
             if (c.presence.containsKey("created")) r.created = c.date;
             if (c.presence.containsKey("exp")) r.exp = c.exp;
             if (c.presence.containsKey("backpack")) r.hasBackpack = c.backpack;
-            // A delayed list never replaces newer completions (CREATE's PCStats) or a newer pet (the Pet Yard).
-            if (c.presence.containsKey("dungeons") && c.charStats != null && c.receivedAt >= r.dungeonCompletionsObservedAt) {
-                Map<String, Integer> completions = completions(c.charStats.dungeonStats);
+            // A delayed list never replaces newer completions (CREATE's PCStats) or a newer pet (the Pet Yard). The list's own
+            // PCStats string is decoded again: capture overlays the decoded stats of the character in game with CREATE's.
+            if (c.presence.containsKey("dungeons") && c.receivedAt >= r.dungeonCompletionsObservedAt) {
+                Map<String, Integer> completions = completions(listedCompletions(c.pcStats));
                 if (completions != null) { r.dungeonCompletions = completions; r.dungeonCompletionsObservedAt = c.receivedAt; }
             }
             PetRecord pet = rosterPet(c, r.pet);
@@ -1426,12 +1652,20 @@ with:
         }
         return result;
     }
+    /** A complete decode of a character-list PCStats string: counts in CharacterStatistics.DUNGEON_NAMES order, else null. */
+    private static int[] listedCompletions(String pcStats) {
+        if (pcStats == null) return null;
+        try { RealmCharacterStats stats = new RealmCharacterStats(); stats.decode(pcStats); return stats.completionCounts(); }
+        catch (RuntimeException malformed) { return null; }
+    }
     /** The list's pet, or null when it reported none or is older than the known pet; the same pet keeps its Pet Yard family. */
     private static PetRecord rosterPet(RealmCharacter c, PetRecord known) {
         boolean reported = false;
         for (String field : c.presence.keySet()) if (field.startsWith("pet.")) { reported = true; break; }
         if (!reported || known != null && c.receivedAt < known.observedAt) return null;
         PetRecord pet = new PetRecord();
+        // An explicitly empty pet element: no pet is equipped (known), unlike a list that says nothing about pets (unknown).
+        if (c.presence.containsKey("pet.none")) { pet.absent = Boolean.TRUE; pet.observedAt = c.receivedAt; pet.source = "Character list"; return pet; }
         if (c.presence.containsKey("pet.81")) pet.instanceId = (long) c.petInstanceId;
         if (c.presence.containsKey("pet.82")) pet.name = c.petName;
         if (c.presence.containsKey("pet.83")) pet.type = c.petType;
@@ -1448,7 +1682,7 @@ with:
         return pet;
     }
     private static boolean samePetValues(PetRecord a, PetRecord b) {
-        return Objects.equals(a.instanceId, b.instanceId) && Objects.equals(a.name, b.name) && Objects.equals(a.type, b.type)
+        return Objects.equals(a.absent, b.absent) && Objects.equals(a.instanceId, b.instanceId) && Objects.equals(a.name, b.name) && Objects.equals(a.type, b.type)
             && Objects.equals(a.rarity, b.rarity) && Objects.equals(a.family, b.family) && Objects.equals(a.skin, b.skin)
             && Objects.equals(a.maxAbilityPower, b.maxAbilityPower) && Arrays.equals(a.abilityType, b.abilityType)
             && Arrays.equals(a.abilityLevel, b.abilityLevel) && Arrays.equals(a.abilityPoints, b.abilityPoints);
@@ -1456,10 +1690,13 @@ with:
     private static boolean validPet(PetRecord p) {
         for (int[] values : new int[][]{p.abilityType, p.abilityLevel, p.abilityPoints})
             if (values == null || values.length != 3 || Arrays.stream(values).anyMatch(n -> n < -1)) return false;
+        // "No pet" carries no pet values: a record that says both is contradictory, so it reads as unknown.
+        if (Boolean.TRUE.equals(p.absent) && (p.instanceId != null || p.name != null || p.type != null || p.rarity != null || p.family != null)) return false;
         return p.observedAt >= 0;
     }
     /** v5 values that parsed but make no sense are unknown, never a load failure. */
     private static void normalizeV5(CharacterRecord r) {
+        if (r.pet != null && Boolean.FALSE.equals(r.pet.absent)) r.pet.absent = null; // only TRUE is saved
         if (r.pet != null && !validPet(r.pet)) r.pet = null;
         if (r.dungeonCompletions != null) for (Map.Entry<String, Integer> entry : r.dungeonCompletions.entrySet())
             if (!CharacterStatistics.DUNGEON_NAMES.contains(entry.getKey()) || entry.getValue() == null || entry.getValue() < 0) { r.dungeonCompletions = null; break; }
@@ -1503,6 +1740,10 @@ with:
         CharacterRecord r = key == null ? null : find(key);
         return r == null ? null : copy(r);
     }
+    /** Null while the journal is readable and its last save (if any) succeeded; otherwise storageStatus(), for a warn banner. */
+    public synchronized String storageProblem() {
+        return readOnly || storageStatus.startsWith("Save failed") ? storageStatus : null;
+    }
 ```
 14. In `copy(CharacterRecord)`, replace `        c.stats = r.stats.clone(); c.equipment = r.equipment.clone();` with:
 ```java
@@ -1522,17 +1763,39 @@ with:
     private static PetRecord copy(PetRecord p) {
         if (p == null) return null;
         PetRecord c = new PetRecord();
-        c.instanceId = p.instanceId; c.name = p.name; c.type = p.type; c.rarity = p.rarity; c.family = p.family; c.skin = p.skin;
+        c.absent = p.absent; c.instanceId = p.instanceId; c.name = p.name; c.type = p.type; c.rarity = p.rarity; c.family = p.family; c.skin = p.skin;
         c.maxAbilityPower = p.maxAbilityPower; c.abilityType = p.abilityType.clone(); c.abilityLevel = p.abilityLevel.clone();
         c.abilityPoints = p.abilityPoints.clone(); c.observedAt = p.observedAt; c.source = p.source;
         return c;
     }
 
 ```
+17. In `save()`, replace `                store.write(path, JSON.toJson(snapshot));` with:
+```java
+                backupOnce(); // before version 5 first replaces an older file
+                store.write(path, JSON.toJson(snapshot));
+```
+18. Insert before `    private static void writeFile(Path path, String json) throws IOException {`:
+```java
+    /** The one-time copy of a pre-version-5 journal beside it: journal.json becomes journal.v4.bak. */
+    static Path backupPath(Path path) {
+        String name = path.getFileName().toString();
+        return path.resolveSibling((name.endsWith(".json") ? name.substring(0, name.length() - 5) : name) + ".v4.bak");
+    }
+    /** Copies the loaded pre-version-5 file once, never over an existing backup (saveLock held). A failed copy fails the save. */
+    private void backupOnce() throws IOException {
+        if (!backupPending) return;
+        Path backup = backupPath(path);
+        if (Files.exists(path) && !Files.exists(backup)) Files.copy(path, backup);
+        backupPending = false;
+    }
+
+```
 How loading and saving treat the new fields:
 - The drop pass removes type errors: `"exp":"abc"`, a string `pet`, a non-numeric map key. `normalizeV5` then nulls wrong array lengths, unknown dungeon names and negative values.
 - v1–v4 documents have none of these fields. Gson keeps the initializers (`exaltSeenByClass` is empty; the ability arrays are `{-1, -1, -1}`).
-- Gson omits nulls when saving, so unknown v5 values stay absent from the file.
+- Gson omits nulls when saving, so unknown v5 values stay absent from the file; `absent` is saved only as `true`.
+- The backup copy runs on the saver thread before the write; if it fails, the save reports "Save failed" and retries later, so the older file is never replaced without its backup.
 
 - [ ] **Step 4: Run the journal tests**
 
@@ -1598,6 +1861,10 @@ Finally, insert before `    private void identify() throws Exception {`:
         CharacterJournal.PetRecord pet = journal.characterCopy(key).pet;
         assertEquals(Integer.valueOf(4), pet.family); assertEquals(Integer.valueOf(3), pet.rarity);
         assertEquals("Pup", pet.name); assertEquals("Pet Yard capture", pet.source);
+
+        roster = roster("<Char id='7'><ObjectType>782</ObjectType><Level>20</Level><Pet/></Char>");
+        acceptRoster();
+        assertEquals("An explicitly empty Pet element is saved as no pet", Boolean.TRUE, journal.characterCopy(key).pet.absent);
     }
 
     private static StatData yardStat(StatType type, int value) {
@@ -1688,9 +1955,15 @@ with:
 6. In `parseCharacter`:
    - Replace `case "HasBackpack": c.backpack="1".equals(value); break;` with `case "HasBackpack": c.backpack="1".equals(value); c.supplied("backpack"); break;`.
    - Replace `case "Exp": c.exp=Long.parseLong(value); break;` with `case "Exp": c.exp=Long.parseLong(value); c.supplied("exp"); break;`.
+   - Replace `                case "Pet":` with:
+```java
+                case "Pet":
+                    // An explicitly empty <Pet/> is a known absence (the journal saves "no pet"); omitted or partial metadata stays unknown.
+                    if (!field.hasAttributes() && children(field).isEmpty() && value.isEmpty()) c.supplied("pet.none");
+```
    - Replace `                    catch (RuntimeException e) { c.charStats=null; }` with that line followed by:
 ```java
-                    // copyCharacter keeps dungeonStats but not the decoder's completeness flag, so completeness travels as presence.
+                    // Presence marks a complete decode; the journal decodes the list's PCStats string again (capture may overlay charStats).
                     if (c.charStats != null && c.charStats.completionCounts() != null) c.supplied("dungeons");
 ```
 7. Insert before `    private static int attributeInt(Element node, String name) {`:
@@ -1728,7 +2001,7 @@ Expected: PASS. `AccountMetadataTest` passes unchanged: only presence keys were 
 - [ ] **Step 9: Commit**
 ```powershell
 git add src/main/java/tomato/backend/data/CharacterJournal.java src/main/java/tomato/backend/data/TomatoData.java src/test/java/tomato/backend/data/CharacterJournalV5Test.java src/test/java/tomato/backend/data/CharacterJournalV4Test.java src/test/java/tomato/backend/data/CharacterFreshnessTest.java src/test/java/tomato/backend/data/CharacterPublicationTest.java
-git commit -m "feat(journal): version 5 with pet, completions, vault potions and exalt times" -m "The journal saves version 5 and still loads 1-4; malformed optional fields read as unknown instead of making the journal read-only. The character list, CREATE's PCStats, exaltation updates, the regular vault and Pet Yard pets feed the new fields, and a vault packet without the SEASONAL stat no longer throws." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Save journal version 5 with pet, completions, vault potions and exalt times" -m "The journal saves version 5 and still loads 1-4, keeping one journal.v4.bak copy of an older file before the first version 5 save; malformed optional fields read as unknown instead of making the journal read-only. The character list (including an explicit no-pet), CREATE's PCStats, exaltation updates, the regular vault and Pet Yard pets feed the new fields, and a vault packet without the SEASONAL stat no longer throws. storageProblem() reports an unreadable journal or a failed save." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2126,14 +2399,101 @@ public final class KitLayouts {
         JRootPane root = SwingUtilities.getRootPane(component);
         return root != null && root.getWidth() > 0 ? root.getWidth() : component.getWidth();
     }
+
+    private static final class Spread implements LayoutManager {
+        private final int minimumRootWidth, gap;
+
+        Spread(int minimumRootWidth, int gap) { this.minimumRootWidth = minimumRootWidth; this.gap = gap; }
+
+        @Override public void addLayoutComponent(String name, Component component) {}
+        @Override public void removeLayoutComponent(Component component) {}
+        @Override public Dimension preferredLayoutSize(Container target) { return size(target); }
+        /** Height as preferred and no width floor, so enclosing GridBag stacks never switch to minimum sizes. */
+        @Override public Dimension minimumLayoutSize(Container target) { return new Dimension(0, size(target).height); }
+        @Override public void layoutContainer(Container target) { place(target, true); }
+
+        private Dimension size(Container target) {
+            synchronized (target.getTreeLock()) {
+                Insets insets = target.getInsets();
+                int available = available(target), height = place(target, false);
+                return new Dimension(available > 0 ? available : natural(target) + insets.left + insets.right, height);
+            }
+        }
+
+        /** The one-row width of the visible parts. */
+        private int natural(Container target) {
+            int width = 0;
+            for (Component part : target.getComponents()) if (part.isVisible()) width += (width == 0 ? 0 : gap) + part.getPreferredSize().width;
+            return width;
+        }
+
+        private int place(Container target, boolean apply) {
+            Insets insets = target.getInsets();
+            int width = Math.max(1, available(target) - insets.left - insets.right), left = insets.left, y = insets.top;
+            Component[] parts = target.getComponents();
+            Component lead = parts[0];
+            List<Component> rest = new ArrayList<>();
+            for (int i = 1; i < parts.length; i++) if (parts[i].isVisible()) rest.add(parts[i]);
+            int restWidth = 0, restHeight = 0;
+            for (Component part : rest) {
+                Dimension size = part.getPreferredSize();
+                restWidth += (restWidth == 0 ? 0 : gap) + size.width;
+                restHeight = Math.max(restHeight, size.height);
+            }
+            Dimension leadSize = lead.getPreferredSize();
+            if (lead.isVisible() && !rest.isEmpty() && (minimumRootWidth <= 0 || rootWidth(target) >= minimumRootWidth) && leadSize.width + gap + restWidth <= width) {
+                int height = Math.max(leadSize.height, restHeight);
+                if (apply) {
+                    lead.setBounds(left, y + (height - leadSize.height) / 2, width - restWidth - gap, leadSize.height);
+                    int x = left + width - restWidth;
+                    for (Component part : rest) {
+                        Dimension size = part.getPreferredSize();
+                        part.setBounds(x, y + (height - size.height) / 2, size.width, size.height);
+                        x += size.width + gap;
+                    }
+                }
+                return y + height + insets.bottom;
+            }
+            if (lead.isVisible()) {
+                if (apply) lead.setBounds(left, y, width, leadSize.height);
+                y += leadSize.height + (rest.isEmpty() ? 0 : gap);
+            }
+            List<Component> row = new ArrayList<>();
+            int rowWidth = 0;
+            for (Component part : rest) {
+                int partWidth = part.getPreferredSize().width;
+                if (!row.isEmpty() && rowWidth + gap + partWidth > width) { y = row(row, left, y, apply) + gap; row.clear(); rowWidth = 0; }
+                rowWidth += (row.isEmpty() ? 0 : gap) + partWidth;
+                row.add(part);
+            }
+            if (!row.isEmpty()) y = row(row, left, y, apply);
+            return y + insets.bottom;
+        }
+
+        /** One wrapped row of trailing parts from the left, vertically centered; returns its bottom. */
+        private int row(List<Component> row, int left, int y, boolean apply) {
+            int height = 0;
+            for (Component part : row) height = Math.max(height, part.getPreferredSize().height);
+            int x = left;
+            for (Component part : row) {
+                Dimension size = part.getPreferredSize();
+                if (apply) part.setBounds(x, y + (height - size.height) / 2, size.width, size.height);
+                x += size.width + gap;
+            }
+            return y + height;
+        }
+
+        private static int available(Container target) {
+            if (target.getWidth() > 0) return target.getWidth();
+            Container parent = target.getParent();
+            if (parent == null) return 0;
+            Insets insets = parent.getInsets();
+            return parent.getWidth() - insets.left - insets.right;
+        }
+    }
 }
 ```
-Then **copy** Home's layout manager into `KitLayouts`. Copy it verbatim, from `    private static final class Spread implements LayoutManager {` through its closing `    }` (`HomeViews.java` lines 184–275), and paste it before `KitLayouts`' final `}`. Then make three exact edits in the copy:
-- `        private final boolean wideOnly;` followed by `        private final int gap;` becomes the single line `        private final int minimumRootWidth, gap;`.
-- `        Spread(boolean wideOnly, int gap) { this.wideOnly = wideOnly; this.gap = gap; }` becomes `        Spread(int minimumRootWidth, int gap) { this.minimumRootWidth = minimumRootWidth; this.gap = gap; }`.
-- `(!wideOnly || wide(target))` becomes `(minimumRootWidth <= 0 || rootWidth(target) >= minimumRootWidth)`.
-
-The rest of the copy is unchanged: `preferredLayoutSize`, `minimumLayoutSize`, `layoutContainer`, `size`, `natural`, `place`, `row` and `available`. Home's copy is removed in Step 5.
+`Spread` is Home's layout manager (`HomeViews.java` lines 184–275) with `wideOnly` replaced by `minimumRootWidth`. Home's copy is removed in Step 5.
 
 - [ ] **Step 4: Run the kit tests**
 
@@ -2231,7 +2591,7 @@ Then update the callers of `HomeViews.Text`:
   - NowCard and RecentRunsCard: after `import tomato.gui.kit.KitFormat;`
   - QuestsCard: after `import tomato.gui.kit.ItemSlot;`
 
-Check that nothing else used the removed pieces: `git grep -n "HomeViews.Text\|TIER_LABEL\|wideOnly" -- src/main/java/tomato/gui/glance` prints nothing.
+Check that nothing else used the removed pieces: `git grep -n "HomeViews.Text\|TIER_LABEL\|class Spread" -- src/main/java/tomato/gui/glance` prints nothing.
 
 - [ ] **Step 6: Run the Home and kit tests unchanged**
 
@@ -2241,14 +2601,19 @@ Expected: PASS, with no P2 test edited in this task. `HomeViews.Reason` lookups,
 - [ ] **Step 7: Commit**
 ```powershell
 git add src/main/java/tomato/gui/kit/Banner.java src/main/java/tomato/gui/kit/KitLayouts.java src/main/java/tomato/gui/kit/ItemTiers.java src/main/java/tomato/gui/kit/KitText.java src/main/java/tomato/gui/glance/home/HomeViews.java src/main/java/tomato/gui/glance/home/HeroCard.java src/main/java/tomato/gui/glance/home/NowCard.java src/main/java/tomato/gui/glance/home/QuestsCard.java src/main/java/tomato/gui/glance/home/RecentRunsCard.java src/test/java/tomato/gui/kit/BannerTest.java src/test/java/tomato/gui/kit/KitLayoutsTest.java src/test/java/tomato/gui/kit/ItemTiersTest.java
-git commit -m "refactor(kit): promote Home's banner, layouts, tier labels and text roles" -m "Banner, KitLayouts, ItemTiers and KitText move from Home's private helpers into the kit for the character sheet and gallery; Home delegates to them and behaves as before." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Promote Home's banner, layouts, tier labels and text roles to the kit" -m "Banner, KitLayouts, ItemTiers and KitText move from Home's private helpers into the kit for the character sheet and gallery; Home delegates to them and behaves as before." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ### Task 4: Character sheet frame, `CHARACTER_SHEET` route with Back, roster side pane retired
 
-The roster's side-by-side detail pane goes away. Its seven tabs move, unchanged, into a full-page `CharacterSheet` on the Roster tab. Enter or a double-click on a table row opens the sheet through the navigator. Shell Back and the sheet's "‹ Characters" link both return to the list with its filters, selection and scroll.
+The roster's side-by-side detail pane goes away. Its seven tabs move into a full-page `CharacterSheet` on the Roster tab, with the changes below. Enter or a double-click on a table row opens the sheet through the navigator. Shell Back and the sheet's "‹ Characters" link both return to the list with its filters, selection and scroll.
+- **Death annotation** shows only while the character is marked dead (spec §6.2). `CustomizableTabs` gains conditional tabs for it, skipped like Analyst-only tabs without rewriting the saved order (spec §4.4).
+- **Notes drafts** are saved when another character opens and whenever the sheet hides: another card, Back, "‹ Characters", the page's other tabs, and closing the workspace.
+- **Provenance** (the snapshot evidence and the tab hint) shows in Analyst mode only (spec §3.2).
+- **Storage problems** (an unreadable journal, a failed save) show as a warn banner in the sheet (spec §7).
+- **Actions.** Mark dead is a danger button and Restore alive a secondary one in its place; Save notes is secondary. They act only on the character the sheet has loaded.
 
 Line numbers below refer to `94db6f6`. Tasks 1–3 do not touch `CharacterJournalGUI`, `CharacterPanelGUI`, `Destination`, `WorkspaceShell.pageOf` or the character tests.
 
@@ -2262,15 +2627,17 @@ Line numbers below refer to `94db6f6`. Tasks 1–3 do not touch `CharacterJourna
 - Modify:
   - `src/main/java/tomato/gui/route/Destination.java`
   - `src/main/java/tomato/gui/modern/WorkspaceShell.java`
+  - `src/main/java/tomato/gui/kit/CustomizableTabs.java` (conditional tabs)
   - `src/main/java/tomato/gui/character/CharacterJournalGUI.java`
   - `src/main/java/tomato/gui/character/CharacterPanelGUI.java` (replace)
   - `src/main/java/tomato/gui/TomatoGUI.java`
 - Create tests:
-  - `src/test/java/tomato/gui/character/RosterViews.java` (fixture helper)
+  - `src/test/java/tomato/gui/character/RosterFixtures.java` (fixture helper)
   - `src/test/java/tomato/gui/glance/character/CharacterSheetTest.java`
   - `src/test/java/tomato/gui/character/CharacterRosterViewTest.java`
   - `src/test/java/tomato/gui/character/CharactersRouteTargetTest.java`
 - Modify tests:
+  - `src/test/java/tomato/gui/kit/CustomizableTabsTest.java` (add beside)
   - `src/test/java/tomato/gui/character/CharacterTabsTest.java` (replace)
   - `src/test/java/tomato/gui/character/CharacterJournalGuiTest.java` (replace)
   - `src/test/java/tomato/gui/character/CharacterJournalFreshnessRefreshTest.java` (replace)
@@ -2290,19 +2657,21 @@ Line numbers below refer to `94db6f6`. Tasks 1–3 do not touch `CharacterJourna
 
 **Interfaces:**
 - Consumes:
-  - From Task 2: `CharacterJournal.characterCopy(String key)` (a deep copy, or null).
+  - From Task 2: `CharacterJournal.characterCopy(String key)` (a deep copy, or null) and `storageProblem()`.
+  - From Task 3: `Banner` (WARN tone) and `KitLayouts.stack`.
   - `CharacterJournal.characters()`, `accounts()`, `revision()`, `markDead`, `notes` and `mostRecentCharacter()`.
   - `CustomizableTabs`:
     - `(String)`, `add`, `addAnalyst` and `component()`
     - `select`, `show` and `selectedId`
     - `order`, `hiddenIds` and `onSelect`
-  - Kit and styling: `EmptyState(String, String, KitButton)`, `KitButton.ghost/secondary`, `Sprites.sprite(int, int)`, `Type.emphasis()`.
+  - Kit and styling: `EmptyState(String, String, KitButton)`, `KitButton.ghost/secondary/danger`, `Sprites.sprite(int, int)`, `Type.emphasis()`, `DisplayModeModel.bind`.
   - `ContentStyle`: `page`, `tableScroll`, `wrappingText`, `reveal`, `font` and `Cell`.
   - Routing: `ShellNavigator`, `Navigator.nextBackToken()/backToken()/back()`, `Route.withPayload`.
   - The character panels: `CharacterEquipmentPanel`, `CharacterPlanningPanel(PlanningStore)` and `CharacterDeathPanel(CharacterJournal)`, all public.
   - `RosterViewState`.
 - Produces:
   - `Destination.CHARACTER_SHEET` (appended), and `WorkspaceShell.pageOf(CHARACTER_SHEET) == 3`.
+  - `CustomizableTabs.addWhen(String id, String title, Component, BooleanSupplier visible)` and `refreshConditions()`: a conditional tab is offered only while its condition holds, skipped like an Analyst-only tab without rewriting the saved order or hidden set; conditional and Analyst-only tabs never count as the last tab a view keeps.
   - `tomato.gui.glance.character.SheetFocus`:
     - `public record SheetFocus(String key, String tab)`. It rejects a key that is not `[0-9a-f]{64}:[0-9]+` and a tab that is not `[a-z0-9][a-z0-9-]*`.
     - `public static boolean validKey(String)`.
@@ -2314,6 +2683,8 @@ Line numbers below refer to `94db6f6`. Tasks 1–3 do not touch `CharacterJourna
     - `public CharacterSheet(SheetContext)`
     - `public void open(String key, String tab)`: a non-null tab is explicit, so it runs `show` then `select`.
     - `public String key()`, `public String selectedTab()`, `public CustomizableTabs tabs()`
+    - `public boolean ready()`: the sheet shows the journal's read of its current key (the character or its unavailable state). Mark dead, Restore alive and Save notes act only while it is true; Mark dead and Restore alive clear it until the re-read shows the new state.
+    - `public void saveDraft()`: saves a changed notes draft. The sheet calls it before another character opens, whenever it hides (`SHOWING_CHANGED`) and in `removeNotify`; `CharacterRosterView.showList`, the page's tab switch and `TomatoGUI.closeWorkspace` call it too.
     - `public void selectTab(String id)`: select only.
     - `public void onBack(Runnable)`, `public void bindNavigator(Navigator)`, `public void focusBackLink()`
     - `public void refresh()`: EDT; it runs only while showing or detached.
@@ -2326,9 +2697,9 @@ Line numbers below refer to `94db6f6`. Tasks 1–3 do not touch `CharacterJourna
       - `goals` "Goals"
       - `notes` "Notes"
       - `evidence` "Snapshot evidence" (Analyst)
-      - `death` "Death annotation"
+      - `death` "Death annotation", conditional: shown only while the character is marked dead (`addWhen`)
     - Component names:
-      - Header: `character-sheet-back` ("‹ Characters"), `character-sheet-title`, `character-sheet-sprite`, `character-sheet-death`, `character-snapshot-evidence`
+      - Header: `character-sheet-back` ("‹ Characters"), `character-sheet-title`, `character-sheet-sprite`, `character-sheet-death` (Mark dead, danger), `character-sheet-restore` (Restore alive, secondary; one of the two shows), `character-sheet-storage` (warn banner), `character-snapshot-evidence` (Analyst), `character-sheet-hint` (Analyst)
       - Notes: `character-notes`, `character-notes-save`
       - Unavailable state: `character-sheet-unavailable` (EmptyState), `character-sheet-unavailable-back`
       - The page scroll: `character-sheet-scroll`
@@ -2350,15 +2721,16 @@ Line numbers below refer to `94db6f6`. Tasks 1–3 do not touch `CharacterJourna
   - `CharacterPanelGUI`:
     - `public CharacterPanelGUI(TomatoData)` builds the default `SheetContext`.
     - `public CharacterPanelGUI(TomatoData, SheetContext)`.
-    - `public List<RouteTarget> routeTargets()`, `public CharacterRosterView roster()`, `public CharacterSheet sheet()`.
+    - `public List<RouteTarget> routeTargets()` (built once, so the two targets always share one Back origin), `public CharacterRosterView roster()`, `public CharacterSheet sheet()`.
     - `openGoals()` routes to the sheet's `goals` tab.
   - `TomatoGUI`:
     - It registers `characterPanel.routeTargets()` instead of `registerRetainedPage(Destination.CHARACTERS)`.
     - `plans.characters` calls `characterPanel.openGoals()`.
+    - `closeWorkspace()` saves the sheet's notes draft.
 
 - [ ] **Step 1: Write the failing tests and the fixture helper**
 
-`src/test/java/tomato/gui/character/RosterViews.java`:
+`src/test/java/tomato/gui/character/RosterFixtures.java`:
 ```java
 package tomato.gui.character;
 
@@ -2381,8 +2753,8 @@ import tomato.planning.PlanningStore;
  * Builds the Characters Roster tab (the list and the sheet) over a fixture journal, clock and definitions. The view is bound to
  * Navigator.NONE, so opening a character switches cards in place even if another test left a navigator installed.
  */
-final class RosterViews {
-    private RosterViews() { }
+final class RosterFixtures {
+    private RosterFixtures() { }
 
     static CharacterSheet sheet(CharacterJournal journal, LongSupplier clock, Supplier<RosterDefinitions> definitions, PlanningStore plans) {
         return new CharacterSheet(new SheetContext(new TomatoData(), journal, definitions, DisplayModeModel.application(), clock, plans));
@@ -2398,10 +2770,14 @@ final class RosterViews {
     static CharacterRosterView view(CharacterJournal journal, LongSupplier clock, Supplier<RosterDefinitions> definitions) {
         return view(journal, clock, definitions, PlanningStore.shared());
     }
-    /** Enter on the list's selected row, through the table's own key binding. */
+    /**
+     * Enter on the list's selected row, through the table's own key binding. Returns once the sheet shows that character
+     * (at once here; the sheet builds off the EDT from Task 5 on, and SnapshotTestSupport.await runs the EDT while it waits).
+     */
     static void enter(CharacterRosterView view) {
         JTable roster = named(view.listPanel(), "character-roster", JTable.class);
         roster.getActionMap().get(roster.getInputMap().get(KeyStroke.getKeyStroke("ENTER"))).actionPerformed(null);
+        if (view.showingSheet()) tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
     }
     static <T> T named(Container root, String name, Class<T> type) {
         for (Component child : root.getComponents()) {
@@ -2419,6 +2795,8 @@ package tomato.gui.glance.character;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
@@ -2427,6 +2805,7 @@ import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
 import tomato.backend.data.TomatoData;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.planning.PlanningStore;
@@ -2449,8 +2828,8 @@ public class CharacterSheetTest {
         SwingUtilities.invokeAndWait(() -> DisplayModeModel.application().set(savedMode));
     }
 
-    private CharacterJournal journal(String file, int... ids) {
-        CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve(file));
+    private CharacterJournal journal(String file, int... ids) { return journal(new CharacterJournal(temp.getRoot().toPath().resolve(file)), ids); }
+    private static CharacterJournal journal(CharacterJournal journal, int... ids) {
         List<RealmCharacter> roster = new ArrayList<>();
         for (int id : ids) {
             RealmCharacter c = new RealmCharacter(); c.charId = id; c.classNum = 782; c.level = 20; c.receivedAt = 1000;
@@ -2478,9 +2857,9 @@ public class CharacterSheetTest {
                 assertEquals(order, sheet.tabs().order());
                 JTabbedPane tabs = sheet.tabs().component();
                 assertEquals("character-tabs", tabs.getName());
-                assertEquals(Arrays.asList("Overview", "Gear", "Exalts", "Goals", "Notes", "Snapshot evidence", "Death annotation"), titles(tabs));
+                assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
                 DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
-                assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+                assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
                 sheet.open(ACCOUNT + ":1", "notes"); assertEquals("notes", sheet.selectedTab());
                 sheet.open(ACCOUNT + ":1", "goals"); assertEquals("An explicit tab is selected", "goals", sheet.selectedTab());
                 JPanel replacement = new JPanel();
@@ -2492,28 +2871,32 @@ public class CharacterSheetTest {
         }
     }
 
-    @Test public void headerHasTheBackLinkIdentityAndMarkDead() throws Exception {
+    @Test public void headerHasTheBackLinkIdentityAndMarkDeadShowsTheDeathTab() throws Exception {
         try (CharacterJournal journal = journal("header.json", 7)) {
             SwingUtilities.invokeAndWait(() -> {
                 CharacterSheet sheet = sheet(journal);
                 AtomicInteger backs = new AtomicInteger();
                 sheet.onBack(backs::incrementAndGet);
                 sheet.open(ACCOUNT + ":7", null);
-                assertEquals(ACCOUNT + ":7", sheet.key());
+                assertEquals(ACCOUNT + ":7", sheet.key()); assertTrue(sheet.ready());
                 AbstractButton back = named(sheet, "character-sheet-back", AbstractButton.class);
                 assertEquals("‹ Characters", back.getText());
                 back.doClick(); assertEquals(1, backs.get());
                 JTextArea title = named(sheet, "character-sheet-title", JTextArea.class);
                 assertTrue(title.getText(), title.getText().contains("#7") && title.getText().contains("Level 20"));
-                AbstractButton death = named(sheet, "character-sheet-death", AbstractButton.class);
-                assertEquals("Mark dead", death.getText());
+                AbstractButton death = named(sheet, "character-sheet-death", AbstractButton.class), restore = named(sheet, "character-sheet-restore", AbstractButton.class);
+                assertEquals("Mark dead", death.getText()); assertTrue(death.isVisible()); assertFalse(restore.isVisible());
+                assertFalse("An alive character has no Death annotation tab", sheet.tabs().visibleIds().contains("death"));
                 death.doClick();
                 assertTrue(journal.characterCopy(ACCOUNT + ":7").dead);
-                assertEquals("Restore alive", death.getText());
+                assertFalse(death.isVisible()); assertTrue(restore.isVisible()); assertEquals("Restore alive", restore.getText());
                 assertTrue(title.getText().contains("Marked dead manually"));
-                death.doClick();
+                assertTrue("Marking dead shows the Death annotation tab", sheet.tabs().visibleIds().contains("death"));
+                assertEquals("…without rewriting the saved order", "", PropertiesManager.getProperty(ORDER));
+                restore.doClick();
                 assertFalse(journal.characterCopy(ACCOUNT + ":7").dead);
-                assertEquals("Mark dead", death.getText());
+                assertTrue(death.isVisible()); assertEquals("Mark dead", death.getText());
+                assertFalse(sheet.tabs().visibleIds().contains("death"));
             });
         }
     }
@@ -2553,6 +2936,63 @@ public class CharacterSheetTest {
         }
     }
 
+    @Test public void hidingTheSheetSavesItsNotesDraft() throws Exception {
+        try (CharacterJournal journal = journal("hide.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                JFrame frame = new JFrame("Sheet hide"); frame.setContentPane(sheet); frame.setSize(900, 600); frame.setVisible(true);
+                try {
+                    sheet.open(ACCOUNT + ":1", "notes");
+                    named(sheet, "character-notes", JTextArea.class).setText("Kept when the sheet hides");
+                    sheet.setVisible(false); // what another card, Back or another Characters tab does
+                    assertEquals("Kept when the sheet hides", journal.characterCopy(ACCOUNT + ":1").notes);
+                } finally { frame.dispose(); }
+            });
+        }
+    }
+
+    @Test public void snapshotEvidenceAndTheTabHintAreAnalystOnly() throws Exception {
+        try (CharacterJournal journal = journal("provenance.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
+                CharacterSheet sheet = sheet(journal);
+                sheet.open(ACCOUNT + ":1", null);
+                JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class), hint = named(sheet, "character-sheet-hint", JTextArea.class);
+                assertFalse("Simple hides provenance (spec §3.2)", evidence.isVisible()); assertFalse(hint.isVisible());
+                assertTrue("The text is still kept current", evidence.getText().contains("Snapshot update age"));
+                DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+                assertTrue(evidence.isVisible()); assertTrue(hint.isVisible());
+            });
+        }
+    }
+
+    @Test public void anUnreadableJournalAndAFailedNotesSaveShowAWarnBanner() throws Exception {
+        Path broken = temp.getRoot().toPath().resolve("broken.json");
+        Files.writeString(broken, "{broken");
+        Path blocker = temp.newFile("blocker").toPath(); // a file where the journal's folder should be: every save fails
+        CharacterSheet[] shown = new CharacterSheet[1];
+        try (CharacterJournal unreadable = new CharacterJournal(broken); CharacterJournal failing = journal(new CharacterJournal(blocker.resolve("journal.json")), 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(unreadable);
+                sheet.open(ACCOUNT + ":1", null);
+                Banner storage = named(sheet, "character-sheet-storage", Banner.class);
+                assertTrue(storage.isVisible()); assertTrue(storage.warns()); assertTrue(storage.text(), storage.text().startsWith("Cannot read"));
+                shown[0] = sheet(failing);
+                shown[0].open(ACCOUNT + ":1", "notes");
+                assertFalse("Nothing has failed yet", named(shown[0], "character-sheet-storage", Banner.class).isVisible());
+                named(shown[0], "character-notes", JTextArea.class).setText("Never reaches the disk");
+                named(shown[0], "character-notes-save", AbstractButton.class).doClick();
+            });
+            failing.save(); // the saver thread's write fails
+            SwingUtilities.invokeAndWait(() -> {
+                shown[0].refresh();
+                Banner storage = named(shown[0], "character-sheet-storage", Banner.class);
+                assertTrue("A failed save warns inside the sheet", storage.isVisible()); assertTrue(storage.warns());
+                assertTrue(storage.text(), storage.text().startsWith("Save failed"));
+            });
+        }
+    }
+
     private static <T> T named(Container root, String name, Class<T> type) {
         for (Component child : root.getComponents()) {
             if (type.isInstance(child) && name.equals(child.getName())) return type.cast(child);
@@ -2561,6 +3001,34 @@ public class CharacterSheetTest {
         return null;
     }
 }
+```
+
+`src/test/java/tomato/gui/kit/CustomizableTabsTest.java` — **add beside**. Insert before `    private final Map<String, String> store = new HashMap<>();`:
+```java
+    @Test public void aConditionalTabIsSkippedWithoutRewritingTheSavedOrder() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            boolean[] dead = {false};
+            store.put("ui.tabs.character", "death,overview,gear,exalts,evidence|");
+            CustomizableTabs tabs = tabs().addWhen("death", "Death annotation", new JPanel(), () -> dead[0]);
+            assertEquals(Arrays.asList("overview", "gear", "exalts"), tabs.visibleIds());
+            assertEquals("Every known tab keeps its saved place", Arrays.asList("death", "overview", "gear", "exalts", "evidence"), tabs.order());
+            dead[0] = true;
+            assertEquals("Nothing changes until the conditions are re-checked", 3, tabs.component().getTabCount());
+            tabs.refreshConditions();
+            assertEquals(Arrays.asList("death", "overview", "gear", "exalts"), tabs.visibleIds());
+            assertEquals("Death annotation", tabs.component().getTitleAt(0));
+            tabs.select("death"); assertEquals("death", tabs.selectedId());
+            dead[0] = false; tabs.refreshConditions();
+            assertEquals(Arrays.asList("overview", "gear", "exalts"), tabs.visibleIds());
+            assertNotEquals("death", tabs.selectedId());
+            assertEquals("A condition never rewrites the saved order", "death,overview,gear,exalts,evidence|", store.get("ui.tabs.character"));
+            assertTrue(tabs.hide("overview")); assertTrue(tabs.hide("gear"));
+            dead[0] = true; tabs.refreshConditions();
+            assertFalse("A tab that may disappear never counts as the view's last tab", tabs.hide("exalts"));
+            assertTrue(tabs.hide("death"));
+        });
+    }
+
 ```
 
 `src/test/java/tomato/gui/character/CharacterRosterViewTest.java`:
@@ -2601,17 +3069,17 @@ public class CharacterRosterViewTest {
     @Test public void enterAndDoubleClickOpenARowsSheetAndTheBackLinkReturnsToTheList() throws Exception {
         try (CharacterJournal journal = journal()) {
             SwingUtilities.invokeAndWait(() -> {
-                CharacterRosterView view = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
                 assertEquals("character-roster-view", view.getName());
-                JTable roster = RosterViews.named(view.listPanel(), "character-roster", JTable.class);
+                JTable roster = RosterFixtures.named(view.listPanel(), "character-roster", JTable.class);
                 assertEquals(3, roster.getRowCount()); assertFalse(view.showingSheet());
                 assertTrue(view.listPanel().isVisible()); assertFalse(view.sheet().isVisible());
                 roster.setRowSelectionInterval(1, 1);
-                RosterViews.enter(view);
+                RosterFixtures.enter(view);
                 assertTrue("Enter opens the selected row", view.showingSheet());
                 assertEquals(keyAt(roster, 1), view.sheet().key());
                 assertFalse(view.listPanel().isVisible()); assertTrue(view.sheet().isVisible());
-                RosterViews.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+                RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
                 assertFalse("Without a navigator the back link switches cards in place", view.showingSheet());
                 assertTrue(view.listPanel().isVisible());
                 assertEquals("The list keeps its selection", 1, roster.getSelectedRow());
@@ -2625,6 +3093,24 @@ public class CharacterRosterViewTest {
         }
     }
 
+    @Test public void theBackLinkKeepsAnUnsavedNotesDraft() throws Exception {
+        try (CharacterJournal journal = journal()) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                JTable roster = RosterFixtures.named(view.listPanel(), "character-roster", JTable.class);
+                roster.setRowSelectionInterval(0, 0); String key = keyAt(roster, 0);
+                RosterFixtures.enter(view);
+                JTextArea notes = RosterFixtures.named(view.sheet(), "character-notes", JTextArea.class);
+                notes.setText("Typed, never saved");
+                RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+                assertFalse(view.showingSheet());
+                assertEquals("Back without Save keeps the note", "Typed, never saved", journal.characterCopy(key).notes);
+                RosterFixtures.enter(view);
+                assertEquals("…and the sheet shows it again", "Typed, never saved", notes.getText());
+            });
+        }
+    }
+
     @Test public void visibleRowsFollowSearchAndSortAndNotifyListeners() throws Exception {
         try (CharacterJournal journal = journal()) {
             journal.notes(ACCOUNT + ":2", "needle");
@@ -2633,13 +3119,13 @@ public class CharacterRosterViewTest {
                 AtomicInteger changes = new AtomicInteger();
                 list.addRowsListener(changes::incrementAndGet);
                 assertEquals(3, list.visibleRows().size());
-                JTextField search = RosterViews.named(list, "character-search", JTextField.class);
+                JTextField search = RosterFixtures.named(list, "character-search", JTextField.class);
                 search.setText("needle");
                 assertTrue("Search notifies", changes.get() > 0);
                 assertEquals(1, list.visibleRows().size());
                 assertEquals(ACCOUNT + ":2", list.visibleRows().get(0).record.key);
                 search.setText("");
-                JTable roster = RosterViews.named(list, "character-roster", JTable.class);
+                JTable roster = RosterFixtures.named(list, "character-roster", JTable.class);
                 int before = changes.get();
                 roster.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
                 assertTrue("A new sort notifies", changes.get() > before);
@@ -2718,7 +3204,7 @@ public class CharactersRouteTargetTest {
 
     @Test public void aPlainRouteOpensTheListAndASheetRouteOpensItsTab() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView view = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+            CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
             ShellNavigator navigator = navigator(view);
             view.showSheet(key(1), null, view::showList);
             assertTrue(navigator.open(Route.to(Destination.CHARACTERS)));
@@ -2739,16 +3225,16 @@ public class CharactersRouteTargetTest {
 
     @Test public void theBackLinkReturnsToTheListAsItWasAndPopsOnlyItsOwnEntry() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView view = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+            CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
             ShellNavigator navigator = navigator(view);
             page[0] = 3;
-            JTable roster = RosterViews.named(view.listPanel(), "character-roster", JTable.class);
+            JTable roster = RosterFixtures.named(view.listPanel(), "character-roster", JTable.class);
             JViewport viewport = (JViewport) roster.getParent();
             roster.setRowSelectionInterval(2, 2); String selected = keyAt(roster, 2);
             viewport.setViewPosition(new Point(0, 20));
-            RosterViews.enter(view);
+            RosterFixtures.enter(view);
             assertTrue(view.showingSheet()); assertEquals(selected, view.sheet().key()); assertTrue(navigator.canGoBack());
-            RosterViews.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+            RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
             assertFalse(view.showingSheet());
             assertFalse("The link returned through the Back entry its open pushed", navigator.canGoBack());
             assertEquals(selected, keyAt(roster, roster.getSelectedRow()));
@@ -2756,7 +3242,7 @@ public class CharactersRouteTargetTest {
             page[0] = 14;
             assertTrue(navigator.open(sheet(key(1), null)));
             assertEquals(3, page[0]);
-            RosterViews.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+            RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
             assertFalse("Opened from elsewhere, the link still goes to the list", view.showingSheet());
             assertEquals(3, page[0]);
             assertTrue("Shell Back still returns to the page the sheet was opened from", navigator.back());
@@ -2766,16 +3252,17 @@ public class CharactersRouteTargetTest {
 
     @Test public void anUnknownKeyShowsTheUnavailableState() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView view = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+            CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
             ShellNavigator navigator = navigator(view);
             String missing = ACCOUNT + ":404";
             assertTrue("A well-formed key is accepted; the sheet says what it cannot show", navigator.open(sheet(missing, null)));
             assertTrue(view.showingSheet()); assertEquals(missing, view.sheet().key());
-            EmptyState state = RosterViews.named(view.sheet(), "character-sheet-unavailable", EmptyState.class);
+            tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready); // at once here; from Task 5 the sheet reads off the EDT
+            EmptyState state = RosterFixtures.named(view.sheet(), "character-sheet-unavailable", EmptyState.class);
             assertTrue(state.isVisible());
             assertEquals("This character is not in the journal", CharacterSheet.UNAVAILABLE);
             assertEquals(CharacterSheet.UNAVAILABLE, state.getAccessibleContext().getAccessibleName());
-            RosterViews.named(view.sheet(), "character-sheet-unavailable-back", AbstractButton.class).doClick();
+            RosterFixtures.named(view.sheet(), "character-sheet-unavailable-back", AbstractButton.class).doClick();
             assertFalse(view.showingSheet());
         });
     }
@@ -2783,13 +3270,13 @@ public class CharactersRouteTargetTest {
     @Test public void onlyExplicitNavigationShowsAHiddenTab() throws Exception {
         RosterStateTestSupport.Memory memory = new RosterStateTestSupport.Memory();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView first = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+            CharacterRosterView first = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
             first.listPanel().bindViewState(memory.store);
             first.showSheet(key(1), "goals", first::showList);
             assertEquals("goals", first.listPanel().sheetTab());
             first.listPanel().saveViewState();
             PropertiesManager.setProperties(TABS, "overview,gear,exalts,goals,notes,evidence,death|goals");
-            CharacterRosterView view = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+            CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
             view.listPanel().bindViewState(memory.store);
             ShellNavigator navigator = navigator(view);
             assertNull("Startup restore leaves the sheet closed", view.sheet().key());
@@ -2812,7 +3299,7 @@ public class CharactersRouteTargetTest {
             CharacterRosterView roster = panel.roster();
             ShellNavigator navigator = navigator(roster, panel.routeTargets());
             panel.bindNavigator(navigator);
-            JTable table = RosterViews.named(roster.listPanel(), "character-roster", JTable.class);
+            JTable table = RosterFixtures.named(roster.listPanel(), "character-roster", JTable.class);
             table.setRowSelectionInterval(1, 1); String selected = keyAt(table, 1);
             page[0] = 5;
             panel.openGoals();
@@ -2829,8 +3316,8 @@ public class CharactersRouteTargetTest {
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `GRADLE test --tests "tomato.gui.glance.character.CharacterSheetTest" --tests "tomato.gui.character.CharacterRosterViewTest" --tests "tomato.gui.character.CharactersRouteTargetTest"`
-Expected: FAIL. The test sources do not compile: `package tomato.gui.glance.character does not exist`.
+Run: `GRADLE test --tests "tomato.gui.glance.character.CharacterSheetTest" --tests "tomato.gui.character.CharacterRosterViewTest" --tests "tomato.gui.character.CharactersRouteTargetTest" --tests "tomato.gui.kit.CustomizableTabsTest"`
+Expected: FAIL. The test sources do not compile: `package tomato.gui.glance.character does not exist` and `cannot find symbol: method addWhen`.
 
 - [ ] **Step 3: Add the destination and its page**
 
@@ -2852,7 +3339,7 @@ with:
             case CHARACTERS: case CHARACTER_SHEET: return 3; // The sheet is a card on the Characters Roster tab.
 ```
 
-- [ ] **Step 4: Create `SheetFocus` and `SheetContext`**
+- [ ] **Step 4: Create `SheetFocus` and `SheetContext`; add conditional tabs to `CustomizableTabs`**
 
 `src/main/java/tomato/gui/glance/character/SheetFocus.java`:
 ```java
@@ -2909,15 +3396,82 @@ public record SheetContext(TomatoData data, CharacterJournal journal, Supplier<R
 }
 ```
 
+`src/main/java/tomato/gui/kit/CustomizableTabs.java` (the sheet's Death annotation tab shows only for a character marked dead):
+1. Replace `import java.util.function.BiConsumer;` with that line followed by `import java.util.function.BooleanSupplier;`.
+2. In the class comment, replace ` * and hidden. Analyst-only tabs are skipped in Simple mode without changing the saved order.` with ` * and hidden. Analyst-only tabs are skipped in Simple mode, and conditional tabs while their condition is false, without changing the saved order.`
+3. Replace:
+```java
+        final boolean analystOnly;
+        Entry(String id, String title, Component component, boolean analystOnly) {
+            this.id = id; this.title = title; this.component = component; this.analystOnly = analystOnly;
+        }
+```
+with:
+```java
+        final boolean analystOnly;
+        /** Null: always offered. Otherwise offered only while it is true; {@link #refreshConditions} re-checks it. */
+        final BooleanSupplier condition;
+        Entry(String id, String title, Component component, boolean analystOnly, BooleanSupplier condition) {
+            this.id = id; this.title = title; this.component = component; this.analystOnly = analystOnly; this.condition = condition;
+        }
+        /** Neither Analyst-only nor conditional: only such a tab may be the one a view keeps when the others are hidden. */
+        boolean steady() { return !analystOnly && condition == null; }
+```
+4. Replace:
+```java
+    public CustomizableTabs add(String id, String title, Component component) { return add(id, title, component, false); }
+    public CustomizableTabs addAnalyst(String id, String title, Component component) { return add(id, title, component, true); }
+
+    private CustomizableTabs add(String id, String title, Component component, boolean analystOnly) {
+        if (!ID.matcher(id).matches()) throw new IllegalArgumentException("Tab IDs use lowercase letters, digits and hyphens: " + id);
+        if (entries.containsKey(id)) throw new IllegalArgumentException("Duplicate tab ID " + id);
+        entries.put(id, new Entry(id, title, component, analystOnly));
+```
+with:
+```java
+    public CustomizableTabs add(String id, String title, Component component) { return add(id, title, component, false, null); }
+    public CustomizableTabs addAnalyst(String id, String title, Component component) { return add(id, title, component, true, null); }
+    /**
+     * A tab offered only while {@code visible} is true (the sheet's Death annotation for a character marked dead). Like an
+     * Analyst-only tab it is skipped without changing the saved order or hidden set (spec §4.4); call {@link #refreshConditions}
+     * after the condition may have changed.
+     */
+    public CustomizableTabs addWhen(String id, String title, Component component, BooleanSupplier visible) {
+        return add(id, title, component, false, Objects.requireNonNull(visible, "visible"));
+    }
+
+    /** Re-checks the conditional tabs and shows or skips each; the saved order and hidden set are never rewritten. EDT. */
+    public void refreshConditions() { rebuild(); }
+
+    private CustomizableTabs add(String id, String title, Component component, boolean analystOnly, BooleanSupplier condition) {
+        if (!ID.matcher(id).matches()) throw new IllegalArgumentException("Tab IDs use lowercase letters, digits and hyphens: " + id);
+        if (entries.containsKey(id)) throw new IllegalArgumentException("Duplicate tab ID " + id);
+        entries.put(id, new Entry(id, title, component, analystOnly, condition));
+```
+5. In `visibleIds`, replace `            if (!entries.get(id).analystOnly || mode.analyst()) { result.add(id); break; }` with `            if (offered(entries.get(id))) { result.add(id); break; }`.
+6. In `hide`, replace `        if (!entries.get(id).analystOnly && visible.stream().filter(key -> !entries.get(key).analystOnly).count() <= 1) return false;` with `        if (entries.get(id).steady() && visible.stream().filter(key -> entries.get(key).steady()).count() <= 1) return false;`. Unchanged for tabs without a condition; a tab that may disappear never counts as the one that keeps a view from losing its last tab.
+7. Replace `    private boolean shown(Entry entry) { return !hidden.contains(entry.id) && (!entry.analystOnly || mode.analyst()); }` with:
+```java
+    private boolean shown(Entry entry) { return !hidden.contains(entry.id) && offered(entry); }
+    /** Offered by the display mode and, for a conditional tab, by its condition. */
+    private boolean offered(Entry entry) { return (!entry.analystOnly || mode.analyst()) && (entry.condition == null || entry.condition.getAsBoolean()); }
+```
+
 - [ ] **Step 5: Create `CharacterSheet` with the moved detail tabs**
 
-The stat, class-exalt and evidence fills, the time evidence and the notes and death actions are moved verbatim from `CharacterJournalGUI.select`/`refreshTimeEvidence` (lines 342–378, 440–451). The draft rule moves from "the selection changed" to "another character opened".
+The stat, class-exalt and evidence fills, the time evidence and the notes and death actions are moved from `CharacterJournalGUI.select`/`refreshTimeEvidence` (lines 342–378, 440–451). What changes on the way:
+- The draft rule moves from "the selection changed" to "another character opened or the sheet hid".
+- Death annotation is conditional (`addWhen`), and the tabs re-check it after every journal read.
+- Mark dead becomes a danger button with a secondary Restore alive beside it (one shows); both, and Save notes, act only while `ready()`.
+- The snapshot evidence and the tab hint follow the display mode; a storage problem shows the warn banner.
+- The timer runs only while the sheet shows. The journal read (`loaded`) is separate from the refresh of what is shown (`shown`), so Task 5's presenter can feed it from its build thread.
 
 `src/main/java/tomato/gui/glance/character/CharacterSheet.java`:
 ```java
 package tomato.gui.glance.character;
 
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
@@ -2930,10 +3484,14 @@ import tomato.backend.data.RosterDefinitions;
 import tomato.gui.character.CharacterDeathPanel;
 import tomato.gui.character.CharacterEquipmentPanel;
 import tomato.gui.character.CharacterPlanningPanel;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.KitButton;
+import tomato.gui.kit.KitLayouts;
 import tomato.gui.kit.Sprites;
+import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.Navigator;
@@ -2941,10 +3499,16 @@ import tomato.gui.stats.Formatters;
 import tomato.realmshark.enums.CharacterClass;
 
 /**
- * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive,
- * snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear and Exalts are slots whose content later tasks
- * replace with {@link #setTab}. EDT only. While it shows, the sheet re-reads the journal on the EDT when the journal's
- * revision moves (checked once a second), as the roster's side pane did.
+ * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, a storage
+ * warning and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear and Exalts are slots whose
+ * content later tasks replace with {@link #setTab}; Death annotation shows only while the character is marked dead (spec §6.2).
+ * - Snapshot evidence and the tab hint are provenance: Analyst mode only (spec §3.2).
+ * - Mark dead, Restore alive and Save notes act only on the character this sheet has loaded ({@link #ready}).
+ * - A notes draft is saved when another character opens and whenever the sheet hides (another card, Back, another Characters
+ *   tab, closing the workspace); refreshes never replace it.
+ * - An unreadable journal or a failed save shows a warn banner (spec §7).
+ * While it shows, the sheet re-reads the journal on the EDT when its revision moves (checked once a second, by a timer that
+ * runs only while the sheet shows), as the roster's side pane did. EDT only.
  */
 public final class CharacterSheet extends JPanel {
     /** Title of the unavailable state, for a key the journal does not hold. */
@@ -2959,7 +3523,12 @@ public final class CharacterSheet extends JPanel {
     private final KitButton back = KitButton.ghost("‹ Characters");
     private final JLabel sprite = new JLabel();
     private final JTextArea title = ContentStyle.wrappingText(" "), seen = ContentStyle.wrappingText(" ");
-    private final JButton death = new JButton("Mark dead"), saveNotes = new JButton("Save notes");
+    private final JTextArea hint = ContentStyle.wrappingText("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
+    /** Marking a character dead is destructive; Restore alive takes its place while the character is marked dead. */
+    private final KitButton death = KitButton.danger("Mark dead"), restore = KitButton.secondary("Restore alive");
+    private final KitButton saveNotes = KitButton.secondary("Save notes");
+    /** The journal cannot be read, or its last save failed. */
+    private final Banner storage = new Banner("character-sheet-storage");
     private final JTextArea notes = new JTextArea(3, 30);
     private final DefaultTableModel statModel = model("Stat", "Base", "Cap", "Potions to max", "Field evidence");
     private final DefaultTableModel exaltModel = model("Stat", "Level", "Completions", "Next tier");
@@ -2970,7 +3539,8 @@ public final class CharacterSheet extends JPanel {
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
     private Runnable backAction = () -> { };
-    private String key, filledKey;
+    /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
+    private String key, filledKey, loadedKey;
     private CharacterRecord record;
     private List<CharacterRecord> records = Collections.emptyList();
     private List<AccountRecord> accounts = Collections.emptyList();
@@ -2989,14 +3559,17 @@ public final class CharacterSheet extends JPanel {
         back.addActionListener(e -> backAction.run());
         sprite.setName("character-sheet-sprite");
         title.setName("character-sheet-title"); ContentStyle.font(title, Type.emphasis());
-        death.setName("character-sheet-death"); saveNotes.setName("character-notes-save");
-        seen.setName("character-snapshot-evidence");
+        death.setName("character-sheet-death"); restore.setName("character-sheet-restore"); saveNotes.setName("character-notes-save");
+        restore.setVisible(false);
+        seen.setName("character-snapshot-evidence"); hint.setName("character-sheet-hint");
+        storage.setTone(Tokens.Tone.WARN); storage.setVisible(false);
         JPanel backRow = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0)); backRow.add(back);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, 0, 0)); actions.add(death);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, Tokens.XS, 0)); actions.add(death); actions.add(restore);
         JPanel identity = new JPanel(new BorderLayout(8, 0));
         identity.add(sprite, BorderLayout.WEST); identity.add(title, BorderLayout.CENTER); identity.add(actions, BorderLayout.EAST);
         JPanel header = new JPanel(new BorderLayout(0, 4)); header.setName("character-sheet-header");
-        header.add(backRow, BorderLayout.NORTH); header.add(identity, BorderLayout.CENTER); header.add(seen, BorderLayout.SOUTH);
+        header.add(backRow, BorderLayout.NORTH); header.add(identity, BorderLayout.CENTER);
+        header.add(KitLayouts.stack(Tokens.XS, storage, seen), BorderLayout.SOUTH);
 
         JTable stats = table(statModel);
         stats.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell() {
@@ -3029,13 +3602,13 @@ public final class CharacterSheet extends JPanel {
             .add("notes", "Notes", notePanel)
             // Raw field provenance is diagnostic: Analyst mode only (spec §3.2); the saved order still includes it.
             .addAnalyst("evidence", "Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3))
-            .add("death", "Death annotation", deathPanel);
+            // Only while the character is marked dead (spec §6.2); skipping it never rewrites the saved order (spec §4.4).
+            .addWhen("death", "Death annotation", deathPanel, () -> record != null && record.dead);
         JTabbedPane strip = tabs.component(); strip.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
-        JTextArea hint = ContentStyle.wrappingText("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
         hint.setToolTipText("Potion estimates use +5 Life/Mana and +1 other stats. Exalts are account/class progress shared across characters.");
         JPanel content = new JPanel(new BorderLayout(0, 8)) {
             // Tab chrome and usable rows must fit after font and width changes; the page scrolls instead of squeezing them.
-            @Override public Dimension getMinimumSize() { return new Dimension(0, strip.getMinimumSize().height + hint.getPreferredSize().height + 8); }
+            @Override public Dimension getMinimumSize() { return new Dimension(0, strip.getMinimumSize().height + (hint.isVisible() ? hint.getPreferredSize().height + 8 : 0)); }
         };
         content.add(strip, BorderLayout.CENTER); content.add(hint, BorderLayout.SOUTH);
         KitButton showAll = KitButton.secondary("Show all characters"); showAll.setName("character-sheet-unavailable-back");
@@ -3046,25 +3619,34 @@ public final class CharacterSheet extends JPanel {
         JScrollPane page = ContentStyle.page(header, body, null); page.setName("character-sheet-scroll");
         page.getAccessibleContext().setAccessibleName("Character sheet; scroll for tabs and actions at large text sizes");
         add(page, BorderLayout.CENTER);
-        for (JComponent control : new JComponent[]{back, death, saveNotes}) control.addFocusListener(new java.awt.event.FocusAdapter() {
+        for (JComponent control : new JComponent[]{back, death, restore, saveNotes}) control.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override public void focusGained(java.awt.event.FocusEvent event) { ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight())); }
         });
-        death.addActionListener(e -> { if (record != null) { context.journal().markDead(record.key, !record.dead); refresh(); } });
-        saveNotes.addActionListener(e -> { if (record != null) { context.journal().notes(record.key, notes.getText()); refresh(); } });
-        timer = new javax.swing.Timer(1000, e -> { if (isShowing()) refresh(); });
+        death.addActionListener(e -> mark(true));
+        restore.addActionListener(e -> mark(false));
+        saveNotes.addActionListener(e -> {
+            if (!ready() || record == null) return;
+            context.journal().notes(record.key, notes.getText()); record.notes = notes.getText(); refresh();
+        });
+        // Provenance is diagnostic (spec §3.2): Simple mode shows neither the snapshot evidence nor the tab hint.
+        context.mode().bind(this, value -> {
+            boolean analyst = value == DisplayModeModel.Mode.ANALYST;
+            seen.setVisible(analyst); hint.setVisible(analyst); revalidate(); repaint();
+        });
+        timer = new javax.swing.Timer(1000, e -> refresh());
         addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refresh();
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0) return;
+            // The timer runs only while the sheet shows. Hiding it (another card, Back, another Characters tab, closing) keeps the draft.
+            if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); saveDraft(); }
         });
         fill();
     }
 
-    @Override public void addNotify() { super.addNotify(); timer.start(); }
-    @Override public void removeNotify() { super.removeNotify(); timer.stop(); }
+    @Override public void removeNotify() { saveDraft(); timer.stop(); super.removeNotify(); }
 
     /**
-     * Shows one character. If the key differs, the previous character's changed notes are saved first, as the roster did when
-     * its selection changed. A non-null tab is explicit navigation: it is shown if hidden, then selected. A key the journal
-     * does not hold shows the unavailable state.
+     * Shows one character. If the key differs, the previous character's changed notes are saved first. A non-null tab is
+     * explicit navigation: it is shown if hidden, then selected. A key the journal does not hold shows the unavailable state.
      */
     public void open(String key, String tab) {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open the character sheet on the EDT");
@@ -3074,6 +3656,8 @@ public final class CharacterSheet extends JPanel {
         if (tab != null) { tabs.show(tab); tabs.select(tab); }
     }
     public String key() { return key; }
+    /** True once the sheet shows the journal's read of its current key: that character, or its unavailable state. */
+    public boolean ready() { return key != null && key.equals(loadedKey); }
     public String selectedTab() { return tabs.selectedId(); }
     public CustomizableTabs tabs() { return tabs; }
     /** Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. */
@@ -3083,6 +3667,16 @@ public final class CharacterSheet extends JPanel {
     public void bindNavigator(Navigator navigator) { deathPanel.bindNavigator(navigator); }
     /** Moves keyboard focus to the back link, the sheet's first control. */
     public void focusBackLink() { back.requestFocusInWindow(); }
+
+    /**
+     * Saves the shown character's changed notes to the journal: before another character opens, whenever the sheet hides
+     * (another card, Back, the Characters page's other tabs) and when the workspace closes. A draft equal to the saved notes,
+     * or one typed for another character, saves nothing. EDT.
+     */
+    public void saveDraft() {
+        if (filledKey == null || record == null || !filledKey.equals(record.key) || Objects.equals(record.notes, notes.getText())) return;
+        context.journal().notes(filledKey, notes.getText()); record.notes = notes.getText();
+    }
 
     /** Replaces a slot tab's content (overview, gear, exalts); its id, title, order and hidden state are unchanged. */
     void setTab(String id, JComponent content) {
@@ -3109,49 +3703,81 @@ public final class CharacterSheet extends JPanel {
         return slot;
     }
 
+    /** Reads the journal (deep copies) when forced or when its revision or the definitions moved; the shown state refreshes always. */
     private void reload(boolean force) {
-        boolean changed = force;
         RosterDefinitions next = context.definitions().get();
-        if (next != definitions) { definitions = next; changed = true; }
         CharacterJournal journal = context.journal();
+        CharacterRecord read = null;
+        List<CharacterRecord> all = null;
+        List<AccountRecord> known = null;
+        long at;
         synchronized (journal) {
-            if (force || revision != journal.revision()) {
-                record = key == null ? null : journal.characterCopy(key);
-                records = journal.characters(); accounts = journal.accounts(); revision = journal.revision();
-                changed = true;
+            at = journal.revision();
+            if (force || at != revision || next != definitions) {
+                read = key == null ? null : journal.characterCopy(key); all = journal.characters(); known = journal.accounts();
             }
         }
+        if (all != null) loaded(key, read, all, known, next, at); else shown();
+    }
+
+    /**
+     * Shows one journal read made for {@code forKey}; a read for any other key is ignored. The tables, notes and actions refill
+     * only when the character, the journal revision or the definitions changed. The Death annotation tab follows the dead flag.
+     */
+    void loaded(String forKey, CharacterRecord read, List<CharacterRecord> all, List<AccountRecord> known, RosterDefinitions defs, long at) {
+        if (!Objects.equals(forKey, key)) return;
+        boolean changed = !Objects.equals(forKey, loadedKey) || at != revision || defs != definitions;
+        record = read; records = all; accounts = known; definitions = defs; revision = at; loadedKey = forKey;
         if (changed) fill();
+        tabs.refreshConditions();
+        shown();
+    }
+
+    /** On every refresh: the snapshot age (time advances after capture stops), the storage warning, the death panel and Goals. */
+    private void shown() {
         refreshTimeEvidence();
+        String problem = context.journal().storageProblem();
+        storage.setText(problem == null ? "" : problem);
+        storage.setVisible(problem != null);
         deathPanel.showRecord(record);
         planning.refresh(records, accounts, definitions);
     }
 
-    /** Saves the shown character's changed notes before another character replaces them. */
-    private void saveDraft() {
-        if (filledKey == null || record == null || !filledKey.equals(record.key) || Objects.equals(record.notes, notes.getText())) return;
-        context.journal().notes(filledKey, notes.getText()); record.notes = notes.getText();
+    /** Mark dead or Restore alive, then wait for the re-read that shows the new state: a second click never acts on the old one. */
+    private void mark(boolean dead) {
+        if (!ready() || record == null) return;
+        context.journal().markDead(record.key, dead);
+        loadedKey = null;
+        actions();
+        refresh();
+    }
+
+    /** Mark dead or Restore alive (whichever applies) and Save notes act only on the character this sheet has loaded. */
+    private void actions() {
+        boolean dead = record != null && record.dead, acts = ready() && record != null;
+        death.setVisible(!dead); restore.setVisible(dead);
+        death.setEnabled(acts); restore.setEnabled(acts); saveNotes.setEnabled(acts); notes.setEnabled(acts);
     }
 
     private void fill() {
         CharacterRecord r = record;
         statModel.setRowCount(0); exaltModel.setRowCount(0); metadataModel.setRowCount(0);
         equipment.showRecord(r, definitions);
-        death.setEnabled(r != null); saveNotes.setEnabled(r != null); notes.setEnabled(r != null);
-        cards.show(body, key != null && r == null ? UNAVAILABLE_CARD : TABS_CARD);
+        actions();
+        cards.show(body, ready() && r == null ? UNAVAILABLE_CARD : TABS_CARD);
         // A refresh never replaces an unsaved draft; only a different character does.
         if (r == null) { notes.setText(""); filledKey = null; }
         else if (!r.key.equals(filledKey)) { notes.setText(r.notes); filledKey = r.key; }
         if (r == null) {
             title.setText(key == null ? "Select a character" : "Character unavailable"); sprite.setIcon(null);
-            death.setText("Mark dead"); seen.setToolTipText(null);
+            seen.setToolTipText(null);
             return;
         }
         title.setText((r.name == null || r.name.isEmpty() ? "" : r.name + " · ") + className(r.classId) + " #" + r.characterId
             + " · " + (r.level == null ? "Level unknown" : "Level " + r.level) + (r.dead ? " • Marked dead manually" : ""));
         sprite.setIcon(Sprites.sprite(r.skin == null || r.skin == 0 ? r.classId : r.skin, 28));
         sprite.getAccessibleContext().setAccessibleName(className(r.classId));
-        death.setText(r.dead ? r.observedAgainAt > 0 ? "Observed again—restore?" : "Restore alive" : "Mark dead");
+        restore.setText(r.observedAgainAt > 0 ? "Observed again—restore?" : "Restore alive");
         seen.setToolTipText(r.source);
         String[] fields = {"class", "level", "skin", "fame", "seasonal", "created"};
         Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
@@ -3411,9 +4037,38 @@ Make these edits in `src/main/java/tomato/gui/character/CharacterJournalGUI.java
                      // Remembered only: the sheet selects (never shows) it when it next opens without an explicit tab, so a hidden tab stays hidden.
                      if (!savedSheetTab.isEmpty()) sheetTab = savedSheetTab; else if (values.containsKey("tab")) sheetTab = SHEET_TABS[tab];
      ```
-18. Delete lines 434–435, the javadoc `/** The selected detail tab as an index in the default order (0 while a rebuild has nothing selected). */` and `private int detailTabIndex() { … }`.
-19. Delete lines 440–451, the 12-line `refreshTimeEvidence(CharacterRecord r)` method with its javadoc `/** Time advances even after capture stops; … */`. It now lives in `CharacterSheet`.
-20. Delete lines 503–508 (`private static String evidence(CharacterRecord r, String key, boolean known) { … }`) and line 510 (`private static Object unknown(Object value) { … }`). `next`, `className`, `itemName`, `date`, `dateRenderer`, `model`, `table`, `reveal` and `note` stay, because the list and the account Exalts page use them.
+18. Delete lines 434–435:
+   ```java
+       /** The selected detail tab as an index in the default order (0 while a rebuild has nothing selected). */
+       private int detailTabIndex() { return Math.max(0, Arrays.asList(DETAIL_TABS).indexOf(detailTabs.selectedId())); }
+   ```
+19. Delete lines 440–451, the time-evidence method, which now lives in `CharacterSheet`:
+   ```java
+       /** Time advances even after capture stops; refresh just this text, not selection or editable drafts. */
+       private void refreshTimeEvidence(CharacterRecord r) {
+           if (r == null) return;
+           long age = r.lastSeen <= 0 ? -1 : Math.max(0, (clock.getAsLong() - r.lastSeen) / 1000);
+           String text = "Last observed alive " + date(r.lastObservedAlive) + "  •  Roster received " + date(r.rosterReceivedAt)
+               + "\nSnapshot update age: " + (age < 0 ? "Unknown" : age + "s") + " · "
+               + Arrays.stream(r.stats).filter(Objects::nonNull).count() + "/8 known stats · "
+               + Arrays.stream(r.equipment).filter(Objects::nonNull).count() + "/28 known slots (may be retained)"
+               + (r.dead ? "\nMarked dead manually " + date(r.diedAt) + "; preserved snapshot."
+                   + (r.observedAgainAt > 0 ? " Reported again " + date(r.observedAgainAt) + ". Restore explicitly to accept updates." : "") : "");
+           if (!seen.getText().equals(text)) seen.setText(text);
+       }
+   ```
+20. Delete lines 503–508 and line 510. `next`, `className`, `itemName`, `date`, `dateRenderer`, `model`, `table`, `reveal` and `note` stay, because the list and the account Exalts page use them.
+   ```java
+       private static String evidence(CharacterRecord r, String key, boolean known) {
+           if (!known) return "Not captured";
+           FieldCapture field = r.fields.get(key);
+           if (field == null) return "Legacy / provenance unknown";
+           return field.source + " · " + date(field.at) + (field.at > 0 && field.at < r.lastSeen ? " · Retained from earlier observation" : "");
+       }
+   ```
+   ```java
+       private static Object unknown(Object value) { return value == null ? "Unknown" : value; }
+   ```
 
 - [ ] **Step 7: Create `CharacterRosterView` and `CharactersRouteTarget`**
 
@@ -3472,9 +4127,10 @@ public final class CharacterRosterView extends JPanel {
         if (tab == null && list.sheetTab() != null) sheet.selectTab(list.sheetTab());
         sheetShowing = true; cards.show(this, SHEET);
     }
-    /** Shows the list, refreshed with changes made on the sheet (Mark dead, notes). */
+    /** Shows the list, refreshed with changes made on the sheet (Mark dead, notes); Back and "‹ Characters" keep a notes draft. */
     public void showList() {
         boolean fromSheet = sheetShowing;
+        if (fromSheet) sheet.saveDraft();
         sheetShowing = false; cards.show(this, LIST);
         list.refresh();
         if (fromSheet) list.focusRoster();
@@ -3598,6 +4254,7 @@ public class CharacterPanelGUI extends JPanel {
     private final CharacterJournalGUI journal;
     private final CharacterSheet sheet;
     private final CharacterRosterView roster;
+    private final List<RouteTarget> routeTargets;
     private final CustomizableTabs tabs = new CustomizableTabs("characters");
 
     public CharacterPanelGUI(TomatoData data) {
@@ -3611,16 +4268,18 @@ public class CharacterPanelGUI extends JPanel {
         journal.bindViewState(ViewStateStore.application());
         sheet = new CharacterSheet(context);
         roster = new CharacterRosterView(journal, sheet);
+        routeTargets = CharactersRouteTarget.of(roster); // built once: both targets share one Back origin
         // Routes are explicit navigation, so they may bring the Roster tab forward even when it is hidden.
         roster.onReveal(() -> { tabs.show("roster"); tabs.select("roster"); });
         tabs.add("roster", "Roster", roster).add("exalts", "Exalts", journal.exaltPanel()).add("pets", "Pets", new CharacterPetsGUI(data));
-        tabs.component().addChangeListener(e -> journal.refresh());
+        // Another Characters tab refreshes the list and keeps the sheet's notes draft.
+        tabs.component().addChangeListener(e -> { journal.refresh(); sheet.saveDraft(); });
         add(tabs.component(), BorderLayout.CENTER);
     }
 
     public void bindNavigator(Navigator navigator) { roster.bindNavigator(navigator); sheet.bindNavigator(navigator); }
     /** The CHARACTERS and CHARACTER_SHEET targets; TomatoGUI registers both with the shell navigator. */
-    public List<RouteTarget> routeTargets() { return CharactersRouteTarget.of(roster); }
+    public List<RouteTarget> routeTargets() { return routeTargets; }
     public CharacterRosterView roster() { return roster; }
     public CharacterSheet sheet() { return sheet; }
 
@@ -3663,14 +4322,20 @@ In `src/main/java/tomato/gui/TomatoGUI.java`:
            registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
                "Characters/plans.json; death notes in Characters/journal.json", () -> characterPanel.openGoals());
    ```
+3. In `closeWorkspace`, replace `            if (home != null) home.close();` with:
+   ```java
+               if (home != null) home.close();
+               if (characterPanel != null) characterPanel.sheet().saveDraft(); // a notes draft survives closing the workspace
+   ```
 
 - [ ] **Step 9: Migrate `CharacterTabsTest` (replace the file)**
 
 Assertion changes:
-- **Replace** because the tab group and its ids change as the contract requires: `ui.tabs.character-detail` → `ui.tabs.character`; `character-detail-tabs` → `character-tabs`; the saved order `goals,stats,equipment,…` → `goals,overview,gear,…`; the default order in test 2 uses the new ids; the first visible title "Stat maxing" → "Overview".
+- **Replace** because the sheet's tab group and ids replace the detail pane's: `ui.tabs.character-detail` → `ui.tabs.character`; `character-detail-tabs` → `character-tabs`; the saved order `goals,stats,equipment,…` → `goals,overview,gear,…`; the default order in test 2 uses the new ids; the first visible title "Stat maxing" → "Overview".
 - **Replace** because the side pane's `openGoals()` is gone: `panel.openGoals()` → `sheet.open(key, "goals")`. The explicit-tab route is covered in `CharactersRouteTargetTest`.
 - **Add beside**: "Restoring the list does not open the sheet". The tab is selected only when the sheet opens, through Enter.
-- The tab counts (6 Simple, 7 Analyst), the evidence index 5, "stays hidden", the "first visible selected" message and "does not rewrite the hidden set" are kept.
+- **Replace** the tab counts, 6 Simple and 7 Analyst, with 5 and 6: the fixture character is alive, so Death annotation is not offered (the sheet shows it only for a character marked dead).
+- The evidence index 5, "stays hidden", the "first visible selected" message and "does not rewrite the hidden set" are kept.
 
 ```java
 package tomato.gui.character;
@@ -3711,11 +4376,11 @@ public class CharacterTabsTest {
         String key = seed(journal);
         SwingUtilities.invokeAndWait(() -> {
             DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
-            CharacterSheet sheet = RosterViews.sheet(journal, () -> 5000, RosterDefinitions::empty);
+            CharacterSheet sheet = RosterFixtures.sheet(journal, () -> 5000, RosterDefinitions::empty);
             JTabbedPane tabs = find(sheet, JTabbedPane.class, "character-tabs");
-            assertEquals("Goals", tabs.getTitleAt(0)); assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+            assertEquals("Goals", tabs.getTitleAt(0)); assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
             DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
-            assertEquals(7, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));
+            assertEquals(6, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));
             sheet.open(key, null); tabs.setSelectedIndex(tabs.indexOfTab("Notes")); sheet.open(key, "goals");
             assertEquals("Goals", tabs.getTitleAt(tabs.getSelectedIndex()));
         });
@@ -3737,14 +4402,14 @@ public class CharacterTabsTest {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 PropertiesManager.setProperties(ORDER, "");
-                CharacterRosterView first = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+                CharacterRosterView first = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
                 first.listPanel().bindViewState(memory.states);
-                RosterViews.enter(first); first.sheet().tabs().select("notes"); first.listPanel().saveViewState();
+                RosterFixtures.enter(first); first.sheet().tabs().select("notes"); first.listPanel().saveViewState();
                 PropertiesManager.setProperties(ORDER, "overview,gear,exalts,goals,notes,evidence,death|notes");
-                CharacterRosterView restored = RosterViews.view(journal, () -> 5000, RosterDefinitions::empty);
+                CharacterRosterView restored = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
                 restored.listPanel().bindViewState(memory.states);
                 assertNull("Restoring the list does not open the sheet", restored.sheet().key());
-                RosterViews.enter(restored);
+                RosterFixtures.enter(restored);
                 JTabbedPane shown = find(restored.sheet(), JTabbedPane.class, "character-tabs");
                 assertEquals("The hidden Notes tab stays hidden", -1, shown.indexOfTab("Notes"));
                 assertEquals("The first visible tab stays selected", "Overview", shown.getTitleAt(shown.getSelectedIndex()));
@@ -3760,7 +4425,7 @@ public class CharacterTabsTest {
 - [ ] **Step 10: Migrate `CharacterJournalGuiTest` (replace the file)**
 
 Assertion changes:
-- **Replace** because Mark dead, Restore alive and Save notes moved to the sheet header and Notes tab. Each action now opens the row with Enter, acts on the sheet, then returns with `showList()`, which refreshes the list. The roster values asserted are unchanged: "Marked dead manually", "Last observed alive" and the saved notes.
+- **Replace** because Mark dead, Restore alive and Save notes moved to the sheet header and Notes tab (Mark dead and Restore alive are two buttons, one shown at a time, found by their text). Each action now opens the row with Enter, acts on the sheet, then returns with `showList()`, which refreshes the list. The roster values asserted are unchanged: "Marked dead manually", "Last observed alive" and the saved notes.
 - **Replace** because the first `JTabbedPane` is no longer the detail pane: `find(panel, JTabbedPane.class)` with `setSelectedIndex(1|2)` becomes `sheet.tabs().select("gear"|"exalts")`.
 - Every other assertion and screenshot is kept, with `frame.setContentPane(view)`.
 
@@ -3824,16 +4489,16 @@ public class CharacterJournalGuiTest {
         Map<Integer,int[]> ex = new HashMap<>(); ex.put(782,new int[]{75,50,30,15,5,1,0,74}); j.exalts(account,ex);
         SwingUtilities.invokeAndWait(() -> {
             VioletTheme.install();
-            CharacterRosterView view = RosterViews.view(j, System::currentTimeMillis, () -> definitions);
+            CharacterRosterView view = RosterFixtures.view(j, System::currentTimeMillis, () -> definitions);
             CharacterJournalGUI panel = view.listPanel(); CharacterSheet sheet = view.sheet();
             JTable roster = find(panel,JTable.class); assertEquals(6,roster.getRowCount());
             JTextField search = find(panel,JTextField.class);
             search.setText("["); assertEquals(0,roster.getRowCount());
             search.setText("12345"); assertEquals(6,roster.getRowCount()); search.setText("101"); assertEquals(1,roster.getRowCount());
             assertEquals(Integer.valueOf(6), roster.getValueAt(0,5));
-            RosterViews.enter(view); button(sheet,"Mark dead").doClick(); view.showList(); assertEquals("Marked dead manually",roster.getValueAt(0,2));
-            RosterViews.enter(view); button(sheet,"Restore alive").doClick(); view.showList(); assertEquals("Last observed alive",roster.getValueAt(0,2));
-            RosterViews.enter(view); JTextArea notes = notes(sheet); notes.setText("Finish Life and Wisdom"); button(sheet,"Save notes").doClick();
+            RosterFixtures.enter(view); button(sheet,"Mark dead").doClick(); view.showList(); assertEquals("Marked dead manually",roster.getValueAt(0,2));
+            RosterFixtures.enter(view); button(sheet,"Restore alive").doClick(); view.showList(); assertEquals("Last observed alive",roster.getValueAt(0,2));
+            RosterFixtures.enter(view); JTextArea notes = notes(sheet); notes.setText("Finish Life and Wisdom"); button(sheet,"Save notes").doClick();
             assertEquals("Finish Life and Wisdom",j.characters().stream().filter(r -> r.characterId == 101).findFirst().get().notes);
             view.showList(); search.setText(""); roster.getRowSorter().toggleSortOrder(6);
             assertEquals(900L, roster.getValueAt(0,6));
@@ -3844,7 +4509,7 @@ public class CharacterJournalGuiTest {
             try {
                 render(frame,"characters-desktop.png",1080);
                 render(frame,"characters-compact.png",680);
-                RosterViews.enter(view);
+                RosterFixtures.enter(view);
                 assertTrue(button(sheet,"Mark dead").getX() >= 0);
                 sheet.tabs().select("gear"); render(frame,"characters-equipment.png",1080);
                 sheet.tabs().select("exalts"); render(frame,"characters-class-exalts.png",1080);
@@ -3896,12 +4561,12 @@ public class CharacterJournalFreshnessRefreshTest {
         AtomicLong clock = new AtomicLong(100_000);
         tomato.backend.data.RosterDefinitions definitions = tomato.backend.data.RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView view = RosterViews.view(journal, clock::get, () -> definitions);
+            CharacterRosterView view = RosterFixtures.view(journal, clock::get, () -> definitions);
             CharacterJournalGUI panel = view.listPanel(); CharacterSheet sheet = view.sheet();
             JTable roster = named(panel, "character-roster", JTable.class);
             roster.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
             assertTrue(roster.getValueAt(roster.getSelectedRow(), 0).toString().endsWith("#7"));
-            RosterViews.enter(view);
+            RosterFixtures.enter(view);
             assertEquals(account + ":7", sheet.key());
             JTextArea notes = named(sheet, "character-notes", JTextArea.class);
             JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class);
@@ -3937,16 +4602,16 @@ public class CharacterJournalFreshnessRefreshTest {
         AtomicLong clock = new AtomicLong(120_000);
         tomato.backend.data.RosterDefinitions definitions = tomato.backend.data.RosterDefinitions.empty();
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView view = RosterViews.view(journal, clock::get, () -> definitions);
+            CharacterRosterView view = RosterFixtures.view(journal, clock::get, () -> definitions);
             CharacterSheet sheet = view.sheet();
-            RosterViews.enter(view);
+            RosterFixtures.enter(view);
             JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class);
             assertTrue(evidence.getText().contains("Snapshot update age: 20s"));
             clock.set(90_000); sheet.refresh();
             assertTrue(evidence.getText().contains("Snapshot update age: 0s"));
             view.showList();
             JTextField search = named(view.listPanel(), "character-search", JTextField.class);
-            search.setText("unknown-timestamp-only"); RosterViews.enter(view);
+            search.setText("unknown-timestamp-only"); RosterFixtures.enter(view);
             assertEquals(account + ":8", sheet.key());
             assertTrue(evidence.getText().contains("Snapshot update age: Unknown"));
             clock.set(200_000); sheet.refresh();
@@ -3993,11 +4658,11 @@ In `src/test/java/tomato/gui/character/CharacterViewStateTest.java`:
    ```
    with the following. This is a **replace**: the notes now live on the sheet, so the reopened B row is opened with Enter first. The selection assertions are kept.
    ```java
-               CharacterRosterView reopenedRoster = RosterViews.view(journal, () -> 5000, () -> definitions);
+               CharacterRosterView reopenedRoster = RosterFixtures.view(journal, () -> 5000, () -> definitions);
                CharacterJournalGUI reopened = reopenedRoster.listPanel(); reopened.bindViewState(memory.store);
                JTable table = named(reopened, "character-roster", JTable.class);
                assertEquals(0, table.getSelectedRow()); assertTrue(table.getValueAt(0, 1).toString().contains(b.substring(0, 6)));
-               RosterViews.enter(reopenedRoster);
+               RosterFixtures.enter(reopenedRoster);
                assertEquals("needle", named(reopenedRoster.sheet(), "character-notes", JTextArea.class).getText());
    ```
 3. In test 2, replace line 62:
@@ -4006,7 +4671,7 @@ In `src/test/java/tomato/gui/character/CharacterViewStateTest.java`:
    ```
    with:
    ```java
-               CharacterRosterView roster = RosterViews.view(journal, () -> 5000, () -> definitions);
+               CharacterRosterView roster = RosterFixtures.view(journal, () -> 5000, () -> definitions);
                CharacterJournalGUI view = roster.listPanel(); view.bindViewState(memory.store);
    ```
 4. Replace lines 72–74:
@@ -4017,12 +4682,12 @@ In `src/test/java/tomato/gui/character/CharacterViewStateTest.java`:
    ```
    with the following. This is a **replace**: the tab is chosen on the sheet, by id. The saved `tab` value is added beside and must still be the old index 3 (Notes), so a rollback to P2 reads the same tab.
    ```java
-               RosterViews.enter(roster); roster.sheet().tabs().select("notes");
+               RosterFixtures.enter(roster); roster.sheet().tabs().select("notes");
                named(roster.sheet(), "character-notes", JTextArea.class).setText("B unsaved draft"); view.saveViewState();
                JsonObject values = savedValues(memory);
                assertEquals("The saved index keeps its pre-sheet meaning (3 = Notes)", "3", values.get("tab").getAsString());
                assertEquals("notes", values.get("sheetTab").getAsString());
-               CharacterRosterView reopenedRoster = RosterViews.view(journal, () -> 5000, () -> definitions);
+               CharacterRosterView reopenedRoster = RosterFixtures.view(journal, () -> 5000, () -> definitions);
                CharacterJournalGUI reopened = reopenedRoster.listPanel(); reopened.bindViewState(memory.store);
    ```
 5. Replace lines 81–83:
@@ -4034,7 +4699,7 @@ In `src/test/java/tomato/gui/character/CharacterViewStateTest.java`:
    with the following. **Replace**: index 3 on `character-detail-tabs` becomes the `notes` id on the reopened sheet. **Add beside**: the sheet stays closed until it is opened. The notes values are kept.
    ```java
                assertNull("Restoring the list leaves the sheet closed", reopenedRoster.sheet().key());
-               RosterViews.enter(reopenedRoster);
+               RosterFixtures.enter(reopenedRoster);
                assertEquals("The restored tab is selected when the sheet opens", "notes", reopenedRoster.sheet().selectedTab());
                assertEquals("Account B notes", named(reopenedRoster.sheet(), "character-notes", JTextArea.class).getText());
                assertEquals("B unsaved draft", named(roster.sheet(), "character-notes", JTextArea.class).getText());
@@ -4056,8 +4721,8 @@ In `src/test/java/tomato/gui/character/CharacterViewStateTest.java`:
                JsonObject values = document.getAsJsonObject("last").getAsJsonObject("query").getAsJsonObject("facets").getAsJsonObject("values");
                values.addProperty("tab", "5"); values.remove("sheetTab");
                memory.values.put("ux.archive.characters-live-roster", document.toString());
-               CharacterRosterView roster = RosterViews.view(journal, () -> 5000, () -> definitions); roster.listPanel().bindViewState(memory.store);
-               RosterViews.enter(roster);
+               CharacterRosterView roster = RosterFixtures.view(journal, () -> 5000, () -> definitions); roster.listPanel().bindViewState(memory.store);
+               RosterFixtures.enter(roster);
                assertEquals("Index 5 was the side pane's Goals tab", "goals", roster.sheet().selectedTab());
            });
        }
@@ -4176,11 +4841,11 @@ In `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`:
            SwingUtilities.invokeAndWait(() -> assertFalse("The back link returns to the list", view.showingSheet()));
        }
    ```
-7. Replace the whole `backgroundSnapshotRefreshPreservesDraftAndSelectionSavesIt` method, lines 230–265 (from its `@Test` line through its closing `    }`). This is a **replace**: the draft now lives on the sheet and is saved when another character opens, not when the selection changes.
+7. Replace the whole `backgroundSnapshotRefreshPreservesDraftAndSelectionSavesIt` method, lines 230–265 (from its `@Test` line through its closing `    }`). This is a **replace**: the draft now lives on the sheet and is saved when the sheet hides (Back here) or another character opens, not when the selection changes.
    - Kept: the background capture and save off the EDT, "Journal work must not wait for EDT", the preserved draft and selection, the actual identity change, the explicit save and the reopened-journal persistence.
-   - **Add beside**: selecting another row alone saves nothing.
+   - **Add beside**: a refresh saves nothing; Back saves the draft to its own character; opening another character never moves it. Each open waits for `sheet.ready()` (at once here; from Task 5 the sheet builds off the EDT).
    ```java
-       @Test public void backgroundSnapshotRefreshPreservesDraftAndOpeningAnotherCharacterSavesIt() throws Exception {
+       @Test public void backgroundSnapshotRefreshPreservesDraftAndLeavingTheSheetSavesIt() throws Exception {
            populate();
            AtomicReference<Throwable> failure = new AtomicReference<>();
            AtomicReference<String> draftKey = new AtomicReference<>(), savedKey = new AtomicReference<>();
@@ -4190,6 +4855,7 @@ In `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`:
                draftKey.set(keyForSelectedCharacter(roster));
                roster.getActionMap().get("open-character").actionPerformed(null);
                assertEquals(draftKey.get(), sheet.key());
+               tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
                JTextArea notes = named(sheet, "character-notes", JTextArea.class);
                notes.setText("Draft survives capture and background save");
                Thread capture = new Thread(() -> {
@@ -4202,15 +4868,18 @@ In `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`:
                panel.refresh(); sheet.refresh();
                assertEquals("A background save does not move the sheet", draftKey.get(), sheet.key());
                assertEquals("Draft survives capture and background save", notes.getText());
+               assertEquals("A refresh saves nothing", LONG_NOTES, notesFor(journal, draftKey.get()));
                view.showList();
+               assertEquals("Back saves the draft to its own character", "Draft survives capture and background save", notesFor(journal, draftKey.get()));
                assertEquals("The list keeps its selection", draftKey.get(), keyForSelectedCharacter(roster));
                int differentRow = (roster.getSelectedRow() + 1) % roster.getRowCount();
                roster.setRowSelectionInterval(differentRow, differentRow);
                savedKey.set(keyForSelectedCharacter(roster));
                assertNotEquals("Exercise an actual identity change after last-seen reordering", draftKey.get(), savedKey.get());
-               assertEquals("Selecting another row alone saves nothing", LONG_NOTES, notesFor(journal, draftKey.get()));
                roster.getActionMap().get("open-character").actionPerformed(null);
-               assertEquals("Opening another character saves the draft", "Draft survives capture and background save", notesFor(journal, draftKey.get()));
+               tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
+               assertEquals("Opening another character never moves the draft", "Draft survives capture and background save", notesFor(journal, draftKey.get()));
+               assertEquals(LONG_NOTES, notes.getText());
                notes.setText("Explicitly saved notes"); button(sheet, "Save notes").doClick();
                assertEquals("Explicitly saved notes", notesFor(journal, savedKey.get()));
            });
@@ -4233,12 +4902,12 @@ In `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`:
   ```
   with the following. This is a **replace**: the goals, equipment and death surfaces are now on the sheet of the one saved character. Every surface assertion and screenshot name is kept.
   ```java
-                      CharacterRosterView panel = RosterViews.view(journal, () -> 1700000001000L, () -> definitions, plans);
+                      CharacterRosterView panel = RosterFixtures.view(journal, () -> 1700000001000L, () -> definitions, plans);
                       frame.setContentPane(panel); frame.setSize(1080, 800); frame.setVisible(true); frame.validate();
-                      RosterViews.enter(panel); frame.validate();
+                      RosterFixtures.enter(panel); frame.validate();
                       JTabbedPane tabs = named(panel, "character-tabs", JTabbedPane.class);
   ```
-- On line 46, replace `tabs.indexOfTab("Equipment & inventory")` with `tabs.indexOfTab("Gear")`. **Replace**: the contract retitles the tab. The line's 28-row assertion is kept.
+- On line 46, replace `tabs.indexOfTab("Equipment & inventory")` with `tabs.indexOfTab("Gear")`. **Replace**: the sheet titles the tab Gear. The line's 28-row assertion is kept.
 
 `src/test/java/tomato/gui/character/CharacterRosterStateTest.java`, replace lines 60–69 (the body of `ageBoundaryChangesMembershipWithoutWritingDraftToAnotherCharacter` inside `invokeAndWait`):
 ```java
@@ -4253,20 +4922,20 @@ In `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`:
             assertEquals("", journal.characters().stream().filter(r -> r.characterId == 2).findFirst().get().notes);
         });
 ```
-with the following. This is a **replace**: the draft is typed on #1's sheet, and a membership change in the list no longer writes it, which is **added beside**. Opening #2 saves the draft to #1 and never to #2, which keeps the two final assertions.
+with the following. This is a **replace**: the draft is typed on #1's sheet, and Back saves it to #1 (**added beside**). The membership change and opening #2 never write it to #2, which keeps the two final assertions.
 ```java
         SwingUtilities.invokeAndWait(() -> {
-            CharacterRosterView roster = RosterViews.view(journal, clock::get, () -> definitions);
+            CharacterRosterView roster = RosterFixtures.view(journal, clock::get, () -> definitions);
             CharacterJournalGUI view = roster.listPanel();
             JTable table = named(view, "character-roster", JTable.class);
             for (int i = 0; i < table.getRowCount(); i++) if (table.getValueAt(i,0).toString().endsWith("#1")) table.setRowSelectionInterval(i,i);
-            RosterViews.enter(roster);
+            RosterFixtures.enter(roster);
             named(roster.sheet(), "character-notes", JTextArea.class).setText("Draft for character one");
             roster.showList();
+            assertEquals("Back saves the draft to its own character", "Draft for character one", journal.characters().stream().filter(r -> r.characterId == 1).findFirst().get().notes);
             named(view, "character-facet-8", JSpinner.class).setValue(1); named(view, "character-facet-7", JComboBox.class).setSelectedIndex(1);
             clock.set(3601000); view.refresh(); assertEquals(1, table.getRowCount()); assertTrue(table.getValueAt(0,0).toString().endsWith("#2"));
-            assertEquals("A list membership change saves no draft", "", journal.characters().stream().filter(r -> r.characterId == 1).findFirst().get().notes);
-            RosterViews.enter(roster);
+            RosterFixtures.enter(roster);
             assertEquals("Draft for character one", journal.characters().stream().filter(r -> r.characterId == 1).findFirst().get().notes);
             assertEquals("", journal.characters().stream().filter(r -> r.characterId == 2).findFirst().get().notes);
         });
@@ -4287,6 +4956,7 @@ with the following. This is a **replace**: the draft is typed on #1's sheet, and
                 .withPayload(new tomato.gui.glance.character.SheetFocus(unknown, null))));
             assertEquals(3, shell.getSelectedPage());
             assertTrue(roster.showingSheet());
+            tomato.gui.activity.SnapshotTestSupport.await(roster.sheet()::ready); // at once here; from Task 5 the sheet reads off the EDT
             assertTrue("An unknown key shows the unavailable state",
                 named(roster, "character-sheet-unavailable", tomato.gui.kit.EmptyState.class).isVisible());
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.CHARACTERS)));
@@ -4311,7 +4981,7 @@ with the following. This is a **replace**: the draft is typed on #1's sheet, and
 
 - [ ] **Step 15: Run the new tests**
 
-Run: `GRADLE test --tests "tomato.gui.glance.character.CharacterSheetTest" --tests "tomato.gui.character.CharacterRosterViewTest" --tests "tomato.gui.character.CharactersRouteTargetTest"`
+Run: `GRADLE test --tests "tomato.gui.glance.character.CharacterSheetTest" --tests "tomato.gui.character.CharacterRosterViewTest" --tests "tomato.gui.character.CharactersRouteTargetTest" --tests "tomato.gui.kit.CustomizableTabsTest"`
 Expected: PASS.
 
 - [ ] **Step 16: Sweep for detail-pane leftovers, then run the Characters and navigation neighbourhood**
@@ -4321,97 +4991,39 @@ Expected: only these two matches. Any other match is a missed migration.
 - `src/test/java/tomato/gui/dps/DpsInspectMenuTest.java` ("character-details dialog", unrelated).
 - The `assertNull(… "character-roster-detail-split" …)` in `CharacterJournalLayoutTest`.
 
-Run: `GRADLE test --tests "tomato.gui.character.*" --tests "tomato.gui.glance.character.*" --tests "tomato.gui.history.FilterBarEvidenceTest" --tests "tomato.gui.route.*" --tests "tomato.ShellRouteRegistrationTest" --tests "tomato.gui.chat.ShellHookIntegrationTest" --tests "ui.WorkspaceUiTest" --tests "ui.WorkspaceShellNavigationTest"`
+Run: `GRADLE test --tests "tomato.gui.character.*" --tests "tomato.gui.glance.character.*" --tests "tomato.gui.kit.*" --tests "tomato.gui.history.FilterBarEvidenceTest" --tests "tomato.gui.route.*" --tests "tomato.ShellRouteRegistrationTest" --tests "tomato.gui.chat.ShellHookIntegrationTest" --tests "ui.WorkspaceUiTest" --tests "ui.WorkspaceShellNavigationTest"`
 Expected: PASS. Check these screenshots under `build/p3a/ui-test`:
-- `screenshots/wave4/characters/goals-populated.png` shows the sheet: "‹ Characters", the title line and Restore alive above the tabs.
+- `screenshots/wave4/characters/goals-populated.png` shows the sheet: "‹ Characters", the title line and Restore alive above the tabs, with Death annotation among them (the fixture character is marked dead).
 - `characters-desktop.png` shows the list without a side pane.
 
 - [ ] **Step 17: Commit**
 
 ```powershell
-git add src/main/java/tomato/gui/route/Destination.java src/main/java/tomato/gui/modern/WorkspaceShell.java src/main/java/tomato/gui/glance/character/SheetFocus.java src/main/java/tomato/gui/glance/character/SheetContext.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/gui/character/CharacterJournalGUI.java src/main/java/tomato/gui/character/CharacterRosterView.java src/main/java/tomato/gui/character/CharactersRouteTarget.java src/main/java/tomato/gui/character/CharacterPanelGUI.java src/main/java/tomato/gui/TomatoGUI.java src/test/java/tomato/gui/character/RosterViews.java src/test/java/tomato/gui/glance/character/CharacterSheetTest.java src/test/java/tomato/gui/character/CharacterRosterViewTest.java src/test/java/tomato/gui/character/CharactersRouteTargetTest.java src/test/java/tomato/gui/character/CharacterTabsTest.java src/test/java/tomato/gui/character/CharacterJournalGuiTest.java src/test/java/tomato/gui/character/CharacterJournalFreshnessRefreshTest.java src/test/java/tomato/gui/character/CharacterViewStateTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java src/test/java/tomato/gui/character/CharacterWaveFourEvidenceTest.java src/test/java/tomato/gui/character/CharacterRosterStateTest.java src/test/java/tomato/gui/history/FilterBarEvidenceTest.java src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java src/test/java/tomato/ShellRouteRegistrationTest.java
-git commit -m "Open characters on a full-page sheet and retire the roster side pane" -m "Enter or a double-click on a roster row opens CHARACTER_SHEET through the navigator; Back and the sheet's back link return to the list as it was. The side pane's tabs move unchanged into CustomizableTabs(character); Mark dead moves to the sheet header." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add src/main/java/tomato/gui/route/Destination.java src/main/java/tomato/gui/modern/WorkspaceShell.java src/main/java/tomato/gui/kit/CustomizableTabs.java src/test/java/tomato/gui/kit/CustomizableTabsTest.java src/main/java/tomato/gui/glance/character/SheetFocus.java src/main/java/tomato/gui/glance/character/SheetContext.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/gui/character/CharacterJournalGUI.java src/main/java/tomato/gui/character/CharacterRosterView.java src/main/java/tomato/gui/character/CharactersRouteTarget.java src/main/java/tomato/gui/character/CharacterPanelGUI.java src/main/java/tomato/gui/TomatoGUI.java src/test/java/tomato/gui/character/RosterFixtures.java src/test/java/tomato/gui/glance/character/CharacterSheetTest.java src/test/java/tomato/gui/character/CharacterRosterViewTest.java src/test/java/tomato/gui/character/CharactersRouteTargetTest.java src/test/java/tomato/gui/character/CharacterTabsTest.java src/test/java/tomato/gui/character/CharacterJournalGuiTest.java src/test/java/tomato/gui/character/CharacterJournalFreshnessRefreshTest.java src/test/java/tomato/gui/character/CharacterViewStateTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java src/test/java/tomato/gui/character/CharacterWaveFourEvidenceTest.java src/test/java/tomato/gui/character/CharacterRosterStateTest.java src/test/java/tomato/gui/history/FilterBarEvidenceTest.java src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java src/test/java/tomato/ShellRouteRegistrationTest.java
+git commit -m "Open characters on a full-page sheet and retire the roster side pane" -m "Enter or a double-click on a roster row opens CHARACTER_SHEET through the navigator; Back and the sheet's back link return to the list as it was. The side pane's tabs move into CustomizableTabs(character), where Death annotation is a conditional tab shown only for a character marked dead. Mark dead moves to the sheet header; notes drafts are saved whenever the sheet hides; provenance is Analyst-only and storage problems show a warn banner." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-#### Notes for the assembler (Task 4)
-
-**Decisions to add to the plan's Decisions section:**
-- **New tab group, no migration.** The sheet's tabs are `CustomizableTabs("character")`, saved as `ui.tabs.character`. A saved `ui.tabs.character-detail` order or hidden set is not migrated: the ids changed and the old group is simply no longer read.
-- **Saved tab kept across the move.** The roster view state keeps `tab`, the old index into stats/equipment/exalts/notes/evidence/goals/death, so a rollback to P2 still reads a valid tab.
-  - It gains `sheetTab`, the id, so Build and later tabs are remembered.
-  - Restore prefers `sheetTab` and falls back to `SHEET_TABS[tab]`.
-  - Either value is only `select()`ed, and only when the sheet opens without an explicit tab.
-- **The "‹ Characters" link always leads to the list** (spec §6.2 "breadcrumb back to gallery").
-  - When the Back entry pushed by this open is still on top and returns to the list, the link calls `navigator.back()`, which restores the list's selection and scroll and pops the entry.
-  - Otherwise, for example when opened from Home, it switches to the list in place, and shell Back still returns to Home.
-- **Notes drafts.** A draft is saved when another character's sheet opens, not when the list selection changes, because the list no longer shows notes. Refreshes and background saves never replace a draft.
-- **Journal reads stay on the EDT for now.** The moved tabs read the journal on the EDT when its revision moves: `characterCopy` for the sheet's record, plus `characters()`/`accounts()` for Goals. This matches the side pane. Task 5 moves the sheet's model to an off-EDT build.
-- **The outer tab is not restored on Back.** Back does not restore the outer Roster/Exalts/Pets tab (as in P2, whose retained target captured nothing). Routes into Characters bring the Roster tab forward.
-- **Moved code keeps its colors.** The moved "Stat maxing" renderer keeps `ContentStyle.color("mint"/"violet")` until Task 5 replaces the table.
-
-**Deviations from the contract:**
-- **`SheetContext` has six components.** They are `data, journal, definitions, mode, clock, plans`, plus the contract's 4-argument constructor (system clock, `PlanningStore.shared()`).
-  - Reason: the moved tabs need the snapshot-age clock, which fixtures control, and the goals store, and the existing tests inject both.
-  - All components are non-null. Tests pass `new TomatoData()`.
-- **`CharactersRouteTarget` is built by `CharactersRouteTarget.of(view)`,** which returns two targets, one per destination, sharing one origin.
-  - Reason: `RouteTarget` has one `destination()`, and `ShellNavigator` matches on it.
-  - `TomatoGUI` registers the list returned by `CharacterPanelGUI.routeTargets()`.
-- **Sheet tab titles.** "Gear" and "Exalts" replace "Equipment & inventory" and "Class exalts", following the contract's titles. The Overview tab hosts the moved "Stat maxing" table.
-
-**Facts Tasks 5–10 need:**
-- **Where the sheet is built.**
-  - `CharacterPanelGUI(TomatoData)` builds `new SheetContext(data, data.characterJournal(), RosterDefinitions::current, DisplayModeModel.application())`. `TomatoGUI.createWorkspace` calls it at `characterPanel = new CharacterPanelGUI(data);` (line 99).
-  - `TomatoGUI` reaches the sheet as `characterPanel.sheet()`, the Roster view as `characterPanel.roster()` and the list as `characterPanel.roster().listPanel()`.
-- **Replacing a tab (Tasks 5–7, same package).** Call `setTab("overview"|"gear"|"exalts", content)`. It keeps the id, title, order and hidden state.
-  - The moved components stay reachable through `statTable()`, `equipmentPanel()` and `exaltTable()`, for the Analyst `Collapsible`s. Build the new content, which may wrap those components, before calling `setTab`.
-  - `fill()` still fills the moved models on every journal change. Task 7 may stop filling `exaltModel` once the table is gone.
-- **Adding Build (Task 8).** In the constructor chain, insert `.add("build", "Build", slot("build", content))` right after the `exalts` line, so the default order is overview, gear, exalts, build, goals and so on. `setTab("build", …)` then works.
-  - Do not add `build` to `CharacterJournalGUI.SHEET_TABS`. That array only maps the legacy indices 0–6. `sheetTab` remembers `build` by id.
-  - To hand the single `MyInfoGUI` over from `TomatoGUI`, add a public method on `CharacterSheet`, because `setTab` is package-private.
-- **Refresh and threading.** Everything is EDT only.
-  - `open(key, tab)` always re-reads the journal and refills.
-  - `refresh()` runs on a 1 s Swing timer while the sheet shows, on its hierarchy show event, and after Mark dead or Save notes. It re-reads when `journal.revision()` or the definitions object changed, then updates the snapshot age, the death panel and Goals. It is skipped while hidden, except when the sheet is not displayable, as in headless fixtures.
-  - Per-record UI goes in `fill()`. Hook the off-EDT `SheetModelBuilder` into `reload()`: build when the revision, definitions or live revision moves, and apply the model on the EDT.
-  - `context.mode()` is available. The tab strip itself follows `DisplayModeModel.application()`, because the mode-taking `CustomizableTabs` constructor is package-private.
-- **Opening a sheet (Tasks 8 and 10).**
-  - Use `navigator.open(Route.to(Destination.CHARACTER_SHEET).withPayload(new SheetFocus(key, "overview")))`, checking `SheetFocus.validKey(key)` first.
-  - Keys are `"<64 hex>:<id>"`, as in `CharacterRecord.key`.
-  - A plain `Route.to(Destination.CHARACTERS)` shows the list.
-  - An unknown key shows `CharacterSheet.UNAVAILABLE`.
-- **The gallery (Task 9).**
-  - `CharacterJournalGUI.visibleRows()` returns the filtered rows in the table's sort order. `addRowsListener(Runnable)` fires after every `filter()` and after a user sort.
-  - To open a character from the gallery, call the list's opener. Inside `CharacterJournalGUI`, that is the `openSheet` consumer, set by `CharacterRosterView` to its package-private `openCharacter(String)`.
-  - The table sits in the list page's body: `ContentStyle.page(top, ContentStyle.tableScroll(roster, 3), footer)`, in the Step 6 edit 8 block. Swap in a table/gallery card there.
-- **Component names tests can rely on.**
-  - Page: `character-roster-view` (cards `list`/`sheet`), `character-sheet`, `character-sheet-scroll`, `character-tabs` and the slot panels `character-tab-overview|gear|exalts`.
-  - Header: `character-sheet-back`, `character-sheet-title`, `character-sheet-sprite`, `character-sheet-death` and `character-snapshot-evidence`.
-  - Notes: `character-notes` and `character-notes-save`.
-  - Unavailable state: `character-sheet-unavailable` and `character-sheet-unavailable-back`.
-  - The roster table's Enter action is `open-character`.
-- **Test fixture.** `src/test/java/tomato/gui/character/RosterViews` provides `view`/`sheet`/`enter`/`named` for the `tomato.gui.character` tests. It binds `Navigator.NONE`.
-
 ### Task 5: Sheet header, Overview tab, `SheetModel`/`SheetModelBuilder`, `SheetPresenter`
 
 This task replaces the moved "Stat maxing" table (Task 4) with the Overview tab and fills the header.
-- **Header.** A 54 px skin sprite, the name, "class · level · fame", and chips for maxed, "Playing now", seasonal, marked dead and last seen.
+- **Header.** A 54 px skin sprite, the name, "class · level · fame", and chips for maxed, "Playing now", seasonal, marked dead and "Played <ago>" (the last time in game; "Seen <ago>" only for a character never played).
 - **Overview.** Eight base-versus-cap bars with a "+N" boost only while playing, then a needs line per stat with vault counts only when known. Below those, four gear slots with tier labels, the class exalt summary, and the death annotation when dead.
 - **Stat table.** It stays in Analyst mode as `Collapsible("character-stat-table", …)`.
-- **Model.** Built off the EDT by a pure builder and applied by `SheetPresenter`.
+- **Model.** Built off the EDT by a pure builder and applied by `SheetPresenter`, which also reads the journal for the sheet's own tabs (notes, Goals, death, evidence), so the sheet copies nothing on the EDT. Opening a character clears what is shown and says "Loading…" until that character's result applies; a result for a key the sheet no longer shows is dropped, and a failed build shows a warn banner (spec §7). Mark dead, Restore alive and Save notes act only once the header shows the opened character.
+- **Times (spec §5.7).** A vault count shows its age ("3 in vault (2 h ago)") and is dimmed once a day old.
 
 **Files:**
 - Create: `src/main/java/tomato/gui/glance/character/SheetModel.java`, `SheetModelBuilder.java`, `SheetViews.java`, `SheetHeader.java`, `OverviewTab.java`, `SheetPresenter.java`
-- Modify: `src/main/java/tomato/gui/glance/home/HomeModelBuilder.java` (four helpers become public), `src/main/java/tomato/gui/glance/character/CharacterSheet.java` (Task 4's file: presenter hooks; the moved stat table is removed)
-- Create test: `src/test/java/tomato/gui/glance/character/SheetFixtures.java` (used by Tasks 5–10), `SheetModelBuilderTest.java`, `OverviewTabTest.java`
+- Modify: `src/main/java/tomato/gui/glance/home/HomeModelBuilder.java` (four helpers become public), `src/main/java/tomato/gui/glance/character/CharacterSheet.java` (Task 4's file, replaced: the presenter reads the journal and fills the header; the moved stat table is removed)
+- Create test: `src/test/java/tomato/gui/glance/character/SheetFixtures.java` (used by Tasks 5–8), `SheetModelBuilderTest.java`, `OverviewTabTest.java`
+- Modify tests (replace, Step 14): Task 4's `src/test/java/tomato/gui/glance/character/CharacterSheetTest.java` (the whole file) and `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`
 
 **Interfaces:**
 - Consumes:
-  - **Task 4 (contract):** `CharacterSheet(SheetContext)`, `open(String key, String tab)`, `key()`, `selectedTab()`, and `SheetContext(TomatoData data, CharacterJournal journal, Supplier<RosterDefinitions> definitions, DisplayModeModel mode)`.
-  - **Task 4 (assumed package-private `CharacterSheet` API; the assembler reconciles):**
-    - `void setTab(String id, JComponent content)` replaces a tab's content and keeps its title, order and Analyst flag.
-    - `void addTab(String id, String title, JComponent content, int index)`, used in Task 8.
-    - `void setIdentity(JComponent identity)` replaces the header's name/class/level block and keeps `character-sheet-back` and the Mark dead / Restore alive button.
+  - **Task 4:** `CharacterSheet(SheetContext)`, `open(String key, String tab)`, `key()`, `selectedTab()`, and `SheetContext`'s `data()`, `journal()`, `definitions()` and `mode()`.
+  - **Task 4, package-private:** `CharacterSheet.setTab(String id, JComponent content)` replaces a slot tab's content (overview, gear, exalts) and keeps its title, order and hidden state.
   - **Task 2:** `CharacterJournal.characterCopy(String)`, `CharacterRecord.hasBackpack`, `AccountRecord.vaultPotions` (`int[8]`, canonical, null = unknown), `AccountRecord.exaltSeenByClass` (`Map<Integer, Long>`).
   - **Task 3:** `KitText.caption/body/emphasis(String)`, `new KitText(String, Font, Tokens.Role)` and `role(Tokens.Role)` (mirroring `HomeViews.Text`), `KitLayouts.stack(int, JComponent...)`, `ItemTiers.label(int)` ("" when unknown).
   - **Existing:**
@@ -4420,11 +5032,12 @@ This task replaces the moved "Stat maxing" table (Task 4) with the Overview tab 
     - Kit: `StatBar`, `ItemSlot`, `Chip`, `Card`, `Collapsible`, `DisplayValue`, `DisplayModeModel.bind`, `Sprites`, `KitFormat.relative`, `Tokens`, `Type`.
     - `ContentStyle.controls/responsiveGrid/table/tableScroll`, `DisplayFormat`.
 - Produces:
-  - **`public record SheetModel(String key, Identity identity, Stats stats, Gear gear, Exalts exalts, Death death, Live live)`** with nested `Identity`, `Stats`, `Gear`, `Exalts` (`known()`), `Death` and `Live` (fields as in Step 4). −1 means unknown; a slot is an item ID > 0, 0 for empty, −1 for not captured.
-  - **`SheetModelBuilder`:** `public static SheetModel build(CharacterRecord, AccountRecord, LiveCharacter.Snapshot, RosterDefinitions, long now)` (null for a null record); a package-private overload with `IntFunction<List<String>> dungeons`; `toNext(int)` and `summary(List<Integer>)`.
-  - **`SheetHeader`** (`character-sheet-identity`): `apply(SheetModel.Identity)`; names `character-sheet-{sprite,name,meta,maxed,playing,seasonal,dead,seen}`; accessible name "Sharkbait, Wizard level 20, 5 of 8 maxed[, playing now]", description "Last seen …".
-  - **`OverviewTab`** (`character-overview`): `apply(SheetModel)`; names `character-overview-{bar,value,boost}-i`, `-need-N`, `-needs-unknown`, `-maxed`, `-slot-i`, `-tier-i`, `-exalts`, `-death`, `-death-text`, plus `character-stat-table`/`character-stat-rows`.
-  - **Helpers:** `SheetViews` (`STATS`, `SLOTS`, `named`, `clear`, `row`, `beside`, `card`, `at`, `scroll`); `SheetPresenter(CharacterSheet, SheetContext)` with `open(String)` and `static current(LiveCharacter, long)`; public `HomeModelBuilder.potionsNeeded/maxed/stillCurrent/statLabel`.
+  - **`public record SheetModel(String key, Identity identity, Stats stats, Gear gear, Exalts exalts, Death death, Live live)`** with nested `Identity` (with `lastPlayed`), `Stats` (with `vaultObservedAt`), `Gear`, `Exalts` (`known()`), `Death` and `Live` (fields as in Step 4). −1 means unknown; a slot is an item ID > 0, 0 for empty, −1 for not captured.
+  - **`SheetModelBuilder`:** `public static SheetModel build(CharacterRecord, AccountRecord, LiveCharacter.Snapshot, RosterDefinitions, long now)` (null for a null record); a package-private overload with `IntFunction<List<String>> dungeons`; `toNext(int)` and `summary(List<Integer>)`; `public static LiveCharacter.Snapshot inGame(LiveCharacter, long now)`, the character in game with Home's map-change grace (the gallery's "Playing now" uses it too).
+  - **`SheetHeader`** (`character-sheet-identity`): `apply(SheetModel.Identity)`; names `character-sheet-{sprite,name,meta,maxed,playing,seasonal,dead,seen}`; accessible name "Sharkbait, Wizard level 20, 5 of 8 maxed[, playing now]", description "Played …" (or "Seen …").
+  - **`OverviewTab`** (`character-overview`): `apply(SheetModel)`; names `character-overview-{bar,value,boost}-i`, `-needs` (the row of need labels), `-need-N`, `-needs-unknown`, `-maxed`, `-slot-i`, `-tier-i`, `-exalts`, `-death`, `-death-text`, plus `character-stat-table`/`character-stat-rows`.
+  - **`CharacterSheet`** (Step 13 replaces Task 4's file; public API unchanged): package-private `setIdentity(JComponent)` (the identity block beside Mark dead / Restore alive), `loaded(String key, CharacterRecord, List<CharacterRecord>, List<AccountRecord>, RosterDefinitions, long revision)` (a read for another key is ignored) and `failed(RuntimeException)`; the banner `character-sheet-status` ("Loading…", or warn after a failed build). Task 4's title line, sprite and moved stat table are removed.
+  - **Helpers:** `SheetViews` (`STATS`, `SLOTS`, `named`, `clear`, `row`, `beside`, `card`, `at`, `scroll`); `SheetPresenter(CharacterSheet, SheetContext)` with `open(String)`, `refresh()` and `model()`; public `HomeModelBuilder.potionsNeeded/maxed/stillCurrent/statLabel`.
   - **Test fixture `SheetFixtures`:** `WIZARD`, `PRIEST`, `ACCOUNT`, `KEY`, `NOW`, `HOUR`, `defs()`, `record()`, `account(int...)`, `bonus(...)`, `live(...)`, `model(...)`, `seed(journal)`, `inject(data, journal)`, `find/count/named`.
 
 - [ ] **Step 1: Write the fixture and the failing builder test**
@@ -4543,6 +5156,7 @@ import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.modern.DisplayFormat;
@@ -4553,8 +5167,11 @@ import static tomato.gui.glance.character.SheetFixtures.*;
 public class SheetModelBuilderTest {
     @Test public void potionsMaxedAndNeedsUseCapsAndVaultCounts() {
         CharacterJournal.AccountRecord account = account();
-        account.vaultPotions = new int[]{0, 0, 0, 3, 0, 0, 0, 7};
-        SheetModel m = model(record(), account, null);
+        account.vaultPotions = new int[]{0, 0, 0, 3, 0, 0, 0, 7}; account.vaultPotionsObservedAt = NOW - 3 * HOUR;
+        CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE;
+        SheetModel m = model(regular, account, null);
+        assertEquals("The vault count keeps its time", NOW - 3 * HOUR, m.stats().vaultObservedAt());
+        assertNull("Only the regular vault is recorded: a seasonal character shows no vault count", model(record(), account, null).stats().vault());
         assertEquals(KEY, m.key()); assertEquals(5, m.identity().maxed()); assertEquals(0, m.stats().unknown());
         assertEquals(List.of(720, 252, 75, 25, 50, 75, 40, 60), m.stats().caps());
         assertEquals(List.of(0, 0, 0, 5, 0, 0, 3, 12), m.stats().needed());
@@ -4563,6 +5180,7 @@ public class SheetModelBuilderTest {
         assertEquals("Captured total minus boost · " + DisplayFormat.formatTimestamp(NOW - 2 * HOUR), m.stats().evidence().get(3));
         assertFalse(m.identity().playing()); assertEquals(Collections.nCopies(8, 0), m.stats().boosts());
         assertEquals(DisplayValue.State.STALE, m.identity().fame().state); assertEquals(NOW - 2 * HOUR, m.identity().lastSeen());
+        assertEquals("Never observed in game", 0, m.identity().lastPlayed());
     }
 
     @Test public void unknownIsNeverShownAsZero() {
@@ -4594,7 +5212,7 @@ public class SheetModelBuilderTest {
 
     @Test public void liveValuesApplyOnlyWhileThisCharacterIsPlaying() {
         SheetModel playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null));
-        assertTrue(playing.identity().playing()); assertEquals(NOW, playing.identity().lastSeen());
+        assertTrue(playing.identity().playing()); assertEquals(NOW, playing.identity().lastSeen()); assertEquals(NOW, playing.identity().lastPlayed());
         assertEquals("Boost is total minus base", List.of(80, 48, 15, 10, 10, 5, 13, 22), playing.stats().boosts());
         assertEquals("Live equipped slots are the freshest", List.of(2_001, 0, 2_003, 2_004), playing.gear().slots().subList(0, 4));
         assertEquals(new SheetModel.Live(KEY, "Sharkbait"), playing.live());
@@ -4618,6 +5236,19 @@ public class SheetModelBuilderTest {
         CharacterJournal.CharacterRecord unnamed = record(); unnamed.name = null;
         assertEquals("Wizard #7", model(unnamed, account(), null).identity().name());
         assertNull("A key the journal does not have builds nothing", model(null, account(), null));
+    }
+
+    @Test public void aMapChangesBriefClearStillCountsAsInGame() {
+        LiveCharacter live = new LiveCharacter();
+        LiveCharacter.Snapshot wizard = live(ACCOUNT, 7, "Sharkbait", null);
+        live.publish(wizard);
+        assertSame(wizard, SheetModelBuilder.inGame(live, NOW));
+        live.clear(NOW, LiveCharacter.Boundary.TRANSIENT);
+        assertSame("Within Home's grace a map change is not leaving the game", wizard, SheetModelBuilder.inGame(live, NOW + 1_000));
+        assertNull("After it, nobody is in game", SheetModelBuilder.inGame(live, NOW + HOUR));
+        live.publish(wizard); live.stop(NOW + 2_000);
+        assertNull("A capture stop ends it at once", SheetModelBuilder.inGame(live, NOW + 2_001));
+        assertNull(SheetModelBuilder.inGame(null, NOW));
     }
 }
 ```
@@ -4664,17 +5295,22 @@ public record SheetModel(String key, Identity identity, Stats stats, Gear gear, 
         Objects.requireNonNull(gear, "gear"); Objects.requireNonNull(exalts, "exalts");
     }
 
-    /** {@code maxed} 0-8 or -1 unknown; {@code lastSeen} epoch ms (0 unknown, the build time while playing); {@code playing}: in game now. */
+    /**
+     * {@code maxed} 0-8 or -1 unknown; {@code lastSeen} epoch ms of the last capture (0 unknown, the build time while playing);
+     * {@code lastPlayed} the last time in game (the journal's lastObservedAlive, 0 never, the build time while playing);
+     * {@code playing}: in game now.
+     */
     public record Identity(String name, int classId, String className, Integer skin, Integer level, DisplayValue fame,
-                           Boolean seasonal, boolean dead, long lastSeen, boolean playing, int maxed) {}
+                           Boolean seasonal, boolean dead, long lastSeen, long lastPlayed, boolean playing, int maxed) {}
 
     /**
      * {@code boosts} gear and effect bonuses (total - base), 0 unless playing; {@code needed} potions to max per stat; {@code vault}
-     * stored potions per stat, null while unknown; {@code needs} one line per stat that needs potions; {@code unknown} stats whose
-     * base or cap is not captured; {@code evidence} the stat table's Field evidence column.
+     * stored potions per stat, null while unknown or for a seasonal character (only the regular vault is recorded), counted at
+     * {@code vaultObservedAt} (0 unknown or no count); {@code needs} one line per stat that needs potions; {@code unknown} stats
+     * whose base or cap is not captured; {@code evidence} the stat table's Field evidence column.
      */
     public record Stats(List<Integer> base, List<Integer> caps, List<Integer> boosts, List<Integer> needed, List<Integer> vault,
-                        List<String> needs, int unknown, int maxed, List<String> evidence) {}
+                        long vaultObservedAt, List<String> needs, int unknown, int maxed, List<String> evidence) {}
 
     /**
      * 28 slots (0-3 equipped, 4-11 inventory, 12-27 backpack): item id > 0, 0 empty, -1 not captured. {@code hasBackpack} null
@@ -4741,6 +5377,17 @@ public final class SheetModelBuilder {
         return build(record, account, live, defs, planning.available ? planning::dungeons : null, now);
     }
 
+    /**
+     * The character in game now, or null: the current snapshot, or while a map change's brief clear lasts (Home's grace,
+     * {@link HomeModelBuilder#stillCurrent}) the last known one, so "Playing now" does not flicker. Any thread.
+     */
+    public static LiveCharacter.Snapshot inGame(LiveCharacter live, long now) {
+        if (live == null) return null;
+        LiveCharacter.Snapshot current = live.current();
+        if (current != null) return current;
+        return HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), now) ? live.lastKnown() : null;
+    }
+
     /** {@code dungeons}: canonical stat index to dungeon names, or null while the mapping is loading or unavailable. */
     static SheetModel build(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, RosterDefinitions defs,
                             IntFunction<List<String>> dungeons, long now) {
@@ -4768,12 +5415,15 @@ public final class SheetModelBuilder {
         DisplayValue fame = playing && live.characterFame() != null ? DisplayValue.count(live.characterFame(), "Live character stats", FAME_UNKNOWN)
             : r.fame == null ? DisplayValue.unknown(FAME_UNKNOWN)
             : DisplayValue.stale(DisplayFormat.formatInteger(r.fame.longValue()), "Saved in the character journal, last seen " + when(r.lastSeen));
-        return new SheetModel.Identity(name, r.classId, kind, skin, level, fame, r.seasonal, r.dead, playing ? now : r.lastSeen, playing, maxed);
+        return new SheetModel.Identity(name, r.classId, kind, skin, level, fame, r.seasonal, r.dead, playing ? now : r.lastSeen,
+            playing ? now : r.lastObservedAlive, playing, maxed);
     }
 
     private static SheetModel.Stats stats(CharacterRecord r, AccountRecord account, int[] base, int[] caps, int[] boosts, int[] needed,
                                           int maxed, int[] liveBase) {
-        int[] vault = account == null || account.vaultPotions == null || account.vaultPotions.length != 8 ? null : account.vaultPotions;
+        // Journal v5 records the regular vault only; a seasonal character cannot use it, so its vault count stays unknown.
+        int[] vault = Boolean.TRUE.equals(r.seasonal) || account == null || account.vaultPotions == null || account.vaultPotions.length != 8
+            ? null : account.vaultPotions;
         List<String> needs = new ArrayList<>(), evidence = new ArrayList<>();
         int unknown = 0;
         for (int i = 0; i < 8; i++) {
@@ -4782,7 +5432,7 @@ public final class SheetModelBuilder {
             evidence.add(liveBase != null && liveBase[i] >= 0 ? "Live character stats" : evidence(r, "stat." + i, base[i] >= 0));
         }
         return new SheetModel.Stats(list(base), list(caps), list(boosts), list(needed), vault == null ? null : list(vault),
-            List.copyOf(needs), unknown, maxed, List.copyOf(evidence));
+            vault == null ? 0 : account.vaultPotionsObservedAt, List.copyOf(needs), unknown, maxed, List.copyOf(evidence));
     }
 
     /** Saved slots, with the live equipped four while this character plays. Enchant rarity arrives in Task 6. */
@@ -4863,7 +5513,7 @@ public final class SheetModelBuilder {
 - [ ] **Step 6: Run the builder test**
 
 Run: `GRADLE test --tests "tomato.gui.glance.character.SheetModelBuilderTest" --tests "tomato.gui.glance.home.HomeModelBuilderTest"`
-Expected: PASS (5 new tests; Home's builder tests unchanged).
+Expected: PASS (6 new tests; Home's builder tests unchanged).
 
 - [ ] **Step 7: Write the failing Overview and header test**
 
@@ -4887,7 +5537,9 @@ public class OverviewTabTest {
     @Test public void playingShowsBarsBoostsVaultNeedsGearAndTheExaltSummary() throws Exception {
         CharacterJournal.AccountRecord account = account(80, 15, 30, 50, 0, 0, 0, 5);
         account.vaultPotions = new int[]{0, 0, 0, 3, 0, 0, 0, 7};
-        SheetModel model = model(record(), account, live(ACCOUNT, 7, "Sharkbait", null));
+        account.vaultPotionsObservedAt = System.currentTimeMillis() - 2 * HOUR; // KitFormat.relative reads the real clock
+        CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE; // seasonal characters show no vault count
+        SheetModel model = model(regular, account, live(ACCOUNT, 7, "Sharkbait", null));
         SwingUtilities.invokeAndWait(() -> {
             OverviewTab tab = new OverviewTab(mode, id -> id == 2_001 ? "UT" : "");
             tab.apply(model);
@@ -4896,8 +5548,9 @@ public class OverviewTabTest {
             assertFalse(named(tab, "character-overview-bar-3", StatBar.class).maxed());
             JLabel boost = named(tab, "character-overview-boost-3", JLabel.class);
             assertTrue(boost.isVisible()); assertEquals("+10", boost.getText());
-            assertEquals("DEF needs 5 · 3 in vault", text(tab, "character-overview-need-0"));
-            assertEquals("WIS needs 12 · 7 in vault", text(tab, "character-overview-need-2"));
+            assertEquals("A vault count shows its age", "DEF needs 5 · 3 in vault (2 h ago)", text(tab, "character-overview-need-0"));
+            assertEquals("WIS needs 12 · 7 in vault (2 h ago)", text(tab, "character-overview-need-2"));
+            assertEquals("A fresh count reads as current", Tokens.Role.TEXT, named(tab, "character-overview-need-0", KitText.class).role());
             assertEquals(ItemSlot.State.ITEM, slot(tab, 0));
             assertEquals("The live ability slot is empty", ItemSlot.State.EMPTY, slot(tab, 1));
             assertEquals("UT", text(tab, "character-overview-tier-0"));
@@ -4919,6 +5572,22 @@ public class OverviewTabTest {
             assertEquals("Potions unknown for 1 stat (base stat or cap not captured)", text(tab, "character-overview-needs-unknown"));
             assertEquals(ItemSlot.State.UNKNOWN, slot(tab, 2)); assertEquals(ItemSlot.State.EMPTY, slot(tab, 1));
             assertEquals("No saved exalts: unknown, not zero", "—", text(tab, "character-overview-exalts"));
+        });
+    }
+
+    @Test public void aVaultCountOlderThanADayIsDimmedAsStale() throws Exception {
+        CharacterJournal.AccountRecord account = account();
+        account.vaultPotions = new int[]{0, 0, 0, 3, 0, 0, 0, 7};
+        account.vaultPotionsObservedAt = System.currentTimeMillis() - 30 * HOUR;
+        CharacterJournal.CharacterRecord regular = record(); regular.seasonal = Boolean.FALSE;
+        SheetModel model = model(regular, account, null);
+        SwingUtilities.invokeAndWait(() -> {
+            OverviewTab tab = new OverviewTab(mode, id -> "");
+            tab.apply(model);
+            KitText need = named(tab, "character-overview-need-0", KitText.class);
+            assertEquals("DEF needs 5 · 3 in vault (yesterday)", need.getText());
+            assertEquals("Stale after a day: dimmed (spec §5.7)", Tokens.Role.TEXT_MUTED, need.role());
+            assertTrue(need.getToolTipText(), need.getToolTipText().startsWith("Vault counted "));
         });
     }
 
@@ -4944,6 +5613,8 @@ public class OverviewTabTest {
         SheetModel playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null));
         CharacterJournal.CharacterRecord partial = record(); partial.stats[0] = null;
         SheetModel away = model(partial, account(), null);
+        CharacterJournal.CharacterRecord played = record(); played.lastObservedAlive = System.currentTimeMillis() - 3 * HOUR;
+        SheetModel wasPlayed = model(played, account(), null);
         SwingUtilities.invokeAndWait(() -> {
             SheetHeader header = new SheetHeader();
             header.apply(playing.identity());
@@ -4958,8 +5629,10 @@ public class OverviewTabTest {
             assertFalse("Unknown is never shown as 0/8", named(header, "character-sheet-maxed", Chip.class).isVisible());
             assertFalse(named(header, "character-sheet-playing", Chip.class).isVisible());
             Chip seen = named(header, "character-sheet-seen", Chip.class);
-            assertTrue(seen.getText().startsWith("Last seen "));
-            assertEquals("Last seen is the description, never the name", seen.getText(), header.getAccessibleContext().getAccessibleDescription());
+            assertTrue("Never in game: seen from the character list", seen.getText().startsWith("Seen "));
+            assertEquals("The time is the description, never the name", seen.getText(), header.getAccessibleContext().getAccessibleDescription());
+            header.apply(wasPlayed.identity());
+            assertEquals("The last time in game, as the gallery's Last played sort", "Played 3 h ago", seen.getText());
         });
     }
 }
@@ -5061,8 +5734,9 @@ import static tomato.gui.glance.character.SheetViews.*;
 
 /**
  * The sheet header's identity (spec §6.2): 54 px skin sprite, name, class · level · fame, and chips for maxed (hidden while
- * unknown), playing now, seasonal, marked dead and last seen. The last-seen text is the accessible description, not part of
- * the name, so assistive technology is not re-announced as time passes. EDT only.
+ * unknown), playing now, seasonal, marked dead and "Played <ago>" (the last time in game; "Seen <ago>" only for a character never
+ * played, as the gallery's cards). That time is the accessible description, not part of the name, so assistive technology is
+ * not re-announced as time passes. EDT only.
  */
 final class SheetHeader extends JPanel {
     private final JLabel sprite = named(new JLabel(), "character-sheet-sprite");
@@ -5085,9 +5759,9 @@ final class SheetHeader extends JPanel {
         clearIdentity();
     }
 
-    /** Called for every model and once a second; an unchanged identity re-reads only its relative "Last seen" text. */
+    /** Called for every model and once a second; an unchanged identity re-reads only its relative "Played" text. */
     void apply(SheetModel.Identity identity) {
-        String seenText = identity == null || identity.playing() || identity.lastSeen() <= 0 ? "" : "Last seen " + KitFormat.relative(identity.lastSeen());
+        String seenText = seen(identity);
         if (identity != null && identity.equals(shown) && seenText.equals(shownSeen)) return;
         shown = identity;
         shownSeen = seenText;
@@ -5113,6 +5787,13 @@ final class SheetHeader extends JPanel {
         getAccessibleContext().setAccessibleDescription(seenText.isEmpty() ? null : seenText);
         revalidate();
         repaint();
+    }
+
+    /** "Played 2 h ago" from the last time in game, "Seen …" from the last capture only when never played; "" while in game. */
+    private static String seen(SheetModel.Identity identity) {
+        if (identity == null || identity.playing()) return "";
+        if (identity.lastPlayed() > 0) return "Played " + KitFormat.relative(identity.lastPlayed());
+        return identity.lastSeen() > 0 ? "Seen " + KitFormat.relative(identity.lastSeen()) : "";
     }
 
     private void clearIdentity() {
@@ -5148,7 +5829,9 @@ import static tomato.gui.glance.character.SheetViews.*;
  */
 final class OverviewTab extends JPanel {
     private static final String NEEDS_RULE = "Life and Mana take one potion per 5 points, other stats one per point. "
-        + "Vault counts add the vault, potion storage and gift chest (a greater potion counts as two).";
+        + "Vault counts add the regular vault, potion storage and gift chest (a greater potion counts as two); seasonal characters show none.";
+    /** A vault count older than this is dimmed as stale (spec §5.7). */
+    static final long VAULT_STALE_MILLIS = 24 * 3_600_000L;
     private final StatBar[] bars = new StatBar[8];
     private final KitText[] values = new KitText[8], boosts = new KitText[8], tiers = new KitText[4];
     private final ItemSlot[] gear = new ItemSlot[4];
@@ -5162,6 +5845,7 @@ final class OverviewTab extends JPanel {
     private final Collapsible statTable;
     private final IntFunction<String> tierOf;
     private SheetModel shown;
+    private String shownAge = "";
 
     OverviewTab(DisplayModeModel mode) { this(mode, ItemTiers::label); }
 
@@ -5205,10 +5889,15 @@ final class OverviewTab extends JPanel {
         apply(null);
     }
 
-    /** EDT. A null model (the character is not in the journal) clears everything; a model equal to the shown one is skipped. */
+    /**
+     * EDT. A null model (loading, or the character is not in the journal) clears everything. A model equal to the shown one is
+     * skipped while the vault count's relative age reads the same (the presenter re-applies once a second).
+     */
     void apply(SheetModel model) {
-        if (model != null && model.equals(shown)) return;
+        String age = vaultAge(model);
+        if (model != null && model.equals(shown) && age.equals(shownAge)) return;
         shown = model;
+        shownAge = age;
         SheetModel.Stats stats = model == null ? null : model.stats();
         boolean playing = model != null && model.identity().playing();
         for (int i = 0; i < 8; i++) {
@@ -5252,13 +5941,33 @@ final class OverviewTab extends JPanel {
         needs.removeAll();
         if (stats != null) {
             if (stats.maxed() == 8) needs.add(named(new KitText("All 8 stats maxed", Type.body(), Tokens.Role.GOOD), "character-overview-maxed"));
-            for (int i = 0; i < stats.needs().size(); i++) needs.add(named(KitText.body(stats.needs().get(i)), "character-overview-need-" + i));
+            for (int i = 0; i < stats.needs().size(); i++) needs.add(named(need(stats, i), "character-overview-need-" + i));
             if (stats.unknown() > 0) needs.add(named(KitText.caption("Potions unknown for " + stats.unknown()
                 + (stats.unknown() == 1 ? " stat" : " stats") + " (base stat or cap not captured)"), "character-overview-needs-unknown"));
         }
         needs.setVisible(needs.getComponentCount() > 0);
         needs.revalidate();
         needs.repaint();
+    }
+
+    /** The vault count's relative age as the needs show it; "" without a vault count. */
+    private static String vaultAge(SheetModel model) {
+        if (model == null || model.stats().vault() == null) return "";
+        long at = model.stats().vaultObservedAt();
+        return at > 0 ? KitFormat.relative(at) : "time unknown";
+    }
+
+    /** "DEF needs 5 · 3 in vault (2 h ago)": a vault count shows its age and is dimmed as stale once a day old (spec §5.7). */
+    private static KitText need(SheetModel.Stats stats, int index) {
+        String line = stats.needs().get(index);
+        if (stats.vault() == null) return KitText.body(line);
+        long at = stats.vaultObservedAt();
+        boolean stale = at <= 0 || System.currentTimeMillis() - at > VAULT_STALE_MILLIS;
+        KitText text = new KitText(line + " (" + (at > 0 ? KitFormat.relative(at) : "time unknown") + ")", Type.body(),
+            stale ? Tokens.Role.TEXT_MUTED : Tokens.Role.TEXT);
+        text.setToolTipText((at > 0 ? "Vault counted " + DisplayFormat.formatTimestamp(at) : "When the vault was counted is unknown")
+            + (stale ? "; open the vault with capture on to update it" : ""));
+        return text;
     }
 }
 ```
@@ -5268,24 +5977,25 @@ final class OverviewTab extends JPanel {
 ```java
 package tomato.gui.glance.character;
 
-import java.awt.event.HierarchyEvent;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.RosterDefinitions;
-import tomato.gui.glance.home.HomeModelBuilder;
 import tomato.planning.PlanningMetadata;
 
 /**
- * Feeds the character sheet (spec §3.1: glance screens own no data). It rebuilds when the sheet opens a key. While the sheet
- * is showing, it checks once a second for changes to cheap tokens: key, journal and live-character revisions, loaded
- * definitions and the dungeon mapping. SheetModelBuilder runs on the "character-sheet" thread over deep copies from the
- * journal. The EDT applies only the newest result.
+ * Feeds the character sheet (spec §3.1: glance screens own no data). It rebuilds when the sheet opens a key and, while the sheet
+ * shows, whenever a cheap token moved (CharacterSheet.refresh checks once a second): the key, the journal and live-character
+ * revisions, the loaded definitions and the dungeon mapping. The "character-sheet" thread reads the journal's deep copies (reused
+ * while the journal's revision is unchanged) and runs SheetModelBuilder. The EDT applies a result only while it is the newest
+ * request and its key is still the sheet's, so a late result for another character is dropped. A failed build is reported in the
+ * sheet (spec §7), never swallowed, and tried again on the next refresh.
  */
 final class SheetPresenter {
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(r -> {
@@ -5295,14 +6005,18 @@ final class SheetPresenter {
     private final SheetContext context;
     private final SheetHeader header = new SheetHeader();
     private final OverviewTab overview;
-    private final Timer timer = new Timer(1000, e -> tick());
     private String key;
     private Token token;
     private long generation;
     private SheetModel model;
+    /** The build thread's last journal read, reused while the key and the journal revision are unchanged (build thread only). */
+    private Read lastRead;
 
     private record Token(String key, long journal, long live, RosterDefinitions definitions, PlanningMetadata planning) {}
-    private record Built(SheetModel model, CharacterRecord record, RosterDefinitions definitions) {}
+    /** One journal read at one revision: the character's record (null when the journal lacks it) and the lists Goals shows. */
+    private record Read(String key, long revision, CharacterRecord record, List<CharacterRecord> records, List<AccountRecord> accounts) {}
+    /** One build for {@code key}. */
+    private record Built(String key, SheetModel model, Read read, RosterDefinitions definitions) {}
 
     SheetPresenter(CharacterSheet sheet, SheetContext context) {
         this.sheet = sheet;
@@ -5310,30 +6024,35 @@ final class SheetPresenter {
         overview = new OverviewTab(context.mode());
         sheet.setIdentity(header);
         sheet.setTab("overview", SheetViews.scroll(overview));
-        sheet.addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.DISPLAYABILITY_CHANGED) != 0) { if (sheet.isDisplayable()) timer.start(); else timer.stop(); }
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && sheet.isShowing()) tick();
-        });
     }
 
-    /** EDT: the sheet now shows {@code key}; rebuild at once. */
+    /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
     void open(String key) {
+        if (!Objects.equals(key, this.key)) show(null); // nothing of the previous character stays on screen while this one loads
         this.key = key;
         request();
     }
 
-    /** EDT: the model last applied, or null. */
+    /** EDT: the model last applied, or null (loading, failed, or a key the journal lacks). */
     SheetModel model() { return model; }
 
-    private void tick() {
-        if (!sheet.isShowing()) return;
+    /** EDT, once a second while the sheet shows: rebuild when a token moved, else re-read only the relative times. */
+    void refresh() {
+        if (key == null) return;
         if (!token().equals(token)) request();
-        else header.apply(model == null ? null : model.identity()); // only the relative "Last seen" text can change
+        else times();
+    }
+
+    /** Relative times ("Played …", the vault's age) change without a new model. */
+    private void times() {
+        if (model == null) return;
+        header.apply(model.identity());
+        overview.apply(model); // re-reads only the vault age
     }
 
     private Token token() {
         LiveCharacter live = live();
-        return new Token(key, context.journal().revision(), live == null ? -1 : live.revision(), context.definitions().get(), PlanningMetadata.current());
+        return new Token(key, context.journal().revision(), live.revision(), context.definitions().get(), PlanningMetadata.current());
     }
 
     private void request() {
@@ -5342,65 +6061,731 @@ final class SheetPresenter {
         String target = key;
         CharacterJournal journal = context.journal();
         LiveCharacter live = live();
-        RosterDefinitions definitions = token.definitions();
         WORKER.execute(() -> {
-            long now = System.currentTimeMillis();
-            CharacterRecord record = target == null ? null : journal.characterCopy(target);
-            AccountRecord account = record == null ? null : journal.accountCopy(record.account);
-            Built built = new Built(SheetModelBuilder.build(record, account, current(live, now), definitions, now), record, definitions);
-            SwingUtilities.invokeLater(() -> { if (requested == generation) apply(built); });
+            Built built = null;
+            RuntimeException failure = null;
+            try { built = build(target, journal, live); }
+            catch (RuntimeException e) { failure = e; }
+            Built result = built;
+            RuntimeException failed = failure;
+            SwingUtilities.invokeLater(() -> {
+                // Only the newest request for the key the sheet still shows applies; a late result for another character is dropped.
+                if (requested != generation || !Objects.equals(target, key)) return;
+                if (failed != null) { token = null; sheet.failed(failed); return; } // the next refresh tries again
+                apply(result);
+            });
         });
     }
 
-    /** The character in game now; a snapshot cleared by a map change still counts for Home's grace period (no flicker). */
-    static LiveCharacter.Snapshot current(LiveCharacter live, long now) {
-        if (live == null) return null;
-        LiveCharacter.Snapshot current = live.current();
-        if (current != null) return current;
-        return HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), now) ? live.lastKnown() : null;
+    /** The build thread: one journal read (reused while the revision is unchanged) and the model, over deep copies. */
+    private Built build(String target, CharacterJournal journal, LiveCharacter live) {
+        long now = System.currentTimeMillis();
+        RosterDefinitions definitions = context.definitions().get();
+        Read read = lastRead;
+        synchronized (journal) {
+            long revision = journal.revision();
+            if (read == null || !Objects.equals(read.key(), target) || read.revision() != revision)
+                read = new Read(target, revision, target == null ? null : journal.characterCopy(target), journal.characters(), journal.accounts());
+        }
+        lastRead = read;
+        AccountRecord account = null;
+        if (read.record() != null) for (AccountRecord a : read.accounts()) if (a.key.equals(read.record().account)) account = a;
+        return new Built(target, SheetModelBuilder.build(read.record(), account, SheetModelBuilder.inGame(live, now), definitions, now), read, definitions);
     }
 
-    private LiveCharacter live() { return context.data() == null ? null : context.data().liveCharacter; }
+    private LiveCharacter live() { return context.data().liveCharacter; }
 
+    /** EDT: shows a build for the key the sheet still shows. */
     private void apply(Built built) {
-        model = built.model();
-        header.apply(model == null ? null : model.identity());
-        overview.apply(model);
+        Read read = built.read();
+        sheet.loaded(built.key(), read.record(), read.records(), read.accounts(), built.definitions(), read.revision());
+        show(built.model());
+    }
+
+    /** EDT: the header and the tabs this presenter owns show {@code value}; null (loading, or not in the journal) clears them. */
+    private void show(SheetModel value) {
+        model = value;
+        header.apply(value == null ? null : value.identity());
+        overview.apply(value);
     }
 }
 ```
 
 - [ ] **Step 13: Hook the presenter into `CharacterSheet` and remove the moved stat table**
 
-This edits Task 4's `src/main/java/tomato/gui/glance/character/CharacterSheet.java`. **Add beside** the other `final` fields:
+**Replace** Task 4's `src/main/java/tomato/gui/glance/character/CharacterSheet.java` with the file below. What changes, and why:
+- `SheetHeader`, which the presenter installs through `setIdentity`, replaces the title line and the sprite. The Overview tab replaces the moved stat table; its Analyst stat table keeps the rows.
+- The journal is read on the presenter's build thread instead of the EDT: `loaded(...)` shows each read and ignores one made for another key.
+  - `open` of another key clears what is shown and says "Loading…" until that key's read applies.
+  - `refresh` asks the presenter for a new read when a token moved, then refreshes the snapshot age.
+  - `failed` shows a warn banner (spec §7).
+- Kept from Task 4: the back link, Mark dead / Restore alive (acting only while `ready()`), the notes draft rules, the conditional Death annotation tab, the Analyst-only provenance, the storage banner, the moved Gear and Exalts tables (Tasks 6 and 7 replace them), every public method and every component name.
 ```java
-    /** Header identity and the Overview, Gear, Exalts and Build tabs (Tasks 5–8), rebuilt off the EDT. */
+package tomato.gui.glance.character;
+
+import java.awt.*;
+import java.awt.event.HierarchyEvent;
+import java.util.*;
+import java.util.List;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.CharacterJournal.AccountRecord;
+import tomato.backend.data.CharacterJournal.CharacterRecord;
+import tomato.backend.data.FieldCapture;
+import tomato.backend.data.RosterDefinitions;
+import tomato.gui.character.CharacterDeathPanel;
+import tomato.gui.character.CharacterEquipmentPanel;
+import tomato.gui.character.CharacterPlanningPanel;
+import tomato.gui.kit.Banner;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.EmptyState;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.KitLayouts;
+import tomato.gui.kit.Tokens;
+import tomato.gui.modern.ContentStyle;
+import tomato.gui.route.Navigator;
+import tomato.gui.stats.Formatters;
+
+/**
+ * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
+ * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear and Exalts are slots whose
+ * content SheetPresenter sets ({@link #setTab}); Death annotation shows only while the character is marked dead (spec §6.2).
+ * - SheetPresenter reads the journal and builds the model off the EDT; {@link #loaded} shows each read. Until the read of the
+ *   opened key arrives the sheet says "Loading…" and nothing acts ({@link #ready}); a failed build shows a warn banner (spec §7).
+ * - Snapshot evidence and the tab hint are provenance: Analyst mode only (spec §3.2).
+ * - A notes draft is saved when another character opens and whenever the sheet hides (another card, Back, another Characters
+ *   tab, closing the workspace); refreshes never replace it.
+ * - An unreadable journal or a failed save shows a warn banner.
+ * The refresh timer runs only while the sheet shows. EDT only.
+ */
+public final class CharacterSheet extends JPanel {
+    /** Title of the unavailable state, for a key the journal does not hold. */
+    public static final String UNAVAILABLE = "This character is not in the journal";
+    /** The static loading line (spec §5.8: no animated loaders). */
+    static final String LOADING = "Loading…";
+    private static final String TABS_CARD = "tabs", UNAVAILABLE_CARD = "unavailable";
+
+    private final SheetContext context;
+    private final CustomizableTabs tabs = new CustomizableTabs("character");
+    private final Map<String, JPanel> slots = new HashMap<>();
+    private final CardLayout cards = new CardLayout();
+    private final JPanel body = new JPanel(cards);
+    private final KitButton back = KitButton.ghost("‹ Characters");
+    private final JTextArea seen = ContentStyle.wrappingText(" ");
+    private final JTextArea hint = ContentStyle.wrappingText("Base stats exclude captured boosts. Caps use local game assets; missing values stay unknown.");
+    /** The header row: SheetHeader's identity block (setIdentity) and Mark dead / Restore alive. */
+    private final JPanel identity = new JPanel(new BorderLayout(8, 0));
+    /** Marking a character dead is destructive; Restore alive takes its place while the character is marked dead. */
+    private final KitButton death = KitButton.danger("Mark dead"), restore = KitButton.secondary("Restore alive");
+    private final KitButton saveNotes = KitButton.secondary("Save notes");
+    /** "Loading…" until the opened character's read arrives; a failed build in the warn tone. */
+    private final Banner status = new Banner("character-sheet-status");
+    /** The journal cannot be read, or its last save failed. */
+    private final Banner storage = new Banner("character-sheet-storage");
+    private final JTextArea notes = new JTextArea(3, 30);
+    private final DefaultTableModel exaltModel = model("Stat", "Level", "Completions", "Next tier");
+    private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
+    private final JScrollPane exaltTable;
+    private final CharacterEquipmentPanel equipment = new CharacterEquipmentPanel();
+    private final CharacterPlanningPanel planning;
+    private final CharacterDeathPanel deathPanel;
+    private final javax.swing.Timer timer;
+    /** Header identity and the Overview, Gear, Exalts and Build tabs (Tasks 5–8), built off the EDT. */
     private final SheetPresenter presenter;
-```
-**Add beside**, as the last statement of `public CharacterSheet(SheetContext context)` (after every tab is added):
-```java
-        presenter = new SheetPresenter(this, context);
-```
-**Add beside**, as the first statement of `public void open(String key, String tab)`:
-```java
+    private Runnable backAction = () -> { };
+    /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
+    private String key, filledKey, loadedKey;
+    private CharacterRecord record;
+    private List<CharacterRecord> records = Collections.emptyList();
+    private List<AccountRecord> accounts = Collections.emptyList();
+    private RosterDefinitions definitions = RosterDefinitions.empty();
+    private long revision = -1;
+
+    public CharacterSheet(SheetContext context) {
+        super(new BorderLayout());
+        this.context = Objects.requireNonNull(context, "context");
+        setName("character-sheet");
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        planning = new CharacterPlanningPanel(context.plans());
+        deathPanel = new CharacterDeathPanel(context.journal());
+        back.setName("character-sheet-back"); back.setToolTipText("Back to the character list");
+        back.getAccessibleContext().setAccessibleName("Back to Characters");
+        back.addActionListener(e -> backAction.run());
+        death.setName("character-sheet-death"); restore.setName("character-sheet-restore"); saveNotes.setName("character-notes-save");
+        restore.setVisible(false);
+        seen.setName("character-snapshot-evidence"); hint.setName("character-sheet-hint");
+        status.setVisible(false);
+        storage.setTone(Tokens.Tone.WARN); storage.setVisible(false);
+        JPanel backRow = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0)); backRow.add(back);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, Tokens.XS, 0)); actions.add(death); actions.add(restore);
+        identity.add(actions, BorderLayout.EAST); // SheetHeader takes the center (setIdentity)
+        JPanel header = new JPanel(new BorderLayout(0, 4)); header.setName("character-sheet-header");
+        header.add(backRow, BorderLayout.NORTH); header.add(identity, BorderLayout.CENTER);
+        header.add(KitLayouts.stack(Tokens.XS, status, storage, seen), BorderLayout.SOUTH);
+
+        exaltTable = ContentStyle.tableScroll(table(exaltModel), 3);
+        JPanel notePanel = new JPanel(new BorderLayout(8, 8)); notes.setLineWrap(true); notes.setWrapStyleWord(true);
+        notes.setName("character-notes"); notes.setFont(ContentStyle.body()); notes.getAccessibleContext().setAccessibleName("Character notes");
+        JScrollPane noteScroll = new JScrollPane(notes) {
+            @Override public Dimension getMinimumSize() {
+                Insets insets = getInsets();
+                return new Dimension(0, notes.getFontMetrics(notes.getFont()).getHeight() * 3 + insets.top + insets.bottom);
+            }
+        };
+        notePanel.add(noteScroll, BorderLayout.CENTER); notePanel.add(saveNotes, BorderLayout.SOUTH);
+        tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
+            .add("gear", "Gear", slot("gear", equipment))
+            .add("exalts", "Exalts", slot("exalts", exaltTable))
+            .add("goals", "Goals", planning)
+            .add("notes", "Notes", notePanel)
+            // Raw field provenance is diagnostic: Analyst mode only (spec §3.2); the saved order still includes it.
+            .addAnalyst("evidence", "Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3))
+            // Only while the character is marked dead (spec §6.2); skipping it never rewrites the saved order (spec §4.4).
+            .addWhen("death", "Death annotation", deathPanel, () -> record != null && record.dead);
+        JTabbedPane strip = tabs.component(); strip.setTabLayoutPolicy(JTabbedPane.WRAP_TAB_LAYOUT);
+        hint.setToolTipText("Potion estimates use +5 Life/Mana and +1 other stats. Exalts are account/class progress shared across characters.");
+        JPanel content = new JPanel(new BorderLayout(0, 8)) {
+            // Tab chrome and usable rows must fit after font and width changes; the page scrolls instead of squeezing them.
+            @Override public Dimension getMinimumSize() { return new Dimension(0, strip.getMinimumSize().height + (hint.isVisible() ? hint.getPreferredSize().height + 8 : 0)); }
+        };
+        content.add(strip, BorderLayout.CENTER); content.add(hint, BorderLayout.SOUTH);
+        KitButton showAll = KitButton.secondary("Show all characters"); showAll.setName("character-sheet-unavailable-back");
+        showAll.addActionListener(e -> backAction.run());
+        EmptyState missing = new EmptyState(UNAVAILABLE, "The journal has no saved character with this reference. Choose one from the character list.", showAll);
+        missing.setName("character-sheet-unavailable");
+        body.add(content, TABS_CARD); body.add(missing, UNAVAILABLE_CARD);
+        JScrollPane page = ContentStyle.page(header, body, null); page.setName("character-sheet-scroll");
+        page.getAccessibleContext().setAccessibleName("Character sheet; scroll for tabs and actions at large text sizes");
+        add(page, BorderLayout.CENTER);
+        for (JComponent control : new JComponent[]{back, death, restore, saveNotes}) control.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) { ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight())); }
+        });
+        death.addActionListener(e -> mark(true));
+        restore.addActionListener(e -> mark(false));
+        saveNotes.addActionListener(e -> {
+            if (!ready() || record == null) return;
+            context.journal().notes(record.key, notes.getText()); record.notes = notes.getText(); refresh();
+        });
+        // Provenance is diagnostic (spec §3.2): Simple mode shows neither the snapshot evidence nor the tab hint.
+        context.mode().bind(this, value -> {
+            boolean analyst = value == DisplayModeModel.Mode.ANALYST;
+            seen.setVisible(analyst); hint.setVisible(analyst); revalidate(); repaint();
+        });
+        timer = new javax.swing.Timer(1000, e -> refresh());
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0) return;
+            // The timer runs only while the sheet shows. Hiding it (another card, Back, another Characters tab, closing) keeps the draft.
+            if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); saveDraft(); }
+        });
+        fill();
+        presenter = new SheetPresenter(this, context); // after every tab exists: it sets the identity and the tabs it owns
+    }
+
+    @Override public void removeNotify() { saveDraft(); timer.stop(); super.removeNotify(); }
+
+    /**
+     * Shows one character. A different key first saves the previous character's changed notes and clears everything shown, so
+     * nothing of that character stays on screen or acts while this one loads. A non-null tab is explicit navigation: it is shown
+     * if hidden, then selected. A key the journal does not hold shows the unavailable state once its read arrives.
+     */
+    public void open(String key, String tab) {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open the character sheet on the EDT");
+        if (!Objects.equals(this.key, key)) {
+            saveDraft();
+            this.key = key;
+            record = null; loadedKey = null;
+            fill();
+            tabs.refreshConditions();
+            shown();
+            status.setTone(Tokens.Tone.NEUTRAL); status.setText(LOADING); status.setVisible(true);
+        }
         presenter.open(key);
+        if (tab != null) { tabs.show(tab); tabs.select(tab); }
+    }
+    public String key() { return key; }
+    /** True once the sheet shows the journal's read of its current key: that character, or its unavailable state. */
+    public boolean ready() { return key != null && key.equals(loadedKey); }
+    public String selectedTab() { return tabs.selectedId(); }
+    public CustomizableTabs tabs() { return tabs; }
+    /** Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. */
+    public void selectTab(String id) { tabs.select(id); }
+    /** What the "‹ Characters" link and the unavailable state's button do; the Roster tab sets it on every open. */
+    public void onBack(Runnable action) { backAction = Objects.requireNonNull(action); }
+    public void bindNavigator(Navigator navigator) { deathPanel.bindNavigator(navigator); }
+    /** Moves keyboard focus to the back link, the sheet's first control. */
+    public void focusBackLink() { back.requestFocusInWindow(); }
+
+    /**
+     * Saves the shown character's changed notes to the journal: before another character opens, whenever the sheet hides
+     * (another card, Back, the Characters page's other tabs) and when the workspace closes. A draft equal to the saved notes,
+     * or one typed for another character, saves nothing. EDT.
+     */
+    public void saveDraft() {
+        if (filledKey == null || record == null || !filledKey.equals(record.key) || Objects.equals(record.notes, notes.getText())) return;
+        context.journal().notes(filledKey, notes.getText()); record.notes = notes.getText();
+    }
+
+    /** Replaces a slot tab's content (overview, gear, exalts); its id, title, order and hidden state are unchanged. */
+    void setTab(String id, JComponent content) {
+        JPanel slot = slots.get(id);
+        if (slot == null) throw new IllegalArgumentException("Not a replaceable sheet tab: " + id);
+        slot.removeAll(); slot.add(content, BorderLayout.CENTER); slot.revalidate(); slot.repaint();
+    }
+    /** Puts the header's identity block (SheetHeader) beside Mark dead; the back link, banners and snapshot evidence stay. */
+    void setIdentity(JComponent value) { identity.add(value, BorderLayout.CENTER); identity.revalidate(); identity.repaint(); }
+    /** The moved 28-slot equipment table (Task 6 keeps it in Analyst). */
+    CharacterEquipmentPanel equipmentPanel() { return equipment; }
+    /** The moved class-exalts table (Task 7 replaces it). */
+    JComponent exaltTable() { return exaltTable; }
+
+    /** Asks the presenter for a new read when a token moved, then advances the snapshot age. EDT; skipped while hidden. */
+    public void refresh() {
+        if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(this::refresh); return; }
+        if (key != null && (isShowing() || !isDisplayable())) { presenter.refresh(); shown(); }
+    }
+
+    private JPanel slot(String id, JComponent content) {
+        JPanel slot = new JPanel(new BorderLayout()); slot.setName("character-tab-" + id);
+        slot.add(content, BorderLayout.CENTER); slots.put(id, slot);
+        return slot;
+    }
+
+    /**
+     * Shows one journal read the presenter made for {@code forKey} off the EDT; a read for any other key is ignored. The tables,
+     * notes and actions refill only when the character, the journal revision or the definitions changed. The Death annotation
+     * tab follows the dead flag.
+     */
+    void loaded(String forKey, CharacterRecord read, List<CharacterRecord> all, List<AccountRecord> known, RosterDefinitions defs, long at) {
+        if (!Objects.equals(forKey, key)) return;
+        boolean changed = !Objects.equals(forKey, loadedKey) || at != revision || defs != definitions;
+        record = read; records = all; accounts = known; definitions = defs; revision = at; loadedKey = forKey;
+        status.setVisible(false);
+        if (changed) fill();
+        tabs.refreshConditions();
+        shown();
+    }
+
+    /** A build failed (spec §7: never silent): a warn banner; nothing acts until a later build shows this character. */
+    void failed(RuntimeException failure) {
+        String reason = failure.getMessage() == null || failure.getMessage().isBlank() ? failure.getClass().getSimpleName() : failure.getMessage();
+        status.setTone(Tokens.Tone.WARN); status.setText("This character could not be shown: " + reason); status.setVisible(true);
+    }
+
+    /** On every refresh: the snapshot age (time advances after capture stops), the storage warning, the death panel and Goals. */
+    private void shown() {
+        refreshTimeEvidence();
+        String problem = context.journal().storageProblem();
+        storage.setText(problem == null ? "" : problem);
+        storage.setVisible(problem != null);
+        deathPanel.showRecord(record);
+        planning.refresh(records, accounts, definitions);
+    }
+
+    /** Mark dead or Restore alive, then wait for the re-read that shows the new state: a second click never acts on the old one. */
+    private void mark(boolean dead) {
+        if (!ready() || record == null) return;
+        context.journal().markDead(record.key, dead);
+        loadedKey = null;
+        actions();
+        refresh();
+    }
+
+    /** Mark dead or Restore alive (whichever applies) and Save notes act only on the character this sheet has loaded. */
+    private void actions() {
+        boolean dead = record != null && record.dead, acts = ready() && record != null;
+        death.setVisible(!dead); restore.setVisible(dead);
+        death.setEnabled(acts); restore.setEnabled(acts); saveNotes.setEnabled(acts); notes.setEnabled(acts);
+    }
+
+    private void fill() {
+        CharacterRecord r = record;
+        exaltModel.setRowCount(0); metadataModel.setRowCount(0);
+        equipment.showRecord(r, definitions);
+        actions();
+        cards.show(body, ready() && r == null ? UNAVAILABLE_CARD : TABS_CARD);
+        // A refresh never replaces an unsaved draft; only a different character does.
+        if (r == null) { notes.setText(""); filledKey = null; }
+        else if (!r.key.equals(filledKey)) { notes.setText(r.notes); filledKey = r.key; }
+        if (r == null) {
+            seen.setToolTipText(null);
+            return;
+        }
+        restore.setText(r.observedAgainAt > 0 ? "Observed again—restore?" : "Restore alive");
+        seen.setToolTipText(r.source);
+        String[] fields = {"class", "level", "skin", "fame", "seasonal", "created"};
+        Object[] values = {r.className, r.level, r.skin, r.fame, r.seasonal == null ? null : r.seasonal ? "Seasonal" : "Regular", r.created};
+        for (int i = 0; i < fields.length; i++) metadataModel.addRow(new Object[]{fields[i], unknown(values[i]), evidence(r, fields[i], values[i] != null)});
+        int[] exalt = null;
+        for (AccountRecord a : accounts) if (a.key.equals(r.account)) exalt = a.exalts.get(r.classId);
+        for (int i = 0; i < 8; i++) {
+            Integer count = exalt == null ? null : exalt[CharacterJournal.EXALT_ORDER[i]];
+            exaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
+        }
+    }
+
+    /** Time advances even after capture stops; refresh just this text, not tables or editable drafts. */
+    private void refreshTimeEvidence() {
+        CharacterRecord r = record;
+        String text = " ";
+        if (r != null) {
+            long age = r.lastSeen <= 0 ? -1 : Math.max(0, (context.clock().getAsLong() - r.lastSeen) / 1000);
+            text = "Last observed alive " + date(r.lastObservedAlive) + "  •  Roster received " + date(r.rosterReceivedAt)
+                + "\nSnapshot update age: " + (age < 0 ? "Unknown" : age + "s") + " · "
+                + Arrays.stream(r.stats).filter(Objects::nonNull).count() + "/8 known stats · "
+                + Arrays.stream(r.equipment).filter(Objects::nonNull).count() + "/28 known slots (may be retained)"
+                + (r.dead ? "\nMarked dead manually " + date(r.diedAt) + "; preserved snapshot."
+                    + (r.observedAgainAt > 0 ? " Reported again " + date(r.observedAgainAt) + ". Restore explicitly to accept updates." : "") : "");
+        }
+        if (!seen.getText().equals(text)) seen.setText(text);
+    }
+
+    private static String evidence(CharacterRecord r, String key, boolean known) {
+        if (!known) return "Not captured";
+        FieldCapture field = r.fields.get(key);
+        if (field == null) return "Legacy / provenance unknown";
+        return field.source + " · " + date(field.at) + (field.at > 0 && field.at < r.lastSeen ? " · Retained from earlier observation" : "");
+    }
+    private static String next(int count) { for (int goal : new int[]{5, 15, 30, 50, 75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }
+    private static Object unknown(Object value) { return value == null ? "Unknown" : value; }
+    private static String date(long time) { return time <= 0 ? "Unknown" : Formatters.formatTimestamp(time); }
+    private static DefaultTableModel model(String... columns) { return new DefaultTableModel(columns, 0) { @Override public boolean isCellEditable(int row, int col) { return false; }
+        @Override public Class<?> getColumnClass(int col) { for (int i = 0; i < getRowCount(); i++) { Object v = getValueAt(i, col); if (v != null) return v instanceof Number ? v.getClass() : String.class; } return String.class; }
+    }; }
+    private static JTable table(DefaultTableModel model) {
+        JTable t = new JTable(model); ContentStyle.table(t, ContentStyle.Density.DENSE);
+        t.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent event) {
+                int row = Math.max(0, t.getSelectedRow()), column = Math.max(0, t.getSelectedColumn());
+                ContentStyle.reveal(t, t.getCellRect(row, column, true));
+            }
+        });
+        t.getTableHeader().setReorderingAllowed(false); return t;
+    }
+}
 ```
-**Replace** (reason: the Overview tab and `SheetHeader` replace them). Delete Task 4's moved "Stat maxing" parts:
-- its `DefaultTableModel` (Stat / Base / Cap / Potions to max / Field evidence), that model's `JTable`, and the code that fills it when a record is shown (the `definitions.cap(...)`/`CharacterJournal.potions(...)` rows);
-- the code that sets the header's name, class and level text. `setIdentity(header)` replaces that block. The back link and the Mark dead / Restore alive button stay Task 4's.
 
-Keep the `overview` tab entry ("Overview"): `setTab` replaces its content.
+- [ ] **Step 14: Migrate Task 4's sheet tests to the header, the Overview tab and the asynchronous sheet**
 
-- [ ] **Step 14: Run the tests**
+**Replace** `src/test/java/tomato/gui/glance/character/CharacterSheetTest.java` with the file below. Reasons: the sheet now reads the journal off the EDT, so each test waits (`SnapshotTestSupport.await`, which runs the EDT while it waits) before it acts on a character; the header replaces the title line. Kept: every assertion of Task 4's seven tests, with the title checks now reading `character-sheet-name` ("… #7") and `character-sheet-meta` ("Level 20"), and the dead state checked on `character-sheet-dead`. **Added beside:** Loading until the opened key's read applies, a late result for another key dropped, Mark dead waiting for the re-read, and a failed build's warn banner.
+```java
+package tomato.gui.glance.character;
+
+import java.awt.Component;
+import java.awt.Container;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.swing.*;
+import org.junit.*;
+import org.junit.rules.TemporaryFolder;
+import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.RosterDefinitions;
+import tomato.backend.data.TomatoData;
+import tomato.gui.kit.Banner;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.EmptyState;
+import tomato.planning.PlanningStore;
+import tomato.realmshark.RealmCharacter;
+import util.PropertiesManager;
+import static org.junit.Assert.*;
+import static tomato.gui.activity.SnapshotTestSupport.await;
+
+public class CharacterSheetTest {
+    private static final String ORDER = "ui.tabs.character";
+    private static final String ACCOUNT = CharacterJournal.accountKey("sheet-fixture");
+    @Rule public TemporaryFolder temp = new TemporaryFolder();
+    private String savedOrder; private DisplayModeModel.Mode savedMode;
+
+    @Before public void remember() throws Exception {
+        savedOrder = PropertiesManager.getProperty(ORDER); PropertiesManager.setProperties(ORDER, "");
+        SwingUtilities.invokeAndWait(() -> savedMode = DisplayModeModel.application().mode());
+    }
+    @After public void restore() throws Exception {
+        PropertiesManager.setProperties(ORDER, savedOrder == null ? "" : savedOrder);
+        SwingUtilities.invokeAndWait(() -> DisplayModeModel.application().set(savedMode));
+    }
+
+    private CharacterJournal journal(String file, int... ids) { return journal(new CharacterJournal(temp.getRoot().toPath().resolve(file)), ids); }
+    private static CharacterJournal journal(CharacterJournal journal, int... ids) {
+        List<RealmCharacter> roster = new ArrayList<>();
+        for (int id : ids) {
+            RealmCharacter c = new RealmCharacter(); c.charId = id; c.classNum = 782; c.level = 20; c.receivedAt = 1000;
+            c.supplied("class"); c.supplied("level"); roster.add(c);
+        }
+        journal.mergeRoster(ACCOUNT, roster);
+        return journal;
+    }
+    private static CharacterSheet sheet(CharacterJournal journal) {
+        return new CharacterSheet(new SheetContext(new TomatoData(), journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
+    }
+    /** Opens {@code key} and waits (running the EDT) until the sheet shows its read: the model is built off the EDT. */
+    private static void open(CharacterSheet sheet, String key, String tab) { sheet.open(key, tab); await(sheet::ready); }
+    private static List<String> titles(JTabbedPane tabs) {
+        List<String> titles = new ArrayList<>();
+        for (int i = 0; i < tabs.getTabCount(); i++) titles.add(tabs.getTitleAt(i));
+        return titles;
+    }
+
+    @Test public void tabsKeepTheirIdsAndOrderSnapshotEvidenceIsAnalystOnlyAndSlotsAreReplaceable() throws Exception {
+        try (CharacterJournal journal = journal("tabs.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+                CharacterSheet sheet = sheet(journal);
+                assertEquals("character-sheet", sheet.getName());
+                List<String> order = Arrays.asList("overview", "gear", "exalts", "goals", "notes", "evidence", "death");
+                assertEquals(order, sheet.tabs().order());
+                JTabbedPane tabs = sheet.tabs().component();
+                assertEquals("character-tabs", tabs.getName());
+                assertEquals("Death annotation shows only for a character marked dead", Arrays.asList("Overview", "Gear", "Exalts", "Goals", "Notes", "Snapshot evidence"), titles(tabs));
+                DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
+                assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));
+                open(sheet, ACCOUNT + ":1", "notes"); assertEquals("notes", sheet.selectedTab());
+                open(sheet, ACCOUNT + ":1", "goals"); assertEquals("An explicit tab is selected", "goals", sheet.selectedTab());
+                JPanel replacement = new JPanel();
+                sheet.setTab("overview", replacement);
+                assertEquals("A replaced slot keeps its id and place", order, sheet.tabs().order());
+                assertTrue(SwingUtilities.isDescendingFrom(replacement, tabs.getComponentAt(0)));
+                try { sheet.setTab("notes", new JPanel()); fail("Only overview, gear and exalts are slots"); } catch (IllegalArgumentException expected) { }
+            });
+        }
+    }
+
+    @Test public void headerHasTheBackLinkIdentityAndMarkDeadShowsTheDeathTab() throws Exception {
+        try (CharacterJournal journal = journal("header.json", 7)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                AtomicInteger backs = new AtomicInteger();
+                sheet.onBack(backs::incrementAndGet);
+                open(sheet, ACCOUNT + ":7", null);
+                assertEquals(ACCOUNT + ":7", sheet.key());
+                AbstractButton back = named(sheet, "character-sheet-back", AbstractButton.class);
+                assertEquals("‹ Characters", back.getText());
+                back.doClick(); assertEquals(1, backs.get());
+                assertTrue("The fixture has no name: the header reads \"<class> #7\"", named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#7"));
+                assertTrue(named(sheet, "character-sheet-meta", JLabel.class).getText().contains("Level 20"));
+                AbstractButton death = named(sheet, "character-sheet-death", AbstractButton.class), restore = named(sheet, "character-sheet-restore", AbstractButton.class);
+                assertEquals("Mark dead", death.getText()); assertTrue(death.isVisible()); assertFalse(restore.isVisible());
+                assertFalse("An alive character has no Death annotation tab", sheet.tabs().visibleIds().contains("death"));
+                death.doClick();
+                assertTrue(journal.characterCopy(ACCOUNT + ":7").dead);
+                assertFalse("Nothing acts again until the re-read shows the new state", sheet.ready());
+                await(sheet::ready);
+                assertFalse(death.isVisible()); assertTrue(restore.isVisible()); assertEquals("Restore alive", restore.getText());
+                assertTrue(named(sheet, "character-sheet-dead", JComponent.class).isVisible());
+                assertTrue("Marking dead shows the Death annotation tab", sheet.tabs().visibleIds().contains("death"));
+                assertEquals("…without rewriting the saved order", "", PropertiesManager.getProperty(ORDER));
+                restore.doClick();
+                assertFalse(journal.characterCopy(ACCOUNT + ":7").dead);
+                await(sheet::ready);
+                assertTrue(death.isVisible()); assertEquals("Mark dead", death.getText());
+                assertFalse(sheet.tabs().visibleIds().contains("death"));
+            });
+        }
+    }
+
+    @Test public void anUnknownKeyShowsTheUnavailableStateAndAKnownOneTheTabs() throws Exception {
+        try (CharacterJournal journal = journal("unknown.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":404", null);
+                EmptyState missing = named(sheet, "character-sheet-unavailable", EmptyState.class);
+                assertTrue(missing.isVisible());
+                assertEquals(CharacterSheet.UNAVAILABLE, missing.getAccessibleContext().getAccessibleName());
+                assertFalse(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+                assertEquals(" ", named(sheet, "character-snapshot-evidence", JTextArea.class).getText());
+                open(sheet, ACCOUNT + ":1", null);
+                assertFalse(missing.isVisible());
+                assertTrue(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+            });
+        }
+    }
+
+    @Test public void aNotesDraftSurvivesRefreshAndIsSavedWhenAnotherCharacterOpens() throws Exception {
+        try (CharacterJournal journal = journal("notes.json", 1, 2)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", "notes");
+                JTextArea notes = named(sheet, "character-notes", JTextArea.class);
+                notes.setText("Draft for one"); sheet.refresh();
+                assertEquals("A refresh keeps the draft", "Draft for one", notes.getText());
+                assertEquals("", journal.characterCopy(ACCOUNT + ":1").notes);
+                sheet.open(ACCOUNT + ":2", null);
+                assertEquals("Opening another character saves the draft", "Draft for one", journal.characterCopy(ACCOUNT + ":1").notes);
+                assertEquals("", notes.getText());
+                await(sheet::ready);
+                notes.setText("Saved for two"); named(sheet, "character-notes-save", AbstractButton.class).doClick();
+                assertEquals("Saved for two", journal.characterCopy(ACCOUNT + ":2").notes);
+            });
+        }
+    }
+
+    @Test public void openingShowsLoadingUntilItsOwnReadAndDropsAnEarlierCharactersResult() throws Exception {
+        try (CharacterJournal journal = journal("loading.json", 1, 2)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", null);
+                Banner status = named(sheet, "character-sheet-status", Banner.class);
+                assertFalse(status.isVisible());
+                sheet.open(ACCOUNT + ":2", null);
+                assertTrue("Loading shows until the new character's read applies", status.isVisible());
+                assertEquals("Loading…", status.text()); assertFalse(status.warns());
+                assertFalse(sheet.ready());
+                assertEquals("Nothing of the previous character stays", "", named(sheet, "character-sheet-name", JLabel.class).getText());
+                assertFalse("Nothing acts while loading", named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+                sheet.open(ACCOUNT + ":1", null); // #2's build may still arrive: it is for another key now, so it is dropped
+                await(sheet::ready);
+                assertFalse(status.isVisible());
+                assertEquals(ACCOUNT + ":1", sheet.key());
+                assertTrue(named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
+                long settled = System.currentTimeMillis() + 200;
+                await(() -> System.currentTimeMillis() >= settled); // runs the EDT, so a late result would arrive now
+                assertTrue("A late result for #2 never replaces #1", named(sheet, "character-sheet-name", JLabel.class).getText().endsWith("#1"));
+                assertTrue(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+            });
+        }
+    }
+
+    @Test public void aFailedBuildShowsAWarnBannerAndNothingActs() throws Exception {
+        RosterDefinitions none = RosterDefinitions.empty();
+        try (CharacterJournal journal = journal("failure.json", 1)) {
+            SheetContext failing = new SheetContext(new TomatoData(), journal, () -> {
+                if ("character-sheet".equals(Thread.currentThread().getName())) throw new IllegalStateException("Synthetic build failure");
+                return none;
+            }, DisplayModeModel.application(), () -> 5000, PlanningStore.shared());
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = new CharacterSheet(failing);
+                sheet.open(ACCOUNT + ":1", null);
+                Banner status = named(sheet, "character-sheet-status", Banner.class);
+                await(status::warns);
+                assertTrue(status.isVisible()); assertTrue(status.text(), status.text().contains("Synthetic build failure"));
+                assertFalse(sheet.ready()); assertFalse(named(sheet, "character-sheet-death", AbstractButton.class).isEnabled());
+            });
+        }
+    }
+
+    @Test public void hidingTheSheetSavesItsNotesDraft() throws Exception {
+        try (CharacterJournal journal = journal("hide.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                JFrame frame = new JFrame("Sheet hide"); frame.setContentPane(sheet); frame.setSize(900, 600); frame.setVisible(true);
+                try {
+                    open(sheet, ACCOUNT + ":1", "notes");
+                    named(sheet, "character-notes", JTextArea.class).setText("Kept when the sheet hides");
+                    sheet.setVisible(false); // what another card, Back or another Characters tab does
+                    assertEquals("Kept when the sheet hides", journal.characterCopy(ACCOUNT + ":1").notes);
+                } finally { frame.dispose(); }
+            });
+        }
+    }
+
+    @Test public void snapshotEvidenceAndTheTabHintAreAnalystOnly() throws Exception {
+        try (CharacterJournal journal = journal("provenance.json", 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", null);
+                JTextArea evidence = named(sheet, "character-snapshot-evidence", JTextArea.class), hint = named(sheet, "character-sheet-hint", JTextArea.class);
+                assertFalse("Simple hides provenance (spec §3.2)", evidence.isVisible()); assertFalse(hint.isVisible());
+                assertTrue("The text is still kept current", evidence.getText().contains("Snapshot update age"));
+                DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+                assertTrue(evidence.isVisible()); assertTrue(hint.isVisible());
+            });
+        }
+    }
+
+    @Test public void anUnreadableJournalAndAFailedNotesSaveShowAWarnBanner() throws Exception {
+        Path broken = temp.getRoot().toPath().resolve("broken.json");
+        Files.writeString(broken, "{broken");
+        Path blocker = temp.newFile("blocker").toPath(); // a file where the journal's folder should be: every save fails
+        CharacterSheet[] shown = new CharacterSheet[1];
+        try (CharacterJournal unreadable = new CharacterJournal(broken); CharacterJournal failing = journal(new CharacterJournal(blocker.resolve("journal.json")), 1)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(unreadable);
+                open(sheet, ACCOUNT + ":1", null);
+                Banner storage = named(sheet, "character-sheet-storage", Banner.class);
+                assertTrue(storage.isVisible()); assertTrue(storage.warns()); assertTrue(storage.text(), storage.text().startsWith("Cannot read"));
+                shown[0] = sheet(failing);
+                open(shown[0], ACCOUNT + ":1", "notes");
+                assertFalse("Nothing has failed yet", named(shown[0], "character-sheet-storage", Banner.class).isVisible());
+                named(shown[0], "character-notes", JTextArea.class).setText("Never reaches the disk");
+                named(shown[0], "character-notes-save", AbstractButton.class).doClick();
+            });
+            failing.save(); // the saver thread's write fails
+            SwingUtilities.invokeAndWait(() -> {
+                shown[0].refresh();
+                Banner storage = named(shown[0], "character-sheet-storage", Banner.class);
+                assertTrue("A failed save warns inside the sheet", storage.isVisible()); assertTrue(storage.warns());
+                assertTrue(storage.text(), storage.text().startsWith("Save failed"));
+            });
+        }
+    }
+
+    private static <T> T named(Container root, String name, Class<T> type) {
+        for (Component child : root.getComponents()) {
+            if (type.isInstance(child) && name.equals(child.getName())) return type.cast(child);
+            if (child instanceof Container) { T found = named((Container) child, name, type); if (found != null) return found; }
+        }
+        return null;
+    }
+}
+```
+
+`src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`, in `exerciseTabs`. This is a **replace**: the Overview tab replaced the moved stat table, so the Overview checks read its value labels (still "Unknown"/"—" for Life and 70 for ATT) and its reachability; the Gear and Exalts table checks are kept.
+- Replace:
+  ```java
+          SwingUtilities.invokeAndWait(() -> {
+              named(panel, "character-roster", JTable.class).getActionMap().get("open-character").actionPerformed(null);
+              assertTrue("Enter opens the selected character's sheet", view.showingSheet());
+          });
+  ```
+  with:
+  ```java
+          SwingUtilities.invokeAndWait(() -> {
+              named(panel, "character-roster", JTable.class).getActionMap().get("open-character").actionPerformed(null);
+              assertTrue("Enter opens the selected character's sheet", view.showingSheet());
+          });
+          // The sheet's model is built off the EDT.
+          tomato.gui.activity.SnapshotTestSupport.await(() -> named(sheet, "character-overview-value-2", JLabel.class).getText().startsWith("70"));
+  ```
+- Replace:
+  ```java
+                  if (!"notes".equals(id)) {
+                      JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
+                      assertRows(table);
+                      reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
+                      if ("overview".equals(id)) {
+                          assertEquals("Unknown", table.getValueAt(0, 1));
+                          assertEquals(70, table.getValueAt(2, 1));
+                      }
+                  } else {
+  ```
+  with:
+  ```java
+                  if ("overview".equals(id)) {
+                      assertEquals("Life is not captured: unknown, never 0", DisplayFormat.UNAVAILABLE, named(sheet, "character-overview-value-0", JLabel.class).getText());
+                      assertTrue(named(sheet, "character-overview-value-2", JLabel.class).getText().startsWith("70"));
+                      reachable(named(sheet, "character-overview-value-7", JLabel.class));
+                      reachable(named(sheet, "character-overview-exalts", JLabel.class));
+                  } else if (!"notes".equals(id)) {
+                      JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
+                      assertRows(table);
+                      reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
+                  } else {
+  ```
+
+- [ ] **Step 15: Run the tests**
 
 Run: `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.glance.home.HomeModelBuilderTest" --tests "tomato.gui.glance.home.HeroCardTest" --tests "tomato.gui.character.*"`
-Expected: PASS. Task 4's sheet tests may still read the old stat table directly. Update each of them to `character-stat-rows` inside `character-stat-table`, marking it **replace** with the reason "the Overview tab replaced the moved table".
+Expected: PASS.
 
-- [ ] **Step 15: Commit**
+- [ ] **Step 16: Commit**
 
 ```powershell
-git add src/main/java/tomato/gui/glance/character/SheetModel.java src/main/java/tomato/gui/glance/character/SheetModelBuilder.java src/main/java/tomato/gui/glance/character/SheetViews.java src/main/java/tomato/gui/glance/character/SheetHeader.java src/main/java/tomato/gui/glance/character/OverviewTab.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/gui/glance/home/HomeModelBuilder.java src/test/java/tomato/gui/glance/character/SheetFixtures.java src/test/java/tomato/gui/glance/character/SheetModelBuilderTest.java src/test/java/tomato/gui/glance/character/OverviewTabTest.java
-git commit -m "Add the character sheet header and Overview tab" -m "Sprite, identity and maxed/playing/seasonal/last-seen chips; base-versus-cap bars with the live boost only while playing; potions needed with vault counts only when known; gear, class exalt summary and death annotation. The stat table stays in Analyst mode. SheetModel is built off the EDT with Home's potion arithmetic." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add src/main/java/tomato/gui/glance/character/SheetModel.java src/main/java/tomato/gui/glance/character/SheetModelBuilder.java src/main/java/tomato/gui/glance/character/SheetViews.java src/main/java/tomato/gui/glance/character/SheetHeader.java src/main/java/tomato/gui/glance/character/OverviewTab.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/gui/glance/home/HomeModelBuilder.java src/test/java/tomato/gui/glance/character/SheetFixtures.java src/test/java/tomato/gui/glance/character/SheetModelBuilderTest.java src/test/java/tomato/gui/glance/character/OverviewTabTest.java src/test/java/tomato/gui/glance/character/CharacterSheetTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java
+git commit -m "Add the character sheet header and Overview tab" -m "Sprite, identity and maxed/playing/seasonal/last-played chips; base-versus-cap bars with the live boost only while playing; potions needed with vault counts (and their age) only when known; gear, class exalt summary and death annotation. The stat table stays in Analyst mode. SheetPresenter reads the journal and builds SheetModel off the EDT with Home's potion arithmetic; the sheet shows Loading until the opened character's result applies, drops late results for another character and reports a failed build." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5416,9 +6801,10 @@ This task replaces the moved equipment table with a sprite grid:
 - Create: `src/main/java/tomato/gui/glance/character/GearTab.java`, `EnchantDots.java`
 - Modify: `src/main/java/tomato/realmshark/ParseEnchants.java`, `src/main/java/tomato/gui/myinfo/BuildEstimates.java`, `SheetModelBuilder.java`, `SheetPresenter.java`, `CharacterSheet.java` (Task 4's moved equipment panel is removed)
 - Create test: `src/test/java/tomato/gui/glance/character/GearTabTest.java`
+- Modify tests (replace, Step 8): `CharacterJournalLayoutTest.java` and `CharacterWaveFourEvidenceTest.java` in `src/test/java/tomato/gui/character/`
 
 **Interfaces:**
-- Consumes: Task 5's `SheetModel.Gear`, `SheetViews` and `SheetPresenter.Built(record, definitions)`; Task 4's `CharacterSheet.setTab` (assumed); `ParseEnchants.EquippedCapture` (per-slot `CaptureState`; `summarize(code).slots` 0–4 = Common–Divine); `BuildEstimates.Inputs` (a detached player copy); `CharacterEquipmentPanel` (`showRecord(record, defs)`, table `character-equipment`); `ItemTiers.label`.
+- Consumes: Task 5's `SheetModel.Gear`, `SheetViews` and `SheetPresenter.Built(key, model, read, definitions)` (`read.record()` is the sheet's record copy); Task 4's `CharacterSheet.setTab`; `ParseEnchants.EquippedCapture` (per-slot `CaptureState`; `summarize(code).slots` 0–4 = Common–Divine); `BuildEstimates.Inputs` (a detached player copy); `CharacterEquipmentPanel` (`showRecord(record, defs)`, table `character-equipment`); `ItemTiers.label`.
 - Produces:
   - `public int ParseEnchants.EquippedCapture.unlockedSlots(int slot)` (−1 unless KNOWN), `public ParseEnchants.EquippedCapture BuildEstimates.Inputs.enchants()`, `static List<Integer> SheetModelBuilder.enchants(LiveCharacter.Snapshot)`.
   - **`GearTab`** (`character-gear`): `apply(SheetModel.Gear)` and `analyst(CharacterRecord, RosterDefinitions)`; names `character-gear-slot-0..27`, `-tier-i`, `-enchant-i`, `-backpack` (the grid), `-no-backpack`, `-backpack-unknown`, and `character-gear-slot-table` (Collapsible).
@@ -5577,7 +6963,7 @@ with:
         return list(slots);
     }
 ```
-and **add beside** the imports: `import tomato.realmshark.ParseEnchants;`.
+and **add beside** the imports: insert `import tomato.realmshark.ParseEnchants;` before `import tomato.realmshark.enums.CharacterClass;`.
 
 - [ ] **Step 5: Create `EnchantDots.java`**
 
@@ -5746,29 +7132,69 @@ with:
         gear = new GearTab(context.mode());
         sheet.setTab("gear", SheetViews.scroll(gear));
 ```
-**Replace**:
+**Replace** (the end of `show`):
 ```java
-        overview.apply(model);
+        overview.apply(value);
     }
 ```
 with:
 ```java
-        overview.apply(model);
-        gear.apply(model == null ? null : model.gear());
-        gear.analyst(built.record(), built.definitions());
+        overview.apply(value);
+        gear.apply(value == null ? null : value.gear());
     }
 ```
-In Task 4's `CharacterSheet.java`, **replace** (reason: the Gear tab owns its own Analyst slot table): delete the moved `CharacterEquipmentPanel` field and its `showRecord(...)` call. Two panels would both be named `character-equipment`.
+**Replace** (the end of `apply(Built)`; the Analyst slot table shows the sheet's record copy):
+```java
+        show(built.model());
+    }
+```
+with:
+```java
+        show(built.model());
+        gear.analyst(read.record(), built.definitions());
+    }
+```
+In Task 4's `src/main/java/tomato/gui/glance/character/CharacterSheet.java`, **replace** (reason: the Gear tab owns its own Analyst slot table, and two panels would both be named `character-equipment`):
+1. Remove `import tomato.gui.character.CharacterEquipmentPanel;` and the field line `    private final CharacterEquipmentPanel equipment = new CharacterEquipmentPanel();`.
+2. Replace `            .add("gear", "Gear", slot("gear", equipment))` with `            .add("gear", "Gear", slot("gear", new JPanel())) // SheetPresenter sets the Gear tab`.
+3. Delete:
+   ```java
+       /** The moved 28-slot equipment table (Task 6 keeps it in Analyst). */
+       CharacterEquipmentPanel equipmentPanel() { return equipment; }
+   ```
+4. In `fill()`, delete the line `        equipment.showRecord(r, definitions);`.
 
-- [ ] **Step 8: Run the tests**
+- [ ] **Step 8: Migrate Task 4's Gear checks**
+
+`src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`, in `exerciseTabs`, **replace** `                } else if (!"notes".equals(id)) {` with the lines below (reason: the Gear tab is a sprite grid now; its slot table is Analyst-only). The Exalts table check that follows is kept.
+```java
+                } else if ("gear".equals(id)) {
+                    // The Gear tab: the equipped slots and the last inventory slot scroll into view.
+                    reachable(named(sheet, "character-gear-slot-0", JComponent.class));
+                    reachable(named(sheet, "character-gear-slot-11", JComponent.class));
+                } else if (!"notes".equals(id)) {
+```
+
+`src/test/java/tomato/gui/character/CharacterWaveFourEvidenceTest.java`, **replace** (reason: the slot table is filled off the EDT, by the presenter; the 28-row assertion and the screenshot are kept):
+```java
+                    tabs.setSelectedIndex(tabs.indexOfTab("Gear")); JTable gear = named(panel, "character-equipment", JTable.class); assertEquals(28, gear.getRowCount()); ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
+```
+with:
+```java
+                    tabs.setSelectedIndex(tabs.indexOfTab("Gear")); JTable gear = named(panel, "character-equipment", JTable.class);
+                    tomato.gui.activity.SnapshotTestSupport.await(() -> gear.getRowCount() == 28); // the Gear tab's slot table fills off the EDT
+                    ContentStyle.reveal(gear, gear.getCellRect(0, 0, true)); capture(frame, "equipment-compact");
+```
+
+- [ ] **Step 9: Run the tests**
 
 Run: `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.realmshark.EquippedEnchantCaptureTest" --tests "tomato.gui.myinfo.BuildEstimatesTest" --tests "tomato.gui.character.*"`
-Expected: PASS. Task 4's migrated evidence test (`CharacterWaveFourEvidenceTest`) may find `character-equipment` before the presenter has applied a record. If so, have it await the row count (**replace**, with the reason "the slot table is filled off the EDT").
+Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```powershell
-git add src/main/java/tomato/gui/glance/character/GearTab.java src/main/java/tomato/gui/glance/character/EnchantDots.java src/main/java/tomato/gui/glance/character/SheetModelBuilder.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/realmshark/ParseEnchants.java src/main/java/tomato/gui/myinfo/BuildEstimates.java src/test/java/tomato/gui/glance/character/GearTabTest.java
+git add src/main/java/tomato/gui/glance/character/GearTab.java src/main/java/tomato/gui/glance/character/EnchantDots.java src/main/java/tomato/gui/glance/character/SheetModelBuilder.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/realmshark/ParseEnchants.java src/main/java/tomato/gui/myinfo/BuildEstimates.java src/test/java/tomato/gui/glance/character/GearTabTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java src/test/java/tomato/gui/character/CharacterWaveFourEvidenceTest.java
 git commit -m "Add the character sheet Gear tab" -m "Four large equipped slots with tier labels and enchant rarity dots for the character in game only; inventory and backpack as a sprite grid with unknown, empty and no-backpack kept distinct; the 28-row slot table stays in Analyst mode." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
@@ -5779,14 +7205,16 @@ git commit -m "Add the character sheet Gear tab" -m "Four large equipped slots w
 This task replaces the moved "Class exalts" table with one row per stat, in canonical order:
 - Tier as a `PipMeter(5)`, the completions, and "N to next tier" (5/15/30/50/75), or "Maxed" at 75.
 - A "+N" live bonus only from this class's saved `AccountRecord.liveExaltBonus`, with "Live bonus observed <ago>".
+- "Changed <ago>": when this class's completion counts last changed (`exaltSeenByClass`, spec §5.7).
 - "Earn in: <dungeon>" from the selected assets' mapping, or "—" while it loads or is unavailable.
 
-The header shows total completions and the lowest tier; with no saved counts, an empty state replaces the rows. S5 (Task 10): Home hero, then the Exalts tab, is two clicks.
+The header shows total completions and the lowest tier; with no saved counts, an empty state replaces the rows; while the sheet loads, neither shows (never "no progress" before the read). S5 (Task 10): Home hero, then the Exalts tab, is two clicks.
 
 **Files:**
 - Create: `src/main/java/tomato/gui/glance/character/ExaltsTab.java`
 - Modify: `SheetPresenter.java`, `CharacterSheet.java` (Task 4's moved class-exalts table is removed)
 - Create test: `src/test/java/tomato/gui/glance/character/ExaltsTabTest.java`
+- Modify test (replace, Step 4): `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`
 
 **Interfaces:**
 - Consumes: Task 5's `SheetModel.Exalts` and `SheetModelBuilder.build(..., dungeons, now)`; `PipMeter` (`setFilled/filled/setColor`), `EmptyState`, `KitText.role`, `KitFormat.relative`.
@@ -5841,6 +7269,7 @@ public class ExaltsTabTest {
 
     @Test public void liveBonusComesOnlyFromThisClassesSavedBonus() throws Exception {
         CharacterJournal.AccountRecord account = account(5, 5, 5, 5, 5, 5, 5, 5);
+        account.exaltSeenByClass.put(WIZARD, System.currentTimeMillis() - HOUR); // KitFormat.relative reads the real clock
         account.liveExaltBonus.put(WIZARD, bonus(NOW - 3 * HOUR, 1, 2, 3, 4, 5, 6, 7, 8));
         account.liveExaltBonus.put(PRIEST, bonus(NOW, 9, 9, 9, 9, 9, 9, 9, 9));
         SheetModel.Exalts wizard = model(record(), account, live(ACCOUNT, 7, "Sharkbait", null)).exalts();
@@ -5856,6 +7285,7 @@ public class ExaltsTabTest {
             assertEquals("+1", text(tab, "character-exalt-bonus-0"));
             assertEquals("+8", text(tab, "character-exalt-bonus-7"));
             assertTrue(text(tab, "character-exalts-bonus-observed").startsWith("Live bonus observed "));
+            assertEquals("When this class's counts last changed", "Changed 1 h ago", text(tab, "character-exalts-observed"));
             tab.apply(none);
             assertFalse(named(tab, "character-exalt-bonus-0", JLabel.class).isVisible());
             assertFalse(named(tab, "character-exalts-bonus-observed", JLabel.class).isVisible());
@@ -5886,6 +7316,8 @@ public class ExaltsTabTest {
             tab.apply(unknown);
             assertTrue(named(tab, "character-exalts-empty", EmptyState.class).isVisible());
             assertFalse("Unknown is never shown as zero completions", named(tab, "character-exalts-content", JPanel.class).isVisible());
+            tab.apply(null);
+            assertFalse("Loading shows no \"no progress\" either", named(tab, "character-exalts-empty", EmptyState.class).isVisible());
         });
     }
 }
@@ -5912,7 +7344,8 @@ import static tomato.gui.glance.character.SheetViews.*;
 /**
  * Sheet › Exalts (spec §6.2), for this character's class. Each of the 8 stats shows its tier pips (5), its completions and how
  * many more reach the next tier, the saved live stat bonus for this class, and the dungeon that grants it. The header shows the
- * total completions and the lowest tier. With no saved counts for this class, an empty state replaces the rows. EDT only.
+ * total completions and the lowest tier. With no saved counts for this class, an empty state replaces the rows; a null section (the
+ * sheet is loading) shows neither. EDT only.
  */
 final class ExaltsTab extends JPanel {
     private final KitText totals = named(KitText.emphasis(""), "character-exalts-totals");
@@ -5954,16 +7387,17 @@ final class ExaltsTab extends JPanel {
         apply(null);
     }
 
-    /** EDT. Called for every model and once a second; an unchanged section re-reads only its relative "observed" texts. */
+    /** EDT. Called for every model and once a second; an unchanged section re-reads only its relative "Changed" and "observed" texts. */
     void apply(SheetModel.Exalts exalts) {
-        String seen = exalts == null || exalts.seenAt() <= 0 ? "" : "Observed " + KitFormat.relative(exalts.seenAt());
+        // seenAt is when this class's counts last changed in the journal (exaltSeenByClass), not when they were last read.
+        String seen = exalts == null || exalts.seenAt() <= 0 ? "" : "Changed " + KitFormat.relative(exalts.seenAt());
         String bonusText = exalts == null || exalts.liveBonus() == null ? "" : "Live bonus observed "
             + (exalts.liveObservedAt() > 0 ? KitFormat.relative(exalts.liveObservedAt()) : "at an unknown time");
         if (exalts != null && exalts.equals(shown) && seen.equals(observed.getText()) && bonusText.equals(bonusSeen.getText())) return;
         shown = exalts;
         boolean known = exalts != null && exalts.known();
         content.setVisible(known);
-        empty.setVisible(!known);
+        empty.setVisible(exalts != null && !known); // null: nothing to show yet (loading), never "no progress"
         if (!known) return;
         totals.setText("Total completions " + DisplayFormat.formatInteger(exalts.total()) + " · Lowest tier " + exalts.lowest() + "/5");
         observed.setText(seen);
@@ -6013,29 +7447,59 @@ with:
         sheet.setTab("gear", SheetViews.scroll(gear));
         sheet.setTab("exalts", SheetViews.scroll(exalts));
 ```
-**Replace**:
+**Replace** (in `times()`):
 ```java
-        else header.apply(model == null ? null : model.identity()); // only the relative "Last seen" text can change
+        overview.apply(model); // re-reads only the vault age
 ```
 with:
 ```java
-        else { // only relative times ("Last seen", "Observed") can change
-            header.apply(model == null ? null : model.identity());
-            exalts.apply(model == null ? null : model.exalts());
-        }
+        overview.apply(model); // re-reads only the vault age
+        exalts.apply(model.exalts()); // and when this class's counts last changed
 ```
-**Replace**:
+**Replace** (the end of `show`):
 ```java
-        gear.analyst(built.record(), built.definitions());
+        gear.apply(value == null ? null : value.gear());
     }
 ```
 with:
 ```java
-        gear.analyst(built.record(), built.definitions());
-        exalts.apply(model == null ? null : model.exalts());
+        gear.apply(value == null ? null : value.gear());
+        exalts.apply(value == null ? null : value.exalts());
     }
 ```
-In Task 4's `CharacterSheet.java`, **replace** (reason: the Exalts tab replaces it): delete the moved `charExaltModel`-style table (Stat / Level / Completions / Next tier) and the loop that fills it.
+In Task 4's `src/main/java/tomato/gui/glance/character/CharacterSheet.java`, **replace** (reason: the Exalts tab replaces the moved class-exalts table):
+1. Delete the field lines `    private final DefaultTableModel exaltModel = model("Stat", "Level", "Completions", "Next tier");` and `    private final JScrollPane exaltTable;`, and the constructor line `        exaltTable = ContentStyle.tableScroll(table(exaltModel), 3);`.
+2. Replace `            .add("exalts", "Exalts", slot("exalts", exaltTable))` with `            .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab`.
+3. Delete:
+   ```java
+       /** The moved class-exalts table (Task 7 replaces it). */
+       JComponent exaltTable() { return exaltTable; }
+   ```
+4. In `fill()`, replace `        exaltModel.setRowCount(0); metadataModel.setRowCount(0);` with `        metadataModel.setRowCount(0);`, and delete the class-exalt rows:
+   ```java
+           int[] exalt = null;
+           for (AccountRecord a : accounts) if (a.key.equals(r.account)) exalt = a.exalts.get(r.classId);
+           for (int i = 0; i < 8; i++) {
+               Integer count = exalt == null ? null : exalt[CharacterJournal.EXALT_ORDER[i]];
+               exaltModel.addRow(new Object[]{CharacterJournal.STATS[i], count == null ? "Unknown" : CharacterJournal.exaltLevel(count) + "/5", unknown(count), count == null ? "Unknown" : next(count)});
+           }
+   ```
+5. Delete the helper `    private static String next(int count) { for (int goal : new int[]{5, 15, 30, 50, 75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }`.
+
+`src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`, in `exerciseTabs`, **replace** (reason: the Exalts tab has no table; this fixture saved no exalts, so its empty state must stay reachable):
+```java
+                } else if (!"notes".equals(id)) {
+                    JTable table = find((Container)tabs.getSelectedComponent(), JTable.class);
+                    assertRows(table);
+                    reachableRow(table, 0); reachableRow(table, table.getRowCount() - 1);
+                } else {
+```
+with:
+```java
+                } else if ("exalts".equals(id)) {
+                    reachable(named(sheet, "character-exalts-empty", JComponent.class));
+                } else {
+```
 
 - [ ] **Step 5: Run the tests**
 
@@ -6045,7 +7509,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add src/main/java/tomato/gui/glance/character/ExaltsTab.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/test/java/tomato/gui/glance/character/ExaltsTabTest.java
+git add src/main/java/tomato/gui/glance/character/ExaltsTab.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/test/java/tomato/gui/glance/character/ExaltsTabTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java
 git commit -m "Add the class-scoped Exalts tab to the character sheet" -m "Tier pips, completions and completions to the next tier (Maxed at 75) for this class; the live bonus comes only from this class's saved bonus; where to earn each stat, shown as a dash while the dungeon mapping is unavailable." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
@@ -6053,34 +7517,38 @@ git commit -m "Add the class-scoped Exalts tab to the character sheet" -m "Tier 
 
 ### Task 8: Build tab — `MyInfoGUI` moves into the sheet; `MY_INFO`, Alt+7, search and Home's Build open it; page 6 says "Build moved"
 
-The single `MyInfoGUI` (still constructed only by `TomatoGUI`) moves into the sheet's `build` tab, inserted after `exalts`.
-- When this character is in game, or nobody is, the tab shows `MyInfoGUI` (its own empty text applies when nobody is).
-- When another character is in game, it shows "Build shows the character you're playing" with a button to that character's Build. `MyInfoGUI` stays parented in its hidden card.
+The single `MyInfoGUI` (still constructed only by `TomatoGUI`) moves into the sheet's `build` tab, inserted after `exalts`. Build describes the character in game, or after capture stops (or during a map change) the last one that was: `LiveCharacter.current()`, else `lastKnown()`, by `Snapshot.journalKey()` (added here).
+- On that character's sheet the tab shows `MyInfoGUI`.
+- On any other sheet it shows "Build shows the character you're playing". While someone is in game it offers a button to that character's Build; while nobody is, it says to start capture and enter the game, with no button. `MyInfoGUI` stays parented in its hidden card.
 
 `Route.to(MY_INFO)` redirects once to `CHARACTER_SHEET(SheetFocus(key, "build"))`: the live character when the journal has it, else the journal's most recent. With no character at all, page 6 (`BuildMovedPanel`) opens. The search entry and `HomeActions.build` already open `MY_INFO`; Alt+7 is rebound to it.
 
 **Files:**
 - Create: `src/main/java/tomato/gui/glance/character/BuildTab.java`, `src/main/java/tomato/gui/myinfo/BuildRoute.java`, `src/main/java/tomato/gui/myinfo/BuildMovedPanel.java`
 - Modify:
+  - `src/main/java/tomato/backend/data/LiveCharacter.java` (`Snapshot.journalKey()`)
   - `src/main/java/tomato/gui/route/RouteTarget.java`, `ShellNavigator.java` (one-hop redirect)
   - `SheetPresenter.java`, `CharacterSheet.java`, `src/main/java/tomato/gui/character/CharacterPanelGUI.java` (`hostBuild`)
   - `src/main/java/tomato/gui/TomatoGUI.java`, `src/main/java/tomato/gui/modern/NavEntry.java`
 - Create test: `src/test/java/tomato/gui/route/ShellNavigatorRedirectTest.java`, `src/test/java/tomato/gui/glance/character/BuildTabTest.java`
 - Modify tests:
-  - Add beside: `src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java`.
+  - Add beside: `src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java`, `src/test/java/tomato/backend/data/LiveCharacterTest.java`.
   - Replace: `src/test/java/tomato/ShellRouteRegistrationTest.java` (setup only) and `src/test/java/ui/WorkspaceUiTest.java`.
+  - Replace (Step 9, the Build tab): Task 4's `src/test/java/tomato/gui/glance/character/CharacterSheetTest.java` and `src/test/java/tomato/gui/character/CharacterTabsTest.java`; add beside (Step 9): `src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java` (the tab loop covers Build, Goals and Death annotation).
   - Step 13 lists the tests that stay unchanged.
 
 **Interfaces:**
 - Consumes:
   - Task 4: `Destination.CHARACTER_SHEET` (page 3), `SheetFocus(String key, String tab)`, the `CHARACTER_SHEET` target (`sheet.open(key, tab)`, may `show()`), `CharacterSheet.key()/selectedTab()`.
-  - Task 4 (assumed): `CharacterSheet.addTab(...)`, and `CharacterPanelGUI` reaching its sheet as `roster.sheet()`.
-  - Existing: `CharacterJournal.characterCopy/mostRecentCharacter`, `LiveCharacter.current()`, `MyInfoGUI` (unchanged), the `WorkspaceShell` action `page-6`, `HomeActions.build`, search `build.open`.
+  - Task 4: `CharacterSheet.setTab(id, content)` (package-private; this task adds the `build` slot to the tab chain) and `CharacterPanelGUI`'s `sheet` field.
+  - Task 5: `SheetModelBuilder.inGame` (behind `SheetModel.live()`) and the presenter's `apply`.
+  - Existing: `CharacterJournal.characterCopy/mostRecentCharacter`, `LiveCharacter.current()/lastKnown()/stop()`, `MyInfoGUI` (unchanged), the `WorkspaceShell` action `page-6`, `HomeActions.build`, search `build.open`.
 - Produces:
+  - `public String LiveCharacter.Snapshot.journalKey()`: `"<account>:<characterId>"` when `account` is 64 lowercase hex and `characterId >= 0`, else null.
   - `RouteTarget.redirect(Route)`: a default method. `ShellNavigator.open` follows it once, only to an accepted route, with one Back entry.
   - **`BuildRoute`** (`MY_INFO`): `BuildRoute(Supplier<String> key)`, `static String key(TomatoData)`, `static Route sheet(String key)`.
   - **`BuildMovedPanel`** (`build-moved`): `BuildMovedPanel(Runnable, BooleanSupplier)` and `refresh()`; its button is `build-moved-open`.
-  - **`BuildTab`** (`character-build`): `BuildTab(Consumer<String> openLive)`, `host(JComponent)`, `hosted()`, `apply(SheetModel)`, `card()`; names `character-build-{host,other,other-state,open-live,unhosted}`.
+  - **`BuildTab`** (`character-build`): `BuildTab(Consumer<String> openLive)`, `host(JComponent)`, `hosted()`, `apply(SheetModel, String buildKey)`, `card()`, `static String shownKey(LiveCharacter)` (the character Build describes: current, else last known), `POINTER` ("Build shows the character you're playing"); names `character-build-{host,other,other-state,open-live,unhosted}`.
   - `hostBuild(JComponent)` on `CharacterSheet`, `CharacterPanelGUI` and `SheetPresenter`.
 
 - [ ] **Step 1: Write the failing redirect test**
@@ -6182,20 +7650,23 @@ Expected: PASS (the new test and the existing navigator tests).
 package tomato.gui.glance.character;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
+import java.lang.reflect.Modifier;
+import java.util.*;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.Tomato;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournalTest;
+import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.TomatoData;
 import tomato.gui.TomatoGUI;
+import tomato.gui.chat.ChatGUI;
 import tomato.gui.glance.home.HomeModels;
 import tomato.gui.glance.home.HomePage;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
+import tomato.gui.kit.KitButton;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.myinfo.BuildMovedPanel;
 import tomato.gui.myinfo.BuildRoute;
@@ -6221,13 +7692,14 @@ public class BuildTabTest {
             assertEquals("unhosted", tab.card());
             MyInfoGUI build = new MyInfoGUI(data);
             tab.host(build);
-            tab.apply(model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null)));
+            tab.apply(model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null)), KEY);
             assertEquals("This character is in game: Build itself", "build", tab.card());
             assertSame(tab, SwingUtilities.getAncestorOfClass(BuildTab.class, build));
-            tab.apply(model(record(), account(), live(ACCOUNT, 8, "Ann", null)));
+            tab.apply(model(record(), account(), live(ACCOUNT, 8, "Ann", null)), ACCOUNT + ":8");
             assertEquals("other", tab.card());
             EmptyState other = named(tab, "character-build-other-state", EmptyState.class);
-            assertEquals("Build shows the character you're playing", other.getAccessibleContext().getAccessibleName());
+            assertEquals(BuildTab.POINTER, "Build shows the character you're playing");
+            assertEquals(BuildTab.POINTER, other.getAccessibleContext().getAccessibleName());
             assertEquals("Ann is in game now.", other.getAccessibleContext().getAccessibleDescription());
             AbstractButton open = named(tab, "character-build-open-live", AbstractButton.class);
             assertEquals("Open Ann's Build", open.getText());
@@ -6235,8 +7707,35 @@ public class BuildTabTest {
             assertEquals(List.of(ACCOUNT + ":8"), opened);
             assertSame("MyInfoGUI stays parented in its card", tab, SwingUtilities.getAncestorOfClass(BuildTab.class, build));
             assertFalse("…but that card is not shown", named(tab, "character-build-host", JPanel.class).isVisible());
-            tab.apply(model(record(), account(), null));
-            assertEquals("Nobody in game: Build shows its own empty text", "build", tab.card());
+            tab.apply(model(record(), account(), null), null);
+            assertEquals("Build describes nobody: the pointer, not an empty Build", "other", tab.card());
+            EmptyState nobody = named(tab, "character-build-other-state", EmptyState.class);
+            assertEquals("Start capture and enter the game with this character.", nobody.getAccessibleContext().getAccessibleDescription());
+            assertEquals("Nobody is in game: nothing to open", 0, count(named(tab, "character-build-other", JPanel.class), KitButton.class));
+        });
+    }
+
+    @Test public void afterCaptureStopsBuildStaysOnTheLastCharactersSheetOnly() throws Exception {
+        TomatoData data = new TomatoData();
+        LiveCharacter live = new LiveCharacter();
+        live.publish(live(ACCOUNT, 7, "Sharkbait", null));
+        live.stop(NOW);
+        assertNull("Capture stopped: nobody is in game", SheetModelBuilder.inGame(live, NOW + 1));
+        assertEquals("…while Build still describes the last character", KEY, BuildTab.shownKey(live));
+        CharacterJournal.CharacterRecord other = record(); other.key = ACCOUNT + ":8"; other.characterId = 8;
+        SheetModel mine = model(record(), account(), SheetModelBuilder.inGame(live, NOW + 1));
+        SheetModel theirs = model(other, account(), SheetModelBuilder.inGame(live, NOW + 1));
+        SwingUtilities.invokeAndWait(() -> {
+            BuildTab tab = new BuildTab(key -> fail("Nothing to open while nobody is in game"));
+            tab.host(new MyInfoGUI(data));
+            tab.apply(mine, BuildTab.shownKey(live));
+            assertEquals("The last character's sheet still shows its Build", "build", tab.card());
+            tab.apply(theirs, BuildTab.shownKey(live));
+            assertEquals("Another sheet never shows the last character's Build", "other", tab.card());
+            EmptyState state = named(tab, "character-build-other-state", EmptyState.class);
+            assertEquals(BuildTab.POINTER, state.getAccessibleContext().getAccessibleName());
+            assertEquals("Start capture and enter the game with this character.", state.getAccessibleContext().getAccessibleDescription());
+            assertEquals(0, count(named(tab, "character-build-other", JPanel.class), KitButton.class));
         });
     }
 
@@ -6304,20 +7803,31 @@ public class BuildTabTest {
         }
     }
 
-    /** The real workspace (TomatoGUI.createWorkspace) over a temporary journal, preview mode and a temporary history store. */
+    /**
+     * The real workspace (TomatoGUI.createWorkspace) over a temporary journal, preview mode and a temporary history store. It puts
+     * back what it changes: TomatoGUI's and ChatGUI's static fields, the display mode, the Characters and sheet preferences
+     * (ui.tabs.*, ui.characters.*, ui.collapse.*, ui.filters.characters.open) and every ux.archive.* saved view.
+     */
     private static final class Workspace implements AutoCloseable {
+        private static final List<String> PREFERENCES = List.of("ui.tabs.character", "ui.tabs.characters", "ui.characters.view",
+            "ui.characters.sort", "ui.collapse.characters-graveyard", "ui.filters.characters.open");
         final TomatoData data = new TomatoData();
-        final TomatoGUI gui = new TomatoGUI(data);
+        final TomatoGUI gui;
         final String key;
         WorkspaceShell shell;
         private final Field store = AppHistory.class.getDeclaredField("store"), preview = Tomato.class.getDeclaredField("preview");
         private final Object previousStore, previousPreview;
         private final String tmp = System.getProperty("java.io.tmpdir");
-        private final String sheetTabs = PropertiesManager.getProperty("ui.tabs.character"), pageTabs = PropertiesManager.getProperty("ui.tabs.characters");
+        private final Map<String, String> preferences = new HashMap<>();
+        private final Map<Field, Object> statics = new LinkedHashMap<>();
         private final DisplayModeModel.Mode mode = DisplayModeModel.application().mode();
         private final SessionStore history;
 
         Workspace(TemporaryFolder temp, boolean seeded) throws Exception {
+            for (String name : preferenceKeys()) preferences.put(name, PropertiesManager.getProperty(name));
+            for (Class<?> type : new Class<?>[]{TomatoGUI.class, ChatGUI.class})
+                for (Field field : type.getDeclaredFields())
+                    if (Modifier.isStatic(field.getModifiers()) && !Modifier.isFinal(field.getModifiers())) { field.setAccessible(true); statics.put(field, field.get(null)); }
             store.setAccessible(true); preview.setAccessible(true);
             previousStore = store.get(null); previousPreview = preview.get(null);
             preview.set(null, true);
@@ -6327,28 +7837,70 @@ public class BuildTabTest {
             CharacterJournal journal = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"));
             key = seeded ? seed(journal) : null;
             inject(data, journal);
+            gui = new TomatoGUI(data);
             SwingUtilities.invokeAndWait(() -> shell = (WorkspaceShell) gui.createWorkspace());
         }
 
         @Override public void close() throws Exception {
             gui.closeWorkspace();
-            SwingUtilities.invokeAndWait(() -> { if (shell != null) shell.removeNotify(); DisplayModeModel.application().set(mode); });
-            PropertiesManager.setProperties("ui.tabs.character", sheetTabs == null ? "" : sheetTabs);
-            PropertiesManager.setProperties("ui.tabs.characters", pageTabs == null ? "" : pageTabs);
+            SwingUtilities.invokeAndWait(() -> {
+                if (shell != null) shell.removeNotify();
+                DisplayModeModel.application().set(mode);
+                try { for (Map.Entry<Field, Object> entry : statics.entrySet()) entry.getKey().set(null, entry.getValue()); }
+                catch (IllegalAccessException e) { throw new AssertionError(e); }
+            });
+            for (String name : preferenceKeys()) { String value = preferences.get(name); PropertiesManager.setProperties(name, value == null ? "" : value); }
             System.setProperty("java.io.tmpdir", tmp);
             store.set(null, previousStore); preview.set(null, previousPreview);
             history.close();
+        }
+
+        /** The preferences above and every ux.archive.* key present now (a key the workspace added is cleared on close). */
+        private static Set<String> preferenceKeys() throws ReflectiveOperationException {
+            Field field = PropertiesManager.class.getDeclaredField("properties"); field.setAccessible(true);
+            Set<String> keys = new HashSet<>(PREFERENCES);
+            for (String name : ((Properties) field.get(null)).stringPropertyNames()) if (name.startsWith("ux.archive.")) keys.add(name);
+            return keys;
         }
     }
 }
 ```
 
+In `src/test/java/tomato/backend/data/LiveCharacterTest.java`, **add beside** the existing tests, immediately before `    private static void put(Entity entity, StatType type, int value) {`:
+```java
+    @Test public void journalKeyIsTheJournalsExactKeyOrNull() {
+        String account = CharacterJournal.accountKey("sample-account");
+        assertEquals(account + ":7", new LiveCharacter.Snapshot(account, 7, 782, null, null, null, null, TOTALS, null, null, null, null, null,
+            null, null, 0).journalKey());
+        assertNull("Not a hashed account key", snapshot(0).journalKey());
+        assertNull("No character id", new LiveCharacter.Snapshot(account, -1, 782, null, null, null, null, TOTALS, null, null, null, null, null,
+            null, null, 0).journalKey());
+    }
+```
+
+What the Workspace helper puts back, and why: `createWorkspace` sets `TomatoGUI`'s and `ChatGUI`'s static fields, and the Characters page saves its tabs, drawer, gallery view and sort, Graveyard state and view state as it builds. Restoring them keeps later tests independent of this one.
+
 - [ ] **Step 6: Run it to verify it fails**
 
-Run: `GRADLE test --tests "tomato.gui.glance.character.BuildTabTest"`
-Expected: FAIL (compile error: `BuildTab`, `BuildRoute` and `BuildMovedPanel` do not exist).
+Run: `GRADLE test --tests "tomato.gui.glance.character.BuildTabTest" --tests "tomato.backend.data.LiveCharacterTest"`
+Expected: FAIL (compile error: `BuildTab`, `BuildRoute`, `BuildMovedPanel` and `journalKey()` do not exist).
 
-- [ ] **Step 7: Create `BuildTab.java`**
+- [ ] **Step 7: Add `LiveCharacter.Snapshot.journalKey()` and create `BuildTab.java`**
+
+In `src/main/java/tomato/backend/data/LiveCharacter.java` — before:
+```java
+        @Override public int[] exaltBonus() { return copy(exaltBonus); }
+```
+after:
+```java
+        @Override public int[] exaltBonus() { return copy(exaltBonus); }
+        /** The character journal's key, "<account>:<characterId>", or null when the account is not a journal account key. */
+        public String journalKey() {
+            return account != null && account.matches("[0-9a-f]{64}") && characterId >= 0 ? account + ":" + characterId : null;
+        }
+```
+
+`src/main/java/tomato/gui/glance/character/BuildTab.java`:
 
 ```java
 package tomato.gui.glance.character;
@@ -6358,22 +7910,25 @@ import java.awt.CardLayout;
 import java.util.Objects;
 import java.util.function.Consumer;
 import javax.swing.*;
+import tomato.backend.data.LiveCharacter;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.KitButton;
 import static tomato.gui.glance.character.SheetViews.named;
 
 /**
- * Sheet › Build (spec §6.1–6.2): the app's single Build page (MyInfoGUI), which always describes the character in game. On the
- * sheet of another character while someone else plays, an empty state offers that character's Build instead; MyInfoGUI stays
- * parented in its hidden card (never a second instance). With nobody in game, Build shows its own empty text. EDT only.
+ * Sheet › Build (spec §6.1–6.2): the app's single Build page (MyInfoGUI). Build describes the character in game or, after capture
+ * stops or while a map change clears it, the last one that was. So the tab shows Build only on that character's sheet; on any
+ * other sheet an empty state says "Build shows the character you're playing" and, while someone is in game, offers that
+ * character's Build. MyInfoGUI stays parented in its hidden card (never a second instance). EDT only.
  */
 final class BuildTab extends JPanel {
+    static final String POINTER = "Build shows the character you're playing";
     private final CardLayout cards = new CardLayout();
     private final JPanel host = named(new JPanel(new BorderLayout()), "character-build-host");
     private final JPanel other = named(new JPanel(new BorderLayout()), "character-build-other");
     private final Consumer<String> openLive;
     private JComponent build;
-    private String card = "", liveKey, liveName;
+    private String card = "", liveKey, pointerFor;
 
     /** {@code openLive} opens the sheet's Build tab for a journal key (the character in game). */
     BuildTab(Consumer<String> openLive) {
@@ -6387,6 +7942,13 @@ final class BuildTab extends JPanel {
         add(other, "other");
         add(named(new EmptyState("Build is not available here", "Build opens in the RealmShark window.", null), "character-build-unhosted"), "unhosted");
         show("unhosted");
+    }
+
+    /** The journal key of the character Build describes: the one in game, else the last one (capture stopped); null when none. */
+    static String shownKey(LiveCharacter live) {
+        if (live == null) return null;
+        LiveCharacter.Snapshot shown = live.current() != null ? live.current() : live.lastKnown();
+        return shown == null ? null : shown.journalKey();
     }
 
     /** Parents the app's single MyInfoGUI here (TomatoGUI calls this once). */
@@ -6404,20 +7966,33 @@ final class BuildTab extends JPanel {
     /** "build", "other" or "unhosted". */
     String card() { return card; }
 
-    void apply(SheetModel model) {
-        SheetModel.Live live = model == null ? null : model.live();
-        if (live != null && !model.identity().playing()) { other(live); show("other"); }
-        else show(build == null ? "unhosted" : "build");
+    /**
+     * {@code buildKey}: the character Build describes ({@link #shownKey}). This sheet's own character shows Build; any other shows
+     * the pointer, with an Open button only while someone is in game. A null model (loading, or not in the journal) changes nothing.
+     */
+    void apply(SheetModel model, String buildKey) {
+        if (build == null) { show("unhosted"); return; }
+        if (model == null) return;
+        if (model.key().equals(buildKey)) { show("build"); return; }
+        pointer(model.live());
+        show("other");
     }
 
-    private void other(SheetModel.Live live) {
-        liveKey = live.key(); // read at click time: the same name may belong to another character later
-        if (live.name().equals(liveName)) return;
-        liveName = live.name();
-        KitButton open = named(KitButton.primary("Open " + liveName + "'s Build"), "character-build-open-live");
-        open.addActionListener(e -> openLive.accept(liveKey));
+    /** The pointer for another sheet; {@code live} null: nobody is in game, so there is nothing to open. */
+    private void pointer(SheetModel.Live live) {
+        liveKey = live == null ? null : live.key(); // read at click time: the same name may belong to another character later
+        String shownFor = live == null ? "" : live.name();
+        if (shownFor.equals(pointerFor)) return;
+        pointerFor = shownFor;
+        EmptyState state;
+        if (live == null) state = new EmptyState(POINTER, "Start capture and enter the game with this character.", null);
+        else {
+            KitButton open = named(KitButton.primary("Open " + live.name() + "'s Build"), "character-build-open-live");
+            open.addActionListener(e -> { if (liveKey != null) openLive.accept(liveKey); });
+            state = new EmptyState(POINTER, live.name() + " is in game now.", open);
+        }
         other.removeAll();
-        other.add(named(new EmptyState("Build shows the character you're playing", liveName + " is in game now.", open), "character-build-other-state"));
+        other.add(named(state, "character-build-other-state"));
         other.revalidate();
         other.repaint();
     }
@@ -6548,32 +8123,99 @@ with:
 with:
 ```java
         sheet.setTab("exalts", SheetViews.scroll(exalts));
-        sheet.addTab("build", "Build", build, 3); // default order: overview, gear, exalts, build, goals, notes, evidence, death
+        sheet.setTab("build", build); // the sheet's build slot, added below right after exalts
 ```
-**Replace**:
+**Replace** (the end of `apply(Built)`; while a new character loads, the tab keeps its card until that character's result applies):
 ```java
-        exalts.apply(model == null ? null : model.exalts());
+        gear.analyst(read.record(), built.definitions());
     }
 ```
-(the one at the end of `apply(Built)`) with:
+with:
 ```java
-        exalts.apply(model == null ? null : model.exalts());
-        build.apply(model);
+        gear.analyst(read.record(), built.definitions());
+        build.apply(built.model(), BuildTab.shownKey(live())); // Build shows only on the sheet of the character it describes
     }
 
     /** EDT: parents the app's single MyInfoGUI in the Build tab. */
     void hostBuild(javax.swing.JComponent value) { build.host(value); }
 ```
-In Task 4's `CharacterSheet.java`, **add beside** (after `open`):
-```java
-    /** Hosts the app's single Build page (MyInfoGUI) in this sheet's Build tab; TomatoGUI calls this once. */
-    public void hostBuild(JComponent build) { presenter.hostBuild(build); }
-```
-In Task 4's `src/main/java/tomato/gui/character/CharacterPanelGUI.java`, **add beside** (after `bindNavigator`). `roster` is Task 4's `CharacterRosterView` field and `sheet()` its `CharacterSheet`; if Task 4 names them differently, adapt this one line:
+The live revision is one of the presenter's tokens, so the tab follows a character entering or leaving the game while the sheet shows.
+In Task 4's `src/main/java/tomato/gui/glance/character/CharacterSheet.java`:
+1. **Add beside**: after `            .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab`, add the line below. The default order becomes overview, gear, exalts, build, goals, notes, evidence, death. A saved order without `build` gets it appended (`CustomizableTabs.order`).
+   ```java
+               .add("build", "Build", slot("build", new JPanel())) // SheetPresenter hosts Build (MyInfoGUI) here
+   ```
+2. **Replace** (the slots now include Build) `Overview, Gear and Exalts are slots whose` in the class comment with `Overview, Gear, Exalts and Build are slots whose`, and `    /** Replaces a slot tab's content (overview, gear, exalts); its id, title, order and hidden state are unchanged. */` with `    /** Replaces a slot tab's content (overview, gear, exalts, build); its id, title, order and hidden state are unchanged. */`.
+3. **Add beside**, before `    public String key() { return key; }`:
+   ```java
+       /** Hosts the app's single Build page (MyInfoGUI) in this sheet's Build tab; TomatoGUI calls this once. */
+       public void hostBuild(JComponent build) { presenter.hostBuild(build); }
+   ```
+
+In Task 4's `src/main/java/tomato/gui/character/CharacterPanelGUI.java`, **add beside** after `    public void bindNavigator(Navigator navigator) { roster.bindNavigator(navigator); sheet.bindNavigator(navigator); }`:
 ```java
     /** Hosts the app's single Build page (MyInfoGUI) in the character sheet's Build tab. */
-    public void hostBuild(JComponent build) { roster.sheet().hostBuild(build); }
+    public void hostBuild(javax.swing.JComponent build) { sheet.hostBuild(build); }
 ```
+
+Task 4's tab tests now see the Build tab. **Replace** (reason: the sheet gains its Build tab; every other assertion is kept):
+- `src/test/java/tomato/gui/glance/character/CharacterSheetTest.java`, in `tabsKeepTheirIdsAndOrderSnapshotEvidenceIsAnalystOnlyAndSlotsAreReplaceable`:
+  - `List<String> order = Arrays.asList("overview", "gear", "exalts", "goals", "notes", "evidence", "death");` becomes `List<String> order = Arrays.asList("overview", "gear", "exalts", "build", "goals", "notes", "evidence", "death");`.
+  - `Arrays.asList("Overview", "Gear", "Exalts", "Goals", "Notes", "Snapshot evidence"), titles(tabs));` becomes `Arrays.asList("Overview", "Gear", "Exalts", "Build", "Goals", "Notes", "Snapshot evidence"), titles(tabs));`.
+  - `assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));` becomes `assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));`.
+  - `fail("Only overview, gear and exalts are slots")` becomes `fail("Only overview, gear, exalts and build are slots")`.
+- `src/test/java/tomato/gui/character/CharacterTabsTest.java`, in `snapshotEvidenceIsAnalystOnlyAndTabsKeepTheirSavedOrder` (its saved order predates Build, so Build is appended last and Snapshot evidence keeps index 5):
+  - `assertEquals(5, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));` becomes `assertEquals(6, tabs.getTabCount()); assertEquals(-1, tabs.indexOfTab("Snapshot evidence"));`.
+  - `assertEquals(6, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));` becomes `assertEquals(7, tabs.getTabCount()); assertEquals(5, tabs.indexOfTab("Snapshot evidence"));`.
+
+`src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java`, in `exerciseTabs`, **add beside**: the tab loop also covers Build, Goals and Death annotation at every size and font. Death annotation shows only for a character marked dead, so the loop marks the character dead before it and restores it after. The checks of the other tabs are kept.
+- Replace:
+  ```java
+          for (String id : new String[]{"overview", "gear", "exalts", "notes"}) {
+              SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
+  ```
+  with:
+  ```java
+          for (String id : new String[]{"overview", "gear", "exalts", "build", "goals", "notes", "death"}) {
+              if ("death".equals(id)) { // shown only for a character marked dead: mark it here, restore it after the loop
+                  SwingUtilities.invokeAndWait(() -> button(sheet, "Mark dead").doClick());
+                  tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
+              }
+              SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
+  ```
+- Replace:
+  ```java
+                  } else {
+                      JTextArea notes = named(sheet, "character-notes", JTextArea.class);
+  ```
+  with:
+  ```java
+                  } else if ("build".equals(id)) {
+                      // Build fills its tab and scrolls itself, so it is checked for its place and width rather than for fitting whole.
+                      JComponent build = named(sheet, "character-build", JComponent.class);
+                      assertTrue("Build is the selected tab's content", SwingUtilities.isDescendingFrom(build, tabs.getSelectedComponent()));
+                      assertTrue("Build never overflows the sheet sideways: " + build.getWidth() + " > " + tabs.getWidth(), build.getWidth() <= tabs.getWidth());
+                  } else if ("goals".equals(id)) {
+                      reachable(named(sheet, "planning-0", JComponent.class));
+                  } else if ("death".equals(id)) {
+                      reachable(named(sheet, "death-occurred", JComponent.class)); // the annotation's first field
+                  } else {
+                      JTextArea notes = named(sheet, "character-notes", JTextArea.class);
+  ```
+- Replace:
+  ```java
+          SwingUtilities.invokeAndWait(() -> named(sheet, "character-sheet-back", JButton.class).doClick());
+          settle();
+          SwingUtilities.invokeAndWait(() -> assertFalse("The back link returns to the list", view.showingSheet()));
+  ```
+  with:
+  ```java
+          SwingUtilities.invokeAndWait(() -> button(sheet, "Restore alive").doClick());
+          tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
+          SwingUtilities.invokeAndWait(() -> named(sheet, "character-sheet-back", JButton.class).doClick());
+          settle();
+          SwingUtilities.invokeAndWait(() -> assertFalse("The back link returns to the list", view.showingSheet()));
+  ```
 
 - [ ] **Step 10: Wire `TomatoGUI`, Alt+7 and page 6**
 
@@ -6667,7 +8309,7 @@ with:
         TomatoGUI gui = new TomatoGUI(data);
 ```
 
-`src/test/java/ui/WorkspaceUiTest.java`: **replace** (reason: page 6 is Build's landing only while no character exists, and the preview app reads the working directory's journal) in `buildIsUnlistedButOpensByRouteUnderItsNewTitle`:
+`src/test/java/ui/WorkspaceUiTest.java`: **replace** (reason: page 6 is Build's landing only while no character exists, and the preview app reads the working directory's journal, so the test pins an empty journal and puts the app's back; the exact page-6 and "Build" checks are kept) in `buildIsUnlistedButOpensByRouteUnderItsNewTitle`:
 ```java
                 assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
                 assertEquals(6, shell.getSelectedPage());
@@ -6675,11 +8317,15 @@ with:
 ```
 with:
 ```java
-                // Build lives on the character sheet; the expected landing follows the route's own resolver (BuildTabTest pins both).
-                boolean character = tomato.gui.myinfo.BuildRoute.key(appData()) != null;
-                assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
-                assertEquals(character ? 3 : 6, shell.getSelectedPage());
-                if (!character) assertEquals("Build", pageTitle(shell).getText());
+                // Build lands on page 6 only while no character exists: pin an empty journal, then put the app's own back.
+                tomato.backend.data.TomatoData app = appData();
+                tomato.backend.data.CharacterJournal previous = app.characterJournal();
+                tomato.gui.glance.character.SheetFixtures.inject(app, emptyJournal());
+                try {
+                    assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
+                    assertEquals(6, shell.getSelectedPage());
+                    assertEquals("Build", pageTitle(shell).getText());
+                } finally { tomato.gui.glance.character.SheetFixtures.inject(app, previous); }
 ```
 and **add beside** (after `pageTitle(Container)`):
 ```java
@@ -6689,14 +8335,19 @@ and **add beside** (after `pageTitle(Container)`):
             return (tomato.backend.data.TomatoData) field.get(null);
         } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
     }
+    /** A journal with no character, in a new temporary folder. */
+    private static tomato.backend.data.CharacterJournal emptyJournal() {
+        try { return new tomato.backend.data.CharacterJournal(java.nio.file.Files.createTempDirectory("workspace-build-").resolve("journal.json")); }
+        catch (java.io.IOException e) { throw new AssertionError(e); }
+    }
 ```
 
 - [ ] **Step 12: Run the Build tests**
 
-Run: `GRADLE test --tests "tomato.gui.glance.character.BuildTabTest" --tests "tomato.gui.route.*" --tests "tomato.gui.chat.ShellHookIntegrationTest" --tests "tomato.ShellRouteRegistrationTest"`
-Expected: PASS (4 Build tests, the redirect test, and the shell tests with their added assertions).
+Run: `GRADLE test --tests "tomato.gui.glance.character.BuildTabTest" --tests "tomato.backend.data.LiveCharacterTest" --tests "tomato.gui.route.*" --tests "tomato.gui.chat.ShellHookIntegrationTest" --tests "tomato.ShellRouteRegistrationTest"`
+Expected: PASS (5 Build tests, the journal-key test, the redirect test, and the shell tests with their added assertions).
 
-- [ ] **Step 13: Check the tests the contract listed but that need no change, then sweep**
+- [ ] **Step 13: Check the tests that pin page 6 or Build but need no change, then sweep**
 
 These tests pin page 6 or Build but stay valid:
 - **`ui.WorkspaceShellNavigationTest` 438–469.** It builds a bare `WorkspaceShell` with plain panels. There, page 6 is still an unlisted page and the shell's own `page-6` action still selects it; only `TomatoGUI` rebinds Alt+7.
@@ -6715,33 +8366,41 @@ Expected: PASS. This run opens real windows, so leave the machine alone until it
 - [ ] **Step 14: Commit**
 
 ```powershell
-git add src/main/java/tomato/gui/glance/character/BuildTab.java src/main/java/tomato/gui/myinfo/BuildRoute.java src/main/java/tomato/gui/myinfo/BuildMovedPanel.java src/main/java/tomato/gui/route/RouteTarget.java src/main/java/tomato/gui/route/ShellNavigator.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/gui/character/CharacterPanelGUI.java src/main/java/tomato/gui/TomatoGUI.java src/main/java/tomato/gui/modern/NavEntry.java src/test/java/tomato/gui/route/ShellNavigatorRedirectTest.java src/test/java/tomato/gui/glance/character/BuildTabTest.java src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java src/test/java/tomato/ShellRouteRegistrationTest.java src/test/java/ui/WorkspaceUiTest.java
-git commit -m "Move Build into the character sheet" -m "The single MyInfoGUI now lives in the sheet's Build tab. On another character's sheet while someone plays, the tab offers the playing character's Build instead. The Build route redirects once to the sheet's Build tab for the live character, else the most recent one, so the route, Alt+7, Settings search and Home's Build action all land there. Page 6 only says that Build moved." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add src/main/java/tomato/backend/data/LiveCharacter.java src/test/java/tomato/backend/data/LiveCharacterTest.java src/main/java/tomato/gui/glance/character/BuildTab.java src/main/java/tomato/gui/myinfo/BuildRoute.java src/main/java/tomato/gui/myinfo/BuildMovedPanel.java src/main/java/tomato/gui/route/RouteTarget.java src/main/java/tomato/gui/route/ShellNavigator.java src/main/java/tomato/gui/glance/character/SheetPresenter.java src/main/java/tomato/gui/glance/character/CharacterSheet.java src/main/java/tomato/gui/character/CharacterPanelGUI.java src/main/java/tomato/gui/TomatoGUI.java src/main/java/tomato/gui/modern/NavEntry.java src/test/java/tomato/gui/route/ShellNavigatorRedirectTest.java src/test/java/tomato/gui/glance/character/BuildTabTest.java src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java src/test/java/tomato/ShellRouteRegistrationTest.java src/test/java/ui/WorkspaceUiTest.java src/test/java/tomato/gui/glance/character/CharacterSheetTest.java src/test/java/tomato/gui/character/CharacterTabsTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java
+git commit -m "Move Build into the character sheet" -m "The single MyInfoGUI now lives in the sheet's Build tab, shown only on the sheet of the character it describes (the one in game, or after capture stops the last one). Other sheets say that Build shows the character you're playing and, while someone plays, offer that character's Build. The Build route redirects once to the sheet's Build tab for the live character, else the most recent one, so the route, Alt+7, Settings search and Home's Build action all land there. Page 6 only says that Build moved." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ### Task 9: Roster gallery — painted cards, Graveyard, sort, Gallery/Table views over the one roster filter
 
+- **Layout.** The Graveyard sits right below the living cards at any page height; the Sort combo and the Gallery/Table toggle share the filter row's wrapping row, so at 680 px or font 18 they wrap below the search and "Reset filters" instead of squeezing them.
+- **Selection and focus.** A card selection is the roster's selection (`currentKey()` and the saved `selected` follow it); Back from the sheet focuses the selected card in the gallery, the row in the Table view.
+- **Times (spec §5.7).** Cards say "Played <ago>" from the last time in game, "Seen <ago>" only for a character never played, as the Last played sort orders them; an unknown maxed count reads "—".
+- **Playing now** uses Home's map-change grace (`SheetModelBuilder.inGame`).
+- **States (spec §7).** An unreadable journal shows an unavailable state with the journal's status, not "No characters yet"; a failed save shows a warn banner above the cards.
+- **Saved views (spec §3.2).** "Save view state" and "Reset saved view state" move into the ⋯ menu in both modes; the page shows their status only as a warn banner when saving fails or the saved state cannot be read.
+
 **Files:**
 - Create: `src/main/java/tomato/gui/glance/character/CharacterCardModel.java`, `CharacterCardRenderer.java`, `CharacterGallery.java`
 - Create: `src/main/java/tomato/gui/character/RosterViews.java`
-- Modify: `src/main/java/tomato/backend/data/LiveCharacter.java` (`Snapshot.journalKey()`), `src/main/java/tomato/gui/character/CharacterJournalGUI.java`, `src/main/java/tomato/gui/character/CharacterPanelGUI.java`
+- Modify: `src/main/java/tomato/gui/roster/RosterViewState.java` (status for hosts that keep its actions in a menu), `src/main/java/tomato/gui/character/CharacterJournalGUI.java`, `src/main/java/tomato/gui/character/CharacterPanelGUI.java`
 - Create test: `src/test/java/tomato/gui/glance/character/CharacterFixtures.java`, `CharacterCardRendererTest.java`, `CharacterGalleryTest.java`; `src/test/java/tomato/gui/character/RosterViewsTest.java`, `TableViewRule.java`
-- Modify tests (add beside): `src/test/java/tomato/backend/data/LiveCharacterTest.java`; the table rule in `CharacterJournalGuiTest`, `CharacterJournalLayoutTest`, `CharacterFilterBarTest`, `CharacterRosterStateTest`, `CharacterTableKindsTest`, `CharacterViewStateTest`, `CharacterJournalFreshnessRefreshTest`, `CharacterWaveFourEvidenceTest` (`src/test/java/tomato/gui/character/`) and `src/test/java/tomato/gui/history/FilterBarEvidenceTest.java`
+- Modify tests (add beside): `CharacterRosterViewTest` (Back focus) and `CharacterViewStateTest` (the ⋯ menu and its warning) in `src/test/java/tomato/gui/character/`; the table rule in `CharacterJournalGuiTest`, `CharacterJournalLayoutTest`, `CharacterFilterBarTest`, `CharacterRosterStateTest`, `CharacterTableKindsTest`, `CharacterViewStateTest`, `CharacterJournalFreshnessRefreshTest`, `CharacterWaveFourEvidenceTest` (`src/test/java/tomato/gui/character/`) and `src/test/java/tomato/gui/history/FilterBarEvidenceTest.java`
 - Modify test (replace one lookup): `CharacterJournalGuiTest` (the type-only `JComboBox` lookup)
 
 **Interfaces:**
 - Consumes:
-  - Task 4: `CharacterJournalGUI.visibleRows()` (public, EDT, the filtered rows), `addRowsListener(Runnable)` (listeners run at the end of every `filter()`, after `filtered` and the table model are rebuilt), the `Consumer<String> openSheet` field (table Enter/double-click), the page statement `JScrollPane page = ContentStyle.page(top, <roster table scroll pane>, footer); pageScroll = page;` with `page.setName("character-page-scroll")`, the package-private constructor `CharacterJournalGUI(CharacterJournal, LongSupplier, Supplier<RosterDefinitions>)`, and `CharacterPanelGUI(TomatoData)` constructing the roster's `CharacterJournalGUI` with `data` in scope.
-  - Existing: `CharacterRosterQuery.Row` (plain class: `record`, `maxed` (Integer, null = unknown), `potions`, `capturedStats`, `completeCaps`, `needsLife`; public constructor `Row(CharacterRecord, RosterDefinitions)`); `CharacterJournal.CharacterRecord` (`key, account, name, className, characterId, classId, level, skin, fame, seasonal, lastSeen, lastObservedAlive, dead, stats`); `LiveCharacter.current()`; kit `Collapsible(id, title, content, expanded)` (`PREFIX = "ui.collapse."`, `toggle()`, `expanded()`), `SegmentedControl(name, options…)` (`selected()`, silent `setSelected`, `onChange`), `FilterBar.scope(JComponent)`/`overflow()`, `OverflowMenu.add(label, Runnable)`/`menu()`/`item(label)`, `EmptyState(title, body, action)`, `Sprites.sprite(id, size)`, `KitFormat.relative`, `DisplayFormat.formatInteger(Long)` ("—" for null)/`formatTimestamp(long)`, `Tokens`, `Type`, `DisplayModeModel.bind(owner, listener)`.
+  - Task 4: `CharacterJournalGUI.visibleRows()` (public, EDT, the filtered rows), `addRowsListener(Runnable)` (listeners run at the end of every `filter()`, after `filtered` and the table model are rebuilt), the `Consumer<String> openSheet` field (table Enter/double-click), the page statement `JScrollPane page = ContentStyle.page(top, ContentStyle.tableScroll(roster, 3), footer); pageScroll = page;` (named `character-page-scroll`), which runs before the constructor's first `refresh()`, the package-private constructor `CharacterJournalGUI(CharacterJournal, LongSupplier, Supplier<RosterDefinitions>)`, and `CharacterPanelGUI(TomatoData, SheetContext)`, where `data` and the `journal` field (the list) are in scope.
+  - Task 2: `CharacterJournal.storageProblem()`. Task 5: `SheetModelBuilder.inGame(LiveCharacter, long)`. Task 8: `LiveCharacter.Snapshot.journalKey()`.
+  - Existing: `CharacterRosterQuery.Row` (plain class: `record`, `maxed` (Integer, null = unknown), `potions`, `capturedStats`, `completeCaps`, `needsLife`; public constructor `Row(CharacterRecord, RosterDefinitions)`); `CharacterJournal.CharacterRecord` (`key, account, name, className, characterId, classId, level, skin, fame, seasonal, lastSeen, lastObservedAlive, dead, stats`); `WrapRow` (`tomato.gui.history`); `RosterViewState` (`tomato.gui.roster`); kit `Collapsible(id, title, content, expanded)` (`PREFIX = "ui.collapse."`, `toggle()`, `expanded()`), `SegmentedControl(name, options…)` (`selected()`, silent `setSelected`, `onChange`), `FilterBar.scope(JComponent)`/`overflow()`, `OverflowMenu.add(label, Runnable)`/`menu()`/`item(label)`, `EmptyState(title, body, action)`, `Sprites.sprite(id, size)`, `KitFormat.relative`, `DisplayFormat.formatInteger(Long)` ("—" for null)/`formatTimestamp(long)`, `Tokens`, `Type`, `DisplayModeModel.bind(owner, listener)`.
 - Produces:
-  - `public String LiveCharacter.Snapshot.journalKey()`: `"<account>:<characterId>"` when `account` is 64 lowercase hex and `characterId >= 0`, else null.
-  - `public record CharacterCardModel(String key, String name, int classId, String className, Integer skin, Integer level, Long fame, Integer maxed, Boolean seasonal, long lastSeen, boolean playingNow, boolean dead)` with `static of(CharacterRosterQuery.Row, String liveKey)`, `static String className(int classId, String saved)`, `characterId()`, `accessibleName()` ("<name>, <class> level N, 7 of 8 maxed" plus ", playing now" / ", marked dead"; "maxed stats unknown" when unknown).
+  - `RosterViewState` (add beside; its own controls are unchanged for every other roster): `statusText()`, `statusProblem()` (the last save failed or the saved state could not be read), `onStatus(Runnable)` and `resetSaved()`.
+  - `public record CharacterCardModel(String key, String name, int classId, String className, Integer skin, Integer level, Long fame, Integer maxed, Boolean seasonal, long lastPlayed, long lastSeen, boolean playingNow, boolean dead)` with `static of(CharacterRosterQuery.Row, String liveKey)`, `static String className(int classId, String saved)`, `characterId()`, `accessibleName()` ("<name>, <class> level N, 7 of 8 maxed" plus ", playing now" / ", marked dead"; "maxed stats unknown" when unknown).
   - `public final class CharacterCardRenderer extends JComponent implements ListCellRenderer<CharacterCardModel>, Accessible`: one painted component for every cell; `public Dimension cellSize()` (card plus the 10 px gap, from the body font); package-private `record Lines(title, meta, identity, maxed, pips, seen, status, chip)`, `static Lines lines(card, analyst)`, `Lines shown()`.
-  - `public final class CharacterGallery extends JPanel` named `character-gallery`: `new CharacterGallery(Consumer<String> open, DisplayModeModel mode)`, `apply(alive, dead)`, `apply(alive, dead, boolean filtered)`, `alive()`, `dead()`, `cards()`; lists `character-cards` and `character-graveyard-cards` (`HORIZONTAL_WRAP`, fixed cells, action `open-character` on Enter/Space, double-click); `Collapsible("characters-graveyard", "Graveyard (N)", …, false)`; empty states `character-gallery-empty` / `character-gallery-no-match`.
-  - `final class RosterViews` (package `tomato.gui.character`): `VIEW_KEY = "ui.characters.view"` (`gallery`|`table`, default gallery), `SORT_KEY = "ui.characters.sort"` (`last-played`|`fame`|`class`|`maxed`); combo `character-sort` (in the filter row, gallery only); `SegmentedControl("character-view", "Gallery", "Table")` (Analyst); ⋯ item `character-view-item` "Table view"/"Gallery view" (Simple); body `character-roster-body` holding the table and the gallery (only the shown one is visible and measured); `refresh()`, `showGallery(boolean, boolean remember)`, `body()`, `gallery()`, `galleryShown()`, `sort()`.
-  - `CharacterJournalGUI.setLiveKey(Supplier<String>)`; names `character-life`, `character-season` on the life and season facets.
+  - `public final class CharacterGallery extends JPanel` named `character-gallery`: `new CharacterGallery(Consumer<String> open, DisplayModeModel mode)`, `apply(alive, dead)`, `apply(alive, dead, boolean filtered)`, `apply(alive, dead, boolean filtered, String problem)`, `alive()`, `dead()`, `cards()`, `onSelect(Consumer<String>)`, `select(String key)`, `focusTarget()`; lists `character-cards` and `character-graveyard-cards` (`HORIZONTAL_WRAP`, fixed cells, action `open-character` on Enter/Space, double-click) stacked at their preferred heights with the Graveyard right below; `Collapsible("characters-graveyard", "Graveyard (N)", …, false)`; banner `character-gallery-storage`; empty states `character-gallery-empty` / `character-gallery-no-match` / `character-gallery-unavailable`.
+  - `final class RosterViews` (package `tomato.gui.character`): `RosterViews(JComponent table, FilterBar, WrapRow row, Source, DisplayModeModel, read, write)` with `interface Source` (`rows`, `saved`, `problem`, `liveKey`, `selectedKey`, `select`, `open`); `VIEW_KEY = "ui.characters.view"` (`gallery`|`table`, default gallery), `SORT_KEY = "ui.characters.sort"` (`last-played`|`fame`|`class`|`maxed`); combo `character-sort` (in the filter row's wrapping row, gallery only; panel `character-view-controls`); `SegmentedControl("character-view", "Gallery", "Table")` (Analyst); ⋯ item `character-view-item` "Table view"/"Gallery view" (Simple); body `character-roster-body` holding the table and the gallery (only the shown one is visible and measured); `refresh()`, `showGallery(boolean, boolean remember)`, `body()`, `gallery()`, `galleryShown()`, `sort()`.
+  - `CharacterJournalGUI.setLiveKey(Supplier<String>)`; package-private `views()`, `selectKey(String)` and `focusTarget()`; the ⋯ items `character-save-view` "Save view state" and `character-reset-view` "Reset saved view state"; the warn banner `character-view-state`; names `character-life`, `character-season` on the life and season facets.
   - Test helpers: `CharacterFixtures` (synthetic roster, journal, definitions, live snapshot, `installDefinitions()`), `TableViewRule` (pins `ui.characters.view=table`).
 
 - [ ] **Step 1: Write the fixtures and the failing tests**
@@ -6857,9 +8516,10 @@ public final class CharacterFixtures {
         return rows;
     }
 
+    /** A card last played (and last seen) at {@code lastPlayed}. */
     public static CharacterCardModel card(int id, String className, Integer level, Long fame, Integer maxed, Boolean seasonal,
-                                          boolean playingNow, boolean dead, long lastSeen) {
-        return new CharacterCardModel(ACCOUNT + ":" + id, "Sample", WIZARD, className, null, level, fame, maxed, seasonal, lastSeen, playingNow, dead);
+                                          boolean playingNow, boolean dead, long lastPlayed) {
+        return new CharacterCardModel(ACCOUNT + ":" + id, "Sample", WIZARD, className, null, level, fame, maxed, seasonal, lastPlayed, lastPlayed, playingNow, dead);
     }
 
     /** The Wizard (KEY) in game: the roster's base stats with +50 Life and +12 on the others. */
@@ -6955,7 +8615,7 @@ public class CharacterCardRendererTest {
         assertEquals("Simple hides the character ID (spec §3.2)", "Sample", simple.identity());
         assertEquals("7/8", simple.maxed());
         assertEquals(7, simple.pips());
-        assertEquals("Seen 2 h ago", simple.seen());
+        assertEquals("The last time in game, as the Last played sort", "Played 2 h ago", simple.seen());
         assertEquals("Playing now", simple.status());
         assertEquals("Seasonal", simple.chip());
         assertEquals("Analyst shows it", "Sample · #101", CharacterCardRenderer.lines(card, true).identity());
@@ -6968,10 +8628,16 @@ public class CharacterCardRendererTest {
         assertEquals("Level — · Fame —", lines.meta());
         assertEquals("An unknown maxed count is \"—\", never 0/8", "—", lines.maxed());
         assertEquals("No pip counts as filled", -1, lines.pips());
-        assertEquals("Last seen unknown", lines.seen());
+        assertEquals("Last played unknown", lines.seen());
         assertEquals("No chip for an unknown season", "", lines.chip());
         assertEquals("", lines.status());
         assertEquals("Sample, Knight, maxed stats unknown", card.accessibleName());
+    }
+
+    @Test public void aCharacterNeverPlayedShowsWhenItWasLastSeen() {
+        CharacterCardModel listed = new CharacterCardModel(CharacterFixtures.ACCOUNT + ":109", "Sample", CharacterFixtures.WIZARD, "Wizard", null,
+            20, 10L, 8, false, 0, NOW - 10 * 60_000L, false, false);
+        assertEquals("Only a character list saw it: Seen, not Played", "Seen 10 min ago", CharacterCardRenderer.lines(listed, false).seen());
     }
 
     @Test public void aDeadCardSaysSoAndARegularCardHasNoSeasonChip() {
@@ -7025,9 +8691,11 @@ import javax.swing.*;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
 import org.junit.*;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.Collapsible;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
+import tomato.gui.kit.Tokens;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeModels.named;
@@ -7149,6 +8817,59 @@ public class CharacterGalleryTest {
         });
     }
 
+    @Test public void theGraveyardSitsRightBelowTheLivingCardsInATallPage() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterGallery gallery = new CharacterGallery(opened::add, mode);
+            gallery.apply(ALIVE, DEAD);
+            gallery.setSize(900, 2_000); // the page's viewport is far taller than three cards
+            for (int pass = 0; pass < 3; pass++) layout(gallery);
+            JList<CharacterCardModel> cards = list(gallery, "character-cards");
+            Collapsible graveyard = named(gallery, "character-graveyard", Collapsible.class);
+            java.awt.Rectangle above = SwingUtilities.convertRectangle(cards.getParent(), cards.getBounds(), gallery);
+            java.awt.Rectangle below = SwingUtilities.convertRectangle(graveyard.getParent(), graveyard.getBounds(), gallery);
+            assertEquals("The cards keep their wrapped height", cards.getPreferredSize().height, above.height);
+            assertTrue("The Graveyard follows the cards, not the page's bottom: " + above + " then " + below,
+                below.y - (above.y + above.height) <= Tokens.L + 1);
+        });
+    }
+
+    @Test public void anUnreadableJournalIsUnavailableAndAFailedSaveWarnsAboveTheCards() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterGallery gallery = new CharacterGallery(opened::add, mode);
+            String unreadable = "Cannot read Characters/journal.json. Original preserved; saving disabled.";
+            gallery.apply(List.of(), List.of(), false, unreadable);
+            EmptyState unavailable = named(gallery, "character-gallery-unavailable", EmptyState.class);
+            assertNotNull("Not \"No characters yet\"", unavailable);
+            assertNull(named(gallery, "character-gallery-empty", EmptyState.class));
+            assertEquals(unreadable, unavailable.getAccessibleContext().getAccessibleDescription());
+            gallery.apply(ALIVE, DEAD, false, "Save failed • check access to Characters/journal.json");
+            Banner storage = named(gallery, "character-gallery-storage", Banner.class);
+            assertTrue(storage.isVisible()); assertTrue(storage.warns());
+            assertEquals("Save failed • check access to Characters/journal.json", storage.text());
+            gallery.apply(ALIVE, DEAD, false, null);
+            assertFalse(storage.isVisible());
+        });
+    }
+
+    @Test public void aUserSelectionIsReportedOnceAcrossBothListsAndTheRosterCanSelectACard() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            List<String> selected = new ArrayList<>();
+            CharacterGallery gallery = new CharacterGallery(opened::add, mode);
+            gallery.onSelect(selected::add);
+            gallery.apply(ALIVE, DEAD);
+            JList<CharacterCardModel> cards = list(gallery, "character-cards"), graves = list(gallery, "character-graveyard-cards");
+            cards.setSelectedIndex(2);
+            assertEquals(List.of(ALIVE.get(2).key()), selected);
+            graves.setSelectedIndex(0);
+            assertEquals("One selection across the cards and the Graveyard", -1, cards.getSelectedIndex());
+            assertEquals(List.of(ALIVE.get(2).key(), DEAD.get(0).key()), selected);
+            assertSame("The Graveyard is collapsed: focus returns to the cards", cards, gallery.focusTarget());
+            gallery.select(ALIVE.get(1).key());
+            assertEquals(1, cards.getSelectedIndex()); assertEquals(-1, graves.getSelectedIndex());
+            assertEquals("A selection made by the roster is not reported back", 2, selected.size());
+        });
+    }
+
     @Test public void analystModeShowsCharacterIdsOnTheCards() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             CharacterGallery gallery = new CharacterGallery(opened::add, mode);
@@ -7165,6 +8886,10 @@ public class CharacterGalleryTest {
 
     @SuppressWarnings("unchecked")
     private static JList<CharacterCardModel> list(CharacterGallery gallery, String name) { return named(gallery, name, JList.class); }
+    private static void layout(java.awt.Container root) {
+        root.doLayout();
+        for (java.awt.Component child : root.getComponents()) if (child instanceof java.awt.Container) layout((java.awt.Container) child);
+    }
     private static String child(JList<?> list, int index) {
         return list.getAccessibleContext().getAccessibleChild(index).getAccessibleContext().getAccessibleName();
     }
@@ -7209,6 +8934,7 @@ import tomato.backend.data.RosterDefinitions;
 import tomato.gui.glance.character.CharacterCardModel;
 import tomato.gui.glance.character.CharacterFixtures;
 import tomato.gui.glance.character.CharacterGallery;
+import tomato.gui.history.WrapRow;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.SegmentedControl;
@@ -7227,6 +8953,7 @@ public class RosterViewsTest {
     private final List<String> opened = new ArrayList<>();
     private final String[] live = {null};
     private FilterBar bar;
+    private WrapRow row;
     private JComponent table;
 
     /**
@@ -7247,7 +8974,17 @@ public class RosterViewsTest {
         table = new JPanel();
         table.setName("table-stand-in");
         bar = new FilterBar("characters-test");
-        RosterViews views = new RosterViews(table, bar, () -> rows, () -> !rows.isEmpty(), () -> live[0], opened::add, mode, prefs::get, prefs::put);
+        row = new WrapRow();
+        bar.search(row);
+        RosterViews views = new RosterViews(table, bar, row, new RosterViews.Source() {
+            @Override public List<CharacterRosterQuery.Row> rows() { return rows; }
+            @Override public boolean saved() { return !rows.isEmpty(); }
+            @Override public String problem() { return null; }
+            @Override public String liveKey() { return live[0]; }
+            @Override public String selectedKey() { return null; }
+            @Override public void select(String key) { }
+            @Override public void open(String key) { opened.add(key); }
+        }, mode, prefs::get, prefs::put);
         views.refresh(); // CharacterJournalGUI's first filter() does this through its rows listener
         return views;
     }
@@ -7290,6 +9027,8 @@ public class RosterViewsTest {
             assertTrue(item.isVisible());
             assertTrue(bar.overflow().isVisible());
             assertTrue("The gallery sorts in the filter row", shown(named(bar, "character-sort", JComboBox.class), bar));
+            assertSame("…in the search's wrapping row, so it wraps below the search at narrow widths", row,
+                named(bar, "character-view-controls", JPanel.class).getParent());
             item.doClick();
             assertFalse(views.galleryShown());
             assertTrue(table.isVisible());
@@ -7404,36 +9143,116 @@ public class RosterViewsTest {
 }
 ```
 
-In `src/test/java/tomato/backend/data/LiveCharacterTest.java`, **add beside** the existing tests, immediately before `    private static void put(Entity entity, StatType type, int value) {`:
+`src/test/java/tomato/gui/character/CharacterRosterViewTest.java` — **add beside**. Add `import tomato.gui.glance.character.CharacterCardModel;` after `import tomato.backend.data.RosterDefinitions;`, then insert before `    @Test public void visibleRowsFollowSearchAndSortAndNotifyListeners() throws Exception {`:
 ```java
-    @Test public void journalKeyIsTheJournalsExactKeyOrNull() {
-        String account = CharacterJournal.accountKey("sample-account");
-        assertEquals(account + ":7", new LiveCharacter.Snapshot(account, 7, 782, null, null, null, null, TOTALS, null, null, null, null, null,
-            null, null, 0).journalKey());
-        assertNull("Not a hashed account key", snapshot(0).journalKey());
-        assertNull("No character id", new LiveCharacter.Snapshot(account, -1, 782, null, null, null, null, TOTALS, null, null, null, null, null,
-            null, null, 0).journalKey());
+    @Test public void backFocusesTheOpenedCardInTheGalleryAndTheRowInTheTable() throws Exception {
+        String saved = util.PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        try (CharacterJournal journal = journal()) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                JList<?> cards = RosterFixtures.named(view.listPanel(), "character-cards", JList.class);
+                cards.setSelectedIndex(1);
+                String key = ((CharacterCardModel) cards.getSelectedValue()).key();
+                assertEquals("A card selection is the list's selection", key, view.currentKey());
+                cards.getActionMap().get("open-character").actionPerformed(null);
+                assertTrue(view.showingSheet()); assertEquals(key, view.sheet().key());
+                RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+                assertFalse(view.showingSheet());
+                assertSame("Back focuses the gallery", cards, view.listPanel().focusTarget());
+                assertEquals("…on the card that was open", key, ((CharacterCardModel) cards.getSelectedValue()).key());
+                view.listPanel().views().showGallery(false, false);
+                RosterFixtures.enter(view);
+                RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+                assertSame("In the Table view, Back focuses the table", RosterFixtures.named(view.listPanel(), "character-roster", JTable.class),
+                    view.listPanel().focusTarget());
+            });
+        } finally { util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, saved == null ? "" : saved); }
     }
+
+```
+
+`src/test/java/tomato/gui/character/CharacterViewStateTest.java` — **add beside**. Add `import tomato.gui.kit.Banner;`, `import tomato.gui.kit.DisplayModeModel;` and `import tomato.gui.kit.FilterBar;` after `import tomato.realmshark.RealmCharacter;`, then insert before `    private static String savedSelection(Memory memory) {`:
+```java
+    @Test public void savedViewActionsAreInTheOverflowMenuAndOnlyAFailureShows() throws Exception {
+        CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("menu.json"));
+        Memory memory = new Memory(); RosterDefinitions definitions = RosterDefinitions.empty();
+        CharacterJournalGUI[] view = new CharacterJournalGUI[1];
+        SwingUtilities.invokeAndWait(() -> {
+            DisplayModeModel.Mode before = DisplayModeModel.application().mode();
+            view[0] = new CharacterJournalGUI(journal, () -> 5000, () -> definitions); view[0].bindViewState(memory.store);
+            FilterBar bar = named(view[0], "characters-filter-bar", FilterBar.class);
+            try {
+                for (DisplayModeModel.Mode mode : DisplayModeModel.Mode.values()) {
+                    DisplayModeModel.application().set(mode);
+                    assertNotNull(mode + ": Save view state is in the ⋯ menu (spec §3.2)", bar.overflow().item("Save view state"));
+                    assertNotNull(mode + ": so is Reset saved view state", bar.overflow().item("Reset saved view state"));
+                    assertTrue(mode + ": the ⋯ menu shows", bar.overflow().isVisible());
+                }
+            } finally { DisplayModeModel.application().set(before); }
+            assertNull("No view-state buttons in the page", named(view[0], "characters-live-roster-save-state", JButton.class));
+            assertFalse("A good state says nothing", named(view[0], "character-view-state", Banner.class).isVisible());
+            memory.fail = true;
+            bar.overflow().item("Save view state").doClick();
+        });
+        SwingUtilities.invokeAndWait(() -> { }); // the save's status arrives on the EDT
+        SwingUtilities.invokeAndWait(() -> {
+            Banner banner = named(view[0], "character-view-state", Banner.class);
+            assertTrue("A failed save warns in the page", banner.isVisible()); assertTrue(banner.warns());
+            assertTrue(banner.text(), banner.text().startsWith("View state save failed"));
+            memory.fail = false;
+            named(view[0], "characters-filter-bar", FilterBar.class).overflow().item("Save view state").doClick();
+        });
+        SwingUtilities.invokeAndWait(() -> { });
+        SwingUtilities.invokeAndWait(() -> assertFalse("A later good save clears the warning", named(view[0], "character-view-state", Banner.class).isVisible()));
+        journal.close();
+    }
+
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.RosterViewsTest" --tests "tomato.backend.data.LiveCharacterTest"`
-Expected: FAIL — compilation errors `cannot find symbol: class CharacterCardModel`, `class CharacterGallery`, `class RosterViews` and `method journalKey()`.
+Run: `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.RosterViewsTest" --tests "tomato.gui.character.CharacterRosterViewTest" --tests "tomato.gui.character.CharacterViewStateTest"`
+Expected: FAIL — compilation errors `cannot find symbol: class CharacterCardModel`, `class CharacterGallery`, `class RosterViews` and `method focusTarget()`.
 
-- [ ] **Step 3: `LiveCharacter.Snapshot.journalKey()`**
+- [ ] **Step 3: `RosterViewState` reports its status**
 
-In `src/main/java/tomato/backend/data/LiveCharacter.java` — before:
+The Characters page keeps "Save view state" and "Reset saved view state" in its ⋯ menu (spec §3.2) and shows their status only when it is a failure, so `RosterViewState` tells its host about status changes. **Add beside** in `src/main/java/tomato/gui/roster/RosterViewState.java`; its own controls and texts are unchanged, and every other roster keeps them:
+1. Replace `    private long changeGeneration;` with that line followed by:
 ```java
-        @Override public int[] exaltBonus() { return copy(exaltBonus); }
+    private final List<Runnable> statusListeners = new ArrayList<>();
+    /** The latest status is a failure: a save failed, or the saved state could not be read. */
+    private boolean problem;
 ```
-after:
+2. Replace `            blocked = true; status.setText("Saved view state unavailable. Current controls remain usable; Reset saved view state to replace it.");` with `            blocked = true; status("Saved view state unavailable. Current controls remain usable; Reset saved view state to replace it.", true);`.
+3. Replace `        status.setText("Saved state reset. Current controls and notes are retained; Save view state remembers them.");` with `        status("Saved state reset. Current controls and notes are retained; Save view state remembers them.", false);`.
+4. In `watch`, replace:
 ```java
-        @Override public int[] exaltBonus() { return copy(exaltBonus); }
-        /** The character journal's key, "<account>:<characterId>", or null when the account is not a journal account key. */
-        public String journalKey() {
-            return account != null && account.matches("[0-9a-f]{64}") && characterId >= 0 ? account + ":" + characterId : null;
-        }
+            if (request == saveGeneration) status.setText(failure == null && result != null && result.isSuccess()
+                ? "View state saved." : "View state save failed; current controls remain active. Save view state retries.");
+```
+with:
+```java
+            if (request != saveGeneration) return;
+            boolean saved = failure == null && result != null && result.isSuccess();
+            status(saved ? "View state saved." : "View state save failed; current controls remain active. Save view state retries.", !saved);
+```
+5. Insert before `    public static int number(Map<String, String> values, String key, int fallback, int minimum, int maximum) {`:
+```java
+    private void status(String text, boolean failed) {
+        problem = failed;
+        status.setText(text);
+        for (Runnable listener : new ArrayList<>(statusListeners)) listener.run();
+    }
+    /** The latest status line: saved, save failed, reset, or saved state unavailable ("" before any). */
+    public String statusText() { return status.getText(); }
+    /** True while the latest status is a failure: the last save failed or the saved state could not be read. */
+    public boolean statusProblem() { return problem; }
+    /** Runs on the EDT after every status change, for hosts that offer the actions in a menu and show only failures. */
+    public void onStatus(Runnable listener) { statusListeners.add(Objects.requireNonNull(listener)); }
+    /** What the Reset saved view state button does, for hosts that offer it in a menu. */
+    public void resetSaved() { reset(); }
+
 ```
 
 - [ ] **Step 4: Create `CharacterCardModel`**
@@ -7450,10 +9269,11 @@ import tomato.realmshark.enums.CharacterClass;
 /**
  * One gallery card (spec §6.2), built on the EDT from a roster row CharacterJournalGUI already projected. {@code key} is the
  * journal key the sheet opens; {@code maxed} 0–8 or null when unknown (never shown as 0); {@code seasonal} null when unknown;
- * {@code lastSeen} epoch ms, 0 = unknown; {@code playingNow} when {@code key} equals the live character's journal key (exact).
+ * {@code lastPlayed} the last time in game (the journal's lastObservedAlive) and {@code lastSeen} the last capture of any kind,
+ * epoch ms, 0 = unknown; {@code playingNow} when {@code key} equals the in-game character's journal key (exact).
  */
 public record CharacterCardModel(String key, String name, int classId, String className, Integer skin, Integer level, Long fame,
-                                 Integer maxed, Boolean seasonal, long lastSeen, boolean playingNow, boolean dead) {
+                                 Integer maxed, Boolean seasonal, long lastPlayed, long lastSeen, boolean playingNow, boolean dead) {
     public CharacterCardModel {
         Objects.requireNonNull(key, "key");
         name = name == null || name.isBlank() ? null : name;
@@ -7463,8 +9283,8 @@ public record CharacterCardModel(String key, String name, int classId, String cl
 
     public static CharacterCardModel of(CharacterRosterQuery.Row row, String liveKey) {
         CharacterRecord r = row.record;
-        return new CharacterCardModel(r.key, r.name, r.classId, r.className, r.skin, r.level, r.fame, row.maxed, r.seasonal, r.lastSeen,
-            r.key.equals(liveKey), r.dead);
+        return new CharacterCardModel(r.key, r.name, r.classId, r.className, r.skin, r.level, r.fame, row.maxed, r.seasonal,
+            r.lastObservedAlive, r.lastSeen, r.key.equals(liveKey), r.dead);
     }
 
     /** The saved class name, else the loaded class definitions' name, else "Class <id>". */
@@ -7513,7 +9333,7 @@ import tomato.gui.modern.DisplayFormat;
 /**
  * Paints one character card (spec §6.2, §9): one component reused for every cell of a gallery list, no per-card component tree.
  * A 34 px skin sprite, class, level and fame, the name (and, in Analyst, the character ID), an 8-pip maxed meter ("—" with
- * outlined pips when unknown, never 0/8), a Seasonal chip, when the character was last seen and a "Playing now" marker; dead
+ * outlined pips when unknown, never 0/8), a Seasonal chip, when the character last played and a "Playing now" marker; dead
  * characters are dimmed and say "Dead". Sizes follow the body font; colors come from Tokens at paint time.
  */
 public final class CharacterCardRenderer extends JComponent implements ListCellRenderer<CharacterCardModel>, Accessible {
@@ -7536,12 +9356,18 @@ public final class CharacterCardRenderer extends JComponent implements ListCellR
         return new Lines(card.className(),
             "Level " + (card.level() == null ? DisplayFormat.UNAVAILABLE : card.level()) + " · Fame " + DisplayFormat.formatInteger(card.fame()),
             identity, maxed == null ? DisplayFormat.UNAVAILABLE : maxed + "/8", maxed == null ? -1 : maxed,
-            card.lastSeen() > 0 ? "Seen " + KitFormat.relative(card.lastSeen()) : "Last seen unknown",
+            seen(card),
             card.playingNow() ? "Playing now" : card.dead() ? "Dead" : "",
             Boolean.TRUE.equals(card.seasonal()) ? "Seasonal" : "");
     }
 
     Lines shown() { return lines; }
+
+    /** "Played 2 h ago" from the last time in game, as the Last played sort; "Seen …" only for a character never played. */
+    static String seen(CharacterCardModel card) {
+        if (card.lastPlayed() > 0) return "Played " + KitFormat.relative(card.lastPlayed());
+        return card.lastSeen() > 0 ? "Seen " + KitFormat.relative(card.lastSeen()) : "Last played unknown";
+    }
 
     /** The list cell: the card plus half the gap between cards on each side, at the current body font. */
     public Dimension cellSize() {
@@ -7558,7 +9384,7 @@ public final class CharacterCardRenderer extends JComponent implements ListCellR
         selected = isSelected;
         focused = cellHasFocus;
         lines = value == null ? null : lines(value, analyst);
-        // The name stays stable while time passes; "Seen N ago" is the description.
+        // The name stays stable while time passes; "Played N ago" is the description.
         getAccessibleContext().setAccessibleName(value == null ? null : value.accessibleName());
         getAccessibleContext().setAccessibleDescription(value == null ? null : lines.seen() + (lines.status().isEmpty() ? "" : " · " + lines.status()));
         setToolTipText(value == null ? null : tooltip(value));
@@ -7570,7 +9396,8 @@ public final class CharacterCardRenderer extends JComponent implements ListCellR
             + " · Fame " + DisplayFormat.formatInteger(card.fame()) + " · "
             + (card.maxed() == null ? "Maxed stats unknown (needs all 8 base stats and class caps)" : card.maxed() + " of 8 stats maxed")
             + " · Season " + (card.seasonal() == null ? "unknown" : card.seasonal() ? "seasonal" : "regular") + " · "
-            + (card.lastSeen() > 0 ? "Last seen " + DisplayFormat.formatTimestamp(card.lastSeen()) : "Last seen unknown");
+            + (card.lastPlayed() > 0 ? "Last played " + DisplayFormat.formatTimestamp(card.lastPlayed())
+                : card.lastSeen() > 0 ? "Last seen " + DisplayFormat.formatTimestamp(card.lastSeen()) : "Last played unknown");
     }
 
     @Override protected void paintComponent(Graphics graphics) {
@@ -7687,16 +9514,19 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 import javax.swing.*;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.Collapsible;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
+import tomato.gui.kit.KitLayouts;
 import tomato.gui.kit.Tokens;
 
 /**
  * The roster gallery (spec §6.2, §9, §10): living characters as painted cards in a wrapping JList, dead ones in a collapsed
- * Graveyard below. Arrow keys move between cards; Enter, Space or a double-click opens the selected character's sheet through
- * {@code open} (its journal key). One painted renderer per list and one model event per apply, so hundreds of characters stay
- * fast. Analyst shows character IDs on the cards (spec §3.2). EDT only.
+ * Graveyard right below them. Arrow keys move between cards; Enter, Space or a double-click opens the selected character's sheet
+ * through {@code open} (its journal key). One painted renderer per list and one model event per apply, so hundreds of characters
+ * stay fast. Analyst shows character IDs on the cards (spec §3.2). A storage problem is a warn banner above the cards; an
+ * unreadable journal with nothing to show is an unavailable state, never "No characters yet" (spec §7). EDT only.
  */
 public final class CharacterGallery extends JPanel {
     static final String GRAVEYARD = "characters-graveyard";
@@ -7705,9 +9535,15 @@ public final class CharacterGallery extends JPanel {
     private final Cards alive = new Cards("character-cards", "Characters", aliveRenderer);
     private final Cards dead = new Cards("character-graveyard-cards", "Graveyard", deadRenderer);
     private final Collapsible graveyard = new Collapsible(GRAVEYARD, "Graveyard (0)", dead, false);
-    private final JPanel content = new JPanel(new BorderLayout(0, Tokens.L));
+    private final Banner storage = new Banner("character-gallery-storage");
+    /** The storage warning, the living cards and the Graveyard, each at its preferred height from the top (no stretched gap). */
+    private final JPanel content = KitLayouts.stack(Tokens.L, storage, alive, graveyard);
     private final EmptyState none = new EmptyState("No characters yet", "Start capture and enter the game on a character to save it here.", null);
     private final EmptyState noMatch = new EmptyState("No characters match", "Reset filters to show every saved character.", null);
+    private EmptyState unavailable;
+    private String unavailableReason;
+    private Consumer<String> selected = key -> { };
+    private boolean selecting;
 
     public CharacterGallery(Consumer<String> open, DisplayModeModel mode) {
         super(new BorderLayout());
@@ -7718,11 +9554,12 @@ public final class CharacterGallery extends JPanel {
         noMatch.setName("character-gallery-no-match");
         graveyard.setName("character-graveyard");
         graveyard.setVisible(false);
-        content.setOpaque(false);
-        content.add(alive, BorderLayout.CENTER);
-        content.add(graveyard, BorderLayout.SOUTH);
+        storage.setTone(Tokens.Tone.WARN);
+        storage.setVisible(false);
         bindOpen(alive);
         bindOpen(dead);
+        bindSelection(alive, dead);
+        bindSelection(dead, alive);
         mode.bind(this, value -> {
             boolean analyst = value == DisplayModeModel.Mode.ANALYST;
             aliveRenderer.setAnalyst(analyst);
@@ -7733,16 +9570,24 @@ public final class CharacterGallery extends JPanel {
         showBody(none);
     }
 
-    public void apply(List<CharacterCardModel> living, List<CharacterCardModel> fallen) { apply(living, fallen, false); }
+    public void apply(List<CharacterCardModel> living, List<CharacterCardModel> fallen) { apply(living, fallen, false, null); }
 
-    /** {@code filtered}: nothing is shown although characters are saved, so the empty state points at the filters. */
-    public void apply(List<CharacterCardModel> living, List<CharacterCardModel> fallen, boolean filtered) {
+    public void apply(List<CharacterCardModel> living, List<CharacterCardModel> fallen, boolean filtered) { apply(living, fallen, filtered, null); }
+
+    /**
+     * {@code filtered}: nothing is shown although characters are saved, so the empty state points at the filters. {@code problem}:
+     * the journal's storage problem (null when none), a warn banner above the cards; with no card at all, the unavailable state.
+     */
+    public void apply(List<CharacterCardModel> living, List<CharacterCardModel> fallen, boolean filtered, String problem) {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Apply the gallery on the EDT");
         alive.setCards(living);
         dead.setCards(fallen);
         graveyard.toggle().setText("Graveyard (" + fallen.size() + ")");
         graveyard.setVisible(!fallen.isEmpty());
-        showBody(living.isEmpty() && fallen.isEmpty() ? filtered ? noMatch : none : content);
+        storage.setText(problem == null ? "" : problem);
+        storage.setVisible(problem != null);
+        boolean empty = living.isEmpty() && fallen.isEmpty();
+        showBody(!empty ? content : problem != null ? unavailable(problem) : filtered ? noMatch : none);
     }
 
     public List<CharacterCardModel> alive() { return alive.cards.cards; }
@@ -7750,8 +9595,29 @@ public final class CharacterGallery extends JPanel {
     /** Every shown card: the living, then the Graveyard. */
     public List<CharacterCardModel> cards() { List<CharacterCardModel> all = new ArrayList<>(alive()); all.addAll(dead()); return all; }
 
+    /** Where the user's card selection goes (the roster list selects the same character, so views and saved state follow it). */
+    public void onSelect(Consumer<String> listener) { selected = Objects.requireNonNull(listener, "listener"); }
+
+    /** Selects {@code key}'s card, living or in the Graveyard, and scrolls it into view; null or an unknown key clears both lists. */
+    public void select(String key) {
+        selecting = true;
+        try { alive.selectKey(key); dead.selectKey(key); } finally { selecting = false; }
+    }
+
+    /** The list keyboard focus returns to from the sheet: the Graveyard's while it is open and holds the selection, else the cards. */
+    public JComponent focusTarget() { return dead.getSelectedIndex() >= 0 && graveyard.isVisible() && graveyard.expanded() ? dead : alive; }
+
     /** The page scrolls the gallery instead of squeezing it. */
     @Override public Dimension getMinimumSize() { return getPreferredSize(); }
+
+    private EmptyState unavailable(String reason) {
+        if (!reason.equals(unavailableReason)) {
+            unavailable = new EmptyState("Characters unavailable", reason, null);
+            unavailable.setName("character-gallery-unavailable");
+            unavailableReason = reason;
+        }
+        return unavailable;
+    }
 
     private void showBody(JComponent next) {
         if (getComponentCount() == 1 && getComponent(0) == next) return;
@@ -7777,6 +9643,17 @@ public final class CharacterGallery extends JPanel {
                 Rectangle cell = index < 0 ? null : list.getCellBounds(index, index);
                 if (cell != null && cell.contains(e.getPoint())) open.accept(list.getModel().getElementAt(index).key());
             }
+        });
+    }
+
+    /** A card the user selects in one list clears the other list's selection and is reported once. */
+    private void bindSelection(Cards list, Cards other) {
+        list.addListSelectionListener(e -> {
+            CharacterCardModel card = list.getSelectedValue();
+            if (e.getValueIsAdjusting() || selecting || card == null) return;
+            selecting = true;
+            try { other.clearSelection(); } finally { selecting = false; }
+            selected.accept(card.key());
         });
     }
 
@@ -7811,6 +9688,12 @@ public final class CharacterGallery extends JPanel {
             resize();
             if (selected != null) for (int i = 0; i < cards.getSize(); i++)
                 if (cards.getElementAt(i).key().equals(selected.key())) { setSelectedIndex(i); break; }
+        }
+
+        void selectKey(String key) {
+            for (int i = 0; key != null && i < cards.getSize(); i++)
+                if (cards.getElementAt(i).key().equals(key)) { if (getSelectedIndex() != i) setSelectedIndex(i); ensureIndexIsVisible(i); return; }
+            if (!isSelectionEmpty()) clearSelection();
         }
 
         private void resize() {
@@ -7872,6 +9755,7 @@ import java.util.function.*;
 import javax.swing.*;
 import tomato.gui.glance.character.CharacterCardModel;
 import tomato.gui.glance.character.CharacterGallery;
+import tomato.gui.history.WrapRow;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.OverflowMenu;
@@ -7882,10 +9766,11 @@ import tomato.gui.modern.ContentStyle;
 
 /**
  * The roster's Gallery | Table views (spec §6.2, §3.2) below the one characters FilterBar, so both share its search, facets and
- * saved view. The gallery shows exactly {@code rows} (CharacterJournalGUI.visibleRows()) in the Sort order; the table keeps its
- * header sorting. Simple offers the other view in the ⋯ menu; Analyst shows a Gallery/Table toggle in the filter row. The view
- * and the sort persist ({@link #VIEW_KEY}, {@link #SORT_KEY}). While the gallery shows, a 1 s check re-marks "Playing now" when
- * the live character changes without a journal change. EDT only.
+ * saved view. The gallery shows exactly the roster's visible rows ({@link Source#rows}) in the Sort order; the table keeps its
+ * header sorting. The Sort combo and, in Analyst, the Gallery/Table toggle sit in the filter row's own wrapping row, so at 680 px
+ * or font 18 they wrap below the search instead of squeezing it. Simple offers the other view in the ⋯ menu. The view and the sort
+ * persist ({@link #VIEW_KEY}, {@link #SORT_KEY}). While the gallery shows, a 1 s check re-marks "Playing now" when the character in
+ * game changes without a journal change. The gallery's selection is the roster's selection. EDT only.
  */
 final class RosterViews {
     static final String VIEW_KEY = "ui.characters.view", SORT_KEY = "ui.characters.sort";
@@ -7894,6 +9779,24 @@ final class RosterViews {
         Comparator.comparingLong((CharacterRosterQuery.Row row) -> row.record.lastObservedAlive).reversed()
             .thenComparing(Comparator.comparingLong((CharacterRosterQuery.Row row) -> row.record.lastSeen).reversed())
             .thenComparing(row -> row.record.key);
+
+    /** What the roster list gives the views. EDT. */
+    interface Source {
+        /** The rows the search and filters keep (CharacterJournalGUI.visibleRows()). */
+        List<CharacterRosterQuery.Row> rows();
+        /** Whether the journal holds any character. */
+        boolean saved();
+        /** The journal's storage problem (CharacterJournal.storageProblem()), or null. */
+        String problem();
+        /** The in-game character's journal key (with Home's map-change grace), or null. */
+        String liveKey();
+        /** The list's selected character, or null. */
+        String selectedKey();
+        /** Selects a character in the list (the gallery's selection). */
+        void select(String key);
+        /** Opens a character's sheet. */
+        void open(String key);
+    }
 
     /** Gallery orders; unknown values sort last and are never read as zero. */
     enum Sort {
@@ -7921,32 +9824,28 @@ final class RosterViews {
     private final CharacterGallery gallery;
     private final Body body = new Body();
     private final JComboBox<Sort> sort = new JComboBox<>(Sort.values());
-    private final JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, Tokens.XS, 0));
+    private final JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.XS, 0));
     private final SegmentedControl view = new SegmentedControl("character-view", "Gallery", "Table");
-    private final JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, Tokens.S, 0));
+    private final JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.S, 0));
     private final OverflowMenu overflow;
     private final JMenuItem viewItem;
-    private final Supplier<List<CharacterRosterQuery.Row>> rows;
-    private final BooleanSupplier saved;
-    private final Supplier<String> liveKey;
+    private final Source source;
     private final BiConsumer<String, String> write;
     private final Timer live;
     private boolean galleryShown, ready;
     private String shownLive;
 
     /**
-     * {@code rows}: the filtered roster (EDT); {@code saved}: whether the journal has any character; {@code liveKey}: the live
-     * character's journal key or null; {@code open}: opens a character's sheet by journal key.
+     * {@code row}: the filter row's wrapping row (FilterBar.search's content), which gets the Sort combo and the view toggle;
+     * {@code bar}: the same FilterBar, whose ⋯ menu gets the other view in Simple mode.
      */
-    RosterViews(JComponent table, FilterBar bar, Supplier<List<CharacterRosterQuery.Row>> rows, BooleanSupplier saved,
-                Supplier<String> liveKey, Consumer<String> open, DisplayModeModel mode, Function<String, String> read,
+    RosterViews(JComponent table, FilterBar bar, WrapRow row, Source source, DisplayModeModel mode, Function<String, String> read,
                 BiConsumer<String, String> write) {
         this.table = table;
-        this.rows = rows;
-        this.saved = saved;
-        this.liveKey = liveKey;
+        this.source = Objects.requireNonNull(source, "source");
         this.write = write;
-        gallery = new CharacterGallery(open, mode);
+        gallery = new CharacterGallery(source::open, mode);
+        gallery.onSelect(source::select);
         body.add(table);
         body.add(gallery);
         sort.setName("character-sort");
@@ -7967,12 +9866,12 @@ final class RosterViews {
         controls.setOpaque(false);
         controls.add(sortRow);
         controls.add(view);
-        bar.scope(controls);
+        row.add(controls); // wraps below the search and Reset filters when the row is narrow
         overflow = bar.overflow();
         viewItem = overflow.add("Table view", () -> showGallery(!galleryShown, true));
         viewItem.setName("character-view-item");
         mode.bind(controls, this::modeChanged);
-        live = new Timer(1000, e -> { if (galleryShown && !Objects.equals(liveKey.get(), shownLive)) refresh(); });
+        live = new Timer(1000, e -> { if (galleryShown && !Objects.equals(source.liveKey(), shownLive)) refresh(); });
         gallery.addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0) return;
             if (gallery.isShowing()) live.start(); else live.stop();
@@ -7989,16 +9888,17 @@ final class RosterViews {
     /** Re-reads the visible rows into the gallery; while the table shows, the next switch to the gallery does it instead. EDT. */
     void refresh() {
         if (!galleryShown) return;
-        List<CharacterRosterQuery.Row> visible = new ArrayList<>(rows.get());
+        List<CharacterRosterQuery.Row> visible = new ArrayList<>(source.rows());
         visible.sort(sort().order());
-        String key = liveKey.get();
+        String key = source.liveKey();
         List<CharacterCardModel> alive = new ArrayList<>(), dead = new ArrayList<>();
         for (CharacterRosterQuery.Row row : visible) {
             CharacterCardModel card = CharacterCardModel.of(row, key);
             (card.dead() ? dead : alive).add(card);
         }
         shownLive = key;
-        gallery.apply(alive, dead, visible.isEmpty() && saved.getAsBoolean());
+        gallery.apply(alive, dead, visible.isEmpty() && source.saved(), source.problem());
+        gallery.select(source.selectedKey());
     }
 
     /** Shows the gallery or the table; the other stays in the tree, hidden and unmeasured. A user's choice is remembered. */
@@ -8046,7 +9946,7 @@ final class RosterViews {
 
 All edits in this step are in `src/main/java/tomato/gui/character/CharacterJournalGUI.java` unless noted.
 
-Imports — add, unless Task 4 already added them: `import tomato.gui.kit.DisplayModeModel;` and `import util.PropertiesManager;`.
+Imports — replace `import tomato.gui.kit.FilterBar;` with that line followed by `import tomato.gui.kit.DisplayModeModel;`, `import tomato.gui.kit.Banner;`, `import tomato.gui.kit.Tokens;` and `import util.PropertiesManager;`.
 
 Fields — before:
 ```java
@@ -8059,6 +9959,22 @@ after:
     private final RosterViews views;
     /** The live character's journal key for the gallery's "Playing now"; CharacterPanelGUI supplies it (exact key, never a name). */
     private java.util.function.Supplier<String> liveKey = () -> null;
+    /** The saved view's status, shown only while it is a failure (the actions themselves are in the ⋯ menu). */
+    private final Banner stateBanner = new Banner("character-view-state");
+```
+
+The filter row — replace `        filterBar.search(new WrapRow(search, reset)).drawer(filters); clearFilters = reset::doClick; top.add(filterBar);` with the lines below. RosterViews adds the Sort combo and the view toggle to `searchRow`, so they wrap below the search and "Reset filters" at narrow widths.
+```java
+        WrapRow searchRow = new WrapRow(search, reset);
+        filterBar.search(searchRow).drawer(filters); clearFilters = reset::doClick; top.add(filterBar);
+```
+
+The saved view's warning — replace `        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH); footer.add(stateHost, BorderLayout.CENTER); stateHost.setVisible(false);` with:
+```java
+        JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH);
+        // Saved views live in the ⋯ menu (spec §3.2); a failure shows as a warn banner under the filter row, nothing else does.
+        stateBanner.setTone(Tokens.Tone.WARN); stateBanner.setVisible(false); stateHost.add(stateBanner); stateHost.setVisible(false);
+        top.add(stateHost, BorderLayout.SOUTH);
 ```
 
 Facet names — before:
@@ -8071,12 +9987,19 @@ after:
         life.setName("character-life"); season.setName("character-season");
 ```
 
-The page — after Task 4 the page statement is `JScrollPane page = ContentStyle.page(top, <roster>, footer); pageScroll = page;`, where `<roster>` is the roster table's scroll pane that replaced the retired split (`ContentStyle.tableScroll(roster, 3)`). Replace that one statement with the lines below; if Task 4 keeps the table's scroll pane in a variable, pass that variable as `rosterArea` instead of building a new one:
+The page — replace Task 4's statement `        JScrollPane page = ContentStyle.page(top, ContentStyle.tableScroll(roster, 3), footer); pageScroll = page;` with the lines below. The constructor's first `refresh()` runs after them, so its `filter()` already feeds the gallery through the rows listener.
 ```java
         // Gallery | Table below the one filter row (spec §6.2): both views show visibleRows(), and either opens the sheet.
         JComponent rosterArea = ContentStyle.tableScroll(roster, 3);
-        views = new RosterViews(rosterArea, filterBar, this::visibleRows, () -> !records.isEmpty(), () -> liveKey.get(),
-            key -> openSheet.accept(key), DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
+        views = new RosterViews(rosterArea, filterBar, searchRow, new RosterViews.Source() {
+            @Override public List<CharacterRosterQuery.Row> rows() { return visibleRows(); }
+            @Override public boolean saved() { return !records.isEmpty(); }
+            @Override public String problem() { return journal.storageProblem(); }
+            @Override public String liveKey() { return liveKey.get(); }
+            @Override public String selectedKey() { return selectedKey; }
+            @Override public void select(String key) { selectKey(key); }
+            @Override public void open(String key) { openSheet.accept(key); }
+        }, DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
         addRowsListener(views::refresh);
         JScrollPane page = ContentStyle.page(top, views.body(), footer); pageScroll = page;
 ```
@@ -8090,19 +10013,61 @@ after:
     public JPanel exaltPanel() { return exalts; }
     /** Where the gallery reads the live character's journal key (null when no character is in game). EDT. */
     public void setLiveKey(java.util.function.Supplier<String> source) { liveKey = Objects.requireNonNull(source); views.refresh(); }
+    RosterViews views() { return views; }
+    /** Selects {@code key}'s row, as a card selection in the gallery does, so currentKey() and the saved selection follow it. EDT. */
+    void selectKey(String key) {
+        for (int i = 0; key != null && i < filtered.size(); i++) if (filtered.get(i).key.equals(key)) {
+            int view = roster.convertRowIndexToView(i);
+            if (view >= 0 && roster.getSelectedRow() != view) roster.setRowSelectionInterval(view, view);
+            return;
+        }
+    }
+    /** Where Back from the sheet puts keyboard focus: the gallery's selected card while the gallery shows, else the table. */
+    JComponent focusTarget() { return views.galleryShown() ? views.gallery().focusTarget() : roster; }
 ```
 
-`src/main/java/tomato/gui/character/CharacterPanelGUI.java` — immediately after the statement that constructs the roster's `CharacterJournalGUI` (today `journal = new CharacterJournalGUI(data.characterJournal());`; if Task 4 builds it inside `CharacterRosterView`, add the line where both `data` and that `CharacterJournalGUI` are in scope), add:
+Back focus — replace Task 4's `    void focusRoster() { roster.requestFocusInWindow(); }` with:
 ```java
-        // The gallery's "Playing now": the exact journal key of the character in game, never a name or time match.
-        journal.setLiveKey(() -> { tomato.backend.data.LiveCharacter.Snapshot live = data.liveCharacter.current(); return live == null ? null : live.journalKey(); });
+    /** Back from the sheet: the selected card again (in view) while the gallery shows, else the roster table (spec §10). */
+    void focusRoster() {
+        if (views.galleryShown()) views.gallery().select(selectedKey);
+        focusTarget().requestFocusInWindow();
+    }
+```
+
+Saved views in the ⋯ menu — in `bindViewState`, replace `        stateHost.add(viewState.controls()); stateHost.setVisible(true);` with the lines below, and add `viewStateChanged` beside `saveViewState`:
+```java
+        // Saved views live in the ⋯ menu in both modes (spec §3.2); the page shows their status only when it is a failure.
+        filterBar.overflow().add("Save view state", () -> viewState.save()).setName("character-save-view");
+        filterBar.overflow().add("Reset saved view state", viewState::resetSaved).setName("character-reset-view");
+        viewState.onStatus(this::viewStateChanged);
+        viewStateChanged();
+```
+```java
+    /** The saved view's status shows only while it is a failure: a save failed, or the saved state could not be read. */
+    private void viewStateChanged() {
+        boolean problem = viewState.statusProblem();
+        stateBanner.setText(problem ? viewState.statusText() : "");
+        stateBanner.setVisible(problem);
+        stateHost.setVisible(problem);
+        stateHost.revalidate();
+    }
+```
+
+`src/main/java/tomato/gui/character/CharacterPanelGUI.java` — after Task 4's `        journal = new CharacterJournalGUI(context.journal(), context.clock(), context.definitions());` add:
+```java
+        // The gallery's "Playing now": the exact journal key of the character in game, with Home's map-change grace (no flicker).
+        journal.setLiveKey(() -> {
+            tomato.backend.data.LiveCharacter.Snapshot live = tomato.gui.glance.character.SheetModelBuilder.inGame(data.liveCharacter, System.currentTimeMillis());
+            return live == null ? null : live.journalKey();
+        });
 ```
 
 - [ ] **Step 9: Pin the Table view in the roster-table tests**
 
-The Characters page now opens on the gallery; these tests cover the table, so each **adds beside** its existing fields (no assertion changes): `@Rule public final TableViewRule tableView = new TableViewRule();` as the first member of the class, in `CharacterJournalGuiTest`, `CharacterJournalLayoutTest`, `CharacterFilterBarTest`, `CharacterRosterStateTest`, `CharacterTableKindsTest`, `CharacterViewStateTest`, `CharacterJournalFreshnessRefreshTest`, `CharacterWaveFourEvidenceTest` (all in `src/test/java/tomato/gui/character/`) and `src/test/java/tomato/gui/history/FilterBarEvidenceTest.java` (there also `import tomato.gui.character.TableViewRule;`). `CharacterJournalGuiTest` imports only `org.junit.Test`, so add `import org.junit.Rule;` there; the others import `org.junit.*`.
+The Characters page now opens on the gallery; these tests cover the table, so each **adds beside** its existing fields (no assertion changes): `@Rule public final TableViewRule tableView = new TableViewRule();` as the first member of the class, in `CharacterJournalGuiTest`, `CharacterJournalLayoutTest`, `CharacterFilterBarTest`, `CharacterRosterStateTest`, `CharacterTableKindsTest`, `CharacterViewStateTest`, `CharacterJournalFreshnessRefreshTest`, `CharacterWaveFourEvidenceTest` (all in `src/test/java/tomato/gui/character/`) and `src/test/java/tomato/gui/history/FilterBarEvidenceTest.java`. The rule goes on the line after `public class <Name> {`. In `FilterBarEvidenceTest` also add `import tomato.gui.character.TableViewRule;` after `import tomato.gui.character.CharacterJournalGUI;`. `CharacterJournalGuiTest` imports only `org.junit.Test`, so add `import org.junit.Rule;` after it; the others import `org.junit.*` or `org.junit.Rule`.
 
-In `CharacterJournalGuiTest`, **replace** `JComboBox<?> filter = find(panel,JComboBox.class);` with `JComboBox<?> filter = lifeFilter(panel);`. Reason: the filter row now holds the gallery's Sort combo, which comes before the drawer's facets in the component tree, so the first `JComboBox` is no longer the life-state facet; the assertions that follow are unchanged. Add beside the other helpers:
+In `CharacterJournalGuiTest`, **replace** `JComboBox<?> filter = find(panel,JComboBox.class);` with `JComboBox<?> filter = lifeFilter(panel);`. Reason: the filter row now holds the gallery's Sort combo, which comes before the drawer's facets in the component tree, so the first `JComboBox` is no longer the life-state facet; the assertions that follow are unchanged. Add beside the other helpers, before `    private static JButton button(Container root, String text) {`:
 ```java
     /** The life-state facet by name: the filter row's Sort combo precedes the drawer's facets in the tree. */
     private static JComboBox<?> lifeFilter(Container root) {
@@ -8116,14 +10081,14 @@ In `CharacterJournalGuiTest`, **replace** `JComboBox<?> filter = find(panel,JCom
 
 - [ ] **Step 10: Run the tests to verify they pass**
 
-Run: `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*" --tests "tomato.backend.data.LiveCharacterTest" --tests "tomato.gui.history.FilterBarEvidenceTest" --tests "tomato.gui.chat.ShellHookIntegrationTest"`
-Expected: PASS — CharacterCardRendererTest 4, CharacterGalleryTest 6, RosterViewsTest 4, LiveCharacterTest (one new), every `tomato.gui.character` test (the table tests on the pinned Table view) and ShellHookIntegrationTest. Copy the `Gallery refresh of 500 characters …` and `Gallery paint of one 1240x800 viewport …` lines from `build/p3a/test-results/test/TEST-tomato.gui.character.RosterViewsTest.xml` into the validation record (Task 10).
+Run: `GRADLE test --tests "tomato.gui.glance.character.*" --tests "tomato.gui.character.*" --tests "tomato.gui.roster.*" --tests "tomato.gui.history.FilterBarEvidenceTest" --tests "tomato.gui.chat.ShellHookIntegrationTest"`
+Expected: PASS — CharacterCardRendererTest 5, CharacterGalleryTest 9, RosterViewsTest 4, CharacterRosterViewTest and CharacterViewStateTest (one new each), every `tomato.gui.character` test (the table tests on the pinned Table view), the roster view-state tests unchanged, and ShellHookIntegrationTest. Copy the `Gallery refresh of 500 characters …` and `Gallery paint of one 1240x800 viewport …` lines from `build/p3a/test-results/test/TEST-tomato.gui.character.RosterViewsTest.xml` into the validation record (Task 10).
 
 - [ ] **Step 11: Commit**
 
 ```powershell
-git add src/main/java/tomato/backend/data/LiveCharacter.java src/main/java/tomato/gui/glance/character/CharacterCardModel.java src/main/java/tomato/gui/glance/character/CharacterCardRenderer.java src/main/java/tomato/gui/glance/character/CharacterGallery.java src/main/java/tomato/gui/character/RosterViews.java src/main/java/tomato/gui/character/CharacterJournalGUI.java src/main/java/tomato/gui/character/CharacterPanelGUI.java src/test/java/tomato/gui/glance/character/CharacterFixtures.java src/test/java/tomato/gui/glance/character/CharacterCardRendererTest.java src/test/java/tomato/gui/glance/character/CharacterGalleryTest.java src/test/java/tomato/gui/character/RosterViewsTest.java src/test/java/tomato/gui/character/TableViewRule.java src/test/java/tomato/backend/data/LiveCharacterTest.java src/test/java/tomato/gui/character/CharacterJournalGuiTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java src/test/java/tomato/gui/character/CharacterFilterBarTest.java src/test/java/tomato/gui/character/CharacterRosterStateTest.java src/test/java/tomato/gui/character/CharacterTableKindsTest.java src/test/java/tomato/gui/character/CharacterViewStateTest.java src/test/java/tomato/gui/character/CharacterJournalFreshnessRefreshTest.java src/test/java/tomato/gui/character/CharacterWaveFourEvidenceTest.java src/test/java/tomato/gui/history/FilterBarEvidenceTest.java
-git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table views" -m "Painted wrapping character cards show exactly the roster table's visible rows, so one search and one filter drawer serve both views. Dead characters sit in a collapsed Graveyard; cards open the sheet on Enter, Space or double-click. Sort by last played, fame, class or maxed with unknown values last. Simple offers the other view in the overflow menu, Analyst a Gallery/Table toggle; both choices persist. Playing now uses the live character's exact journal key. Roster-table tests pin the Table view." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add src/main/java/tomato/gui/roster/RosterViewState.java src/main/java/tomato/gui/glance/character/CharacterCardModel.java src/main/java/tomato/gui/glance/character/CharacterCardRenderer.java src/main/java/tomato/gui/glance/character/CharacterGallery.java src/main/java/tomato/gui/character/RosterViews.java src/main/java/tomato/gui/character/CharacterJournalGUI.java src/main/java/tomato/gui/character/CharacterPanelGUI.java src/test/java/tomato/gui/glance/character/CharacterFixtures.java src/test/java/tomato/gui/glance/character/CharacterCardRendererTest.java src/test/java/tomato/gui/glance/character/CharacterGalleryTest.java src/test/java/tomato/gui/character/RosterViewsTest.java src/test/java/tomato/gui/character/TableViewRule.java src/test/java/tomato/gui/character/CharacterRosterViewTest.java src/test/java/tomato/gui/character/CharacterJournalGuiTest.java src/test/java/tomato/gui/character/CharacterJournalLayoutTest.java src/test/java/tomato/gui/character/CharacterFilterBarTest.java src/test/java/tomato/gui/character/CharacterRosterStateTest.java src/test/java/tomato/gui/character/CharacterTableKindsTest.java src/test/java/tomato/gui/character/CharacterViewStateTest.java src/test/java/tomato/gui/character/CharacterJournalFreshnessRefreshTest.java src/test/java/tomato/gui/character/CharacterWaveFourEvidenceTest.java src/test/java/tomato/gui/history/FilterBarEvidenceTest.java
+git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table views" -m "Painted wrapping character cards show exactly the roster table's visible rows, so one search and one filter drawer serve both views. Dead characters sit in a collapsed Graveyard right below the cards; cards say when they were last played and open the sheet on Enter, Space or double-click, and Back returns focus to the card. Sort by last played, fame, class or maxed with unknown values last. The Sort and view controls wrap in the filter row; Simple offers the other view in the overflow menu, Analyst a Gallery/Table toggle; both choices persist, and saved views move into the overflow menu. Playing now uses the in-game character's exact journal key with Home's map-change grace; an unreadable journal or failed save is stated, never shown as an empty roster. Roster-table tests pin the Table view." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -8135,10 +10100,10 @@ git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table vie
 - Modify tests: `src/test/java/tomato/gui/glance/home/HomeModels.java` (fixture), `HeroCardTest.java` (replace, add beside), `HomeModelBuilderTest.java` (add beside), `HomeRefreshTimingTest.java` (constructor call only), `src/test/java/tomato/gui/chat/ShellHookIntegrationTest.java` (add beside)
 - Create test: `src/test/java/ui/CharactersEvidenceTest.java`
 - Modify docs: `README.md`, `docs/CHARACTERS.md`, `docs/superpowers/plans/2026-09-26-redesign-roadmap.md`, `docs/UX-CHECKPOINT.json`, `docs/UX-EXECUTION.md`, `docs/UX-HANDOFF.md`; create `docs/superpowers/plans/2026-09-27-p3a-validation.md`
-- Evidence (not committed): `build/p3a/ui-test/screenshots/redesign-p3a-characters/` (20 PNGs)
+- Evidence (not committed): `build/p3a/ui-test/screenshots/redesign-p3a-characters/` (21 PNGs)
 
 **Interfaces:**
-- Consumes: Task 9 `LiveCharacter.Snapshot.journalKey()`, `CharacterFixtures` (`KEY`, `ACCOUNT`, `journal`, `live`, `installDefinitions`); Task 4 `Destination.CHARACTER_SHEET`, `SheetFocus(key, tab)`, `CharacterSheet` (`key()`, `selectedTab()`, name `character-sheet`, back link `character-sheet-back`, tabs `character-tabs`), `CharactersRouteTarget` (plain CHARACTERS = list; unknown key = "This character is not in the journal"); Task 5 Overview needs line named `character-overview-needs` ("WIS needs 3"); Task 7 Exalts tab (one `PipMeter(5)` per stat, "N to next tier"); Task 8 Build tab (`MyInfoGUI` for the live character, an `EmptyState` for another one); P2 `HomePage`, `HomeModels`, `ShellHookIntegrationTest` helpers (`find`, `named`, `buildShell`, `remember`, `temp`), `SnapshotTestSupport.await`, `ui.VisualEvidence`.
+- Consumes: Task 8 `LiveCharacter.Snapshot.journalKey()`, `CharacterFixtures` (`KEY`, `ACCOUNT`, `journal`, `live`, `installDefinitions`); Task 4 `Destination.CHARACTER_SHEET`, `SheetFocus(key, tab)`, `CharacterSheet` (`key()`, `selectedTab()`, name `character-sheet`, back link `character-sheet-back`, tabs `character-tabs`), `CharactersRouteTarget` (plain CHARACTERS = list; unknown key = "This character is not in the journal"); Task 5 Overview needs row `character-overview-needs` (its labels include "WIS needs 3" for the fixture Wizard); Task 7 Exalts tab (one `PipMeter(5)` per stat, "N to next tier"); Task 8 Build tab (`MyInfoGUI` for the live character, an `EmptyState` for another one); P2 `HomePage`, `HomeModels`, `ShellHookIntegrationTest` helpers (`find`, `named`, `buildShell`, `remember`, `temp`), `SnapshotTestSupport.await`, `ui.VisualEvidence`.
 - Produces:
   - `HomeModel.Hero` gains a last component `String key` (the sheet's journal key, null when unknown); `equals`/`hashCode` include it.
   - `HomeModelBuilder`: the live hero's key is `Snapshot.journalKey()`, the saved hero's `sheetKey(record.key)`; `static String sheetKey(String)` (null unless `"<64 hex>:<id>"`).
@@ -8146,7 +10111,7 @@ git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table vie
   - `HeroCard(Consumer<String> openCharacter, Runnable openBuild, DisplayModeModel mode)`: the whole card passes its hero's key; accessible name ends "Open character sheet" (keyed) or "Open Characters".
   - `TomatoGUI.openCharacterFromHome(String)`: `CHARACTER_SHEET(SheetFocus(key, "overview"))`, else plain `CHARACTERS`.
   - `HomeModels.KEY` (= `CharacterFixtures.KEY`), `HomeModels.withKey(Hero, String)`.
-  - 20 evidence screenshots; the P3a validation record; the P3a pull request.
+  - 21 evidence screenshots, with layout guards (no sideways scroll; Sort, the search and "Reset filters" whole; the Graveyard right below the cards); the P3a validation record; the P3a pull request.
 
 - [ ] **Step 1: Update the Home fixture and write the failing tests**
 
@@ -8161,7 +10126,7 @@ git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table vie
 - In `hero(...)`, before: `            "Live stats from the current map; caps from the class definition; estimates use the Build page's default scenario.");` after: `            "Live stats from the current map; caps from the class definition; estimates use the Build page's default scenario.", KEY);`
 - In `empty()`, before: `                "", -1, null, DisplayValue.unknown(none), DisplayValue.unknown(none), "", 0L, "No character has been captured on this computer yet."),` after: `                "", -1, null, DisplayValue.unknown(none), DisplayValue.unknown(none), "", 0L, "No character has been captured on this computer yet.", null),`
 - In `unavailable()`, before: `                null, "", -1, null, DisplayValue.unknown(reason), DisplayValue.unknown(reason), "", 0L, "The character journal could not be read."),` after: `                null, "", -1, null, DisplayValue.unknown(reason), DisplayValue.unknown(reason), "", 0L, "The character journal could not be read.", null),`
-- Add beside `populated(long now)`:
+- Add beside, before `    public static HomeModel populated(long now) {`:
   ```java
       /** The same hero with another journal key (null: the hero opens the Characters list). */
       public static HomeModel.Hero withKey(HomeModel.Hero h, String key) {
@@ -8174,7 +10139,7 @@ git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table vie
 `src/test/java/tomato/gui/glance/home/HomeRefreshTimingTest.java`, in `wisdom(...)` — the record gained a component, so the copy passes it (no assertion changes). Before: `            h.lastSeenAt(), h.evidence());` after: `            h.lastSeenAt(), h.evidence(), h.key());`
 
 `src/test/java/tomato/gui/glance/home/HeroCardTest.java`:
-- Imports: add `java.util.ArrayList`, `java.util.Arrays`, `java.util.List`.
+- Imports: replace `import java.util.HashMap;` with `import java.util.ArrayList;`, `import java.util.Arrays;`, `import java.util.HashMap;` and `import java.util.List;`, one per line.
 - **Replace** the click recorder (the constructor now takes `Consumer<String>`). Before:
   ```java
       private final int[] opened = new int[2]; // [0] Characters, [1] Build
@@ -8251,7 +10216,8 @@ git commit -m "Add the roster gallery with Graveyard, sort and Gallery/Table vie
                     assertEquals("…at Overview", "overview", sheet.selectedTab());
                     assertTrue(shown(sheet));
                 });
-                await(() -> text(named(shell, "character-overview-needs", JComponent.class)).contains("WIS needs 3")); // built off the EDT
+                // Built off the EDT; the needs row holds one label per stat that needs potions.
+                await(() -> texts(named(shell, "character-overview-needs", JComponent.class)).stream().anyMatch(t -> t.contains("WIS needs 3")));
                 SwingUtilities.invokeAndWait(() -> {
                     assertTrue("S2, 1 click: the Overview names the stat and the count", shown(named(shell, "character-overview-needs", JComponent.class)));
                     tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
@@ -8354,10 +10320,10 @@ In `src/main/java/tomato/gui/glance/home/HomeModel.java`:
 - [ ] **Step 4: `HomeModelBuilder` fills the key**
 
 In `src/main/java/tomato/gui/glance/home/HomeModelBuilder.java`:
-- Imports: add `import java.util.regex.Pattern;`.
+- Imports: replace `import java.util.function.*;` with that line followed by `import java.util.regex.Pattern;`.
 - `fromLive`, before: `            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence);` after: `            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence, live.journalKey());`
 - `fromJournal`, before: `            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence);` after: `            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence, sheetKey(last.key));`
-- Add beside `static int[] potionsNeeded(int[] base, int[] caps) {`:
+- Add beside, before `    public static int[] potionsNeeded(int[] base, int[] caps) {` (Task 5 made it public):
   ```java
       private static final Pattern SHEET_KEY = Pattern.compile("[0-9a-f]{64}:[0-9]+");
       /** A journal key the character sheet accepts ("<64 hex>:<characterId>"), else null: the hero then opens the Characters list. */
@@ -8381,7 +10347,7 @@ public record HomeActions(Consumer<String> characters, Runnable build, Runnable 
 ```
 
 `src/main/java/tomato/gui/glance/home/HeroCard.java`:
-- Imports: add `import java.util.function.Consumer;`.
+- Imports: replace `import java.awt.*;` with that line followed by `import java.util.function.Consumer;`.
 - Class comment: replace `The whole card opens Characters; Build opens the` with `The whole card opens its sheet (the Characters list without a journal key); Build opens the`.
 - Before: `    HeroCard(Runnable openCharacters, Runnable openBuild, DisplayModeModel mode) {` after: `    HeroCard(Consumer<String> openCharacter, Runnable openBuild, DisplayModeModel mode) {`
 - Before: `        onOpen("Open Characters", openCharacters);` after:
@@ -8472,7 +10438,7 @@ import static org.junit.Assert.*;
 /**
  * P3a Characters evidence (spec §6.2, §11) in the real workspace: the gallery (populated, Graveyard open, no match, empty, the
  * Table view) and the sheet (Overview, Gear, Exalts, Build for the live and another character, a key not in the journal) at
- * 1240×800 and 680×520, fonts 13 and 18, Simple and Analyst: 20 screenshots. Synthetic journal, history and definitions;
+ * 1240×800 and 680×520, fonts 13 and 18, Simple and Analyst: 21 screenshots. Synthetic journal, history and definitions;
  * preview mode; no capture.
  */
 public class CharactersEvidenceTest {
@@ -8562,7 +10528,7 @@ public class CharactersEvidenceTest {
         });
     }
 
-    /** 11 captures: Overview, Gear and Exalts across sizes, fonts and modes; Build live and for another character; an unknown key. */
+    /** 12 captures: Overview, Gear and Exalts across sizes, fonts and modes; Build live (also 680×520 at font 18, Analyst) and for another character; an unknown key. */
     @Test public void sheetTabsRenderForTheLiveAndAnotherCharacter() throws Exception {
         build(CharacterFixtures.journal(temp.newFolder("journal").toPath().resolve("Characters").resolve("journal.json"), System.currentTimeMillis()), true);
         String key = CharacterFixtures.KEY, other = CharacterFixtures.ACCOUNT + ":102", missing = CharacterFixtures.ACCOUNT + ":999";
@@ -8575,6 +10541,7 @@ public class CharactersEvidenceTest {
         sheet("exalts", key, 1240, 800, 13, SIMPLE);
         sheet("exalts", key, 680, 520, 13, ANALYST);
         sheet("build", key, 1240, 800, 13, SIMPLE);
+        sheet("build", key, 680, 520, 18, ANALYST);
         sheet("build", other, 1240, 800, 13, SIMPLE);
         sheet("overview", missing, 1240, 800, 13, SIMPLE);
     }
@@ -8642,13 +10609,33 @@ public class CharactersEvidenceTest {
         });
     }
 
-    /** The gallery page never scrolls sideways and its Sort control fits the window. */
+    /**
+     * The gallery page never scrolls sideways; the Sort combo, the search and "Reset filters" are whole (inside their row and the
+     * window, never narrower than they want); the Graveyard sits right below the living cards, not at the bottom of the page.
+     */
     private void assertGalleryWhole(int width) {
         JScrollPane page = VisualEvidence.named(shell, "character-page-scroll", JScrollPane.class);
         assertEquals("No sideways scrolling at " + width + " px", page.getViewport().getWidth(), page.getViewport().getView().getWidth());
         JComponent sort = VisualEvidence.named(shell, "character-sort", JComponent.class);
-        Rectangle placed = SwingUtilities.convertRectangle(sort.getParent(), sort.getBounds(), shell);
-        assertTrue("Sort fits at " + width + " px: " + placed, !sort.isShowing() || placed.x >= 0 && placed.x + placed.width <= shell.getWidth());
+        if (sort.isShowing()) assertWhole(sort, "Sort", width);
+        assertWhole(VisualEvidence.named(shell, "character-search", JComponent.class), "The search", width);
+        assertWhole(VisualEvidence.find(shell, JButton.class, button -> "Reset filters".equals(button.getText())), "Reset filters", width);
+        CharacterGallery gallery = VisualEvidence.find(shell, CharacterGallery.class, g -> true);
+        if (gallery.isShowing() && !gallery.alive().isEmpty() && !gallery.dead().isEmpty()) { // the cards and the Graveyard are both on the page
+            JComponent cards = VisualEvidence.named(gallery, "character-cards", JComponent.class), graveyard = VisualEvidence.named(gallery, "character-graveyard", JComponent.class);
+            Rectangle above = SwingUtilities.convertRectangle(cards.getParent(), cards.getBounds(), shell);
+            Rectangle below = SwingUtilities.convertRectangle(graveyard.getParent(), graveyard.getBounds(), shell);
+            assertTrue("The Graveyard follows the cards at " + width + " px: " + above + " then " + below, below.y - (above.y + above.height) <= 24);
+        }
+    }
+
+    /** Sideways only, since the page may be scrolled: inside its row and the window, and at least its preferred width (not squeezed). */
+    private void assertWhole(JComponent part, String what, int width) {
+        Rectangle placed = SwingUtilities.convertRectangle(part.getParent(), part.getBounds(), shell);
+        assertTrue(what + " is whole at " + width + " px: " + part.getBounds() + " in a row " + part.getParent().getWidth() + " wide, preferred "
+                + part.getPreferredSize().width + ", in the window " + placed,
+            part.getX() >= 0 && part.getX() + part.getWidth() <= part.getParent().getWidth() && placed.x >= 0
+                && placed.x + placed.width <= shell.getWidth() && part.getWidth() >= part.getPreferredSize().width);
     }
 
     /** {@code key} and {@code tab} null: an unknown key, whose sheet shows its unavailable state instead of tabs. */
@@ -8693,17 +10680,17 @@ public class CharactersEvidenceTest {
 - [ ] **Step 10: Run the evidence test and review the screenshots**
 
 Run: `GRADLE test --tests "ui.CharactersEvidenceTest"`
-Expected: PASS; 20 PNGs in `build/p3a/ui-test/screenshots/redesign-p3a-characters/`. Open every image and check:
-- Gallery: six living cards in a grid (four or five per row at 1240, two at 680, fewer at font 18), each with a sprite (or the kit's dashed placeholder, never a blank), class, "Level N · Fame N", the 8-pip meter with "7/8" (the Knight: outlined pips and "—", never 0/8), a Seasonal chip on the Warrior and Rogue, "Seen N h ago", and "Playing now" in mint on the Wizard only. "Graveyard (2)" is collapsed below; Analyst adds "#101"-style IDs and the Gallery/Table toggle; Simple shows the ⋯ menu instead. Nothing is cut at the right edge; the Sort control fits at 680 × 520, font 18.
+Expected: PASS; 21 PNGs in `build/p3a/ui-test/screenshots/redesign-p3a-characters/`. Open every image and check:
+- Gallery: six living cards in a grid (four or five per row at 1240, two at 680, fewer at font 18), each with a sprite (or the kit's dashed placeholder, never a blank), class, "Level N · Fame N", the 8-pip meter with "7/8" (the Knight: outlined pips and "—", never 0/8), a Seasonal chip on the Warrior and Rogue, "Played N h ago", and "Playing now" in mint on the Wizard only. "Graveyard (2)" is collapsed right below the last row of cards, not at the bottom of the window; Analyst adds "#101"-style IDs and the Gallery/Table toggle; the ⋯ menu shows in both modes (it holds the saved-view actions; Simple also offers the other view there). No "Save view state" button or status text on the page. Nothing is cut at the right edge; at 680 × 520 and font 18 the Sort control wraps below the search and "Reset filters", and both stay whole.
 - Graveyard open: two dimmed cards marked "Dead". No match: "No characters match" with the reset hint. Empty: "No characters yet". Table view: the roster table below the same filter row.
-- Sheet: "‹ Characters" and the header on every capture; Overview names "WIS needs 3" with no vault count; Gear shows three items, an empty ring, empty inventory and unknown backpack slots, each distinct; Exalts shows eight tier meters with "N to next tier"; Build shows the Build page for the Wizard and the "Build shows the character you're playing" pointer for the Warrior; an unknown key reads "This character is not in the journal".
+- Sheet: "‹ Characters" and the header on every capture; in Simple no snapshot evidence or tab hint under the header (Analyst shows both); Overview names "WIS needs 3" with no vault count; Gear shows three items, an empty ring, empty inventory and unknown backpack slots, each distinct; Exalts shows eight tier meters with "N to next tier"; Build shows the Build page for the Wizard (also at 680 × 520, font 18, where it scrolls instead of clipping) and the "Build shows the character you're playing" pointer for the Warrior; an unknown key reads "This character is not in the journal"; no capture shows "Loading…".
 - Unknowns read "—", estimates "≈"; no text is clipped.
 
 - [ ] **Step 11: Commit**
 
 ```powershell
 git add src/test/java/ui/CharactersEvidenceTest.java
-git commit -m "Add P3a Characters evidence screenshots" -m "Gallery (populated, Graveyard open, no match, empty, Table view) and sheet (Overview, Gear, Exalts, Build live and for another character, unknown key) in the real workspace at 1240x800 and 680x520, fonts 13 and 18, Simple and Analyst: 20 captures." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Add P3a Characters evidence screenshots" -m "Gallery (populated, Graveyard open, no match, empty, Table view) and sheet (Overview, Gear, Exalts, Build live and for another character, unknown key) in the real workspace at 1240x800 and 680x520, fonts 13 and 18, Simple and Analyst: 21 captures, with guards for sideways fit, the filter row and the Graveyard's place." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 12: Update the docs and create the validation record**
@@ -8715,17 +10702,18 @@ git commit -m "Add P3a Characters evidence screenshots" -m "Gallery (populated, 
 `docs/CHARACTERS.md`:
 - Replace the paragraph that begins `The roster supports literal-text search` together with the five bullets after it (through `- Field source/receipt evidence in stats and equipment, plus a **Snapshot evidence** tab for character metadata.`) with:
   ```markdown
-  The roster opens as a **gallery** of character cards: skin sprite, class, level and fame, an 8-pip maxed meter (**—** when unknown, never 0/8), a **Seasonal** chip, when the character was last seen, and a **Playing now** marker for the character in game. Characters marked dead are grouped in a collapsed **Graveyard** below. **Sort** orders the cards by last played, fame, class or maxed; unknown values sort last. The existing roster table is the **Table view**: in Simple mode choose **Table view** or **Gallery view** in the ⋯ menu; in Analyst mode use the Gallery/Table switch in the filter row, where cards also show character IDs. Both views show exactly the characters the one search and filter drawer select, and the view and sort are remembered.
+  The roster opens as a **gallery** of character cards: skin sprite, class, level and fame, an 8-pip maxed meter (**—** when unknown, never 0/8), a **Seasonal** chip, when the character last played, and a **Playing now** marker for the character in game. Characters marked dead are grouped in a collapsed **Graveyard** below. **Sort** orders the cards by last played, fame, class or maxed; unknown values sort last. The existing roster table is the **Table view**: in Simple mode choose **Table view** or **Gallery view** in the ⋯ menu; in Analyst mode use the Gallery/Table switch in the filter row, where cards also show character IDs. Both views show exactly the characters the one search and filter drawer select, and the view and sort are remembered. **Save view state** and **Reset saved view state** are in the ⋯ menu; the page warns only when saving fails.
 
   The roster supports literal-text search (class, account, character ID, item name/ID, or notes), task filters and sortable table columns. Equipment search accepts decimal and hexadecimal IDs as well as names. Open a character (Enter or double-click on a card or table row, or click the Home hero) for its full-page **character sheet**; **‹ Characters** or Back returns to the list where you were. The sheet's tabs can be reordered and hidden:
 
-  - **Overview**: base stats against class caps (with the live boost while you play), what each stat still needs (with vault potions when known), equipped gear and a class exalt summary.
+  - **Overview**: base stats against class caps (with the live boost while you play), what each stat still needs (with vault potions and how long ago they were counted, when known), equipped gear and a class exalt summary.
   - **Gear**: equipped items, inventory and backpack; unknown and empty slots stay distinct.
   - **Exalts**: this class's eight stats with tier, completions, the distance to the next tier and where to earn it.
-  - **Build**: weapon damage and recovery estimates for the character you are playing (formerly My Info).
-  - **Goals**, **Notes** and **Death annotation**, plus **Snapshot evidence** (field source and receipt times) in Analyst mode.
+  - **Build**: weapon damage and recovery estimates for the character you are playing, or after capture stops the last one you played (formerly My Info). Other characters' sheets point to it.
+  - **Goals** and **Notes**, **Death annotation** for a character marked dead, and in Analyst mode **Snapshot evidence** (field source and receipt times, also shown under the header).
   ```
 - Replace `At compact sizes or enlarged fonts, scroll the page to move between the roster and details. Their minimum sizes reserve usable data rows; detail tabs wrap instead of hiding part of the selected label.` with `At compact sizes or enlarged fonts the gallery wraps to fewer cards per row and the page scrolls; the table view keeps usable data rows, and sheet tabs wrap instead of hiding part of a label.`
+- Replace `Draft notes survive background roster refreshes and are saved against the selected character identity when selection changes.` with `Draft notes survive background refreshes and are saved to their character when you leave the sheet or another character's sheet opens.`
 
 `docs/superpowers/plans/2026-09-26-redesign-roadmap.md`:
 - Status row: replace `` | P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Planned | `` with `` | P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending | ``.
@@ -8733,7 +10721,7 @@ git commit -m "Add P3a Characters evidence screenshots" -m "Gallery (populated, 
 - Replace `[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md).` with `[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md).`
 - In "P3 Characters", after the line starting `7. Deferred from P2:` add:
   ```markdown
-  8. Status (2026-09-27): P3a implements items 1, 2 (without the Pet and Fame tabs), 5 (as journal version 5) and 7 (except the pet rarity chip). P3b covers items 3 and 4, the Pet and Fame tabs and the pet rarity chip.
+  8. Status (2026-09-27): P3a implements items 1, 2 (without the Pet and Fame tabs), 5 (as journal version 5) and 7 (except the pet rarity chip). P3b covers items 3 and 4, the Pet and Fame tabs, the pet rarity chip, the Overview pet card and Goals restyled as cards with progress.
   ```
 
 `docs/UX-EXECUTION.md` — replace lines 3–10 (from `Current redesign (2026-09-26): P0 merged…` through `final-head review and GitHub state before P3.`) with:
@@ -8790,7 +10778,7 @@ JDK 17 and Gradle 7.6.4, offline, isolated `build/p3a` and `build/p3a-cache`, sy
 
 | Check | Command | Record |
 |---|---|---|
-| Baseline full suite on merged main `94db6f6` (Task 1) | `GRADLE test shadowJar` | tests / failures / errors / skipped: _to record_; pre-existing failures by name: _to record_ (`build/p3a/evidence/baseline.txt`) |
+| Baseline full suite before any code change: merged main `94db6f6` plus the plan (Task 1) | `GRADLE test shadowJar` | tests / failures / errors / skipped: _to record_; pre-existing failures by name: _to record_ (`build/p3a/evidence/baseline.txt`) |
 | P2 follow-ups (Task 1) | Task 1 focused tests | _to record_ |
 | Journal v5 (Task 2) | Task 2 focused tests | _to record_ |
 | Kit promotions (Task 3) | Task 3 focused tests | _to record_ |
@@ -8801,14 +10789,16 @@ JDK 17 and Gradle 7.6.4, offline, isolated `build/p3a` and `build/p3a-cache`, sy
 | Home hero → sheet (Task 10) | `tomato.gui.glance.home.*` | _to record_ |
 | S2 (≤ 1 click) | `ShellHookIntegrationTest.homeHeroOpensItsSheetForS2AndS5AndBackReturnsHome` | Home "Needs WIS 3 potions" with 0 clicks; the sheet Overview "WIS needs 3" after 1 click: _to record_ |
 | S5 (≤ 2 clicks) | same test | hero, then the Exalts tab (2 clicks); eight tier meters (19 tiers filled) and "to next tier": _to record_ |
-| Evidence (Task 10) | `GRADLE test --tests "ui.CharactersEvidenceTest"` | 20 screenshots in `build/p3a/ui-test/screenshots/redesign-p3a-characters/`; reviewer and findings: _to record_ |
+| Evidence (Task 10) | `GRADLE test --tests "ui.CharactersEvidenceTest"` | 21 screenshots in `build/p3a/ui-test/screenshots/redesign-p3a-characters/`; reviewer and findings: _to record_ |
 | Final full suite and JAR (Task 10) | `GRADLE test shadowJar` | tests / failures / errors / skipped: _to record_; new failures versus baseline: none required |
 | JAR smoke (Task 10) | isolated `java -jar … --help` | exit code: _to record_ |
 
 ## Deferred scope
 
 - P3b: the account Exalts grid (a tile per observed class, loot boost, fully exalted classes), the Pets gallery, the sheet's
-  Pet and Fame tabs, and Home's pet rarity chip (journal v5 already saves the equipped pet).
+  Pet and Fame tabs, and Home's pet rarity chip (journal v5 already saves the equipped pet, and an explicit "no pet").
+- P3b: the sheet Overview's pet card (spec §6.2), which needs P3b's pet names and rarity, and Goals restyled as cards with
+  progress; P3a moves the Goals tab unchanged.
 - The Characters page keeps its Roster / Exalts / Pets tabs (`CustomizableTabs("characters")`) rather than the spec's
   segmented control; P3b rebuilds Exalts and Pets inside them.
 - The gallery's sort and view are preferences (`ui.characters.sort`, `ui.characters.view`), not part of the roster's saved views.
@@ -8820,7 +10810,7 @@ JDK 17 and Gradle 7.6.4, offline, isolated `build/p3a` and `build/p3a-cache`, sy
 
 ```powershell
 git add README.md docs/CHARACTERS.md docs/superpowers/plans/2026-09-26-redesign-roadmap.md docs/UX-EXECUTION.md docs/UX-HANDOFF.md docs/superpowers/plans/2026-09-27-p3a-validation.md
-git commit -m "Document P3a Characters and add its validation record" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Document P3a Characters and add its validation record" -m "README, the Characters guide and the roadmap describe the gallery, the character sheet and Build on the sheet; the execution and handoff notes point at the P3a validation record, whose results are filled after the final suite." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 14: Final full suite, JAR build and smoke**
@@ -8843,7 +10833,7 @@ Expected: the help text and `exit=0`.
 
 - [ ] **Step 15: Fill the validation record and checkpoint, then commit**
 
-Replace every `_to record_` in `docs/superpowers/plans/2026-09-27-p3a-validation.md` with the recorded values. In `docs/UX-CHECKPOINT.json` replace `"recordedDate": "2026-09-26",` with `"recordedDate": "2026-09-27",` and replace the `redesign` block with the one below, writing the hash printed in Step 14 as `sourceHead` and a one-line summary of the record as `localChecks` (for example "N focused tests pass; full suite A tests, 0 new failures; 20 captures reviewed; S2 0/1 clicks, S5 2 clicks; 500-character refresh max X us; shadowJar and isolated help pass"):
+Replace every `_to record_` in `docs/superpowers/plans/2026-09-27-p3a-validation.md` with the recorded values. In `docs/UX-CHECKPOINT.json` replace `"recordedDate": "2026-09-26",` with `"recordedDate": "2026-09-27",` and replace the `redesign` block with the one below, writing the hash printed in Step 14 as `sourceHead` and a one-line summary of the record as `localChecks` (for example "N focused tests pass; full suite A tests, 0 new failures; 21 captures reviewed; S2 0/1 clicks, S5 2 clicks; 500-character refresh max X us; shadowJar and isolated help pass"):
 ```json
   "redesign": {
     "phase": "P3a",
@@ -8871,7 +10861,7 @@ Replace every `_to record_` in `docs/superpowers/plans/2026-09-27-p3a-validation
 Check the JSON parses: `Get-Content docs/UX-CHECKPOINT.json -Raw | ConvertFrom-Json | Select-Object -ExpandProperty redesign`.
 ```powershell
 git add docs/superpowers/plans/2026-09-27-p3a-validation.md docs/UX-CHECKPOINT.json
-git commit -m "Record P3a validation results" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Record P3a validation results" -m "The validation record holds the focused, S2/S5, timing, evidence, final-suite and JAR smoke results, and the checkpoint names the P3a source head." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 16: Push and open the P3a pull request**
@@ -8881,14 +10871,14 @@ git push -u origin claude/realmshark-ui-ux-redesign-cb0914
 gh pr create --title "Redesign P3a: Characters gallery, sheet and journal v5" --body @'
 Implements P3a of docs/superpowers/specs/2026-09-26-ui-ux-redesign-design.md (§6.2, §7, §8.3, §9, §10, S2, S5) as one PR:
 
-- Characters opens on a gallery of painted character cards (sprite, class, level, fame, 8-pip maxed meter with "—" when unknown, Seasonal chip, last seen, Playing now) with dead characters in a collapsed Graveyard and a sort by last played, fame, class or maxed. The roster table is the Table view (Simple: ⋯ menu; Analyst: toggle); one search and filter drawer serve both.
-- Cards, table rows and the Home hero open a full-page character sheet on page 3 (CHARACTER_SHEET): Overview, Gear, Exalts, Build, Goals, Notes, Snapshot evidence (Analyst) and Death annotation; Back returns to where you were. The side detail pane is retired.
+- Characters opens on a gallery of painted character cards (sprite, class, level, fame, 8-pip maxed meter with "—" when unknown, Seasonal chip, last played, Playing now) with dead characters in a collapsed Graveyard and a sort by last played, fame, class or maxed. The roster table is the Table view (Simple: ⋯ menu; Analyst: toggle); one search and filter drawer serve both, and saved views live in the ⋯ menu.
+- Cards, table rows and the Home hero open a full-page character sheet on page 3 (CHARACTER_SHEET): Overview, Gear, Exalts, Build, Goals, Notes, Snapshot evidence (Analyst) and Death annotation (characters marked dead); Back returns to where you were. The sheet is built off the EDT, says Loading until the opened character's result applies and reports failures. The side detail pane is retired.
 - Build (formerly My Info) is the sheet's Build tab; Alt+7, search and Home's Build action open it; page 6 points there.
-- Journal version 5 saves pet, dungeon completions, experience, backpack, per-class exalt times and vault potions; v1-v4 load unchanged, and P2 builds open v5 read-only.
+- Journal version 5 saves pet (including an explicit "no pet"), dungeon completions, experience, backpack, per-class exalt times and vault potions; v1-v4 load unchanged, the first v5 save keeps journal.v4.bak, and P2 builds open v5 read-only.
 - P2 follow-ups: unreadable saved sessions no longer fail Home's totals, per-session archive caching, publish de-duplication, focus fallback.
 - S2: Home names the stat that needs potions with no click, the sheet Overview after one. S5: hero, then Exalts: two clicks.
 
-Validation: see docs/superpowers/plans/2026-09-27-p3a-validation.md (baseline and final full suite, focused tests, S2/S5, 500-character gallery timing, 20 evidence screenshots, shadowJar and isolated JAR smoke). P3b (Exalts grid, Pets, Pet and Fame tabs) follows separately.
+Validation: see docs/superpowers/plans/2026-09-27-p3a-validation.md (baseline and final full suite, focused tests, S2/S5, 500-character gallery timing, 21 evidence screenshots, shadowJar and isolated JAR smoke). P3b (Exalts grid, Pets, Pet and Fame tabs, the Overview pet card, Goals as cards) follows separately.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 '@
@@ -8897,150 +10887,51 @@ Request an independent review of the final PR head before merging; the coordinat
 
 ---
 
----
+## Cross-task notes
 
-## Cross-task notes (writers' assembler notes; to be condensed during plan verification)
+These facts span tasks. Each task's steps already apply them; they are collected here for reviewers and for anyone resuming mid-phase.
 
-## Notes for the assembler (Tasks 1–3)
-
-**Contract deviations, with reasons**
-1. **Recordings are keyed by catalog entry id** (`EncounterCatalog.Entry.id`), not by recording id.
-   - Legacy recordings have no recording id, and an imported file can claim a captured recording's id.
-   - An entry's graph is frozen, so its projection never changes.
-2. **`LiveHomeSources`' new constructor takes six arguments** (it also takes a `HomeArchive.Cache`). A second five-argument overload would make P2's `List::of` argument ambiguous.
-3. **`HomeArchive.read` is not synchronized.** Its `Cache` belongs to the single `home-archive` thread.
-4. **`unreadableSessions` is 0 for This session.** Recent runs skip unreadable sessions silently; only Today's Progress card warns.
-5. **Publish de-duplication covers Home's detach only.** `MyInfoGUI.updateSnapshot` still runs on every call, because My Info tests set stats without a new observation revision.
-6. **`LiveCharacter.publish`:**
-   - A content-equal snapshot still replaces `current`/`lastKnown`; only the revision stays put.
-   - `Inputs.sameSource` never treats revision 0 as the same source.
-7. **`PetRecord` ability arrays start as `{-1, -1, -1}`**, not `new int[3]`. The contract defines −1 as unknown, and Gson keeps initializers for fields missing from the JSON.
-8. **`dungeonCompletions` keeps positive counts only.** Null means unknown; a dungeon missing from a non-null map has 0.
-   - `mergeRoster` uses `dungeonStats` as the contract says. It does so only when `parseCharacter` supplied presence `dungeons`, which it does after a complete decode. `copyCharacter` drops `completeSnapshot`, so without the marker a partial decode would show as zeros.
-   - The parser also supplies `exp` and `backpack`, so a missing `<Exp>` never reads as 0.
-9. **Live PCStats:** `setUserId` stores it, and the next `rememberCharacter` applies it once the account is verified. CREATE carries no account.
-10. **`vaultPotions` covers the regular (non-seasonal) vault only.** A vault packet without the SEASONAL stat is now ignored; it used to throw.
-11. **Pet updates from the character list:**
-    - An explicit empty `<Pet/>` leaves `pet` unchanged, because `mergeRoster` gets no pet availability. P3b can add it.
-    - A list older than `pet.observedAt` never replaces the pet.
-    - The same pet instance keeps its Pet Yard `family`.
-12. **Kit additions beyond the contract:**
-    - `Banner.tone()`
-    - `KitLayouts.spreadWhenWide(minimumRootWidth, gap, parts...)` and `KitLayouts.rootWidth(Component)`
-    - `ItemTiers.label(RosterDefinitions.Item)`
-    - `KitText(String, Font, Role)`, `role()` and `role(Role)`
-13. **Home helper changes:**
-    - `HomeViews.Text` is removed.
-    - `HomeViews.Reason` wraps a `Banner` named `<name>-banner`, because P2 tests look up `Reason` by class.
-    - `HomeViews.spread` now takes `JComponent`.
-
-**Facts Tasks 4–10 need**
-- **Journal (`CharacterJournal`):**
-  - `characterCopy(key)` returns a deep copy or null. A key is `accountKey + ":" + characterId`, where `accountKey` is a 64-hex SHA-256.
-  - New `CharacterRecord` fields: `pet`, `dungeonCompletions` (a `TreeMap` in copies), `dungeonCompletionsObservedAt`, `exp` (`Long`), `hasBackpack` (`Boolean`).
-  - `PetRecord` fields:
-    - `instanceId` (`Long`), `name`
-    - `type`, `rarity`, `family`, `skin`, `maxAbilityPower` (`Integer`)
-    - `abilityType/abilityLevel/abilityPoints` (`int[3]`, −1 = unknown)
-    - `observedAt`
-    - `source`: "Character list" or "Pet Yard capture"
-  - New `AccountRecord` fields: `exaltSeenByClass`, `vaultPotions` (`int[8]` in canonical order, null = unknown), `vaultPotionsObservedAt`.
-  - `exaltLevel`, `maxed` and `potions` are unchanged.
-- **Task 5's "N in vault":** hide it when `vaultPotions == null` or `Boolean.TRUE.equals(record.seasonal)`.
-- **Kit (`tomato.gui.kit`):**
-  - `Banner(name)` with `setText`, `text`, `setTone`, `tone`, `warns`
-  - `KitLayouts.stack/spread/spreadWhenWide/rootWidth`
-  - `ItemTiers.label(int)` and `ItemTiers.label(Item)`
-  - `KitText.caption/body/emphasis`, `new KitText(String, Font, Role)`, `role(Role)`
-- **Home:**
-  - `HomeViews.tier` delegates to `ItemTiers`.
-  - `HomeModel.Hero` is untouched; Task 10 adds `key`.
-  - `record HomeActions(Runnable characters, Runnable build, Runnable meter, Consumer<VisitRef> run, Runnable quests)` is untouched. `HomeModels.NO_ACTIONS` passes five lambdas.
-- **Shell:** `WorkspaceShell` has package-private `focusTarget(int)` and `scrollAnchor()`, and `focusPage` goes through `focusTarget`.
-- **`LiveCharacter.revision()`** moves only on a content change.
-- **Test helpers:**
-  - `CharacterJournalV5Test.completions(int)`, package-private static, builds PCStats with one Pirate Cave count.
-  - `CharacterPublicationTest` has private `yardStat` and `yardStatus`.
-- **Baseline:** `build/p3a/evidence/baseline.txt`.
-
-## Notes for the assembler (Tasks 5–8)
-
-### Contract deviations, with reasons
-1. **`MY_INFO` works by redirect.** `ShellNavigator` chooses the page before it calls `target.open`, so a `MY_INFO` target cannot land on page 3 while `pageOf(MY_INFO)` stays 6.
-   - Task 8 therefore adds `RouteTarget.redirect` (a default method, one hop, one Back entry) and `BuildRoute`.
-   - `pageOf(MY_INFO)` stays 6, so `WorkspaceShellLayoutTest` is unchanged.
-   - `HomeActions.build` and `build.open` already open `MY_INFO`, so only Alt+7 is rebound. The search location becomes "Characters › Build".
-2. **Contract-listed tests that need no edit:** `WorkspaceShellNavigationTest` 438–469, `HomeEvidenceTest` 108, `HomePageLayoutTest` 73 and `HeroCardTest` 138. Task 8 Step 13 gives the reasons.
-3. **Test journals.** `ShellHookIntegrationTest` and `ShellRouteRegistrationTest` inject an empty temporary journal. Otherwise Build's landing depends on `build/p3a/ui-test/Characters/journal.json` left by other tests.
-   - Task 4 also edits `ShellHookIntegrationTest`, so merge the `@Before` line once.
-   - `WorkspaceUiTest` launches `Tomato.main`, so it asserts the landing that the production resolver predicts; `BuildTabTest` pins both branches.
-4. **Wording.**
-   - Overview shows one needs line per stat, plus "Potions unknown for N stats …" or "All 8 stats maxed".
-   - The maxed chip always reads "N/8 maxed".
-   - NavEntry `my-info`'s description now says Build moved; its ID, page, title and group are unchanged.
-5. **New public methods:** `ParseEnchants.EquippedCapture.unlockedSlots(int)` and `BuildEstimates.Inputs.enchants()`. They decode the live character's enchant rarity off the EDT from the detached copy, never from the capture-owned entity.
-
-### Assumptions about Tasks 1–4
-- **Task 4, `CharacterSheet` (package-private):**
-  - `setTab(id, content)` replaces a tab's content and keeps its title, order and Analyst flag.
-  - `addTab(id, title, content, index)`: Build is inserted at 3.
-  - `setIdentity(component)` replaces the header's name/class/level block and keeps `character-sheet-back` and Mark dead / Restore alive.
-- **Task 4, what this part adds and removes:**
-  - It adds the `presenter` field (constructed after all of Task 4's tabs), `presenter.open(key)` as the first statement of `open`, and `hostBuild`.
-  - Tasks 5–7 delete Task 4's moved stat table, its `CharacterEquipmentPanel` (two panels would both be named `character-equipment`), its class-exalts table, the code that fills them, and its header name/class/level updates.
-  - If Task 4 already named labels `character-sheet-name`/`-meta`, drop them; `SheetHeader` owns those names.
-- **Task 4, `CharacterPanelGUI.hostBuild`:** it assumes `roster.sheet()`. Adapt that one line to Task 4's names.
-- **Task 4, its own tests** that read the moved tables must use `character-stat-rows` (inside `character-stat-table`), `character-equipment` (inside `character-gear-slot-table`) and `character-exalt-*`. These fill off the EDT, so the tests must await them.
-- **Task 2:** `characterCopy` returns a deep copy; `CharacterRecord.hasBackpack` is a `Boolean`; `AccountRecord.vaultPotions` is `int[8]` or null; `AccountRecord.exaltSeenByClass` is an initialized `Map<Integer, Long>`.
-- **Task 3:** `KitText.caption/body/emphasis`, a public `KitText(String, Font, Tokens.Role)` and `role(Tokens.Role)` (as `HomeViews.Text`), `KitLayouts.stack` (hidden rows take no space), and `ItemTiers.label` ("" when unknown).
-- **Task 1:** only the unchanged `LiveCharacter.Snapshot` constructor is used.
-
-### Facts Tasks 9–10 need
-- **Sheet tabs and click counts.**
-  - Tab order: overview, gear, exalts, build, goals, notes, evidence, death.
-  - S5: Home hero → sheet (`SheetFocus(key, "overview")`) → the `exalts` tab.
-  - S2: needs lines are `character-overview-need-N`.
-- **Waiting for the sheet.** The sheet fills asynchronously. Before assertions or screenshots, `SnapshotTestSupport.await` a presenter-applied value such as `character-sheet-name`'s text: "Sample" for `SheetFixtures.seed`, "Sharkbait" for `record()` models.
-- **Component names:**
-  - Header: `character-sheet-{identity,sprite,name,meta,maxed,playing,seasonal,dead,seen}`. Its accessible name is "Name, Class level N, K of 8 maxed[, playing now]"; its description is "Last seen …".
-  - Tabs: `character-overview-*`, `character-gear-*`, `character-exalt(s)-*`, `character-build-*`.
-  - Page 6: `build-moved` and `build-moved-open`.
-- **Helpers.**
-  - `SheetFixtures` (public, test) provides `record`, `account`, `bonus`, `live`, `model`, `defs`, `seed`, `inject` and `find/count/named`.
-  - `BuildRoute.key(TomatoData)` returns the live character in the journal, else the most recent, else null. Task 10's hero route can use the same rule.
-  - `BuildRoute.sheet(key)` builds the Build-tab route.
-- **Task 10 evidence for Build.** For the live card, publish `live(ACCOUNT, 7, …)` on the workspace's `data.liveCharacter`; publish `live(ACCOUNT, 8, "Ann", …)` for the "Build shows the character you're playing" card. That card appears after the presenter's next rebuild, so await `character-build-other-state`.
-- **README (Task 10):** Build is a tab on the character sheet. Alt+7 and Home's Build open it; page 6 says that Build moved.
-
-### File map rows (Tasks 5–8)
-| File | Change | Task |
-|---|---|---|
-| `glance/character/SheetModel`, `SheetModelBuilder`, `SheetViews`, `SheetHeader`, `OverviewTab`, `SheetPresenter`; `glance/home/HomeModelBuilder` | Create; Modify | 5 (builder and presenter extended in 6–8) |
-| `glance/character/CharacterSheet` (Task 4's file) | Modify | 5–8 |
-| `glance/character/GearTab`, `EnchantDots`; `realmshark/ParseEnchants`; `myinfo/BuildEstimates` | Create; Modify | 6 |
-| `glance/character/ExaltsTab` | Create | 7 |
-| `glance/character/BuildTab`; `myinfo/BuildRoute`, `BuildMovedPanel`; `route/RouteTarget`, `ShellNavigator`; `character/CharacterPanelGUI`; `TomatoGUI`; `modern/NavEntry` | Create; Modify | 8 |
-| Tests: `SheetFixtures`, `SheetModelBuilderTest`, `OverviewTabTest` (5); `GearTabTest` (6); `ExaltsTabTest` (7); `BuildTabTest`, `ShellNavigatorRedirectTest`, and edits to `ShellHookIntegrationTest`, `ShellRouteRegistrationTest`, `WorkspaceUiTest` (8) | Create; Modify | 5–8 |
-
-## Notes for the assembler (Tasks 9–10)
-
-**Contract deviations**
-- `RosterViews` (new, package-private, `tomato.gui.character`) owns the Sort combo, the view switch, their persistence and the rows → cards mapping; `CharacterJournalGUI` only builds it and supplies rows, the live key and `openSheet`. `CharacterGallery` adds `apply(alive, dead, boolean filtered)` (filtered-empty vs no-data) and `alive()`/`dead()`/`cards()`; `CharacterCardRenderer.cellSize()` is an instance method.
-- The sort runs on `CharacterRosterQuery.Row` (it needs `lastObservedAlive`, then `lastSeen`), so `CharacterCardModel` stays exactly the contract's record.
-- Accessible names add ", playing now" / ", marked dead", and "maxed stats unknown" replaces the count when unknown. Simple hides character IDs on cards; Analyst shows "#id" (spec §3.2).
-- The gallery is the default view. The roster table stays in the component tree (hidden) in gallery view, and every existing roster-table test pins the Table view with `TableViewRule`. The Sort combo sits in the FilterBar scope slot (spec §6.2), which precedes the drawer in the tree; that is why `CharacterJournalGuiTest`'s type-only `JComboBox` lookup is replaced and the life/season facets gain names `character-life`/`character-season`.
-- `LiveCharacter.Snapshot.journalKey()` is added in Task 9 (gallery "Playing now") and reused by Task 10 (Home hero key).
-- `HomeActions.characters` becomes `Consumer<String>` (not a new `character(String)` method). `HomeModel.Hero.key` is the last record component.
-
-**Assumed names from Tasks 4–8 (reconcile if they differ)**
-- Task 4 `CharacterJournalGUI`: a `Consumer<String> openSheet` field; public `visibleRows()` and `addRowsListener(Runnable)` whose listeners run at the end of `filter()` after `filtered` and the table model are rebuilt (the rows-listener call must also happen in the constructor's first `refresh()`); the page statement `JScrollPane page = ContentStyle.page(top, <table scroll>, footer); pageScroll = page;` with `page.setName("character-page-scroll")`; `private Runnable clearFilters`, `exaltPanel()` and the 3-argument package-private constructor kept; the line `life.getAccessibleContext()…; season.getAccessibleContext()…;` kept.
-- Task 4 `CharacterPanelGUI`: constructs the roster's `CharacterJournalGUI` with `data` in scope (field `journal`). If Task 4 moved construction into `CharacterRosterView`, put the `setLiveKey` line there.
-- Task 4: `CharacterSheet` (`key()`, `selectedTab()`, name `character-sheet`), tabs component `character-tabs` with tab title "Exalts", back link `character-sheet-back`, `SheetFocus` in `tomato.gui.glance.character`, `Destination.CHARACTER_SHEET`; `CharactersRouteTarget` registered in `createWorkspace` for both destinations; a plain `CHARACTERS` route shows the list; an unknown key shows the text "This character is not in the journal".
-- Task 5: the Overview needs line is a `JLabel`/`KitText`/`JTextComponent` named **`character-overview-needs`** containing "WIS needs 3" for the fixture Wizard, with caps from `HomeModelBuilder`'s `CharacterClass.getStats` (the S2 test installs those through `CharacterFixtures.installDefinitions()`, which also installs `RosterDefinitions.current()`; either cap source works). Task 5 must provide this name.
-- Task 7: the Exalts tab shows one `PipMeter(5)` per stat with `filled()` = tier and a label containing "to next tier"; any extra header meter must not add filled pips beyond the lowest tier (0 for the fixture), or the S5 await (sum = 19) must be adjusted.
-- Task 8: the Build tab shows `MyInfoGUI` for the live character and an `EmptyState` for another character while one is live; Task 8 keeps `homeActions()`'s first line `() -> openFromHome(tomato.gui.route.Route.to(Destination.CHARACTERS)),` (Task 10 replaces it) and does not rewrite the HeroCard class comment clause "The whole card opens Characters; Build opens the" (Task 10 replaces it) or the README sentence "The former My Info page is now **Build**, …" (Task 10 replaces it).
-- Task 1 edits the README Home sentence and `HomeModels.totals` (`HomeArchive.Totals`); Task 10's `HomeModels` edits touch only the hero, `NO_ACTIONS`, `empty()`/`unavailable()` heroes and add `KEY`/`withKey`.
-
-**Fixtures**
-- `CharacterFixtures` (Task 9) may overlap other writers' sheet fixtures; keep one. `HomeModels.KEY` must equal the roster key used by the S2/S5 test (`CharacterFixtures.KEY`).
-- Tests restore `ui.characters.view`, `ui.characters.sort`, `ui.collapse.characters-graveyard`, `ui.filters.characters.open`, `ui.mode` via `DisplayModeModel.application()`, and the class/definition statics through `installDefinitions()`'s handle.
+- **Journal keys.**
+  - A key is `accountKey + ":" + characterId`; `CharacterJournal.accountKey(...)` is a 64-hex SHA-256. `SheetFocus` accepts only `[0-9a-f]{64}:[0-9]+` and a tab id `[a-z0-9][a-z0-9-]*`.
+  - Three rules produce a key. `LiveCharacter.Snapshot.journalKey()` (Task 8) is null unless the account is a hashed key. `BuildRoute.key(TomatoData)` (Task 8) takes the live character when the journal has it, else the most recent one. `HomeModelBuilder.sheetKey(record.key)` (Task 10) keeps only a well-formed saved key.
+  - The hero's key names the character the hero shows; Build entry points use `BuildRoute`'s rule. A key the journal lacks opens the sheet's unavailable state ("This character is not in the journal").
+  - The Build tab shows `MyInfoGUI` only on the sheet whose key is `BuildTab.shownKey(live)`: the current snapshot's key, else (capture stopped, map change) the last known one's. Other sheets point to it.
+- **Routes.**
+  - `Destination.CHARACTER_SHEET` maps to page 3. `CharactersRouteTarget.of(view)` returns one target per destination (a `RouteTarget` has one destination), sharing one Back origin. A plain `CHARACTERS` route shows the list.
+  - `MY_INFO` redirects once, through the default `RouteTarget.redirect`, to `CHARACTER_SHEET(SheetFocus(key, "build"))`; with no character it stays on page 6 (`BuildMovedPanel`). `pageOf(MY_INFO)` stays 6.
+  - A route's tab, "Open goals" and every Build entry are explicit: the tab is shown, then selected. The remembered tab (`sheetTab`, else the legacy index `tab`) is only selected.
+- **Sheet API.**
+  - `SheetContext(data, journal, definitions, mode, clock, plans)`, all non-null; the four-argument form uses the system clock and `PlanningStore.shared()`. Tests pass `new TomatoData()` and a fixture clock.
+  - `CustomizableTabs("character")`: component `character-tabs`, preference `ui.tabs.character`. Default order overview, gear, exalts, build (Task 8), goals, notes, evidence (Analyst only), death (conditional: only while the character is marked dead; `addWhen`/`refreshConditions`, Task 4). A saved order without `build` gets it appended; a condition never rewrites the saved order.
+  - `CharacterSheet.ready()`: the sheet shows the read of its current key. Mark dead, Restore alive and Save notes act only then; tests wait for it (`RosterFixtures.enter` does). `saveDraft()` runs before another character opens, whenever the sheet hides, from `CharacterRosterView.showList`, on the page's tab switch and on `TomatoGUI.closeWorkspace`.
+  - Package-private `setTab` replaces a slot's content (overview, gear, exalts; build from Task 8); `setIdentity` (Task 5) takes `SheetHeader`. `SheetPresenter` owns those slots from Task 5 on.
+  - `CharacterPanelGUI` exposes `roster()`, `sheet()`, `routeTargets()` (built once), `openGoals()` and (Task 8) `hostBuild(JComponent)`. `TomatoGUI` constructs the only `MyInfoGUI` and hands it over.
+- **Component names.**
+  - List: `character-roster` (Enter action `open-character`), `character-search`, `character-facet-N`, `character-life`, `character-season` (Task 9), `character-page-scroll`.
+  - Roster tab and sheet: `character-roster-view` (cards `list`/`sheet`), `character-sheet`, `character-sheet-scroll`, `character-sheet-back`, `character-sheet-death` (Mark dead), `character-sheet-restore` (Restore alive), `character-sheet-status` (Loading… / a failed build, Task 5), `character-sheet-storage`, `character-snapshot-evidence` and `character-sheet-hint` (Analyst), `character-notes`, `character-notes-save`, `character-sheet-unavailable`, `character-sheet-unavailable-back`.
+  - Header (Task 5): `character-sheet-{identity,sprite,name,meta,maxed,playing,seasonal,dead,seen}`.
+  - Tabs: `character-overview-*` (the needs row `character-overview-needs` holds `character-overview-need-N` labels), `character-stat-table`/`character-stat-rows` (Analyst), `character-gear-*`, `character-exalt(s)-*`, `character-build-*`; page 6 `build-moved`, `build-moved-open`.
+  - Gallery (Task 9): `character-gallery`, `character-cards`, `character-graveyard`, `character-graveyard-cards`, `character-gallery-storage`, `character-gallery-empty`, `character-gallery-no-match`, `character-gallery-unavailable`, `character-sort`, `character-view-controls`, `character-view`, `character-view-item`, `character-roster-body`; the ⋯ items `character-save-view`, `character-reset-view` and the banner `character-view-state`.
+- **Threading.**
+  - `SheetPresenter` reads the journal (the record, the character list and the accounts, reused while the journal revision is unchanged) and builds `SheetModel` on the daemon thread `character-sheet`. It rebuilds on `open(key)` and, while the sheet shows, when a token moves (checked once a second): the key, the journal and live revisions, and the definitions and planning objects. The EDT applies only the newest result for the key still shown, and each tab skips an equal section; a failed build shows a warn banner and is retried on the next refresh.
+  - From Task 5 `CharacterSheet` copies nothing on the EDT: `loaded(...)` shows the presenter's read (notes, Goals, the death panel, the evidence), and its timer runs only while the sheet shows. (Task 4's interim sheet reads on the EDT.)
+  - `CharacterJournalGUI.addRowsListener` listeners run at the end of every `filter()`, including the constructor's first `refresh()`, and after a user sort; `RosterViews` is built before that first refresh.
+- **Units and honesty.**
+  - Per-stat lists use canonical order (life, mana, atk, def, spd, dex, vit, wis) with −1 for unknown; exalt arrays use RealmCharacter order, and `CharacterJournal.EXALT_ORDER` converts. Gear slots are an item id > 0, 0 for empty, −1 for not captured.
+  - An unknown maxed count is hidden (the sheet's chip) or "—" (cards and the Overview), never 0/8. Potions and maxed use Home's arithmetic (`HomeModelBuilder.potionsNeeded/maxed`, public since Task 5) with caps from `RosterDefinitions`.
+  - Live values apply only when the snapshot's account and character ID equal the record's. A snapshot cleared by a map change still counts during Home's grace (`SheetModelBuilder.inGame`, over `HomeModelBuilder.stillCurrent`), on the sheet and the gallery cards, so "Playing now" does not flicker. Enchant dots come only from the live character.
+  - Times (spec §5.7): cards and the header say "Played <ago>" from `lastObservedAlive` ("Seen <ago>" from `lastSeen` only when never played), as the Last played sort orders them; a vault count shows its age and is dimmed after 24 h; the Exalts tab says when this class's counts last "Changed".
+  - A pet with `absent = TRUE` is a known "No pet"; a missing `pet` is unknown. P3b's pet card and Pets gallery read it that way.
+  - Journal v5 fields are optional and null-tolerant; `copy(...)` copies each of them. Vault potions cover the regular vault only, so a seasonal character's sheet shows no vault count.
+  - The character list's completions are decoded from the entry's own PCStats string, because capture overlays the decoded stats of the character in game with CREATE's; CREATE's counts reach the journal separately, with their own time.
+- **Fixtures.**
+  - `SheetFixtures` (Task 5, `tomato.gui.glance.character`): one seasonal Wizard #7 of `accountKey("sheet-fixture")`, model inputs (`record`, `account`, `bonus`, `live`, `model`, `defs`), `seed` (a journal Wizard named "Sample") and `inject` (a test journal on a `TomatoData`). Tasks 5–8 and the shell tests' empty journals use it.
+  - `CharacterFixtures` (Task 9, same package): an eight-character roster of `accountKey("synthetic-account")` (two marked dead) whose Wizard `KEY` (`…:101`) is 7/8 maxed with "WIS needs 3" and 19 exalt tiers, its live snapshot, and `installDefinitions()`, which pins `RosterDefinitions.current()` and the fixture classes' names and caps until closed. `HomeModels.KEY` equals `CharacterFixtures.KEY`, so the Home hero opens that sheet in S2/S5 and the evidence.
+  - `RosterFixtures` (Task 4, `tomato.gui.character`) builds the Roster tab bound to `Navigator.NONE`; `TableViewRule` (Task 9) pins the Table view for the roster-table tests.
+- **Test hygiene.**
+  - Tests restore `ui.tabs.character`, `ui.tabs.characters`, `ux.archive.characters-live-roster`, `ui.filters.characters.open`, `ui.characters.view`, `ui.characters.sort`, `ui.collapse.characters-graveyard`, `ui.mode` and `DisplayModeModel.application()`; tests that build the real workspace also restore every `ux.archive.*` key and `TomatoGUI`'s and `ChatGUI`'s static fields.
+  - Shell tests inject a temporary journal (`SheetFixtures.inject` or a `TomatoData` override); otherwise the Build route follows `Characters/journal.json` in the test working directory.
+  - Sheet values arrive off the EDT: await one (`SnapshotTestSupport.await`, which also works on the EDT) before asserting or capturing, for example `character-sheet-name`, `character-overview-value-2` or the Gear slot table's 28 rows.
+  - The focus traversal policy orders only a showing window, so focus-target tests show their frame.
+- **Evidence.** The baseline is `build/p3a/evidence/baseline.txt` (Task 1). Task 10's 21 captures are in `build/p3a/ui-test/screenshots/redesign-p3a-characters/`; `RosterViewsTest` logs the 500-character timing lines for the validation record.
+- **Encoding.** Java snippets contain literal `·`, `…`, `‹`, `—` and `≈`; the build compiles UTF-8.

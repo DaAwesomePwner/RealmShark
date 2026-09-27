@@ -64,7 +64,7 @@ Outline:
 **Entry:** P2 merged. **Exit:** S2 and S5.
 
 User decisions (2026-09-27):
-- **Two PRs.** P3a covers the P2 follow-ups, journal v5, the roster gallery, the character sheet (Overview, Gear, Exalts, Build, Goals, Notes, Snapshot evidence, Death annotation) and the Build move. P3b covers the account Exalts grid, the Pets gallery, the sheet's Pet and Fame tabs and Home's pet rarity chip.
+- **Two PRs.** P3a covers the P2 follow-ups, journal v5, the roster gallery, the character sheet (Overview, Gear, Exalts, Build, Goals, Notes, Snapshot evidence, Death annotation) and the Build move. P3b covers the account Exalts grid, the Pets gallery, the sheet's Pet and Fame tabs, Home's pet rarity chip, the sheet Overview's pet card and Goals restyled as cards with progress (the last two deferred from P3a at its plan review).
 - **Stat bars keep the "+N" boost text;** there is no painted overlay.
 - **The journal moves to version 5, not 4 as first planned** (spec §8.3).
 
@@ -75,7 +75,7 @@ Outline:
 4. Pets gallery with rarity, family and ability bars; the feeding calculator goes in a drawer.
 5. Journal v4, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
 6. Evidence and journal migration tests (v3 → v4 load, partial rendering).
-7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar).
+7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar). Deferred from P3a's plan review (2026-09-27) to P3b: the sheet Overview's pet card (it needs P3b's pet names and rarity) and Goals restyled as cards with progress (P3a moves the Goals tab unchanged).
 
 ## P4 Quests
 
