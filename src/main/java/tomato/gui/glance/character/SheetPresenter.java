@@ -16,6 +16,7 @@ import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.glance.home.HomeModelBuilder;
+import tomato.history.AppHistory;
 import tomato.planning.PlanningMetadata;
 
 /**
@@ -26,6 +27,9 @@ import tomato.planning.PlanningMetadata;
  * request and its key is still the sheet's, so a late result for another character, or an older one for this character, is
  * dropped. A failed build (any Throwable, applying included) is logged with its stack trace, reported in the sheet (spec §7),
  * never swallowed or rethrown on the EDT, and tried again on the next refresh.
+ * The Fame tab reads saved history through its own presenter ("character-fame", FamePresenter), never in these builds: this
+ * presenter forwards the opened key and the once-a-second refresh (with whether the Fame tab is selected), and hands it each
+ * build's Fame tile, made here from the journal copy and the character in game.
  */
 final class SheetPresenter {
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(r -> {
@@ -45,6 +49,8 @@ final class SheetPresenter {
     private final GearTab gear;
     private final ExaltsTab exalts = new ExaltsTab();
     private final PetTab pet = new PetTab();
+    /** Sheet › Fame: saved history read on "character-fame" (AppHistory's store), at most every 30 s while its tab shows. */
+    private final FamePresenter fame;
     private final BuildTab build = new BuildTab(key -> tomato.gui.route.Navigator.current().open(tomato.gui.myinfo.BuildRoute.sheet(key)));
     private String key;
     private Token token;
@@ -60,8 +66,8 @@ final class SheetPresenter {
                          PlanningMetadata planning) {}
     /** One journal read at one revision: the character's record (null when the journal lacks it) and the lists Goals shows. */
     private record Read(String key, long revision, CharacterRecord record, List<CharacterRecord> records, List<AccountRecord> accounts) {}
-    /** One build for {@code key}. */
-    private record Built(String key, SheetModel model, Read read, RosterDefinitions definitions) {}
+    /** One build for {@code key}; {@code fame}: its Fame tile, from the same journal copy and character in game. */
+    private record Built(String key, SheetModel model, Read read, RosterDefinitions definitions, FameModel.Current fame) {}
 
     SheetPresenter(CharacterSheet sheet, SheetContext context) { this(sheet, context, WORKER); }
 
@@ -80,7 +86,9 @@ final class SheetPresenter {
         gear = new GearTab(context.mode());
         sheet.setTab("gear", SheetViews.scroll(gear));
         sheet.setTab("exalts", SheetViews.scroll(exalts));
-        sheet.setTab("pet", SheetViews.scroll(pet)); // the Fame slot stays the sheet's placeholder until the Fame tab sets it
+        sheet.setTab("pet", SheetViews.scroll(pet));
+        fame = new FamePresenter(AppHistory::store, context.clock());
+        sheet.setTab("fame", SheetViews.scroll(fame.tab()));
         sheet.setTab("build", build); // the sheet's build slot, registered right after Fame
     }
 
@@ -90,6 +98,7 @@ final class SheetPresenter {
         if (!Objects.equals(key, this.key)) { show(null); build.loading(); }
         this.key = key;
         request();
+        fame.open(key); // reads this character's saved fame history once now (then only while the Fame tab shows)
     }
 
     /** EDT: the model last applied, or null (loading, failed, or a key the journal lacks). */
@@ -100,6 +109,7 @@ final class SheetPresenter {
         if (key == null) return;
         if (!token().equals(token)) request();
         else times();
+        fame.refresh("fame".equals(sheet.selectedTab())); // history at most every 30 s, only while the Fame tab is selected
     }
 
     /** Relative times ("Played …", the vault's age, the pet's "Observed …") change without a new model. */
@@ -191,7 +201,9 @@ final class SheetPresenter {
         lastRead = read;
         AccountRecord account = null;
         if (read.record() != null) for (AccountRecord a : read.accounts()) if (a.key.equals(read.record().account)) account = a;
-        return new Built(target, SheetModelBuilder.build(read.record(), account, SheetModelBuilder.inGame(live, now), pets, definitions, now), read, definitions);
+        LiveCharacter.Snapshot inGame = SheetModelBuilder.inGame(live, now);
+        return new Built(target, SheetModelBuilder.build(read.record(), account, inGame, pets, definitions, now), read, definitions,
+            FameModel.current(target, read.record(), inGame)); // live only when inGame has exactly this key's account and character id
     }
 
     private LiveCharacter live() { return context.data().liveCharacter; }
@@ -203,6 +215,7 @@ final class SheetPresenter {
         show(built.model());
         gear.analyst(read.record(), built.definitions()); // re-renders only when the slots it shows or the definitions changed
         build.apply(built.model(), BuildTab.shownKey(live())); // Build shows only on the sheet of the character it describes
+        fame.current(built.key(), built.fame()); // the Fame tile follows live fame without reading history
     }
 
     /** EDT: parents the app's single MyInfoGUI in the Build tab. */
