@@ -3642,7 +3642,7 @@ Logging has no Analyst-only tabs: the whole page already sits in Advanced, and i
 - Create tests: `src/test/java/tomato/gui/logging/LoggingTabsTest.java`, `src/test/java/tomato/gui/keypop/KeyPopTabsTest.java`, `src/test/java/tomato/gui/stats/StatisticsTabsTest.java`
 
 **Interfaces:**
-- Consumes: P1a `CustomizableTabs`; existing `LoggingGUI(DiscoveryLog, ViewStateStore)`, `captureViewState()`, `LoggingStateTestSupport.memoryStore()`, `KeyPopDashboard.captureLiveState()/selectedDungeon()`, `StatisticsLiveState.tabs(JTabbedPane)` (unchanged: it persists the visible index under the pane name, and the saved order is restored before it, so the same position means the same tab).
+- Consumes: P1a `CustomizableTabs`; existing logging/key-pop state APIs. The implementation adds `StatisticsLiveState.tabs(CustomizableTabs, String...)` to preserve canonical numeric selection across reordered and hidden tabs; see the validation record for corrections to these planned examples.
 - Produces: groups above; `StatisticsGUI.tabTips(JTabbedPane, Map<Component,String>)` (private) keeps tab tooltips attached to their pages across rebuilds.
 
 - [ ] **Step 1: Write the failing tests**
@@ -4973,7 +4973,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 12: Visual evidence, full build and pull request
+### Task 12: Visual evidence, focused validation and pull request
 
 **Files:**
 - Create test: `src/test/java/tomato/gui/history/FilterBarEvidenceTest.java`
@@ -5105,10 +5105,9 @@ public class FilterBarEvidenceTest {
 Run: `GRADLE test --tests "tomato.gui.history.FilterBarEvidenceTest"`
 Expected: PASS. Open the 48 images in `build/p1c/ui-test/screenshots/redesign-p1c/` and check: with filters closed each page shows exactly one row of filter controls (search, Filters · N, chips, Clear, scope, ⋯) at 1240×800; at 680×520 the same controls wrap without being cut; opened drawers show the module's existing facet controls unchanged; chips are readable at font 18; the archive footer shows paging and status only in saved views.
 
-- [ ] **Step 3: Full build**
+- [ ] **Step 3: Focused validation and JAR build**
 
-Run: `GRADLE test shadowJar`
-Expected: `BUILD SUCCESSFUL`; every `build/p1c/test-results/test/*.xml` has `failures="0" errors="0"`.
+Follow the current AGENTS.md policy: focused affected-package checks and a JAR build/launch smoke check. Do not repeat the full suite or scaled matrices. Preserve earlier reports before focused follow-ups; every required failure must be resolved. See [P1c validation](2026-09-26-p1c-validation.md) for executed checks and implementation corrections to the examples in this plan.
 
 - [ ] **Step 4: Commit and open the PR**
 
@@ -5125,7 +5124,7 @@ gh pr create --title "Redesign P1c: filter bars, customizable tabs and column ki
 - Page sub-tab groups become CustomizableTabs (reorder/hide persisted by ID); Snapshot evidence and Ability Use are Analyst-only.
 - Archive and ad-hoc tables default to shared ColumnKind widths; saved layouts still win and Reset columns returns to the kind defaults.
 
-Query semantics, exports, saved views and ViewState formats are unchanged. Validation: focused tests per task, FilterBarEvidenceTest screenshots (1240×800 / 680×520, fonts 13 / 18, drawer closed / open) and a full test shadowJar.
+Query semantics, exports, saved views and ViewState formats are unchanged. Validation: focused affected-package tests, FilterBarEvidenceTest screenshots (1240×800 / 680×520, fonts 13 / 18, drawer closed / open), shadowJar and isolated startup smoke.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
@@ -5165,7 +5164,7 @@ Request an independent review of the final PR head before merging.
 - Saved views: "Save current view…" prompts for a name, one "Load: <name>" item per view, "Delete view…" prompts with the list; the submenu is disabled in the live view, mirroring the old hidden toolbar. `saveNamed` refreshes the menu.
 - Window and exact-link actions (Timeline "Widen window ±30 s", "Clear exact visit link"), Loot drill-down actions and Cohort inputs stay in the view: they act on or define what is displayed. The exact visit and drill-downs also appear as chips ("Exact visit", "Exact variant/run").
 - Logging has no Analyst-only tabs (cross-linked tabs on an Advanced page; see Task 9).
-- Persisted tab state keeps its formats: indices are canonical (default order) or existing string IDs; `StatisticsLiveState.tabs` stays index-based because the saved order is restored before it.
+- Persisted tab state keeps its formats: indices are canonical (default order) or existing string IDs. Statistics translates between canonical numeric state and customizable tab IDs, so reordered/hidden tabs cannot change the meaning of saved selection. A saved selection reveals its hidden tab; Simple mode still excludes Analyst-only content.
 - Column kinds set widths everywhere; KitTables renderers only on archive `String` columns of text kinds. Headers and existing minimums are floors; Loot keeps its content fit (≤ 320 px) above the kind floor.
 - Guidance text "try Reset filters"/"Reset filters or change scope" became "use Clear to reset filters"/"Clear filters or change scope" because the button no longer exists in archives; no honesty wording changed.
 
