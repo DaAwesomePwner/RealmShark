@@ -89,18 +89,19 @@ final class BuildTab extends JPanel {
     }
 
     /**
-     * The pointer for another sheet; {@code live} null: nobody is in game, so there is nothing to open. Worded by class, never
-     * by name: the game's name stat is the account name, shared by every character on it.
+     * The pointer for another sheet; {@code live} null: nobody is in game, so there is nothing to open. Worded by class and
+     * character id, never by name: the game's name stat is the account name, shared by every character on it, and an account
+     * can hold several characters of the same class (so the class alone would not disambiguate them).
      */
     private void pointer(SheetModel.Live live) {
-        liveKey = live == null ? null : live.key(); // read at click time: the same class may belong to another character later
-        String shownFor = live == null ? "" : live.className();
+        liveKey = live == null ? null : live.key(); // read at click time: the same class/id may belong to another character later
+        String shownFor = live == null ? "" : live.className() + " #" + live.characterId();
         if (shownFor.equals(pointerFor)) return;
         pointerFor = shownFor;
         EmptyState state;
         if (live == null) state = new EmptyState(POINTER, "Start capture and enter the game with this character.", null);
         else {
-            KitButton open = named(KitButton.primary("Open the " + shownFor + "'s Build"), "character-build-open-live");
+            KitButton open = named(KitButton.primary("Open " + shownFor + "'s Build"), "character-build-open-live");
             open.addActionListener(e -> { if (liveKey != null) openLive.accept(liveKey); });
             state = new EmptyState(POINTER, "Your " + shownFor + " is in game now.", open);
         }

@@ -370,6 +370,71 @@ public class WorkspaceUiTest {
             } finally { shell.select(before); }
         });
     }
+    /**
+     * Regression for the P3a final review (round 2): CharactersRouteTarget.open used to call
+     * focusBackLink() before ShellNavigator.open actually selected the destination page, so from
+     * another page (the main Alt+7 case) the Characters page was still hidden and
+     * requestFocusInWindow() failed silently; focus stayed on the sidebar.
+     */
+    @Test public void altSevenFocusesTheSheetsBackLinkWhenOpenedFromAnotherPage() throws Exception {
+        tomato.backend.data.TomatoData app = appData();
+        tomato.backend.data.CharacterJournal previous = app.characterJournal();
+        tomato.backend.data.CharacterJournal journal = emptyJournal();
+        tomato.gui.glance.character.SheetFixtures.seed(journal);
+        AbstractButton[] back = new AbstractButton[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.glance.character.SheetFixtures.inject(app, journal);
+                shell.select(14); // Home: opening the sheet from elsewhere is the main Alt+7 case
+                frame.toFront();
+                shell.getActionMap().get("page-6").actionPerformed(null); // Alt+7
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(() -> {
+                if (shell.getSelectedPage() != 3) return false;
+                back[0] = findButton(shell, "character-sheet-back");
+                return back[0] != null && back[0].isFocusOwner();
+            });
+            SwingUtilities.invokeAndWait(() -> assertSame("Alt+7 from another page still focuses the sheet's back link",
+                back[0], KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.route.Navigator.current().back();
+                tomato.gui.glance.character.SheetFixtures.inject(app, previous);
+                shell.select(0);
+            });
+        }
+    }
+
+    /** Same regression, through the Goals search entry (CharacterPanelGUI.openGoals) instead of Alt+7. */
+    @Test public void goalsSearchFocusesTheSheetsBackLinkWhenOpenedFromAnotherPage() throws Exception {
+        tomato.backend.data.TomatoData app = appData();
+        tomato.backend.data.CharacterJournal previous = app.characterJournal();
+        tomato.backend.data.CharacterJournal journal = emptyJournal();
+        tomato.gui.glance.character.SheetFixtures.seed(journal);
+        AbstractButton[] back = new AbstractButton[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.glance.character.SheetFixtures.inject(app, journal);
+                shell.select(5); // Quests: another page, not Characters
+                frame.toFront();
+                assertTrue(tomato.gui.search.ActionRegistry.application().search("plans.characters").get(0).open());
+            });
+            tomato.gui.activity.SnapshotTestSupport.await(() -> {
+                if (shell.getSelectedPage() != 3) return false;
+                back[0] = findButton(shell, "character-sheet-back");
+                return back[0] != null && back[0].isFocusOwner();
+            });
+            SwingUtilities.invokeAndWait(() -> assertSame("The Goals search entry from another page still focuses the sheet's back link",
+                back[0], KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.route.Navigator.current().back();
+                tomato.gui.glance.character.SheetFixtures.inject(app, previous);
+                shell.select(0);
+            });
+        }
+    }
+
     private static JLabel pageTitle(Container root) {
         for (Component c : root.getComponents()) {
             if (c instanceof JLabel && "page-title".equals(c.getName())) return (JLabel) c;

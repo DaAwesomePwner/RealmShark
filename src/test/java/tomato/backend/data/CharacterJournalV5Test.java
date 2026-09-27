@@ -214,6 +214,8 @@ public class CharacterJournalV5Test {
         assertTrue("The invalid backup is left alone, not silently accepted", Files.isDirectory(backup));
         assertEquals("The old file is untouched: the version 5 write never happened", v4, read(path));
         assertTrue(j.storageProblem(), j.storageProblem().startsWith("Save failed"));
+        // Names the backup path: a stuck journal.v4.bak is a different, more diagnosable problem than a plain write failure.
+        assertTrue(j.storageProblem(), j.storageProblem().contains("journal.v4.bak"));
     }
 
     @Test public void storageProblemsNameAnUnreadableFileAndAFailedSave() throws Exception {

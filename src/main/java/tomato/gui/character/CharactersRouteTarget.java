@@ -2,6 +2,7 @@ package tomato.gui.character;
 
 import java.util.List;
 import java.util.Objects;
+import javax.swing.SwingUtilities;
 import tomato.gui.glance.character.SheetFocus;
 import tomato.gui.route.Destination;
 import tomato.gui.route.Navigator;
@@ -61,8 +62,10 @@ public final class CharactersRouteTarget implements RouteTarget {
             if (fromList && navigator.backToken() == entry) navigator.back(); else view.showList();
         });
         // Explicit navigation into the sheet (Alt+7's Build redirect, the Goals search entry, a row/card open) moves keyboard
-        // focus in: one place instead of each caller doing it. Restoring a saved tab (restoreState) never does this.
-        view.sheet().focusBackLink();
+        // focus in: one place instead of each caller doing it. Restoring a saved tab (restoreState) never does this. Deferred:
+        // ShellNavigator.open calls target.open (here) BEFORE it actually selects/shows the destination page, so from another
+        // page the sheet is still hidden and requestFocusInWindow() would fail; invokeLater runs after the page is shown.
+        SwingUtilities.invokeLater(view.sheet()::focusBackLink);
     }
     @Override public void restoreState(Object state) {
         if (!(state instanceof CharactersState)) throw new IllegalArgumentException("Not a Characters view state");

@@ -65,10 +65,11 @@ public class BuildTabTest {
             EmptyState other = named(tab, "character-build-other-state", EmptyState.class);
             assertEquals(BuildTab.POINTER, "Build shows the character you're playing");
             assertEquals(BuildTab.POINTER, other.getAccessibleContext().getAccessibleName());
-            // Worded by class, never by name: the game's name stat is the account's, shared by every character (both fixtures are Wizards).
-            assertEquals("Your Wizard is in game now.", other.getAccessibleContext().getAccessibleDescription());
+            // Worded by class and character id, not name: the game's name stat is the account's, shared by every character, and
+            // same-class characters (both fixtures are Wizards, #7 and #8) need the id to disambiguate.
+            assertEquals("Your Wizard #8 is in game now.", other.getAccessibleContext().getAccessibleDescription());
             AbstractButton open = named(tab, "character-build-open-live", AbstractButton.class);
-            assertEquals("Open the Wizard's Build", open.getText());
+            assertEquals("Open Wizard #8's Build", open.getText());
             open.doClick();
             assertEquals(List.of(ACCOUNT + ":8"), opened);
             assertSame("MyInfoGUI stays parented in its card", tab, SwingUtilities.getAncestorOfClass(BuildTab.class, build));

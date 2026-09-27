@@ -591,6 +591,13 @@ public final class CharacterJournal implements AutoCloseable {
             }
             try {
                 backupOnce(); // before version 5 first replaces an older file
+            } catch (IOException e) {
+                // Name the backup path: a stuck/invalid journal.v4.bak is a different, more diagnosable problem than a plain
+                // write failure, and "check access to Characters/journal.json" would point at the wrong file.
+                synchronized (this) { storageStatus = "Save failed • backup Characters/" + backupPath(path).getFileName() + " could not be written"; }
+                return;
+            }
+            try {
                 store.write(path, JSON.toJson(snapshot));
                 synchronized (this) {
                     if (revision == savedRevision) dirty = false;
