@@ -3,10 +3,12 @@ package tomato.gui.glance.character;
 import java.awt.*;
 import java.util.List;
 import javax.swing.*;
+import tomato.backend.data.FieldCapture;
 import tomato.gui.kit.Card;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** Small shared pieces of the character sheet tabs. EDT only. */
 final class SheetViews {
@@ -45,6 +47,16 @@ final class SheetViews {
     /** The value at {@code index}, or null when it is unknown (-1) or missing. */
     static Integer at(List<Integer> values, int index) {
         return values == null || index >= values.size() || values.get(index) < 0 ? null : values.get(index);
+    }
+
+    /**
+     * "source · when" field evidence text, with a note when it was retained from an earlier observation; {@code at} 0 means
+     * unknown timing (legacy data, {@link FieldCapture#at}), never shown as an epoch date. Shared by SheetModelBuilder's stat
+     * evidence and CharacterSheet's Snapshot evidence table so the two never drift apart.
+     */
+    static String fieldEvidence(String source, long at, long lastSeen) {
+        return source + " · " + (at > 0 ? DisplayFormat.formatTimestamp(at) : "Unknown")
+            + (at > 0 && at < lastSeen ? " · Retained from earlier observation" : "");
     }
 
     /** A tab body that scrolls vertically, follows the viewport width (never sideways) and keeps its content at the top. */

@@ -76,6 +76,26 @@ public class CharacterRosterViewTest {
         }
     }
 
+    @Test public void loadingAnotherDeadCharactersSheetDoesNotOverwriteTheSavedTabWithOverview() throws Exception {
+        try (CharacterJournal journal = journal()) {
+            journal.markDead(ACCOUNT + ":1", true);
+            journal.markDead(ACCOUNT + ":2", true);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                view.showSheet(ACCOUNT + ":1", "death", view::showList);
+                tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
+                assertEquals("death", view.listPanel().sheetTab());
+                view.showSheet(ACCOUNT + ":2", "death", view::showList);
+                // Death briefly disappears while character 2's record loads, forcing a transient fallback to Overview; that
+                // is not the character's actual tab and must never be saved (checked synchronously, before anything settles).
+                assertEquals("The transient Overview fallback while loading is never saved", "death", view.listPanel().sheetTab());
+                tomato.gui.activity.SnapshotTestSupport.await(view.sheet()::ready);
+                assertEquals("death", view.sheet().selectedTab());
+                assertEquals("death", view.listPanel().sheetTab());
+            });
+        }
+    }
+
     @Test public void visibleRowsFollowSearchAndSortAndNotifyListeners() throws Exception {
         try (CharacterJournal journal = journal()) {
             journal.notes(ACCOUNT + ":2", "needle");

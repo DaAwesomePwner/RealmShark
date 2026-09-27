@@ -74,6 +74,13 @@ public final class CharacterSheet extends JPanel {
     private Runnable backAction = () -> { };
     /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
     private String key, filledKey, loadedKey;
+    /**
+     * The tab an explicit {@link #open} asked for, until it is actually reached. A conditional tab (Death) may not exist yet
+     * while the character's record is still loading, so this is retried in {@link #loaded} once the read applies.
+     */
+    private String pendingTab;
+    /** True only during {@link #open}'s own reset of the previous character's tabs; see {@link #resettingTabs()}. */
+    private boolean resettingTabs;
     private CharacterRecord record;
     private List<CharacterRecord> records = Collections.emptyList();
     private List<AccountRecord> accounts = Collections.emptyList();
@@ -165,7 +172,8 @@ public final class CharacterSheet extends JPanel {
     /**
      * Shows one character. A different key first saves the previous character's changed notes and clears everything shown, so
      * nothing of that character stays on screen or acts while this one loads. A non-null tab is explicit navigation: it is shown
-     * if hidden, then selected. A key the journal does not hold shows the unavailable state once its read arrives.
+     * if hidden, then selected; a conditional tab (Death) may not exist yet while the record loads, so the request is retried
+     * once {@link #loaded} applies it. A key the journal does not hold shows the unavailable state once its read arrives.
      */
     public void open(String key, String tab) {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open the character sheet on the EDT");
@@ -174,16 +182,27 @@ public final class CharacterSheet extends JPanel {
             this.key = key;
             record = null; loadedKey = null;
             fill();
-            tabs.refreshConditions();
+            // Clearing the previous character can drop a conditional tab (Death) it had selected, forcing a fallback
+            // selection that belongs to no character; resettingTabs marks that single call so it is never reported as
+            // this character's tab (see resettingTabs()).
+            resettingTabs = true;
+            try { tabs.refreshConditions(); } finally { resettingTabs = false; }
             shown();
             status.setTone(Tokens.Tone.NEUTRAL); status.setText(LOADING); status.setVisible(true);
         }
         presenter.open(key);
-        if (tab != null) { tabs.show(tab); tabs.select(tab); }
+        pendingTab = tab;
+        applyPendingTab();
     }
     public String key() { return key; }
     /** True once the sheet shows the journal's read of its current key: that character, or its unavailable state. */
     public boolean ready() { return key != null && key.equals(loadedKey); }
+    /**
+     * True only while {@link #open} is clearing the previous character's tabs for a new key. A tab-selection listener (the
+     * Roster tab saves the sheet's settled tab) should ignore a selection reported during this single call: it is a fallback
+     * forced by a conditional tab (Death) disappearing, not the tab of the character now opening.
+     */
+    public boolean resettingTabs() { return resettingTabs; }
     public String selectedTab() { return tabs.selectedId(); }
     public CustomizableTabs tabs() { return tabs; }
     /** Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. */
@@ -212,6 +231,18 @@ public final class CharacterSheet extends JPanel {
     }
     /** Puts the header's identity block (SheetHeader) beside Mark dead; the back link, banners and snapshot evidence stay. */
     void setIdentity(JComponent value) { identity.add(value, BorderLayout.CENTER); identity.revalidate(); identity.repaint(); }
+
+    /**
+     * Explicit navigation may show a hidden tab and select it; a conditional tab (Death) can still be unreached because its
+     * record has not loaded yet, so the request is kept in {@link #pendingTab} and retried from {@link #loaded}. Cleared once
+     * it is actually reached, so it never fires again for a later, unrelated tab change.
+     */
+    private void applyPendingTab() {
+        if (pendingTab == null) return;
+        tabs.show(pendingTab);
+        tabs.select(pendingTab);
+        if (pendingTab.equals(tabs.selectedId())) pendingTab = null;
+    }
     /** The moved 28-slot equipment table (Task 6 keeps it in Analyst). */
     CharacterEquipmentPanel equipmentPanel() { return equipment; }
     /** The moved class-exalts table (Task 7 replaces it). */
@@ -241,6 +272,7 @@ public final class CharacterSheet extends JPanel {
         status.setVisible(false);
         if (changed) fill();
         tabs.refreshConditions();
+        applyPendingTab();
         shown();
     }
 
@@ -322,7 +354,7 @@ public final class CharacterSheet extends JPanel {
         if (!known) return "Not captured";
         FieldCapture field = r.fields.get(key);
         if (field == null) return "Legacy / provenance unknown";
-        return field.source + " · " + date(field.at) + (field.at > 0 && field.at < r.lastSeen ? " · Retained from earlier observation" : "");
+        return SheetViews.fieldEvidence(field.source, field.at, r.lastSeen);
     }
     private static String next(int count) { for (int goal : new int[]{5, 15, 30, 50, 75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }
     private static Object unknown(Object value) { return value == null ? "Unknown" : value; }

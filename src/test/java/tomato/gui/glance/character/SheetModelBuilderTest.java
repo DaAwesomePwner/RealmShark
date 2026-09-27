@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.FieldCapture;
 import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.kit.DisplayValue;
@@ -84,6 +85,13 @@ public class SheetModelBuilderTest {
         CharacterJournal.CharacterRecord unnamed = record(); unnamed.name = null;
         assertEquals("Wizard #7", model(unnamed, account(), null).identity().name());
         assertNull("A key the journal does not have builds nothing", model(null, account(), null));
+    }
+
+    @Test public void aFieldCapturedAtAnUnknownTimeShowsUnknownNeverAnEpochDate() {
+        CharacterJournal.CharacterRecord record = record();
+        record.fields.put("stat.0", new FieldCapture(0, "Captured total minus boost")); // FieldCapture.at 0 means unknown timing
+        SheetModel m = model(record, account(), null);
+        assertEquals("Unknown timing never renders as an epoch date", "Captured total minus boost · Unknown", m.stats().evidence().get(0));
     }
 
     @Test public void aMapChangesBriefClearStillCountsAsInGame() {

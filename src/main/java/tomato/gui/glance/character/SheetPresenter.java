@@ -10,6 +10,7 @@ import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.RosterDefinitions;
+import tomato.gui.glance.home.HomeModelBuilder;
 import tomato.planning.PlanningMetadata;
 
 /**
@@ -35,7 +36,7 @@ final class SheetPresenter {
     /** The build thread's last journal read, reused while the key and the journal revision are unchanged (build thread only). */
     private Read lastRead;
 
-    private record Token(String key, long journal, long live, RosterDefinitions definitions, PlanningMetadata planning) {}
+    private record Token(String key, long journal, long live, boolean graceOver, RosterDefinitions definitions, PlanningMetadata planning) {}
     /** One journal read at one revision: the character's record (null when the journal lacks it) and the lists Goals shows. */
     private record Read(String key, long revision, CharacterRecord record, List<CharacterRecord> records, List<AccountRecord> accounts) {}
     /** One build for {@code key}. */
@@ -73,9 +74,17 @@ final class SheetPresenter {
         overview.apply(model); // re-reads only the vault age
     }
 
+    /**
+     * {@code graceOver} mirrors Home's map-change grace (LiveHomeSources.revisions): true once a TRANSIENT clear's grace has
+     * elapsed with no new publish. live.revision() alone does not move again when the grace merely expires, so without this the
+     * token would never change and "Playing now" (and the live boosts) would stay stuck past the grace window.
+     */
     private Token token() {
         LiveCharacter live = live();
-        return new Token(key, context.journal().revision(), live.revision(), context.definitions().get(), PlanningMetadata.current());
+        long now = context.clock().getAsLong();
+        boolean graceOver = live.current() == null && live.lastKnown() != null
+            && !HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), now);
+        return new Token(key, context.journal().revision(), live.revision(), graceOver, context.definitions().get(), PlanningMetadata.current());
     }
 
     private void request() {
@@ -84,10 +93,11 @@ final class SheetPresenter {
         String target = key;
         CharacterJournal journal = context.journal();
         LiveCharacter live = live();
+        long now = context.clock().getAsLong();
         WORKER.execute(() -> {
             Built built = null;
             RuntimeException failure = null;
-            try { built = build(target, journal, live); }
+            try { built = build(target, journal, live, now); }
             catch (RuntimeException e) { failure = e; }
             Built result = built;
             RuntimeException failed = failure;
@@ -101,8 +111,7 @@ final class SheetPresenter {
     }
 
     /** The build thread: one journal read (reused while the revision is unchanged) and the model, over deep copies. */
-    private Built build(String target, CharacterJournal journal, LiveCharacter live) {
-        long now = System.currentTimeMillis();
+    private Built build(String target, CharacterJournal journal, LiveCharacter live, long now) {
         RosterDefinitions definitions = context.definitions().get();
         Read read = lastRead;
         synchronized (journal) {

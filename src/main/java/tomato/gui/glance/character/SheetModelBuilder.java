@@ -159,7 +159,7 @@ public final class SheetModelBuilder {
         if (!known) return "Not captured";
         FieldCapture capture = r.fields == null ? null : r.fields.get(field);
         if (capture == null) return "Legacy / provenance unknown";
-        return capture.source + " · " + DisplayFormat.formatTimestamp(capture.at) + (capture.at > 0 && capture.at < r.lastSeen ? " · Retained from earlier observation" : "");
+        return SheetViews.fieldEvidence(capture.source, capture.at, r.lastSeen);
     }
 
     private static String className(int classId) { String name = CharacterClass.getName(classId); return name == null || name.isEmpty() ? "Class #" + classId : name; }

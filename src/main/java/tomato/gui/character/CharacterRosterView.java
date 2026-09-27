@@ -28,8 +28,10 @@ public final class CharacterRosterView extends JPanel {
         setLayout(cards); setName("character-roster-view");
         add(list, LIST); add(sheet, SHEET);
         list.onOpenSheet(this::openCharacter);
-        // The sheet's settled tab is saved with the list's view state and selected the next time the sheet opens.
-        sheet.tabs().onSelect(id -> { if (id != null && sheet.key() != null) list.sheetTabSelected(id); });
+        // The sheet's settled tab is saved with the list's view state and selected the next time the sheet opens. Switching
+        // characters can briefly hide a conditional tab (Death) and force a fallback selection; that transient selection
+        // belongs to no character, so it is never saved (sheet.resettingTabs() is true for that one, synchronous call only).
+        sheet.tabs().onSelect(id -> { if (id != null && sheet.key() != null && !sheet.resettingTabs()) list.sheetTabSelected(id); });
         cards.show(this, LIST);
     }
 

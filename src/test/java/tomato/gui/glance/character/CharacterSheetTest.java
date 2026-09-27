@@ -10,6 +10,7 @@ import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.RosterDefinitions;
 import tomato.backend.data.TomatoData;
 import tomato.gui.kit.Banner;
@@ -114,6 +115,60 @@ public class CharacterSheetTest {
         }
     }
 
+    @Test public void openingADeadCharactersDeathTabLandsOnDeathOnceItsRecordLoads() throws Exception {
+        try (CharacterJournal journal = journal("death-tab.json", 1)) {
+            journal.markDead(ACCOUNT + ":1", true);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                sheet.open(ACCOUNT + ":1", "death");
+                assertFalse("Death is not visible until the dead record actually loads", sheet.tabs().visibleIds().contains("death"));
+                await(sheet::ready);
+                assertTrue("The explicit request is retried once the record applies", sheet.tabs().visibleIds().contains("death"));
+                assertEquals("death", sheet.selectedTab());
+            });
+        }
+    }
+
+    @Test public void movingBetweenDeadCharactersKeepsTheDeathTabSelected() throws Exception {
+        try (CharacterJournal journal = journal("death-tab-move.json", 1, 2)) {
+            journal.markDead(ACCOUNT + ":1", true);
+            journal.markDead(ACCOUNT + ":2", true);
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = sheet(journal);
+                open(sheet, ACCOUNT + ":1", "death");
+                assertEquals("death", sheet.selectedTab());
+                open(sheet, ACCOUNT + ":2", "death");
+                assertEquals("Moving to another dead character keeps Death, not the transient Overview fallback", "death", sheet.selectedTab());
+            });
+        }
+    }
+
+    @Test public void aMapChangeGraceExpiringWithNoNewPublishDropsPlayingNowAndTheLiveBoosts() throws Exception {
+        try (CharacterJournal journal = journal("grace.json", 7)) {
+            long[] clock = {5_000};
+            // A stable reference: RosterDefinitions::empty would build a fresh, unequal instance on every read and make the
+            // presenter's token differ (and so rebuild) on every refresh regardless of live state, defeating this test.
+            RosterDefinitions defs = RosterDefinitions.empty();
+            SwingUtilities.invokeAndWait(() -> {
+                TomatoData data = new TomatoData();
+                CharacterSheet sheet = new CharacterSheet(new SheetContext(data, journal, () -> defs, DisplayModeModel.application(), () -> clock[0], PlanningStore.shared()));
+                data.liveCharacter.publish(SheetFixtures.live(ACCOUNT, 7, "Sharkbait", null));
+                open(sheet, ACCOUNT + ":7", null);
+                assertTrue("The live character shows Playing now", named(sheet, "character-sheet-playing", JComponent.class).isVisible());
+                assertTrue("A live boost shows while playing", named(sheet, "character-overview-boost-0", JComponent.class).isVisible());
+
+                data.liveCharacter.clear(clock[0], LiveCharacter.Boundary.TRANSIENT);
+                sheet.refresh(); // the clear alone bumps live's revision and settles one rebuild, still well within Home's 5 s grace
+
+                clock[0] += 5_001; // past the grace window now, with no further publish or clear: live's revision does not move again
+                sheet.refresh();
+                await(() -> !named(sheet, "character-sheet-playing", JComponent.class).isVisible());
+                assertFalse("The grace expired with no new publish: the live boost drops too",
+                    named(sheet, "character-overview-boost-0", JComponent.class).isVisible());
+            });
+        }
+    }
+
     @Test public void anUnknownKeyShowsTheUnavailableStateAndAKnownOneTheTabs() throws Exception {
         try (CharacterJournal journal = journal("unknown.json", 1)) {
             SwingUtilities.invokeAndWait(() -> {
@@ -137,9 +192,16 @@ public class CharacterSheetTest {
                 CharacterSheet sheet = sheet(journal);
                 open(sheet, ACCOUNT + ":1", "notes");
                 JTextArea notes = named(sheet, "character-notes", JTextArea.class);
-                notes.setText("Draft for one"); sheet.refresh();
-                assertEquals("A refresh keeps the draft", "Draft for one", notes.getText());
-                assertEquals("", journal.characterCopy(ACCOUNT + ":1").notes);
+                notes.setText("Draft for one");
+                // A real journal change for the SAME key forces the presenter to rebuild (unlike calling refresh() on an
+                // unchanged journal, which only queues a build without necessarily proving one was actually applied): mark the
+                // character dead, wait for the rebuilt model to actually land (the Death tab becoming visible is the applied
+                // model's own, observable effect), then check the draft was not overwritten by the freshly loaded record.
+                journal.markDead(ACCOUNT + ":1", true);
+                sheet.refresh();
+                await(() -> sheet.tabs().visibleIds().contains("death"));
+                assertEquals("A real rebuild of the same character keeps the unsaved draft", "Draft for one", notes.getText());
+                assertEquals("The draft was never saved to the journal", "", journal.characterCopy(ACCOUNT + ":1").notes);
                 sheet.open(ACCOUNT + ":2", null);
                 assertEquals("Opening another character saves the draft", "Draft for one", journal.characterCopy(ACCOUNT + ":1").notes);
                 assertEquals("", notes.getText());
