@@ -198,6 +198,24 @@ public class CharacterJournalV5Test {
         assertTrue(read(other).contains("fourth"));
     }
 
+    /**
+     * A directory (or any non-regular file) already sitting at the backup path must not count as "already backed up": that
+     * would let the version 5 write proceed with no real backup ever made. Files.copy is made to fail (a directory already
+     * occupies the target), which must fail the whole save, leaving the old (pre-version-5) file untouched.
+     */
+    @Test public void aBackupThatCannotBeWrittenNeverLetsTheVersionFiveWriteHappen() throws Exception {
+        Path path = file(), backup = path.resolveSibling("journal.v4.bak");
+        String v4 = v3().replace("\"version\":3", "\"version\":4");
+        write(path, v4);
+        Files.createDirectory(backup); // an invalid, unfinished-looking backup: not a regular file
+        CharacterJournal j = new CharacterJournal(path);
+        j.notes(KEY, "should never reach disk");
+        j.save();
+        assertTrue("The invalid backup is left alone, not silently accepted", Files.isDirectory(backup));
+        assertEquals("The old file is untouched: the version 5 write never happened", v4, read(path));
+        assertTrue(j.storageProblem(), j.storageProblem().startsWith("Save failed"));
+    }
+
     @Test public void storageProblemsNameAnUnreadableFileAndAFailedSave() throws Exception {
         Path path = file(); write(path, "{broken");
         CharacterJournal broken = new CharacterJournal(path);

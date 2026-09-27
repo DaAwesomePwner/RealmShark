@@ -70,6 +70,33 @@ public class OverviewTabTest {
         });
     }
 
+    /**
+     * Regression for the P3a final review: apply() skipped an unchanged model whenever the vault age also matched, so once
+     * capture stopped "Marked dead N ago" never aged past its first paint. The death age must be part of that equality check too.
+     */
+    @Test public void aDeadCharactersMarkedAgeKeepsAdvancingOnAnUnchangedModel() throws Exception {
+        java.lang.reflect.Field clock = KitFormat.class.getDeclaredField("clock");
+        clock.setAccessible(true);
+        Object previousClock = clock.get(null);
+        try {
+            CharacterJournal.CharacterRecord record = record(); record.dead = true;
+            record.deathAnnotation = new CharacterJournal.DeathAnnotation(); record.deathAnnotation.markedAt = NOW;
+            SheetModel model = model(record, account(), null); // no vault data: vaultAge() is always "", so it never masks this bug
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    OverviewTab tab = new OverviewTab(mode, id -> "");
+                    clock.set(null, (java.util.function.LongSupplier) () -> NOW + 30_000); // 30 s later: "just now"
+                    tab.apply(model);
+                    assertEquals("Marked dead just now", text(tab, "character-overview-death-text"));
+                    clock.set(null, (java.util.function.LongSupplier) () -> NOW + 90_000); // 90 s later: "1 min ago"
+                    tab.apply(model); // the very same model instance: only the relative age moved
+                    assertEquals("The death age keeps advancing on an unchanged model, as the vault age already did",
+                        "Marked dead 1 min ago", text(tab, "character-overview-death-text"));
+                } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+            });
+        } finally { clock.set(null, previousClock); }
+    }
+
     @Test public void statTableIsAnalystOnlyAndDeathShowsForADeadCharacter() throws Exception {
         CharacterJournal.CharacterRecord record = record(); record.dead = true; record.diedAt = NOW - 24 * HOUR;
         SheetModel model = model(record, account(), null);
@@ -112,6 +139,19 @@ public class OverviewTabTest {
             assertEquals("The time is the description, never the name", seen.getText(), header.getAccessibleContext().getAccessibleDescription());
             header.apply(wasPlayed.identity());
             assertEquals("The last time in game, as the gallery's Last played sort", "Played 3 h ago", seen.getText());
+        });
+    }
+
+    @Test public void clearingTheIdentityAlsoClearsTheAccessibleNameAndDescription() throws Exception {
+        SheetModel playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null));
+        SwingUtilities.invokeAndWait(() -> {
+            SheetHeader header = new SheetHeader();
+            header.apply(playing.identity());
+            assertNotNull(header.getAccessibleContext().getAccessibleName());
+            header.apply(null); // the next character's read has not arrived yet
+            assertNull("Sharkbait must not still be announced while the next character loads",
+                header.getAccessibleContext().getAccessibleName());
+            assertNull(header.getAccessibleContext().getAccessibleDescription());
         });
     }
 }

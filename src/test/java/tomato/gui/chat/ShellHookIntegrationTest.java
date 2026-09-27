@@ -69,15 +69,18 @@ public class ShellHookIntegrationTest {
     private TomatoGUI gui;
     private SessionStore store;
     private TomatoData data;
-    private String filters, ignoredVisibility, temporaryDirectory;
+    private static final String TABS = "ui.tabs.character";
+    private String filters, ignoredVisibility, temporaryDirectory, sheetTabs;
     private final Map<String,String> archivePreferences = new LinkedHashMap<>();
     private static final String[] MODULES = {"chat", "keypops", "inspect", "statistics", "loot", "runs", "timeline"};
 
     @Before public void open() throws Exception {
         filters = PropertiesManager.getProperty("chat.filters");
         ignoredVisibility = PropertiesManager.getProperty("chat.showIgnoredPlayers");
+        sheetTabs = PropertiesManager.getProperty(TABS);
         PropertiesManager.setProperties("chat.filters", "{}");
         PropertiesManager.setProperties("chat.showIgnoredPlayers", "false");
+        PropertiesManager.setProperties(TABS, ""); // explicit navigation (charactersRoutesOpenTheListOrOneSheetAndBackRestoresEach) may show() a tab
         for (String key : archiveKeys()) {
             archivePreferences.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
@@ -112,6 +115,7 @@ public class ShellHookIntegrationTest {
             catch (IllegalAccessException e) { throw new AssertionError(e); }
             PropertiesManager.setProperties("chat.filters", filters == null ? "{}" : filters);
             PropertiesManager.setProperties("chat.showIgnoredPlayers", ignoredVisibility == null ? "false" : ignoredVisibility);
+            PropertiesManager.setProperties(TABS, sheetTabs == null ? "" : sheetTabs);
         });
         for (String key : archiveKeys()) PropertiesManager.setProperties(key, archivePreferences.getOrDefault(key, ""));
         PropertiesManager.flush().toCompletableFuture().get(5, TimeUnit.SECONDS);

@@ -52,6 +52,9 @@ public record SheetModel(String key, Identity identity, Stats stats, Gear gear, 
     /** Manual death annotation; {@code occurredAt} null unless the user entered it. */
     public record Death(long markedAt, Long occurredAt, String notes) {}
 
-    /** The character in game now (possibly another one): its journal key and display name. */
-    public record Live(String key, String name) {}
+    /**
+     * The character in game now (possibly another one): its journal key, class and character id. The game's name stat is the
+     * account name, shared by every character on it, so the Build pointer is worded by class (and character id), never by name.
+     */
+    public record Live(String key, String className, int characterId) {}
 }

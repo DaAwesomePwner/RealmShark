@@ -304,11 +304,11 @@ public class TomatoGUI {
     public void closeWorkspace() {
         // AppHistory's shutdown hook still checkpoints DiscoveryLog before closing SessionStore.
         onEdt(() -> {
+            if (characterPanel != null) characterPanel.sheet().saveDraft(); // save the user's draft before anything else closes
             if (navigator != null && Navigator.current() == navigator) Navigator.install(null);
             tomato.gui.search.ActionRegistry.application().clear();
             closeArchiveWorkspaces(mainPanel);
             if (home != null) home.close();
-            if (characterPanel != null) characterPanel.sheet().saveDraft(); // a notes draft survives closing the workspace
         });
     }
 

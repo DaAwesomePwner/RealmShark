@@ -607,11 +607,16 @@ public final class CharacterJournal implements AutoCloseable {
         String name = path.getFileName().toString();
         return path.resolveSibling((name.endsWith(".json") ? name.substring(0, name.length() - 5) : name) + ".v4.bak");
     }
-    /** Copies the loaded pre-version-5 file once, never over an existing backup (saveLock held). A failed copy fails the save. */
+    /**
+     * Copies the loaded pre-version-5 file once, never over an existing backup (saveLock held). A backup path occupied by
+     * anything other than a regular file (a directory, say, from an interrupted earlier attempt) does not count as already
+     * backed up, so the copy is attempted and its failure fails the save, rather than silently letting the version 5 write
+     * proceed with no real backup ever made.
+     */
     private void backupOnce() throws IOException {
         if (!backupPending) return;
         Path backup = backupPath(path);
-        if (Files.exists(path) && !Files.exists(backup)) Files.copy(path, backup);
+        if (Files.exists(path) && !Files.isRegularFile(backup)) Files.copy(path, backup);
         backupPending = false;
     }
 

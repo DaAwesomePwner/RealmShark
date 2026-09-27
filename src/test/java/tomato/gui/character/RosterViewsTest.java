@@ -131,6 +131,47 @@ public class RosterViewsTest {
         });
     }
 
+    /**
+     * Regression for the P3a final review: without a live-key change, the 1 s timer used to skip the gallery entirely, so
+     * "Played <ago>" never aged once capture stopped (the timer only ever called refresh() on a live-key change). It must
+     * still repaint the gallery every tick while it shows, so the painted relative time keeps advancing.
+     */
+    @Test public void theLiveTimerRepaintsTheGalleryEverySecondEvenWithoutALiveKeyChange() throws Exception {
+        List<CharacterRosterQuery.Row> rows = rows(CharacterFixtures.definitions());
+        RosterViews[] views = new RosterViews[1];
+        JFrame[] frame = new JFrame[1];
+        SwingUtilities.invokeAndWait(() -> {
+            views[0] = views(rows); // Source.liveKey() stays null throughout: no live-key change ever happens
+            frame[0] = new JFrame("Roster aging - synthetic validation");
+            frame[0].setContentPane(views[0].gallery());
+            frame[0].setSize(900, 400);
+            frame[0].setVisible(true);
+        });
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                UiTestLayout.settle(frame[0]);
+                RepaintManager manager = RepaintManager.currentManager(views[0].gallery());
+                manager.markCompletelyClean(views[0].gallery());
+                assertTrue("Sanity: nothing pending before the tick", manager.getDirtyRegion(views[0].gallery()).isEmpty());
+                fireLiveTick(views[0]);
+                assertFalse("The 1 s tick must still repaint the gallery so relative \"Played <ago>\" text keeps advancing",
+                    manager.getDirtyRegion(views[0].gallery()).isEmpty());
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> frame[0].dispose());
+        }
+    }
+
+    /** Fires RosterViews' private per-second aging/live-key Timer once, as if a real tick had elapsed. */
+    private static void fireLiveTick(RosterViews views) {
+        try {
+            java.lang.reflect.Field field = RosterViews.class.getDeclaredField("live");
+            field.setAccessible(true);
+            javax.swing.Timer timer = (javax.swing.Timer) field.get(views);
+            for (var listener : timer.getActionListeners()) listener.actionPerformed(null);
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+
     @Test public void theGalleryShowsExactlyTheRosterTablesVisibleRows() throws Exception {
         String view = PropertiesManager.getProperty(RosterViews.VIEW_KEY);
         PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");

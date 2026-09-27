@@ -74,5 +74,8 @@ final class SheetHeader extends JPanel {
         name.setText("");
         meta.setText("");
         for (Chip chip : new Chip[]{maxed, playing, seasonal, dead, seen}) chip.setVisible(false);
+        // Otherwise assistive technology keeps announcing the previous character while the next one loads.
+        getAccessibleContext().setAccessibleName(null);
+        getAccessibleContext().setAccessibleDescription(null);
     }
 }

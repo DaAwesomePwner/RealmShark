@@ -39,10 +39,18 @@ import static tomato.gui.glance.character.SheetFixtures.*;
 
 /** Build on the character sheet: one MyInfoGUI, hosted in the sheet; every Build entry opens the sheet's Build tab; page 6 points there. */
 public class BuildTabTest {
+    private static final String TABS = "ui.tabs.character";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    private String savedTabs;
+
+    // Opening the sheet's Build tab explicitly (sheet.open(key, "build")) may show() a previously hidden tab, which persists
+    // the group's saved order/hidden set (CustomizableTabs.show -> save()); isolate it like CharacterSheetTest does.
+    @Before public void rememberTabs() { savedTabs = PropertiesManager.getProperty(TABS); PropertiesManager.setProperties(TABS, ""); }
+    @After public void restoreTabs() { PropertiesManager.setProperties(TABS, savedTabs == null ? "" : savedTabs); }
 
     @Test public void buildTabHostsOneMyInfoAndPointsElsewhereWhileAnotherCharacterPlays() throws Exception {
         TomatoData data = new TomatoData();
+        try (AutoCloseable wizard = className(WIZARD, "Wizard")) { // resolves the pointer's class name without bundled game assets
         SwingUtilities.invokeAndWait(() -> {
             List<String> opened = new ArrayList<>();
             BuildTab tab = new BuildTab(opened::add);
@@ -57,9 +65,10 @@ public class BuildTabTest {
             EmptyState other = named(tab, "character-build-other-state", EmptyState.class);
             assertEquals(BuildTab.POINTER, "Build shows the character you're playing");
             assertEquals(BuildTab.POINTER, other.getAccessibleContext().getAccessibleName());
-            assertEquals("Ann is in game now.", other.getAccessibleContext().getAccessibleDescription());
+            // Worded by class, never by name: the game's name stat is the account's, shared by every character (both fixtures are Wizards).
+            assertEquals("Your Wizard is in game now.", other.getAccessibleContext().getAccessibleDescription());
             AbstractButton open = named(tab, "character-build-open-live", AbstractButton.class);
-            assertEquals("Open Ann's Build", open.getText());
+            assertEquals("Open the Wizard's Build", open.getText());
             open.doClick();
             assertEquals(List.of(ACCOUNT + ":8"), opened);
             assertSame("MyInfoGUI stays parented in its card", tab, SwingUtilities.getAncestorOfClass(BuildTab.class, build));
@@ -70,6 +79,7 @@ public class BuildTabTest {
             assertEquals("Start capture and enter the game with this character.", nobody.getAccessibleContext().getAccessibleDescription());
             assertEquals("Nobody is in game: nothing to open", 0, count(named(tab, "character-build-other", JPanel.class), KitButton.class));
         });
+        }
     }
 
     @Test public void afterCaptureStopsBuildStaysOnTheLastCharactersSheetOnly() throws Exception {
@@ -212,6 +222,21 @@ public class BuildTabTest {
                 }
             });
             await(() -> "Sample".equals(named(sheet[0], "character-sheet-name", JLabel.class).getText())); // built off the EDT
+        }
+    }
+
+    /** closeWorkspace saves the sheet's notes draft first, before closeArchiveWorkspaces/home.close can drop anything unsaved. */
+    @Test public void closingTheWorkspaceSavesTheSheetsNotesDraftBeforeAnythingElseCloses() throws Exception {
+        try (Workspace w = new Workspace(temp, true)) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = find(w.shell, CharacterSheet.class);
+                sheet.open(w.key, "notes");
+                await(sheet::ready);
+                named(sheet, "character-notes", JTextArea.class).setText("Kept when the workspace closes");
+            });
+            w.gui.closeWorkspace();
+            assertEquals("The draft is saved before archives and Home close", "Kept when the workspace closes",
+                w.data.characterJournal().characterCopy(w.key).notes);
         }
     }
 

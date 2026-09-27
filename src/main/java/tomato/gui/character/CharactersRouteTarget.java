@@ -60,6 +60,9 @@ public final class CharactersRouteTarget implements RouteTarget {
             Navigator navigator = view.navigator();
             if (fromList && navigator.backToken() == entry) navigator.back(); else view.showList();
         });
+        // Explicit navigation into the sheet (Alt+7's Build redirect, the Goals search entry, a row/card open) moves keyboard
+        // focus in: one place instead of each caller doing it. Restoring a saved tab (restoreState) never does this.
+        view.sheet().focusBackLink();
     }
     @Override public void restoreState(Object state) {
         if (!(state instanceof CharactersState)) throw new IllegalArgumentException("Not a Characters view state");

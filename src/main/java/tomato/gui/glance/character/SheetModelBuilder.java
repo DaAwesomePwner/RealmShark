@@ -161,8 +161,7 @@ public final class SheetModelBuilder {
 
     private static SheetModel.Live liveRef(LiveCharacter.Snapshot live) {
         if (live == null || live.account() == null || live.characterId() < 0) return null;
-        String name = live.name() != null && !live.name().isBlank() ? live.name() : className(live.classId()) + " #" + live.characterId();
-        return new SheetModel.Live(live.account() + ":" + live.characterId(), name);
+        return new SheetModel.Live(live.account() + ":" + live.characterId(), className(live.classId()), live.characterId());
     }
 
     private static String evidence(CharacterRecord r, String field, boolean known) {

@@ -5,10 +5,12 @@ import java.awt.Container;
 import java.io.IOException;
 import java.io.StringReader;
 import java.lang.reflect.Field;
+import java.util.TreeMap;
 import tomato.backend.data.*;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.gui.myinfo.BuildEstimates;
+import tomato.realmshark.enums.CharacterClass;
 
 /** Synthetic character-sheet inputs: one Wizard of a hashed synthetic account. No capture and no personal data. */
 public final class SheetFixtures {
@@ -17,6 +19,23 @@ public final class SheetFixtures {
     public static final long NOW = 1_700_000_000_000L, HOUR = 3_600_000L;
 
     private SheetFixtures() {}
+
+    /**
+     * Makes {@code CharacterClass.getName(classId)} resolve to {@code name} until the returned handle is closed: unlike
+     * CharacterFixtures.installDefinitions, this does not wait on RosterDefinitions, so it is cheap in a narrow unit test that
+     * only needs a live character's class name (e.g. the Build pointer, worded by class since the game's name stat is the
+     * account's). Real game asset names (if any loaded) are restored on close.
+     */
+    @SuppressWarnings("unchecked")
+    public static AutoCloseable className(int classId, String name) throws ReflectiveOperationException {
+        Field field = CharacterClass.class.getDeclaredField("CLASS_NAME");
+        field.setAccessible(true);
+        TreeMap<Integer, String> previous = (TreeMap<Integer, String>) field.get(null);
+        TreeMap<Integer, String> next = new TreeMap<>(previous);
+        next.put(classId, name);
+        field.set(null, next);
+        return () -> field.set(null, previous);
+    }
 
     /** Wizard caps (life, mana, atk, def, spd, dex, vit, wis) = 720, 252, 75, 25, 50, 75, 40, 60, from a players.xml fragment. */
     public static RosterDefinitions defs() {

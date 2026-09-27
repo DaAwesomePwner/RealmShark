@@ -126,7 +126,11 @@ final class RosterViews {
         viewItem = overflow.add("Table view", () -> showGallery(!galleryShown, true));
         viewItem.setName("character-view-item");
         mode.bind(controls, this::modeChanged);
-        live = new Timer(1000, e -> { if (galleryShown && !Objects.equals(source.liveKey(), shownLive)) refresh(); });
+        // A live-key change rebuilds the cards; otherwise a plain repaint still ages their relative "Played <ago>" text.
+        live = new Timer(1000, e -> {
+            if (!galleryShown) return;
+            if (!Objects.equals(source.liveKey(), shownLive)) refresh(); else gallery.repaint();
+        });
         gallery.addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0) return;
             if (gallery.isShowing()) live.start(); else live.stop();

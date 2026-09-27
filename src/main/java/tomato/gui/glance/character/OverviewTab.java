@@ -35,7 +35,7 @@ final class OverviewTab extends JPanel {
     private final Collapsible statTable;
     private final IntFunction<String> tierOf;
     private SheetModel shown;
-    private String shownAge = "";
+    private String shownAge = "", shownDeathAge = "";
 
     OverviewTab(DisplayModeModel mode) { this(mode, ItemTiers::label); }
 
@@ -84,10 +84,11 @@ final class OverviewTab extends JPanel {
      * skipped while the vault count's relative age reads the same (the presenter re-applies once a second).
      */
     void apply(SheetModel model) {
-        String age = vaultAge(model);
-        if (model != null && model.equals(shown) && age.equals(shownAge)) return;
+        String age = vaultAge(model), deathAge = deathAge(model);
+        if (model != null && model.equals(shown) && age.equals(shownAge) && deathAge.equals(shownDeathAge)) return;
         shown = model;
         shownAge = age;
+        shownDeathAge = deathAge;
         SheetModel.Stats stats = model == null ? null : model.stats();
         boolean playing = model != null && model.identity().playing();
         for (int i = 0; i < 8; i++) {
@@ -113,7 +114,7 @@ final class OverviewTab extends JPanel {
             : "Exalt progress arrives when capture reads your character list");
         SheetModel.Death dead = model == null ? null : model.death();
         death.setVisible(dead != null);
-        if (dead != null) deathText.setText("Marked dead " + (dead.markedAt() > 0 ? KitFormat.relative(dead.markedAt()) : "at an unknown time")
+        if (dead != null) deathText.setText("Marked dead " + deathAge
             + (dead.occurredAt() == null ? "" : " · occurred " + DisplayFormat.formatTimestamp(dead.occurredAt()))
             + (dead.notes().isBlank() ? "" : " · " + dead.notes().strip().split("\\R", 2)[0]));
         table.setRowCount(0);
@@ -145,6 +146,12 @@ final class OverviewTab extends JPanel {
         if (model == null || model.stats().vault() == null) return "";
         long at = model.stats().vaultObservedAt();
         return at > 0 ? KitFormat.relative(at) : "time unknown";
+    }
+
+    /** "Marked dead <ago>"'s relative age, so the presenter's once-a-second re-apply keeps it advancing; "" for a living character. */
+    private static String deathAge(SheetModel model) {
+        SheetModel.Death dead = model == null ? null : model.death();
+        return dead == null ? "" : dead.markedAt() > 0 ? KitFormat.relative(dead.markedAt()) : "at an unknown time";
     }
 
     /** "DEF needs 5 · 3 in vault (2 h ago)": a vault count shows its age and is dimmed as stale once a day old (spec §5.7). */

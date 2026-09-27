@@ -230,8 +230,18 @@ public final class CharacterJournalGUI extends JPanel {
             return;
         }
     }
-    /** Where Back from the sheet puts keyboard focus: the gallery's selected card while the gallery shows, else the table. */
-    JComponent focusTarget() { return views.galleryShown() ? views.gallery().focusTarget() : roster; }
+    /**
+     * Where Back from the sheet puts keyboard focus: the gallery's selected card while the gallery shows and has one (an
+     * EmptyState instead of the card list is not in the tree, so it can never take focus: fall back to the search field), else
+     * the table.
+     */
+    JComponent focusTarget() {
+        if (!views.galleryShown()) return roster;
+        JComponent target = views.gallery().focusTarget();
+        // The card list stays a field of the gallery even while an EmptyState (no match / unavailable) shows instead of it, so
+        // it is only really reachable when it still descends from the gallery.
+        return SwingUtilities.isDescendingFrom(target, views.gallery()) ? target : search;
+    }
     /** Enter or a double-click on a row passes that character's journal key here; the Roster tab opens its sheet. */
     public void onOpenSheet(java.util.function.Consumer<String> open) { openSheet = Objects.requireNonNull(open); }
     /** The rows the search and filters keep, in the table's current sort order (the gallery shows exactly these). EDT only. */

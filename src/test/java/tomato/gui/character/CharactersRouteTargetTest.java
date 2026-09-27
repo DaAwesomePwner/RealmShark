@@ -149,6 +149,43 @@ public class CharactersRouteTargetTest {
         });
     }
 
+    /**
+     * Regression for the P3a final review: Alt+7's Build redirect and the Goals search entry (CharacterPanelGUI.openGoals)
+     * both resolve to a CHARACTER_SHEET route and land here, in CharactersRouteTarget.open, so fixing focus in this one place
+     * covers both entry points. Restoring a saved tab (restoreState, i.e. shell Back) must not be affected: spec §10 only
+     * requires focus to move on explicit navigation.
+     */
+    @Test public void explicitNavigationIntoTheSheetMovesKeyboardFocusToTheBackLink() throws Exception {
+        CharacterRosterView[] view = new CharacterRosterView[1];
+        ShellNavigator[] navigator = new ShellNavigator[1];
+        AbstractButton[] back = new AbstractButton[1];
+        JFrame frame = new JFrame("Characters focus - synthetic validation");
+        java.util.concurrent.CountDownLatch focused = new java.util.concurrent.CountDownLatch(1);
+        SwingUtilities.invokeAndWait(() -> {
+            view[0] = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+            navigator[0] = navigator(view[0]);
+            frame.setContentPane(view[0]);
+            frame.setSize(900, 600);
+            frame.setVisible(true);
+        });
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                frame.toFront();
+                back[0] = RosterFixtures.named(view[0].sheet(), "character-sheet-back", AbstractButton.class);
+                back[0].addFocusListener(new java.awt.event.FocusAdapter() {
+                    @Override public void focusGained(java.awt.event.FocusEvent e) { focused.countDown(); }
+                });
+                assertTrue(navigator[0].open(sheet(key(1), "notes")));
+                if (back[0].isFocusOwner()) focused.countDown();
+            });
+            assertTrue("Timed out waiting for focus on the sheet's back link", focused.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> assertSame("Explicit navigation into the sheet moves focus to the back link",
+                back[0], java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner()));
+        } finally {
+            SwingUtilities.invokeAndWait(frame::dispose);
+        }
+    }
+
     @Test public void planningSearchOpensTheSelectedCharactersGoalsElseTheMostRecent() throws Exception {
         TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
         SwingUtilities.invokeAndWait(() -> {

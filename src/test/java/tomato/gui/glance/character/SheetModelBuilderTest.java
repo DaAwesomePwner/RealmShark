@@ -59,18 +59,23 @@ public class SheetModelBuilderTest {
         assertEquals("No exalt tiers yet", model(record(), account(0, 4, 0, 0, 0, 0, 0, 0), null).exalts().summary());
     }
 
-    @Test public void liveValuesApplyOnlyWhileThisCharacterIsPlaying() {
-        SheetModel playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null));
-        assertTrue(playing.identity().playing()); assertEquals(NOW, playing.identity().lastSeen()); assertEquals(NOW, playing.identity().lastPlayed());
-        assertEquals("Boost is total minus base", List.of(80, 48, 15, 10, 10, 5, 13, 22), playing.stats().boosts());
-        assertEquals("Live equipped slots are the freshest", List.of(2_001, 0, 2_003, 2_004), playing.gear().slots().subList(0, 4));
-        assertEquals(new SheetModel.Live(KEY, "Sharkbait"), playing.live());
-        assertEquals(DisplayValue.State.KNOWN, playing.identity().fame().state);
-        assertEquals("Equal inputs build equal models", playing, model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null)));
-        SheetModel other = model(record(), account(), live(ACCOUNT, 8, "Ann", null));
-        assertFalse(other.identity().playing()); assertEquals(Collections.nCopies(8, 0), other.stats().boosts());
-        assertEquals(List.of(2_001, 0, -1, 2_004), other.gear().slots().subList(0, 4));
-        assertEquals(new SheetModel.Live(ACCOUNT + ":8", "Ann"), other.live());
+    @Test public void liveValuesApplyOnlyWhileThisCharacterIsPlaying() throws Exception {
+        // liveRef() resolves the pointer's class name (SheetModelBuilder.className) at build time, so the fixture must be
+        // installed before building any model whose live() is checked below.
+        try (AutoCloseable wizard = className(WIZARD, "Wizard")) {
+            SheetModel playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null));
+            assertTrue(playing.identity().playing()); assertEquals(NOW, playing.identity().lastSeen()); assertEquals(NOW, playing.identity().lastPlayed());
+            assertEquals("Boost is total minus base", List.of(80, 48, 15, 10, 10, 5, 13, 22), playing.stats().boosts());
+            assertEquals("Live equipped slots are the freshest", List.of(2_001, 0, 2_003, 2_004), playing.gear().slots().subList(0, 4));
+            // The pointer is worded by class, never by name: the game's name stat is the account's, shared by every character.
+            assertEquals(new SheetModel.Live(KEY, "Wizard", 7), playing.live());
+            assertEquals(DisplayValue.State.KNOWN, playing.identity().fame().state);
+            assertEquals("Equal inputs build equal models", playing, model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null)));
+            SheetModel other = model(record(), account(), live(ACCOUNT, 8, "Ann", null));
+            assertFalse(other.identity().playing()); assertEquals(Collections.nCopies(8, 0), other.stats().boosts());
+            assertEquals(List.of(2_001, 0, -1, 2_004), other.gear().slots().subList(0, 4));
+            assertEquals(new SheetModel.Live(ACCOUNT + ":8", "Wizard", 8), other.live());
+        }
         assertNull(model(record(), account(), null).live());
     }
 

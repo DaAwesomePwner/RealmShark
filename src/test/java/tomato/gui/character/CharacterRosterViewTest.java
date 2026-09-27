@@ -16,7 +16,14 @@ import static org.junit.Assert.*;
 /** The Roster tab's two cards: Enter and double-click open a row's sheet, the back link returns, and the gallery's row feed. */
 public class CharacterRosterViewTest {
     private static final String ACCOUNT = CharacterJournal.accountKey("roster-view-fixture");
+    private static final String TABS = "ui.tabs.character";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    private String savedTabs;
+
+    // showSheet(key, tab, ...) with an explicit tab may show() a previously hidden one, which persists the saved tab order
+    // (CustomizableTabs.show -> save()); isolate it like CharacterSheetTest does.
+    @Before public void rememberTabs() { savedTabs = util.PropertiesManager.getProperty(TABS); util.PropertiesManager.setProperties(TABS, ""); }
+    @After public void restoreTabs() { util.PropertiesManager.setProperties(TABS, savedTabs == null ? "" : savedTabs); }
 
     private CharacterJournal journal() {
         CharacterJournal journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
@@ -118,6 +125,23 @@ public class CharacterRosterViewTest {
                 RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
                 assertSame("In the Table view, Back focuses the table", RosterFixtures.named(view.listPanel(), "character-roster", JTable.class),
                     view.listPanel().focusTarget());
+            });
+        } finally { util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, saved == null ? "" : saved); }
+    }
+
+    /**
+     * Regression for the P3a final review: an EmptyState (no match) takes the card list's place in the tree, so the old
+     * focusTarget() (always the card list while the gallery shows) pointed at a component Back could never actually focus.
+     */
+    @Test public void backFallsBackToSearchWhenTheGalleryShowsAnEmptyStateInsteadOfTheCards() throws Exception {
+        String saved = util.PropertiesManager.getProperty(RosterViews.VIEW_KEY);
+        util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, "gallery");
+        try (CharacterJournal journal = journal()) {
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
+                JTextField search = RosterFixtures.named(view.listPanel(), "character-search", JTextField.class);
+                search.setText("no character matches this");
+                assertSame("The card list is no longer in the tree: fall back to the search field", search, view.listPanel().focusTarget());
             });
         } finally { util.PropertiesManager.setProperties(RosterViews.VIEW_KEY, saved == null ? "" : saved); }
     }
