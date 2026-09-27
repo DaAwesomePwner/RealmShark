@@ -32,6 +32,7 @@ public class SetupLayoutEvidenceTest {
             SwingUtilities.invokeAndWait(() -> {
                 String name = "setup-error-" + width + "-" + font; evidence.capture(name);
                 assertFalse(named(shell[0], "capture-toggle", JButton.class).isEnabled());
+                assertEquals(failure, named(shell[0], "capture-setup-message", JTextArea.class).getText());
                 assertTrue("Missing assets show the setup banner", named(shell[0], "setup-banner", JComponent.class).isShowing());
                 layouts.checkSucceeds(() -> {
                     completeText(named(shell[0], "capture-setup-message", JTextArea.class));
