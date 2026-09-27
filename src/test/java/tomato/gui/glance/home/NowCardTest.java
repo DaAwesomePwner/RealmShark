@@ -43,6 +43,30 @@ public class NowCardTest {
             assertEquals("The whole card opens the live meter", 1, opened[0]);
         });
     }
+    @Test public void theOneSecondTickChangesOnlyTheElapsedTextAndOnlyWhenItDiffers() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            NowCard card = new NowCard(() -> {}, mode);
+            card.apply(HomeModels.now(NOW), NOW);   // entered 12m 30s ago
+            JLabel elapsed = named(card, "home-now-elapsed", JLabel.class), pop = named(card, "home-now-pop", JLabel.class);
+            String description = card.getAccessibleContext().getAccessibleDescription();
+            List<Object> changes = new ArrayList<>();
+            elapsed.addPropertyChangeListener("text", event -> changes.add(event.getNewValue()));
+            card.tick(NOW + 999);
+            assertEquals("The same second: no change", List.of(), changes);
+            card.tick(NOW + 1_000);
+            assertEquals("12m 31s", elapsed.getText()); assertEquals(List.of("12m 31s"), changes);
+            assertEquals("The pop's age waits for the 10 s age tick", "Ann popped Lost Halls · 1 min ago", pop.getText());
+            assertEquals("The spoken description is not re-announced every second", description, card.getAccessibleContext().getAccessibleDescription());
+            HomeModel.Now live = HomeModels.now(NOW);
+            card.apply(new HomeModel.Now(HomeModel.State.STALE, live.capturing(), live.area(), live.startedAt(), live.top(), live.localRank(),
+                live.players(), live.lastPop()), NOW + 2_000);
+            card.tick(NOW + 5_000);
+            assertEquals("A stale Now does not tick", "12m 32s", elapsed.getText());
+            card.apply(new HomeModel.Now(HomeModel.State.LIVE, true, "Nexus", null, List.of(), 0, 0, null), NOW + 6_000);
+            card.tick(NOW + 7_000);
+            assertFalse("No start time: nothing to tick", elapsed.isVisible());
+        });
+    }
     @Test public void outsideARunShowsOnlyTheAreaAndCaptureState() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             NowCard card = new NowCard(() -> {}, mode);

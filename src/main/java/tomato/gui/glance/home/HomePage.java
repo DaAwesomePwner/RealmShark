@@ -17,8 +17,9 @@ import util.PropertiesManager;
 /**
  * Home, shell page 14 (spec §6.1): the hero row; Now | Today; Recent runs | Quests at 1.5 : 1; everything stacks in the same
  * order below 1000 px. HomeRefresher reads the sources on its own threads while this page is showing and its window is not
- * minimized, and pauses otherwise; the EDT only applies the immutable models it publishes (S9). With null sources the page
- * shows only the models applied to it (tests and evidence).
+ * minimized, and pauses otherwise; the EDT only applies the immutable models it publishes (S9). Under the same conditions,
+ * while the applied Now is a live run with a start time, a 1 s EDT timer advances only Now's elapsed time. With null
+ * sources the page shows only the models applied to it (tests and evidence).
  */
 public final class HomePage extends JPanel {
     static final String WINDOW_KEY = "ui.home.window";
@@ -29,6 +30,7 @@ public final class HomePage extends JPanel {
     private final QuestsCard quests;
     private final HomeRefresher refresher;
     private final LongSupplier clock;
+    private final Timer elapsedTick;   // EDT: Now's elapsed time, each second
     private final WindowAdapter minimized = new WindowAdapter() {
         @Override public void windowIconified(WindowEvent event) { iconified = true; showingChanged(); }
         @Override public void windowDeiconified(WindowEvent event) { iconified = false; showingChanged(); }
@@ -52,6 +54,7 @@ public final class HomePage extends JPanel {
         HomeArchive.Window initial = "session".equals(read.apply(WINDOW_KEY)) ? HomeArchive.Window.SESSION : HomeArchive.Window.TODAY;
         hero = new HeroCard(actions.characters(), actions.build(), mode);
         now = new NowCard(actions.meter(), mode);
+        elapsedTick = new Timer(1_000, event -> now.tick(clock.getAsLong()));
         today = new TodayTiles(window -> windowChanged(window, write), initial, mode);
         runs = new RecentRunsCard(actions.run(), mode);
         quests = new QuestsCard(actions.quests(), mode);
@@ -82,6 +85,7 @@ public final class HomePage extends JPanel {
             iconified = window instanceof Frame && (((Frame) window).getExtendedState() & Frame.ICONIFIED) != 0;
             if (window != null) window.addWindowListener(minimized);
         }
+        updateElapsedTick();
         if (refresher == null || closed) return;
         if (isShowing() && !iconified) refresher.start();
         else refresher.stop();
@@ -105,13 +109,24 @@ public final class HomePage extends JPanel {
         if (previous == null || previous.today() != model.today()) today.apply(model.today());
         if (retime || previous.runs() != model.runs()) runs.apply(model.runs(), time);
         if (retime || previous.quests() != model.quests()) quests.apply(model.quests(), time);
+        updateElapsedTick();
     }
+
+    /** Runs the 1 s elapsed tick only while Home is showing, not minimized or closed, and Now is a live run with a start time. */
+    private void updateElapsedTick() {
+        HomeModel.Now live = shown == null ? null : shown.now();
+        boolean run = !closed && !iconified && isShowing() && live != null && live.state() == HomeModel.State.LIVE && live.startedAt() != null;
+        if (run && !elapsedTick.isRunning()) elapsedTick.start();
+        else if (!run && elapsedTick.isRunning()) elapsedTick.stop();
+    }
+    boolean elapsedTicking() { return elapsedTick.isRunning(); }
 
     public HomeModel model() { return model; }
 
     /** Stops the refresher for good; TomatoGUI.closeWorkspace calls this. EDT only. */
     public void close() {
         closed = true;
+        elapsedTick.stop();
         if (window != null) { window.removeWindowListener(minimized); window = null; }
         if (refresher != null) refresher.close();
     }

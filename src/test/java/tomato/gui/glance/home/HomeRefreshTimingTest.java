@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import javax.swing.*;
 import org.junit.*;
@@ -69,6 +70,46 @@ public class HomeRefreshTimingTest {
         SwingUtilities.invokeAndWait(() -> frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_DEICONIFIED)));
         await(() -> sources.total() > paused);
         assertEquals(0, sources.onEdt.get());
+    }
+
+    /**
+     * Now's elapsed time ticks every second on the EDT, not only on the 10 s age tick, but only while Home is showing (not
+     * hidden, minimized or closed) and the applied Now is a live run with a start time. Null sources: only the timer moves it.
+     */
+    @Test public void nowsElapsedTimeTicksEachSecondOnlyWhileHomeShowsALiveRun() throws Exception {
+        AtomicLong clock = new AtomicLong(System.currentTimeMillis());
+        JLabel[] elapsed = new JLabel[1];
+        SwingUtilities.invokeAndWait(() -> {
+            page = new HomePage(null, HomeModels.NO_ACTIONS, new DisplayModeModel(prefs::get, prefs::put), prefs::get, prefs::put, clock::get);
+            page.apply(HomeModels.populated(clock.get()));
+            assertFalse("Not showing yet: no tick", page.elapsedTicking());
+            elapsed[0] = HomeModels.named(page, "home-now-elapsed", JLabel.class);
+            assertEquals("12m 30s", elapsed[0].getText());
+            frame = new JFrame("Home elapsed tick - synthetic validation");
+            frame.setContentPane(page);
+            frame.setSize(1240, 800);
+            frame.setVisible(true);
+        });
+        await(() -> edt(() -> page.elapsedTicking()));
+        clock.addAndGet(1_000);
+        await(() -> edt(() -> "12m 31s".equals(elapsed[0].getText())));
+        SwingUtilities.invokeAndWait(() -> page.setVisible(false));
+        assertFalse("Hidden: no tick", edt(() -> page.elapsedTicking()));
+        clock.addAndGet(5_000); Thread.sleep(1_500);
+        assertTrue("Nothing ticked while hidden", edt(() -> "12m 31s".equals(elapsed[0].getText())));
+        SwingUtilities.invokeAndWait(() -> page.setVisible(true));
+        assertTrue(edt(() -> page.elapsedTicking()));
+        SwingUtilities.invokeAndWait(() -> frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_ICONIFIED)));
+        assertFalse("Minimized: no tick", edt(() -> page.elapsedTicking()));
+        SwingUtilities.invokeAndWait(() -> frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_DEICONIFIED)));
+        assertTrue(edt(() -> page.elapsedTicking()));
+        SwingUtilities.invokeAndWait(() -> page.apply(HomeModels.populated(clock.get())
+            .withNow(new HomeModel.Now(HomeModel.State.LIVE, true, "Nexus", null, List.of(), 0, 0, null))));
+        assertFalse("No start time: no tick", edt(() -> page.elapsedTicking()));
+        SwingUtilities.invokeAndWait(() -> page.apply(HomeModels.populated(clock.get())));
+        assertTrue(edt(() -> page.elapsedTicking()));
+        SwingUtilities.invokeAndWait(() -> page.close());
+        assertFalse("Closed: no tick", edt(() -> page.elapsedTicking()));
     }
 
     /**

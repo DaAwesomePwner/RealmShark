@@ -100,6 +100,18 @@ final class NowCard extends HomeCard {
         body(content);
     }
 
+    /**
+     * EDT only: HomePage's 1 s tick while it shows a live run. Only the elapsed text changes, and only when it differs; the
+     * pop's age and the spoken description keep the 10 s age tick, so a screen reader is not interrupted every second.
+     */
+    void tick(long time) {
+        if (shown == null || shown.state() != HomeModel.State.LIVE) return;
+        String timed = elapsedText(shown, time);
+        if (timed.isEmpty() || timed.equals(elapsed.getText())) return;
+        elapsed.setText(timed);
+        elapsed.setVisible(true);
+    }
+
     private static String elapsedText(HomeModel.Now now, long time) {
         boolean shown = now != null && (now.state() == HomeModel.State.LIVE || now.state() == HomeModel.State.STALE)
             && now.startedAt() != null && now.startedAt() > 0 && time >= now.startedAt();
