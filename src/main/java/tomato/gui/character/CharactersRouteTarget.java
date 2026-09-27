@@ -14,7 +14,7 @@ import tomato.gui.route.RouteTarget;
  * - {@link Destination#CHARACTERS} without a payload shows the character list.
  * - {@link Destination#CHARACTER_SHEET} with a {@link SheetFocus} shows that character's sheet; its tab, when named, is shown and selected.
  * Both targets share one view and capture {@link CharactersState}, so Back from a sheet returns to the list with its filters,
- * selection and scroll. EDT only.
+ * selection and scroll. Opening a route and Back both bring the Roster tab forward. EDT only.
  */
 public final class CharactersRouteTarget implements RouteTarget {
     /** Detached Back state: whether the sheet was showing, and its character and tab. */
@@ -70,6 +70,9 @@ public final class CharactersRouteTarget implements RouteTarget {
     @Override public void restoreState(Object state) {
         if (!(state instanceof CharactersState)) throw new IllegalArgumentException("Not a Characters view state");
         CharactersState saved = (CharactersState) state;
+        // Back is explicit navigation, as routes are: after a plain click on another Characters tab (Exalts, Pets), the restored
+        // list or sheet must be the one in front, or Back looks like it did nothing.
+        view.reveal();
         if (saved.sheet() && saved.key() != null) view.showSheet(saved.key(), saved.tab(), view::showList);
         else view.showList();
     }

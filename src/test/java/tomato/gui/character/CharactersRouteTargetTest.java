@@ -186,6 +186,36 @@ public class CharactersRouteTargetTest {
         }
     }
 
+    /**
+     * P3a deferred finding 6: Back is explicit navigation. After a plain click on another Characters tab (Exalts, Pets), Back
+     * used to restore the list or sheet on the hidden Roster card, so nothing visible happened; it brings the Roster tab forward.
+     */
+    @Test public void backFromAnotherCharactersTabBringsTheRosterForward() throws Exception {
+        TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPanelGUI panel = new CharacterPanelGUI(data,
+                new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
+            CharacterRosterView roster = panel.roster();
+            ShellNavigator navigator = navigator(roster, panel.routeTargets());
+            panel.bindNavigator(navigator);
+            JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
+            page[0] = 3;
+            assertTrue(navigator.open(sheet(key(1), "notes"))); // its Back entry returns to the list
+            tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
+            assertTrue(navigator.back());
+            assertEquals("Back brings the Roster tab forward", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertFalse("…showing the list it returned to", roster.showingSheet());
+            assertTrue(navigator.open(sheet(key(1), "notes")));
+            assertTrue(navigator.open(sheet(key(2), null))); // its Back entry returns to character 1's sheet
+            tabs.setSelectedIndex(tabs.indexOfTab("Pets"));
+            assertTrue(navigator.back());
+            assertEquals("Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertTrue("…showing the sheet it returned to", roster.showingSheet());
+            assertEquals(key(1), roster.sheet().key());
+            assertEquals("notes", roster.sheet().selectedTab());
+        });
+    }
+
     @Test public void planningSearchOpensTheSelectedCharactersGoalsElseTheMostRecent() throws Exception {
         TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
         SwingUtilities.invokeAndWait(() -> {

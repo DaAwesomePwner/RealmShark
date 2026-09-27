@@ -41,11 +41,15 @@ public class CharactersEvidenceTest {
     private static final Map<String, String> DEFAULTS = Map.of("chat.filters", "{}", "chat.showIgnoredPlayers", "false",
         "ui.characters.view", "", "ui.characters.sort", "", "ui.collapse.characters-graveyard", "", "ui.filters.characters.open", "");
     private static final DisplayModeModel.Mode SIMPLE = DisplayModeModel.Mode.SIMPLE, ANALYST = DisplayModeModel.Mode.ANALYST;
+    private static final String ROSTER_KEY = "ux.archive.characters-live-roster";
     @Rule public final VisualEvidence evidence = new VisualEvidence("redesign-p3a-characters");
     @Rule public final TemporaryFolder temp = new TemporaryFolder();
     @Rule public final ErrorCollector errors = new ErrorCollector();
     private final Map<Field, Object> statics = new LinkedHashMap<>();
     private final Map<String, String> saved = new HashMap<>(), archive = new HashMap<>();
+    /** The Characters roster's saved view goes here, not to the shared realmShark.properties (P3a finding 10). */
+    private final tomato.gui.roster.RosterStateTestSupport.Memory views = new tomato.gui.roster.RosterStateTestSupport.Memory();
+    private String applicationRoster;
     private DisplayModeModel.Mode savedMode;
     private String temporaryDirectory;
     private SessionStore store;
@@ -56,6 +60,7 @@ public class CharactersEvidenceTest {
     private WorkspaceShell shell;
 
     @Before public void open() throws Exception {
+        PropertiesManager.preload(); // merge the disk file first, so the archive keys snapshot below sees every saved key
         for (Map.Entry<String, String> entry : DEFAULTS.entrySet()) {
             saved.put(entry.getKey(), PropertiesManager.getProperty(entry.getKey()));
             PropertiesManager.setProperties(entry.getKey(), entry.getValue());
@@ -67,6 +72,8 @@ public class CharactersEvidenceTest {
         store = new SessionStore(temp.newFolder("history").toPath(), true, "p3a-characters");
         remember(AppHistory.class, "store", store);
         remember(Tomato.class, "preview", true);
+        remember(TomatoGUI.class, "characterViewStates", views.store);
+        applicationRoster = PropertiesManager.getProperty(ROSTER_KEY);
         for (Class<?> type : new Class<?>[] {TomatoGUI.class, ChatGUI.class})
             for (Field field : type.getDeclaredFields())
                 if (Modifier.isStatic(field.getModifiers()) && !Modifier.isFinal(field.getModifiers()) && !statics.containsKey(field)) {
@@ -120,8 +127,13 @@ public class CharactersEvidenceTest {
         SwingUtilities.invokeAndWait(() -> {
             evidence.capture("p3a-table-1240-13-analyst");
             errors.checkSucceeds(() -> { assertTrue("The Table view shows the roster table", VisualEvidence.named(shell, "character-roster", JTable.class).isShowing()); return null; });
+            assertNoViewStateWarning();
             VisualEvidence.named(shell, "character-view-0", AbstractButton.class).doClick();
         });
+        SwingUtilities.invokeAndWait(() -> { }); // queued view-state saves run first
+        errors.checkThat("The roster saved its view to the isolated store", views.writes > 0, org.hamcrest.CoreMatchers.is(true));
+        errors.checkThat("…and never to the shared application preferences", PropertiesManager.getProperty(ROSTER_KEY),
+            org.hamcrest.CoreMatchers.is(applicationRoster));
     }
 
     /** 12 captures: Overview, Gear and Exalts across sizes, fonts and modes; Build live (also 680×520 at font 18, Analyst) and for another character; an unknown key. */
@@ -179,6 +191,7 @@ public class CharactersEvidenceTest {
         SwingUtilities.invokeAndWait(() -> {
             evidence.capture(name(state, width, font, mode));
             errors.checkSucceeds(() -> { assertGalleryWhole(width); return null; });
+            assertNoViewStateWarning();
         });
     }
 
@@ -192,6 +205,7 @@ public class CharactersEvidenceTest {
         pause();
         SwingUtilities.invokeAndWait(() -> {
             evidence.capture(name("sheet-" + tab + variant, width, font, mode));
+            assertNoViewStateWarning();
             CharacterSheet sheet = VisualEvidence.find(shell, CharacterSheet.class, s -> true);
             boolean unavailable = variant.equals("-unavailable");
             errors.checkSucceeds(() -> { assertSheetWhole(sheet, unavailable ? null : key, unavailable ? null : tab, width); return null; });
@@ -232,6 +246,17 @@ public class CharactersEvidenceTest {
                 + part.getPreferredSize().width + ", in the window " + placed,
             part.getX() >= 0 && part.getX() + part.getWidth() <= part.getParent().getWidth() && placed.x >= 0
                 && placed.x + placed.width <= shell.getWidth() && part.getWidth() >= part.getPreferredSize().width);
+    }
+
+    /**
+     * Every capture: no "View state save failed" warning (P3a finding 10). The roster's saved view goes to an in-memory store, so
+     * a failed write of the shared preferences file can no longer put that banner in a screenshot.
+     */
+    private void assertNoViewStateWarning() {
+        errors.checkSucceeds(() -> {
+            assertFalse("No view-state warning", VisualEvidence.named(shell, "character-view-state", tomato.gui.kit.Banner.class).isShowing());
+            return null;
+        });
     }
 
     /** {@code key} and {@code tab} null: an unknown key, whose sheet shows its unavailable state instead of tabs. */
