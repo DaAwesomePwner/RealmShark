@@ -1,8 +1,11 @@
 package tomato.gui.glance.character;
 
+import java.awt.Component;
+import java.awt.Container;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
@@ -10,11 +13,13 @@ import tomato.Tomato;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournalTest;
 import tomato.backend.data.LiveCharacter;
+import tomato.backend.data.RosterDefinitions;
 import tomato.backend.data.TomatoData;
 import tomato.gui.TomatoGUI;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.glance.home.HomeModels;
 import tomato.gui.glance.home.HomePage;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.KitButton;
@@ -26,6 +31,7 @@ import tomato.gui.route.*;
 import tomato.gui.search.ActionRegistry;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
+import tomato.planning.PlanningStore;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
 import static tomato.gui.activity.SnapshotTestSupport.await;
@@ -88,6 +94,76 @@ public class BuildTabTest {
             assertEquals("Start capture and enter the game with this character.", state.getAccessibleContext().getAccessibleDescription());
             assertEquals(0, count(named(tab, "character-build-other", JPanel.class), KitButton.class));
         });
+    }
+
+    @Test public void openingAnotherCharacterNeverShowsThePreviousCharactersBuildWhileItLoads() throws Exception {
+        TomatoData data = new TomatoData();
+        try (CharacterJournal journal = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"))) {
+            String mine = seed(journal), theirs = ACCOUNT + ":8";
+            journal.observe(CharacterJournalTest.player("sheet-fixture", WIZARD), 8);
+            data.liveCharacter.publish(live(ACCOUNT, 7, "Sharkbait", null)); // #7 is in game
+            SheetContext context = new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> NOW, PlanningStore.shared());
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = new CharacterSheet(context);
+                sheet.hostBuild(new MyInfoGUI(data));
+                BuildTab tab = named(sheet, "character-build", BuildTab.class);
+                sheet.open(mine, "build");
+                await(sheet::ready);
+                assertEquals("The character in game: Build itself", "build", tab.card());
+                sheet.open(theirs, "build"); // its result arrives later, through the EDT
+                assertFalse("#8's read has not arrived yet", sheet.ready());
+                assertNotEquals("#7's Build never stays on screen while #8 loads", "build", tab.card());
+                assertFalse("…and nothing offers to open anything yet", offersOpen(tab));
+                await(sheet::ready);
+                assertEquals("Once #8 loads: the pointer to the character in game", "other", tab.card());
+                assertTrue(offersOpen(tab));
+                sheet.open(mine, "build");
+                assertFalse(sheet.ready());
+                assertNotEquals("build", tab.card());
+                assertFalse("#8's Open button does not stay clickable while #7 loads", offersOpen(tab));
+                await(sheet::ready);
+                assertEquals("build", tab.card());
+            });
+        }
+    }
+
+    @Test public void aFailedBuildNeverLeavesTheLastCharactersBuildOnScreen() throws Exception {
+        TomatoData data = new TomatoData();
+        AtomicBoolean failing = new AtomicBoolean();
+        RosterDefinitions none = RosterDefinitions.empty();
+        try (CharacterJournal journal = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"))) {
+            String mine = seed(journal);
+            data.liveCharacter.publish(live(ACCOUNT, 7, "Sharkbait", null));
+            SheetContext context = new SheetContext(data, journal, () -> {
+                if (failing.get() && "character-sheet".equals(Thread.currentThread().getName())) throw new IllegalStateException("Synthetic build failure");
+                return none;
+            }, DisplayModeModel.application(), () -> NOW, PlanningStore.shared());
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = new CharacterSheet(context);
+                sheet.hostBuild(new MyInfoGUI(data));
+                BuildTab tab = named(sheet, "character-build", BuildTab.class);
+                sheet.open(mine, "build");
+                await(sheet::ready);
+                assertEquals("build", tab.card());
+                failing.set(true);
+                data.liveCharacter.publish(live(ACCOUNT, 8, "Ann", null)); // someone else is in game now: the sheet rebuilds, and fails
+                sheet.refresh();
+                Banner status = named(sheet, "character-sheet-status", Banner.class);
+                await(status::warns);
+                assertTrue(status.text(), status.text().contains("Synthetic build failure"));
+                assertNotEquals("A failed build never leaves #7's Build on screen", "build", tab.card());
+                assertFalse("…nor an Open button", offersOpen(tab));
+            });
+        }
+    }
+
+    /** Whether {@code root} holds an enabled "Open X's Build" button. */
+    private static boolean offersOpen(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof AbstractButton && "character-build-open-live".equals(child.getName()) && child.isEnabled()) return true;
+            if (child instanceof Container && offersOpen((Container) child)) return true;
+        }
+        return false;
     }
 
     @Test public void buildRoutePrefersTheLiveCharacterInTheJournalThenTheMostRecent() throws Exception {

@@ -14,7 +14,8 @@ import static tomato.gui.glance.character.SheetViews.named;
  * Sheet › Build (spec §6.1–6.2): the app's single Build page (MyInfoGUI). Build describes the character in game or, after capture
  * stops or while a map change clears it, the last one that was. So the tab shows Build only on that character's sheet; on any
  * other sheet an empty state says "Build shows the character you're playing" and, while someone is in game, offers that
- * character's Build. MyInfoGUI stays parented in its hidden card (never a second instance). EDT only.
+ * character's Build. While another character's sheet loads, or after a failed build, a neutral card shows neither. MyInfoGUI
+ * stays parented in its hidden card (never a second instance). EDT only.
  */
 final class BuildTab extends JPanel {
     static final String POINTER = "Build shows the character you're playing";
@@ -36,6 +37,7 @@ final class BuildTab extends JPanel {
         add(host, "build");
         add(other, "other");
         add(named(new EmptyState("Build is not available here", "Build opens in the RealmShark window.", null), "character-build-unhosted"), "unhosted");
+        add(named(new EmptyState(CharacterSheet.LOADING, "Build shows here once this character's sheet has loaded.", null), "character-build-loading"), "loading");
         show("unhosted");
     }
 
@@ -58,8 +60,21 @@ final class BuildTab extends JPanel {
 
     JComponent hosted() { return build; }
 
-    /** "build", "other" or "unhosted". */
+    /** "build", "other", "loading" or "unhosted". */
     String card() { return card; }
+
+    /**
+     * The neutral card, while another character's sheet loads or after a failed build: neither MyInfoGUI nor an Open button, so
+     * nothing of the previous character stays on screen or acts. The next {@link #apply} picks the card again.
+     */
+    void loading() {
+        liveKey = null;
+        pointerFor = null;
+        other.removeAll();
+        other.revalidate();
+        other.repaint();
+        show(build == null ? "unhosted" : "loading");
+    }
 
     /**
      * {@code buildKey}: the character Build describes ({@link #shownKey}). This sheet's own character shows Build; any other shows

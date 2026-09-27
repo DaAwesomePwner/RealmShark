@@ -59,7 +59,8 @@ final class SheetPresenter {
 
     /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
     void open(String key) {
-        if (!Objects.equals(key, this.key)) show(null); // nothing of the previous character stays on screen while this one loads
+        // Nothing of the previous character stays on screen while this one loads, Build included.
+        if (!Objects.equals(key, this.key)) { show(null); build.loading(); }
         this.key = key;
         request();
     }
@@ -112,7 +113,8 @@ final class SheetPresenter {
             SwingUtilities.invokeLater(() -> {
                 // Only the newest request for the key the sheet still shows applies; a late result for another character is dropped.
                 if (requested != generation || !Objects.equals(target, key)) return;
-                if (failed != null) { token = null; sheet.failed(failed); return; } // the next refresh tries again
+                // The next refresh tries again; meanwhile Build shows no one (live state may have moved on since the last model).
+                if (failed != null) { token = null; build.loading(); sheet.failed(failed); return; }
                 apply(result);
             });
         });
