@@ -17,6 +17,7 @@ import tomato.gui.chat.ChatGUI;
 import tomato.gui.chat.ChatPingGUI;
 import tomato.gui.dps.DpsDisplayOptions;
 import tomato.gui.dps.DpsGUI;
+import tomato.gui.glance.home.HomePage;
 import tomato.gui.activity.ActivityPanel;
 import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.history.ViewStateStore;
@@ -71,6 +72,7 @@ public class TomatoGUI {
     private static ShellNavigator navigator;
     private static tomato.gui.notifications.NotificationsGUI notifications;
     private static SettingsPage settings;
+    private static HomePage home;
 
     public TomatoGUI(TomatoData data) {
         this.data = data;
@@ -120,6 +122,8 @@ public class TomatoGUI {
         tomato.gui.logging.LoggingGUI logging = new tomato.gui.logging.LoggingGUI(DiscoveryLog.INSTANCE);
         JComponent inspectWorkspace = SecurityGUI.workspace(securityPanel);
         JComponent timelineWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE);
+        // Home reads its sources on its own refresher thread while it is showing (S9); AppHistory::store also sees a store opened later.
+        home = new HomePage(new tomato.gui.glance.home.LiveHomeSources(data, AppHistory::store), homeActions());
         shell = new WorkspaceShell(new JComponent[] {
             chatPanel.workspace(), keypopPanel.workspace(), inspectWorkspace,
             characterPanel, statisticsWorkspace,
@@ -128,12 +132,18 @@ public class TomatoGUI {
             logging,
             runsWorkspace,
             timelineWorkspace,
-            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings},
+            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings, home},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
         registerRetainedPage(Destination.CHARACTERS);
         registerRetainedPage(Destination.QUESTS);
+        // Home's Now card opens the DPS Logger page as it is. This target accepts plain routes only and is registered before
+        // DpsGUI's encounter target, which is therefore tried first: exact recording routes keep resolving there.
+        registerRetainedPage(Destination.ENCOUNTER);
+        registerRetainedPage(Destination.HOME);
+        // Build (page 6) has no sidebar row; routes, Settings search, the Home hero and Alt+7 reach it.
+        registerRetainedPage(Destination.MY_INFO);
         registerArchive(navigator, Destination.RUNS, runsWorkspace);
         registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerArchive(navigator, Destination.LOOT, lootWorkspace);
@@ -291,6 +301,7 @@ public class TomatoGUI {
             if (navigator != null && Navigator.current() == navigator) Navigator.install(null);
             tomato.gui.search.ActionRegistry.application().clear();
             closeArchiveWorkspaces(mainPanel);
+            if (home != null) home.close();
         });
     }
 
@@ -448,6 +459,8 @@ public class TomatoGUI {
             "Characters/plans.json; death notes in Characters/journal.json", () -> { navigator.open(tomato.gui.route.Route.to(Destination.CHARACTERS)); characterPanel.openGoals(); });
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
             "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
+        registerSearch("build.open", "Build (weapon damage and recovery)", "build my info weapon damage dps recovery mana estimates equipment",
+            "Build", "Nothing is saved; values come from the live capture", () -> navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO)));
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
             java.awt.event.InputEvent.CTRL_DOWN_MASK), "find-settings");
         shell.getActionMap().put("find-settings", new AbstractAction() {
@@ -459,6 +472,24 @@ public class TomatoGUI {
             location, persistence, "Preview retains existing control restrictions; opening search does not save or enable anything.",
             () -> shell != null, "Workspace is closed", action));
     }
+    /** Home's drill-downs go through the navigator, so Back returns to Home. */
+    private static tomato.gui.glance.home.HomeActions homeActions() {
+        return new tomato.gui.glance.home.HomeActions(
+            () -> openFromHome(tomato.gui.route.Route.to(Destination.CHARACTERS)),
+            () -> openFromHome(tomato.gui.route.Route.to(Destination.MY_INFO)),
+            () -> openFromHome(tomato.gui.route.Route.to(Destination.ENCOUNTER)),
+            // The exact VisitRef first; plain Runs only when no exact-visit target exists (no saved history store).
+            visit -> openFromHome(tomato.gui.route.Route.to(Destination.RUNS).withVisit(visit), tomato.gui.route.Route.to(Destination.RUNS)),
+            () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)));
+    }
+
+    /** Opens the first route a registered target accepts. */
+    private static void openFromHome(tomato.gui.route.Route... routes) {
+        if (navigator == null) return;
+        for (tomato.gui.route.Route route : routes) if (navigator.open(route)) return;
+    }
+
+
     private static void registerRetainedPage(final Destination destination) {
         navigator.register(new tomato.gui.route.RouteTarget() {
             public Destination destination() { return destination; }

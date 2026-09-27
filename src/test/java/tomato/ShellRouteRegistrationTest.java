@@ -51,6 +51,14 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.issuesFor(Destination.RUNS))));
                 assertFalse("Only allowlisted packets of the affected view are routable",
                     navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.packetFor(Destination.RUNS, "TEXT"))));
+                tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
+                int landing = workspace.getSelectedPage();
+                assertTrue("Build keeps its route although the sidebar never lists it", navigator.open(Route.to(Destination.MY_INFO)));
+                assertEquals(6, workspace.getSelectedPage());
+                assertTrue(navigator.open(Route.to(Destination.HOME)));
+                assertEquals(14, workspace.getSelectedPage());
+                assertTrue(navigator.back()); assertEquals(6, workspace.getSelectedPage());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
             });
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> assertSame(Navigator.NONE, Navigator.current()));

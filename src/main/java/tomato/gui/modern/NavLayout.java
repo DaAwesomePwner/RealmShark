@@ -12,12 +12,14 @@ import util.PropertiesManager;
 /**
  * The user's sidebar arrangement over the fixed destinations: the core order (including pinned
  * Advanced entries), hidden entries and whether the Advanced group is open. Page indices never change
- * here. Saved values are comma-separated NavEntry IDs; IDs this version does not know are ignored.
- * Settings is never hidden, and at least one core entry always stays visible. Use on the EDT.
+ * here. Saved values are comma-separated NavEntry IDs; IDs this version does not know, and unlisted
+ * destinations (Build), are ignored and dropped on the next write. Settings is never hidden, and at
+ * least one core entry always stays visible. Use on the EDT.
  */
 public final class NavLayout {
     public static final String ORDER_KEY = "ui.nav.order", HIDDEN_KEY = "ui.nav.hidden",
         PINNED_KEY = "ui.nav.pinned", ADVANCED_KEY = "ui.nav.advanced";
+    private static final String HOME = "home";
 
     private final BiConsumer<String, String> write;
     private final List<String> order = new ArrayList<>();
@@ -31,6 +33,9 @@ public final class NavLayout {
         this.write = Objects.requireNonNull(write, "write");
         for (String id : ids(read.apply(PINNED_KEY))) if (group(id) == NavEntry.Group.ADVANCED) pinned.add(id);
         for (String id : ids(read.apply(ORDER_KEY))) if (inCore(id) && !order.contains(id)) order.add(id);
+        // Home arrived after orders were saved, so it leads a saved order that lacks it. Only memory changes here;
+        // the next move or pin writes the whole order, so this happens once.
+        if (!order.isEmpty() && !order.contains(HOME)) order.add(0, HOME);
         for (String id : ids(read.apply(HIDDEN_KEY))) {
             NavEntry.Group group = group(id);
             if (group == NavEntry.Group.CORE || group == NavEntry.Group.ADVANCED) hidden.add(id);
@@ -116,10 +121,10 @@ public final class NavLayout {
         return true;
     }
 
-    /** Settings never hides, and the last visible core entry stays. */
+    /** Only core and Advanced rows hide: Settings is always listed, unlisted pages have no row, and the last visible core entry stays. */
     public boolean canHide(String id) {
         NavEntry.Group group = group(id);
-        if (group == null || group == NavEntry.Group.SETTINGS || hidden.contains(id)) return false;
+        if ((group != NavEntry.Group.CORE && group != NavEntry.Group.ADVANCED) || hidden.contains(id)) return false;
         return !inCore(id) || core().size() > 1;
     }
 

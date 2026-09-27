@@ -151,6 +151,62 @@ public class ShellHookIntegrationTest {
         });
     }
 
+    @Test public void homeIsPageFourteenAndBuildOpensFromSearchUnderItsNewTitle() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+            assertNotNull("Home is shell page 14", home);
+            assertEquals("home-page", home.getName());
+            assertNotNull("Home shows its cards", named(home, "home-hero", tomato.gui.kit.Card.class));
+            shell.select(0);
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.HOME)));
+            assertEquals(14, shell.getSelectedPage());
+            assertTrue(home.isVisible());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            assertEquals(1, registry.search("build.open").size());
+            assertEquals("Build (weapon damage and recovery)", registry.search("build.open").get(0).label);
+            assertTrue(registry.search("build.open").get(0).open());
+            assertEquals(6, shell.getSelectedPage());
+            assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
+            assertFalse("Build never takes a sidebar row", named(shell, "nav-6", AbstractButton.class).isVisible());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+        });
+    }
+
+
+    @Test public void homeCardsOpenTheirPagesThroughTheNavigatorAndBackReturnsHome() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+            assertNotNull("Home is shell page 14", home);
+            tomato.gui.glance.home.HomeModel model = tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis());
+            home.apply(model);
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            String[] cards = {"home-hero", "home-now", "home-quests"};
+            int[] pages = {3, 7, 5}; // Characters, DPS Logger, Quests
+            for (int i = 0; i < cards.length; i++) {
+                shell.select(14);
+                named(home, cards[i], tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null);
+                assertEquals(cards[i] + " opens its page", pages[i], shell.getSelectedPage());
+                assertTrue(navigator.back());
+                assertEquals(cards[i] + ": Back returns to Home", 14, shell.getSelectedPage());
+            }
+            named(home, "home-build", AbstractButton.class).doClick();
+            assertEquals("The hero's Build action opens page 6", 6, shell.getSelectedPage());
+            assertTrue(navigator.back());
+            assertEquals(14, shell.getSelectedPage());
+            named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);
+            assertEquals("A recent run opens Runs", 10, shell.getSelectedPage());
+            tomato.gui.activity.ActivityQueries.Filters facets =
+                (tomato.gui.activity.ActivityQueries.Filters) workspace("runs").state().query.facets();
+            tomato.history.link.VisitRef visit = model.runs().rows().get(0).visit();
+            assertEquals("Runs shows that exact visit, not a name or time match", visit.sessionId, facets.visitSession);
+            assertEquals(visit.visitId, facets.visitId);
+            assertTrue(navigator.back());
+            assertEquals(14, shell.getSelectedPage());
+        });
+    }
+
     @Test public void shellQueriedHistorySharesTheLiveChatPolicy() throws Exception {
         ChatMessage message = new ChatMessage(LocalDateTime.of(2026, 9, 1, 12, 0), ChatMessage.Channel.WORLD,
             "IntegrationAnn", "", "IntegrationAnn", "synthetic conversation", "");

@@ -306,6 +306,13 @@ Layout (desktop ≥ 1000 px): hero row; then Now | Today (2 columns); then Recen
 
 My Info's remaining content (per-projectile damage, recovery, dust, estimate scenarios, recorded-DPS picker) moves to Character sheet › **Build** (§6.2).
 
+P2 delivery notes (user decisions, 2026-09-26):
+- **Build page.** Until the character sheet exists (P3), the My Info page stays as page 6, retitled **Build**. It sits in an unlisted navigation group: reachable from the hero's Build action, Settings search, Alt+7 and its route, but never listed in the sidebar or compact menu.
+- **Pet rarity chip.** Arrives with pet data in P3.
+- **Quest countdown.** Arrives once the expiration format is confirmed (P4, O1).
+- **Recent runs DPS.** Appears only for recordings exactly linked during the current app run, until the `encounters` module (P5).
+- **Account line.** The hero shows the saved account fame, gold and rank stars as one muted line.
+
 ### 6.2 Characters
 
 Top segmented control: **Roster · Exalts · Pets**.

@@ -40,6 +40,7 @@ public final class WorkspaceShell extends JPanel {
     private final JPanel settingsRow = new JPanel(new BorderLayout());
     private final JPanel sideBottom = new JPanel(new BorderLayout());
     private final JPanel cards = ContentStyle.card(new CardLayout());
+    private final JComponent[] pages;
     private final JToggleButton[] navigation = new JToggleButton[TITLES.length];
     private final JRadioButtonMenuItem[] destinations = new JRadioButtonMenuItem[TITLES.length];
     private final JButton compactNavigation = new JButton(new NavigationMenuIcon()) {
@@ -100,6 +101,7 @@ public final class WorkspaceShell extends JPanel {
         this.layout = Objects.requireNonNull(layout, "layout");
         this.mode = Objects.requireNonNull(mode, "mode");
         if (panels.length != TITLES.length) throw new IllegalArgumentException("All feature panels are required");
+        pages = panels.clone();
         sidebar.setPreferredSize(new Dimension(188, 0));
         JPanel brandRow = new JPanel(new BorderLayout(8, 0)); brandRow.setOpaque(false);
         brand.setFont(ContentStyle.emphasis(ContentStyle.body().deriveFont(ContentStyle.body().getSize2D() * 17f / ContentStyle.FONT_SIZE)));
@@ -162,12 +164,12 @@ public final class WorkspaceShell extends JPanel {
             // applyLayout places the rows in the user's order; Settings stays below the scrolling list.
             if (i == SETTINGS) settingsRow.add(button); else nav.add(button);
             cards.add(panels[i], Integer.toString(i));
-            KeyStroke shortcut = KeyStroke.getKeyStroke(i == 13 ? KeyEvent.VK_N : i == 12 ? KeyEvent.VK_B : i == 10 ? KeyEvent.VK_R : i == 11 ? KeyEvent.VK_T : i == 9 ? KeyEvent.VK_0 : KeyEvent.VK_1 + i, InputEvent.ALT_DOWN_MASK);
+            KeyStroke shortcut = KeyStroke.getKeyStroke(shortcutKey(i), InputEvent.ALT_DOWN_MASK);
             getInputMap(WHEN_IN_FOCUSED_WINDOW).put(shortcut, "page-" + i);
-            getActionMap().put("page-" + i, new AbstractAction() { public void actionPerformed(ActionEvent e) { select(index); navigation[index].requestFocusInWindow(); }});
+            getActionMap().put("page-" + i, new AbstractAction() { public void actionPerformed(ActionEvent e) { select(index); focusPage(index); }});
             JRadioButtonMenuItem destination = new JRadioButtonMenuItem(TITLES[i], button.getIcon());
             destination.setName("compact-nav-" + i); destination.setAccelerator(shortcut);
-            destination.addActionListener(e -> { select(index); navigation[index].requestFocusInWindow(); });
+            destination.addActionListener(e -> { select(index); focusPage(index); });
             destinations[i] = destination; menuGroup.add(destination); // rebuildPopup adds it in sidebar order
         }
         advancedToggle.setName("nav-advanced");
@@ -253,6 +255,7 @@ public final class WorkspaceShell extends JPanel {
         headingAndSetup.add(header, BorderLayout.NORTH); headingAndSetup.add(setupBanner);
         workspace.add(headingAndSetup, BorderLayout.NORTH);
         setSetupState("Saved capture preference is applied after assets are ready. Saved history is available without capture.", true, false);
+        cards.setName("workspace-cards");
         cards.setMinimumSize(new Dimension(0, 0)); workspace.add(cards, BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout(16, 0));
         status.setFont(ContentStyle.metadata(ContentStyle.body()));
@@ -400,7 +403,8 @@ public final class WorkspaceShell extends JPanel {
         } else if (entry.group() == NavEntry.Group.ADVANCED) {
             menu.add(menuItem("nav-menu-pin", "Pin to top", true, () -> change(() -> layout.pin(id), page)));
         }
-        if (entry.group() != NavEntry.Group.SETTINGS) {
+        // Settings is always listed and unlisted pages (Build) have no row, so only core and Advanced rows hide.
+        if (entry.group() == NavEntry.Group.CORE || entry.group() == NavEntry.Group.ADVANCED) {
             if (layout.isHidden(id)) menu.add(menuItem("nav-menu-show", "Show in sidebar", true, () -> change(() -> layout.show(id), page)));
             else menu.add(menuItem("nav-menu-hide", "Hide", layout.canHide(id), () -> change(() -> layout.hide(id), page)));
             menu.addSeparator();
@@ -421,7 +425,7 @@ public final class WorkspaceShell extends JPanel {
 
     private void showContextMenu(int page, Point at) {
         JToggleButton button = navigation[page];
-        if (!button.isShowing()) return;
+        if (!button.isShowing() || NavEntry.forPage(page).group() == NavEntry.Group.UNLISTED) return;
         JPopupMenu menu = contextMenu(page);
         Point where = at != null ? at : new Point(0, button.getHeight());
         menu.show(button, where.x, where.y);
@@ -460,9 +464,20 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void showNavigation() {
-        Component anchor = compact ? compactNavigation : navigation[selected];
-        navigationPopup.show(anchor, 0, anchor.getHeight());
-        MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, destinations[selected]});
+        // Build has no row or menu item, so while it is current the menu opens at the top of the destination list.
+        Component row = navigation[selected];
+        Component anchor = compact ? compactNavigation : row.isShowing() ? row : navScroll;
+        navigationPopup.show(anchor, 0, anchor == navScroll ? 0 : anchor.getHeight());
+        MenuElement start = destinations[selected].getParent() == navigationPopup && destinations[selected].isVisible()
+            ? destinations[selected] : firstListedDestination();
+        if (start != null) MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, start});
+    }
+
+    /** The first destination the compact menu shows; keyboard selection starts there when the current page is unlisted. */
+    private MenuElement firstListedDestination() {
+        for (Component item : navigationPopup.getComponents())
+            if (item instanceof JRadioButtonMenuItem && item.isVisible()) return (MenuElement) item;
+        return null;
     }
 
     /**
@@ -717,6 +732,7 @@ public final class WorkspaceShell extends JPanel {
             case TIMELINE: return 11;
             case BRIDGE_REVIEW: return 12;
             case NOTIFICATIONS: return 13;
+            case HOME: return 14;
             default: return ShellNavigator.NO_PAGE; // ALERT_DRAFT opens beside the current page.
         }
     }
@@ -745,7 +761,19 @@ public final class WorkspaceShell extends JPanel {
     private void navigateBack() {
         if (navigator == null || !navigator.canGoBack()) return;
         // Focus follows the restored page, as with the Alt destination shortcuts; the hidden page loses it.
-        if (navigator.back()) navigation[selected].requestFocusInWindow();
+        if (navigator.back()) focusPage(selected);
+    }
+
+    /**
+     * Keyboard focus for the page just shown: its sidebar row, or for an unlisted page (Build), which has no row, the page's
+     * first focusable component in traversal order, else the page container.
+     */
+    private void focusPage(int page) {
+        if (NavEntry.forPage(page).group() != NavEntry.Group.UNLISTED) { navigation[page].requestFocusInWindow(); return; }
+        Container root = cards.getFocusCycleRootAncestor();
+        FocusTraversalPolicy policy = root == null ? null : root.getFocusTraversalPolicy();
+        Component first = policy == null ? null : policy.getFirstComponent(pages[page]);
+        (first != null ? first : cards).requestFocusInWindow();
     }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {
@@ -865,6 +893,9 @@ public final class WorkspaceShell extends JPanel {
             boolean listed = layout.advancedOpen() && !layout.isHidden(entry.id());
             navigation[entry.page()].setVisible(listed || entry.page() == selected);
         }
+        // Unlisted pages (Build) are reached by route, search and Alt+7, never from the sidebar, even while current.
+        for (NavEntry entry : NavEntry.defaults())
+            if (entry.group() == NavEntry.Group.UNLISTED) navigation[entry.page()].setVisible(false);
         gc.gridy++; gc.weighty = 1; gc.insets = new Insets(0, 0, 0, 0);
         grid.setConstraints(navGlue, gc);
         refreshAdvancedToggle();
@@ -873,9 +904,10 @@ public final class WorkspaceShell extends JPanel {
     }
 
     /**
-     * The compact menu lists every destination in sidebar order and groups: core, then Advanced after a
-     * labelled separator, then Settings. Hidden destinations stay attached but invisible, so keyboard
+     * The compact menu lists every sidebar destination in sidebar order and groups: core, then Advanced after
+     * a labelled separator, then Settings. Hidden destinations stay attached but invisible, so keyboard
      * traversal skips them and they keep the current look and feel; the current page is always listed.
+     * Unlisted pages (Build) are never added.
      */
     private void rebuildPopup() {
         navigationPopup.removeAll();
@@ -917,7 +949,20 @@ public final class WorkspaceShell extends JPanel {
     /** The destination's keyboard shortcuts, as its tooltip shows them. */
     private static String shortcutHint(int page) {
         if (page == SETTINGS) return "Alt+, or Alt+N";
-        return "Alt+" + (page == 12 ? "B" : page == 10 ? "R" : page == 11 ? "T" : Integer.toString((page + 1) % 10));
+        return "Alt+" + (char) shortcutKey(page); // VK_0..VK_9 and VK_A..VK_Z are their ASCII characters.
+    }
+
+    /** Alt+digit for the original pages in page order; letters for Runs, Timeline, Bridge Review, Settings and Home. */
+    private static int shortcutKey(int page) {
+        switch (page) {
+            case 9: return KeyEvent.VK_0;
+            case 10: return KeyEvent.VK_R;
+            case 11: return KeyEvent.VK_T;
+            case 12: return KeyEvent.VK_B;
+            case 13: return KeyEvent.VK_N;
+            case 14: return KeyEvent.VK_H;
+            default: return KeyEvent.VK_1 + page;
+        }
     }
 
     @Override public void doLayout() {
@@ -940,6 +985,7 @@ public final class WorkspaceShell extends JPanel {
     private void scrollSelected() {
         // Customizing a different row must not scroll its keyboard focus back to the selected page.
         JToggleButton button = scrollAnchor != null && scrollAnchor.isVisible() ? scrollAnchor : navigation[selected];
+        if (!button.isVisible()) return; // Build has no row to reveal; the list stays where the user left it.
         button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
     }
 

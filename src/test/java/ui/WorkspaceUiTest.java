@@ -128,6 +128,7 @@ public class WorkspaceUiTest {
                     assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
                     for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                         AbstractButton button = findButton(shell, "nav-" + i);
+                        if (i == 6) { assertFalse("Build is reached by route, search and Alt+7, not the sidebar", button.isShowing()); continue; }
                         assertTrue(button.isShowing()); button.doClick();
                         assertEquals(i, shell.getSelectedPage());
                         assertTrue(button.isSelected());
@@ -155,6 +156,7 @@ public class WorkspaceUiTest {
                     assertEquals("Exact compact breakpoint", width < 1000, shell.isCompact());
                     for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                         AbstractButton button = findButton(shell, "nav-" + i);
+                        if (i == 6) { assertFalse("Build has no sidebar row", button.isVisible()); continue; }
                         button.doClick(); layoutTree(shell);
                         assertEquals(i, shell.getSelectedPage());
                         assertTrue(button.isVisible()); assertTrue(button.isSelected());
@@ -349,6 +351,27 @@ public class WorkspaceUiTest {
             } else if (c instanceof Container) renderSubtabs((Container)c, prefix);
         }
     }
+    @Test public void buildIsUnlistedButOpensByRouteUnderItsNewTitle() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            int before = shell.getSelectedPage();
+            try {
+                assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
+                assertEquals(6, shell.getSelectedPage());
+                assertEquals("Build", pageTitle(shell).getText());
+                assertFalse("Build stays out of the sidebar while it is current", findButton(shell, "nav-6").isVisible());
+                assertTrue(tomato.gui.route.Navigator.current().back());
+                assertEquals(before, shell.getSelectedPage());
+            } finally { shell.select(before); }
+        });
+    }
+    private static JLabel pageTitle(Container root) {
+        for (Component c : root.getComponents()) {
+            if (c instanceof JLabel && "page-title".equals(c.getName())) return (JLabel) c;
+            if (c instanceof Container) { JLabel found = pageTitle((Container) c); if (found != null) return found; }
+        }
+        return null;
+    }
+
     private static AbstractButton findButton(Container root, String name) {
         for (Component c : root.getComponents()) {
             if (c instanceof AbstractButton && name.equals(c.getName())) return (AbstractButton) c;

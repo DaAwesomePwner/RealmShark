@@ -23,6 +23,7 @@ import tomato.backend.SecurityAbilityUseCheck;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.keypop.KeypopGUI;
+import tomato.gui.myinfo.BuildEstimates;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.stats.FameTablePanel;
@@ -82,11 +83,17 @@ public class TomatoData {
     private MyInfoIdentity petIdentity;
     private Entity petOwner;
     private PetAvailability petAvailability = PetAvailability.UNKNOWN;
+    /** Home's view of the local character; published beside every My Info snapshot and cleared with it. */
+    public final LiveCharacter liveCharacter = new LiveCharacter();
     private final ProgressionData progression = new ProgressionData();
     public ProgressionData progression() { return progression; }
-    public void captureStopped() { progression.captureStopped(); }
-    public void captureStarted() { progression.captureStarted(); }
-    public void captureBoundary() { progression.reset(null, "Connection changed; waiting for verified account"); }
+    public void captureStopped() { progression.captureStopped(); liveCharacter.stop(System.currentTimeMillis()); }
+    public void captureStarted() { progression.captureStarted(); liveCharacter.start(); }
+    /** A transport reset: who follows is not known yet; the next HELLO, CREATE or publication reclassifies a changed identity. */
+    public void captureBoundary() {
+        progression.reset(null, "Connection changed; waiting for verified account");
+        liveCharacter.clear(System.currentTimeMillis(), LiveCharacter.Boundary.TRANSIENT);
+    }
     public void quests(QuestFetchResponsePacket packet) {
         ProgressionData.Scope origin = progression.scope();
         progression.quests(origin, packet.quests, System.currentTimeMillis());
@@ -117,12 +124,22 @@ public class TomatoData {
             && companion == pet && availability == petAvailability;
     }
 
-    private void resetMyInfo(String account, int characterId, int objectId) {
+    private void resetMyInfo(String account, int characterId, int objectId) { resetMyInfo(account, characterId, objectId, false); }
+
+    /**
+     * {@code accountChanged}: the account itself changed, whatever character follows. Otherwise Home's live character is
+     * cleared as transient (a map change, reconnect or the same character's CREATE) unless {@code account} or
+     * {@code characterId} is known and differs from the last published character.
+     */
+    private void resetMyInfo(String account, int characterId, int objectId, boolean accountChanged) {
         progression.reset(account, "Capture identity changed; previous quest list is stale");
         myInfoOwner = null;
         pet = null; petOwner = null; petIdentity = null; petAvailability = PetAvailability.UNKNOWN;
         myInfoIdentity = new MyInfoIdentity(myInfoIdentity.generation + 1, account, characterId, objectId);
         MyInfoGUI.updateSnapshot(this, myInfoIdentity, null, null, PetAvailability.UNKNOWN);
+        long at = System.currentTimeMillis();
+        if (accountChanged) liveCharacter.clear(at, LiveCharacter.Boundary.IDENTITY);
+        else liveCharacter.reset(at, account, characterId);
     }
 
     /** Capture-thread entry point, including the legacy callback from Entity.updateStats(). */
@@ -139,8 +156,12 @@ public class TomatoData {
         }
         myInfoOwner = value;
         boolean ownedPet = identity.account != null && petIdentity == identity && petOwner == value;
-        MyInfoGUI.updateSnapshot(this, identity, value, ownedPet ? pet : null,
-            ownedPet ? petAvailability : PetAvailability.UNKNOWN);
+        Entity companion = ownedPet ? pet : null;
+        PetAvailability availability = ownedPet ? petAvailability : PetAvailability.UNKNOWN;
+        MyInfoGUI.updateSnapshot(this, identity, value, companion, availability);
+        // Home: detached copies of My Info's inputs; Home estimates from them on its own thread, never here.
+        liveCharacter.publish(LiveCharacter.read(identity.account, identity.characterId, value,
+            BuildEstimates.Inputs.detach(value, companion, availability), System.currentTimeMillis()));
     }
 
     /** Unscoped/stale pet callbacks may only republish the currently bound owner/pet pair. */
@@ -181,6 +202,11 @@ public class TomatoData {
         String account = characterJournal().observe(player, charId);
         if (account == null) return;
         journalAccount = account;
+        StatData stars = player.stat.get(StatType.NUM_STARS_STAT), gold = player.stat.get(StatType.CREDITS_STAT),
+            fame = player.stat.get(StatType.FAME_STAT);
+        characterJournal().accountLive(account, player.typeCapture() == null ? -1 : player.objectType,
+            stars == null ? null : stars.statValue, gold == null ? null : (long) gold.statValue,
+            fame == null ? null : (long) fame.statValue, CharacterJournal.exaltBonus(player), player.observedAt());
         publishMyInfoPlayer(player);
         applyMetadataResponses();
         if (journalPendingRoster != null) {
@@ -1328,7 +1354,7 @@ public class TomatoData {
     private void resetAccountMetadata() {
         metadataAccount++;
         metadataWorker.invalidate(false);
-        resetMyInfo(null, charId, worldPlayerId);
+        resetMyInfo(null, charId, worldPlayerId, true);
         progression.clearPets();
         journalAccount = null; journalPendingRoster = null;
         updatedExaltStats = false; characterDataRecieved = false;

@@ -19,6 +19,8 @@ final class KeyPopHistory {
 
     synchronized void clear() { events.clear(); discarded = 0; revision++; }
     synchronized long revision() { return revision; }
+    /** The most recently recorded event, or null. */
+    synchronized KeyPopEvent newest() { return events.peekLast(); }
     synchronized Snapshot snapshot() { return new Snapshot(new ArrayList<>(events), revision, discarded); }
 
     static final class Snapshot {

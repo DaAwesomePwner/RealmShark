@@ -166,6 +166,18 @@ public class KeypopGUI extends JPanel {
         if (logToFile) logToFile(event.logLine());
     }
 
+    /** Home's view of a pop: who opened what (a dungeon, or "Vial", "Inc", "<name> Rune"), and when. */
+    public record LastPop(String player, String dungeon, Instant time) {}
+
+    /** The newest pop recorded this app run (cleared with the live buffer), or null; any thread. */
+    public static LastPop lastPop() {
+        KeyPopEvent newest = history.newest();
+        return newest == null ? null : new LastPop(newest.player, newest.item, newest.time);
+    }
+
+    /** Changes whenever a pop is recorded or the live buffer is cleared; any thread. */
+    public static long popRevision() { return history.revision(); }
+
     public static void playDungeonSound(TomatoData data, String dungeonName) {
         if (Sound.keypop == null) return;
         RealmCharacterStats stats = data == null ? null : data.getCurrentDungeonStats();

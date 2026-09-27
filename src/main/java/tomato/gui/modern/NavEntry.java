@@ -9,14 +9,17 @@ import java.util.regex.Pattern;
  * shell, routes and tests use until P6 replaces it with the ID. Titles are what the sidebar shows.
  */
 public record NavEntry(String id, int page, String title, String description, int icon, Group group) {
-    /** Where the sidebar shows a destination by default. */
-    public enum Group { CORE, ADVANCED, SETTINGS }
+    /**
+     * Where the sidebar shows a destination by default. UNLISTED pages keep a page, a route and a shortcut
+     * but have no sidebar row and no compact-menu entry.
+     */
+    public enum Group { CORE, ADVANCED, SETTINGS, UNLISTED }
 
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9-]*");
 
-    /** Every destination in the default sidebar order: core, then Advanced, then Settings. */
+    /** Every destination in the default sidebar order: core, then Advanced, then Settings, then unlisted pages. */
     private static final List<NavEntry> DEFAULTS = List.of(
-        new NavEntry("my-info", 6, "My Info", "Inspect your current character, equipment and damage.", LineIcon.INFO, Group.CORE),
+        new NavEntry("home", 14, "Home", "Your character, today's progress and recent runs at a glance.", LineIcon.HOME, Group.CORE),
         new NavEntry("characters", 3, "Characters", "Keep a character roster, track maxing and equipment, and follow exalts.", 3, Group.CORE),
         new NavEntry("runs", 10, "Runs", "Review area visits, progression and party activity.", 11, Group.CORE),
         new NavEntry("dps-logger", 7, "DPS Logger", "Review encounters, compare damage and fine-tune your filters.", 7, Group.CORE),
@@ -29,7 +32,9 @@ public record NavEntry(String id, int page, String title, String description, in
         new NavEntry("statistics", 4, "Statistics", "Track fame, loot and dungeon progress over time.", 4, Group.ADVANCED),
         new NavEntry("logging", 9, "Logging", "Discover available fields, inspect stat changes and diagnose capture gaps.", 10, Group.ADVANCED),
         new NavEntry("bridge-review", 12, "Bridge Review", "Review detected loot, configure guild exports and troubleshoot delivery.", 13, Group.ADVANCED),
-        new NavEntry("settings", 13, "Settings", "Notifications, sounds and appearance.", LineIcon.GEAR, Group.SETTINGS));
+        new NavEntry("settings", 13, "Settings", "Notifications, sounds and appearance.", LineIcon.GEAR, Group.SETTINGS),
+        // Build was My Info; its ID stays so saved preferences still recognise (and ignore) it.
+        new NavEntry("my-info", 6, "Build", "Weapon damage, recovery and estimates for your current character.", LineIcon.INFO, Group.UNLISTED));
 
     public NavEntry {
         if (id == null || !ID.matcher(id).matches())

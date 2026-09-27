@@ -3,11 +3,12 @@
 Current redesign handoff (2026-09-26): the four waves are complete. P0 merged
 in PR #17 (`9b6844a`); P1a design kit merged in PR #18 (`7b3e0c5`), including fix `ee8d085`.
 Use the [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md)
-and [P1c validation](superpowers/plans/2026-09-26-p1c-validation.md) for current
+and [P2 validation](superpowers/plans/2026-09-26-p2-validation.md) for current
 scope and evidence. Every phase uses `claude/realmshark-ui-ux-redesign-cb0914`.
-P1b merged in PR #19 as `0abafe4`, including `a011bfd` pulled before P1c. P1c is
-implemented, pending PR merge. Focused checks and JAR smoke are complete; see the
-P1c PR for independent final-head review. Verify merged main before starting P2.
+P1b merged in PR #19 as `0abafe4`, including `a011bfd`. P1c merged in PR #20 as
+`e973f10`, including `4ca1657`. P2 (Home) is implemented, pending PR merge. Focused
+checks, the final full suite and JAR smoke are recorded in the P2 validation; see the
+P2 PR for independent final-head review. Verify merged main before starting P3.
 The older resumption instructions below are historical.
 
 Current policy (user approved 2026-09-26): CI is manual-only, not required for

@@ -9,8 +9,8 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P0 Platform | [2026-09-26-p0-platform.md](2026-09-26-p0-platform.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #17 (`9b6844a`) |
 | P1a Design kit | [2026-09-26-p1a-design-kit.md](2026-09-26-p1a-design-kit.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #18 (`7b3e0c5`) |
 | P1b Shell and navigation | [2026-09-26-p1b-shell.md](2026-09-26-p1b-shell.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #19 (`0abafe4`) |
-| P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending |
-| P2 Home | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #20 (`e973f10`) |
+| P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Implemented; PR merge pending |
 | P3 Characters | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P4 Quests | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
@@ -21,10 +21,11 @@ Update the State column when a phase's PR merges and `main` is verified.
 P0 merged in PR #17 as `9b6844a`; its merge tree matches the reviewed P0 source.
 P1a merged in PR #18 as `7b3e0c5`, including the brand-icon correction `ee8d085`.
 P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
-P1c is implemented on the shared branch, pending PR merge; later phases have not started.
+P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
+P2 is implemented on the branch; its PR merge is pending. Later phases have not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
-[P1c validation](2026-09-26-p1c-validation.md).
+[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md).
 
 ## Resume
 
@@ -40,6 +41,11 @@ workflow; keep separate PRs and independent review for each phase.
 ## P2 Home (absorbs My Info)
 
 **Entry:** P1c merged. **Exit:** spec S1 and S9; My Info removed from the sidebar.
+
+Detailed plan: [2026-09-26-p2-home.md](2026-09-26-p2-home.md). User decisions (2026-09-26):
+- **One PR** for all of P2.
+- **My Info becomes an unlisted Build page.** Page 6 is retitled Build and joins a new `NavEntry.Group.UNLISTED`, reachable by route, search, Alt+7 and the hero's Build action.
+- **P1 carry-overs come first:** column widths follow font changes, and item-slot names refresh after asset reloads.
 
 Outline:
 1. Home page as shell page 14 (appended; indices stay stable), `Destination.HOME`, `Alt+H`, landing entry at the top of Core. `NavLayout` appends unknown entries to a saved `ui.nav.order`, so P2 performs a one-time prepend of `home` to existing saved orders.
@@ -63,6 +69,7 @@ Outline:
 4. Pets gallery with rarity, family and ability bars; the feeding calculator goes in a drawer.
 5. Journal v4, remaining fields: per-character `pet`, `dungeonCompletions`, `exp`, `hasBackpack`; account `exaltSeenByClass`, `vaultPotions`. No backfill.
 6. Evidence and journal migration tests (v3 → v4 load, partial rendering).
+7. Deferred from P2: the Home hero's pet rarity chip (needs the pet journal field); Build moves from the unlisted page into the sheet's Build tab, and the hero's Build action follows it; a painted boost overlay on StatBar if wanted (P2 shows the live boost as +N beside each bar).
 
 ## P4 Quests
 
@@ -73,6 +80,7 @@ Outline:
 2. Quest board: a painted `QuestCard` list grouped by chest tier, user type label or none. It shows badges (Repeatable / One-time / Done), the category chip, the expiry chip (warn color under 6 h), reward sprites first ("Pick 1 of N" for `itemOfChoice`) and requirement sprites with counts. A detail drawer shows description, full lists and the raw expiration in Analyst mode.
 3. Summary line with the stale state, "Pinned first", and group-by control; "Name types…" in the Filters drawer.
 4. Planner restyle: plan cards with reserved / available / missing bars; the manual stock editor in a drawer. Semantics unchanged.
+5. Deferred from P2: the Home Quests card's expiry countdown, from the same confirmed QuestExpiry formats.
 
 ## P5 Runs and DPS
 
@@ -87,6 +95,11 @@ Outline:
 6. Live meter restyle; Recordings list (auto-saved and imported `.dps`).
 7. Statistics and DPS Logger leave the sidebar. Their pages stay reachable by route until P6.
 8. FilterBar for the DPS meter, the encounter library and the remaining Statistics sub-pages (deferred from P1c).
+9. Deferred from P1c:
+   - Merge the live scope row (Browse saved · session · Refresh · ⋯) into the page FilterBar on Runs, Timeline and Resources.
+   - Make `saved-resource-tabs` customizable.
+   - Retire the Statistics view tabs (`historical-statistics-tabs`, Fame Table, Dungeon Stats) with the Statistics page.
+   - Add the S6 screenshots missing for Timeline, Resources and Party.
 
 ## P6 Loot and cleanup
 
@@ -97,3 +110,4 @@ Outline:
 2. Restyle the Advanced pages (Party, Timeline, Key-pops, Logging, Bridge review) with kit components; condense `HistoryTables.controls` into the overflow menu. Add drag-to-reorder for sidebar rows (deferred from P1b, where the context menu and Ctrl+Shift+Up/Down cover reordering). FilterBar for Logging and Bridge review, `NotificationsGUI` tabs and the per-render tab sets (loot archive views, key-pop archive modes) as customizable or view-selector controls, relative-time columns and Analyst-only column hiding (all deferred from P1c).
 3. Replace the numeric shell API (`TITLES`, `select(int)`, `pageOf`, page-keyed `ShellNavigator`) with destination IDs, and migrate the ~40 page-number tests in one pass; remove retired pages (My Info, Statistics shell, DPS Logger shell) and unused styles (`StatsUi.metrics`, ad-hoc KPI cards).
 4. Update README, `docs/UI-REDESIGN.md` and the module docs; take a final screenshot set of every page in both variants.
+5. Deferred from P1c: merge the live scope row into the page FilterBar on Loot, Chat and Key-pops (P5 does Runs, Timeline and Resources).
