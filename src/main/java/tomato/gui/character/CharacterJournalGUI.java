@@ -105,7 +105,7 @@ public final class CharacterJournalGUI extends JPanel {
         JPanel top = new JPanel(new BorderLayout(0, 6));
         summary.setName("character-summary");
         ContentStyle.font(summary, ContentStyle.body()); top.add(summary, BorderLayout.NORTH);
-        status.setFont(ContentStyle.metadata(ContentStyle.body()));
+        status.setFont(ContentStyle.metadata(ContentStyle.body())); status.setName("character-status");
         JPanel filters = ContentStyle.controls();
         search.putClientProperty("JTextField.placeholderText", "Search class, account, ID, equipment…");
         search.setToolTipText("Search class, account name, character ID, item names or notes");
@@ -177,12 +177,14 @@ public final class CharacterJournalGUI extends JPanel {
             @Override public List<CharacterRosterQuery.Row> rows() { return visibleRows(); }
             @Override public boolean saved() { return !records.isEmpty(); }
             @Override public String problem() { return journal.storageProblem(); }
+            @Override public boolean unreadable() { return !journal.readable(); }
             @Override public String liveKey() { return liveKey.get(); }
             @Override public String selectedKey() { return selectedKey; }
             @Override public void select(String key) { selectKey(key); }
             @Override public void open(String key) { openSheet.accept(key); }
         }, DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
         addRowsListener(views::refresh);
+        views.onViewChanged(this::updateStatus);
         JScrollPane page = ContentStyle.page(top, views.body(), footer); pageScroll = page;
         page.setName("character-page-scroll");
         page.getAccessibleContext().setAccessibleName("Characters; scroll for the roster and its actions at large text sizes");
@@ -291,11 +293,21 @@ public final class CharacterJournalGUI extends JPanel {
         // go stale (never appearing, or not clearing after a later successful save).
         String problem = journal.storageProblem();
         if (!Objects.equals(problem, galleryProblem)) { galleryProblem = problem; views.refresh(); }
-        String storageStatus = journal.storageStatus();
-        if (records.isEmpty() && storageStatus.startsWith("Saved"))
-            storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
-        else if (!records.isEmpty() && filtered.isEmpty()) storageStatus = "No matching characters. Reset filters to show the retained roster. · " + storageStatus;
-        if (!status.getText().equals(storageStatus)) status.setText(storageStatus);
+        updateStatus();
+    }
+    /**
+     * The footer: the save status, plus guidance only where no empty state gives it (P3a finding 9: one "nothing here" message).
+     * While the gallery shows, its empty state says there is nothing to show and its warn banner or unavailable state names a
+     * storage problem, so the footer adds only a healthy save status. The Table view has neither, so the footer guides there.
+     */
+    private void updateStatus() {
+        String text = journal.storageStatus();
+        if (views.galleryShown()) { if (journal.storageProblem() != null) text = ""; }
+        else if (records.isEmpty() && text.startsWith("Saved"))
+            text = "Start capture and enter the game on a character. Account identity is required before saving.";
+        else if (!records.isEmpty() && filtered.isEmpty()) text = "No matching characters. Reset filters to show the retained roster. · " + text;
+        if (!status.getText().equals(text)) status.setText(text);
+        status.setVisible(!text.isEmpty());
     }
     private void refreshExalts() {
         exaltsDirty = false;
@@ -343,8 +355,9 @@ public final class CharacterJournalGUI extends JPanel {
         summary.setText(records.isEmpty() ? "Your saved characters will appear here" : DisplayFormat.formatInteger(alive) + " not marked dead  •  "
                 + DisplayFormat.formatInteger(deadCount) + " marked dead manually  •  " + DisplayFormat.formatInteger(maxed) + " at 8/8  •  "
                 + DisplayFormat.formatInteger(filtered.size()) + " shown");
-        if (records.isEmpty() && journal.storageStatus().startsWith("Saved")) status.setText("Start capture and enter the game on a character. Account identity is required before saving.");
-        else if (filtered.isEmpty()) status.setText("No matching characters. Reset filters to show the retained roster.");
+        // With nothing saved, the gallery's empty state (or, in the Table view, the footer) says so; a summary would repeat it.
+        summary.setVisible(!records.isEmpty());
+        updateStatus();
         for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key.equals(oldKey)) {
             int view = roster.convertRowIndexToView(i); roster.setRowSelectionInterval(view, view); break;
         }
