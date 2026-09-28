@@ -100,7 +100,7 @@ public class ActivityModulesTest {
             JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length];Arrays.setAll(pages,i->new JPanel());pages[7]=dps;pages[10]=runs;pages[11]=timeline;
             WorkspaceShell shell=new WorkspaceShell(pages,()->{},true);JFrame frame=new JFrame("Activity modules · synthetic validation sample");frame.setContentPane(shell);frame.setSize(1240,800);frame.setVisible(true);
             try{
-                assertEquals("Runs",WorkspaceShell.TITLES[10]);assertEquals("Timeline",WorkspaceShell.TITLES[11]);
+                assertEquals("Runs & DPS",WorkspaceShell.TITLES[10]);assertEquals("Timeline",WorkspaceShell.TITLES[11]);
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt R")));
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt T")));
                 shell.select(10);JTable table=find(runs,JTable.class,null);await(()->table.getRowCount()==2);assertEquals(2,table.getRowCount());

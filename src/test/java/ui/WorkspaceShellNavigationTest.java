@@ -18,6 +18,7 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.modern.NavLayout;
+import tomato.gui.modern.NavEntry;
 import java.util.HashMap;
 import java.util.Map;
 import static org.junit.Assert.*;
@@ -69,7 +70,7 @@ public class WorkspaceShellNavigationTest {
             for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                 AbstractButton button = button("nav-" + i);
                 assertEquals(WorkspaceShell.TITLES[i], button.getAccessibleContext().getAccessibleName());
-                if (i == 6) { assertFalse("Build has no sidebar row", button.isVisible()); continue; }
+                if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", button.isVisible()); continue; }
                 assertTrue(button.getHeight() >= 32);
                 assertTrue("Default navigation should stay compact", button.getHeight() <= 36);
             }
@@ -102,7 +103,7 @@ public class WorkspaceShellNavigationTest {
             JPopupMenu popup = compactNavigation.getComponentPopupMenu();
             assertEquals("compact-navigation-popup", popup.getName()); assertTrue(popup.isShowing());
             // Sidebar order and groups: core, Advanced, Settings.
-            assertEquals(java.util.Arrays.asList(14, 3, 10, 7, 8, 5, 0, 2, 1, 11, 4, 9, 12, 13), popupPages(popup));
+            assertEquals(java.util.Arrays.asList(14, 3, 10, 8, 5, 0, 2, 1, 11, 9, 12, 13), popupPages(popup));
             for (int page : popupPages(popup)) {
                 JMenuItem item = popupItem(popup, page);
                 assertEquals(WorkspaceShell.TITLES[page], item.getText());
@@ -121,7 +122,7 @@ public class WorkspaceShellNavigationTest {
         awaitFocus(compactNavigation, () -> {
             JPopupMenu popup = compactNavigation.getComponentPopupMenu();
             assertTrue(popup.isShowing()); assertSame(popupItem(popup, 10), selectedMenuElement());
-            menuKey(KeyEvent.VK_DOWN); assertSame(popupItem(popup, 7), selectedMenuElement());
+            menuKey(KeyEvent.VK_DOWN); assertSame(popupItem(popup, 8), selectedMenuElement());
             assertSelectedPage(10);
             menuKey(KeyEvent.VK_ESCAPE);
             assertFalse(popup.isVisible()); assertEquals("Escape must not navigate", 10, shell.getSelectedPage());
@@ -172,7 +173,7 @@ public class WorkspaceShellNavigationTest {
                 assertTrue("The menu remains a usable desktop target", menu.getHeight() >= 32);
                 invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK));
                 JPopupMenu popup = menu.getComponentPopupMenu();
-                assertTrue(popup.isVisible()); assertEquals("Every destination is listed", 14, popupPages(popup).size());
+                assertTrue(popup.isVisible()); assertEquals("Every destination is listed", 12, popupPages(popup).size());
                 invokeKey(frame.getRootPane(), JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0));
                 for (int page : popupPages(popup)) {
                     JMenuItem destination = popupItem(popup, page);
@@ -267,7 +268,7 @@ public class WorkspaceShellNavigationTest {
                     assertEquals("Exact offscreen client geometry", geometry, fixture[0].getSize());
                     for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                         AbstractButton target = (AbstractButton) find(fixture[0], "nav-" + i);
-                        if (i == 6) { assertFalse("Build has no sidebar row", target.isVisible()); continue; }
+                        if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", target.isVisible()); continue; }
                         Insets insets = target.getInsets();
                         Rectangle available = new Rectangle(insets.left, insets.top,
                             target.getWidth() - insets.left - insets.right, target.getHeight() - insets.top - insets.bottom);
@@ -282,7 +283,7 @@ public class WorkspaceShellNavigationTest {
                         int limit = viewport != null ? viewport.getExtentSize().width : target.getParent().getWidth();
                         assertTrue("No horizontal sidebar clipping", target.getWidth() <= limit);
                         if (font == 13 && geometry.width == 1240)
-                            assertEquals("All fourteen rows fit the exact desktop client with Advanced open", target.getHeight(), target.getVisibleRect().height);
+                            assertEquals("All twelve rows fit the exact desktop client with Advanced open", target.getHeight(), target.getVisibleRect().height);
                     }
                     System.out.println("Offscreen shell geometry: " + geometry + ", theme=" + laf.getName() + ", font=" + font);
                 });
@@ -408,7 +409,7 @@ public class WorkspaceShellNavigationTest {
             assertEquals("Visible content page " + i, i == selected, pages[i].isShowing());
             assertEquals("Selected navigation row " + i, i == selected, button("nav-" + i).isSelected());
             JMenuItem item = popupItem(popup, i);
-            if (i == 6) assertNull("Build is never in the compact menu", item);
+            if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) assertNull("Build, Statistics and DPS Logger are never in the compact menu", item);
             else assertEquals("Selected popup destination " + i, i == selected, item.isSelected());
         }
     }

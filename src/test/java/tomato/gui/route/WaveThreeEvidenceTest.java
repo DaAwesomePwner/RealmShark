@@ -78,7 +78,7 @@ public class WaveThreeEvidenceTest {
         run(() -> {
             // Leaving the page by the sidebar names the routed origin again; the stack and token are unchanged.
             shell.select(4);
-            assertEquals("Back to Runs", named(shell, "navigate-back", JButton.class).getText());
+            assertEquals("Back to Runs & DPS", named(shell, "navigate-back", JButton.class).getText());
             assertEquals(token, navigator[0].backToken());
             shell.select(10);
             assertEquals(WorkspaceShell.BACK_TO_PREVIOUS_VIEW, named(shell, "navigate-back", JButton.class).getText());
