@@ -60,7 +60,7 @@ final class PlanCardRenderer extends JComponent implements ListCellRenderer<Plan
     static String details(PlanCardModel card) {
         StringBuilder text = new StringBuilder(card.repeats());
         if (!card.requirementsKnown()) text.append(" · Requirements not captured");
-        for (PlanCardModel.Row row : card.rows()) text.append(" · ").append(row.name()).append(" (#").append(row.itemId()).append("): ").append(row.numbers());
+        for (PlanCardModel.Row row : card.rows()) text.append(" · ").append(row.label()).append(": ").append(row.numbers());
         return text.append(" · Available stock is manually confirmed held stock only").toString();
     }
 

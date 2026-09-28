@@ -272,9 +272,10 @@ public class QuestsEvidenceTest {
             assertTrue("Analyst: the Cards/Table toggle shows", VisualEvidence.named(shell, "quest-plan-view", JComponent.class).isShowing());
             JComboBox<?> list = VisualEvidence.named(shell, "quest-plan-account", JComboBox.class);
             assertTrue("The account list shows", inView(list));
-            // Recorded, not asserted (a finding for the coordinator): the list is as wide as the 64-character account key.
-            System.out.println("p4-planner-top-680-18-analyst: account list " + list.getWidth() + " px wide (preferred " + list.getPreferredSize().width
-                + "), " + list.getVisibleRect().width + " px of it visible");
+            // The 64-character account key is cut by the renderer: the list and its drop-down arrow stay whole inside the row.
+            assertEquals("The whole account list shows: " + list.getWidth() + " px wide (preferred " + list.getPreferredSize().width + ")",
+                list.getWidth(), list.getVisibleRect().width);
+            assertEquals("The tooltip keeps the whole key", ACCOUNT, list.getToolTipText());
             assertTrue(text("quest-plan-status").endsWith("Verified snapshot available for import/reconfirmation."));
         });
         planner("planner-stock", 1240, 800, 13, SIMPLE, ACCOUNT, () -> VisualEvidence.named(shell, "collapsible-quest-plan-stock", AbstractButton.class).doClick(),

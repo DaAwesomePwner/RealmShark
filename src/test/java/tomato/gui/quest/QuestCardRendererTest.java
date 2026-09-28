@@ -104,6 +104,30 @@ public class QuestCardRendererTest {
         });
     }
 
+    /** A type-label section's renderer paints no type chip (its header names the type); the card is otherwise the same and reads the same. */
+    @Test public void aRendererWithoutTheChipPaintsTheSameCardWithoutItAndAnnouncesTheType() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            QuestCardRenderer typed = new QuestCardRenderer((id, size) -> null, false);
+            JList<QuestCardModel> list = new JList<>();
+            typed.getListCellRendererComponent(list, full(), 0, false, false);
+            Lines lines = QuestCardRenderer.lines(full());
+            assertEquals("No chip in a type section", "", typed.shown().chip());
+            assertEquals("Everything else as painted elsewhere", new Lines(lines.pin(), lines.title(), lines.badges(), "", lines.rewardsTitle(),
+                lines.rewards(), lines.rewardsMore(), lines.rewardsNote(), lines.requirementsTitle(), lines.requirements(), lines.requirementsMore(),
+                lines.requirementsNote()), typed.shown());
+            assertEquals("The accessible name keeps the type", QuestCardRenderer.accessibleName(full()), typed.getAccessibleContext().getAccessibleName());
+            assertEquals("The cell does not change", new QuestCardRenderer((id, size) -> null).cellSize(), typed.cellSize());
+            QuestCardRenderer chip = new QuestCardRenderer((id, size) -> null, true);
+            chip.getListCellRendererComponent(list, full(), 0, false, false);
+            assertEquals("Event", chip.shown().chip());
+            Dimension cell = typed.cellSize();
+            typed.setSize(cell);
+            BufferedImage image = new BufferedImage(cell.width, cell.height, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = image.createGraphics();
+            try { typed.paint(g); } finally { g.dispose(); }
+        });
+    }
+
     @Test public void theCellIsFixedFitsFourSlotsOfEachListAndFollowsTheFont() throws Exception {
         Font old = ContentStyle.body();
         try {

@@ -132,14 +132,34 @@ final class QuestBoard extends JPanel {
             if (section.list().getSelectedValue() != null) { section.list().requestFocusInWindow(); return; }
     }
 
+    /**
+     * Focuses the selected card's list, else the first group's list (a view switch brings keyboard focus here), and once the page is
+     * laid out reveals that card; false when no card shows.
+     */
+    boolean focusCards() {
+        TileList<QuestCardModel> target = null;
+        for (QuestBoardModel.Group group : model.groups()) {
+            TileList<QuestCardModel> list = list(group.key());
+            if (list == null) continue;
+            if (list.getSelectedValue() != null) { target = list; break; }
+            if (target == null) target = list;
+        }
+        if (target == null) return false;
+        TileList<QuestCardModel> focused = target;
+        focused.requestFocusInWindow();
+        SwingUtilities.invokeLater(() -> { if (focused.isShowing()) focused.ensureIndexIsVisible(Math.max(0, focused.getSelectedIndex())); });
+        return true;
+    }
+
     /** The page scrolls the cards instead of squeezing them. */
     @Override public Dimension getMinimumSize() { return getPreferredSize(); }
 
     private Section section(String key) {
         SectionHeader header = new SectionHeader("");
         header.setName("quest-group-" + key);
-        TileList<QuestCardModel> list = new TileList<>("quest-cards-" + key, new QuestCardRenderer(sprites), QuestBoard::key,
-            QuestCardRenderer::accessibleName);
+        // A type-label section's header already names the type (QuestBoardModel's "type-<id>" keys): its cards paint no chip.
+        TileList<QuestCardModel> list = new TileList<>("quest-cards-" + key, new QuestCardRenderer(sprites, !key.startsWith("type-")),
+            QuestBoard::key, QuestCardRenderer::accessibleName);
         list.getAccessibleContext().setAccessibleDescription("Arrow keys move between quests; Enter or Space shows the quest's details");
         list.onOpen(card -> open.accept(card));
         list.addListSelectionListener(e -> {

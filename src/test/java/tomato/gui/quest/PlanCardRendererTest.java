@@ -82,6 +82,14 @@ public class PlanCardRendererTest {
         assertEquals("Exactly four rows need no \"+N more\"", "", four.note());
     }
 
+    /** A card's details (its tooltip and accessible description) name an item without an asset name once: "Unknown item #9999". */
+    @Test public void detailsNameAnUnnamedItemOnceAndANamedItemWithItsId() {
+        AccountPlan p = new AccountPlan(); p.quests.put("odd", entry("odd", 1, 9999));
+        PlanCardModel card = PlanCardModel.of(p, p.quests.get("odd"), id -> id == 1 ? "Item 1" : "Unknown item #" + id);
+        assertEquals("Repeats: 1 · Item 1 (#1): need 1 · Stock unconfirmed · Unknown item #9999: need 1 · Stock unconfirmed"
+            + " · Available stock is manually confirmed held stock only", PlanCardRenderer.details(card));
+    }
+
     @Test public void oneComponentPaintsEveryCellAndNamesTheCard() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             PlanCardRenderer renderer = new PlanCardRenderer();

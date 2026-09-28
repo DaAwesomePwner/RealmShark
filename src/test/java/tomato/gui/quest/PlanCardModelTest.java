@@ -134,6 +134,17 @@ public class PlanCardModelTest {
         assertTrue(none.rows().isEmpty());
     }
 
+    /** An item reads "Name (#id)"; a name that already ends with its id (the Board's "Unknown item #9999") shows the id once. */
+    @Test public void anItemLabelShowsItsIdOnce() {
+        assertEquals("Festival Token (#3)", PlanCardModel.label("Festival Token", 3));
+        assertEquals("Unknown item #9999", PlanCardModel.label("Unknown item #9999", 9999));
+        assertEquals("The model's own fallback name", "Unknown item (#7)", PlanCardModel.label("Unknown item", 7));
+        assertEquals("Another number is not this id", "Relic #21 (#1)", PlanCardModel.label("Relic #21", 1));
+        assertEquals("Relic #1 (#21)", PlanCardModel.label("Relic #1", 21));
+        assertEquals("Unknown item #9999", new PlanCardModel.Row(9999, "Unknown item #9999", 1, 0, null, null).label());
+        assertEquals("Mark of the Forgotten King (#1)", PlanCardModel.of(plan(), plan().quests.get("a"), NAMES).rows().get(0).label());
+    }
+
     @Test public void modelsAreImmutableValues() {
         AccountPlan p = plan();
         assertEquals("Equal inputs give equal cards (the TileList updates nothing)", PlanCardModel.cards(p, NAMES), PlanCardModel.cards(PlanData.copy(p), NAMES));
