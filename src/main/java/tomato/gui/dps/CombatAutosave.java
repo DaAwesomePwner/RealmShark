@@ -29,11 +29,18 @@ import tomato.history.encounter.CombatSettings;
  * {@link CombatRetention} at start and after each Combat history change. A read-only (preview) history saves and prunes
  * nothing. A failure is logged and counted, and the worker goes on with the next recording. A fight still open when the app
  * exits is never closed, so it is not saved.
+ *
+ * <p>Closing (the app's shutdown, before the history store closes) waits for the queued saves. A save commits its detail and
+ * record together under one lock, so once closing gives up waiting ({@value #DRAIN_MILLIS} ms) it cancels the rest with no
+ * partial state: a fight not yet committed writes neither, and deletes the full-detail file it already wrote. The same holds
+ * for a fight that finds the store already closing.
  */
 public final class CombatAutosave implements AutoCloseable {
     public static final String THREAD = "RealmShark combat history";
     /** How long closing waits for queued saves (the app's shutdown, before the history store closes). */
-    private static final long CLOSE_MILLIS = 5_000;
+    static final long DRAIN_MILLIS = 15_000;
+    /** How long closing then waits for a cancelled save to stop. */
+    private static final long STOP_MILLIS = 2_000;
     /** Java serialization recurses through the hit graph: a long Realm recording needs a deep stack. */
     private static final long STACK_BYTES = 64L << 20;
     private static volatile CombatAutosave installed;
@@ -42,7 +49,14 @@ public final class CombatAutosave implements AutoCloseable {
     private final Supplier<CombatSettings.Values> settings;
     private final LongSupplier clock;
     private final ThreadPoolExecutor worker;
-    private final Cancellation cancel = new Cancellation();
+    /** Stops a running prune at once when closing: pruning can wait for the next start. */
+    private final Cancellation pruneCancel = new Cancellation();
+    /** Guards each save's commit (its detail and record puts) against closing's cancellation. */
+    private final Object commit = new Object();
+    private boolean savesCancelled;   // guarded by commit
+    private final long drainMillis;
+    /** Test hook: runs after a save wrote its full detail (if any), just before it commits. */
+    Runnable beforeCommit = () -> { };
     private final AtomicBoolean pruneQueued = new AtomicBoolean();
     private final AtomicInteger failures = new AtomicInteger();
     private final Runnable pruneOnChange = this::prune;
@@ -51,6 +65,12 @@ public final class CombatAutosave implements AutoCloseable {
 
     /** @param settings read on the worker for each save and prune; {@code clock} dates pruning (epoch ms) */
     public CombatAutosave(SessionStore store, Supplier<CombatSettings.Values> settings, LongSupplier clock) {
+        this(store, settings, clock, DRAIN_MILLIS);
+    }
+
+    /** Tests: {@code drainMillis} is how long {@link #close} waits for queued saves before it cancels the rest. */
+    CombatAutosave(SessionStore store, Supplier<CombatSettings.Values> settings, LongSupplier clock, long drainMillis) {
+        this.drainMillis = drainMillis;
         this.store = Objects.requireNonNull(store, "store");
         this.settings = Objects.requireNonNull(settings, "settings");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -113,38 +133,75 @@ public final class CombatAutosave implements AutoCloseable {
         catch (ExecutionException impossible) { return true; }
     }
 
-    /** Stops taking work, stops a running prune, and waits a few seconds for queued saves. */
+    /**
+     * Stops taking work and stops a running prune, then waits for the queued saves before the store closes. After
+     * {@value #DRAIN_MILLIS} ms it cancels the rest: queued fights are dropped and a fight being saved commits nothing (see the
+     * class notes), so the store never receives half a fight.
+     */
     @Override public void close() {
         if (closed) return;
         closed = true;
         CombatSettings.removeOnChange(pruneOnChange);
         if (installed == this) installed = null;
-        cancel.cancel();
+        pruneCancel.cancel();
         worker.shutdown();
         try {
-            if (!worker.awaitTermination(CLOSE_MILLIS, TimeUnit.MILLISECONDS))
-                System.err.println(THREAD + ": closing before every queued fight was saved");
-        } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (worker.awaitTermination(drainMillis, TimeUnit.MILLISECONDS)) return;
+            cancelSaves();
+            int dropped = worker.shutdownNow().size();
+            worker.awaitTermination(STOP_MILLIS, TimeUnit.MILLISECONDS);
+            System.err.println(THREAD + ": closing before every fight was saved; " + dropped + " queued fight(s) and any fight being"
+                + " saved were cancelled without partial files");
+        } catch (InterruptedException e) {
+            cancelSaves();
+            worker.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
+
+    /** From now on a save that has not committed writes nothing (it deletes a full-detail file it wrote). */
+    void cancelSaves() { synchronized (commit) { savesCancelled = true; } }
+
+    private boolean savesCancelled() { synchronized (commit) { return savesCancelled; } }
 
     private void save(DpsData data) {
         String id = data.getRecordingId();
-        if (id == null || id.isEmpty()) return;   // cannot be keyed; capture's recordings always have one
+        if (id == null || id.isEmpty() || savesCancelled()) return;   // unkeyed (capture's recordings always have one), or closing
+        Path full = null;
         try {
             boolean keepFull = settings.get().keepFullDetail();
             CombatSummaries.Result result = CombatSummaries.build(data);
+            if (savesCancelled()) return;
             CombatRecord record = result.record();
-            record.fullDetail = keepFull && writeFullDetail(data, id);   // written before the record that announces it
-            store.put(CombatFacts.DETAILS, id, result.detail());   // the detail first: a readable record finds its detail
-            store.put(CombatFacts.RECORDS, id, record);
-        } catch (RuntimeException | StackOverflowError e) { failure("A closed fight could not be saved", e); }
+            full = keepFull ? writeFullDetail(data, id) : null;   // written before the record that announces it
+            record.fullDetail = full != null;
+            beforeCommit.run();
+            synchronized (commit) {
+                // Cancelled by closing, or the store is already closing (its puts would be dropped): nothing is committed.
+                if (savesCancelled || store.currentDirectory().isEmpty()) { discard(full); return; }
+                store.put(CombatFacts.DETAILS, id, result.detail());   // the detail first: a readable record finds its detail
+                store.put(CombatFacts.RECORDS, id, record);
+            }
+        } catch (RuntimeException | StackOverflowError e) {
+            discard(full);
+            failure("A closed fight could not be saved", e);
+        }
     }
 
-    private boolean writeFullDetail(DpsData data, String id) {
+    /** The full-detail file written, or null when the store is closing or the write failed (logged). */
+    private Path writeFullDetail(DpsData data, String id) {
         Optional<Path> session = store.currentDirectory();
-        if (session.isEmpty()) return false;   // the store is closing
-        try { write(fullDetailFile(session.get(), id), data.getSaveFile(false)); return true; }
-        catch (IOException | RuntimeException | StackOverflowError e) { failure("Full combat detail could not be saved", e); return false; }
+        if (session.isEmpty()) return null;   // the store is closing
+        Path target = fullDetailFile(session.get(), id);
+        try { write(target, data.getSaveFile(false)); return target; }
+        catch (IOException | RuntimeException | StackOverflowError e) { failure("Full combat detail could not be saved", e); return null; }
+    }
+
+    /** Deletes a full-detail file whose fight was not committed, so no file outlives its missing record. */
+    private void discard(Path full) {
+        if (full == null) return;
+        try { Files.deleteIfExists(full); }
+        catch (IOException e) { failure("An uncommitted full combat detail file could not be deleted", e); }
     }
 
     /** Java serialization of one recording (the {@code .dps} format), staged beside the target and moved into place. */
@@ -161,7 +218,7 @@ public final class CombatAutosave implements AutoCloseable {
     }
 
     private void runPrune() {
-        try { lastPrune = CombatRetention.prune(store, settings.get(), clock.getAsLong(), cancel); }
+        try { lastPrune = CombatRetention.prune(store, settings.get(), clock.getAsLong(), pruneCancel); }
         catch (CancellationException stopped) { /* closing */ }
         catch (IOException | RuntimeException e) { failure("Combat history could not be pruned", e); }
     }

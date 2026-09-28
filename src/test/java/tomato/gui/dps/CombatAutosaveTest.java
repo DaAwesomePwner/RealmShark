@@ -72,6 +72,83 @@ public class CombatAutosaveTest {
         return null;
     }
 
+    private static void awaitQuietly(CountDownLatch latch, long millis) {
+        try { latch.await(millis, TimeUnit.MILLISECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+    }
+    /** Every file the session holds for {@code id}: its record, its detail and its full detail. */
+    private static List<Path> savedFiles(Path session, String id) {
+        String name = SessionStore.checkpointName(id);
+        List<Path> found = new ArrayList<>();
+        for (Path file : List.of(session.resolve(CombatFacts.RECORDS).resolve(name + ".json"),
+                session.resolve(CombatFacts.DETAILS).resolve(name + ".json"), CombatAutosave.fullDetailFile(session, id)))
+            if (Files.exists(file)) found.add(file);
+        return found;
+    }
+
+    /** Shutdown: closing waits for the queued fights, so they are saved before the history store closes. */
+    @Test public void closeWaitsForQueuedSavesBeforeTheStoreCloses() throws Exception {
+        SessionStore store = store(true);
+        CountDownLatch release = new CountDownLatch(1);
+        CombatAutosave autosave = new CombatAutosave(store, () -> { awaitQuietly(release, 5_000); return SUMMARIES; },
+            System::currentTimeMillis, 10_000);
+        closing.add(autosave);
+        DpsData first = fight(store, "v1"), second = fight(store, "v2");
+        autosave.submit(first); autosave.submit(second);
+        Thread slow = new Thread(() -> { try { Thread.sleep(400); } catch (InterruptedException e) { return; } release.countDown(); });
+        slow.start();
+        long started = System.nanoTime();
+        autosave.close();
+        assertTrue("close waited for the slow save", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) >= 300);
+        assertNotNull("queued fights are saved before close returns", record(store, first.getRecordingId()));
+        assertNotNull(record(store, second.getRecordingId()));
+    }
+
+    /** Closing gives up after its drain: the fight being saved and the queued one leave no record, detail or full detail. */
+    @Test public void fightsNotSavedWhenClosingGivesUpLeaveNoPartialFiles() throws Exception {
+        SessionStore store = store(true);
+        Path session = store.currentDirectory().orElseThrow();
+        CountDownLatch blocked = new CountDownLatch(1), release = new CountDownLatch(1);
+        CombatAutosave autosave = new CombatAutosave(store, () -> { blocked.countDown(); awaitQuietly(release, 10_000); return FULL; },
+            System::currentTimeMillis, 100);
+        closing.add(autosave);
+        DpsData first = plainFight(store, "v1"), second = plainFight(store, "v2");
+        autosave.submit(first); autosave.submit(second);
+        assertTrue(blocked.await(5, TimeUnit.SECONDS));
+        autosave.close();   // the drain passes while the first save is blocked: both are cancelled
+        release.countDown();
+        store.flush();
+        assertEquals("The fight being saved commits nothing", List.of(), savedFiles(session, first.getRecordingId()));
+        assertEquals("The queued fight is dropped", List.of(), savedFiles(session, second.getRecordingId()));
+    }
+
+    /** A fight cancelled after its full detail was written, before it committed: the file goes too. */
+    @Test public void aFullDetailFileOfAFightCancelledBeforeItsCommitIsDeleted() throws Exception {
+        SessionStore store = store(true);
+        Path session = store.currentDirectory().orElseThrow();
+        CombatAutosave autosave = autosave(store, () -> FULL);
+        DpsData fight = plainFight(store, "v1");
+        Path file = CombatAutosave.fullDetailFile(session, fight.getRecordingId());
+        java.util.concurrent.atomic.AtomicBoolean written = new java.util.concurrent.atomic.AtomicBoolean();
+        autosave.beforeCommit = () -> { written.set(Files.exists(file)); autosave.cancelSaves(); };
+        autosave.submit(fight);
+        assertTrue(autosave.flush(10_000));
+        store.flush();
+        assertTrue("the full detail was written before the commit", written.get());
+        assertEquals(List.of(), savedFiles(session, fight.getRecordingId()));
+    }
+
+    /** A fight that reaches its commit while the history store is closing (its puts would be dropped) commits nothing. */
+    @Test public void aFightThatFindsTheStoreClosingCommitsNothing() throws Exception {
+        SessionStore store = store(true);
+        Path session = store.currentDirectory().orElseThrow();
+        CombatAutosave autosave = autosave(store, () -> FULL);
+        DpsData fight = plainFight(store, "v1");
+        autosave.beforeCommit = store::close;
+        autosave.submit(fight);
+        assertTrue(autosave.flush(10_000));
+        assertEquals(List.of(), savedFiles(session, fight.getRecordingId()));
+    }
+
     @Test public void closedRecordingsAreSavedOnTheCombatWorkerWithoutBlockingTheProducer() throws Exception {
         SessionStore store = store(true);
         CountDownLatch release = new CountDownLatch(1);
