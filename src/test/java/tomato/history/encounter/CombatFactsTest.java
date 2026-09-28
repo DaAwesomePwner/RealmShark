@@ -95,6 +95,40 @@ public class CombatFactsTest {
         } finally { store.close(); }
     }
 
+    @Test public void readSessionDatesEachRecordByItsFileAndCountsDamagedFiles() throws Exception {
+        Path root = temp.newFolder().toPath();
+        HomeHistoryFixture.session(root, S1, T, T + 1); HomeHistoryFixture.session(root, S2, T + 10, T + 11);
+        Path dated = CombatFixtures.writeRecord(root, S1, record("dated", S1, "v-1", 3.0, null));
+        Files.setLastModifiedTime(dated, java.nio.file.attribute.FileTime.fromMillis(T - 42_000));
+        CombatFixtures.writeRecord(root, S1, record("entered", S1, "v-2", 3.0, T));
+        CombatFixtures.write(root, S1, "encounters", "newer", "{\"schemaVersion\":2,\"recordingId\":\"newer\"}");
+        CombatFixtures.write(root, S1, "encounters", "no-id", "{\"schemaVersion\":1,\"totalDamage\":5}");
+        CombatFixtures.write(root, S1, "encounters", "broken", "{\"schemaVersion\":1,\"recordingId\":");
+        CombatFixtures.write(root, S1, "encounters", "array", "[1,2,3]");
+        CombatFixtures.writeRecord(root, S2, record("other-session", S2, "v-1", 3.0, T));
+        SessionStore store = new SessionStore(root, false, "test");
+        try {
+            SessionStore.SessionEntry entry = store.catalog().stream().filter(e -> e.id.equals(S1)).findFirst().orElseThrow();
+            Map<String, Long> read = new TreeMap<>();
+            int damaged = CombatFacts.readSession(store, entry, (record, written) -> read.put(record.recordingId, written));
+            assertEquals("The same records as read(), only this session's", Set.of("dated", "entered"), read.keySet());
+            assertEquals(Long.valueOf(T - 42_000), read.get("dated"));
+            assertEquals("Damaged files are counted; newer schemas and records without an ID are not damage", 2, damaged);
+            List<String> ordered = new ArrayList<>(); readAll(store, S1).forEach(r -> ordered.add(r.recordingId));
+            List<String> same = new ArrayList<>(); CombatFacts.readSession(store, entry, (record, written) -> same.add(record.recordingId));
+            assertEquals("In read()'s file-name order", ordered, same);
+            SessionStore.SessionEntry empty = store.catalog().stream().filter(e -> e.id.equals(store.currentId())).findFirst().orElseThrow();
+            assertEquals("A session without records reads nothing", 0, CombatFacts.readSession(store, empty, (record, written) -> fail()));
+            Files.delete(root.resolve(S2).resolve("encounters").resolve(SessionStore.checkpointName("other-session") + ".json"));
+            Files.delete(root.resolve(S2).resolve("encounters")); Files.write(root.resolve(S2).resolve("encounters"), new byte[]{1});
+            SessionStore.SessionEntry blocked = store.catalog().stream().filter(e -> e.id.equals(S2)).findFirst().orElseThrow();
+            assertEquals("A file where the folder should be holds no records", 0, CombatFacts.readSession(store, blocked, (record, written) -> fail()));
+            Throwable[] thrown = new Throwable[1];
+            SwingUtilities.invokeAndWait(() -> { try { CombatFacts.readSession(store, entry, (r, w) -> {}); } catch (Throwable t) { thrown[0] = t; } });
+            assertTrue(String.valueOf(thrown[0]), thrown[0] instanceof IllegalStateException);
+        } finally { store.close(); }
+    }
+
     @Test public void readingRefusesTheEventDispatchThread() throws Exception {
         SessionStore store = new SessionStore(temp.newFolder().toPath(), false, "test");
         try {
