@@ -288,21 +288,26 @@ public final class CharacterSheet extends JPanel {
     }
 
     /**
-     * The Goals tab: the cards and Manage goals scroll inside the tab, as the other card tabs do. Its minimum height stays Manage
-     * goals' own, as when that panel was the whole tab: the tab strip's minimum is its tallest tab's, and it is what the sheet page
-     * keeps for every tab before it scrolls instead of squeezing them, so moving the panel under the cards (collapsed in Simple)
-     * does not shrink the other tabs in a small window.
+     * The Goals tab: the cards, then Manage goals, with no scroll pane of their own. A scroll pane here scrolled inside the sheet
+     * page, which scrolls too, and showed two vertical scroll bars side by side (P3b evidence review). Instead the tab's minimum
+     * height follows the selection:
+     * - While Goals shows: its whole content's height, so the sheet page (the only scroller) scrolls it.
+     * - While another tab shows: Manage goals' own minimum, as when that panel was the whole tab. The tab strip's minimum is its
+     *   tallest tab's, and the sheet page keeps it for every tab before it scrolls instead of squeezing them, so every other tab
+     *   keeps the minimum height it had (Task 9's floor) and is never stretched to the goals' height.
+     * JTabbedPane revalidates on every selection change, so the sheet page measures again when Goals is chosen or left.
      */
     private JComponent goalsTab() {
-        JScrollPane scroll = SheetViews.scroll(goals);
         JPanel tab = new JPanel(new BorderLayout()) {
             @Override public Dimension getMinimumSize() {
-                Dimension own = super.getMinimumSize();
-                return new Dimension(own.width, Math.max(own.height, planning.getMinimumSize().height));
+                int floor = planning.getMinimumSize().height;
+                boolean showing = tabs.component().getSelectedComponent() == this;
+                return new Dimension(0, showing ? Math.max(floor, getPreferredSize().height) : floor);
             }
         };
         tab.setOpaque(false);
-        tab.add(scroll, BorderLayout.CENTER);
+        tab.setBorder(BorderFactory.createEmptyBorder(Tokens.S, 0, Tokens.S, 0)); // the inset SheetViews.scroll gave it
+        tab.add(goals, BorderLayout.NORTH);
         return tab;
     }
 

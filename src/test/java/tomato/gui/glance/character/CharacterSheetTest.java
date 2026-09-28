@@ -181,6 +181,61 @@ public class CharacterSheetTest {
         }
     }
 
+    /**
+     * P3b evidence review: two vertical scroll bars side by side (the Goals tab scrolled inside the scrolling sheet page). The Goals
+     * tab has no scroll pane of its own: while it shows it asks for its whole content's height and the sheet page scrolls it; while
+     * another tab shows it asks only for Manage goals' minimum, Task 9's floor, so every other tab keeps its minimum height.
+     */
+    @Test public void onlyTheSheetPageScrollsTheGoalsTabAndTheOtherTabsKeepTheirMinimum() throws Exception {
+        RosterDefinitions defs = SheetFixtures.defs();
+        try (CharacterJournal journal = journal("goal-scroll.json", 1); PlanningStore plans = PlanningStore.memory()) {
+            PlanData.AccountPlan plan = new PlanData.AccountPlan();
+            for (int stat = 0; stat < 8; stat++) SheetFixtures.statGoal(plan, ACCOUNT + ":1", stat, 20, defs, 1_000); // eight cards
+            assertTrue(plans.update(ACCOUNT, 0, plan).get().saved);
+            CharacterSheet[] shown = new CharacterSheet[1];
+            JFrame[] frame = new JFrame[1];
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST); // @After restores the mode
+                shown[0] = new CharacterSheet(new SheetContext(new TomatoData(), journal, () -> defs, DisplayModeModel.application(), () -> 5000, plans));
+                open(shown[0], ACCOUNT + ":1", "overview");
+                frame[0] = new JFrame();
+                frame[0].setContentPane(shown[0]);
+                frame[0].setSize(900, 600);
+                frame[0].setVisible(true);
+            });
+            CharacterSheet sheet = shown[0];
+            try {
+                JComponent[] parts = new JComponent[4]; // goals, its tab, the sheet page, Manage goals
+                SwingUtilities.invokeAndWait(() -> {
+                    JTabbedPane strip = named(sheet, "character-tabs", JTabbedPane.class);
+                    parts[0] = named(sheet, "character-goals", JComponent.class);
+                    Component tab = parts[0];
+                    while (tab.getParent() != strip) tab = tab.getParent();
+                    parts[1] = (JComponent) tab;
+                    parts[2] = named(sheet, "character-sheet-scroll", JScrollPane.class);
+                    parts[3] = (JComponent) SwingUtilities.getAncestorOfClass(tomato.gui.character.CharacterPlanningPanel.class,
+                        named(sheet, "planning-0", JComboBox.class));
+                    assertSame("Only the sheet page scrolls the Goals tab", parts[2], SwingUtilities.getAncestorOfClass(JScrollPane.class, parts[0]));
+                    assertEquals("Another tab shows: Manage goals' minimum only (Task 9's floor), as before",
+                        parts[3].getMinimumSize().height, parts[1].getMinimumSize().height);
+                    sheet.tabs().select("goals");
+                    assertEquals("goals", sheet.selectedTab());
+                });
+                await(() -> parts[0].getHeight() > 0 && parts[1].getMinimumSize().height >= parts[0].getPreferredSize().height
+                    && parts[0].getHeight() >= parts[0].getPreferredSize().height);
+                SwingUtilities.invokeAndWait(() -> {
+                    assertTrue("Goals shows: its whole content is laid out and taller than Manage goals' floor",
+                        parts[1].getMinimumSize().height > parts[3].getMinimumSize().height);
+                    assertTrue("…so the sheet page scrolls it", ((JScrollPane) parts[2]).getVerticalScrollBar().isVisible());
+                    sheet.tabs().select("overview");
+                    assertEquals("Back on another tab: the floor again", parts[3].getMinimumSize().height, parts[1].getMinimumSize().height);
+                });
+            } finally {
+                SwingUtilities.invokeAndWait(frame[0]::dispose);
+            }
+        }
+    }
+
     @Test public void headerHasTheBackLinkIdentityAndMarkDeadShowsTheDeathTab() throws Exception {
         try (CharacterJournal journal = journal("header.json", 7)) {
             SwingUtilities.invokeAndWait(() -> {
