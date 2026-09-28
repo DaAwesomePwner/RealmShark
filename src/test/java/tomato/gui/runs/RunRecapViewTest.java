@@ -1,6 +1,7 @@
 package tomato.gui.runs;
 
 import java.awt.*;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
@@ -8,6 +9,7 @@ import org.junit.*;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.activity.CombatTimelineChart;
 import tomato.gui.kit.*;
+import tomato.gui.modern.DisplayFormat;
 import tomato.gui.route.Destination;
 import tomato.gui.route.Route;
 import tomato.gui.stats.LootFacts;
@@ -128,7 +130,7 @@ public class RunRecapViewTest {
             assertEquals("Completed", outcome.getText());
             assertEquals(Tokens.Tone.GOOD, outcome.tone());
             assertTrue(text(view, "run-recap-entered"), text(view, "run-recap-entered").startsWith("Entered "));
-            assertEquals("Observed 9m 51s", text(view, "run-recap-duration"));
+            assertEquals("The card's observed span", "9 m observed", text(view, "run-recap-duration"));
             assertTrue(named(view, "run-recap-duration", JLabel.class).getToolTipText().contains("not a verified clear time"));
             assertEquals("Party 4", text(view, "run-recap-party"));
             assertEquals("Wizard #3", text(view, "run-recap-character"));
@@ -332,6 +334,148 @@ public class RunRecapViewTest {
         assertEquals("", RunRecapView.LootLine.kinds(List.of(new LootFacts.Item(6, false, false, true, false))));
         assertEquals("3 items in 2 bags · 1 UT · 2 potions", RunRecapView.LootLine.section(3, 2, "1 UT · 2 potions"));
         assertEquals("1 item in 1 bag", RunRecapView.LootLine.section(1, 1, ""));
+    }
+
+    /** The header writes the entry time and the observed span as the run's card does; the tooltips keep the exact values. */
+    @Test public void theHeaderWritesTheEntryTimeAndObservedSpanAsTheCardDoes() throws Exception {
+        ZoneId zone = ZoneId.systemDefault();
+        long now = T0 + 600_000;
+        assertEquals("Entered " + RunCardRenderer.time(T0, zone, now), RunRecapView.entered(T0, zone, now));
+        long yesterday = now - 86_400_000L;
+        assertEquals("Entered yesterday " + RunCardRenderer.time(yesterday, zone, now).substring("Yesterday ".length()),
+            RunRecapView.entered(yesterday, zone, now));
+        long older = now - 5 * 86_400_000L;
+        assertEquals("Entered " + RunCardRenderer.time(older, zone, now), RunRecapView.entered(older, zone, now));
+        SwingUtilities.invokeAndWait(() -> {
+            RunRecapView view = view(full(REF, RunOutcome.COMPLETED, 1));
+            assertEquals("The card's clock", "Entered " + RunCardRenderer.time(T0, zone, now), text(view, "run-recap-entered"));
+            String when = named(view, "run-recap-entered", JLabel.class).getToolTipText();
+            assertTrue("The full timestamp stays in the tooltip: " + when, when.contains(DisplayFormat.formatTimestamp(T0)));
+            assertEquals("The card's duration", RunFeedModel.duration(591_000L) + " observed", text(view, "run-recap-duration"));
+            String span = named(view, "run-recap-duration", JLabel.class).getToolTipText();
+            assertTrue("The exact span stays in the tooltip: " + span, span.contains(KitFormat.duration(591_000L)));
+        });
+    }
+
+    /** At any compact width the header's facts wrap between facts, and a "·" never ends (or starts) a line. */
+    @Test public void aWrappedHeaderNeverEndsALineWithASeparator() throws Exception {
+        RunRecapView[] view = new RunRecapView[1];
+        SwingUtilities.invokeAndWait(() -> view[0] = view(full(REF, RunOutcome.COMPLETED, 1)));
+        boolean wrapped = false;
+        for (int width : new int[] {300, 340, 380, 420, 460, 500, 540, 580, 620, 680}) {
+            SwingUtilities.invokeAndWait(() -> evidence.show(view[0], "Run recap", width, 520, 18));
+            evidence.settle();
+            List<String> lines = RunFeedViewTest.edt(() -> { if (width == 380) evidence.capture("recap-header-380-18"); return view[0].factLines(); });
+            for (String line : lines)
+                assertFalse(width + " px: a separator ends or starts a line: " + lines, line.endsWith("·") || line.startsWith("·"));
+            assertEquals(width + " px: every fact, in order", String.join(" · ", "Entered " + RunCardRenderer.time(T0, ZoneId.systemDefault(), T0 + 600_000),
+                "9 m observed", "Party 4", "Wizard #3"), String.join(" · ", lines));
+            wrapped |= lines.size() > 1;
+        }
+        assertTrue("The facts wrap at some width", wrapped);
+    }
+
+    /** The Loot line adds only notable kinds to "N items in M bags", never the run summary's "N items" fallback. */
+    @Test public void theLootLineAddsOnlyNotableKinds() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RunRecapModel base = full(REF, RunOutcome.COMPLETED, 1);
+            RunRecapModel.Loot plain = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0, List.of(new LootFacts.Item(7, false, false, false, false)))),
+                1, "1 item", null);
+            RunRecapView view = view(new RunRecapModel(REF, null, base.capturedAt(), base.header(), base.tiles(), base.damage(), plain,
+                base.players(), base.resources(), base.timeline(), base.evidence()));
+            assertEquals("1 item in 1 bag", text(view, "run-recap-loot-summary"));
+            view.show(base);
+            assertEquals("3 items in 2 bags · 1 UT · 2 potions", text(view, "run-recap-loot-summary"));
+        });
+    }
+
+    /** Loot and Players rows give their labels the section's widest label width, so the item slots line up from row to row. */
+    @Test public void itemSlotsLineUpFromRowToRow() throws Exception {
+        for (String id : new String[] {"loot", "players"}) PropertiesManager.setProperties(Collapsible.PREFIX + "run-recap-" + id, "true");
+        RunRecapView[] view = new RunRecapView[1];
+        SwingUtilities.invokeAndWait(() -> view[0] = view(full(REF, RunOutcome.COMPLETED, 1)));
+        for (int[] size : new int[][] {{1240, 800, 13}, {680, 520, 18}}) {
+            SwingUtilities.invokeAndWait(() -> evidence.show(view[0], "Run recap", size[0], size[1], size[2]));
+            evidence.settle();
+            SwingUtilities.invokeAndWait(() -> {
+                for (String[] rows : new String[][] {{"run-recap-loot-bags", "run-recap-loot-bag"}, {"run-recap-player-rows", "run-recap-player"}}) {
+                    JComponent column = named(view[0], rows[0], JComponent.class);
+                    List<Integer> starts = new ArrayList<>();
+                    for (Component row : column.getComponents()) {
+                        if (!rows[1].equals(row.getName())) continue;
+                        ItemSlot first = VisualEvidence.find((Container) row, ItemSlot.class, slot -> true);
+                        starts.add(SwingUtilities.convertPoint(first.getParent(), first.getLocation(), column).x);
+                    }
+                    assertEquals(rows[1] + " rows", 2, starts.size());
+                    assertEquals(size[0] + " px: the first slot of each " + rows[1] + " row starts at one x: " + starts, 1, new HashSet<>(starts).size());
+                }
+                nothingSideways(view[0], "slots-" + size[0]);
+            });
+        }
+    }
+
+    /** A failed read has its own state: "This run could not be read", the reason as its body and the same way back. */
+    @Test public void aFailedReadIsNotShownAsAMissingRun() throws Exception {
+        String reason = "This run could not be read from saved history: synthetic read failure. Nothing else is shown in its place; open it again to retry.";
+        int[] back = {0};
+        RunRecapView[] view = new RunRecapView[1];
+        SwingUtilities.invokeAndWait(() -> {
+            view[0] = new RunRecapView(mode);
+            view[0].onBack(() -> back[0]++);
+            view[0].show(RunRecapModel.unavailable(REF, reason, T0));
+            evidence.show(view[0], "Run recap", 1240, 800, 13);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            EmptyState shown = VisualEvidence.find(view[0], EmptyState.class, Component::isVisible);
+            assertEquals("This run could not be read", shown.getAccessibleContext().getAccessibleName());
+            assertEquals(reason, shown.getAccessibleContext().getAccessibleDescription());
+            assertTrue(shown.isShowing());
+            assertFalse(shows(view[0], "run-recap-content"));
+            evidence.capture("recap-failed-1240-13");
+            VisualEvidence.find(shown, AbstractButton.class, button -> true).doClick();
+            assertEquals("The same back action", 1, back[0]);
+
+            view[0].show(RunRecapModel.unavailable(REF, "Linked visit unavailable: synthetic reason.", T0));
+            shown = VisualEvidence.find(view[0], EmptyState.class, Component::isVisible);
+            assertEquals("A run that is not saved keeps its title", RunRecapView.UNAVAILABLE_TITLE, shown.getAccessibleContext().getAccessibleName());
+        });
+    }
+
+    /**
+     * The meter's rank column is narrow and the Player column takes the width beyond the columns' kinds: at 680×520 font 18 the
+     * rank, player, damage and DPS show without scrolling the meter's columns; at 1240×800 font 13 every header is whole. The shell's
+     * sidebar takes about 88 px of a 680 px window (the evidence's meter viewport is 552 px), so this bare frame is 592 px wide.
+     */
+    @Test public void theMeterShowsRankPlayerDamageAndDpsAtCompactWidthWithReadableHeaders() throws Exception {
+        RunRecapView[] view = new RunRecapView[1];
+        SwingUtilities.invokeAndWait(() -> view[0] = view(full(REF, RunOutcome.COMPLETED, 2)));
+        for (int[] size : new int[][] {{592, 520, 18}, {1240, 800, 13}}) {
+            SwingUtilities.invokeAndWait(() -> evidence.show(view[0], "Run recap", size[0], size[1], size[2]));
+            evidence.settle();
+            SwingUtilities.invokeAndWait(() -> {
+                JTable meter = named(view[0], "run-recap-meter", JTable.class);
+                JScrollPane scroll = named(view[0], "run-recap-meter-scroll", JScrollPane.class);
+                if (size[0] < 600) assertTrue("As narrow as the shell's meter at 680 px: " + scroll.getViewport().getWidth(), scroll.getViewport().getWidth() <= 560);
+                Rectangle dps = meter.getCellRect(0, 3, true);
+                assertTrue(size[0] + " px: #, Player, Damage and DPS show without scrolling the columns: DPS ends at " + dps.getMaxX() + " in a "
+                    + scroll.getViewport().getWidth() + " px viewport", dps.getMaxX() <= scroll.getViewport().getWidth());
+                int rank = meter.getColumnModel().getColumn(0).getWidth(), digits = meter.getFontMetrics(meter.getFont()).stringWidth("0000") + 16;
+                assertTrue(size[0] + " px: a narrow rank column: " + rank + " > " + digits, rank <= digits);
+                for (int c = 0; c < meter.getColumnCount(); c++) {
+                    javax.swing.table.TableColumn column = meter.getColumnModel().getColumn(c);
+                    int header = meter.getTableHeader().getDefaultRenderer().getTableCellRendererComponent(meter, column.getHeaderValue(), false, false, -1, c)
+                        .getPreferredSize().width;
+                    assertTrue(size[0] + " px: header " + column.getHeaderValue() + " is whole: " + column.getWidth() + " < " + header, column.getWidth() >= header);
+                }
+                if (size[0] == 1240) {
+                    assertTrue("The meter fills the section", meter.getWidth() == scroll.getViewport().getWidth());
+                    int player = meter.getColumnModel().getColumn(1).getWidth();
+                    for (int c = 2; c < meter.getColumnCount(); c++)
+                        assertTrue("Player takes the extra width: " + player + " vs column " + c, player > meter.getColumnModel().getColumn(c).getWidth());
+                }
+            });
+        }
     }
 
     @Test public void fitsAt680By520WithFont18WithoutScrollingSideways() throws Exception {

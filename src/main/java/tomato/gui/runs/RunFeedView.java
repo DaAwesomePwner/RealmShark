@@ -40,7 +40,8 @@ import util.PropertiesManager;
  *   {@code run-feed-outcome-<name>} and the dungeon {@code run-feed-map}; ⋯ Refresh), the summary line {@code run-feed-summary},
  *   a warn line {@code run-feed-issues} when saved sessions could not be read fully, then one kit SectionHeader and TileList per
  *   day ({@code run-feed-day-<yyyy-MM-dd>}), "Load more" ({@code run-feed-load-more}) while more runs match, or one empty state (saved
- *   history unavailable, loading, unreadable, no saved runs, no matches).
+ *   history unavailable, loading, unreadable, no saved runs, no matches: a title and one sentence on the page's left edge) in
+ *   place of the summary line.
  * - Reads run on one daemon worker ("RealmShark run feed") through {@link RunFeedSource}, never on the EDT: a newer request
  *   cancels the older one and only the newest result is applied (a generation guard). The feed reads when the Cards view first
  *   shows; afterwards showing it again, and a check every {@value #POLL_MILLIS} ms while it shows, compare the store's stamp
@@ -461,7 +462,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         more.setVisible(model != null && model.more() && !unavailable);
         more.setEnabled(!loadingMore && !loading);
         more.setText(loadingMore ? "Loading more…" : "Load more");
-        summary.setText(summaryText(model));
+        summary.setText(summaryText(model));   // hidden below while an empty state says what there is
         List<String> warnings = new ArrayList<>();
         if (failure != null && model != null)
             warnings.add((failedMore ? "More saved runs could not be read: " : "Saved runs could not be read again: ") + failure
@@ -471,6 +472,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         issues.setToolTipText(model == null || page.issues().isEmpty() ? null : String.join("\n", page.issues()));
         issues.setVisible(!warnings.isEmpty());
         showEmpty(model);
+        summary.setVisible(!emptyHolder.isVisible());
         revalidate();
         repaint();
     }
@@ -488,20 +490,23 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         return text.toString();
     }
 
-    /** One empty state instead of the days, or none; its title names the state, its action the next step. */
+    /**
+     * One empty state instead of the days, or none: its title names the situation, its one body sentence says what to expect or do
+     * and its action is the next step. The summary line is hidden meanwhile, so the page says it once.
+     */
     private void showEmpty(RunFeedModel model) {
         String title = null, body = null;
         KitButton action = null;
         if (unavailable) {
             title = "Saved history is unavailable";
-            body = "Runs are read from saved history, which is not open in this app run. The Table view lists this app run's runs.";
+            body = "Saved history is not open in this app run; the Table view lists this app run's runs.";
             action = button("Show the table", this::showTable);
         } else if (model == null && loading) {
             title = "Loading saved runs";
-            body = "Reading saved history. Cards appear when the read finishes.";
+            body = "Cards appear here once saved history has been read.";
         } else if (model == null && failure != null) {
             title = "Saved runs could not be read";
-            body = failure + ". Try again, or use the Table view.";
+            body = (failure.endsWith(".") ? failure.substring(0, failure.length() - 1) : failure) + "; try again, or use the Table view.";
             action = button("Try again", this::refresh);
         } else if (model != null && model.cards().isEmpty()) {
             if (query.equals(RunFeedQuery.all())) {
@@ -509,7 +514,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
                 body = "Dungeon runs appear here once they are saved (about every 10 s while capture is on).";
             } else {
                 title = "No runs match";
-                body = "No saved run matches the search and filters.";
+                body = "Change the search or clear the filters to see other saved runs.";
                 action = button("Clear filters", () -> setQuery(RunFeedQuery.all()));
             }
         }
@@ -517,7 +522,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         String key = title + "\n" + body;
         if (!key.equals(emptyKey)) {
             emptyHolder.removeAll();
-            empty = new EmptyState(title, body, action);
+            empty = new FeedEmpty(title, body, action);
             empty.setName("run-feed-empty");
             emptyHolder.add(empty, BorderLayout.CENTER);
             emptyKey = key;
@@ -577,6 +582,27 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         order = List.copyOf(keys);
         groups.revalidate();
         groups.repaint();
+    }
+
+    /**
+     * The feed's empty state on the page's left edge, as the filter bar and the day headers above it: the kit's EmptyState centers
+     * its title over a body that fills the row (and so reads left-aligned), so here the title and the action start where the
+     * body's text starts.
+     */
+    private static final class FeedEmpty extends EmptyState {
+        FeedEmpty(String title, String body, KitButton action) {
+            super(title, body, action);
+            GridBagLayout layout = (GridBagLayout) getLayout();
+            JTextArea text = null;
+            for (Component child : getComponents()) if (child instanceof JTextArea) text = (JTextArea) child;
+            int indent = text == null ? 0 : text.getInsets().left;
+            for (Component child : getComponents()) {
+                GridBagConstraints c = layout.getConstraints(child);
+                c.anchor = GridBagConstraints.LINE_START;
+                c.insets = new Insets(c.insets.top, child == text ? 0 : indent, c.insets.bottom, child == text ? c.insets.right : 0);
+                layout.setConstraints(child, c);
+            }
+        }
     }
 
     /** Muted metadata text that follows the theme. */

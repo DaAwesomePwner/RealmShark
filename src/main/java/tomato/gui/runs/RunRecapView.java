@@ -2,6 +2,7 @@ package tomato.gui.runs;
 
 import java.awt.*;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import java.util.function.Consumer;
@@ -20,24 +21,32 @@ import tomato.history.link.VisitRef;
 /**
  * The run recap (spec §6.3): one exact saved run, read by {@link RunRecapBuilder} off the EDT and applied here. It replaces the
  * workbench text as the way to read a run.
- * - "‹ Runs" ({@code run-recap-back}) is always shown, also while loading and for an unavailable run.
- * - Header: portal sprite, dungeon, outcome chip, entry time, observed span, party, character, and for an in-progress run
- *   when it was read; links "Open in Runs table", "Open in Loot" and "Open in Timeline" carry the exact visit
- *   ({@link #onOpenRoute}).
+ * - "‹ Runs" ({@code run-recap-back}) is always shown, also while loading and for an unavailable or unreadable run.
+ * - A run that is not in saved history shows {@link #UNAVAILABLE_TITLE} with the archive's wording; a run whose read failed shows
+ *   {@link #FAILED_TITLE} with the failure (a damaged file is not an absence). Both offer the way back.
+ * - Header: portal sprite, dungeon, outcome chip, entry time and observed span as the run's card writes them (the exact values in
+ *   the tooltips), party, character, and for an in-progress run when it was read, with "·" between two facts on one line only;
+ *   links "Open in Runs table", "Open in Loot" and "Open in Timeline" carry the exact visit ({@link #onOpenRoute}).
  * - A tile row ({@code run-recap-tile-<id>}): your DPS and rank, damage share, deaths, fame, loot and exalt progress; unknown is
  *   "—" with its reason as the tooltip.
  * - Collapsible sections, each remembering its state ({@code ui.collapse.run-recap-<id>}): Damage ({@link RunDamagePanel}) and
  *   Loot open, Players, Resources and Timeline closed, Evidence (the workbench's text) closed and in Analyst only. A section
- *   without content shows its one-line reason instead of hiding.
+ *   without content shows its one-line reason instead of hiding. Loot and Players rows give their labels the section's widest
+ *   label width, so the item slots line up from row to row.
  * Each section rebuilds only when its own part of the model changed. EDT only.
  */
 public final class RunRecapView extends JPanel {
     public static final String LOADING = "Loading this run…";
     public static final String UNAVAILABLE_TITLE = "This run is not in saved history";
+    /**
+     * The title of a run whose read failed. The route's worker ({@code RunsRouteTarget}) hands a failed read over as an unavailable
+     * model whose reason starts with these words ("This run could not be read from saved history: …"); that reason is the body.
+     */
+    public static final String FAILED_TITLE = "This run could not be read";
     /** Section ids; each Collapsible is named {@code run-recap-<id>} and remembers {@code ui.collapse.run-recap-<id>}. */
     public static final String DAMAGE = "damage", LOOT = "loot", PLAYERS = "players", RESOURCES = "resources", TIMELINE = "timeline",
         EVIDENCE = "evidence";
-    private static final String LOADING_CARD = "loading", UNAVAILABLE_CARD = "unavailable", RECAP_CARD = "recap";
+    private static final String LOADING_CARD = "loading", UNAVAILABLE_CARD = "unavailable", FAILED_CARD = "failed", RECAP_CARD = "recap";
     private static final String[] TILE_IDS = {RunRecapModel.Tile.DPS, RunRecapModel.Tile.SHARE, RunRecapModel.Tile.DEATHS,
         RunRecapModel.Tile.FAME, RunRecapModel.Tile.LOOT, RunRecapModel.Tile.EXALT};
     private static final String[] TILE_LABELS = {"Your DPS", "Damage share", "Deaths", "Fame", "Loot", "Exalt progress"};
@@ -50,14 +59,15 @@ public final class RunRecapView extends JPanel {
     private final CardLayout cards = new CardLayout();
     private final JPanel body = new JPanel(cards);
     private final Banner status = new Banner("run-recap-status");
-    private final EmptyState unavailable;
+    private final EmptyState unavailable, failed;
     private final JScrollPane scroll;
     // Header
     private final JLabel portal = new JLabel();
     private final KitText map = new KitText(" ", Type.title(), Tokens.Role.TEXT);
     private final Chip outcome = new Chip(" ", Tokens.Tone.NEUTRAL);
     private final KitText entered = fact("run-recap-entered"), duration = fact("run-recap-duration"), party = fact("run-recap-party"),
-        character = fact("run-recap-character"), asOf = fact("run-recap-asof"), asOfDot = dot();
+        character = fact("run-recap-character"), asOf = fact("run-recap-asof");
+    private final Facts facts = new Facts();
     private final KitButton openTable = link("Open in Runs table", "run-recap-open-table"), openLoot = link("Open in Loot", "run-recap-open-loot"),
         openTimeline = link("Open in Timeline", "run-recap-open-timeline");
     private final Map<KitButton, Route> routesByLink = new HashMap<>();
@@ -123,11 +133,10 @@ public final class RunRecapView extends JPanel {
         add(backRow, BorderLayout.NORTH);
 
         status.setText(LOADING);
-        KitButton unavailableBack = KitButton.secondary("Back to Runs");
-        unavailableBack.setName("run-recap-unavailable-back");
-        unavailableBack.addActionListener(e -> backAction.run());
-        unavailable = new EmptyState(UNAVAILABLE_TITLE, " ", unavailableBack);
+        unavailable = new EmptyState(UNAVAILABLE_TITLE, " ", backButton("run-recap-unavailable-back"));
         unavailable.setName("run-recap-unavailable");
+        failed = new EmptyState(FAILED_TITLE, " ", backButton("run-recap-failed-back"));
+        failed.setName("run-recap-failed");
 
         damage = new RunDamagePanel(mode);
         JComponent header = header();
@@ -197,6 +206,7 @@ public final class RunRecapView extends JPanel {
         body.setOpaque(false);
         body.add(status, LOADING_CARD);
         body.add(unavailable, UNAVAILABLE_CARD);
+        body.add(failed, FAILED_CARD);
         body.add(recap, RECAP_CARD);
         add(body, BorderLayout.CENTER);
         cards.show(body, LOADING_CARD);
@@ -210,7 +220,7 @@ public final class RunRecapView extends JPanel {
 
     // ---- API ----
 
-    /** What "‹ Runs" and the unavailable state's button do. */
+    /** What "‹ Runs" and the unavailable and failed states' buttons do. */
     public void onBack(Runnable action) { backAction = Objects.requireNonNull(action, "action"); }
     /** What choosing another recording in the Damage section asks for: the recording id to rebuild the model with. */
     public void onRecording(Consumer<String> listener) { damage.onRecording(listener); }
@@ -229,7 +239,10 @@ public final class RunRecapView extends JPanel {
         repaint();
     }
 
-    /** EDT: applies a model built off the EDT: the recap, or the unavailable state with the archive's wording. */
+    /**
+     * EDT: applies a model built off the EDT: the recap, the unavailable state with the archive's wording, or the failed state when
+     * the reason is a failed read ({@link #FAILED_TITLE}).
+     */
     public void show(RunRecapModel next) {
         requireEdt();
         Objects.requireNonNull(next, "model");
@@ -237,8 +250,9 @@ public final class RunRecapView extends JPanel {
         ref = next.ref();
         loading = false;
         if (!next.available()) {
-            unavailable.setBody(next.unavailable());
-            cards.show(body, UNAVAILABLE_CARD);
+            boolean unreadable = next.unavailable().startsWith(FAILED_TITLE);
+            (unreadable ? failed : unavailable).setBody(next.unavailable());
+            cards.show(body, unreadable ? FAILED_CARD : UNAVAILABLE_CARD);
             revalidate();
             repaint();
             return;
@@ -284,14 +298,8 @@ public final class RunRecapView extends JPanel {
         JPanel chip = new JPanel(new FlowLayout(FlowLayout.TRAILING, 0, 0));
         chip.setOpaque(false);
         chip.add(outcome);
-        JPanel facts = ContentStyle.controls();
-        facts.setOpaque(false);
         facts.setName("run-recap-facts");
-        KitText[] shown = {entered, duration, party, character, asOf};
-        for (int i = 0; i < shown.length; i++) {
-            if (i > 0) facts.add(i == shown.length - 1 ? asOfDot : dot());
-            facts.add(shown[i]);
-        }
+        for (KitText fact : new KitText[] {entered, duration, party, character, asOf}) facts.add(fact);
         JPanel links = ContentStyle.controls();
         links.setOpaque(false);
         links.setName("run-recap-links");
@@ -308,11 +316,13 @@ public final class RunRecapView extends JPanel {
         map.setText(h.mapName());
         outcome.setText(h.outcome().label());
         outcome.setTone(h.outcome().tone());
-        set(entered, h.entered() == null ? "Entered —" : "Entered " + DisplayFormat.formatTimestamp(h.entered()),
-            h.entered() == null ? "No entry time was saved for this run" : "When the run's area was entered");
-        set(duration, h.durationMs() == null ? "Duration —" : "Observed " + KitFormat.duration(h.durationMs()),
+        // The card's clock and span (read against the model's own time, as the feed reads against its page's); exact in the tooltip.
+        set(entered, h.entered() == null ? "Entered —" : entered(h.entered(), ZoneId.systemDefault(), next.capturedAt()),
+            h.entered() == null ? "No entry time was saved for this run"
+                : "Entered " + DisplayFormat.formatTimestamp(h.entered()) + ", when the run's area was entered");
+        set(duration, h.durationMs() == null ? "Duration —" : RunFeedModel.duration(h.durationMs()) + " observed",
             h.durationMs() == null ? "The run's observed span is unknown"
-                : "Observed span from entry to last seen; not a verified clear time");
+                : "Observed " + KitFormat.duration(h.durationMs()) + " from entry to last seen; not a verified clear time");
         set(party, h.partySize() == null ? "Party —" : "Party " + h.partySize(),
             h.partySize() == null ? "Party not observed" : "The observed RotMG party");
         set(character, h.character() == null ? "Character —" : h.character(),
@@ -322,12 +332,23 @@ public final class RunRecapView extends JPanel {
         set(asOf, live ? "Read at " + DisplayFormat.formatTimestamp(Instant.ofEpochMilli(next.capturedAt()), DisplayFormat.TimestampMode.TIME) : " ",
             live ? "An in-progress run is read from its saved checkpoint (about every 10 s); open it again for newer facts" : null);
         asOf.setVisible(live);
-        asOfDot.setVisible(live);
         VisitRef exact = next.ref();
         route(openTable, ActivityRoutes.visit(Destination.RUNS, exact));
         route(openLoot, ActivityRoutes.visit(Destination.LOOT, exact));
         route(openTimeline, ActivityRoutes.visit(Destination.TIMELINE, exact));
     }
+
+    /**
+     * "Entered 14:32" today, "Entered yesterday 22:10", else "Entered 13 Jan 14:32": the run card's clock
+     * ({@link RunCardRenderer#time}) in {@code zone} on {@code now}'s day.
+     */
+    static String entered(long entered, ZoneId zone, long now) {
+        String time = RunCardRenderer.time(entered, zone, now);
+        return "Entered " + (time.startsWith("Yesterday ") ? "yesterday " + time.substring("Yesterday ".length()) : time);
+    }
+
+    /** The header facts as laid out, one string per line with " · " between facts (tests). */
+    List<String> factLines() { return facts.lines(); }
 
     private void route(KitButton link, Route route) {
         routesByLink.put(link, route);
@@ -348,11 +369,6 @@ public final class RunRecapView extends JPanel {
         KitText fact = KitText.caption(" ");
         fact.setName(name);
         return fact;
-    }
-
-    /** The separator between two header facts. */
-    private static KitText dot() {
-        return KitText.caption("·");
     }
 
     private static void set(KitText label, String text, String tooltip) {
@@ -378,14 +394,18 @@ public final class RunRecapView extends JPanel {
         if (loot.equals(shownLoot)) return;
         shownLoot = loot;
         boolean any = !loot.bags().isEmpty();
-        lootSummary.setText(any ? LootLine.section(loot.count(), loot.bags().size(), loot.summary()) : " ");
+        // Only the notable kinds follow "N items in M bags" (the run summary's "N items" fallback would repeat the count).
+        List<LootFacts.Item> items = new ArrayList<>();
+        for (RunRecapModel.Loot.Bag bag : loot.bags()) items.addAll(bag.items());
+        lootSummary.setText(any ? LootLine.section(loot.count(), loot.bags().size(), LootLine.kinds(items)) : " ");
         lootSummary.setVisible(any);
         text(lootReason, any ? null : loot.reason());
-        rebuild(lootBags, rows -> { for (RunRecapModel.Loot.Bag bag : loot.bags()) rows.add(bagRow(bag)); });
+        SlotColumns columns = new SlotColumns();
+        rebuild(lootBags, rows -> { for (RunRecapModel.Loot.Bag bag : loot.bags()) rows.add(bagRow(bag, columns)); });
         title(LOOT, any ? "Loot · " + loot.count() + (loot.count() == 1 ? " item" : " items") : "Loot");
     }
 
-    private static JComponent bagRow(RunRecapModel.Loot.Bag bag) {
+    private static JComponent bagRow(RunRecapModel.Loot.Bag bag, SlotColumns columns) {
         KitText name = KitText.body(bag.bag() == null ? "Bag" : bag.bag() + " bag");
         name.setName("run-recap-loot-bag-name");
         name.setIcon(new Dot(bag.bag()));
@@ -410,7 +430,7 @@ public final class RunRecapView extends JPanel {
         KitText summary = KitText.caption(kinds);
         summary.setName("run-recap-loot-bag-kinds");
         summary.setVisible(!kinds.isEmpty());
-        JPanel row = KitLayouts.spread(Tokens.S, lead, slots, summary);
+        JPanel row = columns.row(lead, slots, summary);
         row.setName("run-recap-loot-bag");
         row.getAccessibleContext().setAccessibleName(name.getText() + " " + time.getText() + ": " + String.join(", ", names)
             + (kinds.isEmpty() ? "" : " (" + kinds + ")"));
@@ -427,11 +447,12 @@ public final class RunRecapView extends JPanel {
         text(playersReason, any ? null : players.reason());
         playersDamageLabel.setVisible(any);
         text(playersDamageReason, any ? players.damageReason() : null);
-        rebuild(playerRows, rows -> { for (RunRecapModel.Players.Player player : players.players()) rows.add(playerRow(player, players.damageReason())); });
+        SlotColumns columns = new SlotColumns();
+        rebuild(playerRows, rows -> { for (RunRecapModel.Players.Player player : players.players()) rows.add(playerRow(player, players.damageReason(), columns)); });
         title(PLAYERS, any ? "Players · " + players.players().size() : "Players");
     }
 
-    private static JComponent playerRow(RunRecapModel.Players.Player player, String damageReason) {
+    private static JComponent playerRow(RunRecapModel.Players.Player player, String damageReason, SlotColumns columns) {
         KitText name = KitText.body(player.name() == null ? "Unnamed player" : player.name());
         name.setName("run-recap-player-name");
         name.setIcon(Sprites.sprite(player.classType(), 24));
@@ -453,7 +474,7 @@ public final class RunRecapView extends JPanel {
         KitText damage = KitText.caption("Inspect damage " + (inspect == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatInteger(inspect)));
         damage.setName("run-recap-player-damage");
         damage.setToolTipText(inspect == null ? damageReason : RunRecapModel.Players.INSPECT_DAMAGE);
-        JPanel row = KitLayouts.spread(Tokens.S, lead, slots, damage);
+        JPanel row = columns.row(lead, slots, damage);
         row.setName("run-recap-player");
         row.getAccessibleContext().setAccessibleName(name.getText() + ", " + type.getText() + ", " + damage.getText());
         return row;
@@ -483,6 +504,13 @@ public final class RunRecapView extends JPanel {
     }
 
     // ---- helpers ----
+
+    private KitButton backButton(String name) {
+        KitButton button = KitButton.secondary("Back to Runs");
+        button.setName(name);
+        button.addActionListener(e -> backAction.run());
+        return button;
+    }
 
     private static void requireEdt() { if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Show the run recap on the EDT"); }
 
@@ -546,6 +574,243 @@ public final class RunRecapView extends JPanel {
         }
         @Override public boolean getScrollableTracksViewportWidth() { return true; }
         @Override public boolean getScrollableTracksViewportHeight() { return getParent() != null && getParent().getHeight() > getPreferredSize().height; }
+    }
+
+    /**
+     * The header's facts as one wrapping line. Each fact is its own item and a "·" is painted between two facts on the same line
+     * only, so when the facts wrap (a compact window, a large font) no line ends or starts with a separator. Hidden facts take no
+     * space; the line count follows the width.
+     */
+    static final class Facts extends JPanel {
+        /** The space between two facts on one line (the "·" is painted in its middle), and between two lines. */
+        private static final String GAP = " · ";
+        private static final int LINE_GAP = 2;
+        /** The visible facts by line, as the last layout placed them. */
+        private List<List<Component>> placed = List.of();
+
+        Facts() {
+            super(null);
+            setOpaque(false);
+        }
+
+        @Override public void setBounds(int x, int y, int width, int height) {
+            boolean changed = width != getWidth();
+            super.setBounds(x, y, width, height);
+            if (changed) SwingUtilities.invokeLater(this::revalidate);   // the line count depends on this width
+        }
+
+        @Override public Dimension getPreferredSize() {
+            Insets insets = getInsets();
+            int widest = 0, height = 0;
+            List<List<Component>> lines = breaks(available());
+            for (List<Component> line : lines) {
+                widest = Math.max(widest, width(line));
+                height += (height == 0 ? 0 : LINE_GAP) + height(line);
+            }
+            return new Dimension(widest + insets.left + insets.right, height + insets.top + insets.bottom);
+        }
+
+        /** No width floor, so the header's stack never falls back to minimum sizes; the height is the wrapped one. */
+        @Override public Dimension getMinimumSize() { return new Dimension(0, getPreferredSize().height); }
+
+        @Override public void doLayout() {
+            Insets insets = getInsets();
+            List<List<Component>> lines = breaks(available());
+            int y = insets.top, gap = gap();
+            for (List<Component> line : lines) {
+                int height = height(line), x = insets.left;
+                for (Component fact : line) {
+                    Dimension size = fact.getPreferredSize();
+                    fact.setBounds(x, y + (height - size.height) / 2, size.width, size.height);
+                    x += size.width + gap;
+                }
+                y += height + LINE_GAP;
+            }
+            placed = lines;
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                Object hints = Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints");
+                if (hints instanceof Map) g.addRenderingHints((Map<?, ?>) hints);
+                g.setFont(Type.caption());
+                g.setColor(Tokens.color(Tokens.Role.TEXT_MUTED));
+                FontMetrics metrics = g.getFontMetrics();
+                for (List<Component> line : placed)
+                    for (int i = 1; i < line.size(); i++) {
+                        Component before = line.get(i - 1), after = line.get(i);
+                        int middle = (before.getX() + before.getWidth() + after.getX()) / 2;
+                        int baseline = after instanceof JComponent ? ((JComponent) after).getBaseline(after.getWidth(), after.getHeight()) : -1;
+                        g.drawString("·", middle - metrics.stringWidth("·") / 2,
+                            after.getY() + (baseline >= 0 ? baseline : (after.getHeight() - metrics.getHeight()) / 2 + metrics.getAscent()));
+                    }
+            } finally {
+                g.dispose();
+            }
+        }
+
+        /** The facts as laid out: one string per line, " · " between two facts on it. */
+        List<String> lines() {
+            List<String> lines = new ArrayList<>();
+            for (List<Component> line : placed) {
+                List<String> texts = new ArrayList<>();
+                for (Component fact : line) texts.add(((JLabel) fact).getText());
+                lines.add(String.join(GAP, texts));
+            }
+            return lines;
+        }
+
+        private int gap() { return getFontMetrics(Type.caption()).stringWidth(GAP); }
+
+        /** The visible facts line by line: a fact starts a new line when it would not fit after the previous one and a separator. */
+        private List<List<Component>> breaks(int available) {
+            List<List<Component>> lines = new ArrayList<>();
+            List<Component> line = new ArrayList<>();
+            int x = 0, gap = gap();
+            for (Component fact : getComponents()) {
+                if (!fact.isVisible()) continue;
+                int width = fact.getPreferredSize().width;
+                if (!line.isEmpty() && x + gap + width > available) { lines.add(line); line = new ArrayList<>(); x = 0; }
+                x += (line.isEmpty() ? 0 : gap) + width;
+                line.add(fact);
+            }
+            if (!line.isEmpty()) lines.add(line);
+            return lines;
+        }
+
+        private int width(List<Component> line) {
+            int width = 0;
+            for (Component fact : line) width += (width == 0 ? 0 : gap()) + fact.getPreferredSize().width;
+            return width;
+        }
+
+        private static int height(List<Component> line) {
+            int height = 0;
+            for (Component fact : line) height = Math.max(height, fact.getPreferredSize().height);
+            return height;
+        }
+
+        /** The width inside the insets: this row's own once laid out, else its parent's; unbounded before either is known. */
+        private int available() {
+            Insets insets = getInsets();
+            int width = getWidth();
+            if (width <= 0 && getParent() != null) {
+                Insets parent = getParent().getInsets();
+                width = getParent().getWidth() - parent.left - parent.right;
+            }
+            return width > 0 ? Math.max(1, width - insets.left - insets.right) : Integer.MAX_VALUE;
+        }
+    }
+
+    /**
+     * The rows of one Loot or Players section, laid out on shared columns: each row's label takes the width of the section's widest
+     * label, so every row's item slots start at one x; the note sits at the row's right end, or under the slots when it does not
+     * fit beside them. When even the section's widest slots do not fit beside the label column, every row puts its slots under its
+     * label, from the left, so the slots still line up and nothing scrolls sideways. Widths are read at layout time (they follow
+     * the font).
+     */
+    private static final class SlotColumns {
+        private final List<SlotRow> rows = new ArrayList<>();
+
+        /** A new row of this section: {@code label}, then {@code slots}, then {@code note} (hidden: no note). */
+        SlotRow row(JComponent label, JComponent slots, JComponent note) {
+            SlotRow row = new SlotRow(this, label, slots, note);
+            rows.add(row);
+            return row;
+        }
+
+        int labelWidth() {
+            int widest = 0;
+            for (SlotRow row : rows) widest = Math.max(widest, row.label.getPreferredSize().width);
+            return widest;
+        }
+
+        int slotsWidth() {
+            int widest = 0;
+            for (SlotRow row : rows) widest = Math.max(widest, row.slots.getPreferredSize().width);
+            return widest;
+        }
+    }
+
+    /** One row of a {@link SlotColumns} section. */
+    private static final class SlotRow extends JPanel {
+        private final SlotColumns columns;
+        private final JComponent label, slots, note;
+
+        SlotRow(SlotColumns columns, JComponent label, JComponent slots, JComponent note) {
+            super(null);
+            this.columns = columns;
+            this.label = label;
+            this.slots = slots;
+            this.note = note;
+            setOpaque(false);
+            add(label);
+            add(slots);
+            add(note);
+        }
+
+        @Override public void setBounds(int x, int y, int width, int height) {
+            boolean changed = width != getWidth();
+            super.setBounds(x, y, width, height);
+            if (changed) SwingUtilities.invokeLater(this::revalidate);   // the row's line count depends on this width
+        }
+
+        @Override public Dimension getPreferredSize() {
+            Insets insets = getInsets();
+            int available = available();
+            int natural = columns.labelWidth() + Tokens.S + slots.getPreferredSize().width
+                + (note.isVisible() ? Tokens.S + note.getPreferredSize().width : 0) + insets.left + insets.right;
+            return new Dimension(available > 0 ? Math.min(natural, available) : natural, place(false));
+        }
+
+        /** No width floor, so the section's column never falls back to minimum sizes; the height is the wrapped one. */
+        @Override public Dimension getMinimumSize() { return new Dimension(0, place(false)); }
+
+        @Override public void doLayout() { place(true); }
+
+        /** Places (or only measures) the row at its width; returns its height. */
+        private int place(boolean apply) {
+            Insets insets = getInsets();
+            int available = available(), width = Math.max(1, (available > 0 ? available : Integer.MAX_VALUE / 2) - insets.left - insets.right);
+            int left = insets.left, y = insets.top, gap = Tokens.S;
+            int column = Math.min(width, columns.labelWidth());
+            Dimension l = label.getPreferredSize(), s = slots.getPreferredSize(), n = note.isVisible() ? note.getPreferredSize() : null;
+            int slotsX;
+            if (column + gap + columns.slotsWidth() <= width) {
+                slotsX = column + gap;   // the label column, then the slots on its line
+            } else {
+                if (apply) label.setBounds(left, y, width, l.height);
+                y += l.height + Tokens.XS;
+                slotsX = 0;              // the label on its own line; slots from the left under it
+            }
+            boolean noteBeside = n == null || slotsX + s.width + gap + n.width <= width;
+            int line = Math.max(s.height, noteBeside && n != null ? n.height : 0);
+            if (slotsX > 0) line = Math.max(line, l.height);
+            if (apply) {
+                if (slotsX > 0) label.setBounds(left, y + (line - l.height) / 2, column, l.height);
+                slots.setBounds(left + slotsX, y + (line - s.height) / 2, Math.min(s.width, width - slotsX), s.height);
+                if (n != null && noteBeside) note.setBounds(left + width - n.width, y + (line - n.height) / 2, n.width, n.height);
+            }
+            y += line;
+            if (n != null && !noteBeside) {
+                int noteX = slotsX + n.width <= width ? slotsX : 0;   // under the slots, or from the left when that is too narrow
+                y += Tokens.XS;
+                if (apply) note.setBounds(left + noteX, y, Math.min(n.width, width - noteX), n.height);
+                y += n.height;
+            }
+            return y + insets.bottom;
+        }
+
+        /** This row's width once laid out, else its parent's; 0 before either is known. */
+        private int available() {
+            if (getWidth() > 0) return getWidth();
+            Container parent = getParent();
+            if (parent == null) return 0;
+            Insets insets = parent.getInsets();
+            return Math.max(0, parent.getWidth() - insets.left - insets.right);
+        }
     }
 
     /** A bag-colored dot beside the bag name (muted when the bag was not recorded); the name says the color too. */

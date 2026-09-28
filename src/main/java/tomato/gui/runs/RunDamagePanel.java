@@ -17,7 +17,9 @@ import tomato.gui.modern.DisplayFormat;
  * contributors). From the top: the recording picker ({@code run-recap-recording}, only with several recordings; choosing one asks
  * for a rebuilt model through {@link #onRecording}), the recording's totals, the reasons that apply (no rows, no row marked as
  * yours, no saved detail), the damage-over-time chart ({@link DamageChart}), the meter table ({@code run-recap-meter}: rank, class
- * sprite and name, damage with a bar, DPS, share, hits, max hit, taken, deaths) and the damage by source of one player
+ * sprite and name, damage with a bar, DPS, share, hits, max hit, taken, deaths; the rank column as narrow as its digits, the numbers
+ * at their ColumnKind widths and the Player column taking the section's spare width, so a compact window shows rank, player, damage
+ * and DPS before the table scrolls its other columns) and the damage by source of one player
  * ({@code run-recap-sources}). The verified local row is washed in {@link Tokens.Role#ACCENT_WASH} and named "(you)", so color is
  * not the only cue; no row is selected at first, so the wash shows, and the sources show your row (else the top row) until
  * another row is selected. Unknown values are "—" with their reason as the tooltip, never 0. EDT only.
@@ -32,7 +34,8 @@ final class RunDamagePanel extends JPanel {
     private static final int VISIBLE_ROWS = 12;
     private static final int COLUMN_RANK = 0, COLUMN_PLAYER = 1, COLUMN_DAMAGE = 2;
     private static final String[] COLUMNS = {"#", "Player", "Damage", "DPS", "Share", "Hits", "Max hit", "Taken", "Deaths"};
-    private static final ColumnKind[] KINDS = {ColumnKind.COUNT, ColumnKind.PLAYER, ColumnKind.NUMBER, ColumnKind.NUMBER, ColumnKind.PERCENT,
+    /** Column widths by kind, except the rank's (no kind is as narrow as a rank: {@link #fitRank} measures its digits). */
+    private static final ColumnKind[] KINDS = {null, ColumnKind.PLAYER, ColumnKind.NUMBER, ColumnKind.NUMBER, ColumnKind.PERCENT,
         ColumnKind.COUNT, ColumnKind.NUMBER, ColumnKind.NUMBER, ColumnKind.COUNT};
 
     private final JLabel pickerLabel = new JLabel("Recording");
@@ -48,6 +51,23 @@ final class RunDamagePanel extends JPanel {
     private final JTable meter = new JTable(model) {
         // Fill the section while the columns fit; past that the table scrolls its own columns sideways.
         @Override public boolean getScrollableTracksViewportWidth() { return getParent() != null && getPreferredSize().width < getParent().getWidth(); }
+
+        /**
+         * The numbers keep their kind's width and the rank its digits' width; the Player column takes whatever the section gives
+         * beyond them (the stock layout would share it among all nine columns, widening "#" most of all). A header drag resizes
+         * as usual and becomes the columns' preferred widths.
+         */
+        @Override public void doLayout() {
+            javax.swing.table.JTableHeader header = getTableHeader();
+            if (header != null && header.getResizingColumn() != null) { super.doLayout(); return; }
+            int preferred = 0;
+            for (int c = 0; c < getColumnCount(); c++) preferred += getColumnModel().getColumn(c).getPreferredWidth();
+            int extra = Math.max(0, getWidth() - preferred);
+            for (int c = 0; c < getColumnCount(); c++) {
+                TableColumn column = getColumnModel().getColumn(c);
+                column.setWidth(column.getPreferredWidth() + (column.getModelIndex() == COLUMN_PLAYER ? extra : 0));
+            }
+        }
     };
     private final JScrollPane meterScroll = new JScrollPane(meter) {
         @Override public Dimension getPreferredSize() {
@@ -69,6 +89,8 @@ final class RunDamagePanel extends JPanel {
     private RunRecapModel.Damage.Row sourcesRow;
     private Consumer<String> recording = id -> { };
     private boolean applying;
+    /** The rank column's width as {@link #fitRank} last set it; 0 before the first fit. */
+    private int rankWidth;
 
     RunDamagePanel(DisplayModeModel mode) {
         super(new BorderLayout());
@@ -88,6 +110,11 @@ final class RunDamagePanel extends JPanel {
                 List<RunRecapModel.Damage.Recording> recordings = shown == null ? List.of() : shown.recordings();
                 int position = recordings.indexOf(value);
                 setText(position < 0 ? " " : recordingLabel(recordings, position));
+                // The open list's highlight uses the app's selection roles: the stock combo-box selection is 4.03:1 in Violet Dark.
+                if (selected && index >= 0) {
+                    setBackground(Tokens.color(Tokens.Role.SELECTION));
+                    setForeground(Tokens.color(Tokens.Role.SELECTION_TEXT));
+                }
                 return this;
             }
         });
@@ -114,9 +141,14 @@ final class RunDamagePanel extends JPanel {
         MeterCell cell = new MeterCell();
         for (int c = 0; c < COLUMNS.length; c++) {
             TableColumn column = meter.getColumnModel().getColumn(c);
-            KitTables.fitKind(meter, column, KINDS[c]);
+            if (KINDS[c] != null) KitTables.fitKind(meter, column, KINDS[c]);
             column.setCellRenderer(cell);
         }
+        fitRank();
+        // The rank's width follows the table and header fonts, re-fitted once both have settled (as KitTables does for kinds).
+        java.beans.PropertyChangeListener refit = e -> SwingUtilities.invokeLater(this::fitRank);
+        meter.addPropertyChangeListener("font", refit);
+        meter.getTableHeader().addPropertyChangeListener("font", refit);
         meter.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting() || applying) return;
             int row = meter.getSelectedRow();
@@ -180,6 +212,7 @@ final class RunDamagePanel extends JPanel {
             chart.setVisible(recorded && rows && damage.detailReason() == null);
 
             model.set(damage.rows());
+            fitRank();   // a recording with 100 or more players needs a third digit
             meter.clearSelection();
             meterScroll.setVisible(rows);
             sources.setVisible(rows);
@@ -191,6 +224,23 @@ final class RunDamagePanel extends JPanel {
         }
         revalidate();
         repaint();
+    }
+
+    /**
+     * Sizes the rank column narrow and numeric: the widest rank the shown recording can have (at least two digits) or the "#"
+     * header, whichever is wider, plus the cell's padding (ContentStyle.Cell pads 8 px on each side, as ColumnKind widths assume).
+     * A width the user dragged is kept, as KitTables keeps it for the kinds.
+     */
+    private void fitRank() {
+        TableColumn column = meter.getColumnModel().getColumn(COLUMN_RANK);
+        if (rankWidth > 0 && column.getPreferredWidth() != rankWidth) return;
+        String digits = "0".repeat(Math.max(2, String.valueOf(model.getRowCount()).length()));
+        int width = meter.getFontMetrics(meter.getFont()).stringWidth(digits) + 16;
+        javax.swing.table.TableCellRenderer header = column.getHeaderRenderer() != null ? column.getHeaderRenderer() : meter.getTableHeader().getDefaultRenderer();
+        width = Math.max(width, header.getTableCellRendererComponent(meter, column.getHeaderValue(), false, false, -1, COLUMN_RANK).getPreferredSize().width);
+        column.setPreferredWidth(width);
+        column.setWidth(width);
+        rankWidth = column.getPreferredWidth();
     }
 
     /** "Recording 1 of 2 · longest · 40 s window · 3 players"; the list is longest first. */

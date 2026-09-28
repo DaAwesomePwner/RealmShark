@@ -4,11 +4,13 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.plaf.basic.ComboPopup;
 import org.junit.*;
 import tomato.gui.kit.DamageChart;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.Tokens;
+import tomato.gui.modern.Themes;
 import tomato.history.link.VisitRef;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
@@ -175,6 +177,48 @@ public class RunDamagePanelTest {
             assertFalse(picker.isVisible());
             assertEquals(List.of("rec-b"), chosen);
         });
+    }
+
+    /**
+     * The open recording list's selected row keeps at least 4.5:1 between its text and its highlight in both themes (the stock
+     * combo-box selection was 4.03:1 in Violet Dark): it uses the app's own selection roles.
+     */
+    @Test public void theOpenRecordingListsSelectedRowIsReadableInBothThemes() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            LookAndFeel previous = UIManager.getLookAndFeel();
+            try {
+                for (Themes.Variant variant : Themes.Variant.values()) {
+                    assertTrue(Themes.install(new Themes.Choice(variant, false)));
+                    RunDamagePanel panel = panel(linked(2));
+                    @SuppressWarnings("unchecked") JComboBox<Object> picker = VisualEvidence.named(panel, "run-recap-recording", JComboBox.class);
+                    JList<Object> list = ((ComboPopup) picker.getUI().getAccessibleChild(picker, 0)).getList();
+                    for (boolean focus : new boolean[] {false, true}) {
+                        Component row = picker.getRenderer().getListCellRendererComponent(list, picker.getItemAt(0), 0, true, focus);
+                        double ratio = contrast(row.getForeground(), row.getBackground());
+                        assertTrue(variant + ": the selected row's text on its highlight is " + String.format(Locale.ROOT, "%.2f", ratio) + ":1", ratio >= 4.5);
+                        assertEquals(variant + ": the selection role", Tokens.color(Tokens.Role.SELECTION), row.getBackground());
+                        assertEquals(variant + ": the selection text role", Tokens.color(Tokens.Role.SELECTION_TEXT), row.getForeground());
+                    }
+                    Component other = picker.getRenderer().getListCellRendererComponent(list, picker.getItemAt(1), 1, false, false);
+                    assertNotEquals(variant + ": an unselected row is not highlighted", Tokens.color(Tokens.Role.SELECTION), other.getBackground());
+                }
+            } finally {
+                try { UIManager.setLookAndFeel(previous); } catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
+            }
+        });
+    }
+
+    /** WCAG contrast ratio of two opaque colors. */
+    static double contrast(Color a, Color b) {
+        double x = luminance(a), y = luminance(b);
+        return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+    }
+    private static double luminance(Color color) {
+        return .2126 * linear(color.getRed()) + .7152 * linear(color.getGreen()) + .0722 * linear(color.getBlue());
+    }
+    private static double linear(int value) {
+        double channel = value / 255.0;
+        return channel <= .04045 ? channel / 12.92 : Math.pow((channel + .055) / 1.055, 2.4);
     }
 
     @Test public void selectingARowShowsItsDamageBySource() throws Exception {

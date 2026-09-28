@@ -123,10 +123,10 @@ public class GeneralSectionTest {
             StringBuilder help = new StringBuilder();
             for (JTextArea note : notes(section)) help.append(note.getText()).append('\n');
             String text = help.toString().replace('\u00a0', ' ');
-            assertTrue("Numbers stay beside their units", help.indexOf("14\u00a0MB") >= 0 && help.indexOf("20–80\u00a0KB") >= 0);
+            assertTrue("Numbers stay beside their units", help.indexOf("14\u00a0MB") >= 0 && help.indexOf("12–30\u00a0KB") >= 0);
             for (String fact : new String[] {"every hit", "re-opened in the meter", "about 14 MB per 100,000 hits",
                     "debug packet log is never saved", "saved for every fight", "totals", "each player's damage", "damage over time",
-                    "about 20–80 KB each", "at startup and after a change", "current session is never touched"})
+                    "about 12–30 KB for a dungeon run, more for long Realm visits", "at startup and after a change", "current session is never touched"})
                 assertTrue("Help mentions '" + fact + "': " + text, text.contains(fact));
         });
     }

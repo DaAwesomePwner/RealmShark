@@ -294,6 +294,63 @@ public class RunFeedViewTest {
         });
     }
 
+    /**
+     * Each situation says it once: one empty state (a title and one body sentence, the title, body and action on one left edge)
+     * and no summary line above it; the summary returns with the cards.
+     */
+    @Test public void theEmptyFeedSaysItOnceWithItsTitleAndBodyOnOneEdge() throws Exception {
+        RunFeedView missing = view(new JPanel(), () -> null);
+        load(missing);
+        edt(() -> { onlyTheEmptyState(missing, "Saved history is unavailable"); return null; });
+
+        RunFeedView none = view(feed(store(temp.newFolder("empty").toPath()), HomeHistoryFixture.NOW));
+        edt(() -> { evidence.show(none, "Runs feed", 1240, 800, 13); return null; });
+        load(none);
+        evidence.settle();
+        edt(() -> {
+            onlyTheEmptyState(none, "No saved runs yet");
+            EmptyState empty = none.emptyState();
+            JLabel title = VisualEvidence.find(empty, JLabel.class, label -> true);
+            JTextArea body = VisualEvidence.find(empty, JTextArea.class, area -> true);
+            int text = body.getX() + body.getInsets().left;
+            assertEquals("The title starts where the body's text does", text, title.getX() + title.getInsets().left);
+            evidence.capture("run-feed-empty-1240-13");
+            return null;
+        });
+
+        Counting feed = scenario();
+        feed.gate = new CountDownLatch(1);
+        RunFeedView view = view(feed);
+        edt(() -> { view.check(); onlyTheEmptyState(view, "Loading saved runs"); return null; });
+        feed.gate.countDown();
+        await("the read", () -> !view.loading());
+        edt(() -> {
+            assertNull(emptyTitle(view));
+            assertTrue("The summary shows with the cards", named(view, "run-feed-summary", JTextArea.class).isVisible());
+            view.setQuery(new RunFeedQuery("no run is called this", Set.of(), null));
+            return null;
+        });
+        await("the empty search", () -> !view.loading());
+        edt(() -> {
+            onlyTheEmptyState(view, "No runs match");
+            assertTrue("A button beside the body", named(view, "run-feed-empty-action", AbstractButton.class).isVisible());
+            return null;
+        });
+        feed.fail = new IOException("synthetic unreadable history");
+        edt(() -> { view.setQuery(new RunFeedQuery("Lost", Set.of(), null)); return null; });
+        await("the failed read", () -> !view.loading());
+        edt(() -> { onlyTheEmptyState(view, "Saved runs could not be read"); return null; });
+    }
+
+    /** {@code view} shows the empty state titled {@code title} with one body sentence, and no summary line. */
+    private static void onlyTheEmptyState(RunFeedView view, String title) {
+        assertEquals(title, emptyTitle(view));
+        String body = view.emptyState().getAccessibleContext().getAccessibleDescription();
+        assertTrue(title + ": one body sentence: " + body, body.endsWith(".") && !body.substring(0, body.length() - 1).contains(". "));
+        assertFalse(title + ": the body does not repeat the title: " + body, body.toLowerCase(Locale.ROOT).contains(title.toLowerCase(Locale.ROOT)));
+        assertFalse(title + ": no summary line above the empty state", named(view, "run-feed-summary", JTextArea.class).isVisible());
+    }
+
     @Test public void showingAgainReadsOnlyWhenTheStoreChangedAndRebuildsNothingWithoutNewData() throws Exception {
         Counting feed = scenario();
         RunFeedView view = view(feed);

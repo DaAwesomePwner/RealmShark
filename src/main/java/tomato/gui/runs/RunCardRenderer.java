@@ -30,7 +30,8 @@ import tomato.gui.modern.ContentStyle;
  * when none was observed). The combat line is "Your DPS 12.3k · #2 of 6 · 34%" over a share bar, only from the linked recording's
  * verified local row; otherwise the model's reason, muted (no recording, an unverified local row, unreadable records): another
  * player's row is never shown as yours. The loot strip holds at most eight sprites in wells colored by their bag, "+N" and the
- * summary; unknown loot shows its reason (never "no loot"), a known none "No loot recorded in this run". The last line holds
+ * summary, which moves to its own line under the sprites when it does not fit beside them (it is never cut); unknown loot shows
+ * its reason (never "no loot"), a known none "No loot recorded in this run". The last line holds
  * "+1,240 fame" (nothing when unknown), "Deaths 1" (only with a verified local row) and "Exalt progress +1" (only when positive).
  * Every shown fact and every missing link is in the accessible name, in words. The cell is fixed (the widest loot strip and
  * summary at the body font); colors come from Tokens at paint time.
@@ -40,7 +41,10 @@ public final class RunCardRenderer extends JComponent implements ListCellRendere
     static final int PORTAL = 40, LOOT = 20, WELL = 6, GAP = 10, EDGE = 4, BAR = 4;
     /** A known run without a bag: its loot is a real none. */
     static final String NO_LOOT = "No loot recorded in this run";
-    /** The summary the cell reserves room for beside eight sprites; a longer one ends with "…" (the accessible name has it all). */
+    /**
+     * The summary the cell's width reserves room for beside eight sprites; with "+N" or a longer summary it takes the line under
+     * the sprites, which the cell's height reserves.
+     */
     private static final String WIDEST_SUMMARY = "1 UT · 1 ST · 2 potions";
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH),
         DATE = DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.ENGLISH), DATE_YEAR = DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", Locale.ENGLISH);
@@ -153,12 +157,35 @@ public final class RunCardRenderer extends JComponent implements ListCellRendere
 
     Lines shown() { return lines; }
 
+    /**
+     * Where the loot line paints in a loot row {@code width} wide, from the row's left and top: the wells' top, "+N" and the
+     * summary with the text it shows.
+     */
+    record Strip(int wellTop, int moreX, int moreBaseline, int summaryX, int summaryBaseline, String summary) {}
+
+    /** The loot row's height: the wells and, under them, a line for a summary that does not fit beside them (or a two-line reason). */
+    static int lootHeight(FontMetrics caption) { return Math.max(LOOT + WELL + Tokens.XS + caption.getHeight(), 2 * caption.getHeight()); }
+
+    /**
+     * The loot line of {@code lines} in a row {@code width} wide: the wells at the top, "+N" after the last one and the summary after
+     * that when it fits there whole; otherwise the summary takes its own line under the wells (the row reserves it, and the cell is
+     * wide enough for the widest summary), so its counts are never cut.
+     */
+    static Strip strip(Lines lines, FontMetrics caption, int width) {
+        int well = LOOT + WELL, baseline = (well - caption.getHeight()) / 2 + caption.getAscent();
+        int x = lines.loot().size() * (well + Tokens.XS) + Tokens.S - Tokens.XS, more = x;
+        if (!lines.lootMore().isEmpty()) x += caption.stringWidth(lines.lootMore()) + Tokens.S;
+        String summary = lines.lootSummary();
+        if (caption.stringWidth(summary) <= width - x) return new Strip(0, more, baseline, x, baseline, summary);
+        return new Strip(0, more, baseline, 0, well + Tokens.XS + caption.getAscent(), fit(summary, caption, width));
+    }
+
     /** The list cell: the card plus half the gap between cards on each side, at the current body font. */
     Dimension cellSize() {
         FontMetrics title = getFontMetrics(Type.emphasis()), caption = getFontMetrics(Type.caption()), body = getFontMetrics(Type.body());
         int header = Math.max(PORTAL, title.getHeight() + Tokens.XS + caption.getHeight());
         int combat = Math.max(body.getHeight() + Tokens.XS + BAR, 2 * caption.getHeight());
-        int loot = Math.max(LOOT + WELL, 2 * caption.getHeight());
+        int loot = lootHeight(caption);
         int height = Tokens.M + header + Tokens.S + combat + Tokens.S + loot + Tokens.S + caption.getHeight() + Tokens.M;
         int strip = RunCardModel.LOOT_ICONS * (LOOT + WELL) + (RunCardModel.LOOT_ICONS - 1) * Tokens.XS;
         int width = Math.max(Math.round(ContentStyle.body().getSize2D() * 24f),
@@ -232,21 +259,18 @@ public final class RunCardRenderer extends JComponent implements ListCellRendere
             }
             // Loot: bag-colored wells, "+N" and the summary; or the reason / the known none.
             row += combatHeight + Tokens.S;
-            int lootHeight = Math.max(LOOT + WELL, 2 * caption.getHeight());
+            int lootHeight = lootHeight(caption);
             if (!lines.lootNote().isEmpty()) {
                 wrapped(g, lines.lootNote(), caption, muted, left, row + (lootHeight - 2 * caption.getHeight()) / 2, right - left, 2);
             } else {
-                int well = LOOT + WELL, slotX = left, slotY = row + (lootHeight - well) / 2, baseline = row + (lootHeight - caption.getHeight()) / 2 + caption.getAscent();
+                Strip strip = strip(lines, caption, right - left);
+                int well = LOOT + WELL, slotX = left;
                 for (RunCardModel.LootItem item : lines.loot()) {
-                    well(this, g, Sprites.sprite(item.id(), LOOT), item.bag(), slotX, slotY, well);
+                    well(this, g, Sprites.sprite(item.id(), LOOT), item.bag(), slotX, row + strip.wellTop(), well);
                     slotX += well + Tokens.XS;
                 }
-                slotX += Tokens.S - Tokens.XS;
-                if (!lines.lootMore().isEmpty()) {
-                    text(g, lines.lootMore(), captionFont, caption, muted, slotX, baseline, right - slotX);
-                    slotX += caption.stringWidth(lines.lootMore()) + Tokens.S;
-                }
-                text(g, lines.lootSummary(), captionFont, caption, ink, slotX, baseline, right - slotX);
+                text(g, lines.lootMore(), captionFont, caption, muted, left + strip.moreX(), row + strip.moreBaseline(), right - left - strip.moreX());
+                text(g, strip.summary(), captionFont, caption, ink, left + strip.summaryX(), row + strip.summaryBaseline(), right - left - strip.summaryX());
             }
             row += lootHeight + Tokens.S;
             text(g, lines.facts(), captionFont, caption, ink, left, row + caption.getAscent(), right - left);
