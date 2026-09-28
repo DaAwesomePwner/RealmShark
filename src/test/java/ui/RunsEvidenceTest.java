@@ -236,11 +236,11 @@ public class RunsEvidenceTest {
         SwingUtilities.invokeAndWait(() -> workspace().filterBar().overflow().item("Cards view").doClick());
     }
 
-    /** 1 capture: no saved runs yet (the current session has none): the summary and one empty state say so. */
+    /** 1 capture: no saved runs yet (the current session has none): one empty state says so, in place of the summary line. */
     @Test public void anEmptyFeedSaysRunsAppearOnceSaved() throws Exception {
         build(temp.newFolder("history").toPath());
         feed("feed-empty", 1240, 800, 13, SIMPLE, null, () -> {
-            assertEquals("Saved runs · newest first · 0 runs", text("run-feed-summary"));
+            assertNull("The empty state says it once: no summary line above it", shown(shell, "run-feed-summary"));
             EmptyState empty = VisualEvidence.named(shell, "run-feed-empty", EmptyState.class);
             assertTrue("The feed's empty state shows", empty.isShowing());
             assertTrue(showsText(empty, "No saved runs yet"));
@@ -264,7 +264,7 @@ public class RunsEvidenceTest {
         Runnable top = () -> {
             assertEquals("Lost Halls", text("run-recap-map"));
             assertEquals("Completed", VisualEvidence.named(shell, "run-recap-outcome", Chip.class).getText());
-            assertEquals("Observed 26m 0s", text("run-recap-duration"));
+            assertEquals("The card's observed span", "26 m observed", text("run-recap-duration"));
             assertEquals("Party 6", text("run-recap-party"));
             assertEquals("From the fame readings tagged with this run", "Wizard #1", text("run-recap-character"));
             DisplayValue dps = tile(RunRecapModel.Tile.DPS);
@@ -409,7 +409,7 @@ public class RunsEvidenceTest {
                 assertEquals("Forever", VisualEvidence.named(shell, "settings-combat-summaries", JComboBox.class).getSelectedItem());
                 assertTrue(text("settings-combat-full-detail-help").contains("The debug packet log is never saved."));
                 String help = text("settings-combat-summaries-help");
-                assertTrue(help, help.contains("about 20–80 KB each") && help.contains("the current session is never touched"));
+                assertTrue(help, help.contains("about 12–30 KB for a dungeon run, more for long Realm visits") && help.contains("the current session is never touched"));
                 for (String name : new String[] {"settings-combat-full-detail-help", "settings-combat-summaries-help", "settings-combat-summaries"})
                     assertTrue("The capture shows " + name, inView(VisualEvidence.named(shell, name, JComponent.class)));
             });
@@ -649,7 +649,9 @@ public class RunsEvidenceTest {
             assertTrue(Navigator.current().open(Route.to(Destination.RUNS)));
             page().showFeed();
         });
-        await("the feed", () -> page().feed().tableShown() || shown(shell, "run-feed-summary") != null && text("run-feed-summary").startsWith("Saved runs · newest first · "));
+        // The summary line after a read, or the empty state that replaces it (once the read has finished).
+        await("the feed", () -> page().feed().tableShown() || shown(shell, "run-feed-summary") != null && text("run-feed-summary").startsWith("Saved runs · newest first · ")
+            || shown(shell, "run-feed-empty") instanceof EmptyState empty && !"Loading saved runs".equals(empty.getAccessibleContext().getAccessibleName()));
         pause();
         SwingUtilities.invokeAndWait(() -> {
             JScrollPane page = (JScrollPane) shown(shell, "run-feed-scroll");

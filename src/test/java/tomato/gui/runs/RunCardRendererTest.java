@@ -8,6 +8,7 @@ import javax.swing.JList;
 import javax.swing.SwingUtilities;
 import org.junit.Test;
 import tomato.gui.kit.Tokens;
+import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.link.VisitRef;
 import static org.junit.Assert.*;
@@ -115,6 +116,49 @@ public class RunCardRendererTest {
         assertEquals("+3", lines.lootMore());
         assertEquals("11 items", lines.lootSummary());
         assertTrue(name(card).contains("11 loot items: 11 items"));
+    }
+
+    /**
+     * The evidence's Lost Halls card: eight sprites, "+2" and "1 UT · 1 ST · 3 potions". At font 13 (1240×800) and font 18 (680×520)
+     * the summary is painted whole, never over the sprites or "+2", inside the loot row the cell reserves: under the sprites when it
+     * does not fit beside them. A summary that fits beside the sprites stays there.
+     */
+    @Test public void theLootSummaryIsNeverCutAndGoesUnderTheSpritesWhenItDoesNotFitBeside() throws Exception {
+        List<RunCardModel.LootItem> eight = new ArrayList<>();
+        for (int i = 0; i < RunCardModel.LOOT_ICONS; i++) eight.add(new RunCardModel.LootItem(900 + i, i < 3 ? "White" : "Orange", i == 0 ? "UT" : ""));
+        RunCardModel ten = with(linked(), RunOutcome.COMPLETED, 26 * MINUTE, 6, linked().combat(), null, eight, 10, "1 UT · 1 ST · 3 potions", null, 510L, 1);
+        SwingUtilities.invokeAndWait(() -> {
+            Font previous = ContentStyle.body();
+            try {
+                for (int font : new int[] {13, 18}) {
+                    ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font));
+                    ContentStyle.applyFontDefaults();
+                    RunCardRenderer renderer = new RunCardRenderer(ZONE, () -> NOW);
+                    Dimension cell = renderer.getPreferredSize();
+                    FontMetrics caption = renderer.getFontMetrics(Type.caption());
+                    int width = cell.width - RunCardRenderer.GAP - RunCardRenderer.EDGE - 2 * Tokens.M, well = RunCardRenderer.LOOT + RunCardRenderer.WELL;
+                    RunCardRenderer.Lines lines = lines(ten);
+                    assertEquals("+2", lines.lootMore());
+                    RunCardRenderer.Strip strip = RunCardRenderer.strip(lines, caption, width);
+                    assertEquals("Font " + font + ": the notable counts are never elided", "1 UT · 1 ST · 3 potions", strip.summary());
+                    assertTrue("Font " + font + ": inside the row", strip.summaryX() + caption.stringWidth(strip.summary()) <= width);
+                    assertTrue("Font " + font + ": inside the loot row the cell reserves",
+                        strip.summaryBaseline() + caption.getDescent() <= RunCardRenderer.lootHeight(caption));
+                    boolean beside = strip.summaryBaseline() == strip.moreBaseline();
+                    if (beside) assertTrue("Font " + font + ": after \"+2\"", strip.summaryX() >= strip.moreX() + caption.stringWidth("+2") + Tokens.S);
+                    else assertTrue("Font " + font + ": under the sprites", strip.summaryBaseline() - caption.getAscent() >= strip.wellTop() + well);
+                    assertTrue("\"+2\" follows the eighth sprite", strip.moreX() >= RunCardModel.LOOT_ICONS * well);
+
+                    RunCardRenderer.Strip six = RunCardRenderer.strip(lines(linked()), caption, width);
+                    assertEquals("1 UT · 1 ST · 2 potions", six.summary());
+                    assertEquals("Font " + font + ": a summary that fits stays beside the sprites", six.moreBaseline(), six.summaryBaseline());
+                    assertTrue(six.summaryX() >= 6 * well);
+                }
+            } finally {
+                ContentStyle.setBodyFont(previous);
+                ContentStyle.applyFontDefaults();
+            }
+        });
     }
 
     @Test public void aVerifiedLocalPlayerWithoutDamageHasARealZeroAndAnUnknownRank() {

@@ -20,12 +20,14 @@ import util.PropertiesManager;
  * saves at once and then announces the change through {@link CombatSettings#changed()}, so pruning can re-run.
  */
 public final class GeneralSection extends JPanel {
-    // Sizes from the P5 storage research; a no-break space keeps each number beside its unit when the note wraps.
+    // Full detail from the P5 storage research; a summary (record plus detail) as CombatStorageMeasurementTest measured it: about
+    // 12 KB for a 150 s dungeon, 30 KB for 600 s and 157 KB for a one-hour Realm-like fight. A no-break space keeps each number
+    // beside its unit when the note wraps.
     static final String FULL_DETAIL_HELP = "Also saves every hit of each fight so it can be re-opened in the meter, about 14\u00a0MB per "
         + "100,000 hits. The debug packet log is never saved.";
     static final String SUMMARIES_HELP = "A summary is saved for every fight with its combat facts only: totals, each player's damage, "
-        + "damage over time, enemies and deaths (about 20–80\u00a0KB each). Older files are removed at startup and after a change here; "
-        + "the current session is never touched.";
+        + "damage over time, enemies and deaths (about 12–30\u00a0KB for a dungeon run, more for long Realm visits). Older files are "
+        + "removed at startup and after a change here; the current session is never touched.";
     static final String DAYS_UNAVAILABLE = "Turn on Keep full combat detail to choose how long it is kept.";
     /** Labels in the order of CombatSettings.FULL_DETAIL_DAYS_VALUES and SUMMARY_RETENTION_VALUES. */
     private static final String[] DAYS = {"7 days", "30 days", "90 days", "1 year"}, SUMMARIES = {"Forever", "1 year", "90 days"};
