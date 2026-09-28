@@ -17,7 +17,7 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P2 Home | #21 | Merged | `94db6f6` |
 | P3a Characters: gallery, sheet, journal v5 | #22 | Merged (Codex threads fixed in `508d1d1`) | `04a61d4` |
 | P3b Characters: Exalts grid, Pets, Pet/Fame tabs | #23 | Merged (Codex fix `9c0da67`) | `b559bca` |
-| **P4 Quests** | none | **Plan being written** on `claude/redesign-handoff-next-steps-edrr7w` | |
+| **P4 Quests** | none yet | **Implemented** on `claude/redesign-handoff-next-steps-edrr7w`; PR opens when the user asks | |
 | P5 Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
@@ -28,7 +28,10 @@ Done on 2026-09-27/28 (cloud session):
 - PR #22's Codex threads fixed in `508d1d1`; PR #22 merged as `04a61d4` and `main` verified.
 - P3b planned as a contract plan ([2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md)) and implemented with subagent-driven development: four waves of parallel implementer subagents in isolated worktrees, the coordinator reviewing and merging every task, then an independent whole-branch review and a UI polish round from the evidence screenshots. PR #23 merged as `b559bca` (Codex review fix `9c0da67`); `main` verified. Record: [2026-09-27-p3b-validation.md](2026-09-27-p3b-validation.md).
 
-1. **Implement the P4 Quests plan** ([2026-09-28-p4-quests.md](2026-09-28-p4-quests.md)) with subagent-driven development (as P3b), then open its PR when the user asks. The expiry countdown (open item O1) is deferred to its own later phase by user decision.
+- P4 Quests planned ([2026-09-28-p4-quests.md](2026-09-28-p4-quests.md)) and implemented with subagent-driven development: Wave A (Board models, Planner cards with bars, Home's "Rewards not captured"), Wave B (the Board UI), Wave C (Quests routes and the S3 test), Wave D (evidence, docs, validation record) and a polish round from the evidence review, each task reviewed and merged by the coordinator. Record: [2026-09-28-p4-validation.md](2026-09-28-p4-validation.md).
+
+1. **Open the P4 PR when the user asks** (from `claude/redesign-handoff-next-steps-edrr7w` against `main`, merge commit), then handle its review and verify `main` after the merge.
+2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope".
 
 ---
 

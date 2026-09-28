@@ -13,7 +13,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #21 (`94db6f6`) |
 | P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #22 (`04a61d4`) |
 | P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #23 (`b559bca`) |
-| P4 Quests | [2026-09-28-p4-quests.md](2026-09-28-p4-quests.md) | `claude/redesign-handoff-next-steps-edrr7w` | Planned |
+| P4 Quests | [2026-09-28-p4-quests.md](2026-09-28-p4-quests.md) | `claude/redesign-handoff-next-steps-edrr7w` | Implemented; PR not yet opened |
 | P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
@@ -24,10 +24,10 @@ P1a merged in PR #18 as `7b3e0c5`, including the brand-icon correction `ee8d085`
 P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
 P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
 P2 merged in PR #21 as `94db6f6`, including seven review fixes (`f10bd7d`..`2367bc7`).
-P3a merged in PR #22 as `04a61d4`, including fix `508d1d1` for the two Codex pet-merge threads; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P3b merged in PR #23 as `b559bca`, including the Codex review fix `9c0da67`; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P4 continues from `b559bca` on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`. Later phases have not started.
+P3a merged in PR #22 as `04a61d4`, including fix `508d1d1` for the two Codex pet-merge threads; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P3b merged in PR #23 as `b559bca`, including the Codex review fix `9c0da67`; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P4 is implemented from `b559bca` on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w` (Tasks 1–8 merged there; the final full suite and an isolated JAR smoke are in the P4 validation record); its PR opens when the user asks. Later phases have not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
-[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md), [P3b validation](2026-09-27-p3b-validation.md).
+[P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md), [P3b validation](2026-09-27-p3b-validation.md), [P4 validation](2026-09-28-p4-validation.md).
 
 ## Resume
 
@@ -95,6 +95,7 @@ Outline:
 4. Planner restyle: plan cards with reserved / available / missing bars; the manual stock editor in a drawer. Semantics unchanged.
 5. Deferred from P2: the Home Quests card's expiry countdown, from the same confirmed QuestExpiry formats.
 6. Status (2026-09-28, user decisions): P4 is planned without the expiry countdown. Items 1 and 5, the Board's expiry chip, "expiring today" and S3's expiry half move to a later countdown phase (its samples diagnostic will include the list's receipt time, UTC rounded to the minute). The Board shows cards with the existing table kept as a Table view; the tabs are titled Board and Planner.
+7. Status (2026-09-28): implemented items 2–4 and the S3 click path (pinned quests and their rewards: 0 clicks on Home, 1 click to the Board, Back returns Home), plus Home's "Rewards not captured" line and the Quests routes (a plain route opens the Board, search opens the Planner with Back). Record: [P4 validation](2026-09-28-p4-validation.md).
 
 ## P5 Runs and DPS
 

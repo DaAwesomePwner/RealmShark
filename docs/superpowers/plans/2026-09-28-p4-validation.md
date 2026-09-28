@@ -23,7 +23,8 @@ focused tests on the integration branch before the next wave started.
   titles Board and Planner.
 - **Wave C** (after B): Task 5 the Quests routes (Home's Quests card and a plain Quests route open the Board; the
   `plans.quests` search entry opens the Planner through the navigator, so Back works) and the S3 click-path test.
-- **Wave D**: Task 6 evidence, docs and this record; the coordinator runs the final full suite and the JAR smoke.
+- **Wave D**: Task 6 evidence, docs and this record; then Task 8, a polish round for the defects the coordinator took from
+  the evidence review; the coordinator runs the final full suite and the JAR smoke.
 
 **User decision (2026-09-28):** the expiry countdown is not in P4 (see "Deferred scope"); the Board keeps the raw server
 expiration visible in its Analyst details only.
@@ -38,7 +39,7 @@ The review sent fix rounds for two tasks, and one test-only fix; each landed as 
   session read at the moved clock; the old order raced the refresher.
 
 Merges on the integration branch: Task 3 `3bb2090`, Task 1 `654adbe`, Task 2 `3b0517e`, the test fix `322697b`, Task 4
-`e47916b`, Task 5 `362f00f`, Task 6 `ad0ae85`. Each task's own focused runs (RED and
+`e47916b`, Task 5 `362f00f`, Task 6 `ad0ae85`, Task 8 `f9c7383` (commit `8b4d72c`). Each task's own focused runs (RED and
 GREEN) are in its implementer report and the coordinator's review notes; the table below records the wave totals measured on
 the integration branch.
 
@@ -67,6 +68,11 @@ the integration branch.
   plus the planning search's Back assertions in `ShellHookIntegrationTest`).
 - Task 6: `ui.QuestsEvidenceTest`, the Quests capture in `ui.HomeEvidenceTest`, `docs/DAILY-QUESTS.md`, `README.md` and this
   record.
+- Task 8 (polish): the Planner's account list bounded to its row (the key cut with "…", the full key in the tooltip); focus
+  moved into the shown view when a Cards/Table switch hides the focused one, on the Board and in the Planner (`QuestGUI.holdsFocus`,
+  `QuestBoard.focusCards`); no type chip in type-label sections; an item's id shown once (`PlanCardModel.label`); the Cards view
+  drops the footer count while the Board shows its empty state. Tests in `QuestBoardTest`, `QuestCardRendererTest`,
+  `QuestPlanPanelTest`, `PlanCardRendererTest`, `PlanCardModelTest`; `QuestsEvidenceTest` now asserts the account list whole.
 
 ## Local validation
 
@@ -155,7 +161,16 @@ Findings (none fixed in Task 6, which changes no main code):
    heading, and sprites are the kit placeholder (no game assets in the test environment); both are harness artifacts. The
    card selected last keeps its accent border.
 
-**[Coordinator: review of the captures; which findings are fixed, deferred or accepted.]**
+**Coordinator review.** The coordinator read the captures (Board by tier and type at both sizes, the Analyst details at 680,
+the Planner cards and top) and agrees with the findings. Fixed in Task 8 (merge `f9c7383`), each with a test that failed first,
+and rechecked in the regenerated captures (`build/p4-t8/ui-test/screenshots/redesign-p4-quests/`): **1** (the account list fits
+its row with its arrow; `planner-top-680-18-analyst`), **2** (the table holds focus after the view switch; `board-table-1240-13-simple`;
+the Planner had the same fault and got the same rule), **3** (no footer count under the empty state; `board-empty-1240-13-simple`),
+**6** (the id once) and **7** (no chip under a type heading; `board-type-1240-13-simple`). Deferred: **4** (the compact first
+screen is mostly the shell header and the filter rows; a layout question for the shell, not P4) and **5** (plan cards elide by
+design; tooltips and accessible names keep the full text). Accepted: **8** (by design until the countdown phase) and **9**
+(pre-existing or harness artifacts). Task 8's run: its six test classes 46 tests, 0 failures; `tomato.gui.quest.*`,
+`ShellHookIntegrationTest`, `ui.QuestsEvidenceTest`, `ui.WorkspaceUiTest` 131 tests, 1 failure (the known focus failure).
 
 ## Deferred scope
 
@@ -169,5 +184,5 @@ Findings (none fixed in Task 6, which changes no main code):
 - The spec's ✎ manual glyph (P4 keeps `DisplayValue.manual`'s "(manual)").
 - Noted in the Wave A review, not fixed in P4: a `Collapsible` can paint one frame expanded before its saved state applies;
   Enter on a focused plan card does not open its editor (double-click and the Table do).
-- Evidence findings 1–7 unless the coordinator schedules a polish round.
+- Evidence findings 4 (compact first screen) and 5 (plan cards eliding text); findings 1–3, 6 and 7 were fixed in Task 8.
 - P5/P6 items unchanged (roadmap).
