@@ -13,7 +13,7 @@ import tomato.gui.kit.Tokens;
  * it. Sections are fixed (no hiding or reordering), so every setting stays reachable.
  */
 public final class SettingsPage extends JPanel {
-    public static final String NOTIFICATIONS = "notifications", APPEARANCE = "appearance";
+    public static final String NOTIFICATIONS = "notifications", GENERAL = "general", APPEARANCE = "appearance";
     private static final int NARROW = 720;
     private final JPanel list = new JPanel(new GridLayout(0, 1, 0, 2));
     private final JPanel column = new JPanel(new BorderLayout());
@@ -26,9 +26,10 @@ public final class SettingsPage extends JPanel {
     /**
      * @param notifications the existing Notifications page, hosted unchanged
      * @param notificationsShown refreshes it when Settings opens on that section; CardLayout only notifies this page
+     * @param general the General section (Combat history)
      * @param appearance the Appearance section
      */
-    public SettingsPage(JComponent notifications, Runnable notificationsShown, JComponent appearance) {
+    public SettingsPage(JComponent notifications, Runnable notificationsShown, JComponent general, JComponent appearance) {
         super(new BorderLayout(Tokens.L, Tokens.S));
         setName("settings-page");
         setOpaque(false);
@@ -38,7 +39,9 @@ public final class SettingsPage extends JPanel {
         column.setOpaque(false);
         column.add(list, BorderLayout.NORTH);
         content.setOpaque(false);
+        // Spec §6.7 order: Notifications, General, Appearance.
         addSection(NOTIFICATIONS, "Notifications", notifications);
+        addSection(GENERAL, "General", general);
         addSection(APPEARANCE, "Appearance", appearance);
         add(column, BorderLayout.WEST);
         add(content, BorderLayout.CENTER);

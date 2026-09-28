@@ -58,6 +58,15 @@ public class ShellHookIntegrationTest {
             assertTrue(tomato.gui.route.Navigator.current().back());
             assertEquals("Back restores the Settings section as well as notification state",
                     tomato.gui.settings.SettingsPage.APPEARANCE, settings.currentSection());
+            assertNotNull("Settings hosts General", named(settings, "settings-general", JComponent.class));
+            assertNotNull(named(settings, "settings-combat-full-detail", JCheckBox.class));
+            shell.select(0);
+            assertEquals(1, registry.search("combat.settings").size());
+            assertEquals("Combat history is found by its words", "combat.settings", registry.search("full detail retention").get(0).id);
+            assertTrue(registry.search("combat.settings").get(0).open());
+            assertEquals(13, shell.getSelectedPage());
+            assertEquals("The Combat history entry opens Settings › General",
+                    tomato.gui.settings.SettingsPage.GENERAL, settings.currentSection());
             Icon before = tomato.gui.kit.Sprites.sprite(987_654_321, 24);
             TomatoGUI.assetsReloaded();
             assertNotSame("Asset reloads drop cached sprites", before, tomato.gui.kit.Sprites.sprite(987_654_321, 24));
