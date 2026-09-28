@@ -276,6 +276,136 @@ public class QuestPlanPanelTest {
         }
     }
 
+    /**
+     * A 64-character account key never pushes the account list past its row: at a narrow width the list and its drop-down arrow stay
+     * inside the row (the renderer cuts the key; the tooltip keeps it whole), and the selection and the list's items are unchanged.
+     */
+    @Test public void aLongAccountKeyKeepsTheAccountListAndItsArrowInsideANarrowRow() throws Exception {
+        String key = tomato.backend.data.CharacterJournal.accountKey("quest-plan-narrow-row");
+        assertEquals(64, key.length());
+        try (PlanningStore store = PlanningStore.memory()) {
+            ready(store);
+            Map<String, String> prefs = new HashMap<>(); DisplayModeModel mode = new DisplayModeModel(prefs::get, prefs::put);
+            JFrame[] frame = new JFrame[1]; QuestPlanPanel[] panel = new QuestPlanPanel[1]; List<Object> items = new ArrayList<>();
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    QuestPlanPanel p = panel[0] = new QuestPlanPanel(store, PlanCardModelTest.NAMES, mode, prefs::get, prefs::put);
+                    p.knownAccounts(Arrays.asList("other", key));
+                    JComboBox<?> account = find(p, "quest-plan-account", JComboBox.class);
+                    account.setSelectedItem(key);
+                    for (int i = 0; i < account.getItemCount(); i++) items.add(account.getItemAt(i));
+                    frame[0] = new JFrame("Planner account list - synthetic validation");
+                    frame[0].setContentPane(p); frame[0].setSize(420, 600); frame[0].setVisible(true);
+                });
+                QuestBoardTest.settle();
+                SwingUtilities.invokeAndWait(() -> frame[0].validate());
+                QuestBoardTest.settle();
+                SwingUtilities.invokeAndWait(() -> {
+                    JComboBox<?> account = find(panel[0], "quest-plan-account", JComboBox.class);
+                    Container row = account.getParent();
+                    int whole = account.getFontMetrics(account.getFont()).stringWidth(key);
+                    assertTrue("The whole key is wider than the row: " + whole + " vs " + row.getWidth(), whole > row.getWidth());
+                    assertTrue("The list's right edge is inside its row: " + account.getBounds() + " in " + row.getWidth(),
+                        account.getX() + account.getWidth() <= row.getWidth() - row.getInsets().right);
+                    assertEquals("…and all of it shows", account.getWidth(), account.getVisibleRect().width);
+                    Component arrow = null;
+                    for (Component child : account.getComponents()) if (child instanceof AbstractButton) arrow = child;
+                    assertNotNull("The drop-down arrow", arrow);
+                    assertTrue(arrow.getWidth() > 0);
+                    assertEquals("The drop-down arrow shows whole", arrow.getWidth(), ((JComponent) arrow).getVisibleRect().width);
+                    assertEquals("The selection is unchanged", key, account.getSelectedItem());
+                    List<Object> now = new ArrayList<>(); for (int i = 0; i < account.getItemCount(); i++) now.add(account.getItemAt(i));
+                    assertEquals("The list's items are unchanged", items, now);
+                    assertEquals("The tooltip keeps the whole key", key, account.getToolTipText());
+                    assertEquals(key, account.getAccessibleContext().getAccessibleDescription());
+                    assertEquals("Account for manual quest plans", account.getAccessibleContext().getAccessibleName());
+                });
+            } finally { SwingUtilities.invokeAndWait(() -> { if (frame[0] != null) frame[0].dispose(); }); }
+        }
+    }
+
+    /**
+     * The Planner's view switch keeps keyboard focus on the page: focus inside the view being hidden (the plan cards, the plan table)
+     * or on the ⋯ menu that switched it moves into the view being shown; focus elsewhere (the account list) stays where it was.
+     */
+    @Test public void thePlannerViewSwitchMovesFocusFromTheHiddenViewIntoTheShownViewAndNeverStealsIt() throws Exception {
+        try (PlanningStore store = planned()) {
+            Map<String, String> prefs = new HashMap<>(); DisplayModeModel mode = new DisplayModeModel(prefs::get, prefs::put);
+            JFrame[] frame = new JFrame[1]; QuestPlanPanel[] panel = new QuestPlanPanel[1];
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    panel[0] = cardsPanel(store, prefs, mode);
+                    frame[0] = new JFrame("Planner focus - synthetic validation");
+                    frame[0].setContentPane(panel[0]); frame[0].setSize(1000, 800); frame[0].setVisible(true); frame[0].toFront();
+                });
+                QuestBoardTest.await("the window's focus", () -> frame[0].isFocused());
+                QuestPlanPanel p = panel[0];
+                TileList<?> cards = find(p, "quest-plan-cards", TileList.class); JTable table = find(p, "quest-plan-table", JTable.class);
+                OverflowMenu overflow = find(p, "quest-plan-overflow", OverflowMenu.class);
+                JComboBox<?> account = find(p, "quest-plan-account", JComboBox.class);
+                SwingUtilities.invokeAndWait(cards::requestFocusInWindow);
+                QuestBoardTest.awaitFocus(cards);
+                SwingUtilities.invokeAndWait(() -> overflow.item("Table view").doClick());
+                QuestBoardTest.awaitFocus(table);
+                SwingUtilities.invokeAndWait(() -> { mode.set(DisplayModeModel.Mode.ANALYST); find(p, "quest-plan-view-0", JToggleButton.class).doClick(); });
+                QuestBoardTest.awaitFocus(cards);
+
+                SwingUtilities.invokeAndWait(account::requestFocusInWindow);
+                QuestBoardTest.awaitFocus(account);
+                SwingUtilities.invokeAndWait(() -> find(p, "quest-plan-view-1", JToggleButton.class).doClick());
+                QuestBoardTest.settle();
+                SwingUtilities.invokeAndWait(() -> {
+                    assertTrue(find(p, "quest-plan-table-view", JComponent.class).isVisible());
+                    assertSame("Focus outside the hidden view is never moved", account, QuestBoardTest.focusOwner());
+                });
+
+                SwingUtilities.invokeAndWait(() -> { mode.set(DisplayModeModel.Mode.SIMPLE); overflow.requestFocusInWindow(); });
+                QuestBoardTest.awaitFocus(overflow);
+                SwingUtilities.invokeAndWait(() -> overflow.item("Cards view").doClick());
+                QuestBoardTest.awaitFocus(cards); // from the ⋯ menu that switched it
+            } finally { SwingUtilities.invokeAndWait(() -> { if (frame[0] != null) frame[0].dispose(); }); }
+        }
+    }
+
+    /**
+     * An item without an asset name reads "Unknown item #9999" from the Board's lookup: the Planner shows its id once (the All plans
+     * row, the held values, a card's details and the Table view's detail and totals); named items keep "Name (#id)".
+     */
+    @Test public void anUnnamedItemShowsItsIdOnceWhereverThePlannerNamesIt() throws Exception {
+        java.util.function.IntFunction<String> board = id -> id == 1 ? "Mark of the Forgotten King" : "Unknown item #" + id;
+        PlanData.AccountPlan plan = new PlanData.AccountPlan();
+        plan.quests.put("odd", QuestPlanningTest.entry("odd", 1, 9999));
+        QuestPlanning.held(plan, 9999, 2, "", false, 100); QuestPlanning.held(plan, 1, 1, "", false, 100);
+        PlanData.validate("acct", plan);
+        try (PlanningStore store = PlanningStore.memory()) {
+            ready(store);
+            assertTrue(store.update("acct", 0, plan).get(5, TimeUnit.SECONDS).saved);
+            Map<String, String> prefs = new HashMap<>(); DisplayModeModel mode = new DisplayModeModel(prefs::get, prefs::put);
+            SwingUtilities.invokeAndWait(() -> {
+                QuestPlanPanel p = new QuestPlanPanel(store, board, mode, prefs::get, prefs::put);
+                p.knownAccounts(Arrays.asList("acct")); find(p, "quest-plan-account", JComboBox.class).setSelectedItem("acct");
+                String row = find(p, "quest-plan-summary-9999", JTextArea.class).getText();
+                assertEquals("Unknown item #9999: need 1 · reserved 0 · covered 1 · missing 0", row);
+                assertEquals("Named items keep their id", "Mark of the Forgotten King (#1): need 1 · reserved 0 · covered 1 · missing 0",
+                    find(p, "quest-plan-summary-1", JTextArea.class).getText());
+                String held = find(p, "quest-plan-held-values", JTextArea.class).getText();
+                assertTrue(held, held.contains("\nUnknown item #9999: 2 (manual) · unallocated 2 · confirmed "));
+                assertTrue(held, held.contains("\nMark of the Forgotten King (#1): 1 (manual) · unallocated 1 · confirmed "));
+                String details = PlanCardRenderer.details(card(find(p, "quest-plan-cards", TileList.class), 0));
+                assertTrue(details, details.contains(" · Unknown item #9999: need 1 · reserved 0 · covered 1 · missing 0"));
+                assertTrue(details, details.contains(" · Mark of the Forgotten King (#1): need 1 · "));
+                find(p, "quest-plan-overflow", OverflowMenu.class).item("Table view").doClick();
+                String detail = find(p, "quest-plan-detail", JTextArea.class).getText(), totals = find(p, "quest-plan-totals", JTextArea.class).getText();
+                assertTrue(detail, detail.contains("\nRewards: ALL 1 × Unknown item #20, 1 × Unknown item #21\n"));
+                assertTrue(totals, totals.contains("\nUnknown item #9999: need 1 · reserved here 0 · available to selection 2 · deficit 0"));
+                assertTrue(totals, totals.contains("\nMark of the Forgotten King (#1): need 1 · "));
+                assertTrue(totals, totals.contains("\nUnknown item #9999: 2 · unallocated 2 · confirmed "));
+                for (String text : new String[] {row, held, details, detail, totals})
+                    assertFalse("The id once: " + text, text.contains("(#9999)") || text.contains("(#20)") || text.contains("(#21)"));
+            });
+        }
+    }
+
     /** Visible up to {@code root}: no ancestor hides it (a collapsed Collapsible hides its content). */
     private static boolean shown(Component component, Component root) {
         for (Component c = component; c != null && c != root; c = c.getParent()) if (!c.isVisible()) return false;

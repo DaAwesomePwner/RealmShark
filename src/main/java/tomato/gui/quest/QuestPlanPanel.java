@@ -41,7 +41,7 @@ public final class QuestPlanPanel extends JPanel {
     private static final String NONE = "Select a known account…";
     private final PlanningStore store;
     private final IntFunction<String> names;
-    private final JComboBox<String> account = new JComboBox<>(new String[]{NONE});
+    private final JComboBox<String> account = new AccountList();
     private final Map<String, Draft> drafts = new HashMap<>();
     private final Set<String> known = new TreeSet<>();
     private final Map<String, QuestPlanEntry> observed = new LinkedHashMap<>();
@@ -272,8 +272,13 @@ public final class QuestPlanPanel extends JPanel {
         applyCards(d, shown); // still refreshing: a rebuilt list's own selection events select no table row
         refreshing = false; followSelection(); showDetails(); updateStatus();
     }
-    /** Shows the cards or the table (the other stays in the tree, hidden). A user's choice is remembered. */
+    /**
+     * Shows the cards or the table (the other stays in the tree, hidden). A user's choice is remembered. Keyboard focus inside the
+     * view being hidden or on the ⋯ menu that switched it moves into the view being shown (the table; the plan cards, else the account
+     * list when no card shows); focus anywhere else (the account list, the Analyst toggle) stays where it is.
+     */
     private void showCards(boolean show, boolean remember) {
+        boolean refocus = QuestGUI.holdsFocus(show ? tableView : cardsView, overflow, overflow.menu());
         cardsShown = show;
         if (remember) write.accept(VIEW_KEY, show ? "cards" : "table");
         cardsView.setVisible(show); tableView.setVisible(!show);
@@ -281,6 +286,7 @@ public final class QuestPlanPanel extends JPanel {
         List<String> ids = selectedIds();
         if (show && ids.size() > 1) selectPlan(ids.get(0)); // the cards edit one plan at a time
         revalidate(); repaint();
+        if (refocus) { JComponent target = !show ? table : cards.isVisible() ? cards : account; target.requestFocusInWindow(); }
     }
     /** Selects one plan's table row, the editors' selection; the table's listener updates the detail and the selected card. */
     private void selectPlan(String entryId) {
@@ -325,7 +331,7 @@ public final class QuestPlanPanel extends JPanel {
     /** One All plans row: the item and its numbers, then its bar; unknown stock says so and draws no bar (an empty track reads as 0%). */
     private static JComponent summaryRow(PlanCardModel.Row row) {
         String name = "quest-plan-summary-" + row.itemId();
-        JTextArea numbers = text(row.name() + " (#" + row.itemId() + "): " + row.numbers(), Type.body()); numbers.setName(name);
+        JTextArea numbers = text(row.label() + ": " + row.numbers(), Type.body()); numbers.setName(name);
         if (!row.stockKnown()) return numbers;
         SegmentBar bar = new SegmentBar(); bar.setName(name + "-bar");
         bar.set(row.reserved(), row.covered(), row.missing(), row.need());
@@ -339,7 +345,7 @@ public final class QuestPlanPanel extends JPanel {
         for (Map.Entry<Integer, ManualHeld> e : p.held.entrySet()) {
             long allocated = 0; for (Map<Integer, Long> r : p.reservations.values()) allocated = Math.addExact(allocated, r.getOrDefault(e.getKey(), 0L));
             ManualHeld held = e.getValue(); String confirmed = Formatters.formatTimestamp(held.confirmedAt);
-            text.append("\n").append(name(e.getKey())).append(" (#").append(e.getKey()).append("): ")
+            text.append("\n").append(label(e.getKey())).append(": ")
                 .append(DisplayValue.manual(DisplayFormat.formatInteger(held.quantity), "Confirmed " + confirmed).display())
                 .append(" · unallocated ").append(DisplayFormat.formatInteger(held.quantity - allocated)).append(" · confirmed ").append(confirmed)
                 .append(held.note == null || held.note.isEmpty() ? "" : " · " + held.note);
@@ -376,7 +382,7 @@ public final class QuestPlanPanel extends JPanel {
         QuestPlanning.Totals t = QuestPlanning.totals(p, ids);
         StringBuilder sum = new StringBuilder(ids.isEmpty() ? "No plans selected" : t.readiness());
         for (Map.Entry<Integer, Long> e : t.demand.entrySet()) {
-            int id = e.getKey(); sum.append("\n").append(name(id)).append(" (#").append(id).append("): need ").append(e.getValue())
+            int id = e.getKey(); sum.append("\n").append(label(id)).append(": need ").append(e.getValue())
                 .append(" · reserved here ").append(t.reserved.get(id)).append(" · available to selection ").append(t.available.containsKey(id) ? t.available.get(id) : "Unconfirmed")
                 .append(" · deficit ").append(t.missing.containsKey(id) ? t.missing.get(id) : "Unknown");
         }
@@ -384,14 +390,15 @@ public final class QuestPlanPanel extends JPanel {
         if (p.held.isEmpty()) sum.append(" none confirmed");
         for (Map.Entry<Integer, ManualHeld> e : p.held.entrySet()) {
             long allocated = 0; for (Map<Integer, Long> r : p.reservations.values()) allocated = Math.addExact(allocated, r.getOrDefault(e.getKey(), 0L));
-            sum.append("\n").append(name(e.getKey())).append(" (#").append(e.getKey()).append("): ").append(e.getValue().quantity)
+            sum.append("\n").append(label(e.getKey())).append(": ").append(e.getValue().quantity)
                 .append(" · unallocated ").append(e.getValue().quantity - allocated).append(" · confirmed ").append(Formatters.formatTimestamp(e.getValue().confirmedAt))
                 .append(" · ").append(e.getValue().note == null ? "" : e.getValue().note);
         }
         totals.setText(sum.toString());
     }
-    private String name(int id) { return PlanCardModel.name(names, id); }
-    private String items(Map<Integer, Long> values) { List<String> text = new ArrayList<>(); values.forEach((id, n) -> text.add(n + " × " + name(id) + " (#" + id + ")")); return text.isEmpty() ? "Observed empty" : String.join(", ", text); }
+    /** "Name (#id)", or the name alone when it already ends with its id ("Unknown item #9999"): PlanCardModel.label. */
+    private String label(int id) { return PlanCardModel.label(PlanCardModel.name(names, id), id); }
+    private String items(Map<Integer, Long> values) { List<String> text = new ArrayList<>(); values.forEach((id, n) -> text.add(n + " × " + label(id))); return text.isEmpty() ? "Observed empty" : String.join(", ", text); }
     private static JPanel label(String text, JComponent control) {
         JPanel p = new JPanel(new BorderLayout(0, 3)); JLabel l = new JLabel(text); l.setLabelFor(control); control.getAccessibleContext().setAccessibleName(text); p.add(l, BorderLayout.NORTH); p.add(control); return p;
     }
@@ -434,6 +441,31 @@ public final class QuestPlanPanel extends JPanel {
             });
         }
         if (value instanceof Container) for (Component child : ((Container)value).getComponents()) installReveal(child);
+    }
+    /**
+     * The account list never asks for more width than its row can give: a 64-character account key is cut by the renderer instead
+     * of pushing the list and its drop-down arrow past the row's edge, and the tooltip keeps the whole selected key (the accessible
+     * description falls back to it). The items, the selection and the popup's full-width entries are unchanged.
+     */
+    private static final class AccountList extends JComboBox<String> {
+        AccountList() { super(new String[]{NONE}); describe(); }
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            int room = room();
+            return room > 0 && size.width > room ? new Dimension(room, size.height) : size;
+        }
+        @Override protected void selectedItemChanged() { super.selectedItemChanged(); describe(); }
+        private void describe() { Object value = getSelectedItem(); setToolTipText(value == null || NONE.equals(value) ? null : value.toString()); }
+        /** The row's width inside its insets and its flow gaps (as ContentStyle.controls wraps it); 0 before anything is laid out. */
+        private int room() {
+            Container row = getParent();
+            if (row == null) return 0;
+            int width = row.getWidth();
+            if (width <= 0 && row.getParent() != null) { Insets outer = row.getParent().getInsets(); width = row.getParent().getWidth() - outer.left - outer.right; }
+            Insets insets = row.getInsets();
+            int gap = row.getLayout() instanceof FlowLayout ? ((FlowLayout) row.getLayout()).getHgap() : 0;
+            return width <= 0 ? 0 : Math.max(1, width - insets.left - insets.right - 2 * gap);
+        }
     }
     private final class PlanModel extends AbstractTableModel {
         final String[] columns = {"Quest", "Stable ID", "Repeats", "Status"};

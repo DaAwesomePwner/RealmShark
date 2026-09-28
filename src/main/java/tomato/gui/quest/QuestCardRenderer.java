@@ -19,8 +19,9 @@ import tomato.gui.modern.ContentStyle;
 /**
  * Paints one quest card of the Board (spec §6.5, §9): one component reused for every cell of a group's TileList, no per-card
  * component tree. A pin star when pinned, the name, the badges (↻ Repeatable or One-time, ✓ Done) and the user's type label as a
- * chip (none when unlabeled, never guessed); "You get" or "Pick 1 of N" over at most four 28 px reward sprites (a repeated reward
- * shows its count) and "+N"; "Bring" over at most four 20 px requirement sprites, each with "×count", and "+N". An unknown list says
+ * chip (none when unlabeled, never guessed; none in a type-label section, whose header names it); "You get" or "Pick 1 of N" over at
+ * most four 28 px reward sprites (a repeated reward shows its count) and "+N"; "Bring" over at most four 20 px requirement sprites,
+ * each with "×count", and "+N". An unknown list says
  * "Rewards not captured" / "Requirements not captured" and a captured empty one "None listed by the server": unknown is never none
  * (spec §1). The cell is fixed so every list reserves the same four slots; the full lists are in the detail drawer. Sprites come from
  * the page's lookup (a missing or failing one paints the kit placeholder) in a well whose border is the item's tier
@@ -42,14 +43,22 @@ final class QuestCardRenderer extends JComponent implements ListCellRenderer<Que
                  String rewardsNote, String requirementsTitle, List<Slot> requirements, String requirementsMore, String requirementsNote) {}
 
     private final SpriteLookup sprites;
+    /** Whether cards paint the type chip: not in a type-label section, whose header already names the type. */
+    private final boolean chip;
     private QuestCardModel card;
     private Lines lines;
     private boolean selected, focused;
 
-    QuestCardRenderer(SpriteLookup sprites) { this.sprites = sprites; setOpaque(false); }
+    QuestCardRenderer(SpriteLookup sprites) { this(sprites, true); }
 
-    static Lines lines(QuestCardModel card) {
-        return new Lines(card.pinned() ? "★" : "", card.name(), card.badges(), card.typeLabel(), card.rewardsTitle(),
+    /** {@code chip} false leaves the type chip out (a type-label section); the accessible name still says the type. */
+    QuestCardRenderer(SpriteLookup sprites, boolean chip) { this.sprites = sprites; this.chip = chip; setOpaque(false); }
+
+    static Lines lines(QuestCardModel card) { return lines(card, true); }
+
+    /** The card's painted text; {@code chip} false paints no type chip (an empty chip line). */
+    static Lines lines(QuestCardModel card, boolean chip) {
+        return new Lines(card.pinned() ? "★" : "", card.name(), card.badges(), chip ? card.typeLabel() : "", card.rewardsTitle(),
             slots(card.rewards(), false), more(card.rewards()), note(card.rewards(), card.rewardsKnown(), "Rewards not captured"),
             "Bring", slots(card.requirements(), true), more(card.requirements()),
             note(card.requirements(), card.requirementsKnown(), "Requirements not captured"));
@@ -110,7 +119,7 @@ final class QuestCardRenderer extends JComponent implements ListCellRenderer<Que
         card = value;
         selected = isSelected;
         focused = cellHasFocus;
-        lines = value == null ? null : lines(value);
+        lines = value == null ? null : lines(value, chip);
         String name = value == null ? null : accessibleName(value);
         getAccessibleContext().setAccessibleName(name);
         getAccessibleContext().setAccessibleDescription(value == null ? null : "Enter or double-click shows the quest's details");

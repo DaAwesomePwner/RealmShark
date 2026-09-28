@@ -93,7 +93,7 @@ public class QuestGUI extends JPanel {
     private final QuestBoard board;
     private final ViewBody body = new ViewBody();
     private JSplitPane split;
-    private JPanel pinActions;
+    private JPanel pinActions, footer;
     private JMenuItem viewItem;
     private boolean cardsShown, ready, analyst;
     /** The quest the drawer shows and the card the user last selected (in either view), by pin key; null for none. */
@@ -306,7 +306,7 @@ public class QuestGUI extends JPanel {
         };
         split.setName("quest-list-detail-split");
         split.setResizeWeight(.5); split.setDividerLocation(245); split.setBorder(null);
-        JPanel footer = new JPanel(new BorderLayout(8, 0));
+        footer = new JPanel(new BorderLayout(8, 0));
         count.setFont(ContentStyle.metadata(ContentStyle.body()));
         footer.add(count, BorderLayout.CENTER);
         pin.setEnabled(false); pin.addActionListener(e -> togglePin(selected()));
@@ -590,10 +590,17 @@ public class QuestGUI extends JPanel {
         else board.apply(model, "No matching quests", "Change or reset your filters to show every captured quest.");
         board.select(cardKey, false);
         updateDetail();
+        showFooter();
     }
 
-    /** Shows the cards or the table; the other stays in the tree, hidden and unmeasured. A user's choice is remembered. */
+    /**
+     * Shows the cards or the table; the other stays in the tree, hidden and unmeasured. A user's choice is remembered. Keyboard focus
+     * inside the view being hidden (e.g. the card Close returned it to) or on the ⋯ menu that switched it moves into the view being
+     * shown, so it never falls out of the page; focus anywhere else (the search, the Analyst toggle) stays where it is.
+     */
     private void showCards(boolean show, boolean remember) {
+        boolean refocus = holdsFocus(show ? new Component[]{split, pinActions} : new Component[]{board, boardControls})
+            || holdsFocus(filterBar.overflow(), filterBar.overflow().menu());
         cardsShown = show;
         if (remember) PropertiesManager.setProperties(VIEW_KEY, show ? "cards" : "table");
         split.setVisible(!show);
@@ -605,6 +612,25 @@ public class QuestGUI extends JPanel {
         if (!show) closeDetail(false);
         body.revalidate(); body.repaint();
         refreshBoard();
+        showFooter();
+        if (refocus && !(show ? board.focusCards() : table.requestFocusInWindow())) search.requestFocusInWindow(); // no card: stay on the page
+    }
+
+    /**
+     * The footer's count line, except in the Cards view while the Board shows its empty state (the summary and the empty state say
+     * it once); the Table view keeps its footer. A footer with nothing to show takes no room.
+     */
+    private void showFooter() {
+        boolean empty = cardsShown && board.groups().isEmpty();
+        count.setVisible(!empty);
+        footer.setVisible(!empty || pinActions.isVisible());
+    }
+
+    /** Whether the keyboard focus owner is one of {@code parts} or inside one (a popup menu's items included). */
+    static boolean holdsFocus(Component... parts) {
+        Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        if (owner != null) for (Component part : parts) if (part != null && SwingUtilities.isDescendingFrom(owner, part)) return true;
+        return false;
     }
 
     /** Analyst: the Cards/Table toggle in the filter row and the raw details; Simple: the other view in the ⋯ menu (hidden when alone). */

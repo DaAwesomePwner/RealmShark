@@ -341,6 +341,162 @@ public class QuestBoardTest {
         });
     }
 
+    /**
+     * Grouped by type label, each section's header already names the type, so its cards paint no type chip; grouped by chest tier or
+     * not at all, they do. The card's accessible name and the detail drawer keep the type label either way.
+     */
+    @Test public void typeGroupsLeaveOutTheChipTheirHeaderNamesAndOtherGroupingsKeepIt() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            QuestGUI ui = panel();
+            ui.update(quests());
+            assertEquals("Chest tier: the card names its type", "Event", painted(ui, "mighty", "Festival exchange").chip());
+            JComboBox<?> groupBy = named(ui, "quest-group-by", JComboBox.class);
+            groupBy.setSelectedItem("Type label");
+            assertEquals(List.of("Event", "2"), labels(ui.board().header("type-8")));
+            assertEquals("The header names the type; the card does not repeat it", "", painted(ui, "type-8", "Festival exchange").chip());
+            assertEquals("", painted(ui, "type-5", "Royal tribute").chip());
+            assertEquals("No type label: no chip anyway", "", painted(ui, "no-type", "Mighty haul").chip());
+            TileList<QuestCardModel> event = ui.board().list("type-8");
+            Component cell = event.getCellRenderer().getListCellRendererComponent(event, card(ui, "type-8", "Festival exchange"), 0, false, false);
+            assertEquals("The accessible name still says the type", QuestCardRenderer.accessibleName(card(ui, "type-8", "Festival exchange")),
+                cell.getAccessibleContext().getAccessibleName());
+            assertTrue(cell.getAccessibleContext().getAccessibleName().contains(", Event;"));
+            open(ui, "type-8", "Festival exchange");
+            assertTrue("The drawer still states the type label", named(ui.detail(), "quest-detail-meta", JTextArea.class).getText().endsWith(" · Event"));
+            named(ui.detail(), "quest-detail-close", AbstractButton.class).doClick();
+            groupBy.setSelectedItem("None");
+            assertEquals("None: the card names its type again", "Event", painted(ui, "all", "Festival exchange").chip());
+            groupBy.setSelectedItem("Chest tier");
+            assertEquals("Event", painted(ui, "mighty", "Festival exchange").chip());
+        });
+    }
+
+    /** What the group's own renderer paints for the card {@code name} (the painted text is not in the component tree). */
+    private static QuestCardRenderer.Lines painted(QuestGUI ui, String group, String name) {
+        TileList<QuestCardModel> list = ui.board().list(group);
+        assertNotNull("Missing group " + group, list);
+        Component cell = list.getCellRenderer().getListCellRendererComponent(list, card(ui, group, name), 0, false, false);
+        return ((QuestCardRenderer) cell).shown();
+    }
+
+    /**
+     * The Cards view says "nothing to show" once: while the Board shows its empty state (nothing captured, or no match), the summary
+     * and the empty state say it and the footer's count line is gone. The Table view keeps its footer as it was.
+     */
+    @Test public void theCardsViewDropsTheFooterCountWhileTheBoardShowsItsEmptyState() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            QuestGUI ui = panel();
+            JTextArea count = named(ui, "quest-count", JTextArea.class);
+            FilterBar bar = named(ui, "quests-filter-bar", FilterBar.class);
+            assertTrue(allText(ui.board()).contains("Enter the Daily Quest Room during capture"));
+            assertFalse("Nothing captured: the footer does not repeat the summary and the empty state", shown(count, ui));
+            bar.overflow().item("Table view").doClick();
+            assertTrue("The Table view keeps its footer", shown(count, ui));
+            assertEquals("No quests captured", count.getText());
+            bar.overflow().item("Cards view").doClick();
+            assertFalse(shown(count, ui));
+            ui.update(quests());
+            assertTrue("Cards shown: the count line is back", shown(count, ui));
+            assertEquals("6 shown • Requirements shown; owned items not checked.", count.getText());
+            named(ui, "quest-search", JTextField.class).setText("no such quest");
+            assertTrue(allText(ui.board()).contains("No matching quests"));
+            assertFalse("No match: the empty state says it", shown(count, ui));
+            bar.overflow().item("Table view").doClick();
+            assertTrue(shown(count, ui));
+            assertEquals("0 shown • Requirements shown; owned items not checked.", count.getText());
+        });
+    }
+
+    /**
+     * A view switch keeps keyboard focus on the page: focus inside the view being hidden (the card that Close returned it to, or the
+     * table) or on the ⋯ menu that switched it moves into the view being shown (the table; the selected card's list); focus elsewhere
+     * (the search field) stays where it was.
+     */
+    @Test public void aViewSwitchMovesFocusFromTheHiddenViewIntoTheShownViewAndNeverStealsIt() throws Exception {
+        JFrame[] window = new JFrame[1];
+        SwingUtilities.invokeAndWait(() -> window[0] = new JFrame("Quest Board focus - synthetic validation"));
+        JFrame frame = window[0];
+        QuestGUI[] ui = new QuestGUI[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                ui[0] = panel();
+                ui[0].update(quests());
+                frame.setContentPane(ui[0]);
+                frame.setSize(1100, 800);
+                frame.setVisible(true);
+                frame.toFront();
+            });
+            await("the window's focus", frame::isFocused);
+            SwingUtilities.invokeAndWait(() -> open(ui[0], "mighty", "Festival exchange"));
+            awaitFocus(ui[0].detail().closeButton());
+            SwingUtilities.invokeAndWait(() -> ui[0].detail().closeButton().doClick());
+            TileList<QuestCardModel> mighty = ui[0].board().list("mighty");
+            awaitFocus(mighty);
+            JTable table = named(ui[0], "quest-table", JTable.class);
+            FilterBar bar = named(ui[0], "quests-filter-bar", FilterBar.class);
+            SwingUtilities.invokeAndWait(() -> bar.overflow().item("Table view").doClick());
+            awaitFocus(table);
+
+            SwingUtilities.invokeAndWait(() -> DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST));
+            SwingUtilities.invokeAndWait(() -> named(ui[0], "quest-view-0", JToggleButton.class).doClick()); // the Analyst toggle
+            awaitFocus(mighty);
+            SwingUtilities.invokeAndWait(() -> assertEquals("The selected card's list", "Festival exchange", mighty.getSelectedValue().name()));
+
+            JTextField search = named(ui[0], "quest-search", JTextField.class);
+            SwingUtilities.invokeAndWait(search::requestFocusInWindow);
+            awaitFocus(search);
+            SwingUtilities.invokeAndWait(() -> named(ui[0], "quest-view-1", JToggleButton.class).doClick());
+            settle();
+            SwingUtilities.invokeAndWait(() -> {
+                assertFalse(ui[0].cardsShown());
+                assertSame("Focus outside the hidden view is never moved", search, focusOwner());
+            });
+
+            SwingUtilities.invokeAndWait(() -> DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE));
+            SwingUtilities.invokeAndWait(() -> bar.overflow().requestFocusInWindow());
+            awaitFocus(bar.overflow());
+            SwingUtilities.invokeAndWait(() -> bar.overflow().item("Cards view").doClick());
+            awaitFocus(mighty); // from the ⋯ menu that switched it
+        } finally {
+            SwingUtilities.invokeAndWait(frame::dispose);
+        }
+    }
+
+    static Component focusOwner() { return KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(); }
+
+    /** Waits up to 5 s for {@code target} to own the keyboard focus; the failure names the actual owner. */
+    static void awaitFocus(Component target) throws Exception {
+        Component[] owner = new Component[1];
+        long end = System.nanoTime() + 5_000_000_000L;
+        while (true) {
+            SwingUtilities.invokeAndWait(() -> owner[0] = focusOwner());
+            if (owner[0] == target) return;
+            if (System.nanoTime() > end) fail("Focus on " + describe(owner[0]) + ", expected " + describe(target));
+            Thread.sleep(20);
+        }
+    }
+
+    static void await(String what, java.util.function.BooleanSupplier condition) throws Exception {
+        boolean[] met = new boolean[1];
+        long end = System.nanoTime() + 5_000_000_000L;
+        while (true) {
+            SwingUtilities.invokeAndWait(() -> met[0] = condition.getAsBoolean());
+            if (met[0]) return;
+            if (System.nanoTime() > end) fail(what + " did not settle within 5 s");
+            Thread.sleep(20);
+        }
+    }
+
+    /** Lets posted focus changes land. */
+    static void settle() throws Exception {
+        for (int i = 0; i < 5; i++) { SwingUtilities.invokeAndWait(() -> { }); Thread.sleep(40); }
+    }
+
+    private static String describe(Component c) {
+        return c == null ? "nothing" : c.getClass().getSimpleName() + (c.getName() == null ? "" : " '" + c.getName() + "'")
+            + (c instanceof AbstractButton ? " \"" + ((AbstractButton) c).getText() + "\"" : "");
+    }
+
     private static void open(QuestGUI ui, String group, String name) {
         TileList<QuestCardModel> list = ui.board().list(group);
         assertNotNull("Missing group " + group, list);

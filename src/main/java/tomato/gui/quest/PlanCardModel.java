@@ -29,6 +29,8 @@ record PlanCardModel(String entryId, String name, String status, String readines
     /** One requirement item: {@code available} and {@code missing} are null when no manual held entry exists (stock unknown). */
     record Row(int itemId, String name, long need, long reserved, Long available, Long missing) {
         boolean stockKnown() { return available != null && missing != null; }
+        /** The item's name with its id, once ({@link PlanCardModel#label}). */
+        String label() { return PlanCardModel.label(name, itemId); }
 
         /**
          * min(need, available) − reserved, or null when stock is unknown. PlanData.validate keeps a reservation within the plan's
@@ -81,6 +83,12 @@ record PlanCardModel(String entryId, String name, String status, String readines
 
     /** An item's display name ("Unknown item" when the lookup has none, as the table's text says). */
     static String name(IntFunction<String> names, int id) { String value = names.apply(id); return value == null ? "Unknown item" : value; }
+
+    /**
+     * "Festival Token (#3)": an item's name with its id, once. A name that already ends with "#id" (the Board's lookup names an item
+     * without an asset name "Unknown item #9999") is shown as it is, never "Unknown item #9999 (#9999)".
+     */
+    static String label(String name, int id) { return name.endsWith("#" + id) ? name : name + " (#" + id + ")"; }
 
     /** One row per demanded item, in the totals' order (ascending item id). */
     private static List<Row> rows(QuestPlanning.Totals totals, IntFunction<String> names) {
