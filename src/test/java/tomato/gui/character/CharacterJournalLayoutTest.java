@@ -197,6 +197,7 @@ public class CharacterJournalLayoutTest {
             }
             SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
             if ("goals".equals(id)) showManageGoals(); // P3b: the goals panel sits below the goal cards
+            if ("fame".equals(id)) awaitFame();
             settle();
             SwingUtilities.invokeAndWait(() -> {
                 JTabbedPane tabs = named(sheet, "character-tabs", JTabbedPane.class);
@@ -228,8 +229,12 @@ public class CharacterJournalLayoutTest {
                 } else if ("pet".equals(id)) {
                     reachable(named(sheet, "character-pet-empty", JComponent.class)); // no character list was read: the pet is unknown
                 } else if ("fame".equals(id)) {
-                    // A placeholder slot until the Fame tab arrives: checked for its place, like Build.
+                    // The real Fame tab fills its slot. The test JVM starts no history store (AppHistory.store() is null), so its read
+                    // is empty and the empty state shows: it must fit or scroll into view like every other tab's content.
                     assertSame(named(sheet, "character-tab-fame", JComponent.class), tabs.getSelectedComponent());
+                    assertTrue("The Fame tab is the selected slot's content",
+                        SwingUtilities.isDescendingFrom(named(sheet, "character-fame", JComponent.class), tabs.getSelectedComponent()));
+                    reachable(named(sheet, "character-fame-empty", JComponent.class));
                 } else if ("build".equals(id)) {
                     // Build fills its tab and scrolls itself, so it is checked for its place and width rather than for fitting whole.
                     JComponent build = named(sheet, "character-build", JComponent.class);
@@ -321,6 +326,17 @@ public class CharacterJournalLayoutTest {
         if (!opened[0]) return;
         long settled = System.nanoTime() + 4L * tomato.gui.kit.Motion.MAX_MILLIS * 1_000_000L;
         tomato.gui.activity.SnapshotTestSupport.await(() -> System.nanoTime() >= settled); // the EDT runs the motion's timer meanwhile
+    }
+
+    /**
+     * The Fame tab applies its first read off the EDT ("character-fame", FamePresenter) once the sheet's own build has made its Fame
+     * tile; until then it shows nothing. Wait until its content (tiles, then the chart or the empty state) is visible.
+     */
+    private void awaitFame() {
+        tomato.gui.activity.SnapshotTestSupport.await(() -> {
+            JComponent content = named(sheet, "character-fame-content", JComponent.class);
+            return content != null && content.isVisible();
+        });
     }
 
     private static String keyForSelectedCharacter(JTable roster) {

@@ -28,8 +28,10 @@ public class ExaltsGridTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     private CharacterJournal journal(boolean second) { return ExaltFixtures.journal(temp.getRoot().toPath().resolve("journal.json"), second); }
-    private static SheetContext context(CharacterJournal journal) {
-        return new SheetContext(new TomatoData(), journal, () -> DEFINITIONS, DisplayModeModel.application(), () -> NOW, PlanningStore.shared());
+    private static SheetContext context(CharacterJournal journal) { return context(journal, new TomatoData()); }
+    /** {@code data}: its live character is the one in game. */
+    private static SheetContext context(CharacterJournal journal, TomatoData data) {
+        return new SheetContext(data, journal, () -> DEFINITIONS, DisplayModeModel.application(), () -> NOW, PlanningStore.shared());
     }
     /** The grid with the fixture weapon groups and class names; {@code worker} runs its builds. */
     private static ExaltsGrid grid(CharacterJournal journal, Executor worker) {
@@ -56,8 +58,9 @@ public class ExaltsGridTest {
             ExaltsGrid grid = refreshed(journal);
             SwingUtilities.invokeAndWait(() -> {
                 StatTile boost = named(grid, "tile-loot-boost", StatTile.class), full = named(grid, "tile-fully-exalted", StatTile.class);
-                assertEquals("The Wizard #7 is the account's last played character; Wizard and Priest share a weapon", "+15%", boost.value().display());
-                assertEquals("Loot boost: +15%, Wizard · last played", boost.getAccessibleContext().getAccessibleName());
+                assertEquals("The Wizard #7 is the account's last played character; Wizard and Priest share a weapon; saved counts are stale",
+                    "+15% (stale)", boost.value().display());
+                assertEquals("Loot boost: +15% (stale), Wizard · last played", boost.getAccessibleContext().getAccessibleName());
                 assertEquals("Fully exalted: 1, of 3 observed classes", full.getAccessibleContext().getAccessibleName());
                 assertEquals(List.of(WIZARD, PRIEST, WARRIOR), classes(tiles(grid)));
                 assertTrue(visible(tiles(grid), grid));
@@ -93,6 +96,44 @@ public class ExaltsGridTest {
             ExaltsGrid grid = refreshed(journal);
             SwingUtilities.invokeAndWait(() -> assertFalse("One account: no selector", named(grid, "character-exalts-account", JComboBox.class).isVisible()));
         }
+    }
+
+    /**
+     * Spec §1, stale is labeled: a last-played header's boost comes from the account's saved counts, so it is stale and says when
+     * they last changed; the class in game shows it as known.
+     */
+    @Test public void aLastPlayedBoostIsStaleWithItsSavedCountsAgeAndTheClassInGameIsKnown() throws Exception {
+        try (CharacterJournal journal = journal(false)) {
+            long seen = journal.accounts().stream().filter(a -> FIRST.equals(a.key)).findFirst().get().exaltSeenByClass.get(WIZARD);
+            ExaltsGrid lastPlayed = refreshed(journal);
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayValue value = named(lastPlayed, "tile-loot-boost", StatTile.class).value();
+                assertEquals(DisplayValue.State.STALE, value.state);
+                assertEquals("+15% (stale)", value.display());
+                assertEquals("Exalt loot drop boost of the Wizard, from this account's saved exalt counts, which last changed " + KitFormat.relative(seen),
+                    value.tooltip());
+            });
+            TomatoData data = new TomatoData();
+            data.liveCharacter.publish(live(FIRST, 7, WIZARD)); // the Wizard #7 is in game
+            ExaltsGrid[] inGame = new ExaltsGrid[1];
+            SwingUtilities.invokeAndWait(() -> {
+                inGame[0] = new ExaltsGrid(context(journal, data), Runnable::run, ExaltFixtures::weaponGroup, ExaltFixtures::className, () -> PLANNING);
+                inGame[0].refresh();
+            });
+            await(() -> inGame[0].model() != null);
+            SwingUtilities.invokeAndWait(() -> {
+                StatTile boost = named(inGame[0], "tile-loot-boost", StatTile.class);
+                assertEquals(DisplayValue.State.KNOWN, boost.value().state);
+                assertEquals("+15%", boost.value().display());
+                assertEquals("Exalt loot drop boost of the Wizard, from this account's saved exalt counts", boost.value().tooltip());
+                assertEquals("Loot boost: +15%, Wizard · in game", boost.getAccessibleContext().getAccessibleName());
+            });
+        }
+        AccountExalts noTime = new AccountExalts(FIRST, List.of(new AccountExalts.Choice(FIRST, "Sample")), List.of(), 15, "Wizard",
+            AccountExaltsBuilder.LAST_PLAYED, 0, 0, 0);
+        assertEquals("Exalt loot drop boost of the Wizard, from this account's saved exalt counts, which last changed at an unknown time",
+            ExaltsGrid.boostValue(noTime).tooltip());
+        assertEquals(DisplayValue.State.STALE, ExaltsGrid.boostValue(noTime).state);
     }
 
     @Test public void anUnknownBoostShowsADashWithTheReason() throws Exception {

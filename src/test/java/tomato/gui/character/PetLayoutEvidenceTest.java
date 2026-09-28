@@ -57,7 +57,8 @@ public class PetLayoutEvidenceTest {
                 evidence.settle();
                 SwingUtilities.invokeAndWait(() -> {
                     JTextArea known = find(panel[0], JTextArea.class, a -> a.getText().contains("Captured points: 100"));
-                    assertTrue(known.getText().contains("Items to max: 4")); assertTrue(known.getText().contains("Fame to max: 60"));
+                    // Spec §1: estimates show ≈ (captured inputs and unknowns never do).
+                    assertTrue(known.getText().contains("Items to max: ≈ 4")); assertTrue(known.getText().contains("Fame to max: ≈ 60"));
                     layouts.checkSucceeds(() -> { completeText(known); return null; });
                     evidence.capture(name + "-known-estimate");
                     select(panel[0], "pet:20");
@@ -67,6 +68,7 @@ public class PetLayoutEvidenceTest {
                     JTextArea unknown = find(panel[0], JTextArea.class, a -> a.getText().contains("Ability points not captured"));
                     assertTrue(unknown.getText().contains("Items to max: Not captured / unavailable"));
                     assertFalse(unknown.getText().contains("Fully fed"));
+                    assertFalse("Unknown is never an estimate", unknown.getText().contains("≈"));
                     layouts.checkSucceeds(() -> { completeText(unknown); return null; });
                     evidence.capture(name + "-unknown-estimate");
                     layouts.checkSucceeds(() -> {
@@ -83,7 +85,7 @@ public class PetLayoutEvidenceTest {
                 JTextField feed = named(panel[0], "pet-feed-power", JTextField.class); feed.setText("1000"); feed.postActionEvent();
                 select(panel[0], "pet:10");
                 JTextArea known = find(panel[0], JTextArea.class, a -> a.getText().contains("Captured points: 100"));
-                assertTrue(known.getText().contains("Items to max: 2")); assertTrue(known.getText().contains("Fame to max: 30"));
+                assertTrue(known.getText().contains("Items to max: ≈ 2")); assertTrue(known.getText().contains("Fame to max: ≈ 30")); // spec §1: estimates show ≈
                 select(panel[0], "pet:20");
                 assertTrue(find(panel[0], JTextArea.class, a -> a.getText().contains("Ability points not captured"))
                     .getText().contains("Items to max: Not captured / unavailable"));

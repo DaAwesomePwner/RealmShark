@@ -85,6 +85,20 @@ public class ExaltTileRendererTest {
         });
     }
 
+    /** A tile's counts are saved ones: its tooltip names that source and when they last changed (spec §1: stale is labeled). */
+    @Test public void theTooltipNamesTheSavedCountsAndWhenTheyChanged() throws Exception {
+        long seen = System.currentTimeMillis() - 2 * 3_600_000L; // KitFormat.relative reads the real clock
+        SwingUtilities.invokeAndWait(() -> {
+            ExaltTileRenderer renderer = new ExaltTileRenderer();
+            JList<AccountExalts.Tile> list = new JList<>();
+            renderer.getListCellRendererComponent(list, new AccountExalts.Tile(ExaltFixtures.WIZARD, "Wizard", 312, 3, List.of(3, 4, 3, 5, 3, 3, 4, 3), 15, seen),
+                0, false, false);
+            assertTrue(renderer.getToolTipText(), renderer.getToolTipText().endsWith("Loot boost +15% · From saved exalt counts, changed 2 h ago"));
+            renderer.getListCellRendererComponent(list, tile(312, 3, null), 0, false, false);
+            assertTrue("An unknown time says so", renderer.getToolTipText().endsWith(" · From saved exalt counts, changed at an unknown time"));
+        });
+    }
+
     private static double distance(Color a, Color b) {
         int r = a.getRed() - b.getRed(), g = a.getGreen() - b.getGreen(), bl = a.getBlue() - b.getBlue();
         return Math.sqrt(r * r + g * g + bl * bl);

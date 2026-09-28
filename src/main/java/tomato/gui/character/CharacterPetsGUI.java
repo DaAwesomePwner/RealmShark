@@ -392,7 +392,8 @@ public class CharacterPetsGUI extends JPanel {
     }
 
     /**
-     * One ability's inputs and estimate, in the wording the calculator has always used. The gallery's pet is one merged observation
+     * One ability's inputs and estimate, in the wording the calculator has always used, with the estimated counts marked "≈"
+     * (captured inputs and unknowns never are). The gallery's pet is one merged observation
      * (PetGalleryModel), so each value's evidence is that observation's source and time.
      */
     private JPanel abilityDetails(PetSummary pet, int index) {
@@ -404,8 +405,8 @@ public class CharacterPetsGUI extends JPanel {
         String text = "Captured points: " + known(points) + " · " + evidence(pet, points)
             + "\nLevel: " + evidence(pet, level) + "\nMax level: " + evidence(pet, cap)
             + "\n" + scenario + " · " + feedPower + " FP/item · Ability multiplier " + PetFeeding.multiplier(index)
-            + "\nNext level items: " + known(estimate.nextItems) + " · Fame: " + known(estimate.nextFame)
-            + "\nItems to max: " + known(estimate.maxItems) + " · Fame to max: " + known(estimate.maxFame)
+            + "\nNext level items: " + estimated(estimate, estimate.nextItems) + " · Fame: " + estimated(estimate, estimate.nextFame)
+            + "\nItems to max: " + estimated(estimate, estimate.maxItems) + " · Fame to max: " + estimated(estimate, estimate.maxFame)
             + "\n" + (estimate.fullyFed ? "Fully fed at captured maximum level. " : "") + estimate.reason;
         JTextArea explanation = ContentStyle.wrappingText(text); explanation.setFocusable(true);
         revealOnFocus(explanation);
@@ -419,6 +420,13 @@ public class CharacterPetsGUI extends JPanel {
     }
     private static String timestamp(long at) { return at <= 0 ? "Time unknown" : Formatters.formatTimestamp(at); }
     private static String known(Object value) { return value == null ? "Not captured / unavailable" : value.toString(); }
+    /**
+     * An item or fame count from PetFeeding's local formula: "≈ 12" (spec §1: estimates show ≈, as the sheet's Pet tab does).
+     * Unknown stays "Not captured / unavailable"; a fully fed ability's zeros are exact, not estimates.
+     */
+    private static String estimated(PetFeeding.Estimate estimate, Long value) {
+        return value == null || estimate.fullyFed ? known(value) : "≈ " + value;
+    }
     private static JLabel detail(String text) { JLabel label = new JLabel(text); label.setFont(ContentStyle.body()); return label; }
     /** PetDefinitions' ability name; the panel's own wording for an uncaptured or unnamed ability id. */
     static String abilityName(Integer id) {

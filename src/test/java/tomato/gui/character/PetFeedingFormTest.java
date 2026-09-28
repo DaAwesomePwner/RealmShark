@@ -99,14 +99,17 @@ public class PetFeedingFormTest {
                 frame.setVisible(true);
                 assertNotNull(label(panel, "Heal · Level 1"));
                 assertTrue(text(panel).contains("Captured points: 100"));
-                assertTrue(text(panel).contains("Items to max: 4"));
-                assertTrue(text(panel).contains("Fame to max: 60"));
+                assertTrue("Spec §1: estimates show ≈", text(panel).contains("Items to max: ≈ 4"));
+                assertTrue("Spec §1: estimates show ≈", text(panel).contains("Fame to max: ≈ 60"));
                 assertTrue(text(panel).contains("Next level items:"));
+                assertTrue("The next level's items and fame are estimates too", text(panel).contains("Next level items: ≈ ") && text(panel).contains(" · Fame: ≈ "));
+                assertFalse("A captured input is never an estimate", text(panel).contains("Captured points: ≈"));
+                assertFalse("Unknown is never an estimate", text(panel).contains("≈ Not captured"));
 
                 feed.setText("1000");
                 feed.postActionEvent();
-                assertTrue(text(panel).contains("Items to max: 2"));
-                assertTrue(text(panel).contains("Fame to max: 30"));
+                assertTrue("Spec §1: estimates show ≈", text(panel).contains("Items to max: ≈ 2"));
+                assertTrue("Spec §1: estimates show ≈", text(panel).contains("Fame to max: ≈ 30"));
                 frame.setVisible(false);
                 CharacterPetsGUI.clearPets();
                 frame.setVisible(true);
@@ -157,6 +160,27 @@ public class PetFeedingFormTest {
                 assertFalse(drawer.expanded());
                 cards.getActionMap().get(TileList.OPEN).actionPerformed(null);
                 assertTrue("Enter on a pet card opens its feeding calculator", drawer.expanded());
+            } finally { frame.dispose(); CharacterPetsGUI.clearPets(); }
+        });
+    }
+
+    /** A fully fed ability (level at the captured maximum) needs nothing: its zeros are exact, never "≈ 0". */
+    @Test public void aFullyFedAbilityShowsExactZeros() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPetsGUI panel = new CharacterPetsGUI(null);
+            expandFeeding(panel);
+            JFrame frame = new JFrame();
+            frame.setContentPane(panel);
+            frame.setSize(640, 600);
+            try {
+                CharacterPetsGUI.addPet(pet(stat(StatType.PET_INSTANCE_ID_STAT, 30), stat(StatType.PET_MAX_ABILITY_POWER_STAT, 30),
+                    stat(StatType.PET_FIRST_ABILITY_POWER_STAT, 30), stat(StatType.PET_FIRST_ABILITY_POINT_STAT, 2_100), stat(StatType.PET_FIRST_ABILITY_TYPE_STAT, 407)));
+                feedField(panel).postActionEvent();
+                frame.setVisible(true);
+                String text = text(panel);
+                assertTrue(text, text.contains("Fully fed at captured maximum level."));
+                assertTrue(text, text.contains("Next level items: 0 · Fame: 0"));
+                assertTrue(text, text.contains("Items to max: 0 · Fame to max: 0"));
             } finally { frame.dispose(); CharacterPetsGUI.clearPets(); }
         });
     }
