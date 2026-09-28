@@ -147,4 +147,30 @@ public class SessionStoreTest {
             assertEquals(1,count.get());assertEquals(2,store.read(store.currentId(),"chat",Event.class).size());
         }finally{store.close();}
     }
+    @Test public void readCheckpointReadsTheFileThatPutWroteOffTheEdtOnly()throws Exception{
+        Path root=temp.newFolder().toPath();SessionStore first=new SessionStore(root,true,"build-one");String old=first.currentId();
+        first.put("encounters","recording-1",new Event("old"));first.put("encounters","recording-1",new Event("latest"));
+        first.put("encounters","recording-2",new Event("other"));first.flush();
+        try{
+            assertEquals("latest",first.readCheckpoint(old,"encounters","recording-1",Event.class).get().text);
+            assertEquals(Instant.parse("2026-09-20T12:00:00Z"),first.readCheckpoint(old,"encounters","recording-1",Event.class).get().time);
+            assertFalse("absent key",first.readCheckpoint(old,"encounters","recording-3",Event.class).isPresent());
+            assertFalse("absent module",first.readCheckpoint(old,"encounter-detail","recording-1",Event.class).isPresent());
+            String unknown=UUID.randomUUID().toString();
+            assertFalse("absent session",first.readCheckpoint(unknown,"encounters","recording-1",Event.class).isPresent());
+            try{first.readCheckpoint("../escape","encounters","recording-1",Event.class);fail("Session IDs are validated");}catch(IllegalArgumentException expected){}
+            try{first.readCheckpoint(old,"Bad/Module","recording-1",Event.class);fail("Module names are validated");}catch(IllegalArgumentException expected){}
+            Throwable[] edt=new Throwable[1];
+            SwingUtilities.invokeAndWait(()->{try{first.readCheckpoint(old,"encounters","recording-1",Event.class);}catch(Throwable t){edt[0]=t;}});
+            assertTrue(String.valueOf(edt[0]),edt[0] instanceof IllegalStateException);
+            Path file=root.resolve(old).resolve("encounters").resolve(UUID.nameUUIDFromBytes("recording-2".getBytes(StandardCharsets.UTF_8))+".json");
+            assertTrue("the name put writes",Files.isRegularFile(file));
+            Files.write(file,"{\"text\":".getBytes(StandardCharsets.UTF_8));
+            try{first.readCheckpoint(old,"encounters","recording-2",Event.class);fail("A damaged checkpoint is not an absent one");}
+            catch(java.io.IOException expected){assertTrue(expected.getMessage(),expected.getMessage().startsWith("Unreadable history"));}
+        }finally{first.close();}
+        SessionStore next=new SessionStore(root,false,"build-two");
+        try{assertEquals("other session after restart","latest",next.readCheckpoint(old,"encounters","recording-1",Event.class).get().text);}
+        finally{next.close();}
+    }
 }
