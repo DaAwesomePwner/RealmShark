@@ -27,8 +27,9 @@ focused tests on the integration branch before the next wave started.
   damage chart.
 - **Wave D**: Task 9 the `RUN_RECAP` route, Home's Recent runs and the feed's cards opening the recap, Back, and the S4
   click-path test.
-- **Wave E**: Task 10 evidence, docs and this record (run in parallel with Task 9 on the Wave C base); then the coordinator's
-  final full suite, `shadowJar` and the JAR smoke.
+- **Wave E**: Task 10 evidence, docs and this record (run in parallel with Task 9 on the Wave C base); then Task 11, a polish
+  round for the defects the coordinator took from the evidence review; then the coordinator's final full suite, `shadowJar` and
+  the JAR smoke.
 
 **User decisions (2026-09-28):** P5 ships as two PRs (P5a, P5b); the Live meter moves into Runs & DPS in P5b; **Keep full
 combat detail** is included and off by default, without the debug packet log, pruned after 30 days by default; combat summaries
@@ -46,11 +47,13 @@ merge:
 - Task 4: `3e4f9ce` — capture stop saves a deep copy of the fight (`Entity.copyForDisplay` through one identity map) and only
   clears recorded damage on the live objects, so the local player, objects, drops and loot bags survive a capture restart in
   the same area; the remainder is a separate recording without a visit link.
-- Coordinator: `52c41fb` — the recap uses the feed card's loot summary wording (`RunCardModel.summary`).
+- Coordinator: `52c41fb` — the recap uses the feed card's loot summary wording (`RunCardModel.summary`); `f9bd3d9` — the route
+  target builds the recap's failed-read reason from `RunRecapView.FAILED_TITLE`, which the recap uses to tell a failed read from
+  a run missing from saved history.
 
 Merges on the integration branch: Task 3 `3d38105`, Task 2 `a7c67ba`, Task 1 `625d6a5`, Task 6 `32c5fb4`, Task 5 `303a136`,
-the wording fix `52c41fb`, Task 4 `754d1a4`, Task 8 `b77920c`, Task 7 `2812dc6`, Task 9 **[Coordinator: merge sha]**, Task 10
-**[Coordinator: merge sha]**. Each task's own focused runs (RED and GREEN) are in its implementer report and the coordinator's
+the wording fix `52c41fb`, Task 4 `754d1a4`, Task 8 `b77920c`, Task 7 `2812dc6`, Task 9 `e6a7ff5`, Task 10
+`cd3e07d`, Task 11 `46666f6` (commit `db19eb3`), the reason fix `f9bd3d9`. Each task's own focused runs (RED and GREEN) are in its implementer report and the coordinator's
 review notes; the table below records the wave totals measured on the integration branch.
 
 ## Coverage
@@ -91,13 +94,25 @@ review notes; the table below records the wave totals measured on the integratio
   `RunDamagePanel` (recording picker only with more than one recording; meter with the local row's accent wash and "(you)";
   damage by source follows the selection), kit `DamageChart` (Simple: You and Top contributors, "Others (top 12)" when fewer
   series were saved than contributors; Analyst: one line per series with a chart-local six-hue palette).
-- Task 9: **[Coordinator]** `Destination.RUN_RECAP` (page 10), `RunsRouteTarget` and `RunsState`, the recap wiring in
-  `RunsPage`, Home's Recent runs and the feed's cards opening the recap with Damage expanded, Back, and the S4 method in
-  `ShellHookIntegrationTest` — confirm against the merged Task 9 and record its test counts here.
+- Task 9 (confirmed against the merge `e6a7ff5`): `Destination.RUN_RECAP` (page 10), `RunsRouteTarget.of` (a plain `RUNS` route
+  shows the feed; `RUN_RECAP` accepts only an exact saved visit and is rejected without saved history), `RunsState` (recap,
+  visit, recording, view and the Table view's own state), the recap built on the "RealmShark run recap" worker, Home's Recent
+  runs and the feed's cards opening the recap with Damage expanded, "‹ Runs" following the Characters precedent, and the S4
+  method in `ShellHookIntegrationTest`; `RunsRouteTargetTest` (10 tests). Task 9's own runs: its three test classes 26 tests,
+  0 failures; its wider set 367 tests, 2 failures (the known `ChatConsistencyTest.nativeFilterDialog…` and
+  `ChatFiltersTest.editorSavesRules…`).
 - Task 10: `ui.RunsEvidenceTest` (19 captures), `docs/ACTIVITY.md` (Runs feed, card facts, recap, Table view),
   `docs/DPS-METERS.md` (saved combat history, capture stop, full detail, Clear DPS Logs, what is not saved),
   `docs/SESSION-HISTORY.md` (the three combat modules, retention and pruning, storage figures), `README.md` (Runs row and
   summary sentence; Settings sections) and this record.
+- Task 11 (polish, merge `46666f6`): the card's loot summary takes its own line when it does not fit beside the sprites; the
+  meter's rank column is as wide as its digits; the recap header uses the card's time and duration formats and never ends a
+  wrapped line with a separator; the Loot section adds only notable kinds after "N items in M bags"; slot columns align in Loot
+  and Players; one empty state per feed situation; the recording list's selection uses the `SELECTION` roles (4.03:1 before in
+  the dark theme, now ≥ 4.5:1 in both); a failed recap read has its own "This run could not be read" state; Settings' size
+  wording follows the measurement. Tests in `RunCardRendererTest`, `RunDamagePanelTest`, `RunFeedViewTest`,
+  `RunRecapViewTest`, `GeneralSectionTest`; `RunsEvidenceTest` assertions follow the intended changes. Its run: 38 classes,
+  224 tests, 0 failures.
 
 ## Local validation
 
@@ -112,9 +127,9 @@ these are the local checks.
 | Wave A merge (Tasks 3, 2, 1: `3d38105`, `a7c67ba`, `625d6a5`) | the union of the wave's focused commands (dps, history, runs, stats, Home, kit, settings, shell hook, workspace, shell evidence) | on `625d6a5`: 104 test classes, 483 tests, 1 failure: the known `StatisticsArchiveNativeTest.actualLootFactory…` |
 | Wave B merge (Tasks 6, 5, the wording fix, Task 4: `32c5fb4`, `303a136`, `52c41fb`, `754d1a4`) | the union of the wave's focused commands (backend data, history, dps, runs, activity, Home, settings, main menu, stats, kit, capture, shell hook, workspace) | on `754d1a4`: 151 test classes, 742 tests, 1 failure: the known `StatisticsArchiveNativeTest.actualLootFactory…` |
 | Wave C merge (Tasks 8, 7: `b77920c`, `2812dc6`) | the union of the wave's focused commands (runs, kit, activity, shell hook, workspace, modern, history, Home, `WaveThreeJourneyTest`, `SetupWorkspaceTest`, `ShellRouteRegistrationTest`) | on `2812dc6`: 80 test classes, 421 tests, **0 failures** |
-| Wave D merge (Task 9) | the union of the wave's focused commands (plan: runs, route, chat, `ShellRouteRegistrationTest`, Home, activity) | **[Coordinator]** merge sha, test classes, tests, failures |
+| Wave D merge (Task 9) | the union of the wave's focused commands (plan: runs, route, chat, `ShellRouteRegistrationTest`, Home, activity) | on `e6a7ff5` (runs, route, chat, `ShellRouteRegistrationTest`, Home, activity, `WaveThreeJourneyTest`, `SetupWorkspaceTest`, modern, kit): 90 test classes, 449 tests, 2 failures: the known `ChatFiltersTest.editorSavesRules…` and `ChatConsistencyTest.nativeFilterDialog…` |
 | Storage (Task 4) | `GRADLE test --tests "*CombatStorageMeasurementTest"` | see "Storage measurement" below; all three soft bounds met |
-| S4 | `ShellHookIntegrationTest.homeRecentRunAndFeedOpenTheDamageBreakdownOfTheLastCompletedRunForS4` | **[Coordinator]** — plan target: 1 click from Home's Recent runs to the recap with Damage expanded and the meter's local row; Back returns Home; 2 clicks from the sidebar (Runs, then the first completed card) |
+| S4 | `ShellHookIntegrationTest.homeRecentRunAndFeedOpenTheDamageBreakdownOfTheLastCompletedRunForS4` | **met**: 1 click from Home's Recent runs row to the recap with Damage expanded and the meter's local row "Player1 (you)" (the row already shows the run's DPS without a click); Back returns Home; 2 clicks from the sidebar (Runs, then the first completed card, which opens on Enter or double-click, counted as one open like the S2/S3 card actions). The recap applied 19–36 ms after the click in the test |
 | Evidence (Task 10, on `d038127` plus the Task 10 commits) | `GRADLE test --tests "ui.RunsEvidenceTest"` | **4 tests, 0 failures, 0 errors, 0 skipped**; 19 screenshots in `build/p5a-t10/ui-test/screenshots/redesign-p5a-runs/`. A local mutation run (test-side, not committed) confirmed the guards: forcing the feed page's horizontal scroll bar failed the sideways check of all four feed captures that show the cards (`p5a-feed-1240-13-simple`, `-680-18-analyst`, `-yesterday-`, `-empty-`), and expecting "Party 7" failed both recap top captures. Task 9 was not on this base: the test opens the Runs page (page 10) for the feed, builds the recap with `RunRecapBuilder` off the EDT and shows it with `RunsPage.setRecap`, `RunRecapView.show` and `RunsPage.showRecap`, expanding Damage as the route will. Findings under "Evidence" below |
 | Final full suite and JAR (coordinator) | `GRADLE test shadowJar` | **[Coordinator]** on the head with Tasks 1–10 merged: test classes, tests / failures / errors / skipped; new failures versus the baseline; the JAR built |
 | JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | **[Coordinator]** exit code and the folder left empty |
@@ -224,8 +239,16 @@ Findings (none fixed in Task 10, which changes no main code):
     "Class unknown" in Players and the placeholder sprites come from the test environment having no game assets; the window's
     title bar covers the page heading in every capture (harness artifacts, as in P4).
 
-**Coordinator review.** **[Coordinator]** read the captures, agree or disagree with each finding, and record what is fixed,
-deferred or accepted (and where).
+**Coordinator review.** The coordinator read the captures (the feed at both sizes, the recap top and meter at 680, the recap at
+1240) and agrees with the findings. Fixed in Task 11 (merge `46666f6`), each with a test that failed first, and rechecked in
+its regenerated captures (`build/p5a-t11/ui-test/screenshots/redesign-p5a-runs/`): **1** (the loot summary is whole on its own
+line), **4** (measured sizes in Settings), **5** (a narrow rank column; #, Player, Damage and DPS show at 680 font 18), **6**
+(slot columns align), **7** (the card's time and duration formats in the recap), **8** (no dangling separator), **9** (no
+repeated item count), **10** (one empty state, no summary line) and **11** (the selection passes 4.5:1 in both themes).
+Accepted: **2** (the Table view keeps the archive's own wording by plan; the feed, recap and Home share `RunOutcome`) and **3**
+("Top contributors" is honest because only the local row and the top 12 are saved as series). **12** stays as observations
+(fixed cells by design; "Deaths 0" is a known zero for a verified row; pre-existing views and harness artifacts). Also fixed
+in Task 11 from the Wave D review: a failed recap read has its own title.
 
 ## Deferred scope
 
