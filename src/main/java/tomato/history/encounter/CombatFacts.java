@@ -28,22 +28,46 @@ public final class CombatFacts {
         for (SessionStore.SessionEntry entry : catalog) {
             if (!SessionStore.ALL.equals(scope) && !entry.id.equals(scope)) continue;
             if (!entry.readable()) continue;
-            Path folder = store.directory().resolve(entry.id).resolve(RECORDS);
-            if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) continue;
-            List<Path> files = new ArrayList<>();
-            try (DirectoryStream<Path> listing = Files.newDirectoryStream(folder, "*.json")) { for (Path file : listing) files.add(file); }
-            catch (NoSuchFileException | NotDirectoryException deleted) { continue; } // the session was deleted meanwhile
-            files.sort(Comparator.comparing(Path::toString));
-            for (Path file : files) {
-                CombatRecord record;
-                try { record = SessionStore.JSON.fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), CombatRecord.class); }
-                catch (IOException | RuntimeException unreadable) { continue; } // removed while listing, or damaged: skip this file only
-                if (record == null || record.schemaVersion > CombatRecord.SCHEMA_VERSION || record.recordingId == null || record.recordingId.isEmpty()) continue;
-                if (record.players == null) record.players = new ArrayList<>();
-                if (record.bosses == null) record.bosses = new ArrayList<>();
-                sink.accept(record);
-            }
+            readFolder(store.directory().resolve(entry.id).resolve(RECORDS), false, (record, written) -> sink.accept(record));
         }
+    }
+
+    /** One readable record and its file's modification time (epoch ms). */
+    @FunctionalInterface public interface Dated { void accept(CombatRecord record, long written); }
+
+    /**
+     * The records {@link #read} gives for one readable session, in the same order, each with its file's modification time
+     * (a record without an entry time is dated by its file, as {@link CombatRetention} dates it). Returns how many files could
+     * not be read or parsed (skipped, as {@link #read} skips them); records of a newer schema or without an ID are skipped
+     * without being counted. A missing records folder reads nothing; one that cannot be listed is an IOException. Off the EDT.
+     */
+    public static int readSession(SessionStore store, SessionStore.SessionEntry entry, Dated sink) throws IOException {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read history off the EDT");
+        return entry.readable() ? readFolder(store.directory().resolve(entry.id).resolve(RECORDS), true, sink) : 0;
+    }
+
+    /** One session's records folder in file-name order; the files that could not be read or parsed are counted. */
+    private static int readFolder(Path folder, boolean dated, Dated sink) throws IOException {
+        if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) return 0;
+        List<Path> files = new ArrayList<>();
+        try (DirectoryStream<Path> listing = Files.newDirectoryStream(folder, "*.json")) { for (Path file : listing) files.add(file); }
+        catch (NoSuchFileException | NotDirectoryException deleted) { return 0; } // the session was deleted meanwhile
+        files.sort(Comparator.comparing(Path::toString));
+        int unreadable = 0;
+        for (Path file : files) {
+            CombatRecord record; long written = 0;
+            try {
+                if (dated) written = Files.getLastModifiedTime(file, LinkOption.NOFOLLOW_LINKS).toMillis();
+                record = SessionStore.JSON.fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), CombatRecord.class);
+            } catch (NoSuchFileException removed) { continue; } // removed while listing (retention): not damage
+            catch (IOException | RuntimeException damaged) { unreadable++; continue; } // skip this file only
+            if (record == null) { unreadable++; continue; }
+            if (record.schemaVersion > CombatRecord.SCHEMA_VERSION || record.recordingId == null || record.recordingId.isEmpty()) continue;
+            if (record.players == null) record.players = new ArrayList<>();
+            if (record.bosses == null) record.bosses = new ArrayList<>();
+            sink.accept(record, written);
+        }
+        return unreadable;
     }
 
     /**
