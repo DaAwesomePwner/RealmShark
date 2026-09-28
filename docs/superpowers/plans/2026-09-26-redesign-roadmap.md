@@ -13,7 +13,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #21 (`94db6f6`) |
 | P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #22 (`04a61d4`) |
 | P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #23 (`b559bca`) |
-| P4 Quests | being written | `claude/redesign-handoff-next-steps-edrr7w` | Plan in progress |
+| P4 Quests | [2026-09-28-p4-quests.md](2026-09-28-p4-quests.md) | `claude/redesign-handoff-next-steps-edrr7w` | Planned |
 | P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
@@ -94,6 +94,7 @@ Outline:
 3. Summary line with the stale state, "Pinned first", and group-by control; "Name types…" in the Filters drawer.
 4. Planner restyle: plan cards with reserved / available / missing bars; the manual stock editor in a drawer. Semantics unchanged.
 5. Deferred from P2: the Home Quests card's expiry countdown, from the same confirmed QuestExpiry formats.
+6. Status (2026-09-28, user decisions): P4 is planned without the expiry countdown. Items 1 and 5, the Board's expiry chip, "expiring today" and S3's expiry half move to a later countdown phase (its samples diagnostic will include the list's receipt time, UTC rounded to the minute). The Board shows cards with the existing table kept as a Table view; the tabs are titled Board and Planner.
 
 ## P5 Runs and DPS
 

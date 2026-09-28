@@ -28,8 +28,7 @@ Done on 2026-09-27/28 (cloud session):
 - PR #22's Codex threads fixed in `508d1d1`; PR #22 merged as `04a61d4` and `main` verified.
 - P3b planned as a contract plan ([2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md)) and implemented with subagent-driven development: four waves of parallel implementer subagents in isolated worktrees, the coordinator reviewing and merging every task, then an independent whole-branch review and a UI polish round from the evidence screenshots. PR #23 merged as `b559bca` (Codex review fix `9c0da67`); `main` verified. Record: [2026-09-27-p3b-validation.md](2026-09-27-p3b-validation.md).
 
-1. **Write the P4 Quests plan** in the P3b contract-plan format. It starts with open item O1: the real `QuestData.expiration` format needs sanitized samples from a live Daily Quest Room visit, which only the user can capture.
-2. **Implement P4 with subagent-driven development** (as P3b), then open its PR.
+1. **Implement the P4 Quests plan** ([2026-09-28-p4-quests.md](2026-09-28-p4-quests.md)) with subagent-driven development (as P3b), then open its PR when the user asks. The expiry countdown (open item O1) is deferred to its own later phase by user decision.
 
 ---
 
