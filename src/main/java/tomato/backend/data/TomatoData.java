@@ -283,6 +283,8 @@ public class TomatoData {
         // Order matters: the outgoing encounter is finished with its own entry-frozen reference
         // inside clear(); only afterwards is the incoming MAPINFO's exact visit captured.
         clear();
+        // Only once clear() has returned is the closed graph out of capture's reach (projectiles reset included).
+        handOff();
         ParsePanelGUI.clear();
         petYardCheck(map.displayName);
         this.map = map;
@@ -299,6 +301,56 @@ public class TomatoData {
     private long encounterEnteredAt;
     private Integer encounterLocalId;
     private boolean encounterLocalConflict;
+
+    // Where each closed recording goes once its close has returned: the combat history (CombatAutosave), which only queues it.
+    private java.util.function.Consumer<DpsData> closedEncounters = tomato.gui.dps.CombatAutosave::closed;
+    // The recording the last clear() closed, until setNewRealm hands it off (producer thread only).
+    private DpsData closedEncounter;
+    // Capture stop closed this area's encounter; while nothing new is recorded, a later close has nothing to add.
+    private boolean closedAtStop;
+    // Tick time observed in this area before a capture stop, so dungeon statistics still count the whole observed visit.
+    private long dungeonTimeBeforeStop;
+
+    /** Test hook: where closed recordings are handed off (production: the combat history autosave). */
+    void closedEncounters(java.util.function.Consumer<DpsData> sink) {
+        closedEncounters = sink == null ? closed -> { } : sink;
+    }
+
+    private void handOff() {
+        DpsData closed = closedEncounter;
+        closedEncounter = null;
+        if (closed == null) return;
+        try { closedEncounters.accept(closed); }
+        catch (RuntimeException e) { System.err.println("A closed combat recording could not be handed to the combat history: " + e); }
+    }
+
+    /** Whether the area's encounter holds nothing since capture stop closed it. */
+    private boolean nothingSinceStop() { return closedAtStop && entityHitList.isEmpty() && deathNotifications.isEmpty(); }
+
+    /**
+     * Capture stop (see {@code CapturePublication.terminated}): runs on the producer once its loop has ended, so no packet is
+     * dispatched meanwhile. Closes the open encounter like {@link #clear()}'s close half, with the context frozen at entry
+     * (captured before the reset), and hands it to the combat history. The area itself stays current (map, seed, tiles and
+     * the capture identity), but the closed graph leaves capture state, so anything captured after a restart here is a
+     * separate recording without a visit link. Nothing happens when no logged area is open, or when nothing was recorded
+     * since an earlier stop closed it (a second stop, or the start-failure path).
+     */
+    public void captureTerminated() {
+        if (map == null || !isLoggedDungeon(map.displayName) || nothingSinceStop()) return;
+        Integer localObjectId = encounterLocalObjectId();
+        EncounterContext context = new EncounterContext(encounterVisit, localObjectId,
+            encounterEnteredAt > 0 ? encounterEnteredAt : System.currentTimeMillis());
+        encounterVisit = null; encounterEnteredAt = 0; encounterLocalId = null; encounterLocalConflict = false;
+        DpsData closed = new DpsData(map, entityHitList, deathNotifications, dungeonTime(), timePcFirst, dpsPacketLog, player, context);
+        dpsData.add(closed);
+        DpsGUI.updateLabel();
+        dungeonTimeBeforeStop += Math.max(0, dungeonTime());
+        resetEncounterGraph();
+        closedAtStop = true;
+        DpsGUI.updateMapPacket(this);   // the library lists it now, and the live meter starts empty
+        closedEncounter = closed;
+        handOff();
+    }
 
     /** Test and composition hook: where incoming MAPINFO objects are resolved to exact visits. */
     void visitSource(java.util.function.Function<MapInfoPacket, VisitRef> source) {
@@ -1151,28 +1203,47 @@ public class TomatoData {
         worldPlayerId = -1;
         charId = -1;
         time = -1;
-        if (map != null && isLoggedDungeon(map.displayName)) {
-            dpsData.add(
-                new DpsData(
-                    map,
-                    entityHitList,
-                    deathNotifications,
-                    dungeonTime(),
-                    timePcFirst,
-                    dpsPacketLog,
-                    player,
-                    context
-                )
+        closedEncounter = null;
+        // Capture stop already closed this area's encounter: a remainder is recorded only if something arrived since.
+        if (map != null && isLoggedDungeon(map.displayName) && !nothingSinceStop()) {
+            DpsData closed = new DpsData(
+                map,
+                entityHitList,
+                deathNotifications,
+                dungeonTime(),
+                timePcFirst,
+                dpsPacketLog,
+                player,
+                context
             );
+            dpsData.add(closed);
+            closedEncounter = closed;   // handed off by setNewRealm once this method has returned
             DpsGUI.updateLabel();
         }
         if (map != null) {
-            dungeonStatData.updateDungeon(map.name, dungeonTime());
+            dungeonStatData.updateDungeon(map.name, dungeonTimeBeforeStop + dungeonTime());
         }
+        dungeonTimeBeforeStop = 0;
+        closedAtStop = false;
+        rng = null;
+        resetEncounterGraph();
+
+        for (int[] row : mapTiles) {
+            Arrays.fill(row, 0);
+        }
+        petyard = false;
+        moonlightFlames = 0;
+    }
+
+    /**
+     * Detaches a closed recording's graph from capture state: new hit, death and packet lists, the tick window, and every
+     * entity and projectile map that could still reach its objects. The shared projectiles are reset last, after the
+     * recording was built; the combat history reads only {@code Damage.damage} and the recorded sources.
+     */
+    private void resetEncounterGraph() {
         dpsPacketLog = new ArrayList<>();
         timePc = -1;
         timePcFirst = -1;
-        rng = null;
         player = null;
         entityList.clear();
         playerList.clear();
@@ -1191,14 +1262,9 @@ public class TomatoData {
 
         entityHitList = new HashMap<>();
 
-        for (int[] row : mapTiles) {
-            Arrays.fill(row, 0);
-        }
         for (Projectile p : projectiles) {
             if (p != null) p.clear();
         }
-        petyard = false;
-        moonlightFlames = 0;
     }
 
     public Entity[] getEntityHitList() {

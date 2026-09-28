@@ -23,6 +23,7 @@ final class CapturePublication {
         data.captureStarted();
     }
 
+    /** Usually on the EDT while the producer may still dispatch packets, so it never touches encounter state. */
     synchronized void stopRequested(PacketProcessor worker) {
         if (current != worker || stopped) return;
         stopped = true;
@@ -35,10 +36,15 @@ final class CapturePublication {
         if (current == worker && !stopped) { log.captureInterrupted(); data.captureBoundary(); }
     }
 
-    /** Runs before the EDT termination callback, so a blocked EDT cannot keep stale data current. */
+    /**
+     * Runs before the EDT termination callback, so a blocked EDT cannot keep stale data current. On the producer once its
+     * loop has ended, it closes the open encounter (capture stop saves the fight); in the start-failure path (EDT) no
+     * producer ran and nothing is open.
+     */
     synchronized void terminated(PacketProcessor worker) {
         if (current != worker) return;
         stopRequested(worker);
         current = null;
+        data.captureTerminated();
     }
 }

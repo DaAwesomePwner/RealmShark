@@ -15,6 +15,8 @@ import tomato.gui.runs.RunOutcome;
 import tomato.gui.stats.LootTestDrops;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
+import tomato.history.encounter.CombatFixtures;
+import tomato.history.encounter.CombatRecord;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
 import static org.junit.Assert.*;
@@ -215,6 +217,68 @@ public class HomeArchiveTest {
         assertEquals(2_000.0, c1.localDps(), 1e-9);
         assertNull(c2.localDps()); assertNull(b2.localDps()); assertNull(c3.localDps());
         assertNull("A zero-length window has no DPS", recent.get(4).localDps());
+    }
+
+    /** A saved card record of one recording: {@code local} null = local row not verified (object 7 is then another player). */
+    static CombatRecord saved(String id, VisitRef visit, Integer local, long damage, double seconds, long entered) {
+        CombatRecord record = new CombatRecord();
+        record.recordingId = id; record.visitSession = visit.sessionId; record.visitId = visit.visitId;
+        record.localObjectId = local; record.windowSeconds = seconds; record.enteredAt = entered; record.totalDamage = damage;
+        CombatRecord.PlayerLine line = new CombatRecord.PlayerLine();
+        line.objectId = 7; line.damage = damage; line.local = local != null; line.rank = 1;
+        record.players.add(line); record.contributors = 1;
+        return record;
+    }
+
+    @Test public void recentRunsDpsSurvivesARestartFromSavedCombatRecords() throws Exception {
+        Path root = fixture();
+        CombatFixtures.writeRecord(root, MORNING, saved("s1", ref(MORNING, "c1"), 7, 120_000, 60.0, at(0, 8, 10)));
+        CombatFixtures.writeRecord(root, ACROSS, saved("s2", ref(ACROSS, "b2"), null, 50_000, 25.0, at(0, 0, 30)));   // not verified
+        // Two recordings of c2: the longest window represents the run, and its local row is not verified.
+        CombatFixtures.writeRecord(root, MORNING, saved("s3", ref(MORNING, "c2"), null, 90_000, 90.0, at(0, 8, 40)));
+        CombatFixtures.writeRecord(root, MORNING, saved("s4", ref(MORNING, "c2"), 7, 30_000, 30.0, at(0, 8, 41)));
+        // Same visit ID in another session, and a record of another session filed here: never joined.
+        CombatFixtures.writeRecord(root, YESTERDAY, saved("s5", ref(YESTERDAY, "c3"), 7, 80_000, 40.0, at(-1, 20, 0)));
+        CombatFixtures.writeRecord(root, MORNING, saved("s6", ref(ACROSS, "b1"), 7, 70_000, 35.0, at(-1, 23, 30)));
+        List<HomeArchive.RecentRun> recent = read(root, TODAY, NOW, List.of()).recent();
+        assertEquals(List.of(ref(MORNING, "c3"), ref(MORNING, "c2"), ref(MORNING, "c1"), ref(ACROSS, "b2"), ref(ACROSS, "b1")),
+            recent.stream().map(HomeArchive.RecentRun::visit).collect(Collectors.toList()));
+        assertEquals("From the saved record alone: no in-memory recording after a restart", 2_000.0, recent.get(2).localDps(), 1e-9);
+        assertNull("The longest recording's local row is not verified: never another row", recent.get(1).localDps());
+        assertNull(recent.get(3).localDps());
+        assertNull("Equal visit ID of another session", recent.get(0).localDps());
+        assertNull("A record is read only from its run's own session", recent.get(4).localDps());
+    }
+
+    @Test public void inMemoryRecordingsReplaceTheirSavedCopiesByRecordingId() throws Exception {
+        Path root = fixture();
+        CombatFixtures.writeRecord(root, MORNING, saved("same", ref(MORNING, "c1"), 7, 60_000, 60.0, at(0, 8, 10)));
+        CombatFixtures.writeRecord(root, ACROSS, saved("longer", ref(ACROSS, "b2"), 7, 100_000, 50.0, at(0, 0, 30)));
+        CombatFixtures.writeRecord(root, MORNING, saved("twin", ref(MORNING, "c2"), null, 90_000, 90.0, at(0, 8, 40)));
+        CombatFixtures.writeRecord(root, MORNING, saved("short", ref(MORNING, "c2"), 7, 30_000, 30.0, at(0, 8, 41)));
+        List<RecordedEncounter> recordings = List.of(
+            recording("same", "Ice Citadel", ref(MORNING, "c1"), 7, 120_000, 60.0),      // this app run's copy wins
+            recording("shorter", "Lost Halls", ref(ACROSS, "b2"), 7, 25_000, 25.0),      // the saved one is longer
+            recording("twin", "Lost Halls", ref(MORNING, "c2"), null, 90_000, 0.0));     // unverified: the projection measures no window
+        List<HomeArchive.RecentRun> recent = read(root, TODAY, NOW, recordings).recent();
+        assertEquals(2_000.0, recent.get(2).localDps(), 1e-9);
+        assertEquals("The longest of saved and in-memory recordings", 2_000.0, recent.get(3).localDps(), 1e-9);
+        assertNull("The unverified twin keeps its saved window, so it still represents the run, as after a restart", recent.get(1).localDps());
+    }
+
+    @Test public void theCacheRereadsASessionWhoseCombatRecordsChanged() throws Exception {
+        Path root = fixture();
+        Path file = CombatFixtures.writeRecord(root, MORNING, saved("s1", ref(MORNING, "c1"), 7, 120_000, 60.0, at(0, 8, 10)));
+        Path folder = file.getParent();
+        HomeArchive.Cache cache = new HomeArchive.Cache();
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            assertEquals(2_000.0, HomeArchive.read(store, TODAY, NOW, ZONE, List.of(), cache).recent().get(2).localDps(), 1e-9);
+            FileTime written = Files.getLastModifiedTime(file), listed = Files.getLastModifiedTime(folder);
+            Files.writeString(file, Files.readString(file).replace("120000", "180000"));   // same size
+            Files.setLastModifiedTime(file, FileTime.fromMillis(written.toMillis() + 2_000));
+            Files.setLastModifiedTime(folder, listed);
+            assertEquals("The record's own stamp changed", 3_000.0, HomeArchive.read(store, TODAY, NOW, ZONE, List.of(), cache).recent().get(2).localDps(), 1e-9);
+        }
     }
 
     @Test public void aSessionThatNeverSavedItsEndEndsAtItsLastWriteAndItsRunsAreClosed() throws Exception {
