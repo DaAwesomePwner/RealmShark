@@ -11,6 +11,7 @@ import java.util.*;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.activity.ActivityQueries;
 import tomato.gui.dps.RecordedEncounter;
+import tomato.gui.runs.RunOutcome;
 import tomato.gui.stats.LootFacts;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
@@ -130,8 +131,18 @@ public final class HomeArchive {
         return new Result(totals, recent, changedSince(store, unreadable, since));
     }
 
-    /** Same completion rule as ActivityJournal.Visit.runStatus(); the labels the Runs page shows. */
-    static ActivityQueries.Outcome outcome(ActivityJournal.Visit visit) { return ActivityQueries.visit(visit).outcome; }
+    /**
+     * Home's wording of the shared outcome rule ({@link RunOutcome}), unchanged since P2: the Runs archive's labels, with a run
+     * the app never closed (App ended) read as left, completion unconfirmed. RecentRunsCard shortens that to "Left".
+     */
+    static String label(RunOutcome outcome) {
+        switch (outcome) {
+            case COMPLETED: return ActivityQueries.Outcome.COMPLETED.toString();
+            case IN_PROGRESS: return ActivityQueries.Outcome.IN_PROGRESS.toString();
+            case UNKNOWN: return ActivityQueries.Outcome.UNKNOWN.toString();
+            default: return ActivityQueries.Outcome.LEFT.toString();   // LEFT and APP_ENDED
+        }
+    }
 
     private static SessionStore.Session current(List<SessionStore.SessionEntry> catalog, String id) throws IOException {
         for (SessionStore.SessionEntry entry : catalog) if (entry.id.equals(id)) {
@@ -153,7 +164,7 @@ public final class HomeArchive {
             runsRecorded = true;   // visits were saved in this window's sessions, so a run count of 0 is a real zero
             if (!span.keeps(visit.started) || !ParseDungeon.isDungeon(visit.map)) continue;   // runs count by entry time
             entered++;
-            if (outcome(visit) == ActivityQueries.Outcome.COMPLETED) completed++;
+            if (cache.outcome(session, visit) == RunOutcome.COMPLETED) completed++;
         }
         Map<String, List<AppHistory.FameSample>> characters = new HashMap<>();
         Map<String, long[]> readings = new HashMap<>();   // per session: its first and last reading in the window
@@ -212,8 +223,8 @@ public final class HomeArchive {
         for (Candidate candidate : newest) {
             ActivityJournal.Visit visit = candidate.visit();
             VisitRef ref = new VisitRef(candidate.session().id, visit.id);
-            rows.add(new RecentRun(ref, visit.map, outcome(visit).toString(), visit.started, visit.ended > 0 ? visit.ended : null,
-                loot(cache.loot(candidate.session()), ref), dps(recordings, ref)));
+            rows.add(new RecentRun(ref, visit.map, label(cache.outcome(candidate.session(), visit)), visit.started,
+                visit.ended > 0 ? visit.ended : null, loot(cache.loot(candidate.session()), ref), dps(recordings, ref)));
         }
         return rows;
     }
@@ -358,6 +369,14 @@ public final class HomeArchive {
         private boolean crashed(SessionStore.Session session) {
             return session.ended <= 0 && !session.id.equals(store.currentId()) && !"Imported".equals(session.version);
         }
+        /**
+         * The shared outcome rule for a visit of {@code session} ({@link #runs} already closed a crashed session's unfinished visits
+         * with RunOutcome's App ended marker). Home's sessions still open are the current one and, as before, an import that saved
+         * no end (imports save one, so this only keeps Home's reading of such a folder).
+         */
+        RunOutcome outcome(SessionStore.Session session, ActivityJournal.Visit visit) {
+            return RunOutcome.of(visit, session.ended > 0, session.ended <= 0 && !crashed(session));
+        }
         List<ActivityJournal.Visit> runs(SessionStore.Session session) throws IOException {
             Facts facts = facts(session);
             if (facts.runs == null) {
@@ -365,7 +384,7 @@ public final class HomeArchive {
                 store.read(catalog, session.id, "runs", ActivityJournal.Visit.class, (s, visit) -> read.add(visit));
                 // The store closes unfinished visits of sessions that saved their end; a crashed session's close the same way.
                 if (crashed(session)) for (ActivityJournal.Visit visit : read)
-                    if (visit.ended == 0) { visit.ended = Math.max(visit.started, visit.lastSeen); visit.endReason = "App ended"; }
+                    if (visit.ended == 0) { visit.ended = Math.max(visit.started, visit.lastSeen); visit.endReason = RunOutcome.APP_ENDED_REASON; }
                 facts.runs = read;
             }
             return facts.runs;

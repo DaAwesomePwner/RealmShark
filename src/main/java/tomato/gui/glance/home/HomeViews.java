@@ -6,10 +6,9 @@ import tomato.gui.kit.Banner;
 import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.KitLayouts;
 import tomato.gui.kit.KitText;
+import tomato.gui.kit.Portals;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
-import tomato.realmshark.ParseDungeon;
-import tomato.realmshark.enums.CharacterStatistics;
 
 /** Small shared pieces of the Home cards; the general ones live in the kit (Banner, KitLayouts, KitText, ItemTiers). EDT only. */
 final class HomeViews {
@@ -95,14 +94,8 @@ final class HomeViews {
         return KitLayouts.spreadWhenWide(wideOnly ? WIDE : 0, gap, parts);
     }
 
-    /** Portal sprite for a map: the catalog portal, else the dungeon-statistics sprite, else 0 (the kit's placeholder glyph). */
-    static int portalId(String map) {
-        if (map == null || map.isEmpty()) return 0;
-        int portal = ParseDungeon.getPortalId(map);
-        if (portal > 0) return portal;
-        CharacterStatistics stat = CharacterStatistics.statByName(map);
-        return stat == null ? 0 : stat.getSpriteId();
-    }
+    /** Portal sprite for a map ({@link Portals#spriteId}: the catalog portal, else the dungeon-statistics sprite, else 0). */
+    static int portalId(String map) { return Portals.spriteId(map); }
 
     /** "UT", "ST" or "T12" from the loaded item definitions; empty while unknown ({@link ItemTiers#label(int)}). */
     static String tier(int itemId) { return ItemTiers.label(itemId); }

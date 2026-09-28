@@ -11,6 +11,7 @@ import javax.swing.SwingUtilities;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.gui.dps.*;
+import tomato.gui.runs.RunOutcome;
 import tomato.gui.stats.LootTestDrops;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
@@ -233,6 +234,22 @@ public class HomeArchiveTest {
         assertEquals(ref(crashed, "x1"), run.visit());
         assertEquals("Never in progress once its session is over", "Left · completion unconfirmed", run.outcome());
         assertEquals("Closed at its last reading", Long.valueOf(at(-2, 20, 30)), run.ended());
+    }
+
+    @Test public void homeWordingComesFromTheSharedRunOutcomeRuleUnchanged() throws Exception {
+        assertEquals("Completed", HomeArchive.label(RunOutcome.COMPLETED));
+        assertEquals("Left · completion unconfirmed", HomeArchive.label(RunOutcome.LEFT));
+        assertEquals("An app-ended run reads as before on Home", "Left · completion unconfirmed", HomeArchive.label(RunOutcome.APP_ENDED));
+        assertEquals("In progress", HomeArchive.label(RunOutcome.IN_PROGRESS));
+        assertEquals("Unknown outcome", HomeArchive.label(RunOutcome.UNKNOWN));
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
+            long start = store.started();
+            store.put("runs", "o1", visit("o1", "Lost Halls", start + MINUTE, 0, false));   // this app run's open visit
+            store.flush();
+            HomeArchive.RecentRun run = HomeArchive.read(store, SESSION, start + 5 * MINUTE, ZONE, List.of()).recent().get(0);
+            assertEquals(new VisitRef(store.currentId(), "o1"), run.visit());
+            assertEquals("The current session's open visit", "In progress", run.outcome()); assertNull(run.ended());
+        }
     }
 
     @Test public void readsRefuseTheEventDispatchThread() throws Exception {
