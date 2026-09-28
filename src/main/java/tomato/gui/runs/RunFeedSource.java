@@ -3,7 +3,6 @@ package tomato.gui.runs;
 import com.google.gson.JsonElement;
 import java.io.IOException;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -58,12 +57,7 @@ public final class RunFeedSource {
     private final Map<String, Facts> kept = new HashMap<>();
     private Path keptRoot;
     /** Reads one session's combat records ({@link CombatFacts#read}); tests replace it to fail one session's read. */
-    private volatile CombatReader records = CombatFacts::read;
-
-    /** {@link CombatFacts#read}'s shape. */
-    @FunctionalInterface interface CombatReader {
-        void read(SessionStore store, List<SessionStore.SessionEntry> catalog, String scope, java.util.function.Consumer<CombatRecord> sink) throws IOException;
-    }
+    private volatile SessionFacts.CombatReader records = CombatFacts::read;
 
     /** Pins go to the system temporary folder, as the archive workspaces' do. */
     public RunFeedSource(SessionStore store, ZoneId zone, LongSupplier clock) {
@@ -114,7 +108,7 @@ public final class RunFeedSource {
     synchronized int cachedSessions() { return kept.size(); }
 
     /** Replaces the combat record reader (tests: a session whose combat read fails). */
-    void combatReader(CombatReader reader) { records = Objects.requireNonNull(reader, "reader"); }
+    void combatReader(SessionFacts.CombatReader reader) { records = Objects.requireNonNull(reader, "reader"); }
 
     private static void offEdt() { if (SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read saved runs off the EDT"); }
 
@@ -178,7 +172,7 @@ public final class RunFeedSource {
         // The pin read this session a moment ago: it was deleted or damaged since. Its runs' facts are unknown, not empty.
         if (entry == null || !entry.readable()) throw new IOException("Saved session " + session + " changed during the read; refresh to read it again");
         if (session.equals(store.currentId())) return read(catalog, entry, null);   // still being written: never kept
-        List<Stamp> stamp = stamp(store.directory().resolve(session));
+        List<SessionFacts.Stamp> stamp = SessionFacts.stamp(store.directory().resolve(session), FOLDERS);
         synchronized (this) {
             Facts known = kept.get(session);
             if (known != null && known.stamp.equals(stamp)) return known;
@@ -192,50 +186,18 @@ public final class RunFeedSource {
      * One session's loot, fame and combat facts, each read on its own: a module that cannot be read (a damaged journal line
      * or checkpoint, an unlistable folder) is null (unknown) and named in {@link Facts#issues}, and the others still show.
      */
-    private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<Stamp> stamp) {
+    private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<SessionFacts.Stamp> stamp) {
         List<String> issues = new ArrayList<>();
-        List<LootFacts.Bag> bags = new ArrayList<>(), loot = bags;
-        try { LootFacts.read(store, catalog, entry.id, bags::add); }
-        catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, "loot", issues); loot = null; }
+        List<LootFacts.Bag> loot = SessionFacts.loot(store, catalog, entry.id, issues);
         Map<VisitRef, Long> fame;
         try {
             List<AppHistory.FameSample> samples = new ArrayList<>();
             store.read(catalog, entry.id, "fame", AppHistory.FameSample.class, (s, sample) -> samples.add(sample));
             store.read(catalog, entry.id, "fame-latest", AppHistory.FameSample.class, (s, sample) -> samples.add(sample));
             fame = FameGains.byVisit(samples, entry.id, entry.availability("runs"));
-        } catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, "fame", issues); fame = null; }
-        Map<VisitRef, List<CombatRecord>> combat;
-        try {
-            List<CombatRecord> saved = new ArrayList<>();
-            records.read(store, catalog, entry.id, saved::add);
-            combat = CombatFacts.byVisit(saved);
-        } catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, CombatFacts.RECORDS, issues); combat = null; }
+        } catch (IOException | RuntimeException failure) { SessionFacts.unreadable(failure, entry.id, "fame", issues); fame = null; }
+        Map<VisitRef, List<CombatRecord>> combat = SessionFacts.combat(records, store, catalog, entry.id, issues);
         return new Facts(stamp, loot, fame, combat, List.copyOf(issues));
-    }
-
-    /** Notes a module of {@code session} that could not be read, by the failure's kind (never its message, which may hold a path). */
-    private static void unreadable(Exception failure, String session, String module, List<String> issues) {
-        if (failure instanceof java.util.concurrent.CancellationException) throw (java.util.concurrent.CancellationException) failure;
-        issues.add(session + ": " + module + " could not be read (" + failure.getClass().getSimpleName() + ")");
-    }
-
-    /** The session folder's entries and the files of {@link #FOLDERS}, by name. */
-    private static List<Stamp> stamp(Path folder) throws IOException {
-        List<Stamp> stamp = new ArrayList<>();
-        list(stamp, folder, "");
-        for (String module : FOLDERS) list(stamp, folder.resolve(module), module + "/");
-        stamp.sort(Comparator.comparing(Stamp::name));
-        return stamp;
-    }
-
-    private static void list(List<Stamp> stamp, Path folder, String prefix) throws IOException {
-        if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) return;
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(folder)) {
-            for (Path file : files) {
-                BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                stamp.add(new Stamp(prefix + file.getFileName(), attributes.size(), attributes.lastModifiedTime().toMillis()));
-            }
-        }
     }
 
     /**
@@ -296,11 +258,8 @@ public final class RunFeedSource {
      * combat records by exact visit. A module that could not be read is null (its facts unknown) and named in {@code issues};
      * kept with the stamp like the rest, since reading the same files again fails the same way.
      */
-    private record Facts(List<Stamp> stamp, List<LootFacts.Bag> loot, Map<VisitRef, Long> fame,
+    private record Facts(List<SessionFacts.Stamp> stamp, List<LootFacts.Bag> loot, Map<VisitRef, Long> fame,
                          Map<VisitRef, List<CombatRecord>> combat, List<String> issues) {}
-
-    /** One entry as last seen: its path inside the session folder, size and modification time (epoch ms). */
-    private record Stamp(String name, long size, long modified) {}
 
     /**
      * A saved dungeon run as the Runs archive projects it ({@link ActivityQueries#visit}), with the shared outcome and the
@@ -339,22 +298,13 @@ public final class RunFeedSource {
             pin.read("runs", ActivityJournal.Visit.class, source -> {
                 ActivityJournal.Visit visit = source.value;
                 if (!ParseDungeon.isDungeon(visit.map)) return;   // the Runs archive's rows: dungeon visits
-                boolean[] state = sessions.computeIfAbsent(source.ref.session, id -> state(pin.session(id), id.equals(current)));
+                boolean[] state = sessions.computeIfAbsent(source.ref.session, id -> SessionFacts.state(pin.session(id), id.equals(current)));
                 Projected projected = new Projected();
                 projected.run = ActivityQueries.visit(visit);
                 projected.outcome = RunOutcome.of(visit, state[0], state[1]);
                 projected.rosterSize = visit.rosterSize;
                 sink.accept(new ArchiveRow<>(source.ref, projected));
             }, cancel);
-        }
-        /**
-         * {ended, current} for {@link RunOutcome#of}, as Home reads its sessions: a session is still open while it is this app
-         * run's (or an import that saved no end); one that neither saved its end nor is open ended with the app (a crash). The
-         * pin already closed the unfinished runs of sessions that saved their end with the App ended marker.
-         */
-        private static boolean[] state(SessionStore.Session session, boolean current) {
-            if (session == null) return new boolean[] {false, false};
-            return new boolean[] {session.ended > 0, session.ended <= 0 && (current || "Imported".equals(session.version))};
         }
         @Override public boolean matches(ArchiveRow<Projected> row, ArchiveQuery<ActivityQueries.Filters, ActivityQueries.Sort> q) {
             Projected projected = row.value;
