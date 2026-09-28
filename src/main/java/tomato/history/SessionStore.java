@@ -47,6 +47,14 @@ public final class SessionStore implements AutoCloseable {
         }
     }
     public Path directory() { return root; }
+    /**
+     * The current session's folder for side files the store cannot write itself (binary full combat detail, written
+     * atomically by their owner in a module-named subfolder); empty in preview and once closing. The folder may not exist
+     * yet: callers create what they write in.
+     */
+    public Optional<Path> currentDirectory() {
+        return writable && !closing ? Optional.of(sessionPath(current.id)) : Optional.empty();
+    }
     public String currentId() { return current.id; }
     public long started() { return current.started; }
     public boolean writable() { return writable; }
@@ -112,8 +120,7 @@ public final class SessionStore implements AutoCloseable {
             }
         } else {
             Path folder = session.resolve(write.module); Files.createDirectories(folder);
-            String name = UUID.nameUUIDFromBytes(write.key.getBytes(StandardCharsets.UTF_8)).toString();
-            atomic(folder.resolve(name + ".json"), json);
+            atomic(folder.resolve(checkpointName(write.key) + ".json"), json);
         }
     }
     private static void atomic(Path target, String value) throws IOException {
@@ -234,6 +241,21 @@ public final class SessionStore implements AutoCloseable {
     public <T> List<T> read(String scope, String module, Class<T> type) throws IOException {
         List<T> result = new ArrayList<>(); read(scope, module, type, (s,v) -> result.add(v)); return result;
     }
+    /**
+     * One checkpoint of a session exactly as {@link #put} wrote it ({@code <session>/<module>/<uuid(key)>.json}), or empty
+     * when that file does not exist. Off the EDT only. A damaged file is an IOException, never an empty result. Unlike
+     * {@link #read} it applies no fix-up: a visit left open by a session that ended is returned as saved.
+     */
+    public <T> Optional<T> readCheckpoint(String session, String module, String key, Class<T> type) throws IOException {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read history off the EDT");
+        checkModule(module);
+        Path file = sessionPath(session).resolve(module).resolve(checkpointName(key) + ".json");
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return Optional.empty();
+        try { return Optional.ofNullable(JSON.fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), type)); }
+        catch (JsonParseException e) { throw new IOException("Unreadable history: " + file, e); }
+    }
+    /** The file name (without extension) {@link #put} gives a key; side files keyed the same way use it too. */
+    public static String checkpointName(String key) { return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString(); }
     private static <T> T finishSavedVisit(Session session,T value) {
         if(value instanceof packets.packetcapture.logger.ActivityJournal.Visit){
             packets.packetcapture.logger.ActivityJournal.Visit visit=(packets.packetcapture.logger.ActivityJournal.Visit)value;
@@ -260,15 +282,48 @@ public final class SessionStore implements AutoCloseable {
     public void delete(String id) throws IOException {
         if (!writable || id.equals(current.id)) throw new IOException("The current session is still recording.");
         Path path = sessionPath(id); if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) return;
-        try (FileChannel channel = FileChannel.open(path.resolve(".active"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-             FileLock lock = channel.tryLock()) {
-            if (lock == null) throw new IOException("This session is open in another RealmShark instance.");
+        whileClosed(id, () -> {
             try (Stream<Path> files = Files.walk(path)) {
                 Iterator<Path> iterator = files.sorted(Comparator.reverseOrder()).iterator();
                 while (iterator.hasNext()) { Path file = iterator.next(); if (!file.equals(path) && !file.equals(path.resolve(".active"))) Files.delete(file); }
             }
-        } catch (OverlappingFileLockException e) { throw new IOException("This session is still open.", e); }
+            return null;
+        });
         Files.deleteIfExists(path.resolve(".active")); Files.delete(path);
+    }
+    /**
+     * Deletes the regular files directly in {@code <session>/<module>/} that {@code match} accepts (a checkpoint module or a
+     * side-file folder such as full combat detail) and returns how many were deleted; a file that cannot be deleted is left
+     * and not counted. Closed sessions only, as {@link #delete}: the current session and one open in another instance are
+     * refused with an IOException. An absent module deletes nothing. Off the EDT (pruning).
+     */
+    public int deleteFiles(String session, String module, Predicate<Path> match) throws IOException {
+        checkModule(module); Objects.requireNonNull(match, "match");
+        if (!writable || session.equals(current.id)) throw new IOException("The current session is still recording.");
+        Path folder = sessionPath(session).resolve(module);
+        if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) return 0;
+        return whileClosed(session, () -> {
+            List<Path> files = new ArrayList<>();
+            try (DirectoryStream<Path> listing = Files.newDirectoryStream(folder)) {
+                for (Path file : listing) if (Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) files.add(file);
+            }
+            int deleted = 0;
+            for (Path file : files) {
+                if (!match.test(file)) continue;
+                try { if (Files.deleteIfExists(file)) deleted++; }
+                catch (IOException kept) { /* in use or protected: kept, not counted */ }
+            }
+            return deleted;
+        });
+    }
+    private interface Locked<T> { T run() throws IOException; }
+    /** Runs {@code action} holding a closed session's lock, refusing a session that this or another instance has open. */
+    private <T> T whileClosed(String id, Locked<T> action) throws IOException {
+        try (FileChannel channel = FileChannel.open(sessionPath(id).resolve(".active"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock lock = channel.tryLock()) {
+            if (lock == null) throw new IOException("This session is open in another RealmShark instance.");
+            return action.run();
+        } catch (OverlappingFileLockException e) { throw new IOException("This session is still open.", e); }
     }
     public void rename(String id, String label) throws IOException {
         if (!writable || id.equals(current.id)) throw new IOException("The current session is still recording.");

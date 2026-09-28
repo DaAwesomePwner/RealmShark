@@ -44,6 +44,8 @@ public class WaveThreeJourneyTest {
     private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "statistics", "combat"};
     private static final String V1 = "journal:v1", V2 = "journal:v2";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    /** The Runs page opens on the run cards; these journeys drive the archive table, its Table view. */
+    @Rule public final tomato.gui.runs.RunsViewRule runsView = new tomato.gui.runs.RunsViewRule();
 
     private Field storeField, previewField;
     private Object previousStore, previousPreview;

@@ -30,7 +30,29 @@ Click the encounter button between **Previous** and **Next** (labeled **Live** w
 
 Selection and export checks are independent. Use Space on an exportable row to toggle its check, then **Save checked**. Checks survive sorting and filtering; the count reports checks hidden by the current filters. Live is not exportable. **Load** imports a file and **View imported encounter** opens that exact entry. Importing identical bytes again reuses the existing entry, even under a renamed file; different files claiming the same recording ID stay separate and show a variant notice.
 
-Recorded start is the first captured tick, not guaranteed map entry. Elapsed is the retained encounter duration, not the DPS hit window. Contributors are represented damage-owner objects, not a complete roster. Historical local context is available, partial or unavailable; current live values do not fill missing history. The library remembers filters and exact selection/check references, but does not automatically reopen files after restart. Save wanted encounters as `.dps` files before closing; this local library is separate from the automatic [app-session archive](SESSION-HISTORY.md).
+Recorded start is the first captured tick, not guaranteed map entry. Elapsed is the retained encounter duration, not the DPS hit window. Contributors are represented damage-owner objects, not a complete roster. Historical local context is available, partial or unavailable; current live values do not fill missing history. The library remembers filters and exact selection/check references, but does not automatically reopen files after restart: it lists this app run's recordings and the files you import. Every closed fight is also saved automatically as a combat summary (below), which the Runs feed, the run recap and Home read after a restart. A summary is not the hit-level recording: save wanted encounters as `.dps` files before closing, or turn on **Keep full combat detail**. This local library is separate from the automatic [app-session archive](SESSION-HISTORY.md).
+
+## Saved combat history
+
+Every closed fight is saved automatically, on its own background worker, as a **combat summary** in the [app-session archive](SESSION-HISTORY.md#combat-history). A fight closes when the map changes and when capture stops: the fight open at that moment is saved as it stands. Capture itself only hands the closed recording over; building and writing the summary never delays packet processing or the window. Preview mode saves nothing.
+
+A summary has two parts, both keyed by the recording's ID:
+
+- **The record** (card-sized, a few KB): the dungeon, entry time, first tick and elapsed time, the first-to-last hit window, the run it belongs to (its exact session and visit), your verified local row, the total and unattributed damage, and every contributor's damage, hits, biggest hit, damage taken, deaths and rank, with the enemy count, enemy types and bosses. Player names are saved as the meter shows them.
+- **The detail** (read only by the run recap): damage over time in 1 s buckets (fights longer than 30 minutes use wider buckets, at most 1,800 values), for your row and the top 12 contributors; each player's damage by source and item; enemies grouped by type with their count, largest known maximum HP, damage and hits; and the death notifications.
+
+The totals, window, share and ranks are exactly the meter's. Your row is the recording's verified local player only: without one, your DPS, rank, share and deaths stay "—" with the reason, and another player's row is never used instead. A recording counts as a run's when its entry context carries that run's exact session and visit ID; nothing is linked by dungeon name or time. Hits recorded before the first tick count in the totals and are reported, not charted.
+
+The **Runs** feed shows your DPS, rank and share from these records on each card, the run recap shows the full Damage section, and Home's **Recent runs** takes each run's DPS from them, so all three survive a restart. When a run has several recordings, cards, tiles and Home use the one with the longest hit window; the recap's picker offers the others. While a recording is still in this app run's memory, Home prefers it over its saved copy (they share the recording ID).
+
+**Keep full combat detail** (Settings › General › Combat history, off by default) also saves each fight's complete recording, every hit, in the encounter library's `.dps` format without the debug packet log (the log holds chat and account-list packets, so it never leaves memory). These files take about 14 MB per 100,000 hits and are kept for 30 days by default (7 days, 30 days, 90 days or 1 year). A view that lists and reopens them is planned; meanwhile they are ordinary `.dps` files in the session's `combat-full` folder, in the format the library's **Save checked** writes, so **Load** can import one. Summaries are always saved, and kept forever unless **Keep combat summaries** chooses 1 year or 90 days. See [Session history](SESSION-HISTORY.md#combat-history) for where the files live and how pruning works.
+
+**Clear DPS Logs** clears only this app run's encounter list in the DPS Logger (the recordings held in memory). It does not delete saved combat history; only the Combat history retention settings remove saved summaries and full detail.
+
+Not saved:
+
+- **The fight in progress when the app exits or crashes.** Only closed fights are saved, and nothing is checkpointed while a fight runs. Change area or stop capture first to keep it.
+- **The rest of a fight after capture restarts in the same area.** Stopping capture saves the fight so far, linked to its run. What is recorded after capture starts again in the same area is a separate recording that is not linked to that run; its own local row can still be verified.
 
 ## Saved context and safe exports
 

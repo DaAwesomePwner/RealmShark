@@ -38,6 +38,7 @@ import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.kit.Sprites;
 import tomato.gui.settings.AppearanceSection;
+import tomato.gui.settings.GeneralSection;
 import tomato.gui.settings.SettingsPage;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.ArchiveRouteTarget;
@@ -69,6 +70,8 @@ public class TomatoGUI {
     private static TomatoData data;
     private static WorkspaceShell shell;
     private static JComponent runsWorkspace;
+    /** Page 10: the run feed with {@link #runsWorkspace} as its Table view. */
+    private static tomato.gui.runs.RunsPage runsPage;
     private static ShellNavigator navigator;
     private static tomato.gui.notifications.NotificationsGUI notifications;
     private static SettingsPage settings;
@@ -110,8 +113,9 @@ public class TomatoGUI {
 
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
-        // Settings (page 13) hosts the existing Notifications page unchanged, beside Appearance.
-        settings = new SettingsPage(notifications, () -> notifications.selectSection(null), new AppearanceSection(TomatoGUI::refreshContentFonts));
+        // Settings (page 13) hosts the existing Notifications page unchanged, beside General and Appearance.
+        settings = new SettingsPage(notifications, () -> notifications.selectSection(null), new GeneralSection(),
+            new AppearanceSection(TomatoGUI::refreshContentFonts));
 
         SessionStore store = AppHistory.store();
         ViewStateStore states = ViewStateStore.application();
@@ -122,6 +126,8 @@ public class TomatoGUI {
         JComponent lootWorkspace = store == null ? statistics.getLootDashboard() : HistoricalStatistics.lootWorkspace(
             store, statistics.getLootDashboard(), scratch.resolve("loot"), states);
         runsWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.RUNS);
+        // Runs (page 10) opens on the saved-run cards; the archive workspace is kept whole as the page's Table view.
+        runsPage = new tomato.gui.runs.RunsPage(runsWorkspace, AppHistory::store);
         tomato.gui.logging.LoggingGUI logging = new tomato.gui.logging.LoggingGUI(DiscoveryLog.INSTANCE);
         JComponent inspectWorkspace = SecurityGUI.workspace(securityPanel);
         JComponent timelineWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE);
@@ -133,7 +139,7 @@ public class TomatoGUI {
             questPanel, new tomato.gui.myinfo.BuildMovedPanel(TomatoGUI::openBuild, () -> tomato.gui.myinfo.BuildRoute.key(data) != null), dpsPanel,
             lootWorkspace,
             logging,
-            runsWorkspace,
+            runsPage,
             timelineWorkspace,
             new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings, home},
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
@@ -153,7 +159,9 @@ public class TomatoGUI {
         shell.getActionMap().put("page-6", new AbstractAction() {
             public void actionPerformed(java.awt.event.ActionEvent e) { openBuild(); }
         });
-        registerArchive(navigator, Destination.RUNS, runsWorkspace);
+        // Runs routes to rows (a visit or a query) bring the page's Table view forward; Back restores the view it left.
+        RouteTarget runsTable = runsWorkspace instanceof ArchiveWorkspace ? archiveTarget(Destination.RUNS, (ArchiveWorkspace<?, ?, ?>) runsWorkspace) : null;
+        if (runsTable != null) navigator.register(runsPage.tableRoutes(runsTable));
         registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerArchive(navigator, Destination.LOOT, lootWorkspace);
         // Analytics targets resolve exact visit/variant routes; registered later, so they are tried first.
@@ -163,12 +171,18 @@ public class TomatoGUI {
         registerSettingsNotifications(navigator, settings, notifications);
         navigator.register(tomato.gui.notifications.AlertRouteTargets.alertDraft());
         // Investigation targets resolve exact visits and windows; null for live-only (no saved history) views.
-        registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.RUNS, runsWorkspace));
+        RouteTarget exactRun = tomato.gui.activity.ActivityRouteTarget.of(Destination.RUNS, runsWorkspace);
+        if (exactRun != null) navigator.register(runsPage.tableRoutes(exactRun));
+        // The feed (a plain RUNS route) and one run's recap (RUN_RECAP with an exact visit), registered after the Table view's
+        // targets so they are tried first; RUNS routes with a visit or a query still reach the Table view on that row.
+        for (RouteTarget target : tomato.gui.runs.RunsRouteTarget.of(runsPage, runsTable, AppHistory::store, navigator)) navigator.register(target);
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.TIMELINE, timelineWorkspace));
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.INSPECT, inspectWorkspace));
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).resourcesRouteTarget());
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).encounterRouteTarget());
         Navigator.install(navigator);
+        // A feed card opens its exact run's recap; Back (or "‹ Runs") returns to the feed as it was left.
+        runsPage.feed().onOpen(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
         // The app opens on the first visible core destination; shells built directly keep page 0.
         shell.selectLanding();
         characterPanel.bindNavigator(navigator);
@@ -317,6 +331,7 @@ public class TomatoGUI {
 
     private static void closeArchiveWorkspaces(Component component) {
         if (component instanceof ArchiveWorkspace) ((ArchiveWorkspace<?, ?, ?>) component).close();
+        if (component instanceof tomato.gui.runs.RunsPage) ((tomato.gui.runs.RunsPage) component).close(); // the feed's reads and pins
         if (component instanceof Container)
             for (Component child : ((Container) component).getComponents()) closeArchiveWorkspaces(child);
     }
@@ -410,6 +425,7 @@ public class TomatoGUI {
     }
     public static void browseSavedHistory() {
         onEdt(() -> {
+            if (runsPage != null) runsPage.showTable(); // explicit navigation to the archive: the Table view, before the page shows
             if (shell != null) shell.select(10);
             if (runsWorkspace instanceof ArchiveWorkspace)
                 ((ArchiveWorkspace<?, ?, ?>) runsWorkspace).selectSession(SessionStore.ALL);
@@ -463,6 +479,8 @@ public class TomatoGUI {
             "Local typed alert rules; changes require Save in the editor", TomatoGUI::openEnchantPing);
         registerSearch("appearance.settings", "Appearance settings", "appearance theme dark light contrast motion simple analyst mode",
             "Settings > Appearance", "App-folder realmShark.properties", () -> openSettings(SettingsPage.APPEARANCE));
+        registerSearch("combat.settings", "Combat history (auto-save and full detail)", "combat dps encounter auto save full detail retention storage",
+            "Settings › General", "App-folder realmShark.properties", () -> openSettings(SettingsPage.GENERAL));
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
             "Bridge settings and journal use their configured local paths", () -> shell.select(12));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
@@ -489,8 +507,8 @@ public class TomatoGUI {
             TomatoGUI::openCharacterFromHome,
             () -> openFromHome(tomato.gui.route.Route.to(Destination.MY_INFO)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.ENCOUNTER)),
-            // The exact VisitRef first; plain Runs only when no exact-visit target exists (no saved history store).
-            visit -> openFromHome(tomato.gui.route.Route.to(Destination.RUNS).withVisit(visit), tomato.gui.route.Route.to(Destination.RUNS)),
+            // The exact run's recap with its damage breakdown (S4); the plain feed only when the recap is rejected (no saved history).
+            visit -> openFromHome(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit), tomato.gui.route.Route.to(Destination.RUNS)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)));
     }
 

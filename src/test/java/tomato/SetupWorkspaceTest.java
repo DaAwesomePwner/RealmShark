@@ -17,6 +17,8 @@ import static tomato.gui.activity.SnapshotTestSupport.await;
 
 public class SetupWorkspaceTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    /** Browse saved history brings the Runs page's Table view forward and remembers it; the choice is restored after. */
+    @Rule public final tomato.gui.runs.RunsViewRule runsView = tomato.gui.runs.RunsViewRule.cards();
 
     @Test public void previewWorkspaceWithoutAssetsCanOpenQueriedSavedRunsWithoutCreatingAWindowOrCapture() throws Exception {
         Field storeField = AppHistory.class.getDeclaredField("store"); storeField.setAccessible(true);
@@ -45,6 +47,8 @@ public class SetupWorkspaceTest {
                 assertFalse(named(shell[0], "choose-assets", JButton.class).isEnabled());
                 named(shell[0], "browse-history", JButton.class).doClick();
                 assertEquals(10, shell[0].getSelectedPage());
+                assertTrue("Browsing saved history shows the archive table, the Runs page's Table view",
+                    named(shell[0], "runs-page", tomato.gui.runs.RunsPage.class).feed().tableShown());
             });
             ArchiveWorkspace<?,?,?> runs = named(shell[0], "runs-session-view", ArchiveWorkspace.class);
             assertNotNull(runs);

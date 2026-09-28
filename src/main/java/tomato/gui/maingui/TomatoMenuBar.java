@@ -333,6 +333,7 @@ public class TomatoMenuBar implements ActionListener {
 
         dpsOptions.add(new JSeparator(SwingConstants.HORIZONTAL));
         clearDpsLogs = new JMenuItem("Clear DPS Logs");
+        clearDpsLogs.setToolTipText(DpsGUI.CLEAR_LOGS_HELP);
         clearDpsLogs.addActionListener(this);
         dpsOptions.add(clearDpsLogs);
 

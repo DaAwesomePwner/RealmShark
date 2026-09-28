@@ -11,9 +11,12 @@ import java.util.*;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.activity.ActivityQueries;
 import tomato.gui.dps.RecordedEncounter;
+import tomato.gui.runs.RunOutcome;
 import tomato.gui.stats.LootFacts;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
+import tomato.history.encounter.CombatFacts;
+import tomato.history.encounter.CombatRecord;
 import tomato.history.link.VisitRef;
 import tomato.realmshark.ParseDungeon;
 
@@ -61,7 +64,11 @@ public final class HomeArchive {
                 Arrays.hashCode(fameSeries), untiered, setTiered, whiteBags, potions, lootRecorded, unreadableSessions);
         }
     }
-    /** {@code ended} null while in progress; {@code localDps} only from a recording linked to exactly this visit. */
+    /**
+     * {@code ended} null while in progress; {@code localDps} only from a recording linked to exactly this visit: saved combat
+     * records of the run's session merged with this app run's recordings (HomeArchive's {@code dps} rule), so it survives a
+     * restart.
+     */
     public record RecentRun(VisitRef visit, String map, String outcome, long started, Long ended,
                             List<Integer> lootIds, Double localDps) {
         public RecentRun {
@@ -130,8 +137,18 @@ public final class HomeArchive {
         return new Result(totals, recent, changedSince(store, unreadable, since));
     }
 
-    /** Same completion rule as ActivityJournal.Visit.runStatus(); the labels the Runs page shows. */
-    static ActivityQueries.Outcome outcome(ActivityJournal.Visit visit) { return ActivityQueries.visit(visit).outcome; }
+    /**
+     * Home's wording of the shared outcome rule ({@link RunOutcome}), unchanged since P2: the Runs archive's labels, with a run
+     * the app never closed (App ended) read as left, completion unconfirmed. RecentRunsCard shortens that to "Left".
+     */
+    static String label(RunOutcome outcome) {
+        switch (outcome) {
+            case COMPLETED: return ActivityQueries.Outcome.COMPLETED.toString();
+            case IN_PROGRESS: return ActivityQueries.Outcome.IN_PROGRESS.toString();
+            case UNKNOWN: return ActivityQueries.Outcome.UNKNOWN.toString();
+            default: return ActivityQueries.Outcome.LEFT.toString();   // LEFT and APP_ENDED
+        }
+    }
 
     private static SessionStore.Session current(List<SessionStore.SessionEntry> catalog, String id) throws IOException {
         for (SessionStore.SessionEntry entry : catalog) if (entry.id.equals(id)) {
@@ -153,7 +170,7 @@ public final class HomeArchive {
             runsRecorded = true;   // visits were saved in this window's sessions, so a run count of 0 is a real zero
             if (!span.keeps(visit.started) || !ParseDungeon.isDungeon(visit.map)) continue;   // runs count by entry time
             entered++;
-            if (outcome(visit) == ActivityQueries.Outcome.COMPLETED) completed++;
+            if (cache.outcome(session, visit) == RunOutcome.COMPLETED) completed++;
         }
         Map<String, List<AppHistory.FameSample>> characters = new HashMap<>();
         Map<String, long[]> readings = new HashMap<>();   // per session: its first and last reading in the window
@@ -212,8 +229,9 @@ public final class HomeArchive {
         for (Candidate candidate : newest) {
             ActivityJournal.Visit visit = candidate.visit();
             VisitRef ref = new VisitRef(candidate.session().id, visit.id);
-            rows.add(new RecentRun(ref, visit.map, outcome(visit).toString(), visit.started, visit.ended > 0 ? visit.ended : null,
-                loot(cache.loot(candidate.session()), ref), dps(recordings, ref)));
+            rows.add(new RecentRun(ref, visit.map, label(cache.outcome(candidate.session(), visit)), visit.started,
+                visit.ended > 0 ? visit.ended : null, loot(cache.loot(candidate.session()), ref),
+                dps(cache.combat(candidate.session()), recordings, ref)));   // records only of the shown runs' sessions
         }
         return rows;
     }
@@ -228,15 +246,33 @@ public final class HomeArchive {
     }
     static int notability(LootFacts.Item item) { return item.untiered() || item.setTiered() ? 0 : item.highTier() ? 1 : item.potion() ? 2 : 3; }
 
-    /** Recorded local DPS from a recording linked to exactly this visit (the longest window if several), else null. */
-    private static Double dps(List<RecordedEncounter> recordings, VisitRef ref) {
-        RecordedEncounter best = null;
+    /**
+     * Your recorded DPS in one run, else null. The run's recording is the longest of those linked to exactly this visit
+     * ({@link CombatFacts#longest}): its saved card records, merged by recording ID with this app run's recordings, where the
+     * in-memory one wins while present. The DPS page projects a window only for a verified local row, so an in-memory
+     * recording without one is still ranked by its saved record's window, as it will be after a restart. Null unless that
+     * recording's local row is verified and its window is positive: another row is never substituted.
+     */
+    private static Double dps(List<CombatRecord> saved, List<RecordedEncounter> recordings, VisitRef ref) {
+        Map<String, CombatRecord> savedById = new LinkedHashMap<>();
+        for (CombatRecord record : saved) if (ref.equals(record.visit())) savedById.put(record.recordingId, record);
+        Map<CombatRecord, Double> value = new LinkedHashMap<>();   // CombatRecord has identity equality
+        Set<String> inMemory = new HashSet<>();
         for (RecordedEncounter recording : recordings) {
-            if (recording == null || recording.link == null || !recording.link.linked() || !ref.equals(recording.link.visit)
-                    || recording.localDamage == null || recording.windowSeconds == null || recording.windowSeconds <= 0) continue;
-            if (best == null || recording.windowSeconds > best.windowSeconds) best = recording;
+            if (recording == null || recording.link == null || !recording.link.linked() || !ref.equals(recording.link.visit)) continue;
+            if (recording.recordingId != null && !inMemory.add(recording.recordingId)) continue;   // one per recording
+            CombatRecord twin = recording.recordingId == null ? null : savedById.remove(recording.recordingId);
+            CombatRecord ranked = new CombatRecord();   // only the ranking fields of CombatFacts.longest
+            ranked.recordingId = recording.recordingId;
+            ranked.enteredAt = recording.link.capturedAt;
+            ranked.windowSeconds = recording.windowSeconds != null ? recording.windowSeconds : twin == null ? null : twin.windowSeconds;
+            value.put(ranked, rate(recording.localDamage, recording.windowSeconds));
         }
-        return best == null ? null : best.localDamage / best.windowSeconds;
+        for (CombatRecord record : savedById.values()) value.put(record, rate(record.localDamage(), record.windowSeconds));
+        return value.get(CombatFacts.longest(value.keySet()));
+    }
+    private static Double rate(Long damage, Double seconds) {
+        return damage == null || seconds == null || !(seconds > 0) || seconds.isInfinite() ? null : damage / seconds;
     }
 
     private record Candidate(SessionStore.Session session, ActivityJournal.Visit visit) {}
@@ -250,8 +286,8 @@ public final class HomeArchive {
     }
 
     /**
-     * How many unreadable sessions have a file (in the session folder, or in its runs, loot, fame and fame-latest folders)
-     * modified at or after {@code since}: only those can hold records from then on. A folder that cannot be listed counts,
+     * How many unreadable sessions have a file (in the session folder, or in its runs, loot, fame, fame-latest and encounters
+     * folders) modified at or after {@code since}: only those can hold records from then on. A folder that cannot be listed counts,
      * because nothing rules it out; {@code since} Long.MIN_VALUE counts every unreadable session.
      */
     private static int changedSince(SessionStore store, List<SessionStore.SessionEntry> unreadable, long since) {
@@ -270,10 +306,11 @@ public final class HomeArchive {
     }
 
     /**
-     * Per-session facts kept between reads: a crashed session's end, runs, loot bags and fame readings. One reader thread owns
-     * it (Home's "home-archive"). A closed or imported session's facts are reused while its stamp is unchanged: the name, size
-     * and modification time of every entry in the session folder and of the files in its runs, loot, fame and fame-latest
-     * folders. The current session is read again every time and never kept.
+     * Per-session facts kept between reads: a crashed session's end, runs, loot bags, fame readings and combat card records.
+     * One reader thread owns it (Home's "home-archive"). A closed or imported session's facts are reused while its stamp is
+     * unchanged: the name, size and modification time of every entry in the session folder and of the files in its runs, loot,
+     * fame, fame-latest and encounters folders (so a saved or pruned record is seen). The current session is read again every
+     * time and never kept.
      */
     public static final class Cache {
         private Path root;
@@ -300,6 +337,7 @@ public final class HomeArchive {
         List<ActivityJournal.Visit> runs;
         List<LootFacts.Bag> loot;
         List<AppHistory.FameSample> fame;
+        List<CombatRecord> combat;
         Facts(List<Stamp> stamp) { this.stamp = stamp; }
     }
 
@@ -308,7 +346,7 @@ public final class HomeArchive {
 
     /** One read over one catalog listing: each session is stamped at most once; its facts come from the Cache while unchanged. */
     private static final class Reader {
-        private static final String[] FOLDERS = {"runs", "loot", "fame", "fame-latest"};
+        private static final String[] FOLDERS = {"runs", "loot", "fame", "fame-latest", CombatFacts.RECORDS};
         private final SessionStore store;
         private final List<SessionStore.SessionEntry> catalog;
         private final Cache kept;
@@ -358,6 +396,14 @@ public final class HomeArchive {
         private boolean crashed(SessionStore.Session session) {
             return session.ended <= 0 && !session.id.equals(store.currentId()) && !"Imported".equals(session.version);
         }
+        /**
+         * The shared outcome rule for a visit of {@code session} ({@link #runs} already closed a crashed session's unfinished visits
+         * with RunOutcome's App ended marker). Home's sessions still open are the current one and, as before, an import that saved
+         * no end (imports save one, so this only keeps Home's reading of such a folder).
+         */
+        RunOutcome outcome(SessionStore.Session session, ActivityJournal.Visit visit) {
+            return RunOutcome.of(visit, session.ended > 0, session.ended <= 0 && !crashed(session));
+        }
         List<ActivityJournal.Visit> runs(SessionStore.Session session) throws IOException {
             Facts facts = facts(session);
             if (facts.runs == null) {
@@ -365,7 +411,7 @@ public final class HomeArchive {
                 store.read(catalog, session.id, "runs", ActivityJournal.Visit.class, (s, visit) -> read.add(visit));
                 // The store closes unfinished visits of sessions that saved their end; a crashed session's close the same way.
                 if (crashed(session)) for (ActivityJournal.Visit visit : read)
-                    if (visit.ended == 0) { visit.ended = Math.max(visit.started, visit.lastSeen); visit.endReason = "App ended"; }
+                    if (visit.ended == 0) { visit.ended = Math.max(visit.started, visit.lastSeen); visit.endReason = RunOutcome.APP_ENDED_REASON; }
                 facts.runs = read;
             }
             return facts.runs;
@@ -384,6 +430,12 @@ public final class HomeArchive {
                 facts.fame = samples;
             }
             return facts.fame;
+        }
+        /** The session's saved combat card records (not their details); read only for sessions of the runs shown. */
+        List<CombatRecord> combat(SessionStore.Session session) throws IOException {
+            Facts facts = facts(session);
+            if (facts.combat == null) { List<CombatRecord> records = new ArrayList<>(); CombatFacts.read(store, catalog, session.id, records::add); facts.combat = records; }
+            return facts.combat;
         }
     }
 }

@@ -22,8 +22,16 @@ import static org.junit.Assert.*;
 /** Production composition installs the shell navigator with the analytics targets ahead of generic ones. */
 public class ShellRouteRegistrationTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    /** Runs routes below may choose the Table view; the saved choice is restored after. */
+    @Rule public final tomato.gui.runs.RunsViewRule runsView = tomato.gui.runs.RunsViewRule.cards();
+    private static final String[] RECAP_SECTIONS = {"damage", "loot", "players", "resources", "timeline", "evidence"};
 
     @Test public void createdWorkspaceRegistersAnalyticsTargetsAndCloseUninstallsTheNavigator() throws Exception {
+        java.util.Map<String, String> recapSections = new java.util.HashMap<>();
+        for (String id : RECAP_SECTIONS) {   // the run recap's section choices: its defaults here, restored after
+            String key = tomato.gui.kit.Collapsible.PREFIX + "run-recap-" + id;
+            recapSections.put(key, util.PropertiesManager.getProperty(key)); util.PropertiesManager.setProperties(key, "");
+        }
         Field storeField = AppHistory.class.getDeclaredField("store"); storeField.setAccessible(true);
         Object previous = storeField.get(null);
         Field previewField = Tomato.class.getDeclaredField("preview"); previewField.setAccessible(true);
@@ -69,6 +77,31 @@ public class ShellRouteRegistrationTest {
                 assertEquals(14, workspace.getSelectedPage());
                 assertTrue(navigator.back()); assertEquals(6, workspace.getSelectedPage());
                 assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+
+                // Runs routes resolve by shape: the feed and recap targets are tried first, and routes to rows still reach the
+                // Table view's targets (a visit: the exact run's row; a query: the archive's query).
+                assertEquals(10, tomato.gui.modern.WorkspaceShell.pageOf(Destination.RUN_RECAP));
+                assertTrue("A run recap takes one exact visit", navigator.canOpen(Route.to(Destination.RUN_RECAP).withVisit(visit)));
+                assertFalse("…and needs one", navigator.canOpen(Route.to(Destination.RUN_RECAP)));
+                assertFalse("…and nothing but the visit", navigator.canOpen(Route.to(Destination.RUN_RECAP).withVisit(visit).withPayload("focus")));
+                assertTrue(navigator.canOpen(Route.to(Destination.RUNS)));
+                assertTrue(navigator.canOpen(Route.to(Destination.RUNS).withQuery(tomato.gui.activity.ActivityQueries.initial())));
+                tomato.gui.runs.RunsPage runs = runsPage(workspace);
+                assertNotNull("Page 10 is the Runs page", runs);
+                assertTrue(navigator.open(Route.to(Destination.RUNS).withVisit(visit)));
+                assertEquals(10, workspace.getSelectedPage());
+                assertTrue("A Runs route to a row still opens the Table view on it", runs.feed().tableShown());
+                assertFalse(runs.recapShown());
+                assertTrue(navigator.open(Route.to(Destination.RUN_RECAP).withVisit(visit)));
+                assertTrue("RUN_RECAP opens that run's recap", runs.recapShown());
+                assertEquals(visit, ((tomato.gui.runs.RunRecapView) runs.recap()).ref());
+                assertTrue(navigator.open(Route.to(Destination.RUNS)));
+                assertFalse("A plain Runs route brings the feed forward", runs.recapShown());
+                assertTrue("…leaving the Table view chosen", runs.feed().tableShown());
+                assertTrue(navigator.back()); assertTrue("Back returns to the recap", runs.recapShown());
+                assertTrue(navigator.back()); assertFalse("…then to the Table view", runs.recapShown());
+                assertTrue(runs.feed().tableShown());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
             });
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> assertSame(Navigator.NONE, Navigator.current()));
@@ -77,6 +110,16 @@ public class ShellRouteRegistrationTest {
             SwingUtilities.invokeAndWait(() -> { if (shell.get() != null) shell.get().removeNotify(); });
             System.setProperty("java.io.tmpdir", temporaryDirectory);
             storeField.set(null, previous); previewField.set(null, previousPreview); store.close();
+            for (java.util.Map.Entry<String, String> saved : recapSections.entrySet())
+                util.PropertiesManager.setProperties(saved.getKey(), saved.getValue() == null ? "" : saved.getValue());
         }
+    }
+
+    private static tomato.gui.runs.RunsPage runsPage(java.awt.Container root) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (child instanceof tomato.gui.runs.RunsPage) return (tomato.gui.runs.RunsPage) child;
+            if (child instanceof java.awt.Container) { tomato.gui.runs.RunsPage found = runsPage((java.awt.Container) child); if (found != null) return found; }
+        }
+        return null;
     }
 }

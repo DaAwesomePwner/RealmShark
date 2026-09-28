@@ -17,8 +17,9 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P2 Home | #21 | Merged | `94db6f6` |
 | P3a Characters: gallery, sheet, journal v5 | #22 | Merged (Codex threads fixed in `508d1d1`) | `04a61d4` |
 | P3b Characters: Exalts grid, Pets, Pet/Fame tabs | #23 | Merged (Codex fix `9c0da67`) | `b559bca` |
-| **P4 Quests** | #24 | **Open** from `claude/redesign-handoff-next-steps-edrr7w` | |
-| P5 Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
+| P4 Quests: Board and Planner | #24 | Merged (Codex: no findings) | `e541874` |
+| **P5a Runs: combat auto-save, feed, recap** | none yet | **Implemented** ([2026-09-28-p5a-runs.md](2026-09-28-p5a-runs.md)) on `claude/redesign-handoff-next-steps-edrr7w`; PR opens when the user asks | |
+| P5b Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
 
@@ -27,11 +28,14 @@ All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with on
 Done on 2026-09-27/28 (cloud session):
 - PR #22's Codex threads fixed in `508d1d1`; PR #22 merged as `04a61d4` and `main` verified.
 - P3b planned as a contract plan ([2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md)) and implemented with subagent-driven development: four waves of parallel implementer subagents in isolated worktrees, the coordinator reviewing and merging every task, then an independent whole-branch review and a UI polish round from the evidence screenshots. PR #23 merged as `b559bca` (Codex review fix `9c0da67`); `main` verified. Record: [2026-09-27-p3b-validation.md](2026-09-27-p3b-validation.md).
-
 - P4 Quests planned ([2026-09-28-p4-quests.md](2026-09-28-p4-quests.md)) and implemented with subagent-driven development: Wave A (Board models, Planner cards with bars, Home's "Rewards not captured"), Wave B (the Board UI), Wave C (Quests routes and the S3 test), Wave D (evidence, docs, validation record) and a polish round from the evidence review, each task reviewed and merged by the coordinator. Record: [2026-09-28-p4-validation.md](2026-09-28-p4-validation.md).
+- PR #24 (P4) merged as `e541874` after a Codex review with no findings; `main` verified (tree equals the reviewed head, `shadowJar` and an isolated `--help` pass).
 
-1. **Review and merge PR #24 (P4)** when the user says so (merge commit), then verify `main` after the merge.
-2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope".
+- P5a planned (user decisions: split P5 into P5a/P5b; the Live meter moves into Runs & DPS in P5b; full combat detail included, off by default; summaries kept forever by default) and implemented with subagent-driven development in five waves plus a polish round, each task reviewed and merged by the coordinator; a pre-existing test-harness leak (`VisualEvidence` frames pinned by Swing's `KeyboardManager`) was fixed so the full suite fits its heap. Record: [2026-09-28-p5a-validation.md](2026-09-28-p5a-validation.md).
+
+1. **Open the P5a PR when the user asks**, handle its review, merge and verify `main`; then plan P5b.
+2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
+The P5 research notes (encounters storage, runs feed and recap, shell) live in the session scratchpad; the plan quotes their conclusions.
 
 ---
 

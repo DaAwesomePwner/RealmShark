@@ -101,6 +101,19 @@ public class LiveHomeSourcesTest {
         }
     }
 
+    @Test public void savedCombatRecordsGiveRecentRunsTheirDpsAfterARestart() throws Exception {
+        java.nio.file.Path root = temp.newFolder().toPath(); HomeHistoryFixture.write(root);
+        tomato.history.encounter.CombatFixtures.writeRecord(root, HomeHistoryFixture.MORNING, HomeArchiveTest.saved("saved",
+            HomeHistoryFixture.ref(HomeHistoryFixture.MORNING, "c1"), 7, 120_000, 60.0, HomeHistoryFixture.at(0, 8, 10)));
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            LiveHomeSources sources = new LiveHomeSources(isolated(), () -> store, (account, quest) -> false, () -> "catalog#1",
+                List::<RecordedEncounter>of);   // a new app run: the DPS page has no recordings yet
+            HomeArchive.RecentRun c1 = sources.archive(HomeArchive.Window.TODAY, HomeHistoryFixture.NOW).recent().stream()
+                .filter(run -> run.visit().equals(HomeHistoryFixture.ref(HomeHistoryFixture.MORNING, "c1"))).findFirst().orElseThrow();
+            assertEquals(2_000.0, c1.localDps(), 1e-9);
+        }
+    }
+
     @Test public void unreadableJournalIsUnavailableUntilALiveCharacterCanBeShown() throws Exception {
         java.nio.file.Path path = temp.newFile("broken-journal.json").toPath();
         java.nio.file.Files.writeString(path, "{broken");

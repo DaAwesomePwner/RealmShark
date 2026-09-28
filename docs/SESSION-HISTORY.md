@@ -6,13 +6,13 @@ Each normal RealmShark launch creates a new session. Stopping capture, changing 
 
 History is saved automatically under **`%LOCALAPPDATA%\RealmShark\history`** on Windows, independently of the application/build folder. Extracting a newer portable build into another folder on the same Windows account uses this same history. Settings, extracted assets, optional plain-text logs and manually exported files retain their existing locations.
 
-History is kept until explicitly deleted. Each session has metadata, append journals for messages/pops/loot/fame/timeline events, and replaceable run/statistics checkpoints. Writes happen on a background worker; failures remain visible in the session toolbar and pending records retry. Normal shutdown checkpoints the final run before closing the session. Preview can browse saved history but does not record or delete it.
+History is kept until explicitly deleted; saved combat history also follows its own retention settings ([below](#combat-history)). Each session has metadata, append journals for messages/pops/loot/fame/timeline events, replaceable run/statistics checkpoints, and a combat summary for each closed fight. Writes happen on a background worker; failures remain visible in the session toolbar and pending records retry. Normal shutdown checkpoints the final run before closing the session. Preview can browse saved history but does not record or delete it.
 
 New fame readings also record the player's hashed account key: the same pseudonymous key the character journal (`Characters/journal.json`) uses, never a raw account ID, name or credential. Character IDs are only unique within an account, so the key lets the character sheet's **Fame** tab and Home's **Progress** card tell two accounts' characters with the same ID apart. The latest fame checkpoint (`fame-latest`) is kept per account and character. Readings recorded before this version, or before capture saw the account, have no account: Home counts them as before, and the Fame tab leaves them out and says how many. Statistics' fame views do not use the account yet.
 
 ## Browsing
 
-**Chat, Key-pops, Loot, Statistics and Inspect** have independent session pickers. Runs, Timeline and DPS Logger's Resources & buffs also expose the saved visits they use.
+**Chat, Key-pops, Loot, Statistics and Inspect** have independent session pickers. Runs, Timeline and DPS Logger's Resources & buffs also expose the saved visits they use. **Runs** opens on a feed of saved runs from every session, grouped by day; its Table view keeps the session picker (see [Runs](ACTIVITY.md#runs)).
 
 - **Current Session** returns to the original live view. Capture continues while another scope is selected.
 - Pick a timestamped session to inspect that launch, or **All Sessions** to aggregate history.
@@ -47,6 +47,35 @@ Choose **History library…** to search sessions by label, build or available mo
 
 The library exposes unreadable metadata separately so healthy sessions remain discoverable. **All Sessions** can continue with healthy entries while reporting excluded unreadable sources; a selected unreadable session cannot be opened. Open/interrupted sessions and unknown coverage are labeled. Module presence or an empty query is not proof of continuous recording, nor proof that no gameplay occurred; complete recording intervals are not available.
 
+## Combat history
+
+Every closed fight is saved as a combat summary in the session it was recorded in ([what a summary holds](DPS-METERS.md#saved-combat-history)). Three module folders hold it, each file named by the store's stable checkpoint name for the recording's ID:
+
+- **`encounters`**: one card-sized record per recording (JSON). The Runs feed and Home read only these.
+- **`encounter-detail`**: each recording's damage over time, damage by source, enemies and deaths (JSON). Only the run recap reads one, for the run and recording it shows.
+- **`combat-full`**: the complete recording as a `.dps` file, only while **Keep full combat detail** is on. It never contains the debug packet log.
+
+A dedicated background worker builds each summary and hands its record and detail to the history writer, and writes full detail files itself; capture and the window never do this work. Preview mode writes nothing.
+
+**Settings › General › Combat history** chooses what is kept:
+
+- **Keep full combat detail**: off by default. **Keep full detail for** 7 days, 30 days (default), 90 days or 1 year applies while it is on.
+- **Keep combat summaries**: **Forever** (default), 1 year or 90 days.
+
+Pruning runs on the same worker when history opens at startup and again after any Combat history change. It deletes full detail files older than their day count and, when summaries have a period, a recording older than that loses its record, detail and full detail together. A recording's age is its record's entry time, else the record file's time; a file without a record is dated by its own time. Only closed sessions this instance can lock are touched: the current session and sessions open in another RealmShark are skipped and tried again next time. Pruning touches only these three folders, never runs, loot, fame or other modules; deleting a session in **History library…** removes its combat history with the rest of the session. **Clear DPS Logs** deletes nothing saved.
+
+Storage, measured with synthetic fights (`CombatStorageMeasurementTest`):
+
+| Fight | Record | Detail |
+| --- | --- | --- |
+| 150 s dungeon, 8 players, 60 enemies | 1,781 B | 10,651 B |
+| 600 s dungeon, 8 players, 150 enemies | 1,799 B | 28,115 B |
+| 3,600 s Realm-like fight, 30 players, 2,000 enemies | 4,924 B | 152,029 B |
+
+A large synthetic history of 30 sessions × 40 runs, with one record and one detail per run, takes 17.0 MB on disk, of which `encounters` is 2.1 MB and `encounter-detail` 12.8 MB. Reading all 1,200 records took 19–27 ms and Home's read 6–7 ms. Full detail takes about 14 MB per 100,000 hits.
+
+Not saved: the fight in progress when the app exits or crashes (there are no in-progress checkpoints), and the link between a run and what is recorded after capture restarts in the same area (that remainder is a separate recording).
+
 ## Loot profiles and comparisons
 
 Choose **All Sessions** (or a particular session) in Loot and open **Dungeon loot profile**. It shows observed visits, items per run, items per captured hour, UTs per hour, observed duration, and separate totals/rates for white bags, UT equipment, ST equipment and stat potions. Columns sort numerically; use the column controls to reveal additional analytical measures.
@@ -71,4 +100,4 @@ In **History library…**, **Delete…** deletes the selected past session acros
 
 ## Validation and developer isolation
 
-Gradle tests set `realmshark.historyDir` under their own working directory, keeping both normal and scaled UI tests away from the real Windows history folder. Storage tests cover separate launches/build versions, UTF-8/time round trips, checkpoint replacement, records beyond live limits, pagination/search, interrupted final records, write failures/retry, active-session deletion, and repeatable legacy imports. Module tests cover independent browsing while capture continues, restored chat stars, key-pop timestamps/counts, historical Inspect ownership, zero-loot rate denominators, and separate character IDs across sessions.
+Gradle tests set `realmshark.historyDir` under their own working directory, keeping both normal and scaled UI tests away from the real Windows history folder. Combat history tests build summaries from synthetic fights in temporary folders; `CombatStorageMeasurementTest` prints the storage figures above. Storage tests cover separate launches/build versions, UTF-8/time round trips, checkpoint replacement, records beyond live limits, pagination/search, interrupted final records, write failures/retry, active-session deletion, and repeatable legacy imports. Module tests cover independent browsing while capture continues, restored chat stars, key-pop timestamps/counts, historical Inspect ownership, zero-loot rate denominators, and separate character IDs across sessions.

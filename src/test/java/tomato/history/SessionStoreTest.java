@@ -147,4 +147,66 @@ public class SessionStoreTest {
             assertEquals(1,count.get());assertEquals(2,store.read(store.currentId(),"chat",Event.class).size());
         }finally{store.close();}
     }
+    @Test public void readCheckpointReadsTheFileThatPutWroteOffTheEdtOnly()throws Exception{
+        Path root=temp.newFolder().toPath();SessionStore first=new SessionStore(root,true,"build-one");String old=first.currentId();
+        first.put("encounters","recording-1",new Event("old"));first.put("encounters","recording-1",new Event("latest"));
+        first.put("encounters","recording-2",new Event("other"));first.flush();
+        try{
+            assertEquals("latest",first.readCheckpoint(old,"encounters","recording-1",Event.class).get().text);
+            assertEquals(Instant.parse("2026-09-20T12:00:00Z"),first.readCheckpoint(old,"encounters","recording-1",Event.class).get().time);
+            assertFalse("absent key",first.readCheckpoint(old,"encounters","recording-3",Event.class).isPresent());
+            assertFalse("absent module",first.readCheckpoint(old,"encounter-detail","recording-1",Event.class).isPresent());
+            String unknown=UUID.randomUUID().toString();
+            assertFalse("absent session",first.readCheckpoint(unknown,"encounters","recording-1",Event.class).isPresent());
+            try{first.readCheckpoint("../escape","encounters","recording-1",Event.class);fail("Session IDs are validated");}catch(IllegalArgumentException expected){}
+            try{first.readCheckpoint(old,"Bad/Module","recording-1",Event.class);fail("Module names are validated");}catch(IllegalArgumentException expected){}
+            Throwable[] edt=new Throwable[1];
+            SwingUtilities.invokeAndWait(()->{try{first.readCheckpoint(old,"encounters","recording-1",Event.class);}catch(Throwable t){edt[0]=t;}});
+            assertTrue(String.valueOf(edt[0]),edt[0] instanceof IllegalStateException);
+            Path file=root.resolve(old).resolve("encounters").resolve(UUID.nameUUIDFromBytes("recording-2".getBytes(StandardCharsets.UTF_8))+".json");
+            assertTrue("the name put writes",Files.isRegularFile(file));
+            Files.write(file,"{\"text\":".getBytes(StandardCharsets.UTF_8));
+            try{first.readCheckpoint(old,"encounters","recording-2",Event.class);fail("A damaged checkpoint is not an absent one");}
+            catch(java.io.IOException expected){assertTrue(expected.getMessage(),expected.getMessage().startsWith("Unreadable history"));}
+        }finally{first.close();}
+        SessionStore next=new SessionStore(root,false,"build-two");
+        try{assertEquals("other session after restart","latest",next.readCheckpoint(old,"encounters","recording-1",Event.class).get().text);}
+        finally{next.close();}
+    }
+    @Test public void currentDirectoryIsTheWritableCurrentSessionFolderAndEmptyInPreview()throws Exception{
+        Path root=temp.newFolder().toPath();SessionStore store=new SessionStore(root,true,"one");SessionStore preview=new SessionStore(root,false,"two");
+        try{
+            assertEquals(Optional.of(root.toAbsolutePath().normalize().resolve(store.currentId())),store.currentDirectory());
+            assertEquals("Preview writes nothing, so it has no folder to write in",Optional.empty(),preview.currentDirectory());
+        }finally{store.close();preview.close();}
+        assertEquals("A closed store takes no more side files",Optional.empty(),store.currentDirectory());
+    }
+    @Test public void deleteFilesPrunesOneModuleOfClosedSessionsOnly()throws Exception{
+        Path root=temp.newFolder().toPath();SessionStore first=new SessionStore(root,true,"one");String old=first.currentId();
+        first.put("encounters","keep",new Event("keep"));first.put("encounters","drop",new Event("drop"));first.put("runs","drop",new Event("run"));first.flush();
+        Path side=Files.createDirectories(root.resolve(old).resolve("combat-full"));Files.write(side.resolve("a.dps"),new byte[]{1,2,3});
+        SessionStore second=new SessionStore(root,true,"two");
+        try{
+            try{second.deleteFiles(old,"encounters",file->true);fail("A session open in another store is refused");}
+            catch(java.io.IOException expected){assertTrue(expected.getMessage(),expected.getMessage().contains("still open"));}
+            try{first.deleteFiles(old,"encounters",file->true);fail("The current session is refused");}
+            catch(java.io.IOException expected){assertTrue(expected.getMessage(),expected.getMessage().contains("still recording"));}
+            assertEquals(2,first.read(old,"encounters",Event.class).size());
+            first.close();
+            String dropped=SessionStore.checkpointName("drop")+".json";
+            assertEquals(1,second.deleteFiles(old,"encounters",file->file.getFileName().toString().equals(dropped)));
+            assertEquals("Only the matched file of that module",List.of("keep"),
+                second.read(old,"encounters",Event.class).stream().map(e->e.text).collect(java.util.stream.Collectors.toList()));
+            assertEquals("Other modules are untouched",1,second.read(old,"runs",Event.class).size());
+            assertEquals("Side files of any module name",1,second.deleteFiles(old,"combat-full",file->true));assertFalse(Files.exists(side.resolve("a.dps")));
+            assertEquals("An absent module deletes nothing",0,second.deleteFiles(old,"encounter-detail",file->true));
+            assertTrue("The session itself stays",Files.isRegularFile(root.resolve(old).resolve("session.json")));
+            try{second.deleteFiles(old,"Bad/Module",file->true);fail("Module names are validated");}catch(IllegalArgumentException expected){}
+            try{second.deleteFiles("../outside","encounters",file->true);fail("Session IDs are validated");}catch(IllegalArgumentException expected){}
+        }finally{first.close();second.close();}
+        SessionStore preview=new SessionStore(root,false,"three");
+        try{preview.deleteFiles(old,"encounters",file->true);fail("Preview deletes nothing");}
+        catch(java.io.IOException expected){ }
+        finally{preview.close();}
+    }
 }
