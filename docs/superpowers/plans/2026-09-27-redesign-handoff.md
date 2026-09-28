@@ -18,7 +18,7 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P3a Characters: gallery, sheet, journal v5 | #22 | Merged (Codex threads fixed in `508d1d1`) | `04a61d4` |
 | P3b Characters: Exalts grid, Pets, Pet/Fame tabs | #23 | Merged (Codex fix `9c0da67`) | `b559bca` |
 | P4 Quests: Board and Planner | #24 | Merged (Codex: no findings) | `e541874` |
-| **P5a Runs: combat auto-save, feed, recap** | none yet | **Implemented** ([2026-09-28-p5a-runs.md](2026-09-28-p5a-runs.md)) on `claude/redesign-handoff-next-steps-edrr7w`; PR opens when the user asks | |
+| P5a Runs: combat auto-save, feed, recap | #25 | Merged (Codex fix `21d896e`) | `3ab077c` |
 | P5b Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
@@ -32,8 +32,10 @@ Done on 2026-09-27/28 (cloud session):
 - PR #24 (P4) merged as `e541874` after a Codex review with no findings; `main` verified (tree equals the reviewed head, `shadowJar` and an isolated `--help` pass).
 
 - P5a planned (user decisions: split P5 into P5a/P5b; the Live meter moves into Runs & DPS in P5b; full combat detail included, off by default; summaries kept forever by default) and implemented with subagent-driven development in five waves plus a polish round, each task reviewed and merged by the coordinator; a pre-existing test-harness leak (`VisualEvidence` frames pinned by Swing's `KeyboardManager`) was fixed so the full suite fits its heap. Record: [2026-09-28-p5a-validation.md](2026-09-28-p5a-validation.md).
+- PR #25 (P5a) merged as `3ab077c` after fixing its one Codex finding in `21d896e`: closing the combat autosave waits for queued fights before the history store closes, then cancels the rest with no partial files. `main` verified (tree equals the reviewed head, `shadowJar` and an isolated `--help` pass).
+- **Standing user permission (2026-09-28):** when a phase's plan is done and everything is pushed, open its PR so Codex can review it; review and fix any Codex comment; merge once it is fixed, or when Codex leaves no comment. Then verify `main`.
 
-1. **Open the P5a PR when the user asks**, handle its review, merge and verify `main`; then plan P5b.
+1. **Plan P5b when the user asks** (Runs & DPS tabs, Live meter, Recordings, Dungeons, sidebar changes, S8; see the roadmap outline and the P5a plan's deferred scope).
 2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
 The P5 research notes (encounters storage, runs feed and recap, shell) live in the session scratchpad; the plan quotes their conclusions.
 
