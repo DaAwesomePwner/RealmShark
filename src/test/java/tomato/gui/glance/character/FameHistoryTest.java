@@ -84,11 +84,49 @@ public class FameHistoryTest {
             assertEquals("Only the current session is read again", 5, history.reads());
             assertEquals(List.of(at(start + 1_000, 2_000), at(start + 2_000, 2_100)), second.sessions().get(2).points());
             history.read(OTHER, 7);
-            assertEquals("Another character reuses the kept sessions", 6, history.reads());
+            assertEquals("Another pair's first request reads FIRST and SECOND once more (only requested pairs are kept), with the current one",
+                8, history.reads());
+            history.read(OTHER, 7);
+            assertEquals("Its later requests read only the current session", 9, history.reads());
             Path fame = root.resolve(SECOND).resolve("fame.jsonl");
             Files.setLastModifiedTime(fame, FileTime.fromMillis(Files.getLastModifiedTime(fame).toMillis() + 2_000));
             history.read(ACCOUNT, 7);
-            assertEquals("A finished session whose file changed is read again, with the current one", 8, history.reads());
+            assertEquals("A finished session whose file changed is read again, with the current one", 11, history.reads());
+            history.read(OTHER, 7);
+            assertEquals("Reading it again kept every requested pair's readings", 12, history.reads());
+        }
+    }
+
+    /**
+     * Memory follows what sheets asked for: a finished session keeps only the readings of the (account, character) pairs requested
+     * so far, plus untagged readings counted per character id. A new pair's first request reads the finished sessions once; its
+     * later requests read none of them (the current session, never kept, is read every time).
+     */
+    @Test public void onlyRequestedPairsAreKeptAndANewPairReadsTheSessionsOnce() throws Exception {
+        try (SessionStore store = new SessionStore(fixture(), false, "fixture")) {
+            FameHistory history = new FameHistory(() -> store);
+            history.read(ACCOUNT, 7);
+            assertEquals("FIRST, SECOND, CORRUPT and the current session (listed though this store records nothing)", 4, history.reads());
+            assertEquals("Only ACCOUNT #7's readings are kept (5 in FIRST, 2 in SECOND); OTHER #7's, #8's and untagged ones are not",
+                7, history.cachedPoints());
+            FameHistory.Series other = history.read(OTHER, 7);
+            assertEquals("A new pair reads FIRST and SECOND once more, with the current one; CORRUPT's kept failure is not read again", 7, history.reads());
+            assertEquals(List.of(FIRST), ids(other));
+            assertEquals(List.of(at(T0 + 2 * MINUTE, 5_000), at(T0 + 10 * MINUTE, 5_400)), other.sessions().get(0).points());
+            assertEquals(3, other.untagged());
+            assertEquals(2, other.unreadable());
+            assertEquals("OTHER #7's two readings join the kept ones", 9, history.cachedPoints());
+            FameHistory.Series again = history.read(ACCOUNT, 7);
+            history.read(OTHER, 7);
+            assertEquals("Later requests of either pair read no finished session: only the current one, each time", 9, history.reads());
+            assertEquals("Kept readings are still exact", List.of(FIRST, SECOND), ids(again));
+            assertEquals(List.of(at(T1 + MINUTE, 1_300), at(T1 + 10 * MINUTE, 1_400)), again.sessions().get(1).points());
+            assertEquals("Untagged readings stay counted from the kept per-character counts", 3, again.untagged());
+            assertEquals(List.of(at(T0 + 6 * MINUTE, 300)), history.read(ACCOUNT, 8).sessions().get(0).points());
+            assertEquals("#8 is a new pair: FIRST and SECOND once more, with the current one", 12, history.reads());
+            assertEquals(10, history.cachedPoints());
+            assertEquals("Untagged readings of #7 are not #8's", 0, history.read(ACCOUNT, 8).untagged());
+            assertEquals(13, history.reads());
         }
     }
 
