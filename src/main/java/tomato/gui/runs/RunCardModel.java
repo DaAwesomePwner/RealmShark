@@ -17,9 +17,10 @@ import tomato.history.link.VisitRef;
  * not be read, {@code combat} without a linked recording or when the session's combat records could not be read
  * ({@code combatReason} says which), and {@code exaltProgress} unless the visit recorded an increase.
  *
- * <p>Loot is known when the run's session's loot was read: a run without a bag recorded inside it then shows no loot
- * ({@code lootReason} null, {@code lootCount} 0), including a session that saved no loot at all, as Home's Recent runs reads
- * it (capture saves every bag it sees). Only a session whose loot could not be read makes it unknown ({@code lootReason}).
+ * <p>Loot is known when the run's session's loot was read and holds at least one saved bag (of any run, or of none): a run
+ * without a bag recorded inside it then shows a known none ({@code lootReason} null, {@code lootCount} 0). A session that
+ * saved no loot bag at all cannot show a known none, so its runs' loot is unknown ({@link #LOOT_NOT_SAVED}, the recap's
+ * wording), and so is a session whose loot could not be read ({@link #LOOT_UNREADABLE}).
  *
  * @param map        the saved visit's area name (the filter and portal key); {@code mapName} is its display text
  * @param portalId   the portal sprite ({@link Portals#spriteId}), 0 for the kit's placeholder
@@ -30,8 +31,8 @@ import tomato.history.link.VisitRef;
  * @param loot       at most {@link #LOOT_ICONS} items of this run's bags, most notable first (Home's order)
  * @param lootCount  every item of this run's bags
  * @param lootSummary "1 UT · 2 potions" over every item; "" when this run has no saved loot or its loot is unknown
- * @param lootReason {@link #LOOT_UNREADABLE} when the session's loot could not be read (no loot is then shown: the loot,
- *                   count and summary are emptied); null whenever loot is known, a known none included
+ * @param lootReason {@link #LOOT_NOT_SAVED} or {@link #LOOT_UNREADABLE} when the run's loot is unknown (no loot is then
+ *                   shown: the loot, count and summary are emptied); null whenever loot is known, a known none included
  * @param exaltProgress the progress increase observed inside this visit; null unless positive
  */
 public record RunCardModel(VisitRef ref, String map, String mapName, int portalId, RunOutcome outcome, long entered, Long durationMs,
@@ -42,6 +43,8 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
     public static final String NO_RECORDING = "No combat recording is linked to this run.";
     public static final String COMBAT_UNREADABLE = "Combat records for this session could not be read.";
     public static final String LOOT_UNREADABLE = "Loot for this session could not be read.";
+    /** The run recap's wording ({@code RunRecapBuilder}) for a session without any saved loot bag. */
+    public static final String LOOT_NOT_SAVED = "No loot bag was saved in this run's session, so its loot is unknown.";
     /** {@code RecordedEncounter.unavailableReason()}'s wording for a recording without a verified local row. */
     public static final String UNVERIFIED_LOCAL = "The local player's row was not verified for this encounter; another player's row is never substituted.";
     /** Map text when the saved visit has none. */
@@ -76,9 +79,10 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
     public record LootItem(int id, String bag, String tier) {}
 
     /**
-     * A card for the saved visit {@code ref}. {@code records} and {@code bags} may hold anything of the run's session: only those
-     * linked to exactly {@code ref} are used; null means that session's combat records or loot could not be read (unknown, with
-     * {@link #COMBAT_UNREADABLE} or {@link #LOOT_UNREADABLE}). {@code fameGained} is the known gain ({@link FameGains}) or null.
+     * A card for the saved visit {@code ref}. {@code records} may hold anything of the run's session and {@code bags} is every
+     * bag the session saved: only those linked to exactly {@code ref} are shown. Null means that session's combat records or
+     * loot could not be read ({@link #COMBAT_UNREADABLE}, {@link #LOOT_UNREADABLE}); no bag at all means the session saved no
+     * loot ({@link #LOOT_NOT_SAVED}). {@code fameGained} is the known gain ({@link FameGains}) or null.
      */
     static RunCardModel of(VisitRef ref, String map, RunOutcome outcome, long entered, Long durationMs, Integer rosterSize,
                            long exaltIncrease, Collection<CombatRecord> records, List<LootFacts.Bag> bags, Long fameGained) {
@@ -91,7 +95,8 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
         for (LootFacts.Bag bag : own) count += bag.items().size();
         String name = map == null || map.isBlank() ? UNKNOWN_AREA : map;
         return new RunCardModel(ref, map, name, Portals.spriteId(map), outcome, entered, durationMs, rosterSize, combat,
-            records == null ? COMBAT_UNREADABLE : reason(combat), loot(own), count, summary(own), bags == null ? LOOT_UNREADABLE : null,
+            records == null ? COMBAT_UNREADABLE : reason(combat), loot(own), count, summary(own),
+            bags == null ? LOOT_UNREADABLE : bags.isEmpty() ? LOOT_NOT_SAVED : null,
             fameGained, exaltIncrease > 0 ? (int) Math.min(exaltIncrease, Integer.MAX_VALUE) : null);
     }
 

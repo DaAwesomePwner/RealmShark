@@ -159,9 +159,15 @@ public class RunFeedModelTest {
         assertEquals("Loot for this session could not be read.", unread.lootReason());
         assertEquals(List.of(), unread.loot()); assertEquals(0, unread.lootCount()); assertEquals("", unread.lootSummary());
         assertNull(unread.combat()); assertEquals("Combat records for this session could not be read.", unread.combatReason());
-        RunCardModel none = RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 0, List.of(), List.of(), null);
-        assertNull("Read, with no bag inside the run: a known none", none.lootReason());
+        RunCardModel none = RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 0, List.of(),
+            List.of(bag("White", new VisitRef(SESSION, "v2"), ut(7))), null);
+        assertNull("Read, with bags saved but none inside the run: a known none", none.lootReason());
+        assertEquals(0, none.lootCount());
         assertEquals(RunCardModel.NO_RECORDING, none.combatReason());
+        RunCardModel notSaved = RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 0, List.of(), List.of(), null);
+        assertEquals("A session without any saved loot cannot show a known none",
+            "No loot bag was saved in this run's session, so its loot is unknown.", notSaved.lootReason());
+        assertEquals(List.of(), notSaved.loot()); assertEquals(0, notSaved.lootCount()); assertEquals("", notSaved.lootSummary());
         RunCardModel.LootItem item = new RunCardModel.LootItem(1, "White", "UT");
         RunCardModel stated = new RunCardModel(ref, "Lost Halls", "Lost Halls", 0, RunOutcome.COMPLETED, NOW, null, null, null,
             RunCardModel.NO_RECORDING, List.of(item), 1, "1 UT", RunCardModel.LOOT_UNREADABLE, null, null);

@@ -159,7 +159,7 @@ public final class RunFeedSource {
         VisitRef ref = new VisitRef(row.ref.session, run.visitId);
         return RunCardModel.of(ref, run.map, row.value.outcome, run.time, run.durationMillis, row.value.rosterSize, run.progress,
             facts.combat() == null ? null : facts.combat().getOrDefault(ref, List.of()),
-            facts.loot() == null ? null : facts.loot().getOrDefault(ref, List.of()),
+            facts.loot(),   // every saved bag: none at all is loot unknown, not a known none
             facts.fame() == null ? null : FameGains.of(facts.fame(), ref).orElse(null));
     }
 
@@ -194,8 +194,8 @@ public final class RunFeedSource {
      */
     private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<Stamp> stamp) {
         List<String> issues = new ArrayList<>();
-        Map<VisitRef, List<LootFacts.Bag>> bags = new HashMap<>(), loot = bags;
-        try { LootFacts.read(store, catalog, entry.id, bag -> { if (bag.visit() != null) bags.computeIfAbsent(bag.visit(), v -> new ArrayList<>()).add(bag); }); }
+        List<LootFacts.Bag> bags = new ArrayList<>(), loot = bags;
+        try { LootFacts.read(store, catalog, entry.id, bags::add); }
         catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, "loot", issues); loot = null; }
         Map<VisitRef, Long> fame;
         try {
@@ -292,11 +292,11 @@ public final class RunFeedSource {
     }
 
     /**
-     * One session's facts as last read ({@code stamp} null for the current session), by exact visit. A module that could not
-     * be read is null (its facts unknown) and named in {@code issues}; kept with the stamp like the rest, since reading the
-     * same files again fails the same way.
+     * One session's facts as last read ({@code stamp} null for the current session): every saved loot bag, and fame gains and
+     * combat records by exact visit. A module that could not be read is null (its facts unknown) and named in {@code issues};
+     * kept with the stamp like the rest, since reading the same files again fails the same way.
      */
-    private record Facts(List<Stamp> stamp, Map<VisitRef, List<LootFacts.Bag>> loot, Map<VisitRef, Long> fame,
+    private record Facts(List<Stamp> stamp, List<LootFacts.Bag> loot, Map<VisitRef, Long> fame,
                          Map<VisitRef, List<CombatRecord>> combat, List<String> issues) {}
 
     /** One entry as last seen: its path inside the session folder, size and modification time (epoch ms). */

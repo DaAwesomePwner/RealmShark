@@ -268,6 +268,23 @@ public class RunFeedSourceTest {
         }
     }
 
+    @Test public void runsOfASessionWithoutAnySavedLootHaveUnknownLoot() throws Exception {
+        Path root = scenario();
+        Files.delete(root.resolve(RunFixtures.B).resolve("loot.jsonl"));   // B saved no loot bag at all
+        try (SessionStore store = new SessionStore(root, false, "fixture");
+             RunFeedSource.Page page = source(store, RunFixtures.NOW).first(RunFeedQuery.all(), new Cancellation())) {
+            for (VisitRef ref : List.of(RunFixtures.B1, RunFixtures.B4)) {
+                RunCardModel card = card(page.model(), ref);
+                assertEquals(RunCardModel.LOOT_NOT_SAVED, card.lootReason());
+                assertEquals(List.of(), card.loot()); assertEquals(0, card.lootCount()); assertEquals("", card.lootSummary());
+            }
+            RunCardModel a3 = card(page.model(), RunFixtures.A3);
+            assertNull("A saved bags (none inside v3): a known none", a3.lootReason()); assertEquals(0, a3.lootCount());
+            assertEquals(6, card(page.model(), RunFixtures.A1).lootCount());
+            assertEquals("Nothing failed to read", List.of(), page.issues());
+        }
+    }
+
     @Test public void aSessionWhoseFameCannotBeReadShowsFameAsUnknown() throws Exception {
         Path root = scenario(), fame = root.resolve(RunFixtures.A).resolve("fame.jsonl");
         Files.writeString(fame, "{broken\n" + Files.readString(fame));
