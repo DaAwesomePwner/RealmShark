@@ -249,6 +249,36 @@ public class OverviewTabTest {
         });
     }
 
+    /**
+     * No model (loading, or a key the journal lacks) says nothing about the pet: a neutral "—" with no reason, never the
+     * not-captured wording, which stays for a loaded model whose pet is unknown.
+     */
+    @Test public void thePetCardIsNeutralWhileLoadingAndSaysNotCapturedOnlyForALoadedModel() throws Exception {
+        CharacterJournal.CharacterRecord withPet = record(); withPet.pet = pet(NOW);
+        SheetModel known = model(withPet, account(), null), unknown = model(record(), account(), null);
+        SwingUtilities.invokeAndWait(() -> {
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
+            JLabel name = named(tab, "character-overview-pet-name", JLabel.class);
+            Chip rarity = named(tab, "character-overview-pet-rarity", Chip.class);
+            JTextArea abilities = named(tab, "character-overview-pet-abilities", JTextArea.class);
+            JLabel sprite = named(tab, "character-overview-pet-sprite", JLabel.class);
+            assertEquals("Loading: a neutral dash", DisplayFormat.UNAVAILABLE, name.getText());
+            assertNull("Loading never claims the pet was not captured", name.getToolTipText());
+            assertFalse(rarity.isVisible()); assertFalse(abilities.isVisible()); assertFalse(sprite.isVisible());
+
+            tab.apply(unknown);
+            assertEquals(DisplayFormat.UNAVAILABLE, name.getText());
+            assertEquals("A loaded model's unknown pet keeps its reason", PetTab.UNKNOWN_REASON, name.getToolTipText());
+
+            tab.apply(known);
+            assertEquals("Sample pet", name.getText());
+            tab.apply(null); // another key opening: loading again
+            assertEquals(DisplayFormat.UNAVAILABLE, name.getText());
+            assertNull(name.getToolTipText());
+            assertFalse("Nothing of the previous pet stays", rarity.isVisible() || abilities.isVisible() || sprite.isVisible());
+        });
+    }
+
     /** Opening the card (click, Enter or Space) opens the sheet's Pet tab: CharacterSheet passes openTab("pet"). */
     @Test public void thePetCardOpensThePetTab() throws Exception {
         CharacterJournal.CharacterRecord withPet = record(); withPet.pet = pet(NOW);

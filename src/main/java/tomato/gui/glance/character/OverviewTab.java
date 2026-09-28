@@ -143,8 +143,9 @@ final class OverviewTab extends JPanel {
         exalts.setText(known ? classExalts.summary() : DisplayFormat.UNAVAILABLE);
         exalts.setToolTipText(known ? "Exaltation tiers for this class; the Exalts tab lists every stat"
             : "Exalt progress arrives when capture reads your character list");
-        // The pet card has no relative age, so an unchanged pet is simply left as it is. Loading (no model) reads as unknown.
-        PetSummary pet = model == null ? PetSummary.UNKNOWN : model.pet();
+        // The pet card has no relative age, so an unchanged pet is simply left as it is. No model (loading, or a key the journal
+        // lacks) is null: a neutral dash, never the not-captured reason of a loaded model's unknown pet.
+        PetSummary pet = model == null ? null : model.pet();
         if (!Objects.equals(pet, petShown)) {
             pet(pet);
             petShown = pet;
@@ -173,14 +174,18 @@ final class OverviewTab extends JPanel {
         repaint();
     }
 
-    /** The pet card: sprite, name, rarity chip and one line of the three abilities; "No pet"; or "—" with why it is unknown. */
+    /**
+     * The pet card: sprite, name, rarity chip and one line of the three abilities; "No pet"; "—" with why it is unknown; or, for
+     * null (no model yet), a plain "—" with no reason: nothing is known about the pet either way.
+     */
     private void pet(PetSummary pet) {
-        boolean known = pet.state() == PetSummary.State.KNOWN;
+        boolean known = pet != null && pet.state() == PetSummary.State.KNOWN;
+        PetSummary.State state = pet == null ? null : pet.state();
         petSprite.setVisible(known);
         if (known) petSprite.setIcon(Sprites.sprite(pet.skin() == null ? 0 : pet.skin(), 32)); // an id <= 0 is the placeholder
-        petName.setText(known ? pet.title() : pet.state() == PetSummary.State.NONE ? "No pet" : DisplayFormat.UNAVAILABLE);
-        petName.setToolTipText(pet.state() == PetSummary.State.UNKNOWN ? PetTab.UNKNOWN_REASON
-            : pet.state() == PetSummary.State.NONE ? "No pet was equipped when capture last read the character list" : null);
+        petName.setText(known ? pet.title() : state == PetSummary.State.NONE ? "No pet" : DisplayFormat.UNAVAILABLE);
+        petName.setToolTipText(state == PetSummary.State.UNKNOWN ? PetTab.UNKNOWN_REASON
+            : state == PetSummary.State.NONE ? "No pet was equipped when capture last read the character list" : null);
         petRarity.setVisible(known && pet.rarity() != null); // unknown rarity: no chip, never a guess
         petRarity.setText(known && pet.rarity() != null ? pet.rarity() : "");
         petAbilities.setVisible(known);
