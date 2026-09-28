@@ -18,6 +18,7 @@ import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.StatTile;
+import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.history.SessionStore;
 import tomato.planning.PlanningStore;
@@ -68,7 +69,8 @@ public class FameTabTest {
             assertEquals("Fame: 1,234 (stale), as of 2 h ago", fame.getAccessibleContext().getAccessibleName());
             StatTile hour = tile(tab, "tile-fame-hour");
             assertEquals(DisplayValue.State.ESTIMATE, hour.value().state);
-            assertEquals("Fame / hour: " + estimate("1,050") + ", session of " + date(T0), hour.getAccessibleContext().getAccessibleName());
+            // A session older than a week is named by its date (KitFormat.relative); a newer one by its age (see below).
+            assertEquals("Fame / hour: " + estimate("1,050") + ", session " + date(T0), hour.getAccessibleContext().getAccessibleName());
             StatTile gained = tile(tab, "tile-recorded-gain");
             assertEquals("Recorded gain: " + estimate("+310") + ", over 2 sessions", gained.getAccessibleContext().getAccessibleName());
             FameChart chart = named(tab, "character-fame-chart", FameChart.class);
@@ -83,6 +85,66 @@ public class FameTabTest {
             assertEquals("2 saved sessions could not be read", unreadable.text());
             assertFalse(shows(tab, "character-fame-failed"));
         });
+    }
+
+    /**
+     * The Fame / hour sub-line is short, so it fits a tile at 680 px and font 18: "this session", or the session's age ("session 4
+     * days ago", worded when shown); the tile's tooltip names the session with its full date.
+     */
+    @Test public void thePerHourSublineIsShortAndTheTooltipNamesTheSessionInFull() throws Exception {
+        long start = System.currentTimeMillis() - 4 * DAY - HOUR; // KitFormat.relative reads the real clock
+        FameModel older = FameModel.build(KEY, series(0, 0, readings(FIRST, false, start, 1_000, start + 12 * MINUTE, 1_200)), record(1_234L, T1), null);
+        FameModel current = FameModel.build(KEY, series(0, 0, readings("now", true, start, 1_000, start + 12 * MINUTE, 1_200)), record(1_234L, T1), null);
+        FameModel none = FameModel.build(KEY, series(0, 0, readings(FIRST, false, start, 1_000, start + 9 * MINUTE, 1_200)), record(1_234L, T1), null);
+        SwingUtilities.invokeAndWait(() -> {
+            FameTab tab = new FameTab();
+            StatTile hour = tile(tab, "tile-fame-hour");
+            tab.apply(older);
+            assertEquals("Fame / hour: " + estimate("1,000") + ", session 4 days ago", hour.getAccessibleContext().getAccessibleName());
+            assertTrue(hour.getToolTipText(), hour.getToolTipText().contains("the session of " + date(start)));
+            tab.apply(current);
+            assertEquals("Fame / hour: " + estimate("1,000") + ", this session", hour.getAccessibleContext().getAccessibleName());
+            assertFalse(hour.getToolTipText(), hour.getToolTipText().contains(date(start)));
+            tab.apply(none);
+            assertEquals("No rate: no sub-line, the reason is the value's tooltip", "Fame / hour: " + DisplayFormat.UNAVAILABLE,
+                hour.getAccessibleContext().getAccessibleName());
+            assertFalse(hour.getToolTipText(), hour.getToolTipText().contains(date(start)));
+        });
+    }
+
+    /** At a large font the three tiles wrap to fewer columns before a value or sub-line would be cut (680 px, font 18). */
+    @Test public void tilesWrapToFewerColumnsBeforeTheirSublinesWouldBeCut() throws Exception {
+        FameModel model = FameModel.build(KEY, series(0, 0, readings(FIRST, false, T0, 1_000, T0 + 12 * MINUTE, 1_200),
+            readings(SECOND, false, T1, 1_300, T1 + 9 * MINUTE, 1_400)), record(1_234L, System.currentTimeMillis() - 2 * HOUR), null);
+        SwingUtilities.invokeAndWait(() -> {
+            java.awt.Font previous = ContentStyle.body();
+            try {
+                ContentStyle.setBodyFont(new java.awt.Font(ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 18));
+                FameTab tab = new FameTab(); // built at font 18
+                tab.apply(model);
+                List<StatTile> tiles = List.of(tile(tab, "tile-fame"), tile(tab, "tile-fame-hour"), tile(tab, "tile-recorded-gain"));
+                for (int width : new int[]{1_000, 560, 360}) { // a wide sheet, the 680 px window's sheet, narrower still
+                    layout(tab, width);
+                    for (StatTile t : tiles) assertTrue(width + " px: " + t.getName() + " is " + t.getWidth() + " px for " + t.getPreferredSize().width,
+                        t.getWidth() >= t.getPreferredSize().width);
+                }
+                layout(tab, 1_000);
+                assertTrue("Wide: three across", tiles.get(0).getY() == tiles.get(1).getY() && tiles.get(1).getY() == tiles.get(2).getY());
+            } finally {
+                ContentStyle.setBodyFont(previous);
+            }
+        });
+    }
+
+    /** Lays {@code tab} out at {@code width} (its preferred height), without a window. EDT. */
+    private static void layout(FameTab tab, int width) {
+        tab.setSize(width, 2_000);
+        for (int pass = 0; pass < 2; pass++) doLayout(tab); // a grid's preferred height follows the width it was just given
+    }
+    private static void doLayout(java.awt.Container root) {
+        root.invalidate();
+        root.doLayout();
+        for (java.awt.Component child : root.getComponents()) if (child instanceof java.awt.Container) doLayout((java.awt.Container) child);
     }
 
     @Test public void oneOfEachReadsSingularAndZeroCountsHideTheirCaption() throws Exception {

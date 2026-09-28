@@ -627,7 +627,13 @@ public final class ContentStyle {
     }
 
     /** Equal-sized cells, dropping columns as the available width falls below the requested cell width. */
-    public static JPanel responsiveGrid(int columns, int minimumCellWidth, int gap) {
+    public static JPanel responsiveGrid(int columns, int minimumCellWidth, int gap) { return responsiveGrid(columns, minimumCellWidth, gap, false); }
+
+    /**
+     * As {@link #responsiveGrid(int, int, int)}; with {@code fitContent} a cell is also never narrower than the widest visible
+     * child's preferred width, so the grid drops columns before a child would be cut (a tile's sub-line at a large font).
+     */
+    public static JPanel responsiveGrid(int columns, int minimumCellWidth, int gap, boolean fitContent) {
         if (columns < 1 || minimumCellWidth < 1 || gap < 0) throw new IllegalArgumentException("Invalid grid dimensions");
         return new WidthAwarePanel(new GridLayout(0, columns, gap, gap) {
             private List<Component> visible(Container target) {
@@ -635,11 +641,13 @@ public final class ContentStyle {
                 for (Component child : target.getComponents()) if (child.isVisible()) children.add(child);
                 return children;
             }
-            private int columnCount(Container target, int count) {
+            private int columnCount(Container target, List<Component> children) {
+                int count = children.size(), cell = minimumCellWidth;
+                if (fitContent) for (Component child : children) cell = Math.max(cell, child.getPreferredSize().width);
                 Insets insets = target.getInsets();
                 int width = availableWidth(target) - insets.left - insets.right;
                 int fitting = Math.max(1, Math.min(Math.min(columns, Math.max(1, count)),
-                    width <= 0 ? columns : (width + gap) / (minimumCellWidth + gap)));
+                    width <= 0 ? columns : (width + gap) / (cell + gap)));
                 int rows = Math.max(1, (count + fitting - 1) / fitting);
                 // Keep the same row count while balancing cells (four cards become 4, 2, 1 columns).
                 return Math.max(1, (count + rows - 1) / rows);
@@ -648,7 +656,7 @@ public final class ContentStyle {
                 synchronized (target.getTreeLock()) {
                     List<Component> children = visible(target);
                     Insets insets = target.getInsets();
-                    int cols = columnCount(target, children.size()), rows = (children.size() + cols - 1) / cols;
+                    int cols = columnCount(target, children), rows = (children.size() + cols - 1) / cols;
                     int width = minimumCellWidth, height = 0;
                     for (Component child : children) {
                         Dimension size = child.getPreferredSize();
@@ -669,7 +677,7 @@ public final class ContentStyle {
                     List<Component> children = visible(target);
                     if (children.isEmpty()) return;
                     Insets insets = target.getInsets();
-                    int cols = columnCount(target, children.size()), rows = (children.size() + cols - 1) / cols;
+                    int cols = columnCount(target, children), rows = (children.size() + cols - 1) / cols;
                     int width = Math.max(0, target.getWidth() - insets.left - insets.right - gap * (cols - 1));
                     int height = Math.max(0, target.getHeight() - insets.top - insets.bottom - gap * (rows - 1));
                     for (int i = 0; i < children.size(); i++) {
