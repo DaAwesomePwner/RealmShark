@@ -70,11 +70,55 @@ public final class RunFixtures {
         CombatFixtures.writeRecord(root, B, record("r-foreign", A1, 1, 600, 50_000, 1_000));
     }
 
+    /** The mixed scenario's extra sessions (see {@link #writeMixed}). */
+    public static final String C = HomeHistoryFixture.id("runs-c"), D = HomeHistoryFixture.id("runs-d");
+    public static final VisitRef C1 = new VisitRef(C, "c1"), C2 = new VisitRef(C, "c2"), C3 = new VisitRef(C, "c3"),
+        C4 = new VisitRef(C, "c4"), C5 = new VisitRef(C, "c5"), D1 = new VisitRef(D, "d1"), D2 = new VisitRef(D, "d2"),
+        D3 = new VisitRef(D, "d3");
+    /** A raw area name and its catalog canonical name: one Dungeons card holds both. */
+    public static final String CRONUS_ALIAS = "mgm2 Dungeon", CRONUS = "The Trials of Cronus";
+
+    /**
+     * {@link #write} plus two sessions for per-dungeon aggregates (the Dungeons cards), all on the fixture day:
+     * <ul>
+     * <li>{@link #C} (ended 07:00, <b>saved no loot bag at all</b>): {@code c1} Lost Halls completed (10 min; verified local
+     * 50 DPS), {@code c2} Lost Halls left (verified local 999 DPS: not a completed run), {@code c3} Lost Halls completed
+     * (20 min; the verified local player has no row: a real zero), {@code c4} Lost Halls completed (15 min; recording without a
+     * verified local row), {@code c5} {@link #CRONUS_ALIAS} completed (15 min, no recording).</li>
+     * <li>{@link #D} (an import that saved no end, so its unfinished run is in progress): {@code d1} Lost Halls never closed,
+     * {@code d2} Pirate Cave completed (20 min) with one bag of two items, {@code d3} {@link #CRONUS} left.</li>
+     * </ul>
+     */
+    public static void writeMixed(Path root) throws IOException {
+        write(root);
+        session(root, C, at(0, 5, 0), at(0, 7, 0));
+        HomeHistoryFixture.runs(root, C, HomeHistoryFixture.visit("c1", "Lost Halls", at(0, 5, 5), at(0, 5, 15), true),
+            HomeHistoryFixture.visit("c2", "Lost Halls", at(0, 5, 20), at(0, 5, 25), false),
+            HomeHistoryFixture.visit("c3", "Lost Halls", at(0, 5, 30), at(0, 5, 50), true),
+            HomeHistoryFixture.visit("c4", "Lost Halls", at(0, 5, 55), at(0, 6, 10), true),
+            HomeHistoryFixture.visit("c5", CRONUS_ALIAS, at(0, 6, 15), at(0, 6, 30), true));
+        CombatFixtures.writeRecord(root, C, record("r-c1", C1, 1, 100, 5_000, 3_000));
+        CombatFixtures.writeRecord(root, C, record("r-c2", C2, 1, 10, 9_990));
+        CombatFixtures.writeRecord(root, C, record("r-c3", C3, 9, 60, 1_000, 2_000));   // verified player 9 has no row
+        CombatFixtures.writeRecord(root, C, record("r-c4", C4, null, 90, 4_000, 2_000));
+
+        session(root, D, at(0, 3, 0), 0, "Imported");
+        HomeHistoryFixture.runs(root, D, HomeHistoryFixture.visit("d1", "Lost Halls", at(0, 3, 10), 0, false),
+            HomeHistoryFixture.visit("d2", "Pirate Cave", at(0, 3, 20), at(0, 3, 40), true),
+            HomeHistoryFixture.visit("d3", CRONUS, at(0, 3, 45), at(0, 3, 55), false));
+        HomeHistoryFixture.loot(root, D, LootTestDrops.drop("White", "Pirate Cave", at(0, 3, 35), D2, item(901, UT), item(902, POTION)));
+    }
+
     /** A session folder whose metadata declares the runs module's capture intervals (none: coverage unknown). */
     public static void session(Path root, String id, long started, long ended, SessionStore.Interval... runs) throws IOException {
+        session(root, id, started, ended, "fixture", runs);
+    }
+
+    /** As above with the app version the session saved ("Imported" for an import). */
+    public static void session(Path root, String id, long started, long ended, String version, SessionStore.Interval... runs) throws IOException {
         JsonObject json = new JsonObject();
         json.addProperty("schemaVersion", 1); json.addProperty("id", id); json.addProperty("label", "Runs fixture");
-        json.addProperty("version", "fixture"); json.addProperty("started", started); json.addProperty("ended", ended);
+        json.addProperty("version", version); json.addProperty("started", started); json.addProperty("ended", ended);
         if (runs.length > 0) {
             JsonObject availability = new JsonObject();
             availability.add("runs", SessionStore.JSON.toJsonTree(new SessionStore.ModuleAvailability(SessionStore.ModuleAvailability.State.PARTIAL,
