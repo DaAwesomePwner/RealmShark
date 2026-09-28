@@ -2,6 +2,8 @@ package tomato.gui.runs;
 
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import javax.swing.JComponent;
@@ -16,7 +18,8 @@ import tomato.history.SessionStore;
  * Runs archive workspace as its Table view) and a {@code recap} card, a slot the run recap fills ({@link #setRecap}). The page
  * keeps a direct reference to the workspace, so closing and "Browse saved history" reach it whichever view shows. Routes that
  * select rows of the archive ({@code RUNS} with a visit or a query) bring the Table view forward through
- * {@link #tableRoutes}: explicit navigation may show a hidden view, restoring saved state only selects. EDT only.
+ * {@link #tableRoutes}: explicit navigation may show a hidden view, restoring saved state only selects. {@link RunsRouteTarget}
+ * fills the recap slot and opens the feed and the recap (plain {@code RUNS} and {@code RUN_RECAP} routes). EDT only.
  */
 public final class RunsPage extends JPanel implements AutoCloseable {
     public static final String FEED = "feed", RECAP = "recap";
@@ -25,6 +28,9 @@ public final class RunsPage extends JPanel implements AutoCloseable {
     private final JPanel recapSlot = new JPanel(new BorderLayout());
     private JComponent recap;
     private boolean recapShown;
+    /** What a Table view target's Back capture also tells ({@link RunsRouteTarget}'s bookkeeping); what closing also releases. */
+    private Runnable captured = () -> { };
+    private final List<Runnable> closers = new ArrayList<>();
 
     /** The production page: the feed over saved history from {@code store} with {@code workspace} (the Runs archive) as its Table view. */
     public RunsPage(JComponent workspace, Supplier<SessionStore> store) { this(new RunFeedView(workspace, store)); }
@@ -79,7 +85,7 @@ public final class RunsPage extends JPanel implements AutoCloseable {
             @Override public tomato.gui.route.Destination destination() { return target.destination(); }
             @Override public boolean accepts(Route route) { return target.accepts(route); }
             @Override public Route redirect(Route route) { return target.redirect(route); }
-            @Override public Object captureState() { return new RouteState(feed.tableShown(), target.captureState()); }
+            @Override public Object captureState() { captured.run(); return new RouteState(feed.tableShown(), target.captureState()); }
             @Override public void open(Route route) {
                 boolean table = feed.tableShown(), recapWas = recapShown;
                 // The table shows before the workspace applies the route: its binding only follows a visible view.
@@ -105,6 +111,17 @@ public final class RunsPage extends JPanel implements AutoCloseable {
     /** Which feed view showed, and the Table view target's own state. */
     record RouteState(boolean table, Object inner) {}
 
-    /** Releases the feed's reads and pinned results; the workspace is closed with the other archive workspaces. */
-    @Override public void close() { feed.close(); }
+    /**
+     * {@code listener} runs whenever a {@link #tableRoutes} target captures this page as a route's origin, so the run recap's
+     * target knows the page was the origin although another target captured it (its "‹ Runs" then goes Back to the feed).
+     */
+    void onCapture(Runnable listener) { captured = Objects.requireNonNull(listener, "listener"); }
+    /** {@code closer} runs when the page closes (the run recap's reads). */
+    void onClose(Runnable closer) { closers.add(Objects.requireNonNull(closer, "closer")); }
+
+    /** Releases the feed's and the recap's reads and pinned results; the workspace is closed with the other archive workspaces. */
+    @Override public void close() {
+        feed.close();
+        for (Runnable closer : closers) closer.run();
+    }
 }

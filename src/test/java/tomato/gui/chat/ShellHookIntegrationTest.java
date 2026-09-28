@@ -86,6 +86,9 @@ public class ShellHookIntegrationTest {
     /** The Quests page's saved tabs and Board choices: cleared so each shell opens on the Board's default Cards view, then restored. */
     private static final String[] QUEST_PREFERENCES = {"ui.tabs.quests", "ui.quests.view", "ui.quests.group", "ui.quests.pinned-first"};
     private final Map<String,String> questPreferences = new LinkedHashMap<>();
+    /** The run recap's section choices (ui.collapse.run-recap-*): cleared so each recap opens with its defaults, then restored. */
+    private static final String[] RECAP_PREFERENCES = {"damage", "loot", "players", "resources", "timeline", "evidence"};
+    private final Map<String,String> recapPreferences = new LinkedHashMap<>();
     private static final String[] MODULES = {"chat", "keypops", "inspect", "statistics", "loot", "runs", "timeline"};
 
     @Before public void open() throws Exception {
@@ -101,6 +104,11 @@ public class ShellHookIntegrationTest {
         }
         for (String key : QUEST_PREFERENCES) {
             questPreferences.put(key, PropertiesManager.getProperty(key));
+            PropertiesManager.setProperties(key, "");
+        }
+        for (String id : RECAP_PREFERENCES) {
+            String key = tomato.gui.kit.Collapsible.PREFIX + "run-recap-" + id;
+            recapPreferences.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
         }
         temporaryDirectory = System.getProperty("java.io.tmpdir");
@@ -137,6 +145,7 @@ public class ShellHookIntegrationTest {
         });
         for (String key : archiveKeys()) PropertiesManager.setProperties(key, archivePreferences.getOrDefault(key, ""));
         for (String key : QUEST_PREFERENCES) { String saved = questPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
+        for (Map.Entry<String,String> saved : recapPreferences.entrySet()) PropertiesManager.setProperties(saved.getKey(), saved.getValue() == null ? "" : saved.getValue());
         PropertiesManager.flush().toCompletableFuture().get(5, TimeUnit.SECONDS);
         if (temporaryDirectory != null) System.setProperty("java.io.tmpdir", temporaryDirectory);
         if (store != null) store.close();
@@ -234,6 +243,7 @@ public class ShellHookIntegrationTest {
 
 
     @Test public void homeCardsOpenTheirPagesThroughTheNavigatorAndBackReturnsHome() throws Exception {
+        tomato.history.link.VisitRef[] opened = new tomato.history.link.VisitRef[1];
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
             assertNotNull("Home is shell page 14", home);
@@ -256,15 +266,147 @@ public class ShellHookIntegrationTest {
             assertEquals(14, shell.getSelectedPage());
             named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);
             assertEquals("A recent run opens Runs", 10, shell.getSelectedPage());
-            assertTrue("The exact run shows in the Runs page's Table view", named(shell, "runs-page", tomato.gui.runs.RunsPage.class).feed().tableShown());
-            tomato.gui.activity.ActivityQueries.Filters facets =
-                (tomato.gui.activity.ActivityQueries.Filters) workspace("runs").state().query.facets();
+            // Home's Recent runs opens the run recap (P5a), no longer the Table view's row.
+            tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
+            assertTrue("The exact run shows in the Runs page's recap", runs.recapShown());
             tomato.history.link.VisitRef visit = model.runs().rows().get(0).visit();
-            assertEquals("Runs shows that exact visit, not a name or time match", visit.sessionId, facets.visitSession);
-            assertEquals(visit.visitId, facets.visitId);
+            assertEquals("The recap shows that exact visit, not a name or time match", visit, ((tomato.gui.runs.RunRecapView) runs.recap()).ref());
+            opened[0] = visit;
             assertTrue(navigator.back());
             assertEquals(14, shell.getSelectedPage());
         });
+        // The synthetic Home model's run is not in this saved history: the recap says so for that exact reference.
+        tomato.gui.runs.RunRecapView recap = edt(() -> (tomato.gui.runs.RunRecapView) named(shell, "runs-page", tomato.gui.runs.RunsPage.class).recap());
+        await(() -> recap.model() != null);
+        SwingUtilities.invokeAndWait(() -> {
+            assertFalse("Nothing is substituted", recap.model().available());
+            assertTrue(recap.model().unavailable(), recap.model().unavailable().contains("session " + opened[0].sessionId + " · visit " + opened[0].visitId));
+        });
+    }
+
+    /**
+     * Spec S4, the damage breakdown of the last completed run in at most two clicks, over synthetic saved history: an earlier
+     * session (HomeHistoryFixture) with two completed runs, the later one linked to a real combat summary whose local row is
+     * verified (CombatFixtures.typical through CombatSummaries), then a run left, and this app run's session with a run in
+     * progress. 0 clicks: Home's Recent runs lists them newest first with the linked run's DPS. 1 click: that row opens its recap
+     * with the Damage section open and the meter's "(you)" row; Back returns Home and leaves the recap. From the sidebar: Runs
+     * (click 1) shows the feed, and opening the first completed card (click 2: a double-click, or Enter/Space on the selected
+     * card, as TileList opens tiles) shows the same recap; "‹ Runs" returns to the feed. Home's refresher and the feed read when
+     * their page shows in a window; with none here, Home's sources are read off the EDT as the refresher reads them and the feed
+     * is asked to read as showing it does. Clicks are counted as in the S2 and S3 methods.
+     */
+    @Test public void homeRecentRunAndFeedOpenTheDamageBreakdownOfTheLastCompletedRunForS4() throws Exception {
+        long now = System.currentTimeMillis(), minute = 60_000L;
+        Path root = store.directory();
+        String past = tomato.gui.glance.home.HomeHistoryFixture.id("s4-earlier-session");
+        tomato.history.link.VisitRef last = new tomato.history.link.VisitRef(past, "p2");
+        tomato.gui.glance.home.HomeHistoryFixture.session(root, past, now - 180 * minute, now - 60 * minute);
+        tomato.gui.glance.home.HomeHistoryFixture.runs(root, past,
+            tomato.gui.glance.home.HomeHistoryFixture.visit("p1", "Pirate Cave", now - 170 * minute, now - 150 * minute, true),
+            tomato.gui.glance.home.HomeHistoryFixture.visit("p2", "Lost Halls", now - 140 * minute, now - 110 * minute, true),
+            tomato.gui.glance.home.HomeHistoryFixture.visit("p3", "Snake Pit", now - 100 * minute, now - 90 * minute, false));
+        tomato.gui.dps.CombatSummaries.Result fight = tomato.gui.dps.CombatSummaries.build(
+            tomato.history.encounter.CombatFixtures.typical(last, now - 135 * minute, 150, 8, 60));   // Player1 is the verified local row
+        tomato.history.encounter.CombatFixtures.writeRecord(root, past, fight.record());
+        tomato.history.encounter.CombatFixtures.writeDetail(root, past, fight.detail());
+        packets.packetcapture.logger.ActivityJournal.Visit live = tomato.gui.glance.home.HomeHistoryFixture.visit("c1", "Ice Citadel", now - 10 * minute, 0, false);
+        live.lastSeen = now - minute;
+        store.put("runs", live.id, live); store.flush();   // this app run's checkpoint of its run in progress
+
+        // 0 clicks: Home's Recent runs, read off the EDT as its refresher reads them.
+        tomato.gui.glance.home.HomeModel.Runs recent = tomato.gui.glance.home.HomeModelBuilder.runs(
+            new tomato.gui.glance.home.LiveHomeSources(data, () -> store).archive(tomato.gui.glance.home.HomeArchive.Window.TODAY, now), null);
+        long[] clicked = new long[1];
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+            home.apply(tomato.gui.glance.home.HomeModels.populated(now).withRuns(recent));
+            shell.select(14);
+            java.util.List<String> outcomes = new ArrayList<>();
+            for (tomato.gui.glance.home.HomeArchive.RecentRun run : recent.rows()) outcomes.add(run.outcome());
+            assertEquals("Newest first: in progress, left, then the last completed run", "In progress", outcomes.get(0));
+            assertTrue(outcomes.get(1), outcomes.get(1).startsWith("Left"));
+            int row = outcomes.indexOf("Completed");
+            assertEquals(2, row);
+            assertEquals(last, recent.rows().get(row).visit());
+            assertEquals("S4, 0 clicks: Home names the linked run", "Lost Halls", named(home, "home-run-2-map", JLabel.class).getText());
+            assertTrue("…with your DPS from its saved recording", named(home, "home-run-2-dps", JLabel.class).getText().startsWith("DPS "));
+            int clicks = 0;
+            clicked[0] = System.nanoTime();
+            named(home, "home-run-2", JComponent.class).getActionMap().get("open-run").actionPerformed(null); clicks++;
+            assertEquals("S4 takes one click from Home", 1, clicks);
+            assertEquals("The row opens Runs", 10, shell.getSelectedPage());
+            tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
+            assertTrue("…on the run recap", runs.recapShown());
+            assertEquals(last, ((tomato.gui.runs.RunRecapView) runs.recap()).ref());
+        });
+        tomato.gui.runs.RunRecapView recap = edt(() -> (tomato.gui.runs.RunRecapView) named(shell, "runs-page", tomato.gui.runs.RunsPage.class).recap());
+        await(() -> !recap.loading() && recap.model() != null);
+        long fromHome = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - clicked[0]);
+        SwingUtilities.invokeAndWait(() -> {
+            assertDamageBreakdown(recap, last);
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals("Back returns Home", 14, shell.getSelectedPage());
+            assertFalse("…and the Runs page no longer shows the recap Back left", named(shell, "runs-page", tomato.gui.runs.RunsPage.class).recapShown());
+        });
+
+        // From the sidebar: Runs, then the first completed card.
+        tomato.gui.runs.RunsPage runs = edt(() -> named(shell, "runs-page", tomato.gui.runs.RunsPage.class));
+        int[] clicks = {0};
+        SwingUtilities.invokeAndWait(() -> {
+            named(shell, "nav-10", JToggleButton.class).doClick(); clicks[0]++;
+            assertEquals(10, shell.getSelectedPage());
+            assertFalse("Runs shows the feed", runs.recapShown());
+            assertFalse("…on its cards", runs.feed().tableShown());
+            runs.feed().refresh();   // what showing the Cards view in a window does
+        });
+        await(() -> firstCompletedCard(runs) != null);
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.kit.TileList<tomato.gui.runs.RunCardModel> list = firstCompletedCard(runs);
+            int index = -1;
+            for (int i = 0; i < list.getModel().getSize() && index < 0; i++)
+                if (list.getModel().getElementAt(i).outcome() == tomato.gui.runs.RunOutcome.COMPLETED) index = i;
+            assertEquals("The first completed card is the last completed run", last, list.getModel().getElementAt(index).ref());
+            list.setSelectedIndex(index);
+            list.getActionMap().get(tomato.gui.kit.TileList.OPEN).actionPerformed(null); clicks[0]++;
+            assertEquals("S4 takes two clicks from the sidebar", 2, clicks[0]);
+            assertTrue("The card opens the recap", runs.recapShown());
+            assertEquals(last, recap.ref());
+        });
+        await(() -> !recap.loading() && recap.model() != null);
+        SwingUtilities.invokeAndWait(() -> {
+            assertDamageBreakdown(recap, last);
+            named(recap, "run-recap-back", AbstractButton.class).doClick();
+            assertFalse("‹ Runs returns to the feed", runs.recapShown());
+            assertEquals(10, shell.getSelectedPage());
+            assertFalse("…using the Back entry that led to the recap", tomato.gui.route.Navigator.current().canGoBack());
+        });
+        System.out.println("S4: Home 1 click, sidebar 2 clicks; the recap applied " + fromHome + " ms after the Home click");
+    }
+
+    /** The recap of {@code run} with its Damage section open, the meter showing, and the meter's verified local row "(you)". */
+    private void assertDamageBreakdown(tomato.gui.runs.RunRecapView recap, tomato.history.link.VisitRef run) {
+        assertTrue(recap.model().available());
+        assertEquals(run, recap.model().ref());
+        assertTrue("S4: the Damage section is open", named(recap, "run-recap-damage", tomato.gui.kit.Collapsible.class).expanded());
+        JTable meter = named(recap, "run-recap-meter", JTable.class);
+        assertTrue("…with the meter showing", shown(meter));
+        java.util.List<String> players = new ArrayList<>();
+        for (int r = 0; r < meter.getRowCount(); r++) players.add(String.valueOf(meter.getValueAt(r, 1)));
+        assertEquals("All eight players of the recording", 8, players.size());
+        assertTrue("…with your verified row marked: " + players, players.contains("Player1 (you)"));
+        assertEquals("Player1", recap.model().damage().local().name());
+    }
+
+    /** The first day's card list, in the feed's order, that holds a completed run; null until the feed has read one. */
+    @SuppressWarnings("unchecked")
+    private static tomato.gui.kit.TileList<tomato.gui.runs.RunCardModel> firstCompletedCard(tomato.gui.runs.RunsPage runs) {
+        for (tomato.gui.kit.TileList<?> list : all(runs.feed(), tomato.gui.kit.TileList.class)) {
+            if (list.getName() == null || !list.getName().startsWith("run-feed-day-")) continue;
+            for (Object card : list.items())
+                if (((tomato.gui.runs.RunCardModel) card).outcome() == tomato.gui.runs.RunOutcome.COMPLETED)
+                    return (tomato.gui.kit.TileList<tomato.gui.runs.RunCardModel>) list;
+        }
+        return null;
     }
 
     /**
