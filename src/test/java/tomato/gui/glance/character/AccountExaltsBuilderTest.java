@@ -98,6 +98,21 @@ public class AccountExaltsBuilderTest {
         assertNull("The class is known but its weapon group is not", unknownGroup.headerBoost());
     }
 
+    /** The header's boost comes from saved counts: the model carries when they last changed (the class's time, else the account's). */
+    @Test public void theHeaderCarriesWhenItsSavedCountsLastChanged() {
+        List<CharacterRecord> records = List.of(record(FIRST, 7, WIZARD, NOW - 2 * HOUR, false));
+        assertEquals("The header class's own change time", NOW - HOUR, build(List.of(first()), records, FIRST, null).headerSeenAt());
+        assertEquals("In game too: the model carries the time, the grid decides how to label it", NOW - 3 * HOUR,
+            build(List.of(first()), records, FIRST, live(FIRST, 8, WARRIOR)).headerSeenAt());
+        AccountRecord accountOnly = first(); accountOnly.exaltSeenByClass.clear(); accountOnly.exaltSeen = NOW - 4 * HOUR;
+        assertEquals("Without the class's time: when the account's counts last changed", NOW - 4 * HOUR,
+            build(List.of(accountOnly), records, FIRST, null).headerSeenAt());
+        AccountRecord never = first(); never.exaltSeenByClass.clear();
+        assertEquals("Neither known: 0, unknown", 0, build(List.of(never), records, FIRST, null).headerSeenAt());
+        assertEquals("No header class: 0", 0, build(List.of(first()), List.of(), FIRST, null).headerSeenAt());
+        assertEquals(0, AccountExalts.EMPTY.headerSeenAt());
+    }
+
     @Test public void thePreferredAccountShowsWhenItHasCountsElseTheFirstOffered() {
         AccountRecord empty = account(tomato.backend.data.CharacterJournal.accountKey("exalt-fixture-none"), "Nobody");
         List<AccountRecord> accounts = List.of(empty, first(), second());

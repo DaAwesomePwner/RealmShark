@@ -30,7 +30,8 @@ import static tomato.gui.glance.character.SheetViews.named;
 /**
  * Characters › Exalts (spec §6.2): one account's exalt progress as a grid of painted class tiles, with a class drill-down in place.
  * - Header: the loot boost of the class in game on this account, else of its last played class ("—" with the reason when the
- *   weapon group is not in the selected assets), and how many observed classes are fully exalted.
+ *   weapon group is not in the selected assets), and how many observed classes are fully exalted. Both come from the account's
+ *   saved exalt counts: for the last played class the boost is labeled stale, with when those counts last changed (spec §1).
  * - The account is Home's current account (in game, else last known this run, else the journal's most recent character's); with
  *   more than one account holding saved counts, a selector appears. The choice is not persisted.
  * - Opening a tile (Enter, Space, double-click) swaps the grid for that class's detail: the sheet's Exalts tab, account-scoped,
@@ -147,10 +148,14 @@ public final class ExaltsGrid extends JPanel {
 
     @Override public void removeNotify() { timer.stop(); super.removeNotify(); }
 
-    /** EDT: rebuild when the token moved; otherwise the class detail re-reads only its relative "Changed" and "observed" texts. */
+    /**
+     * EDT: rebuild when the token moved; otherwise only relative ages are re-read: the header boost's "last changed" and the
+     * class detail's "Changed" and "observed" texts.
+     */
     void refresh() {
-        if (!token().equals(token)) request();
-        else if (detailClass != null) showDetail();
+        if (!token().equals(token)) { request(); return; }
+        if (shown != null) showBoost(shown.model());
+        if (detailClass != null) showDetail();
     }
 
     /** EDT: the model last applied, or null before the first build. */
@@ -258,7 +263,7 @@ public final class ExaltsGrid extends JPanel {
         tiles.setItems(model.tiles());
         tiles.setVisible(any);
         empty.setVisible(!any);
-        boost.setValue(boostValue(model), model.headerClass() == null ? null : model.headerClass() + " · " + model.headerBasis());
+        showBoost(model);
         fullyExalted.setValue(DisplayValue.count((long) model.fullyExalted(), "Observed classes whose eight saved counts are all 75 or more", null),
             "of " + model.observed() + " observed classes");
         if (detailClass != null) showDetail();
@@ -266,9 +271,21 @@ public final class ExaltsGrid extends JPanel {
         repaint();
     }
 
-    private static DisplayValue boostValue(AccountExalts model) {
-        if (model.headerBoost() != null)
-            return DisplayValue.known("+" + model.headerBoost() + "%", "Exalt loot drop boost of the " + model.headerClass() + ", from this account's saved exalt counts");
+    /** The header's loot boost tile; its stale age is relative, so the once-a-second check re-reads it. */
+    private void showBoost(AccountExalts model) {
+        boost.setValue(boostValue(model), model.headerClass() == null ? null : model.headerClass() + " · " + model.headerBasis());
+    }
+
+    /**
+     * The header's loot boost: known for the class in game; for the last played class stale (spec §1), since it comes from the
+     * account's saved counts, with when they last changed; unknown ("—") with the reason otherwise.
+     */
+    static DisplayValue boostValue(AccountExalts model) {
+        if (model.headerBoost() != null) {
+            String text = "+" + model.headerBoost() + "%", source = "Exalt loot drop boost of the " + model.headerClass() + ", from this account's saved exalt counts";
+            if (AccountExaltsBuilder.IN_GAME.equals(model.headerBasis())) return DisplayValue.known(text, source);
+            return DisplayValue.stale(text, source + ", which last changed " + ExaltTileRenderer.changed(model.headerSeenAt()));
+        }
         return DisplayValue.unknown(model.headerClass() != null ? ExaltTileRenderer.UNKNOWN_BOOST
             : "Needs a character of this account in game, or played with capture on");
     }

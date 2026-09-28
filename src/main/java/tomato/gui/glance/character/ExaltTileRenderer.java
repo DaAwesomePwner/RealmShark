@@ -92,8 +92,11 @@ final class ExaltTileRenderer extends JComponent implements ListCellRenderer<Acc
     private static String tooltip(AccountExalts.Tile tile) {
         return tile.className() + " · Total " + DisplayFormat.formatInteger(tile.total()) + " · Lowest tier " + tile.lowest() + "/5 · " + stats(tile)
             + " · " + (tile.lootBoost() == null ? "Loot boost unknown: " + UNKNOWN_BOOST : "Loot boost +" + tile.lootBoost() + "%")
-            + (tile.seenAt() > 0 ? " · Changed " + KitFormat.relative(tile.seenAt()) : "");
+            + " · From saved exalt counts, changed " + changed(tile.seenAt());
     }
+
+    /** "2 h ago", or "at an unknown time" for 0: when saved counts last changed (the tooltip is built when shown, so it stays current). */
+    static String changed(long seenAt) { return seenAt > 0 ? KitFormat.relative(seenAt) : "at an unknown time"; }
 
     @Override protected void paintComponent(Graphics graphics) {
         if (tile == null) return;

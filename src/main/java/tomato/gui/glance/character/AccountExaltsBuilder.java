@@ -48,7 +48,18 @@ final class AccountExaltsBuilder {
             if (last != null) { headerClass = last.classId; basis = LAST_PLAYED; }
         }
         return new AccountExalts(shown.key, choices(offered), tiles, headerClass == null ? null : boost(shown, headerClass, weaponClasses),
-            headerClass == null ? null : className.apply(headerClass), basis, fullyExalted, tiles.size());
+            headerClass == null ? null : className.apply(headerClass), basis, headerClass == null ? 0 : seenAt(shown, headerClass),
+            fullyExalted, tiles.size());
+    }
+
+    /**
+     * When the saved counts behind a class's boost last changed: that class's own time (exaltSeenByClass), else when any of the
+     * account's counts last changed (exaltSeen); 0 = unknown.
+     */
+    private static long seenAt(AccountRecord account, int classId) {
+        Long seen = account.exaltSeenByClass == null ? null : account.exaltSeenByClass.get(classId);
+        if (seen != null && seen > 0) return seen;
+        return Math.max(0, account.exaltSeen);
     }
 
     /**
