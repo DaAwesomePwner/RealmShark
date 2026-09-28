@@ -15,7 +15,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #23 (`b559bca`) |
 | P4 Quests | [2026-09-28-p4-quests.md](2026-09-28-p4-quests.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #24 (`e541874`) |
 | P5a Runs: combat auto-save, feed, recap | [2026-09-28-p5a-runs.md](2026-09-28-p5a-runs.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #25 (`3ab077c`) |
-| P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | written at phase start | `claude/redesign-handoff-next-steps-edrr7w` | Outline below |
+| P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | [2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md) | `claude/redesign-handoff-next-steps-edrr7w` | Planned |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
 Update the State column when a phase's PR merges and `main` is verified.
@@ -26,7 +26,7 @@ P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
 P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
 P2 merged in PR #21 as `94db6f6`, including seven review fixes (`f10bd7d`..`2367bc7`).
 P3a merged in PR #22 as `04a61d4`, including fix `508d1d1` for the two Codex pet-merge threads; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P3b merged in PR #23 as `b559bca`, including the Codex review fix `9c0da67`; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P4 merged in PR #24 as `e541874` (Codex review: no findings); its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it.
-P5a merged in PR #25 as `3ab077c`, including the Codex review fix `21d896e` (queued fights are saved before the history store closes); its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P5b has not started.
+P5a merged in PR #25 as `3ab077c`, including the Codex review fix `21d896e` (queued fights are saved before the history store closes); its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P5b is planned ([plan](2026-09-28-p5b-runs-dps.md)); implementation has not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
 [P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md), [P3b validation](2026-09-27-p3b-validation.md), [P4 validation](2026-09-28-p4-validation.md), [P5a validation](2026-09-28-p5a-validation.md).
@@ -118,6 +118,7 @@ Outline:
    - Retire the Statistics view tabs (`historical-statistics-tabs`, Fame Table, Dungeon Stats) with the Statistics page.
    - Add the S6 screenshots missing for Timeline, Resources and Party.
 10. Status (2026-09-28, user decisions): P5 is split into two PRs. **P5a** ([plan](2026-09-28-p5a-runs.md)) covers items 1, 3 and 4 plus Settings › General › Combat history and S4: saved combat records (`encounters`, `encounter-detail`) and optional full detail (`combat-full`, default off, pruned after 30 days), summaries kept forever by default, the run feed and the run recap on the existing Runs page. **P5b** covers items 2 and 5–9 and S8; the single DPS meter moves into the Runs & DPS › Live meter tab and the DPS Logger page becomes a pointer (Alt+8 opens the tab). Storage measured in research: a card record is about 2 KB, a full summary 20–80 KB, the large test history about 24 MB of full summaries.
+11. Status (2026-09-28, user decisions for P5b, [plan](2026-09-28-p5b-runs-dps.md)): one PR; the live scope-row merge (item 9, first bullet) moves to P6; Dungeons cards count finished runs (completion over Completed + Left + App ended, labeled observed; averages and best DPS from completed runs); session comparison and A/B cohorts are embedded in Dungeons as an Analyst Analysis view; no per-recording delete. Research measured S8 on current code: 9–12 ms p95 overall without a live fight, but 190–360 ms p95 when switching into the DPS meter during a 300-enemy fight (an O(n²) enemy-list refill, fixed in P5b Task 3).
 
 ## P6 Loot and cleanup
 
@@ -128,4 +129,4 @@ Outline:
 2. Restyle the Advanced pages (Party, Timeline, Key-pops, Logging, Bridge review) with kit components; condense `HistoryTables.controls` into the overflow menu. Add drag-to-reorder for sidebar rows (deferred from P1b, where the context menu and Ctrl+Shift+Up/Down cover reordering). FilterBar for Logging and Bridge review, `NotificationsGUI` tabs and the per-render tab sets (loot archive views, key-pop archive modes) as customizable or view-selector controls, relative-time columns and Analyst-only column hiding (all deferred from P1c).
 3. Replace the numeric shell API (`TITLES`, `select(int)`, `pageOf`, page-keyed `ShellNavigator`) with destination IDs, and migrate the ~40 page-number tests in one pass; remove retired pages (My Info, Statistics shell, DPS Logger shell) and unused styles (`StatsUi.metrics`, ad-hoc KPI cards).
 4. Update README, `docs/UI-REDESIGN.md` and the module docs; take a final screenshot set of every page in both variants.
-5. Deferred from P1c: merge the live scope row into the page FilterBar on Loot, Chat and Key-pops (P5 does Runs, Timeline and Resources).
+5. Deferred from P1c: merge the live scope row into the page FilterBar on Loot, Chat, Key-pops and, moved from P5b by user decision (2026-09-28), Runs, Timeline, Resources and Party. Also from P5b: Resources & buffs' final home, removing `historical-statistics-tabs`, and homes for Fame Table, the live Fame Graph's interval comparison and Loot › Live log.
