@@ -35,7 +35,7 @@ public class PetCardRendererTest {
         assertEquals("Family: Canine", lines.family());
         assertEquals(List.of(new PetCardRenderer.Bar("Heal", "45/70", 45, 70, false), new PetCardRenderer.Bar("Magic heal", "30/70", 30, 70, false),
             new PetCardRenderer.Bar("Electric", "Locked", 1, 70, true)), lines.bars());
-        assertEquals("In the Pet Yard now · Equipped by Wizard #7", lines.footer());
+        assertEquals("Two footer lines: where it is, then who carries it", List.of("In the Pet Yard now", "Equipped by Wizard #7"), lines.footer());
         assertEquals("Rex, Rare, family Canine, Heal level 45 of 70, Magic heal level 30 of 70, Electric locked, in the Pet Yard now, equipped by Wizard #7",
             PetCardRenderer.accessibleName(card));
     }
@@ -50,10 +50,10 @@ public class PetCardRendererTest {
         assertEquals("Short names fit the card; the accessible name below says them in full",
             List.of(new PetCardRenderer.Bar("Ability —", "45/—", 45, null, false), new PetCardRenderer.Bar("Ability #403", "—", null, null, false),
             new PetCardRenderer.Bar("Ability —", "—", null, null, false)), lines.bars());
-        assertEquals("Equipped by Wizard #7, Knight #8 (dead)", lines.footer());
+        assertEquals("Only the lines that apply", List.of("Equipped by Wizard #7, Knight #8 (dead)"), lines.footer());
         assertEquals("Pet, rarity unknown, family unknown, Ability not captured level 45, Unknown ability #403 level unknown, "
             + "Ability not captured level unknown, equipped by Wizard #7, Knight #8 (dead)", PetCardRenderer.accessibleName(card));
-        assertEquals("In the Pet Yard now", PetCardRenderer.lines(card(rex(NOW), PetDefinitions.loading(), List.of(), true)).footer());
+        assertEquals(List.of("In the Pet Yard now"), PetCardRenderer.lines(card(rex(NOW), PetDefinitions.loading(), List.of(), true)).footer());
     }
 
     @Test public void oneComponentServesEveryCellPaintsTheCardAndGrowsWithTheFont() throws Exception {
@@ -85,6 +85,36 @@ public class PetCardRendererTest {
             ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, 18));
             Dimension large = renderer.getPreferredSize();
             assertTrue("Cards grow with the body font: " + small + " -> " + large, large.width > small.width && large.height > small.height);
+        });
+    }
+
+    /**
+     * Every card has room for both footer lines (all cards one height, as the tile list's fixed cells need), at 13 and at 18. A line
+     * too long for the card is ellipsized when painted; the tooltip and the accessible name keep the full text.
+     */
+    @Test public void everyCardHasRoomForBothFooterLinesAndLongOnesKeepTheirFullTextElsewhere() throws Exception {
+        PetDefinitions defs = defs(temp.newFolder().toPath());
+        SwingUtilities.invokeAndWait(() -> {
+            PetCardRenderer renderer = new PetCardRenderer();
+            JList<PetGalleryModel.PetCard> list = new JList<>();
+            List<String> carriers = List.of("Wizard #101", "Necromancer #102", "Knight #103 (dead)");
+            PetGalleryModel.PetCard both = card(rex(NOW), defs, carriers, true);
+            for (int size : new int[]{13, 18}) {
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, size));
+                Dimension cell = renderer.getListCellRendererComponent(list, card(rex(NOW), defs, List.of(), false), 0, false, false).getPreferredSize();
+                renderer.getListCellRendererComponent(list, both, 0, false, false);
+                assertEquals("One height for every card, whatever its footer", cell, renderer.getPreferredSize());
+                FontMetrics caption = renderer.getFontMetrics(tomato.gui.kit.Type.caption());
+                int bottom = cell.height - PetCardRenderer.GAP / 2 - tomato.gui.kit.Tokens.M; // the card's inner bottom edge
+                assertTrue(size + ": the second footer line fits the card: " + renderer.footerBaseline(1) + " + " + caption.getDescent() + " > " + bottom,
+                    renderer.footerBaseline(1) + caption.getDescent() <= bottom);
+                assertTrue("…below the first", renderer.footerBaseline(1) >= renderer.footerBaseline(0) + caption.getHeight());
+            }
+            String full = "Equipped by Wizard #101, Necromancer #102, Knight #103 (dead)";
+            assertEquals(List.of("In the Pet Yard now", full), renderer.shown().footer());
+            assertTrue(renderer.getToolTipText(), renderer.getToolTipText().contains(full));
+            assertTrue(renderer.getAccessibleContext().getAccessibleName(),
+                renderer.getAccessibleContext().getAccessibleName().endsWith("in the Pet Yard now, equipped by Wizard #101, Necromancer #102, Knight #103 (dead)"));
         });
     }
 
