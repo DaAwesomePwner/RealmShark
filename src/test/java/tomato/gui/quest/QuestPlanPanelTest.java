@@ -168,9 +168,10 @@ public class QuestPlanPanelTest {
                 assertNull("Unknown stock draws no bar", find(p, "quest-plan-summary-2-bar", SegmentBar.class));
 
                 Collapsible stock = find(p, "quest-plan-stock", Collapsible.class);
-                for (String name : new String[] {"quest-plan-item-id", "quest-plan-quantity", "quest-plan-note", "quest-plan-release-affected", "quest-plan-held",
+                for (String name : new String[] {"quest-plan-item-id", "quest-plan-quantity", "quest-plan-note", "quest-plan-held",
                         "quest-plan-reserve", "quest-plan-release", "quest-plan-release-all", "quest-plan-held-values"})
                     assertTrue(name + " is in the Manual stock drawer", SwingUtilities.isDescendingFrom(find(p, name, JComponent.class), stock));
+                assertFalse("The release checkbox also governs edits outside the drawer", SwingUtilities.isDescendingFrom(find(p, "quest-plan-release-affected", JComponent.class), stock));
                 assertEquals("collapsible-quest-plan-stock", stock.toggle().getName());
                 String held = find(p, "quest-plan-held-values", JTextArea.class).getText();
                 assertTrue(held, held.startsWith("Held stock (account-wide, manual):\nMark of the Forgotten King (#1): 4 (manual) · unallocated 1 · confirmed "));
@@ -273,5 +274,46 @@ public class QuestPlanPanelTest {
                 assertEquals("Saved requirements; verify server", card(cards, 0).status());
             });
         }
+    }
+
+    /** Visible up to {@code root}: no ancestor hides it (a collapsed Collapsible hides its content). */
+    private static boolean shown(Component component, Component root) {
+        for (Component c = component; c != null && c != root; c = c.getParent()) if (!c.isVisible()) return false;
+        return true;
+    }
+
+    @Test public void theReleaseCheckboxStaysVisibleWithTheDrawerCollapsedAndGovernsSetRepeats() throws Exception {
+        String key = Collapsible.PREFIX + "quest-plan-stock", saved = PropertiesManager.getProperty(key);
+        PropertiesManager.setProperties(key, ""); // the Manual stock drawer at its default: collapsed
+        try (PlanningStore store = planned()) {
+            Map<String, String> prefs = new HashMap<>(); DisplayModeModel mode = new DisplayModeModel(prefs::get, prefs::put);
+            SwingUtilities.invokeAndWait(() -> {
+                QuestPlanPanel p = cardsPanel(store, prefs, mode);
+                Collapsible stock = find(p, "quest-plan-stock", Collapsible.class);
+                assertFalse(stock.expanded());
+                assertFalse("Stock controls stay in the collapsed drawer", shown(find(p, "quest-plan-held", JButton.class), p));
+                JCheckBox release = find(p, "quest-plan-release-affected", JCheckBox.class);
+                assertEquals("Release affected reservations with this edit", release.getText());
+                assertEquals("Release affected reservations with this edit", release.getAccessibleContext().getAccessibleName());
+                assertFalse(SwingUtilities.isDescendingFrom(release, stock));
+                assertTrue("The checkbox is shown with the drawer collapsed (Cards view)", shown(release, p));
+                assertTrue(release.isEnabled());
+                OverflowMenu overflow = find(p, "quest-plan-overflow", OverflowMenu.class);
+                overflow.item("Table view").doClick();
+                assertTrue("…and in the Table view", shown(release, p));
+                overflow.item("Cards view").doClick();
+
+                // It governs Set repeats, outside the drawer: b's reservation (1 × item 1) is released with the new repeat count.
+                TileList<?> cards = find(p, "quest-plan-cards", TileList.class);
+                cards.setSelectedIndex(1);
+                release.doClick(); assertTrue(release.isSelected());
+                find(p, "quest-plan-repeat-count", JSpinner.class).setValue(2L);
+                find(p, "quest-plan-repeats", JButton.class).doClick();
+                assertEquals("Repeats: 2", card(cards, 1).repeats());
+                assertEquals("b's reservation was released", 0, card(cards, 1).rows().get(0).reserved());
+                assertEquals("Mark of the Forgotten King (#1): need 8 · reserved 2 · covered 2 · missing 4", find(p, "quest-plan-summary-1", JTextArea.class).getText());
+                assertFalse("Checking it never opened the drawer", stock.expanded());
+            });
+        } finally { PropertiesManager.setProperties(key, saved == null ? "" : saved); }
     }
 }

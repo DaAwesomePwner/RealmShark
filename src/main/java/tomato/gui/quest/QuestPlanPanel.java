@@ -30,6 +30,8 @@ import java.util.function.BooleanSupplier;
  * - The table's selection is the one selection the editors use: a card selects its row, and switching to the cards keeps a
  *   single selected plan.
  * - The manual stock editor and the account-wide held values are in the "Manual stock" drawer (ui.collapse.quest-plan-stock).
+ *   The "Release affected reservations" checkbox stays outside it, below the plan edits, because it also governs Set repeats and
+ *   Refresh / reconfirm: a checked box must never be hidden.
  * - Cards rebuild only when their inputs change (the account, the draft's plan, the store revision, the observed quests); the
  *   700 ms poll re-reads the store but rebuilds nothing unless its revision changed.
  * EDT only: the models are built from the detached effective plan the table already shows.
@@ -137,6 +139,8 @@ public final class QuestPlanPanel extends JPanel {
             for (String id : selectedIds()) { p.quests.remove(id); p.reservations.remove(id); }
         })));
         body.add(fixed(edit));
+        // The release checkbox also governs Set repeats and Refresh / reconfirm, so it stays beside them, never hidden in the drawer.
+        body.add(fixed(release));
         // The manual stock editor, in a drawer (collapsed by default, remembered): held stock and reservations are manual values.
         JPanel stock = ContentStyle.controls(); stock.add(label("Item ID", item)); stock.add(label("Quantity", quantity)); stock.add(label("Manual note", note));
         JPanel stockActions = ContentStyle.controls();
@@ -145,7 +149,7 @@ public final class QuestPlanPanel extends JPanel {
         stockActions.add(button("Release selected reservations", "quest-plan-release", () -> mutate(p -> { for (String id : selectedIds()) p.reservations.remove(id); })));
         stockActions.add(button("Release all reservations", "quest-plan-release-all", () -> mutate(p -> p.reservations.clear())));
         heldValues.setName("quest-plan-held-values");
-        JPanel stockContent = KitLayouts.stack(Tokens.XS, release, stock, stockActions, heldValues,
+        JPanel stockContent = KitLayouts.stack(Tokens.XS, stock, stockActions, heldValues,
             ContentStyle.wrappingText("Quantity 0 explicitly confirms zero held, or releases that reservation. Lowering stock or demand below reservations requires the release checkbox. Held quantities are account-wide manual estimates, including their confirmation time and note. No automatic allocation or consumption occurs."));
         stockContent.setName("quest-plan-stock-content");
         stockDrawer = new Collapsible("quest-plan-stock", "Manual stock", stockContent, false); stockDrawer.setName("quest-plan-stock");
