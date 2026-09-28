@@ -583,8 +583,13 @@ public class DpsGUI extends JPanel {
         saveFilterProperty();
     }
 
+    /** What Clear DPS Logs clears (its menu tooltip and any confirmation): only this app run's list, never saved history. */
+    public static final String CLEAR_LOGS_HELP = "Clears this app run's encounter list in the DPS Logger (recordings kept in memory)."
+        + " Saved combat history (combat summaries and any kept full detail) is not deleted.";
+
     /**
-     * Clear the DPS logs.
+     * Clear the DPS logs: the in-memory recordings of this app run ({@link #CLEAR_LOGS_HELP}). Saved combat history is not
+     * deleted; it is pruned only by the Combat history settings.
      */
     public static void clearDpsLogs() {
         INSTANCE.data.dpsData.clear();

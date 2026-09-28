@@ -9,12 +9,20 @@ import packets.incoming.*;
 import packets.packetcapture.logger.ActivityJournal;
 import packets.packetcapture.logger.DiscoveryLog;
 import packets.reader.BufferReader;
+import tomato.gui.dps.CombatAutosave;
+import tomato.gui.dps.CombatSummaries;
 import tomato.history.SessionStore;
+import tomato.history.encounter.CombatFacts;
+import tomato.history.encounter.CombatRecord;
+import tomato.history.encounter.CombatSettings;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 
@@ -149,6 +157,117 @@ public class EncounterIdentityTest {
         EncounterContext unlinked = DpsSnapshot.capture(data).context;
         assertNotNull(unlinked); assertNull(unlinked.visit); assertFalse(unlinked.linked());
         assertEquals("The saved recording keeps the live link", entered, data.dpsData.get(0).getEncounterContext().visit);
+    }
+
+    @Test public void aMapChangeSavesTheClosedFightWithItsExactVisitAndLocalId() throws Exception {
+        CombatAutosave autosave = savingHistory();
+        VisitRef entered = log.visitForMap(enter("Lost Halls", "decoded"));
+        data.setUserId(21, 7, "AAAAAA=="); spawn(21);
+        data.setTime(1_000); hit(21, 500, 300); hit(21, 501, 100);
+        enter("Ice Citadel", "decoded");
+        assertEquals("Handed off once clear() returned: the capture's hit list is already reset", List.of(0), handOffHits);
+        assertTrue(autosave.flush(10_000));
+        List<CombatRecord> saved = saved();
+        assertEquals(1, saved.size());
+        CombatRecord record = saved.get(0);
+        assertEquals(data.dpsData.get(0).getRecordingId(), record.recordingId);
+        assertEquals("The exact visit frozen at entry", entered, record.visit());
+        assertEquals(Integer.valueOf(21), record.localObjectId);
+        assertEquals(400, record.local().damage);
+        assertEquals("Lost Halls", record.map);
+        assertNotNull("Its detail is saved beside it", CombatFacts.detail(store, store.currentId(), record.recordingId));
+    }
+
+    @Test public void captureStopSavesTheOpenFightOnce() throws Exception {
+        CombatAutosave autosave = savingHistory();
+        VisitRef entered = log.visitForMap(enter("Lost Halls", "decoded"));
+        data.setUserId(21, 7, "AAAAAA=="); spawn(21);
+        data.setTime(1_000); hit(21, 500, 300);
+        Entity player = data.player, enemy = data.entityList.get(500);
+        TomatoData.MyInfoIdentity identity = data.myInfoIdentity();
+        assertTrue(data.isCurrentMyInfoSnapshot(identity, player, null, TomatoData.PetAvailability.UNKNOWN));
+        data.captureTerminated();
+        assertEquals(1, data.dpsData.size());
+        assertEquals(List.of(0), handOffHits);
+        assertEquals("The live meter starts empty", 0, data.getEntityHitList().length);
+        assertSame("The live world stays: the local player", player, data.player);
+        assertSame("…the objects in view", enemy, data.entityList.get(500));
+        assertSame(player, data.playerList.get(21));
+        assertSame("My Info's source of the local player survives the stop", identity, data.myInfoIdentity());
+        assertTrue(data.isCurrentMyInfoSnapshot(identity, player, null, TomatoData.PetAvailability.UNKNOWN));
+        data.captureTerminated();   // another stop, or the start-failure path: nothing is open
+        enter("Nexus", "decoded");   // moving on with nothing recorded since the stop adds nothing
+        assertEquals("Closed once", 1, data.dpsData.size());
+        assertTrue(autosave.flush(10_000));
+        List<CombatRecord> saved = saved();
+        assertEquals(1, saved.size());
+        assertEquals(entered, saved.get(0).visit());
+        assertEquals(Integer.valueOf(21), saved.get(0).localObjectId);
+        assertEquals(300, saved.get(0).local().damage);
+    }
+
+    @Test public void aRestartInTheSameAreaGivesASecondUnlinkedRecording() throws Exception {
+        CombatAutosave autosave = savingHistory();
+        VisitRef entered = log.visitForMap(enter("Lost Halls", "decoded"));
+        data.setUserId(21, 7, "AAAAAA=="); spawn(21);
+        data.setTime(1_000); hit(21, 500, 300); incoming(21, 500, 40);
+        data.captureTerminated();
+        // Capture restarts in the same area: objects already in view are not announced again, and need not be.
+        data.setTime(2_000); hit(21, 500, 200); incoming(21, 500, 15);
+        assertEquals("The closed recording is detached: hits after the restart never change it", 300,
+            CombatSummaries.build(data.dpsData.get(0)).record().totalDamage);
+        assertNotSame(data.entityList.get(500), data.dpsData.get(0).hitList.get(500));
+        enter("Nexus", "decoded");
+        assertEquals(2, data.dpsData.size());
+        assertTrue(autosave.flush(10_000));
+        Map<String, CombatRecord> saved = new HashMap<>();
+        for (CombatRecord record : saved()) saved.put(record.recordingId, record);
+        CombatRecord first = saved.get(data.dpsData.get(0).getRecordingId()), second = saved.get(data.dpsData.get(1).getRecordingId());
+        assertEquals(entered, first.visit());
+        assertEquals("The first recording is frozen at the stop", 300, first.totalDamage);
+        assertEquals(300, first.local().damage); assertEquals(Long.valueOf(40), first.local().taken);
+        assertNull("The remainder is not linked to the visit", second.visit());
+        assertEquals("A known player's hit on a known enemy is attributed without re-announcement", Integer.valueOf(21), second.localObjectId);
+        assertEquals(200, second.totalDamage); assertEquals(0, second.unattributedDamage);
+        assertEquals(200, second.local().damage);
+        assertEquals("Incoming damage restarts with the remainder", Long.valueOf(15), second.local().taken);
+        assertNotEquals(first.recordingId, second.recordingId);
+    }
+
+    private final List<Integer> handOffHits = new ArrayList<>();
+    private final List<CombatAutosave> autosaves = new ArrayList<>();
+    @After public void closeAutosaves() { autosaves.forEach(CombatAutosave::close); }
+
+    /** Replaces the read-only history with a writable one whose closed recordings a combat autosave saves (summaries only). */
+    private CombatAutosave savingHistory() throws Exception {
+        log.close(); store.close();
+        store = new SessionStore(temp.newFolder("saved").toPath(), true, "synthetic");
+        log = new DiscoveryLog(temp.newFolder("saved-discovery").toPath());
+        log.setSaving(false);
+        log.attachHistory(store);
+        data = new TomatoData();
+        data.visitSource(log::visitForMap);
+        CombatAutosave autosave = new CombatAutosave(store, () -> new CombatSettings.Values(false, 30, null), System::currentTimeMillis);
+        autosaves.add(autosave);
+        data.closedEncounters(closed -> { handOffHits.add(data.getEntityHitList().length); autosave.submit(closed); });
+        return autosave;
+    }
+    private List<CombatRecord> saved() throws Exception {
+        store.flush();
+        List<CombatRecord> read = new ArrayList<>();
+        CombatFacts.read(store, store.catalog(), store.currentId(), read::add);
+        return read;
+    }
+    private void hit(int attacker, int enemy, int damage) {
+        DamagePacket packet = new DamagePacket();
+        packet.targetId = enemy; packet.objectId = attacker; packet.damageAmount = damage; packet.bulletId = 1;
+        data.damage(packet);
+    }
+    /** An enemy's hit on a player, as a DAMAGE packet reports it (no player attacker). */
+    private void incoming(int target, int enemy, int damage) {
+        DamagePacket packet = new DamagePacket();
+        packet.targetId = target; packet.objectId = enemy; packet.damageAmount = damage; packet.bulletId = 2;
+        data.damage(packet);
     }
 
     private MapInfoPacket enter(String name, String outcome) {

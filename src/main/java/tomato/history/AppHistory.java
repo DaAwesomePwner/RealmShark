@@ -20,7 +20,10 @@ public final class AppHistory {
         if (store != null) return;
         store = new SessionStore(directory(), !preview, realmshark.version.Version.VERSION);
         packets.packetcapture.logger.DiscoveryLog.INSTANCE.attachHistory(store);
+        // Saves each fight capture closes (preview: nothing), prunes combat history now and after a Combat history change.
+        tomato.gui.dps.CombatAutosave combat = tomato.gui.dps.CombatAutosave.start(store);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            combat.close();   // queued fights reach the store before it closes
             packets.packetcapture.logger.DiscoveryLog.INSTANCE.close();
             store.close();
         }, "Session history shutdown"));

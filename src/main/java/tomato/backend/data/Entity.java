@@ -45,6 +45,16 @@ public class Entity implements Serializable {
         return copy;
     }
 
+    /**
+     * Capture stop: forgets this live object's recorded damage (hits taken and per-player totals, and the first/last hit
+     * times) once a detached copy went into the closed recording, so the next recording counts only what follows.
+     * Identity, stats and every other observation stay.
+     */
+    void clearRecordedDamage() {
+        damageList.clear(); damagePlayer.clear();
+        firstDamageTaken = -1; lastDamageTaken = -1;
+    }
+
     private static Damage copyDamage(Damage source, IdentityHashMap<Entity,Entity> copies) {
         Damage hit=new Damage(null,source.time,source.damage);
         hit.owner=source.owner==null?null:source.owner.copyForDisplay(copies);
