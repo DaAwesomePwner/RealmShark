@@ -335,4 +335,23 @@ public class HomeModelBuilderTest {
         assertEquals(State.STALE, stopped.state()); assertTrue(stopped.stale()); assertEquals(2, stopped.pinned());
         assertEquals(State.EMPTY, HomeModelBuilder.quests(new ProgressionData().snapshot(), pins, NOW).state());
     }
+
+    @Test public void questRewardsNotCapturedAreNeverAnEmptyList() {
+        ProgressionData progression = new ProgressionData(); progression.reset("account-A", "identified");
+        QuestData unknown = quest("q1", "Rewards unknown", false, false, 0), none = quest("q2", "No rewards", false, false, 0);
+        unknown.rewards = null; none.rewards = new int[0];
+        assertTrue(progression.quests(progression.scope(), new QuestData[]{unknown, none, quest("q3", "One reward", true, false, 11)}, NOW - 60_000));
+        List<HomeModel.QuestLine> top = HomeModelBuilder.quests(progression.snapshot(), q -> true, NOW).top();
+        assertEquals(List.of("Rewards unknown", "No rewards", "One reward"), top.stream().map(HomeModel.QuestLine::name).collect(Collectors.toList()));
+        assertFalse("A null reward list was not captured", top.get(0).rewardsKnown());
+        assertArrayEquals("Unknown rewards carry no ids", new int[0], top.get(0).rewardIds());
+        assertTrue("An empty reward list is a known none", top.get(1).rewardsKnown());
+        assertArrayEquals(new int[0], top.get(1).rewardIds());
+        assertTrue(top.get(2).rewardsKnown());
+        assertArrayEquals(new int[]{11}, top.get(2).rewardIds());
+        assertNotEquals("Whether rewards were captured is content", new HomeModel.QuestLine("Q", new int[0], true, false, false),
+            new HomeModel.QuestLine("Q", new int[0], false, false, false));
+        assertEquals("A line that was not captured holds no ids", new HomeModel.QuestLine("Q", null, false, false, false),
+            new HomeModel.QuestLine("Q", new int[]{11}, false, false, false));
+    }
 }
