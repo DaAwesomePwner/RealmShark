@@ -15,26 +15,20 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P1b Shell and navigation | #19 | Merged | `0abafe4` |
 | P1c Filters, tabs, columns | #20 | Merged | `e973f10` |
 | P2 Home | #21 | Merged | `94db6f6` |
-| **P3a Characters: gallery, sheet, journal v5** | **#22** | **Open; blocked by 2 unresolved Codex threads** | code head `05055dc`; this handoff is the next (docs-only) commit on the branch |
-| P3b Characters: Exalts grid, Pets, Pet/Fame tabs | none | Plan not written yet | |
+| P3a Characters: gallery, sheet, journal v5 | #22 | Merged (Codex threads fixed in `508d1d1`) | `04a61d4` |
+| **P3b Characters: Exalts grid, Pets, Pet/Fame tabs** | see roadmap | **Implemented; PR merge pending** (branch `claude/redesign-handoff-next-steps-edrr7w`) | source head `91a8a89` |
 | P4 Quests, P5 Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
 
-All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue.
+All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
 
 ### Immediate next steps
 
-1. **Fix the two Codex threads on PR #22.** Both are Codex severity P2, both in `src/main/java/tomato/backend/data/CharacterJournal.java`:
-   - **Thread `PRRT_kwDOUht4nM6meg7w` (around line 360): reject older Pet Yard snapshots.**
-     - Problem: `yardPet(...)` overwrites the stored pet's values even when the yard observation's `seen` time is older than `r.pet.observedAt`. It keeps only the newer timestamp through `Math.max`, so stale rarity, family or ability values appear as if observed at the newer time.
-     - Fix: when `seen < r.pet.observedAt`, ignore the observation, as the roster and other v5 paths do.
-     - Test: an older yard observation must not change the stored pet.
-   - **Thread `PRRT_kwDOUht4nM6meg7x` (around line 422): preserve omitted fields for the same roster pet.**
-     - Problem: when a newer, partial `<Pet>` entry has the same instance ID but omits name, rarity or abilities, `rosterPet` builds a fresh record and carries forward only `family`. Every other omitted value becomes null or −1. This contradicts the retained-field behaviour documented in `docs/CHARACTERS.md` (around line 33).
-     - Fix: for a matching instance ID, start from the known pet and overlay only the fields present in `c.presence`.
-     - Test: a partial `<Pet>` keeps the previously known name, rarity and abilities.
-   - Then reply on each thread with the fix commit and resolve it. `main` requires resolved conversations.
-2. **Merge PR #22, only with the user's go-ahead.** Run `gh pr merge 22 --merge --match-head-commit <final head sha>`. Then verify that `main`'s tree equals that head: `git rev-parse origin/main^{tree}` equals `git rev-parse <head>^{tree}`.
-3. **Write the P3b plan** from the merged P3a code (section 6), then implement it (section 4).
+Done on 2026-09-27/28 (cloud session):
+- PR #22's Codex threads fixed in `508d1d1`; PR #22 merged as `04a61d4` and `main` verified.
+- P3b planned as a contract plan ([2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md)) and implemented with subagent-driven development: four waves of parallel implementer subagents in isolated worktrees, the coordinator reviewing and merging every task, then an independent whole-branch review (five Minor findings, fixed) and a UI polish round from the evidence screenshots. Record: [2026-09-27-p3b-validation.md](2026-09-27-p3b-validation.md).
+
+1. **Merge the P3b PR, only with the user's go-ahead** (merge commit, `--match-head-commit`, then verify `main`'s tree equals the head).
+2. **P4 Quests** starts with open item O1: sanitized samples of the `QuestData.expiration` format are needed before the expiry countdown (roadmap P4).
 
 ---
 
@@ -95,6 +89,7 @@ Conventions every plan follows (see the "Global Constraints" sections):
 
 - **Toolchain.** JDK 17 and the Gradle 7.6.4 wrapper. Main sources target `--release 17`. Persisted types stay plain classes, because Gson 2.9.1 cannot read records.
 - **Machine-specific paths.** The plans hard-code `RS_TOOLS`, `JAVA_HOME` and `GRADLE_USER_HOME` paths from the original Windows workstation, whose `.tools` folder is not in the repo. On another machine, point `JAVA_HOME` at any JDK 17. Run the first Gradle build without `--offline` so dependencies download, and drop `--offline` if there is no warm Gradle home. Everything else in the plans is machine-independent.
+- **Linux cloud sessions.** Install both `openjdk-17-jdk-headless` and `openjdk-17-jre`: the headless package has no `libawt_xawt.so`, so every Swing test fails with `HeadlessException` even under Xvfb. `gradlew` is not executable in a fresh clone; run `sh ./gradlew`. Point the toolchain at JDK 17 with `-Dorg.gradle.java.installations.paths=/usr/lib/jvm/java-17-openjdk-amd64` when a newer default JDK is installed. Maven Central can answer 429 for a while on a cold Gradle home; retrying resolves it.
 - **Separate build directory.** Use a unique build dir per run: `-PrealmSharkBuildDir=build/<name>`, optionally with `--project-cache-dir build/<name>-cache`.
 - **UI tests need a display.** Many tests open real Swing windows, and `ui.*` evidence tests write PNG screenshots under `build/<dir>/ui-test/screenshots/`.
   - On headless Linux, run Gradle under `xvfb-run -a`.
@@ -155,6 +150,7 @@ The skill is `superpowers:subagent-driven-development`. Keep a progress ledger f
   - **Table rows open the full-page sheet.** The side detail pane is retired.
   - **Stat bars keep the "+N" boost text,** with no painted overlay.
   - **The journal moves to version 5.** P2 builds open v5 read-only, so a rollback cannot drop fields.
+- **P3b process (2026-09-27):** use subagents for parallel work and for implementation, with Claude as the reviewer (subagent-driven development).
 - **P3a implementation:** subagent-driven development by Claude.
   - After the final review, the user chose to push and open a PR.
   - Two scope moves to P3b were Claude's call and flagged to the user: the Overview pet card, and restyling Goals as cards.

@@ -1,36 +1,56 @@
 package tomato.gui.glance.character;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.LiveCharacter;
+import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.glance.home.HomeModelBuilder;
+import tomato.history.AppHistory;
 import tomato.planning.PlanningMetadata;
 
 /**
  * Feeds the character sheet (spec §3.1: glance screens own no data). It rebuilds when the sheet opens a key and, while the sheet
  * shows, whenever a cheap token moved (CharacterSheet.refresh checks once a second): the key, the journal and live-character
- * revisions, the loaded definitions and the dungeon mapping. The "character-sheet" thread reads the journal's deep copies (reused
- * while the journal's revision is unchanged) and runs SheetModelBuilder. The EDT applies a result only while it is the newest
- * request and its key is still the sheet's, so a late result for another character is dropped. A failed build is reported in the
- * sheet (spec §7), never swallowed, and tried again on the next refresh.
+ * revisions, the loaded definitions, the pet names and the dungeon mapping. The "character-sheet" thread reads the journal's
+ * deep copies (reused while the journal's revision is unchanged) and runs SheetModelBuilder. The EDT applies a result only while it is the newest
+ * request and its key is still the sheet's, so a late result for another character, or an older one for this character, is
+ * dropped. A failed build (any Throwable, applying included) is logged with its stack trace, reported in the sheet (spec §7),
+ * never swallowed or rethrown on the EDT, and tried again on the next refresh.
+ * The Fame tab reads saved history through its own presenter ("character-fame", FamePresenter), never in these builds: this
+ * presenter forwards the opened key and the once-a-second refresh (with whether the Fame tab is selected), and hands it each
+ * build's Fame tile, made here from the journal copy and the character in game.
  */
 final class SheetPresenter {
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "character-sheet"); thread.setDaemon(true); return thread;
     });
+    /**
+     * Where a failed build is logged, with its stack trace: standard error, where TomatoData's printStackTrace and Home's
+     * refresher report failures (Util.printLogs would print to standard output, as the app configures it). Tests replace it.
+     */
+    static volatile Consumer<String> errorLog = message -> System.err.println(message); // reads System.err when it logs
     private final CharacterSheet sheet;
     private final SheetContext context;
+    /** Runs one build at a time: the shared "character-sheet" thread, or a test's executor. */
+    private final Executor worker;
     private final SheetHeader header = new SheetHeader();
     private final OverviewTab overview;
     private final GearTab gear;
     private final ExaltsTab exalts = new ExaltsTab();
+    private final PetTab pet = new PetTab();
+    /** Sheet › Fame: saved history read on "character-fame" (AppHistory's store), at most every 30 s while its tab shows. */
+    private final FamePresenter fame;
     private final BuildTab build = new BuildTab(key -> tomato.gui.route.Navigator.current().open(tomato.gui.myinfo.BuildRoute.sheet(key)));
     private String key;
     private Token token;
@@ -38,23 +58,38 @@ final class SheetPresenter {
     private SheetModel model;
     /** The build thread's last journal read, reused while the key and the journal revision are unchanged (build thread only). */
     private Read lastRead;
+    /** The failure last logged, so one that repeats on every retry is logged once until a build applies again (EDT only). */
+    private String logged;
 
-    private record Token(String key, long journal, long live, boolean graceOver, RosterDefinitions definitions, PlanningMetadata planning) {}
+    /** {@code pets}, like {@code definitions} and {@code planning}, compares by identity: a new object once the pet names load. */
+    private record Token(String key, long journal, long live, boolean graceOver, RosterDefinitions definitions, PetDefinitions pets,
+                         PlanningMetadata planning) {}
     /** One journal read at one revision: the character's record (null when the journal lacks it) and the lists Goals shows. */
     private record Read(String key, long revision, CharacterRecord record, List<CharacterRecord> records, List<AccountRecord> accounts) {}
-    /** One build for {@code key}. */
-    private record Built(String key, SheetModel model, Read read, RosterDefinitions definitions) {}
+    /** One build for {@code key}; {@code fame}: its Fame tile, from the same journal copy and character in game. */
+    private record Built(String key, SheetModel model, Read read, RosterDefinitions definitions, FameModel.Current fame) {}
 
-    SheetPresenter(CharacterSheet sheet, SheetContext context) {
+    SheetPresenter(CharacterSheet sheet, SheetContext context) { this(sheet, context, WORKER); }
+
+    /**
+     * {@code worker} must run builds one at a time ({@link #lastRead} is confined to whichever thread runs the current build);
+     * tests pass one that holds builds and runs them in any order, to prove only the newest result applies.
+     */
+    SheetPresenter(CharacterSheet sheet, SheetContext context, Executor worker) {
         this.sheet = sheet;
         this.context = context;
-        overview = new OverviewTab(context.mode());
+        this.worker = Objects.requireNonNull(worker, "worker");
+        // Opening the Overview's pet card is explicit navigation: it may show a hidden Pet tab.
+        overview = new OverviewTab(context.mode(), context.clock(), () -> sheet.openTab("pet"));
         sheet.setIdentity(header);
         sheet.setTab("overview", SheetViews.scroll(overview));
         gear = new GearTab(context.mode());
         sheet.setTab("gear", SheetViews.scroll(gear));
         sheet.setTab("exalts", SheetViews.scroll(exalts));
-        sheet.setTab("build", build); // the sheet's build slot, added below right after exalts
+        sheet.setTab("pet", SheetViews.scroll(pet));
+        fame = new FamePresenter(AppHistory::store, context.clock());
+        sheet.setTab("fame", SheetViews.scroll(fame.tab()));
+        sheet.setTab("build", build); // the sheet's build slot, registered right after Fame
     }
 
     /** EDT: the sheet now shows {@code key}; rebuild at once. A new key clears what is shown until its own result applies. */
@@ -63,6 +98,7 @@ final class SheetPresenter {
         if (!Objects.equals(key, this.key)) { show(null); build.loading(); }
         this.key = key;
         request();
+        fame.open(key); // reads this character's saved fame history once now (then only while the Fame tab shows)
     }
 
     /** EDT: the model last applied, or null (loading, failed, or a key the journal lacks). */
@@ -73,14 +109,16 @@ final class SheetPresenter {
         if (key == null) return;
         if (!token().equals(token)) request();
         else times();
+        fame.refresh("fame".equals(sheet.selectedTab())); // history at most every 30 s, only while the Fame tab is selected
     }
 
-    /** Relative times ("Played …", the vault's age) change without a new model. */
+    /** Relative times ("Played …", the vault's age, the pet's "Observed …") change without a new model. */
     private void times() {
         if (model == null) return;
         header.apply(model.identity());
         overview.apply(model); // re-reads only the vault age
         exalts.apply(model.exalts()); // and when this class's counts last changed
+        pet.apply(model.pet()); // and when the pet was observed
     }
 
     /**
@@ -93,7 +131,8 @@ final class SheetPresenter {
         long now = context.clock().getAsLong();
         boolean graceOver = live.current() == null && live.lastKnown() != null
             && !HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), now);
-        return new Token(key, context.journal().revision(), live.revision(), graceOver, context.definitions().get(), PlanningMetadata.current());
+        return new Token(key, context.journal().revision(), live.revision(), graceOver, context.definitions().get(), PetDefinitions.current(),
+            PlanningMetadata.current());
     }
 
     private void request() {
@@ -103,26 +142,56 @@ final class SheetPresenter {
         CharacterJournal journal = context.journal();
         LiveCharacter live = live();
         long now = context.clock().getAsLong();
-        WORKER.execute(() -> {
+        worker.execute(() -> {
             Built built = null;
-            RuntimeException failure = null;
+            Throwable failure = null;
+            // Any Throwable: an Error escaping here would kill the thread silently, leaving the sheet on "Loading…" (or on the
+            // previous model with no warning) and, since the token already moved, never retried.
             try { built = build(target, journal, live, now); }
-            catch (RuntimeException e) { failure = e; }
+            catch (Throwable e) {
+                failure = e;
+                // build() declares no InterruptedException; if one is thrown anyway, keep the thread's interrupt status.
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            }
             Built result = built;
-            RuntimeException failed = failure;
-            SwingUtilities.invokeLater(() -> {
-                // Only the newest request for the key the sheet still shows applies; a late result for another character is dropped.
-                if (requested != generation || !Objects.equals(target, key)) return;
-                // The next refresh tries again; meanwhile Build shows no one (live state may have moved on since the last model).
-                if (failed != null) { token = null; build.loading(); sheet.failed(failed); return; }
-                apply(result);
-            });
+            Throwable failed = failure;
+            SwingUtilities.invokeLater(() -> deliver(requested, target, result, failed));
         });
+    }
+
+    /**
+     * EDT: one build's outcome. Every failure is logged, even one whose result is dropped. Only the newest request for the key
+     * the sheet still shows applies; a failure there (building or applying) is reported in the sheet and retried on the next
+     * refresh. Nothing is rethrown on the EDT.
+     */
+    private void deliver(long requested, String target, Built result, Throwable failure) {
+        if (failure != null) log(failure);
+        if (requested != generation || !Objects.equals(target, key)) return;
+        if (failure == null) {
+            try { apply(result); logged = null; return; }
+            catch (RuntimeException | Error e) { log(e); failure = e; }
+        }
+        // The cleared token makes the next refresh try again; meanwhile Build says it is unavailable and shows no one (live
+        // state may have moved on since the last model).
+        token = null;
+        build.failed();
+        sheet.failed(failure);
+    }
+
+    /** Logs {@code failure} with its stack trace, once while the same failure repeats on every retry. EDT. */
+    private void log(Throwable failure) {
+        StringWriter trace = new StringWriter();
+        try (PrintWriter out = new PrintWriter(trace)) { failure.printStackTrace(out); }
+        String text = trace.toString();
+        if (text.equals(logged)) return;
+        logged = text;
+        errorLog.accept("[Character sheet] A sheet build failed; it is retried on the next refresh: " + text);
     }
 
     /** The build thread: one journal read (reused while the revision is unchanged) and the model, over deep copies. */
     private Built build(String target, CharacterJournal journal, LiveCharacter live, long now) {
         RosterDefinitions definitions = context.definitions().get();
+        PetDefinitions pets = PetDefinitions.current(); // never blocks: loading() until the pet names are read
         Read read = lastRead;
         synchronized (journal) {
             long revision = journal.revision();
@@ -132,7 +201,9 @@ final class SheetPresenter {
         lastRead = read;
         AccountRecord account = null;
         if (read.record() != null) for (AccountRecord a : read.accounts()) if (a.key.equals(read.record().account)) account = a;
-        return new Built(target, SheetModelBuilder.build(read.record(), account, SheetModelBuilder.inGame(live, now), definitions, now), read, definitions);
+        LiveCharacter.Snapshot inGame = SheetModelBuilder.inGame(live, now);
+        return new Built(target, SheetModelBuilder.build(read.record(), account, inGame, pets, definitions, now), read, definitions,
+            FameModel.current(target, read.record(), inGame)); // live only when inGame has exactly this key's account and character id
     }
 
     private LiveCharacter live() { return context.data().liveCharacter; }
@@ -142,8 +213,9 @@ final class SheetPresenter {
         Read read = built.read();
         sheet.loaded(built.key(), read.record(), read.records(), read.accounts(), built.definitions(), read.revision());
         show(built.model());
-        gear.analyst(read.record(), built.definitions());
+        gear.analyst(read.record(), built.definitions()); // re-renders only when the slots it shows or the definitions changed
         build.apply(built.model(), BuildTab.shownKey(live())); // Build shows only on the sheet of the character it describes
+        fame.current(built.key(), built.fame()); // the Fame tile follows live fame without reading history
     }
 
     /** EDT: parents the app's single MyInfoGUI in the Build tab. */
@@ -156,5 +228,6 @@ final class SheetPresenter {
         overview.apply(value);
         gear.apply(value == null ? null : value.gear());
         exalts.apply(value == null ? null : value.exalts());
+        pet.apply(value == null ? null : value.pet());
     }
 }

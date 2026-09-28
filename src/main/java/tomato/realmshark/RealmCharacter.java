@@ -17,6 +17,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
@@ -24,6 +25,8 @@ import java.util.TreeMap;
  * Basic data class to store Character info.
  */
 public class RealmCharacter {
+    /** Presence key for an explicitly empty {@code <Pet/>}: the character has no pet (known), unlike an omitted element (unknown). */
+    public static final String PET_NONE = "pet.none";
     /** Explicitly supplied fields, including zero/false. Never inferred from primitive defaults. */
     public final java.util.Map<String, tomato.backend.data.FieldCapture> presence = new java.util.HashMap<>();
     public long receivedAt;
@@ -81,17 +84,33 @@ public class RealmCharacter {
     public int[] petAbilitys;
 
     /**
-     * Returns the player exalt loot drop bonus
+     * Returns the player exalt loot drop bonus from the live counts ({@link #exalts}) and the selected assets' weapon groups.
+     * Callers check {@code CharacterClass.weaponClasses(classId) != null} first (unknown class data is not a 0% boost).
      *
      * @param classId Class to receive exalt bonus.
      */
     public static int exaltLootBonus(int classId) {
-        if (fullyExalted()) {
+        return exaltLootBonus(exalts, CharacterClass.weaponClasses(classId));
+    }
+
+    /**
+     * The exalt loot drop bonus (percent) of a class over explicit counts, for example an account's saved counts. 35 when
+     * {@link #fullyExalted(Map) fully exalted}; otherwise 5 per exalt tier of the lowest count across all eight stats of every
+     * class in {@code weaponGroup} (the classes sharing this class's starting weapon), at most 25, and 0 when any class of the
+     * group has no counts or a count below 5.
+     *
+     * @param counts      class id to its 8 completion counts in RealmCharacter order (dex, spd, vit, wis, def, atk, mana, life).
+     * @param weaponGroup the class ids sharing the class's weapon ({@code CharacterClass.weaponClasses}); never null unless
+     *                    fully exalted (35 needs no weapon group, as before P3b).
+     */
+    public static int exaltLootBonus(Map<Integer, int[]> counts, int[] weaponGroup) {
+        if (fullyExalted(counts)) {
             return 35;
         }
+        Objects.requireNonNull(weaponGroup, "weaponGroup");
         int bonus = 25;
-        for (int c : CharacterClass.weaponClasses(classId)) {
-            int[] ints = exalts.get(c);
+        for (int c : weaponGroup) {
+            int[] ints = counts.get(c);
             if (ints == null) return 0;
 
             for (int i : ints) {
@@ -112,14 +131,15 @@ public class RealmCharacter {
     }
 
     /**
-     * Checks if account is fully exalted.
+     * Checks if an account is fully exalted: counts for at least 19 classes, every count 75 or more.
      *
+     * @param counts class id to its 8 completion counts, as for {@link #exaltLootBonus(Map, int[])}.
      * @return True if account is fully exalted.
      */
-    private static boolean fullyExalted() {
-        if (exalts.size() < 19) return false;
+    public static boolean fullyExalted(Map<Integer, int[]> counts) {
+        if (counts.size() < 19) return false;
 
-        for (int[] e : exalts.values()) {
+        for (int[] e : counts.values()) {
             for (int i : e) {
                 if (i < 75) {
                     return false;

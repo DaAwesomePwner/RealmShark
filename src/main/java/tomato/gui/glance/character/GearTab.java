@@ -1,9 +1,12 @@
 package tomato.gui.glance.character;
 
+import assets.IdToAsset;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
-import java.util.function.IntFunction;
 import javax.swing.*;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
@@ -14,9 +17,11 @@ import static tomato.gui.glance.character.SheetViews.*;
 /**
  * Sheet › Gear (spec §6.2): four large equipped slots with tier labels and, for the character in game only, enchant rarity dots;
  * then the inventory (8) and backpack (16) as a sprite grid. Unknown and empty slots stay distinct; each slot's tooltip names its
- * item. The 28-row slot table with field evidence is an Analyst-only Collapsible. EDT only.
+ * item. Tier labels come from the model (computed off the EDT with the build's definitions). The 28-row slot table with field
+ * evidence is an Analyst-only Collapsible. EDT only.
  */
 final class GearTab extends JPanel {
+    private static final Object NOT_SHOWN = new Object();
     private final ItemSlot[] slots = new ItemSlot[28];
     private final KitText[] tiers = new KitText[4];
     private final EnchantDots[] dots = new EnchantDots[4];
@@ -25,14 +30,29 @@ final class GearTab extends JPanel {
     private final KitText backpackUnknown = named(KitText.caption("Backpack contents not captured yet"), "character-gear-backpack-unknown");
     private final CharacterEquipmentPanel table = new CharacterEquipmentPanel();
     private final Collapsible slotTable;
-    private final IntFunction<String> tierOf;
     private SheetModel.Gear shown;
+    /** What the Analyst slot table last rendered ({@link SlotRows}); NOT_SHOWN until the first {@link #analyst}. */
+    private Object analystShown = NOT_SHOWN;
 
-    GearTab(DisplayModeModel mode) { this(mode, ItemTiers::label); }
+    /**
+     * What the Analyst slot table shows for one record copy: the character, each slot's state, item, item name and field evidence
+     * (CharacterEquipmentPanel's own projection) and the definitions whose details each slot carries. While playing, every
+     * capture hands the sheet a new copy whose times moved but whose slots did not; such a copy re-renders nothing, so the user's
+     * selection and scroll stay. (A slot's full-details text also names the record's last update; it refreshes with the next
+     * real change.)
+     */
+    private record SlotRows(String key, boolean dead, List<List<Object>> rows, RosterDefinitions definitions) {
+        static SlotRows of(CharacterJournal.CharacterRecord record, RosterDefinitions definitions) {
+            if (record == null) return null;
+            List<List<Object>> rows = new ArrayList<>(28);
+            for (CharacterEquipmentPanel.Slot slot : CharacterEquipmentPanel.project(record, definitions))
+                rows.add(Arrays.asList(slot.state, slot.item, slot.item == null || slot.item < 0 ? null : IdToAsset.objectName(slot.item), slot.evidence));
+            return new SlotRows(record.key, record.dead, List.copyOf(rows), definitions);
+        }
+    }
 
-    GearTab(DisplayModeModel mode, IntFunction<String> tierOf) {
+    GearTab(DisplayModeModel mode) {
         super(new BorderLayout());
-        this.tierOf = tierOf;
         setOpaque(false);
         setName("character-gear");
         JPanel equipped = clear(new FlowLayout(FlowLayout.LEADING, Tokens.M, 0));
@@ -54,14 +74,13 @@ final class GearTab extends JPanel {
         apply(null);
     }
 
-    /** EDT. A gear section equal to the shown one is skipped. */
+    /** EDT. A gear section equal to the shown one is skipped; its tier labels are part of it, so labels arriving repaint it. */
     void apply(SheetModel.Gear gear) {
         if (gear != null && gear.equals(shown)) return;
-        shown = gear;
         boolean backpackCaptured = false;
         for (int i = 0; i < 28; i++) {
             int id = gear == null ? -1 : gear.slots().get(i);
-            String tier = id > 0 ? Objects.toString(tierOf.apply(id), "") : "";
+            String tier = id > 0 ? gear.tier(i) : "";
             if (id > 0) slots[i].setItem(id, tier); else if (id == 0) slots[i].setEmpty(); else slots[i].setUnknown();
             if (i >= 12 && id >= 0) backpackCaptured = true;
             if (i < 4) {
@@ -74,10 +93,19 @@ final class GearTab extends JPanel {
         noBackpack.setVisible(Boolean.FALSE.equals(has));
         backpack.setVisible(!Boolean.FALSE.equals(has));
         backpackUnknown.setVisible(has == null && !backpackCaptured);
+        shown = gear; // recorded last, so an apply that failed midway is redone in full
         revalidate();
         repaint();
     }
 
-    /** EDT: the Analyst slot table (per-slot field evidence) for the sheet's detached record copy. */
-    void analyst(CharacterJournal.CharacterRecord record, RosterDefinitions definitions) { table.showRecord(record, definitions); }
+    /**
+     * EDT: the Analyst slot table (per-slot field evidence) for the sheet's detached record copy. It re-renders only when the
+     * slots it shows, the character or the definitions changed ({@link SlotRows}), never for a copy that only moved its times.
+     */
+    void analyst(CharacterJournal.CharacterRecord record, RosterDefinitions definitions) {
+        SlotRows rows = SlotRows.of(record, definitions);
+        if (Objects.equals(rows, analystShown)) return;
+        table.showRecord(record, definitions);
+        analystShown = rows;
+    }
 }

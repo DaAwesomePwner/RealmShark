@@ -64,7 +64,7 @@ public class HeroCardTest {
             // Hero.equipment: item id > 0, 0 empty, -1 not captured (a journal record without that slot).
             card.apply(new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(),
                 h.base(), h.caps(), h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), new int[]{2593, 0, -1, -1},
-                h.weaponDps(), h.mpPerSecond(), h.accountLine(), h.lastSeenAt(), h.evidence(), h.key()), NOW);
+                h.weaponDps(), h.mpPerSecond(), h.accountLine(), h.lastSeenAt(), h.evidence(), h.key(), h.petChip()), NOW);
             assertEquals(ItemSlot.State.ITEM, named(card, "home-hero-slot-0", ItemSlot.class).state());
             assertEquals(ItemSlot.State.EMPTY, named(card, "home-hero-slot-1", ItemSlot.class).state());
             assertEquals("-1 is a slot that was not captured, never an empty one", ItemSlot.State.UNKNOWN,
@@ -83,6 +83,28 @@ public class HeroCardTest {
             card.apply(HomeModels.hero(HomeModel.State.LIVE, NOW, -1, -1), NOW);
             assertFalse("Unknown is never shown as 0/8", named(card, "home-hero-maxed", Chip.class).isVisible());
             assertFalse(named(card, "home-hero-exalts", Chip.class).isVisible());
+        });
+    }
+    /** The pet chip sits between the exalts and last-seen chips: the rarity, "No pet", or nothing for an unknown pet or rarity. */
+    @Test public void thePetChipShowsRarityNoPetOrNothing() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HeroCard card = card();
+            HomeModel.Hero stale = HomeModels.hero(HomeModel.State.STALE, NOW);
+            card.apply(stale, NOW);
+            Chip pet = named(card, "home-hero-pet", Chip.class);
+            assertTrue(pet.isVisible()); assertEquals("Legendary pet", pet.getText());
+            assertEquals("Game meaning never signals status: the pet chip is neutral", Tokens.Tone.NEUTRAL, pet.tone());
+            java.awt.Container row = pet.getParent();
+            List<java.awt.Component> chips = Arrays.asList(row.getComponents());
+            assertSame(row, named(card, "home-hero-exalts", Chip.class).getParent());
+            assertEquals("After the exalts chip", chips.indexOf(named(card, "home-hero-exalts", Chip.class)) + 1, chips.indexOf(pet));
+            assertEquals("Before the last-seen chip", chips.indexOf(pet) + 1, chips.indexOf(named(card, "home-hero-seen", Chip.class)));
+            card.apply(HomeModels.withPetChip(stale, "No pet"), NOW);
+            assertTrue(pet.isVisible()); assertEquals("No pet", pet.getText());
+            card.apply(HomeModels.withPetChip(stale, null), NOW);
+            assertFalse("Unknown pet or rarity: hidden, never guessed", pet.isVisible());
+            assertNotEquals("The chip is part of the hero's content", stale, HomeModels.withPetChip(stale, null));
+            assertNotEquals(stale.hashCode(), HomeModels.withPetChip(stale, "No pet").hashCode());
         });
     }
     @Test public void staleHeroIsDimmedAndSaysWhenItWasLastSeen() throws Exception {
@@ -116,6 +138,42 @@ public class HeroCardTest {
             assertTrue("Unavailable is a warn banner", card.statusWarns());
             assertNull(named(card, "home-hero-empty", EmptyState.class));
         });
+    }
+    /**
+     * The hero's content (and its empty state) joins the card only when the first model arrives; a font change made while the card
+     * was loading (Settings refreshes the window's tree) must still reach it (P2 behavior found by the P3b evidence run).
+     */
+    @Test public void aFontChangeWhileLoadingReachesWhatTheFirstModelShows() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            java.awt.Font previous = tomato.gui.modern.ContentStyle.body();
+            try {
+                for (HomeModel.Hero first : List.of(HomeModels.hero(HomeModel.State.LIVE, NOW), HomeModels.empty().hero())) {
+                    tomato.gui.modern.ContentStyle.setBodyFont(new java.awt.Font(tomato.gui.modern.ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 13));
+                    HeroCard card = card(); // loading: the content and the empty state are not in the card yet
+                    tomato.gui.modern.ContentStyle.setBodyFont(new java.awt.Font(tomato.gui.modern.ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 18));
+                    tomato.gui.modern.ContentStyle.refreshFonts(card); // what a font change in Settings does to the window
+                    card.apply(first, NOW);
+                    assertEquals("The name label", Type.title().getSize2D(), named(card, "home-hero-name", JLabel.class).getFont().getSize2D(), 0.01f);
+                    if (first.state() == HomeModel.State.LIVE) {
+                        assertEquals("The meta line of the content the first model swapped in", Type.caption().getSize2D(),
+                            named(card, "home-hero-meta", JLabel.class).getFont().getSize2D(), 0.01f);
+                        assertEquals("A stat value", Type.caption().getSize2D(), named(card, "home-hero-value-0", JLabel.class).getFont().getSize2D(), 0.01f);
+                    } else {
+                        JLabel heading = find(named(card, "home-hero-empty", EmptyState.class), JLabel.class);
+                        assertEquals("The empty state's heading", Type.emphasis().getSize2D(), heading.getFont().getSize2D(), 0.01f);
+                    }
+                }
+            } finally {
+                tomato.gui.modern.ContentStyle.setBodyFont(previous);
+            }
+        });
+    }
+    private static <T> T find(java.awt.Container root, Class<T> type) {
+        for (java.awt.Component c : root.getComponents()) {
+            if (type.isInstance(c)) return type.cast(c);
+            if (c instanceof java.awt.Container) { T found = find((java.awt.Container) c, type); if (found != null) return found; }
+        }
+        return null;
     }
     @Test public void anEqualHeroIsSkippedButItsAgeStillAdvances() throws Exception {
         SwingUtilities.invokeAndWait(() -> {

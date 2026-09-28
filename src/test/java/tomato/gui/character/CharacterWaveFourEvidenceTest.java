@@ -32,7 +32,8 @@ public class CharacterWaveFourEvidenceTest {
             assertTrue(plans.update(account, 0, plan).get().saved);
             CharacterJournal.DeathAnnotation death = new CharacterJournal.DeathAnnotation(); death.notes = "Synthetic manual note; no server-confirmed death."; death.occurredAt = 1700000000000L;
             death.visit = new tomato.history.link.VisitRef("00000000-0000-0000-0000-000000000001", "unavailable-synthetic-visit"); journal.markDead(account + ":7", true); journal.annotateDeath(account + ":7", death);
-            SwingUtilities.invokeAndWait(() -> {
+            String manage = util.PropertiesManager.getProperty(MANAGE); util.PropertiesManager.setProperties(MANAGE, ""); // restored below
+            try { SwingUtilities.invokeAndWait(() -> {
                 Font previous = ContentStyle.body(); LookAndFeel look = UIManager.getLookAndFeel(); JFrame frame = null;
                 try {
                     VioletTheme.install(); frame = new JFrame("Synthetic Wave 4 character evidence");
@@ -40,7 +41,7 @@ public class CharacterWaveFourEvidenceTest {
                     frame.setContentPane(panel); frame.setSize(1080, 800); frame.setVisible(true); frame.validate();
                     RosterFixtures.enter(panel); frame.validate();
                     JTabbedPane tabs = named(panel, "character-tabs", JTabbedPane.class);
-                    tabs.setSelectedIndex(tabs.indexOfTab("Goals")); named(panel, "planning-0", JComboBox.class).setSelectedIndex(1);
+                    tabs.setSelectedIndex(tabs.indexOfTab("Goals")); showManageGoals(panel); named(panel, "planning-0", JComboBox.class).setSelectedIndex(1);
                     JTable goals = named(panel, "planning-8", JTable.class); assertEquals(2, goals.getRowCount());
                     ContentStyle.reveal(goals, goals.getCellRect(0, 0, true)); capture(frame, "goals-populated");
                     frame.setSize(680, 520); frame.validate(); ContentStyle.reveal(goals, goals.getCellRect(0, 0, true)); capture(frame, "goals-compact");
@@ -56,8 +57,21 @@ public class CharacterWaveFourEvidenceTest {
                     ContentStyle.reveal(occurred, new Rectangle(0, 0, occurred.getWidth(), occurred.getHeight())); capture(frame, "death-enlarged-text");
                 } catch (Exception failure) { throw new RuntimeException(failure); }
                 finally { if (frame != null) frame.dispose(); ContentStyle.setBodyFont(previous); try { UIManager.setLookAndFeel(look); } catch (Exception failure) { throw new RuntimeException(failure); } finally { ContentStyle.applyFontDefaults(); } }
-            });
+            }); } finally { util.PropertiesManager.setProperties(MANAGE, manage == null ? "" : manage); }
         }
+    }
+    private static final String MANAGE = "ui.collapse.character-goals-manage";
+    /**
+     * P3b: the goals panel sits below the goal cards; Simple mode keeps it in the collapsed "Manage goals" section. Open it as the
+     * user does and let its opening motion (at most Motion.MAX_MILLIS) finish, so the captures show the whole panel. EDT.
+     */
+    private static void showManageGoals(Container panel) {
+        tomato.gui.kit.Collapsible section = named(panel, "character-goals-manage", tomato.gui.kit.Collapsible.class);
+        assertNotNull("Manage goals sits below the goal cards", section);
+        if (!section.isVisible() || section.expanded()) return; // Analyst shows the panel already
+        section.toggle().doClick();
+        long settled = System.nanoTime() + 4L * tomato.gui.kit.Motion.MAX_MILLIS * 1_000_000L;
+        tomato.gui.activity.SnapshotTestSupport.await(() -> System.nanoTime() >= settled); // the EDT runs the motion's timer meanwhile
     }
     private static void capture(JFrame frame, String name) throws Exception {
         ui.UiTestLayout.settle(frame); assertWrappedControlsFit(frame);

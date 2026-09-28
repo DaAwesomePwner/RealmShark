@@ -7,12 +7,13 @@ import tomato.gui.kit.DisplayValue;
 /**
  * Immutable character sheet view model (spec §6.2), built off the EDT by SheetModelBuilder and applied on the EDT. Per-stat
  * lists have 8 entries in canonical order (life, mana, atk, def, spd, dex, vit, wis) with -1 for unknown. Lists are immutable
- * and compare by content, so the presenter and tabs can skip a section that did not change.
+ * and compare by content, so the presenter and tabs can skip a section that did not change. {@code pet} is the character's own pet
+ * from its journal record (PetSummary.UNKNOWN when not captured, never "No pet").
  */
-public record SheetModel(String key, Identity identity, Stats stats, Gear gear, Exalts exalts, Death death, Live live) {
+public record SheetModel(String key, Identity identity, Stats stats, Gear gear, Exalts exalts, PetSummary pet, Death death, Live live) {
     public SheetModel {
         Objects.requireNonNull(key, "key"); Objects.requireNonNull(identity, "identity"); Objects.requireNonNull(stats, "stats");
-        Objects.requireNonNull(gear, "gear"); Objects.requireNonNull(exalts, "exalts");
+        Objects.requireNonNull(gear, "gear"); Objects.requireNonNull(exalts, "exalts"); Objects.requireNonNull(pet, "pet");
     }
 
     /**
@@ -33,10 +34,17 @@ public record SheetModel(String key, Identity identity, Stats stats, Gear gear, 
                         long vaultObservedAt, List<String> needs, int unknown, int maxed, List<String> evidence) {}
 
     /**
-     * 28 slots (0-3 equipped, 4-11 inventory, 12-27 backpack): item id > 0, 0 empty, -1 not captured. {@code hasBackpack} null
-     * unknown. {@code enchants}: unlocked enchant slots of the 4 equipped items (0 Common … 4 Divine), -1 unknown; null unless playing.
+     * 28 slots (0-3 equipped, 4-11 inventory, 12-27 backpack): item id > 0, 0 empty, -1 not captured. {@code tiers}: each slot's
+     * tier label ("UT", "ST", "T12"), "" for an empty, uncaptured or unlabeled slot, from the definitions the build was given (so
+     * the section changes when they finish loading). {@code hasBackpack} null unknown. {@code enchants}: unlocked enchant slots of
+     * the 4 equipped items (0 Common … 4 Divine), -1 unknown; null unless playing.
      */
-    public record Gear(List<Integer> slots, Boolean hasBackpack, List<Integer> enchants) {}
+    public record Gear(List<Integer> slots, List<String> tiers, Boolean hasBackpack, List<Integer> enchants) {
+        /** The tier label of {@code slot}; "" when none (or when {@code tiers} does not reach it). */
+        public String tier(int slot) {
+            return tiers == null || slot < 0 || slot >= tiers.size() || tiers.get(slot) == null ? "" : tiers.get(slot);
+        }
+    }
 
     /**
      * This class's exaltations: {@code completions}, {@code tiers} (0-5) and {@code toNext} (0 once maxed) per stat, -1 unknown;

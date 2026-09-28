@@ -73,6 +73,8 @@ public class TomatoGUI {
     private static tomato.gui.notifications.NotificationsGUI notifications;
     private static SettingsPage settings;
     private static HomePage home;
+    /** Where the Characters roster keeps its saved view; tests point it at an isolated store (they save and restore statics). */
+    static ViewStateStore characterViewStates = ViewStateStore.application();
 
     public TomatoGUI(TomatoData data) {
         this.data = data;
@@ -96,7 +98,7 @@ public class TomatoGUI {
         chatPanel = new ChatGUI(data);
         KeypopGUI keypopPanel = new KeypopGUI();
         securityPanel = new SecurityGUI();
-        characterPanel = new CharacterPanelGUI(data);
+        characterPanel = new CharacterPanelGUI(data, characterViewStates);
         statistics = new StatisticsGUI(data);
         questPanel = new QuestGUI(data);
         java.util.List<String> planningAccounts = new java.util.ArrayList<>();

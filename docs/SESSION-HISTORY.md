@@ -8,6 +8,8 @@ History is saved automatically under **`%LOCALAPPDATA%\RealmShark\history`** on 
 
 History is kept until explicitly deleted. Each session has metadata, append journals for messages/pops/loot/fame/timeline events, and replaceable run/statistics checkpoints. Writes happen on a background worker; failures remain visible in the session toolbar and pending records retry. Normal shutdown checkpoints the final run before closing the session. Preview can browse saved history but does not record or delete it.
 
+New fame readings also record the player's hashed account key: the same pseudonymous key the character journal (`Characters/journal.json`) uses, never a raw account ID, name or credential. Character IDs are only unique within an account, so the key lets the character sheet's **Fame** tab and Home's **Progress** card tell two accounts' characters with the same ID apart. The latest fame checkpoint (`fame-latest`) is kept per account and character. Readings recorded before this version, or before capture saw the account, have no account: Home counts them as before, and the Fame tab leaves them out and says how many. Statistics' fame views do not use the account yet.
+
 ## Browsing
 
 **Chat, Key-pops, Loot, Statistics and Inspect** have independent session pickers. Runs, Timeline and DPS Logger's Resources & buffs also expose the saved visits they use.

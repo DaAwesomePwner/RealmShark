@@ -153,17 +153,49 @@ public class CharacterGalleryTest {
         SwingUtilities.invokeAndWait(() -> {
             CharacterGallery gallery = new CharacterGallery(opened::add, mode);
             String unreadable = "Cannot read Characters/journal.json. Original preserved; saving disabled.";
-            gallery.apply(List.of(), List.of(), false, unreadable);
+            gallery.apply(List.of(), List.of(), false, unreadable, true);
             EmptyState unavailable = named(gallery, "character-gallery-unavailable", EmptyState.class);
             assertNotNull("Not \"No characters yet\"", unavailable);
             assertNull(named(gallery, "character-gallery-empty", EmptyState.class));
             assertEquals(unreadable, unavailable.getAccessibleContext().getAccessibleDescription());
-            gallery.apply(ALIVE, DEAD, false, "Save failed • check access to Characters/journal.json");
+            gallery.apply(ALIVE, DEAD, false, "Save failed • check access to Characters/journal.json", false);
             Banner storage = named(gallery, "character-gallery-storage", Banner.class);
             assertTrue(storage.isVisible()); assertTrue(storage.warns());
             assertEquals("Save failed • check access to Characters/journal.json", storage.text());
-            gallery.apply(ALIVE, DEAD, false, null);
+            gallery.apply(ALIVE, DEAD, false, null, false);
             assertFalse(storage.isVisible());
+        });
+    }
+
+    /** P3a deferred finding 2: only an unreadable journal is "unavailable"; a failed save keeps the normal state under its banner. */
+    @Test public void aFailedSaveKeepsTheEmptyOrNoMatchStateUnderItsBannerAndOnlyAnUnreadableJournalIsUnavailable() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterGallery gallery = new CharacterGallery(opened::add, mode);
+            String failed = "Save failed • check access to Characters/journal.json";
+            gallery.apply(List.of(), List.of(), true, failed, false);
+            EmptyState noMatch = named(gallery, "character-gallery-no-match", EmptyState.class);
+            assertNotNull("Filters hid every card: say so, even while saving fails", noMatch);
+            assertNull("A failed save is not an unreadable journal", named(gallery, "character-gallery-unavailable", EmptyState.class));
+            Banner storage = named(gallery, "character-gallery-storage", Banner.class);
+            assertNotNull("The storage banner stays in the tree when an empty state replaces the cards", storage);
+            assertTrue(storage.isVisible()); assertEquals(failed, storage.text());
+            gallery.setSize(900, 600);
+            layout(gallery);
+            assertTrue("The banner sits above the empty state: " + storage.getBounds() + " then " + noMatch.getBounds(),
+                below(storage, gallery) <= top(noMatch, gallery));
+            gallery.apply(List.of(), List.of(), false, failed, false);
+            assertNotNull("Nothing saved yet, while saving fails", named(gallery, "character-gallery-empty", EmptyState.class));
+            assertNull(named(gallery, "character-gallery-unavailable", EmptyState.class));
+            assertTrue(storage.isVisible());
+            String unreadable = "Cannot read Characters/journal.json. Original preserved; saving disabled.";
+            gallery.apply(List.of(), List.of(), true, unreadable, true);
+            assertNotNull("An unreadable journal is unavailable, never \"No characters match\"", named(gallery, "character-gallery-unavailable", EmptyState.class));
+            assertNull(named(gallery, "character-gallery-no-match", EmptyState.class));
+            assertFalse("The unavailable state names the problem itself: one message, not two", storage.isVisible());
+            gallery.apply(ALIVE, DEAD, false, failed, false);
+            layout(gallery);
+            JList<CharacterCardModel> cards = list(gallery, "character-cards");
+            assertTrue("Cards shown: the banner warns above them", storage.isVisible() && below(storage, gallery) <= top(cards, gallery));
         });
     }
 
@@ -230,6 +262,8 @@ public class CharacterGalleryTest {
         root.doLayout();
         for (java.awt.Component child : root.getComponents()) if (child instanceof java.awt.Container) layout((java.awt.Container) child);
     }
+    private static int top(java.awt.Component c, java.awt.Container root) { return SwingUtilities.convertPoint(c.getParent(), c.getLocation(), root).y; }
+    private static int below(java.awt.Component c, java.awt.Container root) { return top(c, root) + c.getHeight(); }
     private static String child(JList<?> list, int index) {
         return list.getAccessibleContext().getAccessibleChild(index).getAccessibleContext().getAccessibleName();
     }

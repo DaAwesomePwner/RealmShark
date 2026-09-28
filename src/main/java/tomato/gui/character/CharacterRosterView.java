@@ -2,6 +2,8 @@ package tomato.gui.character;
 
 import java.awt.CardLayout;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.swing.JPanel;
 import tomato.gui.glance.character.CharacterSheet;
 import tomato.gui.glance.character.SheetFocus;
@@ -21,6 +23,8 @@ public final class CharacterRosterView extends JPanel {
     private final CharacterSheet sheet;
     private Navigator navigator;
     private Runnable reveal = () -> { };
+    private Supplier<String> pageTab = () -> "roster";
+    private Consumer<String> bringTabForward = id -> { };
     private boolean sheetShowing;
 
     public CharacterRosterView(CharacterJournalGUI list, CharacterSheet sheet) {
@@ -40,6 +44,11 @@ public final class CharacterRosterView extends JPanel {
     /** Brings the Roster tab forward on the Characters page; routes use it because they are explicit navigation. */
     void onReveal(Runnable action) { reveal = Objects.requireNonNull(action); }
     void reveal() { reveal.run(); }
+    /** The id of the Characters page tab in front (Back state records it; null when unknown); "roster" until the page installs one. */
+    void onPageTab(Supplier<String> current) { pageTab = Objects.requireNonNull(current); }
+    /** Brings a named Characters page tab forward; Back uses it to return to the tab its state was captured on. No-op until installed. */
+    void onBringTabForward(Consumer<String> action) { bringTabForward = Objects.requireNonNull(action); }
+    void bringTabForward(String id) { bringTabForward.accept(id); }
 
     /**
      * Shows one character's sheet.
@@ -64,7 +73,9 @@ public final class CharacterRosterView extends JPanel {
     public boolean showingSheet() { return sheetShowing; }
     public CharacterJournalGUI listPanel() { return list; }
     public CharacterSheet sheet() { return sheet; }
-    CharactersRouteTarget.CharactersState state() { return new CharactersRouteTarget.CharactersState(sheetShowing, sheet.key(), sheet.selectedTab()); }
+    CharactersRouteTarget.CharactersState state() {
+        return new CharactersRouteTarget.CharactersState(sheetShowing, sheet.key(), sheet.selectedTab(), pageTab.get());
+    }
     /** The sheet's character while it shows, else the list's selected character; null when neither. */
     String currentKey() { return sheetShowing && sheet.key() != null ? sheet.key() : list.selectedKey(); }
 

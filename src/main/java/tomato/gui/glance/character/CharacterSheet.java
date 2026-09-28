@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.event.HierarchyEvent;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.Executor;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.CharacterJournal.AccountRecord;
@@ -22,17 +23,22 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.Navigator;
 import tomato.gui.stats.Formatters;
+import tomato.planning.PlanningMetadata;
+import tomato.planning.PlanningStore;
 
 /**
  * One character's full page on the Characters Roster tab: a header (back link, identity, Mark dead or Restore alive, status
- * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear, Exalts and Build are slots whose
- * content SheetPresenter sets ({@link #setTab}); Death annotation shows only while the character is marked dead (spec §6.2).
+ * banners and the snapshot evidence) over {@code CustomizableTabs("character")}. Overview, Gear, Exalts, Pet, Fame and Build are
+ * slots whose content SheetPresenter sets ({@link #setTab}; Fame through its own FamePresenter); Death
+ * annotation shows only while the character is marked dead (spec §6.2).
  * - SheetPresenter reads the journal and builds the model off the EDT; {@link #loaded} shows each read. Until the read of the
  *   opened key arrives the sheet says "Loading…" and nothing acts ({@link #ready}); a failed build shows a warn banner (spec §7).
  * - Snapshot evidence and the tab hint are provenance: Analyst mode only (spec §3.2).
  * - A notes draft is saved when another character opens and whenever the sheet hides (another card, Back, another Characters
  *   tab, closing the workspace); refreshes never replace it.
  * - An unreadable journal or a failed save shows a warn banner.
+ * - Goals shows this character's goal cards (GoalCards) over the account-wide Manage goals panel; the cards rebuild only when
+ *   the journal read, the goals store's saved plan for this character's account, the definitions or the dungeon mapping moved.
  * The refresh timer runs only while the sheet shows. EDT only.
  */
 public final class CharacterSheet extends JPanel {
@@ -62,9 +68,13 @@ public final class CharacterSheet extends JPanel {
     private final JTextArea notes = new JTextArea(3, 30);
     private final DefaultTableModel metadataModel = model("Field", "Value", "Field evidence");
     private final CharacterPlanningPanel planning;
+    /** The Goals tab: this character's goal cards, with {@link #planning} (Manage goals) below them. */
+    private final GoalCards goals;
+    /** What the goal cards last showed; they rebuild only when one of these inputs moved. */
+    private GoalInputs goalsShown;
     private final CharacterDeathPanel deathPanel;
     private final javax.swing.Timer timer;
-    /** Header identity and the Overview, Gear, Exalts and Build tabs (Tasks 5–8), built off the EDT. */
+    /** Header identity and the Overview, Gear, Exalts, Pet, Fame and Build tabs, built off the EDT. */
     private final SheetPresenter presenter;
     private Runnable backAction = () -> { };
     /** {@code loadedKey}: the key whose journal read this sheet shows; the actions wait until it equals {@code key}. */
@@ -88,12 +98,16 @@ public final class CharacterSheet extends JPanel {
     private RosterDefinitions definitions = RosterDefinitions.empty();
     private long revision = -1;
 
-    public CharacterSheet(SheetContext context) {
+    public CharacterSheet(SheetContext context) { this(context, null); }
+
+    /** Tests: {@code worker} runs the presenter's builds one at a time (null: the shared "character-sheet" thread). */
+    CharacterSheet(SheetContext context, Executor worker) {
         super(new BorderLayout());
         this.context = Objects.requireNonNull(context, "context");
         setName("character-sheet");
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         planning = new CharacterPlanningPanel(context.plans());
+        goals = new GoalCards(context.mode(), planning);
         deathPanel = new CharacterDeathPanel(context.journal());
         back.setName("character-sheet-back"); back.setToolTipText("Back to the character list");
         back.getAccessibleContext().setAccessibleName("Back to Characters");
@@ -122,8 +136,11 @@ public final class CharacterSheet extends JPanel {
         tabs.add("overview", "Overview", slot("overview", new JPanel())) // SheetPresenter sets the Overview tab
             .add("gear", "Gear", slot("gear", new JPanel())) // SheetPresenter sets the Gear tab
             .add("exalts", "Exalts", slot("exalts", new JPanel())) // SheetPresenter sets the Exalts tab
+            // P3b: new users get Pet and Fame here; a saved order gets them appended (CustomizableTabs.order), as Build was.
+            .add("pet", "Pet", slot("pet", new JPanel())) // SheetPresenter sets the Pet tab
+            .add("fame", "Fame", slot("fame", new JPanel())) // SheetPresenter sets the Fame tab (FamePresenter)
             .add("build", "Build", slot("build", new JPanel())) // SheetPresenter hosts Build (MyInfoGUI) here
-            .add("goals", "Goals", planning)
+            .add("goals", "Goals", goalsTab()) // the goal cards, then Manage goals (the account-wide panel)
             .add("notes", "Notes", notePanel)
             // Raw field provenance is diagnostic: Analyst mode only (spec §3.2); the saved order still includes it.
             .addAnalyst("evidence", "Snapshot evidence", ContentStyle.tableScroll(table(metadataModel), 3))
@@ -168,8 +185,12 @@ public final class CharacterSheet extends JPanel {
             if (isShowing()) { timer.start(); refresh(); } else { timer.stop(); saveDraft(); }
         });
         fill();
-        presenter = new SheetPresenter(this, context); // after every tab exists: it sets the identity and the tabs it owns
+        // After every tab exists: the presenter sets the identity and the tabs it owns.
+        presenter = worker == null ? new SheetPresenter(this, context) : new SheetPresenter(this, context, worker);
     }
+
+    /** EDT: the model the presenter last applied, or null (loading, failed, or a key the journal lacks). */
+    SheetModel model() { return presenter.model(); }
 
     @Override public void removeNotify() { saveDraft(); timer.stop(); super.removeNotify(); }
 
@@ -208,8 +229,14 @@ public final class CharacterSheet extends JPanel {
      * forced by a conditional tab (Death) disappearing, not the tab of the character now opening.
      */
     public boolean resettingTabs() { return resettingTabs; }
+    /** The selected tab's id (the Fame tab reads history only while it shows). */
     public String selectedTab() { return tabs.selectedId(); }
     public CustomizableTabs tabs() { return tabs; }
+    /**
+     * Explicit navigation within the open sheet (the Overview's pet card): shows the tab if the user hid it, then selects it. A
+     * conditional tab not offered yet is retried once, as {@link #open} does.
+     */
+    void openTab(String id) { requestTab(Objects.requireNonNull(id, "id"), true); }
     /**
      * Selects a tab without showing it: startup and saved-state restore keep a hidden tab hidden. A conditional tab (Death)
      * may not be offered yet while the record loads, so this is retried once, select-only, from {@link #loaded}.
@@ -231,7 +258,7 @@ public final class CharacterSheet extends JPanel {
         context.journal().notes(filledKey, notes.getText()); record.notes = notes.getText();
     }
 
-    /** Replaces a slot tab's content (overview, gear, exalts, build); its id, title, order and hidden state are unchanged. */
+    /** Replaces a slot tab's content (overview, gear, exalts, pet, fame, build); its id, title, order and hidden state are unchanged. */
     void setTab(String id, JComponent content) {
         JPanel slot = slots.get(id);
         if (slot == null) throw new IllegalArgumentException("Not a replaceable sheet tab: " + id);
@@ -260,6 +287,30 @@ public final class CharacterSheet extends JPanel {
         if (key != null && (isShowing() || !isDisplayable())) { presenter.refresh(); shown(); }
     }
 
+    /**
+     * The Goals tab: the cards, then Manage goals, with no scroll pane of their own. A scroll pane here scrolled inside the sheet
+     * page, which scrolls too, and showed two vertical scroll bars side by side (P3b evidence review). Instead the tab's minimum
+     * height follows the selection:
+     * - While Goals shows: its whole content's height, so the sheet page (the only scroller) scrolls it.
+     * - While another tab shows: Manage goals' own minimum, as when that panel was the whole tab. The tab strip's minimum is its
+     *   tallest tab's, and the sheet page keeps it for every tab before it scrolls instead of squeezing them, so every other tab
+     *   keeps the minimum height it had (Task 9's floor) and is never stretched to the goals' height.
+     * JTabbedPane revalidates on every selection change, so the sheet page measures again when Goals is chosen or left.
+     */
+    private JComponent goalsTab() {
+        JPanel tab = new JPanel(new BorderLayout()) {
+            @Override public Dimension getMinimumSize() {
+                int floor = planning.getMinimumSize().height;
+                boolean showing = tabs.component().getSelectedComponent() == this;
+                return new Dimension(0, showing ? Math.max(floor, getPreferredSize().height) : floor);
+            }
+        };
+        tab.setOpaque(false);
+        tab.setBorder(BorderFactory.createEmptyBorder(Tokens.S, 0, Tokens.S, 0)); // the inset SheetViews.scroll gave it
+        tab.add(goals, BorderLayout.NORTH);
+        return tab;
+    }
+
     private JPanel slot(String id, JComponent content) {
         JPanel slot = new JPanel(new BorderLayout()); slot.setName("character-tab-" + id);
         slot.add(content, BorderLayout.CENTER); slots.put(id, slot);
@@ -283,8 +334,11 @@ public final class CharacterSheet extends JPanel {
         shown();
     }
 
-    /** A build failed (spec §7: never silent): a warn banner; nothing acts until a later build shows this character. */
-    void failed(RuntimeException failure) {
+    /**
+     * A build failed (spec §7: never silent), with any Throwable, Errors included: a warn banner; nothing acts until a later
+     * build shows this character. The presenter has already logged it with its stack trace.
+     */
+    void failed(Throwable failure) {
         String reason = failure.getMessage() == null || failure.getMessage().isBlank() ? failure.getClass().getSimpleName() : failure.getMessage();
         status.setTone(Tokens.Tone.WARN); status.setText("This character could not be shown: " + reason); status.setVisible(true);
     }
@@ -297,6 +351,36 @@ public final class CharacterSheet extends JPanel {
         storage.setVisible(problem != null);
         deathPanel.showRecord(record);
         planning.refresh(records, accounts, definitions);
+        goalCards();
+    }
+
+    /**
+     * The inputs of the goal cards: the journal read (its record and revision), the goals store's saved plan for the record's
+     * account (revision, readiness and status), and the definitions and dungeon mapping, which compare by identity (each is a new
+     * object once it loads).
+     */
+    private record GoalInputs(CharacterRecord record, long revision, long planRevision, boolean ready, boolean readOnly, String status,
+                              RosterDefinitions definitions, PlanningMetadata metadata) {}
+
+    /**
+     * Rebuilds the goal cards when an input moved, else leaves them alone (refresh runs once a second). They read only the saved
+     * plan of the record's own account (a detached in-memory copy, read on the EDT as Manage goals reads it) and that account's
+     * record, never the account chosen in Manage goals. Until the store has read the saved plans, or when it cannot, the cards
+     * area shows the store's status instead of "No goals": the goals are unknown then.
+     */
+    private void goalCards() {
+        CharacterRecord r = record;
+        PlanningStore.Snapshot saved = r == null ? null : context.plans().snapshot(r.account);
+        PlanningMetadata metadata = PlanningMetadata.current();
+        GoalInputs inputs = new GoalInputs(r, revision, saved == null ? -1 : saved.revision, saved != null && saved.ready,
+            saved != null && saved.readOnly, saved == null ? null : saved.status, definitions, metadata);
+        if (inputs.equals(goalsShown)) return;
+        goalsShown = inputs;
+        if (r == null) { goals.apply("Goals", null, null); return; } // loading, or not in the journal: nothing to show
+        AccountRecord account = null;
+        for (AccountRecord a : accounts) if (Objects.equals(a.key, r.account)) account = a;
+        goals.apply(GoalCardsModel.title(r), saved.ready ? GoalCardsModel.build(r, saved.plan(), account, definitions, metadata) : List.of(),
+            saved.ready && !saved.readOnly ? null : saved.status);
     }
 
     /** Mark dead or Restore alive, then wait for the re-read that shows the new state: a second click never acts on the old one. */

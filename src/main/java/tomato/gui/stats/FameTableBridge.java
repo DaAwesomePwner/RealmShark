@@ -35,11 +35,19 @@ public final class FameTableBridge {
 
     // --- Fame Updates ---
 
-    /** A captured observation is indivisible with respect to session saves and resets. */
+    /** A captured observation is indivisible with respect to session saves and resets. Its history sample has no account. */
     public static void observeFame(int charId, long fame, long time, String className) {
+        observeFame(charId, null, fame, time, className);
+    }
+
+    /**
+     * As above; {@code account} is the player's journal account key (null while not known), recorded with the history sample so
+     * the character's fame history is exact by account and character id. The fame table and graph are unchanged.
+     */
+    public static void observeFame(int charId, String account, long fame, long time, String className) {
         FameTableBridge bridge = INSTANCE;
         synchronized (bridge) {
-            tomato.history.AppHistory.fame(charId, fame, time, className);
+            tomato.history.AppHistory.fame(charId, account, fame, time, className);
             if (bridge.fameTrackerGUI != null) bridge.fameTrackerGUI.trackCapturedFame(charId, fame, time);
             if (bridge.fameTablePanel != null) bridge.fameTablePanel.updateFame(charId, fame, time, className);
         }

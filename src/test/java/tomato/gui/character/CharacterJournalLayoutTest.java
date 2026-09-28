@@ -43,7 +43,8 @@ public class CharacterJournalLayoutTest {
         journal = new CharacterJournal(temp.getRoot().toPath().resolve("journal.json"));
         SwingUtilities.invokeAndWait(() -> {
             oldFont = ContentStyle.body(); oldLookAndFeel = UIManager.getLookAndFeel();
-            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character", "ui.filters.characters.open"}) {
+            for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.characters", "ui.tabs.character", "ui.filters.characters.open",
+                    "ui.collapse.character-goals-manage"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -189,12 +190,14 @@ public class CharacterJournalLayoutTest {
             reachable(button(sheet, "Mark dead"));
             assertTrue(button(sheet, "Mark dead").isEnabled());
         });
-        for (String id : new String[]{"overview", "gear", "exalts", "build", "goals", "notes", "death"}) {
+        for (String id : new String[]{"overview", "gear", "exalts", "pet", "fame", "build", "goals", "notes", "death"}) {
             if ("death".equals(id)) { // shown only for a character marked dead: mark it here, restore it after the loop
                 SwingUtilities.invokeAndWait(() -> button(sheet, "Mark dead").doClick());
                 tomato.gui.activity.SnapshotTestSupport.await(sheet::ready);
             }
             SwingUtilities.invokeAndWait(() -> sheet.tabs().select(id));
+            if ("goals".equals(id)) showManageGoals(); // P3b: the goals panel sits below the goal cards
+            if ("fame".equals(id)) awaitFame();
             settle();
             SwingUtilities.invokeAndWait(() -> {
                 JTabbedPane tabs = named(sheet, "character-tabs", JTabbedPane.class);
@@ -223,6 +226,15 @@ public class CharacterJournalLayoutTest {
                     reachable(named(sheet, "character-gear-slot-11", JComponent.class));
                 } else if ("exalts".equals(id)) {
                     reachable(named(sheet, "character-exalts-empty", JComponent.class));
+                } else if ("pet".equals(id)) {
+                    reachable(named(sheet, "character-pet-empty", JComponent.class)); // no character list was read: the pet is unknown
+                } else if ("fame".equals(id)) {
+                    // The real Fame tab fills its slot. The test JVM starts no history store (AppHistory.store() is null), so its read
+                    // is empty and the empty state shows: it must fit or scroll into view like every other tab's content.
+                    assertSame(named(sheet, "character-tab-fame", JComponent.class), tabs.getSelectedComponent());
+                    assertTrue("The Fame tab is the selected slot's content",
+                        SwingUtilities.isDescendingFrom(named(sheet, "character-fame", JComponent.class), tabs.getSelectedComponent()));
+                    reachable(named(sheet, "character-fame-empty", JComponent.class));
                 } else if ("build".equals(id)) {
                     // Build fills its tab and scrolls itself, so it is checked for its place and width rather than for fitting whole.
                     JComponent build = named(sheet, "character-build", JComponent.class);
@@ -298,6 +310,33 @@ public class CharacterJournalLayoutTest {
             assertEquals("Draft survives capture and background save", notesFor(reopened, draftKey.get()));
             assertEquals("Explicitly saved notes", notesFor(reopened, savedKey.get()));
         }
+    }
+
+    /**
+     * P3b: the account-wide goals panel sits below the goal cards; Simple mode keeps it in the collapsed "Manage goals" section.
+     * Open it as the user does and let its opening motion (at most Motion.MAX_MILLIS) finish before measuring.
+     */
+    private void showManageGoals() throws Exception {
+        boolean[] opened = {false};
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.kit.Collapsible manage = named(sheet, "character-goals-manage", tomato.gui.kit.Collapsible.class);
+            assertNotNull("Manage goals sits below the goal cards", manage);
+            if (manage.isVisible() && !manage.expanded()) { manage.toggle().doClick(); opened[0] = true; } // Analyst shows the panel already
+        });
+        if (!opened[0]) return;
+        long settled = System.nanoTime() + 4L * tomato.gui.kit.Motion.MAX_MILLIS * 1_000_000L;
+        tomato.gui.activity.SnapshotTestSupport.await(() -> System.nanoTime() >= settled); // the EDT runs the motion's timer meanwhile
+    }
+
+    /**
+     * The Fame tab applies its first read off the EDT ("character-fame", FamePresenter) once the sheet's own build has made its Fame
+     * tile; until then it shows nothing. Wait until its content (tiles, then the chart or the empty state) is visible.
+     */
+    private void awaitFame() {
+        tomato.gui.activity.SnapshotTestSupport.await(() -> {
+            JComponent content = named(sheet, "character-fame-content", JComponent.class);
+            return content != null && content.isVisible();
+        });
     }
 
     private static String keyForSelectedCharacter(JTable roster) {

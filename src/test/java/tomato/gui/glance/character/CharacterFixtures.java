@@ -3,14 +3,23 @@ package tomato.gui.glance.character;
 import java.io.IOException;
 import java.io.StringReader;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import packets.data.StatData;
+import packets.data.enums.StatType;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.CharacterJournalTest;
 import tomato.backend.data.LiveCharacter;
+import tomato.backend.data.PetDefinitions;
+import tomato.backend.data.ProgressionData;
 import tomato.backend.data.RosterDefinitions;
+import tomato.backend.data.Stat;
 import tomato.gui.character.CharacterRosterQuery;
+import tomato.history.AppHistory;
+import tomato.planning.PlanData;
+import tomato.planning.PlanningMetadata;
 import tomato.realmshark.RealmCharacter;
 import tomato.realmshark.enums.CharacterClass;
 
@@ -41,18 +50,51 @@ public final class CharacterFixtures {
     private CharacterFixtures() {}
 
     /** A journal at {@code file} with the eight characters above (107 and 108 marked dead) and the Wizard's exalts. */
-    public static CharacterJournal journal(Path file, long now) {
+    public static CharacterJournal journal(Path file, long now) { return journal(file, now, false); }
+
+    /** The evidence journal's second account: hashed like every journal account, never observed, so the selector names it by its key. */
+    public static final String SECOND_ACCOUNT = CharacterJournal.accountKey("synthetic-second-account");
+    /** Exalt counts in canonical order (life, mana, atk, def, spd, dex, vit, wis) for the evidence journal's other classes. */
+    private static final Map<Integer, int[]> EXALTS = Map.of(
+        784, new int[]{75, 60, 55, 50, 75, 75, 50, 75},  // Priest: lowest tier 4, +20%
+        797, new int[]{75, 30, 75, 30, 50, 30, 30, 30},  // Warrior: tier 3
+        798, new int[]{40, 30, 30, 30, 30, 30, 30, 30},  // Knight: tier 3
+        799, new int[]{30, 30, 30, 30, 30, 30, 30, 30},  // Paladin: tier 3; the group's lowest count 30 gives +15%
+        775, new int[]{75, 75, 75, 75, 75, 75, 75, 75},  // Archer: every stat at tier 5, boost unknown (no weapon group)
+        768, new int[]{75, 75, 75, 75, 75, 75, 75, 80},  // Rogue: every stat at tier 5, +25%
+        801, new int[]{15, 5, 5, 0, 5, 5, 0, 5});        // Necromancer: tier 0
+
+    /**
+     * P3b evidence (Characters › Exalts and Pets): {@link #journal} plus two more equipped pets and exalt counts for every roster
+     * class and a second account. The P3a captures and every other test keep the plain journal.
+     * - Pets: the Archer (#105) carries "Second pet" (Rare, instance 5 105); the dead Necromancer (#107) carried the Wizard's
+     *   "Sample pet" (instance 5 101) six hours earlier, so the gallery shows one card equipped by both.
+     * - Exalts: the Wizard's WIZARD_EXALTS and seven more classes of this account (EXALTS); a second, never observed and so
+     *   unnamed account (SECOND_ACCOUNT) holds a Knight and a Paladin.
+     * With {@link #installWeaponGroups}, the tiles show +0% (Wizard, Necromancer: the Wizard has counts below 5), +20% (Priest),
+     * +15% (Warrior, Knight, Paladin), +25% (Rogue) and "Loot —" (Archer: no weapon group in the fixture assets).
+     */
+    public static CharacterJournal evidenceJournal(Path file, long now) {
+        CharacterJournal journal = journal(file, now, true);
+        Map<Integer, int[]> exalts = new HashMap<>();
+        for (Map.Entry<Integer, int[]> entry : EXALTS.entrySet()) exalts.put(entry.getKey(), ExaltFixtures.counts(entry.getValue()));
+        journal.exalts(ACCOUNT, exalts);
+        journal.exalts(SECOND_ACCOUNT, Map.of(798, ExaltFixtures.counts(15, 15, 20, 15, 15, 30, 15, 15), 799, ExaltFixtures.counts(5, 5, 5, 5, 5, 5, 5, 5)));
+        return journal;
+    }
+
+    private static CharacterJournal journal(Path file, long now, boolean evidence) {
         CharacterJournal journal = new CharacterJournal(file);
         String account = journal.observe(CharacterJournalTest.player("synthetic-account", WIZARD), 101);
         List<RealmCharacter> roster = new ArrayList<>();
-        for (int i = 0; i < ROSTER.size(); i++) roster.add(character(ROSTER.get(i), now - i * 3_600_000L));
+        for (int i = 0; i < ROSTER.size(); i++) roster.add(character(ROSTER.get(i), now - i * 3_600_000L, evidence));
         journal.mergeRoster(account, roster);
         journal.exalts(account, Map.of(WIZARD, WIZARD_EXALTS.clone()));
         for (Spec spec : ROSTER) if (spec.dead()) journal.markDead(ACCOUNT + ":" + spec.id(), true);
         return journal;
     }
 
-    private static RealmCharacter character(Spec spec, long receivedAt) {
+    private static RealmCharacter character(Spec spec, long receivedAt, boolean evidence) {
         RealmCharacter c = new RealmCharacter();
         c.charId = spec.id(); c.classNum = (short) spec.classId(); c.classString = spec.className(); c.level = spec.level();
         c.seasonal = spec.seasonal();
@@ -64,7 +106,138 @@ public final class CharacterFixtures {
         // The Wizard's weapon, ability and armor are known, its ring and inventory empty, its backpack not captured.
         if (spec.id() == 101) c.equipment = new int[]{2593, 2856, 3113, -1, -1, -1, -1, -1, -1, -1, -1, -1};
         c.receivedAt = receivedAt;
+        if (spec.id() == 101) pet(c);
+        if (spec.id() == 103) c.supplied(RealmCharacter.PET_NONE); // the Priest's list entry has an empty pet element: "No pet"
+        if (evidence && spec.id() == 105) // Rare "Second pet": Heal 50, Magic heal 45, Electric locked below max level 90
+            pet(c, 5_105, "Second pet", 0x7002, 2, 70, new int[]{11_000, 50, 407, 7_400, 45, 408, 0, 1, 406}, receivedAt);
+        if (evidence && spec.id() == 107) // the Wizard's pet, six hours earlier on the dead Necromancer (older values: Heal 88)
+            pet(c, 5_101, "Sample pet", 0x7001, 3, 90, new int[]{200_000, 88, 407, 50_000, 70, 408, 4_000, 38, 406}, receivedAt);
         return c;
+    }
+
+    /**
+     * The Wizard's pet as the character list reports it: "Sample pet", Legendary (rarity 3, max ability level 90), Heal level 90,
+     * Magic heal level 72 and Electric level 40. Skin 0 (no sprite: the placeholder); type 0x7001 (named only if pets.xml says so).
+     */
+    private static void pet(RealmCharacter c) {
+        c.petInstanceId = 5_101; c.petName = "Sample pet"; c.petType = 0x7001; c.petRarity = 3; c.petMaxAbilityPower = 90; c.petSkin = 0;
+        // [points, level, type] per slot; points agree with the levels under PetFeeding's formula.
+        c.petAbilitys = new int[]{236_000, 90, 407, 60_000, 72, 408, 5_000, 40, 406};
+        for (int stat : new int[]{81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95}) c.supplied("pet." + stat);
+        c.supplied("pet." + packets.data.enums.StatType.SKIN_ID.get());
+    }
+
+    /** A pet the character list reports at {@code at}; {@code abilities}: points, level and type per slot (points agree with PetFeeding). */
+    private static void pet(RealmCharacter c, int instanceId, String name, int type, int rarity, int max, int[] abilities, long at) {
+        c.petInstanceId = instanceId; c.petName = name; c.petType = type; c.petRarity = rarity; c.petMaxAbilityPower = max; c.petSkin = 0;
+        c.petAbilitys = abilities.clone();
+        for (int stat : new int[]{81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95}) c.supplied("pet." + stat, at, "Character list");
+        c.supplied("pet." + StatType.SKIN_ID.get(), at, "Character list");
+    }
+
+    /**
+     * Pet names for the evidence pets from a synthetic {@code xml/pets.xml} under {@code root}: 0x7001 (the Wizard's) "Canine",
+     * 0x7002 (the Archer's) "Feline", 0x7003 (the Pet Yard's "Yard pet") "Aquatic". Install with PetDefinitions.install.
+     */
+    public static PetDefinitions petNames(Path root) throws IOException {
+        Path xml = Files.createDirectories(root.resolve("xml")).resolve("pets.xml");
+        Files.writeString(xml, "<Objects><Object type='0x7001' id='Sample'><Family>Canine</Family></Object>"
+            + "<Object type='0x7002' id='Second'><Family>Feline</Family></Object><Object type='0x7003' id='Yard'><Family>Aquatic</Family></Object></Objects>");
+        return PetDefinitions.read(root);
+    }
+
+    /**
+     * The player enters the Pet Yard on {@link #ACCOUNT} at {@code at}: capture's pet scope moves to the account and sees two yard
+     * pets: the Archer's "Second pet" (instance 5 105) with newer values (Heal 51), which merges into its equipped card, and "Yard
+     * pet" (instance 5 200, Uncommon, max level 50, Heal 30, Magic heal 12, Electric locked), which no character equips.
+     */
+    public static void enterPetYard(ProgressionData source, long at) {
+        source.reset(ACCOUNT, "Pet Yard visit");
+        yardPet(source, 11, at, 5_105, "Second pet", 0x7002, 2, 70, new int[]{12_000, 51, 407, 7_400, 45, 408, 0, 1, 406});
+        yardPet(source, 12, at, 5_200, "Yard pet", 0x7003, 1, 50, new int[]{2_150, 30, 407, 350, 12, 408, 0, 1, 406});
+    }
+
+    private static void yardPet(ProgressionData source, int objectId, long at, int instanceId, String name, int type, int rarity, int max, int[] abilities) {
+        StatType[] slots = {StatType.PET_FIRST_ABILITY_POINT_STAT, StatType.PET_FIRST_ABILITY_POWER_STAT, StatType.PET_FIRST_ABILITY_TYPE_STAT,
+            StatType.PET_SECOND_ABILITY_POINT_STAT, StatType.PET_SECOND_ABILITY_POWER_STAT, StatType.PET_SECOND_ABILITY_TYPE_STAT,
+            StatType.PET_THIRD_ABILITY_POINT_STAT, StatType.PET_THIRD_ABILITY_POWER_STAT, StatType.PET_THIRD_ABILITY_TYPE_STAT};
+        List<StatData> stats = new ArrayList<>(List.of(stat(StatType.PET_INSTANCE_ID_STAT, instanceId), stat(StatType.PET_TYPE_STAT, type),
+            stat(StatType.PET_RARITY_STAT, rarity), stat(StatType.PET_MAX_ABILITY_POWER_STAT, max), stat(StatType.SKIN_ID, 0)));
+        StatData label = stat(StatType.PET_NAME_STAT, 0); label.stringStatValue = name; stats.add(label);
+        for (int i = 0; i < slots.length; i++) stats.add(stat(slots[i], abilities[i]));
+        source.pet(source.scope(), objectId, new Stat(stats.toArray(new StatData[0])), at, "Pet Yard capture", Collections.emptyMap());
+    }
+
+    private static StatData stat(StatType type, int value) {
+        StatData stat = new StatData(); stat.statType = type; stat.statTypeNum = type.get(); stat.statValue = value; return stat;
+    }
+
+    /**
+     * Saved fame history of the Wizard (KEY) under a SessionStore {@code root}, relative to {@code now}, for Sheet › Fame:
+     * - two days ago (a 45-minute session): 1,000, 1,060, 1,120 and 1,180 over 40 minutes; yesterday (30 minutes): 1,180, 1,210
+     *   and 1,234 over 25 minutes. Every one of these readings carries ACCOUNT.
+     * - three readings of character id 101 written before readings recorded the account (the "older readings" caption), and one
+     *   of SECOND_ACCOUNT's #101, which the Fame tab never shows.
+     */
+    public static void fameHistory(Path root, long now) throws IOException {
+        long minute = 60_000L, first = now - 2 * 24 * 3_600_000L, second = now - 24 * 3_600_000L;
+        String a = FameFixtures.id("evidence-first"), b = FameFixtures.id("evidence-second");
+        FameFixtures.session(root, a, first, first + 45 * minute);
+        FameFixtures.fame(root, a, fame(ACCOUNT, 1_000, first + minute), legacy(940, first + 2 * minute), fame(ACCOUNT, 1_060, first + 12 * minute),
+            fame(SECOND_ACCOUNT, 7_700, first + 13 * minute), legacy(990, first + 20 * minute), fame(ACCOUNT, 1_120, first + 25 * minute),
+            fame(ACCOUNT, 1_180, first + 41 * minute));
+        FameFixtures.session(root, b, second, second + 30 * minute);
+        FameFixtures.fame(root, b, fame(ACCOUNT, 1_180, second + minute), legacy(1_010, second + 3 * minute), fame(ACCOUNT, 1_210, second + 14 * minute),
+            fame(ACCOUNT, 1_234, second + 26 * minute));
+    }
+
+    private static AppHistory.FameSample fame(String account, long fame, long time) { return new AppHistory.FameSample(101, account, fame, time, "Wizard"); }
+    private static AppHistory.FameSample legacy(long fame, long time) { return new AppHistory.FameSample(101, fame, time, "Wizard"); }
+
+    /**
+     * {@code plan} plus the Wizard's goals as Manage goals pins them: stat goals WIS → 60 (3 potions to go), Life → 670 and SPD → 50
+     * (complete), and Wizard exalt goals Life tier 5 (74 of 75), Dex tier 5 (complete) and Wis tier 3 (15 of 30).
+     */
+    public static PlanData.AccountPlan goals(PlanData.AccountPlan plan, RosterDefinitions defs, PlanningMetadata metadata, long now) {
+        PlanData.AccountPlan next = PlanData.copy(plan);
+        for (int[] goal : new int[][]{{7, 60}, {0, 670}, {4, 50}}) SheetFixtures.statGoal(next, KEY, goal[0], goal[1], defs, now);
+        for (int[] goal : new int[][]{{0, 5}, {5, 5}, {7, 3}}) SheetFixtures.exaltGoal(next, WIZARD, goal[0], goal[1], metadata, now);
+        return next;
+    }
+
+    /**
+     * Makes {@code CharacterClass.weaponClasses} name synthetic weapon groups until the returned handle is closed: Wizard and
+     * Necromancer; Warrior, Knight and Paladin; the Priest alone; the Rogue alone. The Archer has none (its loot boost is unknown).
+     */
+    public static AutoCloseable installWeaponGroups() throws ReflectiveOperationException {
+        TreeMap<Integer, int[]> groups = new TreeMap<>();
+        for (int[] group : new int[][]{{WIZARD, 801}, {797, 798, 799}, {784}, {768}}) for (int id : group) groups.put(id, group.clone());
+        Runnable undo = swap(CharacterClass.class, "WEAPON_CLASSES", groups);
+        return undo::run;
+    }
+
+    /**
+     * Makes {@code PlanningMetadata.current()} the dungeon mapping {@link SheetFixtures#dungeonMapping} reads under {@code root}
+     * (Life is earned in "Fixture Vault" and "Second Vault") until the returned handle is closed. Waits for a running asset read.
+     */
+    public static AutoCloseable installDungeonMapping(Path root) throws Exception {
+        PlanningMetadata mapping = SheetFixtures.dungeonMapping(root);
+        PlanningMetadata.current(); // starts the asset read for this root when none ran yet
+        Field current = field(PlanningMetadata.class, "current"), requested = field(PlanningMetadata.class, "requested");
+        Field running = field(PlanningMetadata.class, "running");
+        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            synchronized (PlanningMetadata.class) {
+                if (!running.getBoolean(null)) {
+                    Object previous = current.get(null), previousRoot = requested.get(null);
+                    current.set(null, mapping);
+                    requested.set(null, assets.AssetCache.root());
+                    return () -> { synchronized (PlanningMetadata.class) { current.set(null, previous); requested.set(null, previousRoot); } };
+                }
+            }
+            if (System.nanoTime() > end) throw new AssertionError("The dungeon mapping reader did not finish");
+            Thread.sleep(20);
+        }
     }
 
     /** Class caps for every fixture class, as RosterDefinitions would read them from players.xml. */

@@ -41,8 +41,10 @@ final class RosterViews {
         List<CharacterRosterQuery.Row> rows();
         /** Whether the journal holds any character. */
         boolean saved();
-        /** The journal's storage problem (CharacterJournal.storageProblem()), or null. */
+        /** The journal's storage problem (CharacterJournal.storageProblem()), or null: a warn banner, never by itself "unavailable". */
         String problem();
+        /** Whether the journal cannot be read (CharacterJournal.readable() is false): the only case the gallery is "unavailable". */
+        boolean unreadable();
         /** The in-game character's journal key (with Home's map-change grace), or null. */
         String liveKey();
         /** The list's selected character, or null. */
@@ -87,6 +89,7 @@ final class RosterViews {
     private final Source source;
     private final BiConsumer<String, String> write;
     private final Timer live;
+    private Runnable viewChanged = () -> { };
     private boolean galleryShown, ready;
     private String shownLive;
 
@@ -143,6 +146,8 @@ final class RosterViews {
     CharacterGallery gallery() { return gallery; }
     boolean galleryShown() { return galleryShown; }
     Sort sort() { return (Sort) sort.getSelectedItem(); }
+    /** Runs after every Gallery | Table switch (the roster's footer guides only in the Table view, which has no empty state). */
+    void onViewChanged(Runnable listener) { viewChanged = Objects.requireNonNull(listener, "listener"); }
 
     /** Re-reads the visible rows into the gallery; while the table shows, the next switch to the gallery does it instead. EDT. */
     void refresh() {
@@ -156,7 +161,7 @@ final class RosterViews {
             (card.dead() ? dead : alive).add(card);
         }
         shownLive = key;
-        gallery.apply(alive, dead, visible.isEmpty() && source.saved(), source.problem());
+        gallery.apply(alive, dead, visible.isEmpty() && source.saved(), source.problem(), source.unreadable());
         // A refresh repeats the same selection far more often than it changes it (e.g. the periodic live-key check while in
         // game), so it must not fight a user who scrolled elsewhere; only a genuine selection change reveals it here.
         gallery.select(source.selectedKey(), false);
@@ -174,6 +179,7 @@ final class RosterViews {
         body.revalidate();
         body.repaint();
         if (show && ready) refresh();
+        viewChanged.run();
     }
 
     /** Analyst: the Gallery/Table toggle in the filter row; Simple: the other view in the ⋯ menu, hidden when nothing else is there. */

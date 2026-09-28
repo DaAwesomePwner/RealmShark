@@ -132,6 +132,34 @@ public class HomeArchiveTest {
         }
     }
 
+    /**
+     * Interleaved readings of character #7 (a Wizard) on two accounts in one session. As one series, account B's lower fame reads
+     * as a drop and account A's next reading as a gain of the whole difference between the two characters.
+     */
+    private static void interleaved(SessionStore store, String a, String b) throws Exception {
+        long start = store.started();
+        store.append("fame", new AppHistory.FameSample(7, a, 1_000, start + 1_000, "Wizard"));
+        store.append("fame", new AppHistory.FameSample(7, b, 50, start + 2_000, "Wizard"));
+        store.append("fame", new AppHistory.FameSample(7, a, 1_100, start + 3_000, "Wizard"));
+        store.append("fame", new AppHistory.FameSample(7, b, 80, start + 4_000, "Wizard"));
+        store.flush();
+    }
+
+    @Test public void twoAccountsWithTheSameCharacterAndClassInOneSessionAreTwoSeries() throws Exception {
+        String a = tomato.backend.data.CharacterJournal.accountKey("home-a"), b = tomato.backend.data.CharacterJournal.accountKey("home-b");
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
+            interleaved(store, a, b);
+            HomeArchive.Totals t = HomeArchive.read(store, SESSION, store.started() + 5_000, ZONE, List.of()).totals();
+            assertEquals("100 on account A plus 30 on account B", Long.valueOf(130), t.fameGained());
+        }
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
+            interleaved(store, null, null);
+            HomeArchive.Totals t = HomeArchive.read(store, SESSION, store.started() + 5_000, ZONE, List.of()).totals();
+            assertEquals("Legacy samples (no account) stay one series, exactly as before", Long.valueOf(1_050), t.fameGained());
+        }
+        assertEquals("The legacy fixture's totals are unchanged", Long.valueOf(310), read(fixture(), TODAY, NOW, List.of()).totals().fameGained());
+    }
+
     @Test public void sessionWindowCoversOnlyTheCurrentSession() throws Exception {
         Path root = fixture();
         try (SessionStore store = new SessionStore(root, true, "fixture")) {

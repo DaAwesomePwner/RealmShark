@@ -2,10 +2,14 @@ package tomato.gui.glance.character;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.FieldCapture;
 import tomato.backend.data.LiveCharacter;
+import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.modern.DisplayFormat;
@@ -14,6 +18,8 @@ import static tomato.gui.glance.character.SheetFixtures.*;
 
 /** Sheet rules on synthetic records: Home's potion arithmetic, vault counts only when known, unknown never 0, live only while playing. */
 public class SheetModelBuilderTest {
+    @Rule public TemporaryFolder temp = new TemporaryFolder();
+
     @Test public void potionsMaxedAndNeedsUseCapsAndVaultCounts() {
         CharacterJournal.AccountRecord account = account();
         account.vaultPotions = new int[]{0, 0, 0, 3, 0, 0, 0, 7}; account.vaultPotionsObservedAt = NOW - 3 * HOUR;
@@ -97,6 +103,60 @@ public class SheetModelBuilderTest {
         record.fields.put("stat.0", new FieldCapture(0, "Captured total minus boost")); // FieldCapture.at 0 means unknown timing
         SheetModel m = model(record, account(), null);
         assertEquals("Unknown timing never renders as an epoch date", "Captured total minus boost · Unknown", m.stats().evidence().get(0));
+    }
+
+    /**
+     * Tier labels are part of the model, computed off the EDT from the definitions this build was given (never the global
+     * RosterDefinitions.current()), so the gear section changes, and the tabs repaint, when the definitions finish loading.
+     */
+    @Test public void tierLabelsComeFromTheDefinitionsPassedToTheBuild() {
+        SheetModel.Gear gear = model(record(), account(), null).gear();
+        assertEquals("One label per slot", 28, gear.tiers().size());
+        assertEquals("Weapon UT; ability empty and armor not captured have none; ring T6", List.of("UT", "", "", "T6"), gear.tiers().subList(0, 4));
+        assertEquals("An explicit tier label on an inventory item", "T12", gear.tiers().get(4));
+        assertEquals("Empty and not-captured inventory and backpack slots have none", Collections.nCopies(23, ""), gear.tiers().subList(5, 28));
+        CharacterJournal.CharacterRecord undefined = record(); undefined.equipment[5] = 3_000;
+        assertEquals("An item the definitions do not hold has no label", "", model(undefined, account(), null).gear().tiers().get(5));
+        SheetModel.Gear playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", null)).gear();
+        assertEquals("The live equipped four are labeled too (2_003 has no definition)", List.of("UT", "", "", "T6"), playing.tiers().subList(0, 4));
+
+        SheetModel.Gear loading = SheetModelBuilder.build(record(), account(), null, RosterDefinitions.empty(), null, NOW).gear();
+        assertEquals("While the definitions load (or without them) every label is empty", Collections.nCopies(28, ""), loading.tiers());
+        assertEquals("…and a null definitions reference reads as empty definitions", Collections.nCopies(28, ""),
+            SheetModelBuilder.build(record(), account(), null, null, null, null, NOW).gear().tiers());
+        assertEquals("The slots themselves do not depend on the definitions", loading.slots(), gear.slots());
+        assertNotEquals("Labels arriving with the definitions change the gear section, so GearTab repaints it", loading, gear);
+    }
+
+    /** The sheet's pet is the record's own, named with the pet names the build was given (never the global PetDefinitions.current()). */
+    @Test public void petComesFromTheRecordWithNames() throws Exception {
+        CharacterJournal.CharacterRecord withPet = record(); withPet.pet = pet(NOW - HOUR);
+        PetDefinitions names = petNames(temp.getRoot().toPath());
+        PetSummary pet = model(withPet, account(), null, names).pet();
+        assertEquals(PetSummary.State.KNOWN, pet.state());
+        assertEquals("Sample pet", pet.title()); assertEquals("Rare", pet.rarity()); assertEquals("Canine", pet.family());
+        assertEquals(Integer.valueOf(70), pet.maxLevel());
+        assertEquals(List.of("Heal", "Magic heal", "Electric"), pet.abilities().stream().map(PetSummary.Ability::name).collect(Collectors.toList()));
+        assertEquals(List.of(false, false, true), pet.abilities().stream().map(PetSummary.Ability::locked).collect(Collectors.toList()));
+        assertEquals(NOW - HOUR, pet.observedAt()); assertEquals("Character list", pet.source());
+        assertEquals("The same summary PetSummary builds from the record", PetSummary.of(withPet.pet, names), pet);
+        assertNull("While the pet names load the family is unknown; everything else is known", model(withPet, account(), null).pet().family());
+        assertEquals("Rare", model(withPet, account(), null).pet().rarity());
+        assertNotEquals("Names arriving change the pet section, so the Pet tab repaints", model(withPet, account(), null), model(withPet, account(), null, names));
+    }
+
+    /** Unknown (no PetRecord) is never "No pet" (an explicitly empty pet element); every model carries a pet section. */
+    @Test public void noPetAndUnknownPetStayDistinct() {
+        SheetModel unknown = model(record(), account(), null);
+        assertSame(PetSummary.UNKNOWN, unknown.pet());
+        assertNull("Unknown shows no chip", unknown.pet().chip());
+        CharacterJournal.CharacterRecord none = record(); none.pet = noPet(NOW - HOUR);
+        PetSummary noPet = model(none, account(), null).pet();
+        assertEquals(PetSummary.State.NONE, noPet.state()); assertEquals("No pet", noPet.chip());
+        assertEquals(NOW - HOUR, noPet.observedAt());
+        assertNotEquals(unknown.pet(), noPet);
+        try { new SheetModel(unknown.key(), unknown.identity(), unknown.stats(), unknown.gear(), unknown.exalts(), null, null, null); fail("The pet section is never null"); }
+        catch (NullPointerException expected) { }
     }
 
     @Test public void aMapChangesBriefClearStillCountsAsInGame() {

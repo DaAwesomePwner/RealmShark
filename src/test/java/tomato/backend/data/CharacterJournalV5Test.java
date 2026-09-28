@@ -209,7 +209,7 @@ public class CharacterJournalV5Test {
         j.mergeRoster(ACCOUNT, List.of(bare));
         assertNull("A list that says nothing about a pet leaves it unknown", j.characterCopy(KEY).pet);
         j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3)));
-        RealmCharacter none = new RealmCharacter(); none.charId = 7; none.receivedAt = 6_000; none.supplied("pet.none", 6_000, "Character list");
+        RealmCharacter none = new RealmCharacter(); none.charId = 7; none.receivedAt = 6_000; none.supplied(RealmCharacter.PET_NONE, 6_000, "Character list");
         j.mergeRoster(ACCOUNT, List.of(none));
         CharacterJournal.PetRecord pet = j.characterCopy(KEY).pet;
         assertEquals("An explicitly empty pet is known: no pet", Boolean.TRUE, pet.absent);
@@ -281,6 +281,151 @@ public class CharacterJournalV5Test {
         assertNull("Readable and never failed: no problem", failing.storageProblem());
         failing.mergeRoster(ACCOUNT, List.of(listed(5_000, 3))); failing.save();
         assertTrue(failing.storageProblem(), failing.storageProblem().startsWith("Save failed"));
+    }
+
+    /** The failure flag, not the wording, decides: the status text is replaced by reflection to prove it. */
+    @Test public void aFailedSaveIsFlaggedUntilTheNextSuccessfulWrite() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+        Path path = temp.newFolder().toPath().resolve("journal.json");
+        CharacterJournal j = new CharacterJournal(path, (target, json) -> {
+            if (fail.get()) throw new java.io.IOException("Synthetic save failure");
+            Files.write(target, json.getBytes(StandardCharsets.UTF_8));
+        });
+        java.lang.reflect.Field status = CharacterJournal.class.getDeclaredField("storageStatus"); status.setAccessible(true);
+        j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3))); j.save();
+        assertTrue(j.readable());
+        assertNotNull("A failed save is a storage problem", j.storageProblem());
+        assertFalse("A failed save never reads as saving", j.storageStatus().startsWith("Saving"));
+        synchronized (j) { status.set(j, "Synthetic wording without the usual prefix"); }
+        assertEquals("The flag decides, not the text", "Synthetic wording without the usual prefix", j.storageProblem());
+        assertEquals("A failed save never reads as saving, whatever its text", "Synthetic wording without the usual prefix", j.storageStatus());
+        fail.set(false); j.save(); // dirty stays true after a failure, so the next save retries
+        assertNull("The next successful write clears it", j.storageProblem());
+        assertTrue(j.storageStatus(), j.storageStatus().startsWith("Saved"));
+        assertTrue(read(path).contains("\"version\": 5"));
+        synchronized (j) { status.set(j, "Save failed (an old message kept by mistake)"); }
+        assertNull("A success is not undone by a failure-like text", j.storageProblem());
+        j.notes(KEY, "pending");
+        assertEquals("Unsaved changes after a success read as saving", "Saving locally…", j.storageStatus());
+    }
+
+    /**
+     * A RuntimeException from the store is a failed save like an IOException: save() never throws it (the scheduled saver would be
+     * cancelled for good), the status says so, and the change stays dirty so the next save retries. The backup copy has no
+     * injectable seam, so only the write path is driven here.
+     */
+    @Test public void aRuntimeFailureInTheWriteIsAFailedSaveAndTheNextSaveRetries() throws Exception {
+        java.util.concurrent.atomic.AtomicBoolean fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+        Path path = temp.newFolder().toPath().resolve("journal.json");
+        CharacterJournal j = new CharacterJournal(path, (target, json) -> {
+            if (fail.getAndSet(false)) throw new java.nio.file.InvalidPathException(target.getFileName().toString(), "Synthetic runtime failure");
+            Files.write(target, json.getBytes(StandardCharsets.UTF_8));
+        });
+        j.mergeRoster(ACCOUNT, List.of(listed(5_000, 3)));
+        j.save();   // must not throw
+        assertTrue(j.readable());
+        assertNotNull("A runtime failure is a failed save", j.storageProblem());
+        assertEquals("The same text as a write IOException", "Save failed • check access to Characters/journal.json", j.storageProblem());
+        assertFalse("Nothing was written", Files.exists(path));
+        j.save();   // still dirty: retried
+        assertNull("The retry succeeds and clears the problem", j.storageProblem());
+        assertTrue(read(path).contains("\"version\": 5"));
+        assertEquals(Long.valueOf(30_000), new CharacterJournal(path).characterCopy(KEY).exp);
+    }
+
+    @Test public void aNoPetRecordWithAnyPetValueLoadsAsUnknown() throws Exception {
+        for (String value : new String[]{"\"skin\":100", "\"maxAbilityPower\":70", "\"abilityLevel\":[-1,5,-1]",
+                "\"abilityType\":[407,-1,-1]", "\"abilityPoints\":[-1,-1,0]"}) {
+            Path path = temp.newFolder().toPath().resolve("journal.json");
+            write(path, v3().replace("\"version\":3", "\"version\":5").replace("\"source\":\"Captured character\"}",
+                "\"source\":\"Captured character\",\"pet\":{\"absent\":true," + value + ",\"observedAt\":6000},\"hasBackpack\":true}"));
+            CharacterJournal j = new CharacterJournal(path);
+            assertTrue(value, j.readable());
+            assertNull("No pet and " + value + " at once is unknown", j.characterCopy(KEY).pet);
+            assertEquals("A neighbouring field is kept", Boolean.TRUE, j.characterCopy(KEY).hasBackpack);
+            j.notes(KEY, "writable"); j.save();
+            assertTrue(value, read(path).contains("\"version\": 5"));
+        }
+        Path plain = temp.newFolder().toPath().resolve("journal.json");
+        write(plain, v3().replace("\"version\":3", "\"version\":5").replace("\"source\":\"Captured character\"}",
+            "\"source\":\"Captured character\",\"pet\":{\"absent\":true,\"abilityType\":[-1,-1,-1],\"abilityLevel\":[-1,-1,-1],"
+                + "\"abilityPoints\":[-1,-1,-1],\"observedAt\":6000,\"source\":\"Character list\"}}"));
+        CharacterJournal.PetRecord none = new CharacterJournal(plain).characterCopy(KEY).pet;
+        assertEquals("-1 abilities are unknown, not pet values: still a known no pet", Boolean.TRUE, none.absent);
+        assertEquals(6_000, none.observedAt);
+    }
+
+    /** Valid v5 values for every field below; each case breaks exactly one of them. */
+    private String strictDocument(String exp, String backpack, String completions, String completionsAt, String seenByClass, String potions) {
+        return v3().replace("\"version\":3", "\"version\":5")
+            .replace("\"source\":\"Captured character\"}", "\"source\":\"Captured character\",\"exp\":" + exp + ",\"hasBackpack\":" + backpack
+                + ",\"dungeonCompletions\":" + completions + ",\"dungeonCompletionsObservedAt\":" + completionsAt + "}")
+            .replace("\"exaltSeen\":300", "\"exaltSeen\":300,\"exaltSeenByClass\":" + seenByClass + ",\"vaultPotions\":" + potions
+                + ",\"vaultPotionsObservedAt\":8000");
+    }
+
+    @Test public void v5FieldsParseStrictly() throws Exception {
+        String exp = "123", backpack = "true", completions = "{\"Pirate Cave\":3}", at = "5000", seen = "{\"782\":7000}", potions = "[3,1,2,1,0,0,0,0]";
+        Map<String, String> cases = new LinkedHashMap<>();
+        cases.put("hasBackpack \"yes\"", strictDocument(exp, "\"yes\"", completions, at, seen, potions));
+        cases.put("hasBackpack 1", strictDocument(exp, "1", completions, at, seen, potions));
+        cases.put("exp \"123\"", strictDocument("\"123\"", backpack, completions, at, seen, potions));
+        cases.put("exp 1.5", strictDocument("1.5", backpack, completions, at, seen, potions));
+        cases.put("dungeonCompletionsObservedAt \"5\"", strictDocument(exp, backpack, completions, "\"5\"", seen, potions));
+        cases.put("dungeonCompletions quoted count", strictDocument(exp, backpack, "{\"Pirate Cave\":\"3\"}", at, seen, potions));
+        cases.put("vaultPotions int overflow", strictDocument(exp, backpack, completions, at, seen, "[1,2,3,4,5,6,7,4294967297]"));
+        cases.put("vaultPotions quoted count", strictDocument(exp, backpack, completions, at, seen, "[1,\"2\",3,4,5,6,7,8]"));
+        cases.put("exaltSeenByClass quoted time", strictDocument(exp, backpack, completions, at, "{\"782\":\"7\"}", potions));
+        for (Map.Entry<String, String> c : cases.entrySet()) {
+            Path path = temp.newFolder().toPath().resolve("journal.json");
+            write(path, c.getValue());
+            CharacterJournal j = new CharacterJournal(path);
+            String name = c.getKey();
+            assertTrue(name + ": one malformed field never makes the journal read-only", j.readable());
+            CharacterJournal.CharacterRecord r = j.characterCopy(KEY);
+            CharacterJournal.AccountRecord a = j.accountCopy(ACCOUNT);
+            boolean field;
+            field = name.startsWith("exp "); assertEquals(name, field ? null : Long.valueOf(123), r.exp);
+            field = name.startsWith("hasBackpack "); assertEquals(name, field ? null : Boolean.TRUE, r.hasBackpack);
+            field = name.startsWith("dungeonCompletions "); assertEquals(name, field ? null : Map.of("Pirate Cave", 3), r.dungeonCompletions);
+            field = name.startsWith("dungeonCompletions"); assertEquals(name, field ? 0 : 5_000, r.dungeonCompletionsObservedAt);
+            field = name.startsWith("exaltSeenByClass "); assertEquals(name, field ? Map.of() : Map.of(782, 7_000L), a.exaltSeenByClass);
+            field = name.startsWith("vaultPotions "); assertArrayEquals(name, field ? null : new int[]{3, 1, 2, 1, 0, 0, 0, 0}, a.vaultPotions);
+            assertEquals(name + ": pre-v5 values load", 5, a.exalts.get(782)[0]);
+            assertEquals(name, "Sample", r.name);
+            j.notes(KEY, "still writable"); j.save();
+            assertTrue(name, read(path).contains("still writable")); assertTrue(name, read(path).contains("\"version\": 5"));
+        }
+        Path pet = temp.newFolder().toPath().resolve("journal.json");
+        write(pet, v3().replace("\"version\":3", "\"version\":5").replace("\"source\":\"Captured character\"}",
+            "\"source\":\"Captured character\",\"pet\":{\"instanceId\":42,\"rarity\":\"2\"},\"exp\":4294967297}"));
+        CharacterJournal.CharacterRecord loose = new CharacterJournal(pet).characterCopy(KEY);
+        assertNull("A pet with a quoted rarity is unknown", loose.pet);
+        assertEquals("A long beyond the int range is a valid long", Long.valueOf(4_294_967_297L), loose.exp);
+    }
+
+    @Test public void theBackupFailureStatusExplainsRecovery() throws Exception {
+        Path path = file(), backup = path.resolveSibling("journal.v4.bak");
+        String v4 = v3().replace("\"version\":3", "\"version\":4");
+        write(path, v4);
+        Files.createDirectory(backup); // something other than a file already occupies the backup path
+        CharacterJournal j = new CharacterJournal(path);
+        j.notes(KEY, "kept in memory"); j.save();
+        String problem = j.storageProblem();
+        assertNotNull(problem);
+        assertTrue(problem, problem.contains("journal.v4.bak"));
+        assertTrue(problem, problem.contains("journal.json is unchanged"));
+        assertTrue(problem, problem.contains("free disk space"));
+        assertTrue(problem, problem.contains("retries automatically"));
+        assertFalse("No absolute path in the text: " + problem, problem.contains(temp.getRoot().getAbsolutePath()));
+        assertEquals("The status bar shows the same guidance", problem, j.storageStatus());
+        assertEquals(v4, read(path));
+        Files.delete(backup); // the user clears the path
+        j.save();
+        assertNull("The retry succeeds and the status clears", j.storageProblem());
+        assertTrue(j.storageStatus(), j.storageStatus().startsWith("Saved"));
+        assertEquals("The backup is the pre-upgrade file", v4, read(backup));
+        assertTrue(read(path).contains("kept in memory")); assertTrue(read(path).contains("\"version\": 5"));
     }
 
     @Test public void copiesAreDeepAndEveryNewFieldSurvivesSaveAndReload() throws Exception {

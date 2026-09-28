@@ -10,6 +10,9 @@ import tomato.backend.data.*;
 import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.gui.myinfo.BuildEstimates;
+import tomato.planning.CharacterGoals;
+import tomato.planning.PlanData;
+import tomato.planning.PlanningMetadata;
 import tomato.realmshark.enums.CharacterClass;
 
 /** Synthetic character-sheet inputs: one Wizard of a hashed synthetic account. No capture and no personal data. */
@@ -37,11 +40,17 @@ public final class SheetFixtures {
         return () -> field.set(null, previous);
     }
 
-    /** Wizard caps (life, mana, atk, def, spd, dex, vit, wis) = 720, 252, 75, 25, 50, 75, 40, 60, from a players.xml fragment. */
+    /**
+     * Wizard caps (life, mana, atk, def, spd, dex, vit, wis) = 720, 252, 75, 25, 50, 75, 40, 60, from a players.xml fragment, and
+     * three items from an equip.xml fragment: 2_001 "UT", 2_004 "T6" (numeric tier), 2_010 "T12" (an explicit tier label).
+     * Items 2_003 (the live armor) and 3_000 have no definition, so their slots carry no tier label.
+     */
     public static RosterDefinitions defs() {
         String xml = "<Objects><Object type=\"782\"><MaxHitPoints max=\"720\"/><MaxMagicPoints max=\"252\"/><Attack max=\"75\"/>"
             + "<Defense max=\"25\"/><Speed max=\"50\"/><Dexterity max=\"75\"/><HpRegen max=\"40\"/><MpRegen max=\"60\"/></Object></Objects>";
-        try { return RosterDefinitions.parse(new StringReader(xml), null); } catch (IOException e) { throw new AssertionError(e); }
+        String equipment = "<Objects><Object type=\"2001\"><Labels>UT,WEAPON</Labels><Tier>14</Tier></Object>"
+            + "<Object type=\"2004\"><Tier>6</Tier></Object><Object type=\"2010\"><Labels>T12,ARMOR</Labels><Tier>11</Tier></Object></Objects>";
+        try { return RosterDefinitions.parse(new StringReader(xml), new StringReader(equipment)); } catch (IOException e) { throw new AssertionError(e); }
     }
 
     /** Wizard #7, 5 of 8 maxed (DEF needs 5, VIT 3, WIS 12); weapon and ring equipped, ability empty, armor not captured. */
@@ -79,9 +88,73 @@ public final class SheetFixtures {
             new int[]{9, 9, 9, 9, 9, 9, 9, 9}, build, NOW - 500);
     }
 
-    /** The builder with the fixture caps and no dungeon mapping (as while PlanningMetadata loads). */
+    /** The builder with the fixture caps, no dungeon mapping (as while PlanningMetadata loads) and no pet names (as while PetDefinitions loads). */
     public static SheetModel model(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live) {
-        return SheetModelBuilder.build(record, account, live, defs(), null, NOW);
+        return model(record, account, live, PetDefinitions.loading());
+    }
+
+    /** {@link #model(CharacterRecord, AccountRecord, LiveCharacter.Snapshot)} with the given pet names. */
+    public static SheetModel model(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, PetDefinitions pets) {
+        return SheetModelBuilder.build(record, account, live, pets, defs(), null, NOW);
+    }
+
+    /**
+     * A Rare pet (max ability level 70) as the character list reports it, observed at {@code observedAt}: Heal level 45 (7,200
+     * points), Magic heal level 30 (2,100 points) and Electric, locked below max level 90 (level 1, 0 points). Type 0x7001, which
+     * {@link #petNames} names "Canine"; skin 0 (no sprite: the placeholder).
+     */
+    public static CharacterJournal.PetRecord pet(long observedAt) {
+        CharacterJournal.PetRecord p = new CharacterJournal.PetRecord();
+        p.instanceId = 5_001L; p.name = "Sample pet"; p.type = 0x7001; p.rarity = 2; p.skin = 0; p.maxAbilityPower = 70;
+        p.abilityType = new int[]{407, 408, 406}; p.abilityLevel = new int[]{45, 30, 1}; p.abilityPoints = new int[]{7_200, 2_100, 0};
+        p.observedAt = observedAt; p.source = "Character list";
+        return p;
+    }
+
+    /** A known "No pet": the character list reported an empty pet element. */
+    public static CharacterJournal.PetRecord noPet(long observedAt) {
+        CharacterJournal.PetRecord p = new CharacterJournal.PetRecord();
+        p.absent = Boolean.TRUE; p.observedAt = observedAt; p.source = "Character list";
+        return p;
+    }
+
+    /**
+     * Pet names read from a synthetic {@code xml/pets.xml} under {@code root} (PetDefinitions.parse is package-private): type 0x7001
+     * is "Canine"; no other type is named.
+     */
+    public static PetDefinitions petNames(java.nio.file.Path root) throws IOException {
+        java.nio.file.Path xml = root.resolve("xml/pets.xml");
+        java.nio.file.Files.createDirectories(xml.getParent());
+        java.nio.file.Files.writeString(xml, "<Objects><Object type=\"0x7001\" id=\"Sample\"><Family>Canine</Family></Object></Objects>");
+        return PetDefinitions.read(root);
+    }
+
+    /** Pins a stat goal for the Wizard with journal key {@code key}, as Manage goals does (the target must be within the cap). */
+    public static void statGoal(PlanData.AccountPlan plan, String key, int stat, int target, RosterDefinitions defs, long now) {
+        CharacterRecord r = new CharacterRecord(); r.key = key; r.classId = WIZARD;
+        CharacterGoals.pinCharacter(plan, r, stat, target, defs, now);
+    }
+
+    /** Pins an exalt goal for {@code classId}, stamped with {@code metadata}'s version, as Manage goals does. */
+    public static void exaltGoal(PlanData.AccountPlan plan, int classId, int stat, int tier, PlanningMetadata metadata, long now) {
+        CharacterGoals.pinExalt(plan, classId, stat, tier, metadata, now);
+    }
+
+    /** A dungeon mapping read from a synthetic {@code xml/exaltationConfig.xml} under {@code root}: Life is earned in two dungeons, no other stat is mapped. */
+    public static PlanningMetadata dungeonMapping(java.nio.file.Path root) throws IOException {
+        java.nio.file.Path xml = root.resolve("xml/exaltationConfig.xml");
+        java.nio.file.Files.createDirectories(xml.getParent());
+        java.nio.file.Files.writeString(xml, "<Exaltation><Dungeons><Dungeon><Name>Fixture Vault</Name><PowerUp>LIFE</PowerUp></Dungeon>"
+            + "<Dungeon><Name>Second Vault</Name><PowerUp>LIFE</PowerUp></Dungeon></Dungeons></Exaltation>");
+        return PlanningMetadata.read(root);
+    }
+
+    /** {@code model} with only its identity's lastSeen moved: what two rebuilds of an unchanged character differ by while playing. */
+    public static SheetModel seenAgain(SheetModel model, long lastSeen) {
+        SheetModel.Identity i = model.identity();
+        SheetModel.Identity moved = new SheetModel.Identity(i.name(), i.classId(), i.className(), i.skin(), i.level(), i.fame(), i.seasonal(),
+            i.dead(), lastSeen, i.lastPlayed(), i.playing(), i.maxed());
+        return new SheetModel(model.key(), moved, model.stats(), model.gear(), model.exalts(), model.pet(), model.death(), model.live());
     }
 
     /** Observes one Wizard #7 of the synthetic account (name "Sample") and returns its journal key. */

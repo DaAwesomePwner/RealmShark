@@ -9,6 +9,7 @@ import packets.data.QuestData;
 import packets.packetcapture.logger.DiscoveryLog;
 import tomato.backend.data.*;
 import tomato.gui.dps.MeterSummary;
+import tomato.gui.glance.character.PetSummary;
 import tomato.gui.glance.home.HomeModel.State;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.kit.DisplayValue;
@@ -46,19 +47,39 @@ public final class HomeModelBuilder {
      * {@code live} is LiveCharacter.current() with {@code lastSeenAt} 0, or (not in game) LiveCharacter.lastKnown() with
      * LiveCharacter.lastSeenAt() and {@code boundary}, LiveCharacter.lastBoundary(); see {@link #stillCurrent}.
      * {@code estimates} are Build's estimates from {@code live}'s detached inputs (null = none). {@code last} is the journal's
-     * most recent character; {@code account} the saved record of the shown character's account.
+     * most recent character; {@code account} the saved record of the shown character's account. {@code records} reads one journal
+     * record by key (a deep copy, CharacterJournal.characterCopy): a live or last-known hero's pet chip comes from its own record,
+     * read by the snapshot's journal key; a saved hero's from {@code last}.
      */
     public static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
-                                      CharacterJournal.AccountRecord account, long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
-        return hero(live, estimates, last, account, lastSeenAt, boundary, now, CLASS_CAPS, CLASS_NAMES);
+                                      CharacterJournal.AccountRecord account, Function<String, CharacterJournal.CharacterRecord> records,
+                                      long lastSeenAt, LiveCharacter.Boundary boundary, long now) {
+        return hero(live, estimates, last, account, records, lastSeenAt, boundary, now, CLASS_CAPS, CLASS_NAMES);
     }
 
     static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
-                               CharacterJournal.AccountRecord account, long lastSeenAt, LiveCharacter.Boundary boundary, long now,
-                               IntFunction<int[]> caps, IntFunction<String> names) {
-        if (live != null) return fromLive(live, estimates, account, stillCurrent(lastSeenAt, boundary, now), lastSeenAt, caps, names);
-        if (last != null) return fromJournal(last, account, caps, names);
+                               CharacterJournal.AccountRecord account, Function<String, CharacterJournal.CharacterRecord> records,
+                               long lastSeenAt, LiveCharacter.Boundary boundary, long now, IntFunction<int[]> caps, IntFunction<String> names) {
+        if (live != null) return fromLive(live, estimates, account, petChip(own(live, records)), stillCurrent(lastSeenAt, boundary, now),
+            lastSeenAt, caps, names);
+        if (last != null) return fromJournal(last, account, petChip(last), caps, names);
         return HomeModel.Hero.placeholder(State.EMPTY, "No character captured yet. Start capture and enter the game to see your character.");
+    }
+
+    /** {@code live}'s own journal record, read by its journal key; null when the account is not a journal key or the journal lacks it. */
+    private static CharacterJournal.CharacterRecord own(LiveCharacter.Snapshot live, Function<String, CharacterJournal.CharacterRecord> records) {
+        String key = live.journalKey();
+        CharacterJournal.CharacterRecord record = key == null ? null : records.apply(key);
+        return record != null && key.equals(record.key) ? record : null; // exact links only: never another character's record
+    }
+
+    /**
+     * The hero's pet chip (PetSummary.chip): "Legendary pet", "No pet", or null (an unknown pet, or a rarity that is not known).
+     * The chip names only the rarity, from a fixed table, so the pet names of the selected assets are not needed (and the hero's
+     * token need not follow them); the journal revision already moves the token when the pet changes.
+     */
+    static String petChip(CharacterJournal.CharacterRecord record) {
+        return record == null ? null : PetSummary.of(record.pet, null).chip();
     }
 
     /**
@@ -71,7 +92,7 @@ public final class HomeModelBuilder {
 
     /** A live hero carries no packet time: an unchanged character builds an equal Hero, so Home does not redraw it. */
     private static HomeModel.Hero fromLive(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.AccountRecord account,
-                                           boolean current, long lastSeenAt, IntFunction<int[]> caps, IntFunction<String> names) {
+                                           String petChip, boolean current, long lastSeenAt, IntFunction<int[]> caps, IntFunction<String> names) {
         int classId = live.classId();
         String className = className(classId, names);
         int[] classCaps = caps.apply(classId), cap = HomeModel.sized(classCaps, 8), base = HomeModel.sized(live.base(), 8);
@@ -93,10 +114,10 @@ public final class HomeModelBuilder {
             estimate(dps, 0, basis + " with the Build page's method; not a recorded measurement", DPS_UNKNOWN),
             estimate(mp, 1, basis + " with the Build page's method", MP_UNKNOWN),
             // A live hero carries no stale label, so saved values may fill the account line only on a stale one (spec §1).
-            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence, live.journalKey());
+            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence, live.journalKey(), petChip);
     }
 
-    private static HomeModel.Hero fromJournal(CharacterJournal.CharacterRecord last, CharacterJournal.AccountRecord account,
+    private static HomeModel.Hero fromJournal(CharacterJournal.CharacterRecord last, CharacterJournal.AccountRecord account, String petChip,
                                               IntFunction<int[]> caps, IntFunction<String> names) {
         int classId = last.classId;
         String className = last.className != null && !last.className.isEmpty() ? last.className : className(classId, names);
@@ -113,7 +134,7 @@ public final class HomeModelBuilder {
             + "enter the game with capture on. " + POTION_RULE + " Exalt tiers from saved account exalts" + (exalt < 0 ? " (not captured yet)" : "") + ".";
         return new HomeModel.Hero(State.STALE, name(last.name, className, last.characterId), classId, className, last.skin, last.level,
             fame, maxed, base, cap, null, need, needsLine(need, maxed), exalt, slots, DisplayValue.unknown(DPS_UNKNOWN),
-            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence, sheetKey(last.key));
+            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence, sheetKey(last.key), petChip);
     }
 
     private static final Pattern SHEET_KEY = Pattern.compile("[0-9a-f]{64}:[0-9]+");

@@ -2,8 +2,10 @@ package tomato.gui.glance.character;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
-import java.util.function.IntFunction;
+import java.util.function.LongSupplier;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import tomato.backend.data.CharacterJournal;
@@ -14,8 +16,9 @@ import static tomato.gui.glance.character.SheetViews.*;
 
 /**
  * Sheet › Overview (spec §6.2). It shows base-versus-cap bars with the live "+N" boost, then the potions each stat still needs
- * (with vault counts only when known). Below those come the four equipped slots, this class's exalt summary and, for a dead
- * character, its death annotation. The full stat table, with field evidence, is an Analyst-only Collapsible. EDT only.
+ * (with vault counts only when known). Below those come the four equipped slots, this class's exalt summary, the pet card (which
+ * opens the Pet tab) and, for a dead character, its death annotation. The full stat table, with field evidence, is an
+ * Analyst-only Collapsible. EDT only.
  */
 final class OverviewTab extends JPanel {
     private static final String NEEDS_RULE = "Life and Mana take one potion per 5 points, other stats one per point. "
@@ -28,21 +31,35 @@ final class OverviewTab extends JPanel {
     private final JPanel needs = named(row(), "character-overview-needs");
     private final KitText exalts = named(KitText.body(""), "character-overview-exalts");
     private final KitText deathText = named(KitText.body(""), "character-overview-death-text");
+    private final JLabel petSprite = named(new JLabel(), "character-overview-pet-sprite");
+    private final KitText petName = named(KitText.body(""), "character-overview-pet-name");
+    private final Chip petRarity = named(new Chip("", Tokens.Tone.NEUTRAL), "character-overview-pet-rarity");
+    /** Wrapping text: three ability names and levels must not be cut in a narrow card or at font 18. */
+    private final JTextArea petAbilities = named(ContentStyle.wrappingText(""), "character-overview-pet-abilities");
     private final Card death;
     private final DefaultTableModel table = new DefaultTableModel(new String[]{"Stat", "Base", "Cap", "Potions to max", "Field evidence"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
     private final Collapsible statTable;
-    private final IntFunction<String> tierOf;
+    private final LongSupplier clock;
     private SheetModel shown;
     private String shownAge = "", shownDeathAge = "";
+    private boolean shownStale;
+    private static final Object NOT_SHOWN = new Object();
+    /**
+     * What each section last showed, so a section refills only when its own inputs changed (NOT_SHOWN until the first apply):
+     * while playing, every rebuild stamps the build time into the identity, and refilling unchanged rows would reset the Analyst
+     * table's selection and scroll and rebuild the needs row once a second.
+     */
+    private Object statsShown = NOT_SHOWN, gearShown = NOT_SHOWN, tableShown = NOT_SHOWN, petShown = NOT_SHOWN;
 
-    OverviewTab(DisplayModeModel mode) { this(mode, ItemTiers::label); }
-
-    /** {@code tierOf}: "UT", "ST", "T12" or "" for an item id (ItemTiers.label in the app). */
-    OverviewTab(DisplayModeModel mode, IntFunction<String> tierOf) {
+    /**
+     * {@code clock}: the sheet's clock (SheetContext.clock), which judges whether a vault count is stale. {@code openPet}: what
+     * opening the pet card does (the sheet shows and selects its Pet tab: explicit navigation).
+     */
+    OverviewTab(DisplayModeModel mode, LongSupplier clock, Runnable openPet) {
         super(new BorderLayout());
-        this.tierOf = tierOf;
+        this.clock = Objects.requireNonNull(clock, "clock");
         setOpaque(false);
         setName("character-overview");
         JPanel grid = ContentStyle.responsiveGrid(4, 150, Tokens.S);
@@ -63,10 +80,14 @@ final class OverviewTab extends JPanel {
             tiers[i].setHorizontalAlignment(SwingConstants.CENTER);
             slots.add(beside(gear[i], tiers[i], BorderLayout.SOUTH, 2));
         }
-        JPanel pair = ContentStyle.responsiveGrid(2, 260, Tokens.M);
+        petSprite.getAccessibleContext().setAccessibleName("Pet sprite");
+        JPanel pet = beside(KitLayouts.stack(Tokens.XS, row(petName, petRarity), petAbilities), petSprite, BorderLayout.WEST, Tokens.S);
+        // Three cards across on a wide sheet, two and one when narrower, one per row when narrow (responsiveGrid balances rows).
+        JPanel pair = ContentStyle.responsiveGrid(3, 260, Tokens.M);
         pair.setOpaque(false);
         pair.add(card(mode, "Gear", slots, "character-overview-gear"));
         pair.add(card(mode, "Class exalts", exalts, "character-overview-class-exalts"));
+        pair.add(card(mode, "Pet", pet, "character-overview-pet").onOpen("Open pet", Objects.requireNonNull(openPet, "openPet")));
         death = card(mode, "Death", deathText, "character-overview-death");
         JTable rows = named(new JTable(table), "character-stat-rows");
         ContentStyle.table(rows, ContentStyle.Density.DENSE);
@@ -81,58 +102,112 @@ final class OverviewTab extends JPanel {
 
     /**
      * EDT. A null model (loading, or the character is not in the journal) clears everything. A model equal to the shown one is
-     * skipped while the vault count's relative age reads the same (the presenter re-applies once a second).
+     * skipped while the vault count's relative age, its staleness by the sheet's clock and the death age read the same (the
+     * presenter re-applies once a second). Otherwise each section refills only when its own inputs changed: the bars and needs
+     * when the stats (or the vault's age or staleness) did, the equipped slots when the gear did, the Analyst stat table when the
+     * stats did. A rebuild that only moved the identity's times (every rebuild while playing) leaves them all as they are.
      */
     void apply(SheetModel model) {
         String age = vaultAge(model), deathAge = deathAge(model);
-        if (model != null && model.equals(shown) && age.equals(shownAge) && deathAge.equals(shownDeathAge)) return;
-        shown = model;
-        shownAge = age;
-        shownDeathAge = deathAge;
+        boolean stale = vaultStale(model);
+        if (model != null && model.equals(shown) && age.equals(shownAge) && deathAge.equals(shownDeathAge) && stale == shownStale) return;
         SheetModel.Stats stats = model == null ? null : model.stats();
         boolean playing = model != null && model.identity().playing();
-        for (int i = 0; i < 8; i++) {
-            Integer base = stats == null ? null : at(stats.base(), i), cap = stats == null ? null : at(stats.caps(), i);
-            int boost = playing && base != null ? stats.boosts().get(i) : 0; // the boost describes the character in game right now
-            bars[i].set(base, cap);
-            values[i].setText(base == null ? DisplayFormat.UNAVAILABLE : cap == null ? String.valueOf(base) : base + "/" + cap);
-            boosts[i].setText(boost > 0 ? "+" + boost : "");
-            boosts[i].setVisible(boost > 0);
-            boosts[i].setToolTipText(boost > 0 ? CharacterJournal.STATS[i] + " is " + (base + boost) + " right now with gear and effects" : null);
+        // Each "shown" value is recorded only after its section refilled, so an apply that failed midway is redone in full.
+        List<Object> statsKey = Arrays.asList(stats, playing, age, stale);
+        if (!statsKey.equals(statsShown)) {
+            for (int i = 0; i < 8; i++) {
+                Integer base = stats == null ? null : at(stats.base(), i), cap = stats == null ? null : at(stats.caps(), i);
+                int boost = playing && base != null ? stats.boosts().get(i) : 0; // the boost describes the character in game right now
+                bars[i].set(base, cap);
+                values[i].setText(base == null ? DisplayFormat.UNAVAILABLE : cap == null ? String.valueOf(base) : base + "/" + cap);
+                boosts[i].setText(boost > 0 ? "+" + boost : "");
+                boosts[i].setVisible(boost > 0);
+                boosts[i].setToolTipText(boost > 0 ? CharacterJournal.STATS[i] + " is " + (base + boost) + " right now with gear and effects" : null);
+            }
+            needs(stats, age, stale);
+            statsShown = statsKey;
         }
-        needs(stats);
-        for (int i = 0; i < 4; i++) {
-            int id = model == null ? -1 : model.gear().slots().get(i);
-            String tier = id > 0 ? Objects.toString(tierOf.apply(id), "") : "";
-            if (id > 0) gear[i].setItem(id, tier); else if (id == 0) gear[i].setEmpty(); else gear[i].setUnknown();
-            tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);
+        SheetModel.Gear equipped = model == null ? null : model.gear();
+        if (!Objects.equals(equipped, gearShown)) {
+            for (int i = 0; i < 4; i++) {
+                int id = equipped == null ? -1 : equipped.slots().get(i);
+                String tier = id > 0 ? equipped.tier(i) : ""; // computed off the EDT with the build's definitions
+                if (id > 0) gear[i].setItem(id, tier); else if (id == 0) gear[i].setEmpty(); else gear[i].setUnknown();
+                tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);
+            }
+            gearShown = equipped;
         }
         SheetModel.Exalts classExalts = model == null ? null : model.exalts();
         boolean known = classExalts != null && classExalts.known();
         exalts.setText(known ? classExalts.summary() : DisplayFormat.UNAVAILABLE);
         exalts.setToolTipText(known ? "Exaltation tiers for this class; the Exalts tab lists every stat"
             : "Exalt progress arrives when capture reads your character list");
+        // The pet card has no relative age, so an unchanged pet is simply left as it is. No model (loading, or a key the journal
+        // lacks) is null: a neutral dash, never the not-captured reason of a loaded model's unknown pet.
+        PetSummary pet = model == null ? null : model.pet();
+        if (!Objects.equals(pet, petShown)) {
+            pet(pet);
+            petShown = pet;
+        }
         SheetModel.Death dead = model == null ? null : model.death();
         death.setVisible(dead != null);
         if (dead != null) deathText.setText("Marked dead " + deathAge
             + (dead.occurredAt() == null ? "" : " · occurred " + DisplayFormat.formatTimestamp(dead.occurredAt()))
             + (dead.notes().isBlank() ? "" : " · " + dead.notes().strip().split("\\R", 2)[0]));
-        table.setRowCount(0);
-        if (stats != null) for (int i = 0; i < 8; i++) {
-            Integer base = at(stats.base(), i), cap = at(stats.caps(), i);
-            int need = stats.needed().get(i);
-            table.addRow(new Object[]{CharacterJournal.STATS[i], base == null ? "Unknown" : base, cap == null ? "Unknown" : cap,
-                need < 0 ? "Unknown" : need == 0 ? "Maxed" : need, stats.evidence().get(i)});
+        // The Analyst table refills only for new stats: its rows keep their selection and scroll across identity-only rebuilds.
+        if (!Objects.equals(stats, tableShown)) {
+            table.setRowCount(0);
+            if (stats != null) for (int i = 0; i < 8; i++) {
+                Integer base = at(stats.base(), i), cap = at(stats.caps(), i);
+                int need = stats.needed().get(i);
+                table.addRow(new Object[]{CharacterJournal.STATS[i], base == null ? "Unknown" : base, cap == null ? "Unknown" : cap,
+                    need < 0 ? "Unknown" : need == 0 ? "Maxed" : need, stats.evidence().get(i)});
+            }
+            tableShown = stats;
         }
+        shown = model;
+        shownAge = age;
+        shownDeathAge = deathAge;
+        shownStale = stale;
         revalidate();
         repaint();
     }
 
-    private void needs(SheetModel.Stats stats) {
+    /**
+     * The pet card: sprite, name, rarity chip and one line of the three abilities; "No pet"; "—" with why it is unknown; or, for
+     * null (no model yet), a plain "—" with no reason: nothing is known about the pet either way.
+     */
+    private void pet(PetSummary pet) {
+        boolean known = pet != null && pet.state() == PetSummary.State.KNOWN;
+        PetSummary.State state = pet == null ? null : pet.state();
+        petSprite.setVisible(known);
+        if (known) petSprite.setIcon(Sprites.sprite(pet.skin() == null ? 0 : pet.skin(), 32)); // an id <= 0 is the placeholder
+        petName.setText(known ? pet.title() : state == PetSummary.State.NONE ? "No pet" : DisplayFormat.UNAVAILABLE);
+        petName.setToolTipText(state == PetSummary.State.UNKNOWN ? PetTab.UNKNOWN_REASON
+            : state == PetSummary.State.NONE ? "No pet was equipped when capture last read the character list" : null);
+        petRarity.setVisible(known && pet.rarity() != null); // unknown rarity: no chip, never a guess
+        petRarity.setText(known && pet.rarity() != null ? pet.rarity() : "");
+        petAbilities.setVisible(known);
+        petAbilities.setText(known ? abilities(pet) : "");
+        petAbilities.setToolTipText(known ? "Ability levels; the Pet tab shows each toward the max level and a feeding estimate" : null);
+    }
+
+    /** "Heal 45 · Magic heal 30 · Electric locked": each slot's name and level, "—" where unknown (never 0). */
+    static String abilities(PetSummary pet) {
+        List<String> parts = new java.util.ArrayList<>(3);
+        for (PetSummary.Ability a : pet.abilities()) {
+            if (a.name() == null) parts.add(DisplayFormat.UNAVAILABLE);
+            else parts.add(a.name() + " " + (a.locked() ? "locked" : a.level() == null ? DisplayFormat.UNAVAILABLE : String.valueOf(a.level())));
+        }
+        return String.join(" · ", parts);
+    }
+
+    private void needs(SheetModel.Stats stats, String age, boolean stale) {
         needs.removeAll();
         if (stats != null) {
             if (stats.maxed() == 8) needs.add(named(new KitText("All 8 stats maxed", Type.body(), Tokens.Role.GOOD), "character-overview-maxed"));
-            for (int i = 0; i < stats.needs().size(); i++) needs.add(named(need(stats, i), "character-overview-need-" + i));
+            for (int i = 0; i < stats.needs().size(); i++) needs.add(named(need(stats, i, age, stale), "character-overview-need-" + i));
             if (stats.unknown() > 0) needs.add(named(KitText.caption("Potions unknown for " + stats.unknown()
                 + (stats.unknown() == 1 ? " stat" : " stats") + " (base stat or cap not captured)"), "character-overview-needs-unknown"));
         }
@@ -154,14 +229,25 @@ final class OverviewTab extends JPanel {
         return dead == null ? "" : dead.markedAt() > 0 ? KitFormat.relative(dead.markedAt()) : "at an unknown time";
     }
 
-    /** "DEF needs 5 · 3 in vault (2 h ago)": a vault count shows its age and is dimmed as stale once a day old (spec §5.7). */
-    private static KitText need(SheetModel.Stats stats, int index) {
+    /**
+     * Whether the model's vault count is stale by the sheet's clock: counted at an unknown time, or more than a day ago (spec
+     * §5.7). False without a vault count.
+     */
+    private boolean vaultStale(SheetModel model) {
+        if (model == null || model.stats().vault() == null) return false;
+        long at = model.stats().vaultObservedAt();
+        return at <= 0 || clock.getAsLong() - at > VAULT_STALE_MILLIS;
+    }
+
+    /**
+     * "DEF needs 5 · 3 in vault (2 h ago)": a vault count shows its age ({@link #vaultAge}) and is dimmed as stale once a day
+     * old by the sheet's clock ({@link #vaultStale}).
+     */
+    private static KitText need(SheetModel.Stats stats, int index, String age, boolean stale) {
         String line = stats.needs().get(index);
         if (stats.vault() == null) return KitText.body(line);
         long at = stats.vaultObservedAt();
-        boolean stale = at <= 0 || System.currentTimeMillis() - at > VAULT_STALE_MILLIS;
-        KitText text = new KitText(line + " (" + (at > 0 ? KitFormat.relative(at) : "time unknown") + ")", Type.body(),
-            stale ? Tokens.Role.TEXT_MUTED : Tokens.Role.TEXT);
+        KitText text = new KitText(line + " (" + age + ")", Type.body(), stale ? Tokens.Role.TEXT_MUTED : Tokens.Role.TEXT);
         text.setToolTipText((at > 0 ? "Vault counted " + DisplayFormat.formatTimestamp(at) : "When the vault was counted is unknown")
             + (stale ? "; open the vault with capture on to update it" : ""));
         return text;

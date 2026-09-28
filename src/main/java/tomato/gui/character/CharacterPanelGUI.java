@@ -7,6 +7,7 @@ import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
 import tomato.backend.data.TomatoData;
 import tomato.gui.glance.character.CharacterSheet;
+import tomato.gui.glance.character.ExaltsGrid;
 import tomato.gui.glance.character.SheetContext;
 import tomato.gui.glance.character.SheetFocus;
 import tomato.gui.history.ViewStateStore;
@@ -17,7 +18,7 @@ import tomato.gui.route.Navigator;
 import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
-/** Characters (shell page 3): the Roster tab (the character list or one character's sheet), Exalts and Pets. */
+/** Characters (shell page 3): the Roster tab (the character list or one character's sheet), the account Exalts grid and Pets. */
 public class CharacterPanelGUI extends JPanel {
     private final CharacterJournal characters;
     private final CharacterJournalGUI journal;
@@ -26,11 +27,17 @@ public class CharacterPanelGUI extends JPanel {
     private final List<RouteTarget> routeTargets;
     private final CustomizableTabs tabs = new CustomizableTabs("characters");
 
-    public CharacterPanelGUI(TomatoData data) {
-        this(data, new SheetContext(data, data.characterJournal(), RosterDefinitions::current, DisplayModeModel.application()));
+    public CharacterPanelGUI(TomatoData data) { this(data, ViewStateStore.application()); }
+
+    /** {@code viewState}: where the roster list keeps its saved view (TomatoGUI's store; tests pass an isolated one). */
+    public CharacterPanelGUI(TomatoData data, ViewStateStore viewState) {
+        this(data, new SheetContext(data, data.characterJournal(), RosterDefinitions::current, DisplayModeModel.application()), viewState);
     }
 
-    public CharacterPanelGUI(TomatoData data, SheetContext context) {
+    public CharacterPanelGUI(TomatoData data, SheetContext context) { this(data, context, ViewStateStore.application()); }
+
+    public CharacterPanelGUI(TomatoData data, SheetContext context, ViewStateStore viewState) {
+        java.util.Objects.requireNonNull(viewState, "viewState");
         setLayout(new BorderLayout());
         characters = context.journal();
         journal = new CharacterJournalGUI(context.journal(), context.clock(), context.definitions());
@@ -39,13 +46,17 @@ public class CharacterPanelGUI extends JPanel {
             tomato.backend.data.LiveCharacter.Snapshot live = tomato.gui.glance.character.SheetModelBuilder.inGame(data.liveCharacter, System.currentTimeMillis());
             return live == null ? null : live.journalKey();
         });
-        journal.bindViewState(ViewStateStore.application());
+        journal.bindViewState(viewState);
         sheet = new CharacterSheet(context);
         roster = new CharacterRosterView(journal, sheet);
         routeTargets = CharactersRouteTarget.of(roster); // built once: both targets share one Back origin
         // Routes are explicit navigation, so they may bring the Roster tab forward even when it is hidden.
         roster.onReveal(() -> { tabs.show("roster"); tabs.select("roster"); });
-        tabs.add("roster", "Roster", roster).add("exalts", "Exalts", journal.exaltPanel()).add("pets", "Pets", new CharacterPetsGUI(data));
+        // Back returns to the Characters tab the user left from: Back state records the tab in front and Back brings it forward
+        // again. Back is explicit navigation too, so it may show that tab when it has been hidden since.
+        roster.onPageTab(tabs::selectedId);
+        roster.onBringTabForward(id -> { tabs.show(id); tabs.select(id); });
+        tabs.add("roster", "Roster", roster).add("exalts", "Exalts", new ExaltsGrid(context)).add("pets", "Pets", new CharacterPetsGUI(data));
         // Another Characters tab refreshes the list and keeps the sheet's notes draft.
         tabs.component().addChangeListener(e -> { journal.refresh(); sheet.saveDraft(); });
         add(tabs.component(), BorderLayout.CENTER);

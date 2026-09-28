@@ -7,17 +7,20 @@ import tomato.backend.data.CharacterJournal.AccountRecord;
 import tomato.backend.data.CharacterJournal.CharacterRecord;
 import tomato.backend.data.FieldCapture;
 import tomato.backend.data.LiveCharacter;
+import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.glance.home.HomeModelBuilder;
 import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.modern.DisplayFormat;
 import tomato.planning.PlanningMetadata;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.CharacterClass;
 
 /**
- * Pure, static builder of the character sheet model (spec §6.2). No Swing (DisplayValue only): SheetPresenter calls it on the
- * "character-sheet" thread with detached journal copies. Potions and maxed counts use Home's arithmetic, so the hero and the sheet agree.
+ * Pure, static builder of the character sheet model (spec §6.2). No Swing (only the kit's DisplayValue and ItemTiers, which use
+ * none): SheetPresenter calls it on the "character-sheet" thread with detached journal copies. Potions and maxed counts use
+ * Home's arithmetic, so the hero and the sheet agree.
  */
 public final class SheetModelBuilder {
     /** Exaltation tier thresholds, as CharacterJournal.exaltLevel counts them. */
@@ -29,11 +32,14 @@ public final class SheetModelBuilder {
 
     /**
      * The sheet of {@code record}, or null when the journal has no such character. {@code live} is the character in game now,
-     * whoever it is (null = nobody); its values apply only when it is this character. Dungeons stay unknown while the mapping loads.
+     * whoever it is (null = nobody); its values apply only when it is this character. {@code pets} names the pet (its family);
+     * the presenter passes PetDefinitions.current(), which may still be loading (the family is then unknown). Dungeons stay
+     * unknown while the mapping loads.
      */
-    public static SheetModel build(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, RosterDefinitions defs, long now) {
+    public static SheetModel build(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, PetDefinitions pets,
+                                   RosterDefinitions defs, long now) {
         PlanningMetadata planning = PlanningMetadata.current();
-        return build(record, account, live, defs, planning.available ? planning::dungeons : null, now);
+        return build(record, account, live, pets, defs, planning.available ? planning::dungeons : null, now);
     }
 
     /**
@@ -47,9 +53,21 @@ public final class SheetModelBuilder {
         return HomeModelBuilder.stillCurrent(live.lastSeenAt(), live.lastBoundary(), now) ? live.lastKnown() : null;
     }
 
-    /** {@code dungeons}: canonical stat index to dungeon names, or null while the mapping is loading or unavailable. */
+    /**
+     * Tests written before pet names: {@link #build(CharacterRecord, AccountRecord, LiveCharacter.Snapshot, PetDefinitions,
+     * RosterDefinitions, IntFunction, long)} with no pet names (the pet's family unknown, as while PetDefinitions loads).
+     */
     static SheetModel build(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, RosterDefinitions defs,
                             IntFunction<List<String>> dungeons, long now) {
+        return build(record, account, live, null, defs, dungeons, now);
+    }
+
+    /**
+     * {@code pets} null reads as not loaded (the pet's family unknown); {@code dungeons}: canonical stat index to dungeon names, or
+     * null while the mapping is loading or unavailable.
+     */
+    static SheetModel build(CharacterRecord record, AccountRecord account, LiveCharacter.Snapshot live, PetDefinitions pets,
+                            RosterDefinitions defs, IntFunction<List<String>> dungeons, long now) {
         if (record == null) return null;
         RosterDefinitions definitions = defs == null ? RosterDefinitions.empty() : defs;
         boolean playing = live != null && Objects.equals(live.account(), record.account) && live.characterId() == record.characterId;
@@ -64,7 +82,8 @@ public final class SheetModelBuilder {
         int[] needed = HomeModelBuilder.potionsNeeded(base, caps);
         int maxed = HomeModelBuilder.maxed(needed);
         return new SheetModel(record.key, identity(record, live, playing, maxed, now), stats(record, account, base, caps, boosts, needed, maxed, liveBase),
-            gear(record, live, playing), exalts(record.classId, account, dungeons), death(record), liveRef(live));
+            gear(record, live, playing, definitions), exalts(record.classId, account, dungeons), PetSummary.of(record.pet, pets), death(record),
+            liveRef(live));
     }
 
     private static SheetModel.Identity identity(CharacterRecord r, LiveCharacter.Snapshot live, boolean playing, int maxed, long now) {
@@ -94,14 +113,19 @@ public final class SheetModelBuilder {
             vault == null ? 0 : account.vaultPotionsObservedAt, List.copyOf(needs), unknown, maxed, List.copyOf(evidence));
     }
 
-    /** Saved slots, with the live equipped four and their enchant rarity while this character plays. */
-    private static SheetModel.Gear gear(CharacterRecord r, LiveCharacter.Snapshot live, boolean playing) {
+    /**
+     * Saved slots, with the live equipped four and their enchant rarity while this character plays. Tier labels come from the
+     * definitions this build was given (ItemTiers' pure overload), never from the global RosterDefinitions.current() on the EDT.
+     */
+    private static SheetModel.Gear gear(CharacterRecord r, LiveCharacter.Snapshot live, boolean playing, RosterDefinitions definitions) {
         int[] equipped = playing ? live.equipment() : null, slots = new int[28];
+        List<String> tiers = new ArrayList<>(28);
         for (int i = 0; i < 28; i++) {
             Integer item = i < 4 && equipped != null ? Integer.valueOf(equipped[i]) : r.equipment != null && i < r.equipment.length ? r.equipment[i] : null;
             slots[i] = item == null ? -1 : item > 0 ? item : 0;
+            tiers.add(slots[i] > 0 ? ItemTiers.label(definitions.item(slots[i])) : "");
         }
-        return new SheetModel.Gear(list(slots), r.hasBackpack, playing ? enchants(live) : null);
+        return new SheetModel.Gear(list(slots), List.copyOf(tiers), r.hasBackpack, playing ? enchants(live) : null);
     }
 
     /** Unlocked enchant slots of the 4 equipped items from the live snapshot's detached inputs; -1 where not decodable. */

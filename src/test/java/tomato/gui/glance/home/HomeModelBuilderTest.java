@@ -42,7 +42,17 @@ public class HomeModelBuilderTest {
     }
     private static HomeModel.Hero hero(LiveCharacter.Snapshot live, BuildEstimates.Estimates estimates, CharacterJournal.CharacterRecord last,
                                       CharacterJournal.AccountRecord account, long lastSeenAt, LiveCharacter.Boundary boundary) {
-        return HomeModelBuilder.hero(live, estimates, last, account, lastSeenAt, boundary, NOW, CAPS_OF, NAMES);
+        return HomeModelBuilder.hero(live, estimates, last, account, NO_RECORDS, lastSeenAt, boundary, NOW, CAPS_OF, NAMES);
+    }
+    /** A journal that holds no record for the live character (its pet is then unknown). */
+    private static final Function<String, CharacterJournal.CharacterRecord> NO_RECORDS = key -> null;
+    private static CharacterJournal.PetRecord pet(Integer rarity) {
+        CharacterJournal.PetRecord pet = new CharacterJournal.PetRecord(); pet.instanceId = 9L; pet.rarity = rarity; pet.observedAt = NOW - 60_000L;
+        return pet;
+    }
+    private static CharacterJournal.PetRecord noPet() {
+        CharacterJournal.PetRecord pet = new CharacterJournal.PetRecord(); pet.absent = Boolean.TRUE; pet.observedAt = NOW - 60_000L;
+        return pet;
     }
     private static CharacterJournal.AccountRecord account(int... exalts) {
         CharacterJournal.AccountRecord account = new CharacterJournal.AccountRecord(); account.key = "account-A";
@@ -101,6 +111,59 @@ public class HomeModelBuilderTest {
         assertNotEquals("The key is part of the hero's content", inGame, HomeModels.withKey(inGame, null));
     }
 
+    /** A saved hero's chip comes from its own record: the rarity name, "No pet", or nothing (unknown pet, or unknown rarity). */
+    @Test public void thePetChipShowsRarityNoPetOrNothing() {
+        String account = CharacterJournal.accountKey("sample-account");
+        CharacterJournal.CharacterRecord saved = new CharacterJournal.CharacterRecord();
+        saved.key = account + ":9"; saved.account = account; saved.characterId = 9; saved.classId = CLASS; saved.lastSeen = NOW - 60_000L;
+        saved.pet = pet(3);
+        assertEquals("Legendary pet", hero(null, null, saved, account(), 0).petChip());
+        saved.pet = pet(0);
+        assertEquals("Common pet", hero(null, null, saved, account(), 0).petChip());
+        saved.pet = noPet();
+        assertEquals("No pet", hero(null, null, saved, account(), 0).petChip());
+        saved.pet = null;
+        assertNull("An unknown pet shows no chip", hero(null, null, saved, account(), 0).petChip());
+        saved.pet = pet(null);
+        assertNull("A known pet of unknown rarity shows no chip", hero(null, null, saved, account(), 0).petChip());
+        saved.pet = pet(7);
+        assertNull("A rarity outside 0-4 is never guessed", hero(null, null, saved, account(), 0).petChip());
+        assertNull("No character, no chip", hero(null, null, null, null, 0).petChip());
+        assertNull(HomeModel.Hero.placeholder(State.LOADING, "").petChip());
+    }
+
+    /**
+     * A live or last-known hero reads its pet from the journal record with the snapshot's own journal key, never from the journal's
+     * most recent character (which may be another one).
+     */
+    @Test public void aLiveHeroReadsItsPetFromItsOwnJournalRecordByTheSnapshotsKey() {
+        String account = CharacterJournal.accountKey("sample-account");
+        LiveCharacter.Snapshot keyed = new LiveCharacter.Snapshot(account, 7, CLASS, "Tester", 900, 20, 100L, new int[]{800, 300, 90, 30, 60, 80, 50, 70},
+            CAPS.clone(), new int[]{1001, 1002, 0, 1004}, null, null, null, null, null, NOW - 500);
+        CharacterJournal.CharacterRecord own = new CharacterJournal.CharacterRecord();
+        own.key = account + ":7"; own.account = account; own.characterId = 7; own.classId = CLASS; own.pet = pet(2);
+        CharacterJournal.CharacterRecord other = new CharacterJournal.CharacterRecord();
+        other.key = account + ":9"; other.account = account; other.characterId = 9; other.classId = CLASS; other.pet = noPet();
+        List<String> asked = new java.util.ArrayList<>();
+        Function<String, CharacterJournal.CharacterRecord> journal = key -> { asked.add(key); return own.key.equals(key) ? own : null; };
+        HomeModel.Hero live = HomeModelBuilder.hero(keyed, null, other, account(), journal, 0, null, NOW, CAPS_OF, NAMES);
+        assertEquals(State.LIVE, live.state());
+        assertEquals("Its own record's pet, not the most recent character's", "Rare pet", live.petChip());
+        assertEquals("Read by the snapshot's journal key", List.of(account + ":7"), asked);
+        HomeModel.Hero stale = HomeModelBuilder.hero(keyed, null, other, account(), journal, NOW - 60_000L, LiveCharacter.Boundary.STOPPED, NOW, CAPS_OF, NAMES);
+        assertEquals(State.STALE, stale.state());
+        assertEquals("The last known character too", "Rare pet", stale.petChip());
+        assertNull("The journal lacks this character: unknown, no chip",
+            HomeModelBuilder.hero(keyed, null, other, account(), NO_RECORDS, 0, null, NOW, CAPS_OF, NAMES).petChip());
+        asked.clear();
+        assertNull("An account that is not a journal key is never looked up", hero(live(CAPS.clone(), 100L), null, other, account(), 0).petChip());
+        assertTrue(asked.isEmpty());
+        CharacterJournal.CharacterRecord mismatched = new CharacterJournal.CharacterRecord();
+        mismatched.key = account + ":8"; mismatched.pet = pet(4);
+        assertNull("A record under another key is never used",
+            HomeModelBuilder.hero(keyed, null, other, account(), key -> mismatched, 0, null, NOW, CAPS_OF, NAMES).petChip());
+    }
+
     @Test public void needsLineShowsThreeStatsThenACount() {
         HomeModel.Hero h = hero(live(new int[]{710, 247, 72, 24, 45, 75, 40, 60}, 1L), null, null, null, 0);
         assertEquals(3, h.maxed());
@@ -117,7 +180,7 @@ public class HomeModelBuilderTest {
         assertEquals("No estimates: unknown, never 0", DisplayValue.State.UNKNOWN, h.weaponDps().state);
         assertEquals(DisplayValue.State.UNKNOWN, h.mpPerSecond().state);
         HomeModel.Hero bare = HomeModelBuilder.hero(new LiveCharacter.Snapshot("account-A", 7, 999, null, null, null, 0L, null, null, null,
-            null, null, null, null, null, NOW), estimates(null, null), null, null, 0, null, NOW, CAPS_OF, NAMES);
+            null, null, null, null, null, NOW), estimates(null, null), null, null, NO_RECORDS, 0, null, NOW, CAPS_OF, NAMES);
         assertEquals("Class #999", bare.className());
         assertEquals("Class definitions missing: caps and potions unknown", -1, bare.maxed());
         assertArrayEquals(UNKNOWN8, bare.caps()); assertArrayEquals(UNKNOWN8, bare.potionsNeeded()); assertArrayEquals(UNKNOWN8, bare.totals());

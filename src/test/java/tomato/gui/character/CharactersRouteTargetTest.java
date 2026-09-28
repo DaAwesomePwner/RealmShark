@@ -186,6 +186,151 @@ public class CharactersRouteTargetTest {
         }
     }
 
+    /**
+     * P3a deferred finding 6: Back is explicit navigation. After a plain click on another Characters tab (Exalts, Pets), Back
+     * used to restore the list or sheet on the hidden Roster card, so nothing visible happened; it brings the Roster tab forward.
+     */
+    @Test public void backFromAnotherCharactersTabBringsTheRosterForward() throws Exception {
+        TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPanelGUI panel = new CharacterPanelGUI(data,
+                new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
+            CharacterRosterView roster = panel.roster();
+            ShellNavigator navigator = navigator(roster, panel.routeTargets());
+            panel.bindNavigator(navigator);
+            JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
+            page[0] = 3;
+            assertTrue(navigator.open(sheet(key(1), "notes"))); // its Back entry returns to the list
+            tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
+            assertTrue(navigator.back());
+            assertEquals("Back brings the Roster tab forward", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertFalse("…showing the list it returned to", roster.showingSheet());
+            assertTrue(navigator.open(sheet(key(1), "notes")));
+            assertTrue(navigator.open(sheet(key(2), null))); // its Back entry returns to character 1's sheet
+            tabs.setSelectedIndex(tabs.indexOfTab("Pets"));
+            assertTrue(navigator.back());
+            assertEquals("Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertTrue("…showing the sheet it returned to", roster.showingSheet());
+            assertEquals(key(1), roster.sheet().key());
+            assertEquals("notes", roster.sheet().selectedTab());
+        });
+    }
+
+    /**
+     * Back returns where you were (P3a rule): a route that leaves the Characters page while the Exalts tab is in front comes back
+     * to the Exalts tab, not to Roster, and the roster's list or sheet is still restored behind it.
+     */
+    @Test public void backToCharactersLeftFromAnotherTabKeepsThatTabInFront() throws Exception {
+        TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPanelGUI panel = new CharacterPanelGUI(data,
+                new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
+            CharacterRosterView roster = panel.roster();
+            List<RouteTarget> targets = new ArrayList<>(panel.routeTargets());
+            targets.add(new RouteTarget() { // another page to leave to; it keeps no state of its own
+                @Override public Destination destination() { return Destination.HOME; }
+                @Override public Object captureState() { return null; }
+                @Override public void open(Route route) { }
+                @Override public void restoreState(Object state) { }
+            });
+            ShellNavigator navigator = navigator(roster, targets);
+            panel.bindNavigator(navigator);
+            JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
+            page[0] = 3;
+            assertTrue(navigator.open(sheet(key(1), "notes")));
+            tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
+            assertTrue("A route leaves the Characters page from the Exalts tab", navigator.open(Route.to(Destination.HOME)));
+            assertNotEquals(3, page[0]);
+            roster.showList(); // behind the Exalts tab the roster changes while the user is away
+            assertTrue(navigator.back());
+            assertEquals(3, page[0]);
+            assertEquals("Back returns to the tab that was in front", "Exalts", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertTrue("…with the roster's sheet restored behind it", roster.showingSheet());
+            assertEquals(key(1), roster.sheet().key());
+            assertEquals("notes", roster.sheet().selectedTab());
+        });
+    }
+
+    /**
+     * PR #23 review (Codex P2): a route opened from the Exalts or Pets tab brings the Roster tab forward; Back returns to the
+     * tab it was opened from, with the roster's list or sheet restored behind it as captured, and each Back entry keeps its own tab.
+     */
+    @Test public void backToARouteOpenedFromExaltsBringsExaltsForwardAgain() throws Exception { backReturnsToTheTabARouteLeftFrom("Exalts"); }
+    @Test public void backToARouteOpenedFromPetsBringsPetsForwardAgain() throws Exception { backReturnsToTheTabARouteLeftFrom("Pets"); }
+
+    private void backReturnsToTheTabARouteLeftFrom(String title) throws Exception {
+        TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPanelGUI panel = new CharacterPanelGUI(data,
+                new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
+            CharacterRosterView roster = panel.roster();
+            ShellNavigator navigator = navigator(roster, panel.routeTargets());
+            panel.bindNavigator(navigator);
+            JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
+            page[0] = 3;
+            tabs.setSelectedIndex(tabs.indexOfTab(title)); // the list behind it
+            assertTrue(navigator.open(sheet(key(2), "notes")));
+            assertEquals("A route brings the Roster tab forward", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertTrue(navigator.back());
+            assertEquals(3, page[0]);
+            assertEquals("Back returns to the tab the route was opened from", title, tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertFalse("…with the list it left restored behind it", roster.showingSheet());
+            tabs.setSelectedIndex(tabs.indexOfTab("Roster"));
+            assertTrue(navigator.open(sheet(key(1), "notes"))); // opened from the list with Roster in front
+            tabs.setSelectedIndex(tabs.indexOfTab(title)); // the sheet behind it
+            assertTrue(navigator.open(sheet(key(2), null)));
+            assertEquals("Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertEquals(key(2), roster.sheet().key());
+            assertTrue(navigator.back());
+            assertEquals(title, tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertTrue("…with the sheet it left restored behind it", roster.showingSheet());
+            assertEquals(key(1), roster.sheet().key());
+            assertEquals("notes", roster.sheet().selectedTab());
+            assertTrue(navigator.back());
+            assertEquals("The earlier entry was captured with Roster in front", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertFalse("…on the list", roster.showingSheet());
+        });
+    }
+
+    /**
+     * The sheet's "‹ Characters" link leads to the list (spec §6.2) also when its route was opened from another Characters tab:
+     * it pops the open's Back entry only when that entry returns to the list on the Roster tab, so the entry that returns to
+     * Exalts is kept for shell Back.
+     */
+    @Test public void theBackLinkOfASheetOpenedFromAnotherTabStillLeadsToTheList() throws Exception {
+        TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterPanelGUI panel = new CharacterPanelGUI(data,
+                new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared()));
+            CharacterRosterView roster = panel.roster();
+            ShellNavigator navigator = navigator(roster, panel.routeTargets());
+            panel.bindNavigator(navigator);
+            JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
+            page[0] = 3;
+            tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
+            assertTrue(navigator.open(sheet(key(2), "notes")));
+            RosterFixtures.named(roster.sheet(), "character-sheet-back", AbstractButton.class).doClick();
+            assertEquals("The link stays on the Roster tab", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertFalse("…and shows the list", roster.showingSheet());
+            assertTrue("The Back entry that returns to Exalts is kept", navigator.canGoBack());
+            assertTrue(navigator.back());
+            assertEquals("Exalts", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertFalse(roster.showingSheet());
+        });
+    }
+
+    /**
+     * A detached state records the Characters tab in front by id; one built without it (older callers, tests) or with an unknown
+     * (null) tab means the Roster tab was in front, so Back reveals it.
+     */
+    @Test public void aStateWithoutAPageTabMeansTheRosterWasInFront() {
+        assertEquals(new CharactersRouteTarget.CharactersState(true, key(1), "notes", "roster"), new CharactersRouteTarget.CharactersState(true, key(1), "notes"));
+        assertTrue(new CharactersRouteTarget.CharactersState(false, null, null).roster());
+        assertTrue("Unknown means Roster", new CharactersRouteTarget.CharactersState(false, null, null, null).roster());
+        assertFalse(new CharactersRouteTarget.CharactersState(false, null, null, "exalts").roster());
+        assertEquals("pets", new CharactersRouteTarget.CharactersState(true, key(1), null, "pets").pageTab());
+    }
+
     @Test public void planningSearchOpensTheSelectedCharactersGoalsElseTheMostRecent() throws Exception {
         TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
         SwingUtilities.invokeAndWait(() -> {

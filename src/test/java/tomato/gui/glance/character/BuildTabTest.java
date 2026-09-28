@@ -168,6 +168,51 @@ public class BuildTabTest {
         }
     }
 
+    /** A failed build says so in the Build tab (never "Loading…" beside the failure banner), and the retry picks the card again. */
+    @Test public void aFailedBuildSaysUnavailableNotLoading() throws Exception {
+        TomatoData data = new TomatoData();
+        AtomicBoolean failing = new AtomicBoolean();
+        RosterDefinitions none = RosterDefinitions.empty();
+        try (CharacterJournal journal = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"));
+             AutoCloseable wizard = className(WIZARD, "Wizard")) {
+            String mine = seed(journal);
+            data.liveCharacter.publish(live(ACCOUNT, 7, "Sharkbait", null));
+            SheetContext context = new SheetContext(data, journal, () -> {
+                if (failing.get() && "character-sheet".equals(Thread.currentThread().getName())) throw new IllegalStateException("Synthetic build failure");
+                return none;
+            }, DisplayModeModel.application(), () -> NOW, PlanningStore.shared());
+            SwingUtilities.invokeAndWait(() -> {
+                CharacterSheet sheet = new CharacterSheet(context);
+                sheet.hostBuild(new MyInfoGUI(data));
+                BuildTab tab = named(sheet, "character-build", BuildTab.class);
+                sheet.open(mine, "build");
+                await(sheet::ready);
+                failing.set(true);
+                data.liveCharacter.publish(live(ACCOUNT, 8, "Ann", null)); // the live revision moves: the sheet rebuilds, and fails
+                sheet.refresh();
+                await(named(sheet, "character-sheet-status", Banner.class)::warns);
+                assertEquals("failed", tab.card());
+                EmptyState failed = named(tab, "character-build-failed", EmptyState.class);
+                assertTrue(failed.isVisible());
+                assertEquals("Build unavailable", failed.getAccessibleContext().getAccessibleName());
+                assertEquals("The character sheet could not be built. It retries automatically.", failed.getAccessibleContext().getAccessibleDescription());
+                assertFalse("Not \"Loading…\" beside the failure banner", named(tab, "character-build-loading", EmptyState.class).isVisible());
+                assertFalse("Neither MyInfoGUI…", named(tab, "character-build-host", JPanel.class).isVisible());
+                assertFalse("…nor an Open button", offersOpen(tab));
+                failing.set(false);
+                sheet.refresh(); // the failure cleared the token: the next refresh retries
+                await(() -> !"failed".equals(tab.card()));
+                assertEquals("The retry applies: #8 is in game, so the pointer to it", "other", tab.card());
+                assertTrue(offersOpen(tab));
+            });
+        }
+        SwingUtilities.invokeAndWait(() -> {
+            BuildTab bare = new BuildTab(key -> { });
+            bare.failed();
+            assertEquals("Without a hosted Build there is nothing to fail: still unhosted", "unhosted", bare.card());
+        });
+    }
+
     /** Whether {@code root} holds an enabled "Open X's Build" button. */
     private static boolean offersOpen(Container root) {
         for (Component child : root.getComponents()) {

@@ -382,6 +382,7 @@ public class WorkspaceUiTest {
         tomato.backend.data.CharacterJournal journal = emptyJournal();
         tomato.gui.glance.character.SheetFixtures.seed(journal);
         AbstractButton[] back = new AbstractButton[1];
+        java.util.Map<String, String> preferences = rememberPreferences(CHARACTER_PREFERENCES);
         try {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.glance.character.SheetFixtures.inject(app, journal);
@@ -402,6 +403,7 @@ public class WorkspaceUiTest {
                 tomato.gui.glance.character.SheetFixtures.inject(app, previous);
                 shell.select(0);
             });
+            restorePreferences(preferences);
         }
     }
 
@@ -412,6 +414,7 @@ public class WorkspaceUiTest {
         tomato.backend.data.CharacterJournal journal = emptyJournal();
         tomato.gui.glance.character.SheetFixtures.seed(journal);
         AbstractButton[] back = new AbstractButton[1];
+        java.util.Map<String, String> preferences = rememberPreferences(CHARACTER_PREFERENCES);
         try {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.glance.character.SheetFixtures.inject(app, journal);
@@ -432,7 +435,24 @@ public class WorkspaceUiTest {
                 tomato.gui.glance.character.SheetFixtures.inject(app, previous);
                 shell.select(0);
             });
+            restorePreferences(preferences);
         }
+    }
+
+    /**
+     * Opening a sheet on a named tab may show that tab (CustomizableTabs saves ui.tabs.character) and the selection is remembered
+     * with the roster's saved view (ux.archive.characters-live-roster); the P3a focus tests put both back (P3a finding 11).
+     */
+    private static final String[] CHARACTER_PREFERENCES = {"ui.tabs.character", "ux.archive.characters-live-roster"};
+    private static java.util.Map<String, String> rememberPreferences(String... keys) {
+        java.util.Map<String, String> saved = new java.util.LinkedHashMap<>();
+        for (String key : keys) saved.put(key, util.PropertiesManager.getProperty(key));
+        return saved;
+    }
+    /** After queued EDT work (RosterViewState.changed() saves through invokeLater), puts the preferences back. */
+    private static void restorePreferences(java.util.Map<String, String> saved) throws Exception {
+        SwingUtilities.invokeAndWait(() -> { });
+        saved.forEach((key, value) -> util.PropertiesManager.setProperties(key, value == null ? "" : value));
     }
 
     private static JLabel pageTitle(Container root) {

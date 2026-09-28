@@ -8,11 +8,13 @@ import org.junit.rules.ErrorCollector;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.TomatoData;
+import tomato.gui.glance.character.CharacterFixtures;
 import tomato.gui.glance.home.HomeModel;
 import tomato.gui.glance.home.HomeModels;
 import tomato.gui.glance.home.HomePage;
 import tomato.gui.glance.home.LiveHomeSources;
 import tomato.gui.kit.Card;
+import tomato.gui.kit.Chip;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.history.SessionStore;
@@ -25,7 +27,8 @@ import static ui.VisualEvidence.named;
 /**
  * P2 Home evidence (spec §11), Simple and Analyst: populated at 1240×800 and 680×520, fonts 13 and 18; empty, stale and
  * unavailable at 1240×800, font 13; preview (live sources over a fresh TomatoData with a temporary journal and history) at
- * 1240×800, font 13. 16 screenshots; synthetic data only; no capture.
+ * 1240×800, font 13. 16 screenshots. P3b adds the hero's pet chip from live sources (2 screenshots in redesign-p3b-characters).
+ * Synthetic data only; no capture.
  */
 public class HomeEvidenceTest {
     private static final String WINDOW_KEY = "ui.home.window";
@@ -75,6 +78,58 @@ public class HomeEvidenceTest {
                                 model.runs().state(), model.quests().state()})
                             errors.checkThat("Empty sources give empty states (spec §7), not loading or unavailable", state, is(HomeModel.State.EMPTY));
                         errors.checkSucceeds(() -> { assertWhole(page[0], mode, 1240); return null; });
+                    });
+                } finally {
+                    SwingUtilities.invokeAndWait(page[0]::close);
+                }
+            }
+        } finally { journal.close(); }
+    }
+    /**
+     * P3b, 2 captures (redesign-p3b-characters): the hero's pet chip from live sources over the synthetic character journal. The
+     * Wizard in game has a Legendary pet: the chip reads "Legendary pet", read from the hero's own journal record on the refresh
+     * thread. 1240×800 font 13 Simple and 680×520 font 18 Analyst.
+     */
+    @Test public void theHeroShowsItsPetRarityChip() throws Exception {
+        long now = System.currentTimeMillis();
+        CharacterJournal journal = CharacterFixtures.journal(temp.newFolder("journal").toPath().resolve("Characters/journal.json"), now);
+        TomatoData data = new TomatoData() { @Override public CharacterJournal characterJournal() { return journal; } };
+        SwingUtilities.invokeAndWait(() -> data.liveCharacter.publish(CharacterFixtures.live(now)));
+        VisualEvidence p3b = new VisualEvidence("redesign-p3b-characters"); // prints evidence's window into the P3b folder
+        try (AutoCloseable definitions = CharacterFixtures.installDefinitions();
+             SessionStore store = new SessionStore(temp.newFolder("history").toPath(), true, "p3b-home-pet")) {
+            for (Object[] variant : new Object[][] {{DisplayModeModel.Mode.SIMPLE, 1240, 800, 13}, {DisplayModeModel.Mode.ANALYST, 680, 520, 18}}) {
+                DisplayModeModel.Mode mode = (DisplayModeModel.Mode) variant[0];
+                int width = (Integer) variant[1], height = (Integer) variant[2], font = (Integer) variant[3];
+                HomePage[] page = new HomePage[1];
+                SwingUtilities.invokeAndWait(() -> {
+                    DisplayModeModel.application().set(mode);
+                    page[0] = new HomePage(new LiveHomeSources(data, () -> store), HomeModels.NO_ACTIONS);
+                    evidence.show(page[0], "Home hero pet chip", width, height, font);
+                });
+                try {
+                    awaitSettled(page[0]);
+                    long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+                    String[] chip = new String[1];
+                    while (System.nanoTime() < end) {
+                        SwingUtilities.invokeAndWait(() -> chip[0] = page[0].model().hero().petChip());
+                        if (chip[0] != null) break;
+                        Thread.sleep(50);
+                    }
+                    evidence.settle();
+                    SwingUtilities.invokeAndWait(() -> {
+                        p3b.capture(SwingUtilities.getWindowAncestor(page[0]), "p3b-home-hero-pet-" + width + "-" + font + "-" + mode.name().toLowerCase(Locale.ROOT));
+                        errors.checkThat("The live hero's chip comes from its journal record", page[0].model().hero().petChip(), is("Legendary pet"));
+                        errors.checkSucceeds(() -> {
+                            Chip pet = named(page[0], "home-hero-pet", Chip.class);
+                            Card hero = named(page[0], "home-hero", Card.class);
+                            java.awt.Rectangle placed = SwingUtilities.convertRectangle(pet.getParent(), pet.getBounds(), hero);
+                            assertTrue("The pet chip shows whole inside the hero card: " + placed + " in " + hero.getSize(), pet.isShowing()
+                                && "Legendary pet".equals(pet.getText()) && placed.x >= 0 && placed.x + placed.width <= hero.getWidth()
+                                && pet.getWidth() >= pet.getPreferredSize().width);
+                            assertWhole(page[0], mode, width);
+                            return null;
+                        });
                     });
                 } finally {
                     SwingUtilities.invokeAndWait(page[0]::close);

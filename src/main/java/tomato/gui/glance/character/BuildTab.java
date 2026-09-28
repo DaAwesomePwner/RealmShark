@@ -14,11 +14,13 @@ import static tomato.gui.glance.character.SheetViews.named;
  * Sheet › Build (spec §6.1–6.2): the app's single Build page (MyInfoGUI). Build describes the character in game or, after capture
  * stops or while a map change clears it, the last one that was. So the tab shows Build only on that character's sheet; on any
  * other sheet an empty state says "Build shows the character you're playing" and, while someone is in game, offers that
- * character's Build. While another character's sheet loads, or after a failed build, a neutral card shows neither. MyInfoGUI
- * stays parented in its hidden card (never a second instance). EDT only.
+ * character's Build. While another character's sheet loads a neutral "Loading…" card shows neither; after a failed build a
+ * "Build unavailable" card does the same. MyInfoGUI stays parented in its hidden card (never a second instance). EDT only.
  */
 final class BuildTab extends JPanel {
     static final String POINTER = "Build shows the character you're playing";
+    /** The failed-build card's title. */
+    static final String FAILED = "Build unavailable";
     private final CardLayout cards = new CardLayout();
     private final JPanel host = named(new JPanel(new BorderLayout()), "character-build-host");
     private final JPanel other = named(new JPanel(new BorderLayout()), "character-build-other");
@@ -38,6 +40,7 @@ final class BuildTab extends JPanel {
         add(other, "other");
         add(named(new EmptyState("Build is not available here", "Build opens in the RealmShark window.", null), "character-build-unhosted"), "unhosted");
         add(named(new EmptyState(CharacterSheet.LOADING, "Build shows here once this character's sheet has loaded.", null), "character-build-loading"), "loading");
+        add(named(new EmptyState(FAILED, "The character sheet could not be built. It retries automatically.", null), "character-build-failed"), "failed");
         show("unhosted");
     }
 
@@ -60,20 +63,28 @@ final class BuildTab extends JPanel {
 
     JComponent hosted() { return build; }
 
-    /** "build", "other", "loading" or "unhosted". */
+    /** "build", "other", "loading", "failed" or "unhosted". */
     String card() { return card; }
 
     /**
-     * The neutral card, while another character's sheet loads or after a failed build: neither MyInfoGUI nor an Open button, so
-     * nothing of the previous character stays on screen or acts. The next {@link #apply} picks the card again.
+     * The neutral card while another character's sheet loads: neither MyInfoGUI nor an Open button, so nothing of the previous
+     * character stays on screen or acts. The next {@link #apply} picks the card again.
      */
-    void loading() {
+    void loading() { neutral("loading"); }
+
+    /**
+     * After a failed build: says Build is unavailable (never "Loading…" beside the sheet's failure banner), again with neither
+     * MyInfoGUI nor an Open button. The presenter's retry on the next refresh picks the card again through {@link #apply}.
+     */
+    void failed() { neutral("failed"); }
+
+    private void neutral(String name) {
         liveKey = null;
         pointerFor = null;
         other.removeAll();
         other.revalidate();
         other.repaint();
-        show(build == null ? "unhosted" : "loading");
+        show(build == null ? "unhosted" : name);
     }
 
     /**

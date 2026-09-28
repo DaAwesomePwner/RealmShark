@@ -29,6 +29,15 @@ public class EmptyState extends JPanel {
         getAccessibleContext().setAccessibleDescription(body);
     }
 
+    /** Replaces the body line (the next action can depend on what is known) and the accessible description with it. EDT. */
+    public void setBody(String body) {
+        if (body.equals(text.getText())) return;
+        text.setText(body);
+        getAccessibleContext().setAccessibleDescription(body);
+        revalidate();
+        repaint();
+    }
+
     @Override public void updateUI() {
         super.updateUI();
         if (text != null) text.setForeground(Tokens.color(Tokens.Role.TEXT_MUTED)); // null during JPanel's constructor

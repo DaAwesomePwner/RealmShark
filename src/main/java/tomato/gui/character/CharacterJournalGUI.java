@@ -51,17 +51,12 @@ public final class CharacterJournalGUI extends JPanel {
         public Class<?> getColumnClass(int col) { return col == 4 || col == 5 ? Integer.class : col >= 6 ? Long.class : String.class; }
     };
     private final JTable roster = table(rosterModel);
-    private final DefaultTableModel exaltModel = model("Account", "Class", "Stat", "Level", "Completions", "Next tier", "Observed");
-    private final JPanel exalts = new JPanel(new BorderLayout(0, 8)) {
-        @Override public void addNotify() { super.addNotify(); timer.start(); refresh(); }
-        @Override public void removeNotify() { super.removeNotify(); if (!CharacterJournalGUI.this.isDisplayable()) timer.stop(); }
-    };
     private List<CharacterRecord> records = new ArrayList<>(), filtered = new ArrayList<>();
     private List<AccountRecord> accounts = new ArrayList<>();
     private String selectedKey;
     private long revision = -1;
     private boolean refreshing;
-    private boolean rosterDirty = true, exaltsDirty = true;
+    private boolean rosterDirty = true;
     private final javax.swing.Timer timer;
     private RosterViewState viewState;
     private final JPanel stateHost = new JPanel(new BorderLayout());
@@ -105,7 +100,7 @@ public final class CharacterJournalGUI extends JPanel {
         JPanel top = new JPanel(new BorderLayout(0, 6));
         summary.setName("character-summary");
         ContentStyle.font(summary, ContentStyle.body()); top.add(summary, BorderLayout.NORTH);
-        status.setFont(ContentStyle.metadata(ContentStyle.body()));
+        status.setFont(ContentStyle.metadata(ContentStyle.body())); status.setName("character-status");
         JPanel filters = ContentStyle.controls();
         search.putClientProperty("JTextField.placeholderText", "Search class, account, ID, equipment…");
         search.setToolTipText("Search class, account name, character ID, item names or notes");
@@ -177,12 +172,14 @@ public final class CharacterJournalGUI extends JPanel {
             @Override public List<CharacterRosterQuery.Row> rows() { return visibleRows(); }
             @Override public boolean saved() { return !records.isEmpty(); }
             @Override public String problem() { return journal.storageProblem(); }
+            @Override public boolean unreadable() { return !journal.readable(); }
             @Override public String liveKey() { return liveKey.get(); }
             @Override public String selectedKey() { return selectedKey; }
             @Override public void select(String key) { selectKey(key); }
             @Override public void open(String key) { openSheet.accept(key); }
         }, DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
         addRowsListener(views::refresh);
+        views.onViewChanged(this::updateStatus);
         JScrollPane page = ContentStyle.page(top, views.body(), footer); pageScroll = page;
         page.setName("character-page-scroll");
         page.getAccessibleContext().setAccessibleName("Characters; scroll for the roster and its actions at large text sizes");
@@ -196,12 +193,6 @@ public final class CharacterJournalGUI extends JPanel {
                 }
             });
         }
-        exalts.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        JTextArea exaltHint = note("Saved account/class progress • Sort columns to review progress • Only observed classes are listed");
-        JTable exaltTable = table(exaltModel); exaltTable.setAutoCreateRowSorter(true);
-        exaltTable.getColumnModel().getColumn(6).setCellRenderer(dateRenderer());
-        exalts.add(ContentStyle.page(exaltHint, ContentStyle.tableScroll(exaltTable, 3),
-                note("Tier thresholds: 5 / 15 / 30 / 50 / 75 completions. Character death does not reset exalts.")), BorderLayout.CENTER);
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); } public void removeUpdate(DocumentEvent e) { filter(); }
             public void changedUpdate(DocumentEvent e) { filter(); }
@@ -210,15 +201,14 @@ public final class CharacterJournalGUI extends JPanel {
         for (JComboBox<?> facet : new JComboBox<?>[]{accountFilter, classFilter, needsLife, missing, maxedFilter, ageFilter}) facet.addActionListener(e -> filter());
         minMaxed.addChangeListener(e -> filter()); maxMaxed.addChangeListener(e -> filter()); ageHours.addChangeListener(e -> filter());
         roster.getSelectionModel().addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !refreshing) select(!restoringState); });
-        timer = new javax.swing.Timer(1000, e -> { if (isShowing() || exalts.isShowing()) refresh(); });
-        java.awt.event.HierarchyListener visibility = e -> {
-            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && e.getComponent().isShowing()) refresh();
-        };
-        addHierarchyListener(visibility); exalts.addHierarchyListener(visibility); refresh();
+        timer = new javax.swing.Timer(1000, e -> { if (isShowing()) refresh(); });
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refresh();
+        });
+        refresh();
     }
     @Override public void addNotify() { super.addNotify(); timer.start(); refresh(); }
-    @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); if (!exalts.isDisplayable()) timer.stop(); }
-    public JPanel exaltPanel() { return exalts; }
+    @Override public void removeNotify() { if (viewState != null) viewState.save(); super.removeNotify(); timer.stop(); }
     /** Where the gallery reads the live character's journal key (null when no character is in game). EDT. */
     public void setLiveKey(java.util.function.Supplier<String> source) { liveKey = Objects.requireNonNull(source); views.refresh(); }
     RosterViews views() { return views; }
@@ -273,7 +263,7 @@ public final class CharacterJournalGUI extends JPanel {
         synchronized (journal) {
             if (revision != journal.revision()) {
                 records = journal.characters(); accounts = journal.accounts(); revision = journal.revision();
-                rosterDirty = exaltsDirty = true;
+                rosterDirty = true;
                 project = true;
             }
         }
@@ -281,9 +271,8 @@ public final class CharacterJournalGUI extends JPanel {
             projected.clear(); for (CharacterRecord record : records) projected.put(record.key, new CharacterRosterQuery.Row(record, definitions));
             rebuildFacets();
         }
-        // The Exalts page can be mounted independently of the roster in the workspace.
-        boolean detached = !isDisplayable() && !exalts.isDisplayable();
-        if (exaltsDirty && (exalts.isShowing() || detached)) refreshExalts();
+        // Outside a window (tests, or before the workspace mounts it) the list still follows the journal.
+        boolean detached = !isDisplayable();
         if (rosterDirty && (isShowing() || detached)) filter();
         else if ((isShowing() || detached) && ageFilter.getSelectedIndex() != 0 && !matchingKeys().equals(filteredKeys())) filter();
         // save() runs on a background writer and changes the storage problem without bumping revision, so this is checked on
@@ -291,22 +280,21 @@ public final class CharacterJournalGUI extends JPanel {
         // go stale (never appearing, or not clearing after a later successful save).
         String problem = journal.storageProblem();
         if (!Objects.equals(problem, galleryProblem)) { galleryProblem = problem; views.refresh(); }
-        String storageStatus = journal.storageStatus();
-        if (records.isEmpty() && storageStatus.startsWith("Saved"))
-            storageStatus = "Start capture and enter the game on a character. Account identity is required before saving.";
-        else if (!records.isEmpty() && filtered.isEmpty()) storageStatus = "No matching characters. Reset filters to show the retained roster. · " + storageStatus;
-        if (!status.getText().equals(storageStatus)) status.setText(storageStatus);
+        updateStatus();
     }
-    private void refreshExalts() {
-        exaltsDirty = false;
-        exaltModel.setRowCount(0);
-        for (AccountRecord a : accounts) for (Map.Entry<Integer, int[]> entry : a.exalts.entrySet()) {
-            for (int i = 0; i < 8; i++) {
-                int count = entry.getValue()[CharacterJournal.EXALT_ORDER[i]];
-                exaltModel.addRow(new Object[]{accountName(a.key), className(entry.getKey()), CharacterJournal.STATS[i],
-                    CharacterJournal.exaltLevel(count) + "/5", count, next(count), a.exaltSeen});
-            }
-        }
+    /**
+     * The footer: the save status, plus guidance only where no empty state gives it (P3a finding 9: one "nothing here" message).
+     * While the gallery shows, its empty state says there is nothing to show and its warn banner or unavailable state names a
+     * storage problem, so the footer adds only a healthy save status. The Table view has neither, so the footer guides there.
+     */
+    private void updateStatus() {
+        String text = journal.storageStatus();
+        if (views.galleryShown()) { if (journal.storageProblem() != null) text = ""; }
+        else if (records.isEmpty() && text.startsWith("Saved"))
+            text = "Start capture and enter the game on a character. Account identity is required before saving.";
+        else if (!records.isEmpty() && filtered.isEmpty()) text = "No matching characters. Reset filters to show the retained roster. · " + text;
+        if (!status.getText().equals(text)) status.setText(text);
+        status.setVisible(!text.isEmpty());
     }
     /** Active roster facets as removable chips. */
     private void updateChips() {
@@ -343,8 +331,9 @@ public final class CharacterJournalGUI extends JPanel {
         summary.setText(records.isEmpty() ? "Your saved characters will appear here" : DisplayFormat.formatInteger(alive) + " not marked dead  •  "
                 + DisplayFormat.formatInteger(deadCount) + " marked dead manually  •  " + DisplayFormat.formatInteger(maxed) + " at 8/8  •  "
                 + DisplayFormat.formatInteger(filtered.size()) + " shown");
-        if (records.isEmpty() && journal.storageStatus().startsWith("Saved")) status.setText("Start capture and enter the game on a character. Account identity is required before saving.");
-        else if (filtered.isEmpty()) status.setText("No matching characters. Reset filters to show the retained roster.");
+        // With nothing saved, the gallery's empty state (or, in the Table view, the footer) says so; a summary would repeat it.
+        summary.setVisible(!records.isEmpty());
+        updateStatus();
         for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key.equals(oldKey)) {
             int view = roster.convertRowIndexToView(i); roster.setRowSelectionInterval(view, view); break;
         }
@@ -488,15 +477,11 @@ public final class CharacterJournalGUI extends JPanel {
     private static String lifeLabel(CharacterRecord r) {
         return r.dead ? "Marked dead manually" : r.lastObservedAlive > 0 ? "Last observed alive" : r.rosterReceivedAt > 0 ? "Reported in roster" : "Legacy life state";
     }
-    private static String next(int count) { for (int goal : new int[]{5,15,30,50,75}) if (count < goal) return (goal - count) + " to " + goal; return "Complete"; }
     private static String className(int id) { String name = CharacterClass.getName(id); return name == null ? "Class " + id : name; }
     private static String itemName(Integer id) { if (id == null) return "Not captured"; if (id < 0) return "Empty"; String name = IdToAsset.objectName(id); return name == null ? "Item #" + id : name; }
     private static String date(long time) { return time <= 0 ? "Unknown" : Formatters.formatTimestamp(time); }
     private static DefaultTableCellRenderer dateRenderer() { return new ContentStyle.Cell() {
         @Override protected void setValue(Object v) { setText(v instanceof Long ? date((Long)v) : "Unknown"); setToolTipText(getText()); }
-    }; }
-    private static DefaultTableModel model(String... columns) { return new DefaultTableModel(columns, 0) { @Override public boolean isCellEditable(int row, int col) { return false; }
-        @Override public Class<?> getColumnClass(int col) { for (int i = 0; i < getRowCount(); i++) { Object v = getValueAt(i, col); if (v != null) return v instanceof Number ? v.getClass() : String.class; } return String.class; }
     }; }
     private static JTable table(DefaultTableModel model) {
         JTable t = new JTable(model); ContentStyle.table(t, ContentStyle.Density.DENSE);
@@ -510,8 +495,5 @@ public final class CharacterJournalGUI extends JPanel {
     }
     private static void reveal(JComponent control, Rectangle region) {
         ContentStyle.reveal(control, region);
-    }
-    private static JTextArea note(String text) {
-        return ContentStyle.wrappingText(text);
     }
 }
