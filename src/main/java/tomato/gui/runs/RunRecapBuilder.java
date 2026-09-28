@@ -253,8 +253,7 @@ public final class RunRecapBuilder {
         if (facts.lootFailure != null) value = DisplayValue.unknown(facts.lootFailure);
         else if (!facts.lootSaved) value = DisplayValue.unknown(loot.reason());
         else value = DisplayValue.count((long) loot.count(), "Items in bags recorded inside this exact run", null);
-        String subline = loot.bags().isEmpty() ? null : !loot.summary().isEmpty() ? loot.summary()
-            : loot.bags().size() + (loot.bags().size() == 1 ? " bag" : " bags");
+        String subline = loot.bags().isEmpty() || loot.summary().isEmpty() ? null : loot.summary();
         return new RunRecapModel.Tile(RunRecapModel.Tile.LOOT, "Loot", value, subline);
     }
 
@@ -315,24 +314,16 @@ public final class RunRecapBuilder {
 
     private static RunRecapModel.Loot loot(Facts facts) {
         List<RunRecapModel.Loot.Bag> bags = new ArrayList<>();
-        int count = 0, untiered = 0, setTiered = 0, potions = 0;
+        int count = 0;
         for (LootFacts.Bag bag : facts.bags) {
             bags.add(new RunRecapModel.Loot.Bag(bag.bag(), bag.time(), bag.items()));
-            for (LootFacts.Item item : bag.items()) {
-                count++;
-                if (item.untiered()) untiered++;
-                if (item.setTiered()) setTiered++;
-                if (item.potion()) potions++;
-            }
+            count += bag.items().size();
         }
-        List<String> parts = new ArrayList<>();
-        if (untiered > 0) parts.add(untiered + " UT");
-        if (setTiered > 0) parts.add(setTiered + " ST");
-        if (potions > 0) parts.add(potions + (potions == 1 ? " potion" : " potions"));
         String reason = !bags.isEmpty() ? null : facts.lootFailure != null ? facts.lootFailure
             : facts.lootSaved ? "No loot bag was recorded inside this exact run; drops of other runs or without a recorded run are never shown here."
             : "No loot bag was saved in this run's session, so its loot is unknown.";
-        return new RunRecapModel.Loot(bags, count, String.join(" · ", parts), reason);
+        // The feed card's wording, so a run reads the same on its card and in its recap.
+        return new RunRecapModel.Loot(bags, count, RunCardModel.summary(facts.bags), reason);
     }
 
     private static RunRecapModel.Players players(ActivityJournal.Visit visit) {

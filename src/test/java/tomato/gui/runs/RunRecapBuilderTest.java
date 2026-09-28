@@ -339,6 +339,14 @@ public class RunRecapBuilderTest {
         assertNull("No party observed", model.header().partySize());
     }
 
+    /** The recap's loot line is the feed card's wording: "N items" when nothing is notable, "" without items. */
+    @Test public void lootSummaryIsTheFeedCardsWording() {
+        tomato.gui.stats.LootFacts.Item plain = new tomato.gui.stats.LootFacts.Item(7, false, false, false, false);
+        tomato.gui.stats.LootFacts.Bag bag = new tomato.gui.stats.LootFacts.Bag("s", T0, false, "Brown", null, List.of(plain, plain));
+        assertEquals("2 items", RunCardModel.summary(List.of(bag)));
+        assertEquals("", RunCardModel.summary(List.of()));
+    }
+
     @Test public void lootAndFameAreJoinedByTheExactVisitOnly() throws Exception {
         RunRecapModel model = build(V1);
         RunRecapModel.Loot loot = model.loot();

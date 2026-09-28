@@ -138,8 +138,11 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
         return shown;
     }
 
-    /** "1 UT · 1 ST · 2 potions" over every item (Home's wording); "3 items" when none is notable; "" without items. */
-    private static String summary(List<LootFacts.Bag> bags) {
+    /**
+     * "1 UT · 1 ST · 2 potions" over every item (Home's wording); "3 items" when none is notable; "" without items. The card and
+     * the run recap both use it, so a run's loot reads the same in both.
+     */
+    static String summary(List<LootFacts.Bag> bags) {
         int items = 0, untiered = 0, setTiered = 0, potions = 0;
         for (LootFacts.Bag bag : bags) for (LootFacts.Item item : bag.items()) {
             items++;
