@@ -15,8 +15,11 @@ import tomato.history.link.VisitRef;
 public final class LootFacts {
     /** One saved item occurrence; {@code untiered}/{@code setTiered} are UT/ST gear exactly as Statistics counts them. */
     public record Item(int id, boolean untiered, boolean setTiered, boolean highTier, boolean potion) {}
-    /** One saved bag; {@code visit} is {@code DropContext.visit} (exact, recorded at drop time) or null. */
-    public record Bag(String session, long time, boolean white, VisitRef visit, List<Item> items) {
+    /**
+     * One saved bag; {@code bag} is the bag name the drop recorded ("White", "B.White", "Orange", …; {@code Tokens.bag} colors it)
+     * or null when none was saved (legacy drops); {@code visit} is {@code DropContext.visit} (exact, recorded at drop time) or null.
+     */
+    public record Bag(String session, long time, boolean white, String bag, VisitRef visit, List<Item> items) {
         public Bag { items = List.copyOf(items); }
     }
 
@@ -45,6 +48,7 @@ public final class LootFacts {
         }
         VisitRef visit = drop.context == null ? null : drop.context.visit;
         boolean exact = visit != null && visit.sessionId != null && !visit.sessionId.isEmpty() && visit.visitId != null && !visit.visitId.isEmpty();
-        return new Bag(session, drop.time, LootArchiveAdapter.white(drop.bag), exact ? visit : null, items);
+        String name = drop.bag == null || drop.bag.isBlank() ? null : drop.bag;   // not recorded: unknown, never guessed
+        return new Bag(session, drop.time, LootArchiveAdapter.white(drop.bag), name, exact ? visit : null, items);
     }
 }
