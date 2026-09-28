@@ -12,8 +12,8 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P1c Filters, tabs and columns | [2026-09-26-p1c-filters-tabs-columns.md](2026-09-26-p1c-filters-tabs-columns.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #20 (`e973f10`) |
 | P2 Home | [2026-09-26-p2-home.md](2026-09-26-p2-home.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #21 (`94db6f6`) |
 | P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #22 (`04a61d4`) |
-| P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Implemented; PR merge pending |
-| P4 Quests | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #23 (`b559bca`) |
+| P4 Quests | being written | `claude/redesign-handoff-next-steps-edrr7w` | Plan in progress |
 | P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
@@ -24,7 +24,7 @@ P1a merged in PR #18 as `7b3e0c5`, including the brand-icon correction `ee8d085`
 P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
 P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
 P2 merged in PR #21 as `94db6f6`, including seven review fixes (`f10bd7d`..`2367bc7`).
-P3a merged in PR #22 as `04a61d4`, including fix `508d1d1` for the two Codex pet-merge threads; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P3b is implemented on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w` (from `04a61d4`, source head `91a8a89`); its PR merge is pending. Later phases have not started.
+P3a merged in PR #22 as `04a61d4`, including fix `508d1d1` for the two Codex pet-merge threads; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P3b merged in PR #23 as `b559bca`, including the Codex review fix `9c0da67`; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P4 continues from `b559bca` on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`. Later phases have not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
 [P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md), [P3b validation](2026-09-27-p3b-validation.md).

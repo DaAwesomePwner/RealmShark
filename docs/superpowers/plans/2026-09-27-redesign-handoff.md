@@ -16,8 +16,9 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P1c Filters, tabs, columns | #20 | Merged | `e973f10` |
 | P2 Home | #21 | Merged | `94db6f6` |
 | P3a Characters: gallery, sheet, journal v5 | #22 | Merged (Codex threads fixed in `508d1d1`) | `04a61d4` |
-| **P3b Characters: Exalts grid, Pets, Pet/Fame tabs** | see roadmap | **Implemented; PR merge pending** (branch `claude/redesign-handoff-next-steps-edrr7w`) | source head `91a8a89` |
-| P4 Quests, P5 Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
+| P3b Characters: Exalts grid, Pets, Pet/Fame tabs | #23 | Merged (Codex fix `9c0da67`) | `b559bca` |
+| **P4 Quests** | none | **Plan being written** on `claude/redesign-handoff-next-steps-edrr7w` | |
+| P5 Runs & DPS, P6 Loot & cleanup | none | Outlines only (roadmap) | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
 
@@ -25,10 +26,10 @@ All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with on
 
 Done on 2026-09-27/28 (cloud session):
 - PR #22's Codex threads fixed in `508d1d1`; PR #22 merged as `04a61d4` and `main` verified.
-- P3b planned as a contract plan ([2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md)) and implemented with subagent-driven development: four waves of parallel implementer subagents in isolated worktrees, the coordinator reviewing and merging every task, then an independent whole-branch review (five Minor findings, fixed) and a UI polish round from the evidence screenshots. Record: [2026-09-27-p3b-validation.md](2026-09-27-p3b-validation.md).
+- P3b planned as a contract plan ([2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md)) and implemented with subagent-driven development: four waves of parallel implementer subagents in isolated worktrees, the coordinator reviewing and merging every task, then an independent whole-branch review and a UI polish round from the evidence screenshots. PR #23 merged as `b559bca` (Codex review fix `9c0da67`); `main` verified. Record: [2026-09-27-p3b-validation.md](2026-09-27-p3b-validation.md).
 
-1. **Merge the P3b PR, only with the user's go-ahead** (merge commit, `--match-head-commit`, then verify `main`'s tree equals the head).
-2. **P4 Quests** starts with open item O1: sanitized samples of the `QuestData.expiration` format are needed before the expiry countdown (roadmap P4).
+1. **Write the P4 Quests plan** in the P3b contract-plan format. It starts with open item O1: the real `QuestData.expiration` format needs sanitized samples from a live Daily Quest Room visit, which only the user can capture.
+2. **Implement P4 with subagent-driven development** (as P3b), then open its PR.
 
 ---
 
