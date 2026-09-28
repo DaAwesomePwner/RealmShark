@@ -139,6 +139,42 @@ public class HeroCardTest {
             assertNull(named(card, "home-hero-empty", EmptyState.class));
         });
     }
+    /**
+     * The hero's content (and its empty state) joins the card only when the first model arrives; a font change made while the card
+     * was loading (Settings refreshes the window's tree) must still reach it (P2 behavior found by the P3b evidence run).
+     */
+    @Test public void aFontChangeWhileLoadingReachesWhatTheFirstModelShows() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            java.awt.Font previous = tomato.gui.modern.ContentStyle.body();
+            try {
+                for (HomeModel.Hero first : List.of(HomeModels.hero(HomeModel.State.LIVE, NOW), HomeModels.empty().hero())) {
+                    tomato.gui.modern.ContentStyle.setBodyFont(new java.awt.Font(tomato.gui.modern.ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 13));
+                    HeroCard card = card(); // loading: the content and the empty state are not in the card yet
+                    tomato.gui.modern.ContentStyle.setBodyFont(new java.awt.Font(tomato.gui.modern.ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 18));
+                    tomato.gui.modern.ContentStyle.refreshFonts(card); // what a font change in Settings does to the window
+                    card.apply(first, NOW);
+                    assertEquals("The name label", Type.title().getSize2D(), named(card, "home-hero-name", JLabel.class).getFont().getSize2D(), 0.01f);
+                    if (first.state() == HomeModel.State.LIVE) {
+                        assertEquals("The meta line of the content the first model swapped in", Type.caption().getSize2D(),
+                            named(card, "home-hero-meta", JLabel.class).getFont().getSize2D(), 0.01f);
+                        assertEquals("A stat value", Type.caption().getSize2D(), named(card, "home-hero-value-0", JLabel.class).getFont().getSize2D(), 0.01f);
+                    } else {
+                        JLabel heading = find(named(card, "home-hero-empty", EmptyState.class), JLabel.class);
+                        assertEquals("The empty state's heading", Type.emphasis().getSize2D(), heading.getFont().getSize2D(), 0.01f);
+                    }
+                }
+            } finally {
+                tomato.gui.modern.ContentStyle.setBodyFont(previous);
+            }
+        });
+    }
+    private static <T> T find(java.awt.Container root, Class<T> type) {
+        for (java.awt.Component c : root.getComponents()) {
+            if (type.isInstance(c)) return type.cast(c);
+            if (c instanceof java.awt.Container) { T found = find((java.awt.Container) c, type); if (found != null) return found; }
+        }
+        return null;
+    }
     @Test public void anEqualHeroIsSkippedButItsAgeStillAdvances() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             HeroCard card = card();

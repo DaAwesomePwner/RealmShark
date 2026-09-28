@@ -116,9 +116,6 @@ public class HomeEvidenceTest {
                         if (chip[0] != null) break;
                         Thread.sleep(50);
                     }
-                    // The hero's content joins the tree only when its first model arrives (HeroCard swaps its body), after show()
-                    // refreshed the fonts; apply this font again, as a font change in Settings does. See the P3b validation record.
-                    SwingUtilities.invokeAndWait(() -> evidence.show(page[0], "Home hero pet chip", width, height, font));
                     evidence.settle();
                     SwingUtilities.invokeAndWait(() -> {
                         p3b.capture(SwingUtilities.getWindowAncestor(page[0]), "p3b-home-hero-pet-" + width + "-" + font + "-" + mode.name().toLowerCase(Locale.ROOT));

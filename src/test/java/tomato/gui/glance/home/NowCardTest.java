@@ -43,6 +43,24 @@ public class NowCardTest {
             assertEquals("The whole card opens the live meter", 1, opened[0]);
         });
     }
+    /** HomeCard: an empty state that joins the card on the first model has the font chosen while the card was loading. */
+    @Test public void aFontChangeWhileLoadingReachesTheEmptyStateTheFirstModelShows() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            java.awt.Font previous = tomato.gui.modern.ContentStyle.body();
+            try {
+                tomato.gui.modern.ContentStyle.setBodyFont(new java.awt.Font(tomato.gui.modern.ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 13));
+                NowCard card = new NowCard(() -> {}, mode); // loading
+                tomato.gui.modern.ContentStyle.setBodyFont(new java.awt.Font(tomato.gui.modern.ContentStyle.FONT_FAMILY, java.awt.Font.PLAIN, 18));
+                tomato.gui.modern.ContentStyle.refreshFonts(card); // what a font change in Settings does to the window
+                card.apply(HomeModels.empty().now(), NOW);
+                JLabel heading = null;
+                for (java.awt.Component c : named(card, "home-now-empty", EmptyState.class).getComponents()) if (c instanceof JLabel) heading = (JLabel) c;
+                assertEquals(Type.emphasis().getSize2D(), heading.getFont().getSize2D(), 0.01f);
+            } finally {
+                tomato.gui.modern.ContentStyle.setBodyFont(previous);
+            }
+        });
+    }
     @Test public void theOneSecondTickChangesOnlyTheElapsedTextAndOnlyWhenItDiffers() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             NowCard card = new NowCard(() -> {}, mode);
