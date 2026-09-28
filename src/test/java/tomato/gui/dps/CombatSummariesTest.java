@@ -124,9 +124,10 @@ public class CombatSummariesTest {
         CombatSummaries.Result result = CombatSummaries.build(fight.context(VISIT, 1, T).build());
         CombatRecord record = result.record();
         assertEquals(6, record.enemies); assertEquals(4, record.enemyTypes);
-        assertEquals(2, record.bosses.size());
-        assertEquals(5001, record.bosses.get(0).type); assertEquals("Unknown boss", record.bosses.get(0).name);
+        assertEquals("one entry per boss type", 2, record.bosses.size()); assertEquals(0, record.bossTypesOmitted);
+        assertEquals(5001, record.bosses.get(0).type); assertEquals("Unknown boss", record.bosses.get(0).name); assertEquals(1, record.bosses.get(0).count);
         assertNull("absent MAX_HP is unknown, never 0", record.bosses.get(0).maxHp); assertEquals(2000, record.bosses.get(0).damage);
+        assertEquals(5000, record.bosses.get(1).type); assertEquals(1, record.bosses.get(1).count);
         assertEquals(Integer.valueOf(90_000), record.bosses.get(1).maxHp);
         List<CombatDetail.EnemyType> types = result.detail().enemies;
         assertEquals(Arrays.asList(5001, 5000, 6000, 7000), Arrays.asList(types.get(0).type, types.get(1).type, types.get(2).type, types.get(3).type));
@@ -134,6 +135,68 @@ public class CombatSummariesTest {
         assertEquals(3, minions.count); assertEquals("Minion", minions.name); assertEquals(Integer.valueOf(800), minions.maxHp);
         assertEquals("unattributed hits count on the enemy", 60, minions.damage); assertEquals(3, minions.hits); assertFalse(minions.boss);
         assertNull(types.get(3).maxHp); assertTrue(types.get(0).boss);
+    }
+
+    @Test public void manyBossObjectsOfOneTypeBecomeOneEntryWithItsCount() {
+        int sentry = 2_000_000_001, warden = 2_000_000_002, shade = 2_000_000_003; // types no asset list names
+        Fight fight = CombatFixtures.fight("Realm");
+        Entity self = fight.user(1, 768, "Self");
+        Integer[] maxHp = {1_000, null, 3_000, 2_000, null};
+        for (int i = 0; i < 5; i++) {
+            Entity boss = fight.enemy(100 + i, sentry, i == 0 ? null : "Sentry", maxHp[i], true);
+            fight.hit(boss, i == 4 ? null : self, 10 * (i + 1), T + i * 100);
+        }
+        fight.hit(fight.enemy(200, warden, "Warden", null, true), self, 100, T + 1_000);
+        fight.hit(fight.enemy(300, shade, "Shade", null, true), self, 150, T + 1_100);
+        fight.hit(fight.enemy(301, shade, "Shade", null, true), self, 1, T + 1_200);
+        CombatRecord record = CombatSummaries.build(fight.context(VISIT, 1, T).build()).record();
+        assertEquals(3, record.bosses.size()); assertEquals(0, record.bossTypesOmitted);
+        CombatRecord.Boss first = record.bosses.get(0);
+        assertEquals(shade, first.type); assertEquals(2, first.count); assertEquals(151, first.damage);
+        assertNull("no max HP known for the type", first.maxHp);
+        CombatRecord.Boss sentries = record.bosses.get(1);
+        assertEquals(sentry, sentries.type); assertEquals(5, sentries.count);
+        assertEquals("summed, unattributed hits included", 150, sentries.damage);
+        assertEquals("the largest known", Integer.valueOf(3_000), sentries.maxHp); assertEquals("the first known name", "Sentry", sentries.name);
+        assertEquals(warden, record.bosses.get(2).type); assertEquals(1, record.bosses.get(2).count);
+        assertEquals(8, record.enemies); assertEquals(3, record.enemyTypes);
+    }
+
+    @Test public void tenBossTypesKeepTheEightLargestAndCountTheRest() {
+        Fight fight = CombatFixtures.fight("Realm");
+        Entity self = fight.user(1, 768, "Self");
+        for (int t = 0; t < 10; t++) fight.hit(fight.enemy(100 + t, 5000 + t, "Boss " + t, 1_000, true), self, 100 * (t + 1), T + t * 100);
+        CombatSummaries.Result result = CombatSummaries.build(fight.context(VISIT, 1, T).build());
+        CombatRecord record = result.record();
+        assertEquals(CombatRecord.BOSS_TYPES, record.bosses.size()); assertEquals(2, record.bossTypesOmitted);
+        for (int i = 0; i < 8; i++) assertEquals("damage descending", 5009 - i, record.bosses.get(i).type);
+        assertEquals("the detail keeps every type with its boss flag", 10, result.detail().enemies.size());
+        for (CombatDetail.EnemyType type : result.detail().enemies) assertTrue(type.boss);
+        fight.hit(fight.enemy(200, 5001, "Boss 1", 1_000, true), self, 800, T + 2_000); // 5001 now ties 5009 at 1,000
+        record = CombatSummaries.build(fight.build()).record();
+        assertEquals("equal damage orders by type", 5001, record.bosses.get(0).type); assertEquals(2, record.bosses.get(0).count);
+        assertEquals(1_000, record.bosses.get(0).damage); assertEquals(5009, record.bosses.get(1).type); assertEquals(2, record.bossTypesOmitted);
+    }
+
+    @Test public void aRealmLikeFightWithManyBossObjectsKeepsTheRecordCardSized() {
+        Fight fight = CombatFixtures.fight("Realm");
+        List<Entity> party = new ArrayList<>();
+        for (int p = 1; p <= 20; p++) party.add(p == 1 ? fight.user(p, 768, "Player" + p) : fight.player(p, CombatFixtures.CLASSES[p % 8], "Player" + p));
+        for (int b = 0; b < 200; b++) {
+            Entity boss = fight.enemy(1_000 + b, 7_000 + b % 20, "Boss type " + b % 20, 50_000 + b % 20, true);
+            for (int p = 0; p < party.size(); p++) fight.hit(boss, party.get(p), 200 + (b * 7 + p * 13) % 300, T + b * 3_000L + p * 50);
+        }
+        for (int e = 0; e < 300; e++) fight.hit(fight.enemy(5_000 + e, 8_000 + e % 50, "Enemy type " + e % 50, 900, false),
+            party.get(e % party.size()), 150, T + e * 2_000L);
+        CombatSummaries.Result result = CombatSummaries.build(fight.ticks(T, 600_000).context(VISIT, 1, T - 5_000).build());
+        int record = SessionStore.JSON.toJson(result.record()).getBytes(StandardCharsets.UTF_8).length;
+        int detail = SessionStore.JSON.toJson(result.detail()).getBytes(StandardCharsets.UTF_8).length;
+        System.out.println("Combat summary JSON (Realm-like: 20 players, 200 boss objects of 20 types, 300 other enemies): record "
+            + record + " B, detail " + detail + " B");
+        assertEquals(8, result.record().bosses.size()); assertEquals(12, result.record().bossTypesOmitted);
+        for (CombatRecord.Boss boss : result.record().bosses) assertEquals(10, boss.count);
+        assertEquals(500, result.record().enemies); assertEquals(70, result.record().enemyTypes);
+        assertTrue("record " + record + " B", record <= 16 * 1024);
     }
 
     @Test public void deathsArePerRowOnlyForKnownNamesUniqueInTheRecording() {

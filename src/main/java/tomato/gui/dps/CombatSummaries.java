@@ -104,36 +104,35 @@ public final class CombatSummaries {
 
     private static String name(Entity player) { String name = player.name(); return name == null || name.isEmpty() ? null : name; }
 
-    /** Enemies grouped by type for the detail; bosses listed one by one in the record. */
+    /** Enemies grouped by type for the detail; boss types (at most {@link CombatRecord#BOSS_TYPES}) in the record. */
     private static void enemies(List<Entity> targets, CombatRecord record, CombatDetail detail) {
         Map<Integer, CombatDetail.EnemyType> types = new LinkedHashMap<>();
-        List<BossEntry> bosses = new ArrayList<>();
+        Map<Integer, CombatRecord.Boss> bosses = new LinkedHashMap<>();
         for (Entity e : targets) {
             long damage = 0, hits = 0;
             for (Damage hit : new ArrayList<>(e.getDamageList())) { damage += hit.damage; hits++; }
             Integer maxHp = e.stat.get(StatType.MAX_HP_STAT) == null ? null : e.maxHp();
-            boolean boss = e.isBossMob();
+            boolean isBoss = e.isBossMob();
             String name = enemyName(e);
             CombatDetail.EnemyType type = types.computeIfAbsent(e.objectType, t -> { CombatDetail.EnemyType created = new CombatDetail.EnemyType(); created.type = t; return created; });
-            type.count++; type.damage += damage; type.hits += hits; type.boss |= boss;
+            type.count++; type.damage += damage; type.hits += hits; type.boss |= isBoss;
             if (type.name == null) type.name = name;
             if (maxHp != null && (type.maxHp == null || maxHp > type.maxHp)) type.maxHp = maxHp;
-            if (boss) {
-                CombatRecord.Boss line = new CombatRecord.Boss();
-                line.type = e.objectType; line.name = name; line.maxHp = maxHp; line.damage = damage;
-                bosses.add(new BossEntry(line, e.id));
-            }
+            if (!isBoss) continue;
+            CombatRecord.Boss boss = bosses.computeIfAbsent(e.objectType, t -> { CombatRecord.Boss created = new CombatRecord.Boss(); created.type = t; return created; });
+            boss.count++; boss.damage += damage;
+            if (boss.name == null) boss.name = name;
+            if (maxHp != null && (boss.maxHp == null || maxHp > boss.maxHp)) boss.maxHp = maxHp;
         }
         record.enemies = targets.size();
         record.enemyTypes = types.size();
-        bosses.sort(Comparator.comparingLong((BossEntry b) -> b.boss().damage).reversed()
-            .thenComparingInt(b -> b.boss().type).thenComparingInt(BossEntry::objectId));
-        for (BossEntry entry : bosses) record.bosses.add(entry.boss());
+        List<CombatRecord.Boss> ordered = new ArrayList<>(bosses.values());
+        ordered.sort(Comparator.comparingLong((CombatRecord.Boss b) -> b.damage).reversed().thenComparingInt(b -> b.type));
+        record.bosses.addAll(ordered.subList(0, Math.min(CombatRecord.BOSS_TYPES, ordered.size())));
+        record.bossTypesOmitted = ordered.size() - record.bosses.size();
         detail.enemies.addAll(types.values());
         detail.enemies.sort(Comparator.comparingLong((CombatDetail.EnemyType t) -> t.damage).reversed().thenComparingInt(t -> t.type));
     }
-
-    private record BossEntry(CombatRecord.Boss boss, int objectId) {}
 
     private static String enemyName(Entity e) {
         String name = e.name();

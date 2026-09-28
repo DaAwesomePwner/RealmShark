@@ -43,8 +43,15 @@ public final class CombatRecord {
     public int deaths;
     /** Enemy objects hit and their distinct types. */
     public int enemies, enemyTypes;
-    /** Boss and miniboss objects hit, damage descending then type and object order. */
+    /** Most listed boss types; the rest are counted in {@link #bossTypesOmitted} and kept in the detail's enemy types. */
+    public static final int BOSS_TYPES = 8;
+    /**
+     * Boss and miniboss objects hit, grouped by type, damage descending then type; at most {@link #BOSS_TYPES} types so
+     * the record stays card-sized in long Realm recordings.
+     */
     public List<Boss> bosses = new ArrayList<>();
+    /** Boss types hit but not listed in {@link #bosses} (0 when all fit); every type is in {@code CombatDetail.enemies}. */
+    public int bossTypesOmitted;
     /** Hits stamped before the first tick (time -1): counted in every total, not placed in damage-over-time buckets. */
     public int hitsBeforeFirstTick;
     /** Whether a full-detail file was saved beside this record. */
@@ -103,14 +110,16 @@ public final class CombatRecord {
         public PlayerLine() {}
     }
 
-    /** A boss or miniboss object hit in this recording. */
+    /** Boss or miniboss objects of one type hit in this recording. */
     public static final class Boss {
         public int type;
-        /** The captured object name; null when unknown. */
+        /** The first captured object name of this type; null when none is known. */
         public String name;
-        /** Maximum HP when the MAX_HP stat was captured, else null. */
+        /** Objects of this type hit. */
+        public int count;
+        /** The largest captured MAX_HP of these objects; null when none was captured. */
         public Integer maxHp;
-        /** All recorded damage on this object. */
+        /** All recorded damage on these objects, including hits without an owner. */
         public long damage;
 
         public Boss() {}
