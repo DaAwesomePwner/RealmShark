@@ -163,7 +163,7 @@ public class WaveThreeEvidenceTest {
                     reveal(named(workspace, "loot-drill-summary", JTextArea.class));
                     assertTrue(label(workspace, "loot-drill-summary").contains("No other run is substituted"));
                     assertLineReadable(named(workspace, "loot-drill-summary", JTextArea.class));
-                    assertShows(shell, "Back to Runs");
+                    assertShows(shell, "Back to Runs & DPS");
                 });
             } finally { run(() -> { workspace.close(); evidence.closeWindow(); }); }
         }

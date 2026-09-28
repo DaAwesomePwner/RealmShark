@@ -5,6 +5,7 @@ import realmshark.branding.AppIdentity;
 import tomato.Tomato;
 import tomato.gui.TomatoGUI;
 import tomato.gui.chat.ChatGUI;
+import tomato.gui.modern.NavEntry;
 import tomato.gui.modern.WorkspaceShell;
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -128,7 +129,7 @@ public class WorkspaceUiTest {
                     assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
                     for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                         AbstractButton button = findButton(shell, "nav-" + i);
-                        if (i == 6) { assertFalse("Build is reached by route, search and Alt+7, not the sidebar", button.isShowing()); continue; }
+                        if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger are reached by route, search and shortcut, not the sidebar", button.isShowing()); continue; }
                         assertTrue(button.isShowing()); button.doClick();
                         assertEquals(i, shell.getSelectedPage());
                         assertTrue(button.isSelected());
@@ -156,7 +157,7 @@ public class WorkspaceUiTest {
                     assertEquals("Exact compact breakpoint", width < 1000, shell.isCompact());
                     for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
                         AbstractButton button = findButton(shell, "nav-" + i);
-                        if (i == 6) { assertFalse("Build has no sidebar row", button.isVisible()); continue; }
+                        if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", button.isVisible()); continue; }
                         button.doClick(); layoutTree(shell);
                         assertEquals(i, shell.getSelectedPage());
                         assertTrue(button.isVisible()); assertTrue(button.isSelected());

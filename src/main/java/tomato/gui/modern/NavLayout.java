@@ -13,13 +13,14 @@ import util.PropertiesManager;
  * The user's sidebar arrangement over the fixed destinations: the core order (including pinned
  * Advanced entries), hidden entries and whether the Advanced group is open. Page indices never change
  * here. Saved values are comma-separated NavEntry IDs; IDs this version does not know, and unlisted
- * destinations (Build), are ignored and dropped on the next write. Settings is never hidden, and at
- * least one core entry always stays visible. Use on the EDT.
+ * destinations (Build, Statistics, DPS Logger), are ignored and dropped on the next write. The one
+ * exception is {@code dps-logger}, saved beside a hidden {@code runs} (see {@code savedHidden()}).
+ * Settings is never hidden, and at least one core entry always stays visible. Use on the EDT.
  */
 public final class NavLayout {
     public static final String ORDER_KEY = "ui.nav.order", HIDDEN_KEY = "ui.nav.hidden",
         PINNED_KEY = "ui.nav.pinned", ADVANCED_KEY = "ui.nav.advanced";
-    private static final String HOME = "home";
+    private static final String HOME = "home", RUNS = "runs", DPS_LOGGER = "dps-logger";
 
     private final BiConsumer<String, String> write;
     private final List<String> order = new ArrayList<>();
@@ -36,10 +37,15 @@ public final class NavLayout {
         // Home arrived after orders were saved, so it leads a saved order that lacks it. Only memory changes here;
         // the next move or pin writes the whole order, so this happens once.
         if (!order.isEmpty() && !order.contains(HOME)) order.add(0, HOME);
-        for (String id : ids(read.apply(HIDDEN_KEY))) {
+        List<String> savedHidden = ids(read.apply(HIDDEN_KEY));
+        for (String id : savedHidden) {
             NavEntry.Group group = group(id);
             if (group == NavEntry.Group.CORE || group == NavEntry.Group.ADVANCED) hidden.add(id);
         }
+        // P5b moved the live meter from DPS Logger (now unlisted) into Runs & DPS. Someone who hid Runs but kept DPS Logger
+        // would lose the meter's row, so Runs shows again. Memory only, like Home above: the next save writes it, and a hidden
+        // Runs is always saved with dps-logger beside it, so this happens once and never undoes a later choice.
+        if (savedHidden.contains(RUNS) && !savedHidden.contains(DPS_LOGGER)) hidden.remove(RUNS);
         advancedOpen = "true".equals(read.apply(ADVANCED_KEY));
         // A hand-edited file may hide every core entry; the sidebar and the landing page still need one.
         if (core().isEmpty()) hidden.remove(coreOrder().get(0).id());
@@ -131,13 +137,13 @@ public final class NavLayout {
     public boolean hide(String id) {
         if (!canHide(id)) return false;
         hidden.add(id);
-        write.accept(HIDDEN_KEY, String.join(",", hidden));
+        write.accept(HIDDEN_KEY, savedHidden());
         return true;
     }
 
     public boolean show(String id) {
         if (!hidden.remove(id)) return false;
-        write.accept(HIDDEN_KEY, String.join(",", hidden));
+        write.accept(HIDDEN_KEY, savedHidden());
         return true;
     }
 
@@ -174,6 +180,16 @@ public final class NavLayout {
         pinned.clear();
         advancedOpen = false;
         for (String key : new String[] {ORDER_KEY, HIDDEN_KEY, PINNED_KEY, ADVANCED_KEY}) write.accept(key, "");
+    }
+
+    /**
+     * The hidden IDs as saved. Hiding Runs & DPS also hides the live meter, so {@code dps-logger} is saved beside a hidden
+     * {@code runs}: the one-time un-hide in the constructor then leaves it hidden, and an older version hides both pages.
+     */
+    private String savedHidden() {
+        List<String> saved = new ArrayList<>(hidden);
+        if (hidden.contains(RUNS)) saved.add(DPS_LOGGER);
+        return String.join(",", saved);
     }
 
     private List<NavEntry> shown(List<NavEntry> entries) {

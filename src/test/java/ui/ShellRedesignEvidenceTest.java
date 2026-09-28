@@ -107,6 +107,13 @@ public class ShellRedesignEvidenceTest {
                 if (row.isVisible()) completeButton(row);
             }
             completeButton(named(shell, "nav-advanced", AbstractButton.class));
+            // Statistics and DPS Logger left the sidebar (P5b). With Timeline pinned and Chat hidden the rows are Home, Characters,
+            // Runs & DPS, Loot, Quests and Timeline, then Advanced (4): Party, Key-pops, Logging and Bridge Review; Settings below.
+            java.util.List<Integer> listed = java.util.Arrays.asList(14, 3, 10, 8, 5, 11, 2, 1, 9, 12, 13);
+            for (int page = 0; page < WorkspaceShell.TITLES.length; page++)
+                assertEquals("Sidebar row " + page, listed.contains(page), named(shell, "nav-" + page, AbstractButton.class).isVisible());
+            assertEquals("Advanced (4)", named(shell, "nav-advanced", AbstractButton.class).getText());
+            assertEquals("Runs & DPS", named(shell, "nav-10", AbstractButton.class).getText());
         }
         for (String name : new String[] {"browse-history", "display-mode-0", "display-mode-1", "capture-toggle", "choose-assets", "retry-assets"})
             completeButton(named(shell, name, AbstractButton.class));
