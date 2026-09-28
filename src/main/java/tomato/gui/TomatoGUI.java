@@ -141,7 +141,8 @@ public class TomatoGUI {
         navigator = shell.createNavigator();
         // The Roster tab's list (CHARACTERS) and one character's sheet (CHARACTER_SHEET) share one view and one Back state.
         for (RouteTarget target : characterPanel.routeTargets()) navigator.register(target);
-        registerRetainedPage(Destination.QUESTS);
+        // Quests: a plain route (Home's Quests card) opens the Board, QuestsFocus.PLANNER the Planner; Back returns to the tab left.
+        navigator.register(new tomato.gui.quest.QuestsRouteTarget(questPanel));
         // Home's Now card opens the DPS Logger page as it is. This target accepts plain routes only and is registered before
         // DpsGUI's encounter target, which is therefore tried first: exact recording routes keep resolving there.
         registerRetainedPage(Destination.ENCOUNTER);
@@ -467,7 +468,8 @@ public class TomatoGUI {
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
             "Characters/plans.json; death notes in Characters/journal.json", () -> characterPanel.openGoals());
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
-            "Characters/plans.json; legacy pins remain in Java Preferences", () -> { navigator.open(tomato.gui.route.Route.to(Destination.QUESTS)); questPanel.openPlans(); });
+            "Characters/plans.json; legacy pins remain in Java Preferences",
+            () -> navigator.open(tomato.gui.route.Route.to(Destination.QUESTS).withPayload(tomato.gui.quest.QuestsFocus.PLANNER)));
         registerSearch("build.open", "Build (weapon damage and recovery)", "build my info weapon damage dps recovery mana estimates equipment",
             "Characters › Build", "Nothing is saved; values come from the live capture", () -> navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO)));
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,

@@ -72,6 +72,9 @@ public class ShellHookIntegrationTest {
     private static final String TABS = "ui.tabs.character";
     private String filters, ignoredVisibility, temporaryDirectory, sheetTabs;
     private final Map<String,String> archivePreferences = new LinkedHashMap<>();
+    /** The Quests page's saved tabs and Board choices: cleared so each shell opens on the Board's default Cards view, then restored. */
+    private static final String[] QUEST_PREFERENCES = {"ui.tabs.quests", "ui.quests.view", "ui.quests.group", "ui.quests.pinned-first"};
+    private final Map<String,String> questPreferences = new LinkedHashMap<>();
     private static final String[] MODULES = {"chat", "keypops", "inspect", "statistics", "loot", "runs", "timeline"};
 
     @Before public void open() throws Exception {
@@ -83,6 +86,10 @@ public class ShellHookIntegrationTest {
         PropertiesManager.setProperties(TABS, ""); // explicit navigation (charactersRoutesOpenTheListOrOneSheetAndBackRestoresEach) may show() a tab
         for (String key : archiveKeys()) {
             archivePreferences.put(key, PropertiesManager.getProperty(key));
+            PropertiesManager.setProperties(key, "");
+        }
+        for (String key : QUEST_PREFERENCES) {
+            questPreferences.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
         }
         temporaryDirectory = System.getProperty("java.io.tmpdir");
@@ -118,6 +125,7 @@ public class ShellHookIntegrationTest {
             PropertiesManager.setProperties(TABS, sheetTabs == null ? "" : sheetTabs);
         });
         for (String key : archiveKeys()) PropertiesManager.setProperties(key, archivePreferences.getOrDefault(key, ""));
+        for (String key : QUEST_PREFERENCES) { String saved = questPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
         PropertiesManager.flush().toCompletableFuture().get(5, TimeUnit.SECONDS);
         if (temporaryDirectory != null) System.setProperty("java.io.tmpdir", temporaryDirectory);
         if (store != null) store.close();
@@ -152,7 +160,17 @@ public class ShellHookIntegrationTest {
             assertEquals(3, shell.getSelectedPage());
             assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals(0, shell.getSelectedPage());
             assertTrue(registry.search("plans.quests").get(0).open()); assertEquals(5, shell.getSelectedPage());
+            JTabbedPane quests = named(shell, "quests-tabs", JTabbedPane.class);
+            assertEquals("The search opens the Planner", "Planner", quests.getTitleAt(quests.getSelectedIndex()));
             assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals(0, shell.getSelectedPage());
+            // The search opens the Planner through the navigator, so its tab switch is part of the Back entry: from the Board on the
+            // Quests page, Back returns to the Board.
+            shell.select(5); quests.setSelectedIndex(quests.indexOfTab("Board"));
+            assertTrue(registry.search("plans.quests").get(0).open());
+            assertEquals(5, shell.getSelectedPage()); assertEquals("Planner", quests.getTitleAt(quests.getSelectedIndex()));
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals(5, shell.getSelectedPage());
+            assertEquals("Back returns to the Board the search left", "Board", quests.getTitleAt(quests.getSelectedIndex()));
             assertEquals(capture, Tomato.isCaptureRunning());
         });
     }
@@ -287,6 +305,83 @@ public class ShellHookIntegrationTest {
                 journal.close();
             }
         }
+    }
+
+    /**
+     * Spec S3, pinned quests and what they reward, over synthetic quests with two pinned for the list's account. 0 clicks: Home's
+     * Quests card, built from the live sources as Home's refresher builds it, lists both pinned quests with their reward ids. 1 click:
+     * the card opens the Quests page on the Board, although the Planner was the tab last shown, with the pinned quests first and
+     * their reward items in the painted cards (read from the applied card models and QuestCardRenderer.lines, not pixels). Back
+     * returns Home. Reward ids no asset defines keep every card in one chest-tier group whatever assets the test JVM loaded. S3's
+     * other half, which pinned quests expire today, is deferred with the expiry countdown phase (the server's expiration format is
+     * unconfirmed, open item O1).
+     */
+    @Test public void homeQuestsCardAndBoardShowPinnedQuestsAndRewardsForS3AndBackReturnsHome() throws Exception {
+        String account = tomato.backend.data.CharacterJournal.accountKey("s3-fixture");
+        QuestData tribute = s3Quest("Royal tribute", 900_101, 900_102), haul = s3Quest("Mighty haul", 900_201);
+        QuestData swap = s3Quest("Token swap", 900_301), exchange = s3Quest("Festival exchange", 900_401, 900_402, 900_403);
+        java.util.prefs.Preferences pins = java.util.prefs.Preferences.userNodeForPackage(tomato.gui.quest.QuestGUI.class)
+            .node("accounts").node(account);
+        try {
+            // Pinned before the list is published: the page reads its pins with each publication. The key is the page's own
+            // (a UUID of the server id); QuestPinning.pinned, which Home reads, proves it.
+            for (QuestData quest : new QuestData[]{haul, exchange})
+                pins.putBoolean("pin." + UUID.nameUUIDFromBytes(quest.id.getBytes(java.nio.charset.StandardCharsets.UTF_8)), true);
+            assertTrue(tomato.gui.quest.QuestPinning.pinned(account, haul) && tomato.gui.quest.QuestPinning.pinned(account, exchange));
+            assertFalse(tomato.gui.quest.QuestPinning.pinned(account, tribute) || tomato.gui.quest.QuestPinning.pinned(account, swap));
+            long now = System.currentTimeMillis();
+            data.progression().reset(account, "fixture identified");
+            assertTrue(data.progression().quests(data.progression().scope(), new QuestData[]{tribute, haul, swap, exchange}, now - 60_000L));
+            // Off the EDT, as Home's refresher (which needs a window) reads it: the real sources and the real pins.
+            tomato.gui.glance.home.HomeModel.Quests section = new tomato.gui.glance.home.LiveHomeSources(data, () -> store).quests(now);
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+                home.apply(tomato.gui.glance.home.HomeModels.populated(now).withQuests(section));
+                shell.select(14);
+                String[] pinned = {"Mighty haul", "Festival exchange"}; // open pinned quests in the list's order
+                int[][] rewards = {{900_201}, {900_401, 900_402, 900_403}};
+                for (int i = 0; i < pinned.length; i++) {
+                    JLabel name = named(home, "home-quest-" + i + "-name", JLabel.class);
+                    assertEquals("S3, 0 clicks: Home lists the pinned quest", pinned[i], name.getText());
+                    assertTrue(shown(name));
+                    for (int r = 0; r < rewards[i].length; r++) {
+                        tomato.gui.kit.ItemSlot slot = named(home, "home-quest-" + i + "-reward-" + r, tomato.gui.kit.ItemSlot.class);
+                        assertEquals("…with its rewards", rewards[i][r], slot.itemId());
+                        assertEquals(tomato.gui.kit.ItemSlot.State.ITEM, slot.state());
+                        assertTrue(shown(slot));
+                    }
+                }
+                assertFalse("Only the pinned quests are listed", shown(named(home, "home-quest-2", JComponent.class)));
+                // The Planner is the tab last shown on the Quests page; the Board must still come forward.
+                JTabbedPane tabs = named(shell, "quests-tabs", JTabbedPane.class);
+                tabs.setSelectedIndex(tabs.indexOfTab("Planner"));
+                int clicks = 0;
+                named(home, "home-quests", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null); clicks++;
+                assertEquals("S3 takes one click from Home", 1, clicks);
+                assertEquals("The Quests card opens the Quests page", 5, shell.getSelectedPage());
+                assertEquals("…on the Board, not the Planner last shown", "Board", tabs.getTitleAt(tabs.getSelectedIndex()));
+                java.util.List<tomato.gui.quest.QuestsRouteTargetTest.ShownCard> cards =
+                    tomato.gui.quest.QuestsRouteTargetTest.shownCards(find(shell, tomato.gui.quest.QuestGUI.class));
+                assertEquals("The Board opens on its cards with every quest", 4, cards.size());
+                assertEquals("S3, 1 click: the pinned quests come first (then the page's name order)",
+                    java.util.List.of("Festival exchange", "Mighty haul", "Royal tribute", "Token swap"),
+                    cards.stream().map(tomato.gui.quest.QuestsRouteTargetTest.ShownCard::name).collect(java.util.stream.Collectors.toList()));
+                assertEquals(java.util.List.of(true, true, false, false),
+                    cards.stream().map(tomato.gui.quest.QuestsRouteTargetTest.ShownCard::pinned).collect(java.util.stream.Collectors.toList()));
+                assertEquals("…each card with its reward items", java.util.List.of(900_401, 900_402, 900_403), cards.get(0).rewards());
+                assertEquals(java.util.List.of(900_201), cards.get(1).rewards());
+                for (tomato.gui.quest.QuestsRouteTargetTest.ShownCard card : cards)
+                    assertTrue(card.list() + " shows on the page", shown(named(shell, card.list(), tomato.gui.kit.TileList.class)));
+                assertTrue(tomato.gui.route.Navigator.current().back());
+                assertEquals("Back returns Home", 14, shell.getSelectedPage());
+            });
+        } finally {
+            pins.removeNode(); // in-memory Preferences are shared by every test in the JVM
+        }
+    }
+    /** A synthetic one-time quest (id = name) needing one Mark of Malus and rewarding {@code rewards}. */
+    private static QuestData s3Quest(String name, int... rewards) {
+        return tomato.gui.quest.QuestFixtures.data(name, 5, new int[]{tomato.gui.quest.QuestFixtures.MALUS}, rewards);
     }
 
     @Test public void aHeroWithoutAJournalKeyOpensTheCharactersList() throws Exception {
