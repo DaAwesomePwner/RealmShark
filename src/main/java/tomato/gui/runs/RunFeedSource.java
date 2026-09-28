@@ -39,8 +39,10 @@ import tomato.realmshark.ParseDungeon;
  * coverage) and combat records ({@link CombatFacts}). A closed session's facts are kept while its stamp is unchanged (the
  * name, size and modification time of every entry of its folder and of its loot, fame, fame-latest and encounters folders,
  * as {@code HomeArchive.Cache} does); the current session is read again every time. Sessions whose metadata cannot be read
- * are left out of the pin and named in {@link Page#issues()}; a damaged loot, fame or runs file of a loaded session fails the
- * page read (as Home's reader does), while a damaged combat record is skipped ({@link CombatFacts#read}).
+ * are left out of the pin, and a damaged {@code runs} file fails the read, as the archive does. One session's facts degrade
+ * alone: when its loot, fame or combat records cannot be read, its runs' cards show that fact as unknown with a reason
+ * ({@link RunCardModel#LOOT_UNREADABLE}, null fame, {@link RunCardModel#COMBAT_UNREADABLE}); a single damaged combat record
+ * is skipped ({@link CombatFacts#read}). Both are named in {@link Page#issues()}, so the feed can say it is partial.
  */
 public final class RunFeedSource {
     /** Runs per page. */
@@ -55,6 +57,13 @@ public final class RunFeedSource {
     /** Closed sessions' facts by session ID, for {@link #keptRoot}; guarded by this. */
     private final Map<String, Facts> kept = new HashMap<>();
     private Path keptRoot;
+    /** Reads one session's combat records ({@link CombatFacts#read}); tests replace it to fail one session's read. */
+    private volatile CombatReader records = CombatFacts::read;
+
+    /** {@link CombatFacts#read}'s shape. */
+    @FunctionalInterface interface CombatReader {
+        void read(SessionStore store, List<SessionStore.SessionEntry> catalog, String scope, java.util.function.Consumer<CombatRecord> sink) throws IOException;
+    }
 
     /** Pins go to the system temporary folder, as the archive workspaces' do. */
     public RunFeedSource(SessionStore store, ZoneId zone, LongSupplier clock) {
@@ -79,7 +88,7 @@ public final class RunFeedSource {
             for (JsonElement issue : result.manifest().getAsJsonArray("issues")) issues.add(issue.getAsString());
             shared = new Shared(result.lease(), issues);
         } finally { result.close(); }   // the lease keeps the pinned files until the last page using them is closed
-        try { return read(shared, query, List.of(), result.matches, adapter.unplaced, cancel); }
+        try { return read(shared, query, List.of(), shared.issues, result.matches, adapter.unplaced, cancel); }
         catch (IOException | RuntimeException | Error failure) { shared.release(); throw failure; }
     }
 
@@ -95,18 +104,26 @@ public final class RunFeedSource {
         if (previous.closed.get()) throw new IllegalStateException("This feed page was closed");
         Shared shared = previous.shared.retain();
         try {
-            if (!previous.model.more()) return new Page(previous.model, previous.query, previous.matches, previous.unplaced, previous.loaded, shared);
-            return read(shared, previous.query, previous.model.cards(), previous.matches, previous.unplaced, cancel);
+            if (!previous.model.more())
+                return new Page(previous.model, previous.query, previous.matches, previous.unplaced, previous.loaded, previous.issues, shared);
+            return read(shared, previous.query, previous.model.cards(), previous.issues, previous.matches, previous.unplaced, cancel);
         } catch (IOException | RuntimeException | Error failure) { shared.release(); throw failure; }
     }
 
     /** Closed sessions whose facts are kept (tests). */
     synchronized int cachedSessions() { return kept.size(); }
 
+    /** Replaces the combat record reader (tests: a session whose combat read fails). */
+    void combatReader(CombatReader reader) { records = Objects.requireNonNull(reader, "reader"); }
+
     private static void offEdt() { if (SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read saved runs off the EDT"); }
 
-    /** The next page after {@code loaded}: its rows, the first unloaded run's day, and the facts of the new rows' sessions. */
-    private Page read(Shared shared, RunFeedQuery query, List<RunCardModel> loaded, long matches, long unplaced, Cancellation cancel) throws IOException {
+    /**
+     * The next page after {@code loaded}: its rows, the first unloaded run's day, and the facts of the new rows' sessions.
+     * {@code known} are the issues so far (the pin's, then earlier pages'); the new sessions' unreadable facts are added.
+     */
+    private Page read(Shared shared, RunFeedQuery query, List<RunCardModel> loaded, List<String> known, long matches, long unplaced,
+                      Cancellation cancel) throws IOException {
         long from = loaded.size();   // a whole number of pages: only the last page is short, and more() stops there
         List<ArchiveRow<Projected>> rows = new ArrayList<>(PAGE);
         if (from < matches) shared.lease.stream(ExportSelection.page(from / PAGE, PAGE), rows::add, cancel);
@@ -120,22 +137,30 @@ public final class RunFeedSource {
         List<SessionStore.SessionEntry> catalog = store.catalog(cancel);   // listed once for every session read below
         forgetGone(catalog);
         Map<String, Facts> facts = new HashMap<>();
+        Set<String> issues = new LinkedHashSet<>(known);
         List<RunCardModel> cards = new ArrayList<>(loaded);
         for (ArchiveRow<Projected> row : rows) {
             cancel.check();
             Facts session = facts.get(row.ref.session);
-            if (session == null) facts.put(row.ref.session, session = facts(catalog, row.ref.session));
+            if (session == null) {
+                facts.put(row.ref.session, session = facts(catalog, row.ref.session));
+                issues.addAll(session.issues());
+            }
             cards.add(card(row, session));
         }
         cancel.check();
-        return new Page(RunFeedModel.of(cards, next < matches, continuesOn, zone, clock.getAsLong()), query, matches, unplaced, next, shared);
+        return new Page(RunFeedModel.of(cards, next < matches, continuesOn, zone, clock.getAsLong()), query, matches, unplaced, next,
+            List.copyOf(issues), shared);
     }
 
+    /** A card from the pinned row and its session's facts; a fact the session could not read is passed on as null (unknown). */
     private static RunCardModel card(ArchiveRow<Projected> row, Facts facts) {
         ActivityQueries.Row run = row.value.run;
         VisitRef ref = new VisitRef(row.ref.session, run.visitId);
         return RunCardModel.of(ref, run.map, row.value.outcome, run.time, run.durationMillis, row.value.rosterSize, run.progress,
-            facts.combat.getOrDefault(ref, List.of()), facts.loot.getOrDefault(ref, List.of()), FameGains.of(facts.fame, ref).orElse(null));
+            facts.combat() == null ? null : facts.combat().getOrDefault(ref, List.of()),
+            facts.loot() == null ? null : facts.loot().getOrDefault(ref, List.of()),
+            facts.fame() == null ? null : FameGains.of(facts.fame(), ref).orElse(null));
     }
 
     /** Forgets everything when the store's folder changed, and the sessions that left the catalog. */
@@ -163,15 +188,35 @@ public final class RunFeedSource {
         return read;
     }
 
-    private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<Stamp> stamp) throws IOException {
-        Map<VisitRef, List<LootFacts.Bag>> loot = new HashMap<>();
-        LootFacts.read(store, catalog, entry.id, bag -> { if (bag.visit() != null) loot.computeIfAbsent(bag.visit(), v -> new ArrayList<>()).add(bag); });
-        List<AppHistory.FameSample> samples = new ArrayList<>();
-        store.read(catalog, entry.id, "fame", AppHistory.FameSample.class, (s, sample) -> samples.add(sample));
-        store.read(catalog, entry.id, "fame-latest", AppHistory.FameSample.class, (s, sample) -> samples.add(sample));
-        List<CombatRecord> records = new ArrayList<>();
-        CombatFacts.read(store, catalog, entry.id, records::add);
-        return new Facts(stamp, loot, FameGains.byVisit(samples, entry.id, entry.availability("runs")), CombatFacts.byVisit(records));
+    /**
+     * One session's loot, fame and combat facts, each read on its own: a module that cannot be read (a damaged journal line
+     * or checkpoint, an unlistable folder) is null (unknown) and named in {@link Facts#issues}, and the others still show.
+     */
+    private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<Stamp> stamp) {
+        List<String> issues = new ArrayList<>();
+        Map<VisitRef, List<LootFacts.Bag>> bags = new HashMap<>(), loot = bags;
+        try { LootFacts.read(store, catalog, entry.id, bag -> { if (bag.visit() != null) bags.computeIfAbsent(bag.visit(), v -> new ArrayList<>()).add(bag); }); }
+        catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, "loot", issues); loot = null; }
+        Map<VisitRef, Long> fame;
+        try {
+            List<AppHistory.FameSample> samples = new ArrayList<>();
+            store.read(catalog, entry.id, "fame", AppHistory.FameSample.class, (s, sample) -> samples.add(sample));
+            store.read(catalog, entry.id, "fame-latest", AppHistory.FameSample.class, (s, sample) -> samples.add(sample));
+            fame = FameGains.byVisit(samples, entry.id, entry.availability("runs"));
+        } catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, "fame", issues); fame = null; }
+        Map<VisitRef, List<CombatRecord>> combat;
+        try {
+            List<CombatRecord> saved = new ArrayList<>();
+            records.read(store, catalog, entry.id, saved::add);
+            combat = CombatFacts.byVisit(saved);
+        } catch (IOException | RuntimeException failure) { unreadable(failure, entry.id, CombatFacts.RECORDS, issues); combat = null; }
+        return new Facts(stamp, loot, fame, combat, List.copyOf(issues));
+    }
+
+    /** Notes a module of {@code session} that could not be read, by the failure's kind (never its message, which may hold a path). */
+    private static void unreadable(Exception failure, String session, String module, List<String> issues) {
+        if (failure instanceof java.util.concurrent.CancellationException) throw (java.util.concurrent.CancellationException) failure;
+        issues.add(session + ": " + module + " could not be read (" + failure.getClass().getSimpleName() + ")");
     }
 
     /** The session folder's entries and the files of {@link #FOLDERS}, by name. */
@@ -201,11 +246,13 @@ public final class RunFeedSource {
         private final RunFeedModel model;
         private final RunFeedQuery query;
         private final long matches, unplaced, loaded;
+        private final List<String> issues;
         private final Shared shared;
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private Page(RunFeedModel model, RunFeedQuery query, long matches, long unplaced, long loaded, Shared shared) {
-            this.model = model; this.query = query; this.matches = matches; this.unplaced = unplaced; this.loaded = loaded; this.shared = shared;
+        private Page(RunFeedModel model, RunFeedQuery query, long matches, long unplaced, long loaded, List<String> issues, Shared shared) {
+            this.model = model; this.query = query; this.matches = matches; this.unplaced = unplaced; this.loaded = loaded;
+            this.issues = issues; this.shared = shared;
         }
 
         public RunFeedModel model() { return model; }
@@ -215,10 +262,11 @@ public final class RunFeedSource {
         /** Saved dungeon runs matching the query without a visit ID or entry time: no card can show them. */
         public long unplaced() { return unplaced; }
         /**
-         * Why the pinned runs may be partial, in the archive's words: saved sessions whose metadata could not be read (left
-         * out) and unfinished journal tails; empty when every saved session was read.
+         * Why the loaded runs may be partial: the pin's issues in the archive's words (saved sessions whose metadata could not
+         * be read, left out; unfinished journal tails), then each loaded session's module that could not be read
+         * ("&lt;session&gt;: loot could not be read (IOException)"; also fame and encounters). Empty when everything was read.
          */
-        public List<String> issues() { return shared.issues; }
+        public List<String> issues() { return issues; }
         @Override public void close() { if (closed.compareAndSet(false, true)) shared.release(); }
     }
 
@@ -243,9 +291,13 @@ public final class RunFeedSource {
         }
     }
 
-    /** One closed session's facts as last read ({@code stamp} null for the current session), by exact visit. */
+    /**
+     * One session's facts as last read ({@code stamp} null for the current session), by exact visit. A module that could not
+     * be read is null (its facts unknown) and named in {@code issues}; kept with the stamp like the rest, since reading the
+     * same files again fails the same way.
+     */
     private record Facts(List<Stamp> stamp, Map<VisitRef, List<LootFacts.Bag>> loot, Map<VisitRef, Long> fame,
-                         Map<VisitRef, List<CombatRecord>> combat) {}
+                         Map<VisitRef, List<CombatRecord>> combat, List<String> issues) {}
 
     /** One entry as last seen: its path inside the session folder, size and modification time (epoch ms). */
     private record Stamp(String name, long size, long modified) {}

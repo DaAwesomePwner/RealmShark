@@ -153,6 +153,22 @@ public class RunFeedModelTest {
         assertEquals("Nothing notable: the item count", "2 items", plainOnly.lootSummary());
     }
 
+    @Test public void unreadableLootOrCombatRecordsAreUnknownWithAReasonNeverNone() {
+        VisitRef ref = new VisitRef(SESSION, "v1");
+        RunCardModel unread = RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 0, null, null, null);
+        assertEquals("Loot for this session could not be read.", unread.lootReason());
+        assertEquals(List.of(), unread.loot()); assertEquals(0, unread.lootCount()); assertEquals("", unread.lootSummary());
+        assertNull(unread.combat()); assertEquals("Combat records for this session could not be read.", unread.combatReason());
+        RunCardModel none = RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 0, List.of(), List.of(), null);
+        assertNull("Read, with no bag inside the run: a known none", none.lootReason());
+        assertEquals(RunCardModel.NO_RECORDING, none.combatReason());
+        RunCardModel.LootItem item = new RunCardModel.LootItem(1, "White", "UT");
+        RunCardModel stated = new RunCardModel(ref, "Lost Halls", "Lost Halls", 0, RunOutcome.COMPLETED, NOW, null, null, null,
+            RunCardModel.NO_RECORDING, List.of(item), 1, "1 UT", RunCardModel.LOOT_UNREADABLE, null, null);
+        assertEquals("A reason means no loot is shown", List.of(), stated.loot());
+        assertEquals(0, stated.lootCount()); assertEquals("", stated.lootSummary());
+    }
+
     @Test public void exaltProgressAppearsOnlyWhenTheVisitRecordedAnIncrease() {
         VisitRef ref = new VisitRef(SESSION, "v1");
         assertEquals(Integer.valueOf(2), RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 2, List.of(), List.of(), null).exaltProgress());

@@ -245,6 +245,72 @@ public class RunFeedSourceTest {
         }
     }
 
+    @Test public void aSessionWhoseLootCannotBeReadKeepsTheFeedAndSaysSoOnItsCards() throws Exception {
+        Path root = scenario(), loot = root.resolve(RunFixtures.A).resolve("loot.jsonl");
+        Files.writeString(loot, "{broken\n" + Files.readString(loot));   // not the final line: the journal is damaged
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            for (int read = 0; read < 2; read++) try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals("The page loads (read " + read + "; the second from kept facts)", 5, page.model().cards().size());
+                for (VisitRef ref : List.of(RunFixtures.A1, RunFixtures.A2, RunFixtures.A3)) {
+                    RunCardModel card = card(page.model(), ref);
+                    assertEquals(RunCardModel.LOOT_UNREADABLE, card.lootReason());
+                    assertEquals(List.of(), card.loot()); assertEquals(0, card.lootCount()); assertEquals("", card.lootSummary());
+                }
+                RunCardModel a1 = card(page.model(), RunFixtures.A1);
+                assertEquals("The session's other facts still show", Long.valueOf(240), a1.fameGained());
+                assertEquals("r-v1-long", a1.combat().recordingId());
+                RunCardModel b1 = card(page.model(), RunFixtures.B1);
+                assertNull("B's loot was read: no bag inside its run is a known none", b1.lootReason()); assertEquals(0, b1.lootCount());
+                assertEquals(1, page.issues().size());
+                assertTrue(page.issues().get(0), page.issues().get(0).startsWith(RunFixtures.A + ": loot could not be read"));
+            }
+        }
+    }
+
+    @Test public void aSessionWhoseFameCannotBeReadShowsFameAsUnknown() throws Exception {
+        Path root = scenario(), fame = root.resolve(RunFixtures.A).resolve("fame.jsonl");
+        Files.writeString(fame, "{broken\n" + Files.readString(fame));
+        try (SessionStore store = new SessionStore(root, false, "fixture");
+             RunFeedSource.Page page = source(store, RunFixtures.NOW).first(RunFeedQuery.all(), new Cancellation())) {
+            RunCardModel a1 = card(page.model(), RunFixtures.A1), a2 = card(page.model(), RunFixtures.A2);
+            assertNull("Unknown, not the +240 it would be", a1.fameGained());
+            assertNull("Unknown, not the known zero it would be", a2.fameGained());
+            assertEquals("Loot and combat still show", 6, a1.lootCount()); assertNull(a1.lootReason());
+            assertEquals("r-v1-long", a1.combat().recordingId());
+            assertEquals(1, page.issues().size());
+            assertTrue(page.issues().get(0), page.issues().get(0).startsWith(RunFixtures.A + ": fame could not be read"));
+        }
+    }
+
+    @Test public void aSessionWhoseCombatRecordsCannotBeReadSaysSoInsteadOfNoRecording() throws Exception {
+        Path root = scenario();
+        CombatFixtures.write(root, RunFixtures.A, "encounters", "damaged", "{broken");   // one damaged record: skipped, not a failure
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals("r-v1-long", card(page.model(), RunFixtures.A1).combat().recordingId());
+                assertEquals(List.of(), page.issues());
+            }
+            RunFeedSource failing = source(store, RunFixtures.NOW);
+            failing.combatReader((s, catalog, scope, sink) -> {
+                if (scope.equals(RunFixtures.A)) throw new java.io.IOException("synthetic listing failure");
+                CombatFacts.read(s, catalog, scope, sink);
+            });
+            try (RunFeedSource.Page page = failing.first(RunFeedQuery.all(), new Cancellation())) {
+                for (VisitRef ref : List.of(RunFixtures.A1, RunFixtures.A2, RunFixtures.A3)) {
+                    RunCardModel card = card(page.model(), ref);
+                    assertNull(card.combat()); assertEquals(RunCardModel.COMBAT_UNREADABLE, card.combatReason());
+                }
+                RunCardModel a1 = card(page.model(), RunFixtures.A1);
+                assertEquals("Loot and fame still show", 6, a1.lootCount()); assertEquals(Long.valueOf(240), a1.fameGained());
+                assertEquals("B's records were read: none is linked", RunCardModel.NO_RECORDING, card(page.model(), RunFixtures.B1).combatReason());
+                assertEquals(1, page.issues().size());
+                assertTrue(page.issues().get(0), page.issues().get(0).startsWith(RunFixtures.A + ": encounters could not be read"));
+            }
+        }
+    }
+
     @Test public void theCurrentSessionsOpenRunIsInProgressAndItsFactsAreReadAgainEveryTime() throws Exception {
         Path root = scenario();
         try (SessionStore store = new SessionStore(root, true, "fixture")) {

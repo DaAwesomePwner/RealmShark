@@ -13,8 +13,13 @@ import tomato.history.link.VisitRef;
  * Every fact comes from the run's own saved visit or from records linked to exactly its {@link #ref} (session and visit ID):
  * loot bags by their drop-time visit, fame readings by their visit tag, combat recordings by their entry context. Nothing is
  * matched by dungeon name or time. Unknown is null (never 0): {@code durationMs} without an observed span, {@code partySize}
- * without an observed party, {@code fameGained} when the gain cannot be shown ({@link FameGains}), {@code combat} without a
- * linked recording ({@code combatReason} says why), and {@code exaltProgress} unless the visit recorded an increase.
+ * without an observed party, {@code fameGained} when the gain cannot be shown ({@link FameGains}) or the session's fame could
+ * not be read, {@code combat} without a linked recording or when the session's combat records could not be read
+ * ({@code combatReason} says which), and {@code exaltProgress} unless the visit recorded an increase.
+ *
+ * <p>Loot is known when the run's session's loot was read: a run without a bag recorded inside it then shows no loot
+ * ({@code lootReason} null, {@code lootCount} 0), including a session that saved no loot at all, as Home's Recent runs reads
+ * it (capture saves every bag it sees). Only a session whose loot could not be read makes it unknown ({@code lootReason}).
  *
  * @param map        the saved visit's area name (the filter and portal key); {@code mapName} is its display text
  * @param portalId   the portal sprite ({@link Portals#spriteId}), 0 for the kit's placeholder
@@ -24,15 +29,19 @@ import tomato.history.link.VisitRef;
  * @param combatReason null when {@code combat} has your verified row; else why your facts are missing, in words
  * @param loot       at most {@link #LOOT_ICONS} items of this run's bags, most notable first (Home's order)
  * @param lootCount  every item of this run's bags
- * @param lootSummary "1 UT · 2 potions" over every item; "" when this run has no saved loot
+ * @param lootSummary "1 UT · 2 potions" over every item; "" when this run has no saved loot or its loot is unknown
+ * @param lootReason {@link #LOOT_UNREADABLE} when the session's loot could not be read (no loot is then shown: the loot,
+ *                   count and summary are emptied); null whenever loot is known, a known none included
  * @param exaltProgress the progress increase observed inside this visit; null unless positive
  */
 public record RunCardModel(VisitRef ref, String map, String mapName, int portalId, RunOutcome outcome, long entered, Long durationMs,
                            Integer partySize, Combat combat, String combatReason, List<LootItem> loot, int lootCount, String lootSummary,
-                           Long fameGained, Integer exaltProgress) {
+                           String lootReason, Long fameGained, Integer exaltProgress) {
     /** Loot sprites on a card, as on Home's Recent runs. */
     public static final int LOOT_ICONS = 8;
     public static final String NO_RECORDING = "No combat recording is linked to this run.";
+    public static final String COMBAT_UNREADABLE = "Combat records for this session could not be read.";
+    public static final String LOOT_UNREADABLE = "Loot for this session could not be read.";
     /** {@code RecordedEncounter.unavailableReason()}'s wording for a recording without a verified local row. */
     public static final String UNVERIFIED_LOCAL = "The local player's row was not verified for this encounter; another player's row is never substituted.";
     /** Map text when the saved visit has none. */
@@ -40,8 +49,9 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
 
     public RunCardModel {
         Objects.requireNonNull(ref, "ref"); Objects.requireNonNull(outcome, "outcome");
-        loot = loot == null ? List.of() : List.copyOf(loot);
-        lootSummary = lootSummary == null ? "" : lootSummary;
+        loot = loot == null || lootReason != null ? List.of() : List.copyOf(loot);
+        if (lootReason != null) lootCount = 0;
+        lootSummary = lootSummary == null || lootReason != null ? "" : lootSummary;
     }
 
     /**
@@ -67,20 +77,22 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
 
     /**
      * A card for the saved visit {@code ref}. {@code records} and {@code bags} may hold anything of the run's session: only those
-     * linked to exactly {@code ref} are used. {@code fameGained} is the known gain ({@link FameGains}) or null.
+     * linked to exactly {@code ref} are used; null means that session's combat records or loot could not be read (unknown, with
+     * {@link #COMBAT_UNREADABLE} or {@link #LOOT_UNREADABLE}). {@code fameGained} is the known gain ({@link FameGains}) or null.
      */
     static RunCardModel of(VisitRef ref, String map, RunOutcome outcome, long entered, Long durationMs, Integer rosterSize,
                            long exaltIncrease, Collection<CombatRecord> records, List<LootFacts.Bag> bags, Long fameGained) {
         List<CombatRecord> linked = new ArrayList<>();
         if (records != null) for (CombatRecord record : records) if (record != null && ref.equals(record.visit())) linked.add(record);
-        Combat combat = combat(linked);
+        Combat combat = records == null ? null : combat(linked);
         List<LootFacts.Bag> own = new ArrayList<>();
         if (bags != null) for (LootFacts.Bag bag : bags) if (bag != null && ref.equals(bag.visit())) own.add(bag);
         int count = 0;
         for (LootFacts.Bag bag : own) count += bag.items().size();
         String name = map == null || map.isBlank() ? UNKNOWN_AREA : map;
-        return new RunCardModel(ref, map, name, Portals.spriteId(map), outcome, entered, durationMs, rosterSize, combat, reason(combat),
-            loot(own), count, summary(own), fameGained, exaltIncrease > 0 ? (int) Math.min(exaltIncrease, Integer.MAX_VALUE) : null);
+        return new RunCardModel(ref, map, name, Portals.spriteId(map), outcome, entered, durationMs, rosterSize, combat,
+            records == null ? COMBAT_UNREADABLE : reason(combat), loot(own), count, summary(own), bags == null ? LOOT_UNREADABLE : null,
+            fameGained, exaltIncrease > 0 ? (int) Math.min(exaltIncrease, Integer.MAX_VALUE) : null);
     }
 
     /** The combat line of one run's linked recordings, or null when none is linked. */
