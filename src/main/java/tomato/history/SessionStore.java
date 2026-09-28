@@ -112,8 +112,7 @@ public final class SessionStore implements AutoCloseable {
             }
         } else {
             Path folder = session.resolve(write.module); Files.createDirectories(folder);
-            String name = UUID.nameUUIDFromBytes(write.key.getBytes(StandardCharsets.UTF_8)).toString();
-            atomic(folder.resolve(name + ".json"), json);
+            atomic(folder.resolve(checkpointName(write.key) + ".json"), json);
         }
     }
     private static void atomic(Path target, String value) throws IOException {
@@ -234,6 +233,20 @@ public final class SessionStore implements AutoCloseable {
     public <T> List<T> read(String scope, String module, Class<T> type) throws IOException {
         List<T> result = new ArrayList<>(); read(scope, module, type, (s,v) -> result.add(v)); return result;
     }
+    /**
+     * One checkpoint of a session exactly as {@link #put} wrote it ({@code <session>/<module>/<uuid(key)>.json}), or empty
+     * when that file does not exist. Off the EDT only. A damaged file is an IOException, never an empty result. Unlike
+     * {@link #read} it applies no fix-up: a visit left open by a session that ended is returned as saved.
+     */
+    public <T> Optional<T> readCheckpoint(String session, String module, String key, Class<T> type) throws IOException {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read history off the EDT");
+        checkModule(module);
+        Path file = sessionPath(session).resolve(module).resolve(checkpointName(key) + ".json");
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return Optional.empty();
+        try { return Optional.ofNullable(JSON.fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), type)); }
+        catch (JsonParseException e) { throw new IOException("Unreadable history: " + file, e); }
+    }
+    private static String checkpointName(String key) { return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString(); }
     private static <T> T finishSavedVisit(Session session,T value) {
         if(value instanceof packets.packetcapture.logger.ActivityJournal.Visit){
             packets.packetcapture.logger.ActivityJournal.Visit visit=(packets.packetcapture.logger.ActivityJournal.Visit)value;
