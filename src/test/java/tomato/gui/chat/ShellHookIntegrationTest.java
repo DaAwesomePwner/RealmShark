@@ -73,6 +73,8 @@ public class ShellHookIntegrationTest {
         });
     }
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    /** Each shell opens Runs on its default Cards view; routes and Browse saved history may remember the Table view, restored after. */
+    @Rule public final tomato.gui.runs.RunsViewRule runsView = tomato.gui.runs.RunsViewRule.cards();
     private final Map<Field,Object> original = new LinkedHashMap<>();
     private WorkspaceShell shell;
     private TomatoGUI gui;
@@ -254,6 +256,7 @@ public class ShellHookIntegrationTest {
             assertEquals(14, shell.getSelectedPage());
             named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);
             assertEquals("A recent run opens Runs", 10, shell.getSelectedPage());
+            assertTrue("The exact run shows in the Runs page's Table view", named(shell, "runs-page", tomato.gui.runs.RunsPage.class).feed().tableShown());
             tomato.gui.activity.ActivityQueries.Filters facets =
                 (tomato.gui.activity.ActivityQueries.Filters) workspace("runs").state().query.facets();
             tomato.history.link.VisitRef visit = model.runs().rows().get(0).visit();
@@ -490,6 +493,9 @@ public class ShellHookIntegrationTest {
             assertNotNull(find(workspace("statistics"), tomato.gui.stats.StatisticsGUI.class));
             assertNotNull(find(workspace("loot"), tomato.gui.stats.LootDashboard.class));
             assertNotNull(find(workspace("runs"), tomato.gui.activity.ActivityPanel.class));
+            tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
+            assertSame("Page 10 keeps the archive workspace as its Table view", workspace("runs"), runs.workspace());
+            assertFalse("Runs opens on the saved-run cards", runs.feed().tableShown());
             assertNotNull(find(workspace("timeline"), tomato.gui.activity.ActivityPanel.class));
         });
         assertFalse(Tomato.isCaptureRunning()); assertEquals(windows, Window.getWindows().length);
@@ -531,6 +537,7 @@ public class ShellHookIntegrationTest {
             assertEquals(Collections.singletonList("Past review"), ViewStateStore.application().names("chat"));
             TomatoGUI.browseSavedHistory();
             assertEquals(10, shell.getSelectedPage()); assertEquals(SessionStore.ALL, workspace("runs").state().query.scope());
+            assertTrue("Browse saved history shows the Table view", named(shell, "runs-page", tomato.gui.runs.RunsPage.class).feed().tableShown());
             assertEquals(past, restored.state().query.scope());
         });
     }
