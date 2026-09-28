@@ -5,8 +5,8 @@ Base: P4 PR #24 merged as `e541874` and verified before P5a began. P5a is one PR
 `f03668b`). P5b (the Runs & DPS page with its tabs, the Live meter move, Recordings, Dungeons) is planned after P5a merges.
 
 Fill every "Record" cell while executing the plan. An interrupted or failed run is not a pass: keep it below as diagnostic
-history and record the rerun that passed. Cells marked **[Coordinator]** are left for the coordinator: Task 9 was implemented in
-parallel with Task 10 and was not on Task 10's base (`d038127`), and the final suite and JAR smoke run after both merge.
+history and record the rerun that passed. Task 9 was implemented in parallel with Task 10 and was not on Task 10's base (`d038127`); the coordinator filled the cells left
+for it, the final suite and the JAR smoke after both merged.
 
 ## Implementation method
 
@@ -131,8 +131,8 @@ these are the local checks.
 | Storage (Task 4) | `GRADLE test --tests "*CombatStorageMeasurementTest"` | see "Storage measurement" below; all three soft bounds met |
 | S4 | `ShellHookIntegrationTest.homeRecentRunAndFeedOpenTheDamageBreakdownOfTheLastCompletedRunForS4` | **met**: 1 click from Home's Recent runs row to the recap with Damage expanded and the meter's local row "Player1 (you)" (the row already shows the run's DPS without a click); Back returns Home; 2 clicks from the sidebar (Runs, then the first completed card, which opens on Enter or double-click, counted as one open like the S2/S3 card actions). The recap applied 19–36 ms after the click in the test |
 | Evidence (Task 10, on `d038127` plus the Task 10 commits) | `GRADLE test --tests "ui.RunsEvidenceTest"` | **4 tests, 0 failures, 0 errors, 0 skipped**; 19 screenshots in `build/p5a-t10/ui-test/screenshots/redesign-p5a-runs/`. A local mutation run (test-side, not committed) confirmed the guards: forcing the feed page's horizontal scroll bar failed the sideways check of all four feed captures that show the cards (`p5a-feed-1240-13-simple`, `-680-18-analyst`, `-yesterday-`, `-empty-`), and expecting "Party 7" failed both recap top captures. Task 9 was not on this base: the test opens the Runs page (page 10) for the feed, builds the recap with `RunRecapBuilder` off the EDT and shows it with `RunsPage.setRecap`, `RunRecapView.show` and `RunsPage.showRecap`, expanding Damage as the route will. Findings under "Evidence" below |
-| Final full suite and JAR (coordinator) | `GRADLE test shadowJar` | **[Coordinator]** on the head with Tasks 1–10 merged: test classes, tests / failures / errors / skipped; new failures versus the baseline; the JAR built |
-| JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | **[Coordinator]** exit code and the folder left empty |
+| Final full suite and JAR (coordinator) | `GRADLE test shadowJar` | on `46cdcd3` (Tasks 1–11 merged): 373 test classes, **1752 / 4 / 0 / 5**, 5 min 39 s. The four failures are exactly the baseline's (`StatisticsArchiveNativeTest.actualLootFactory…`, `QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`); no new failures. `shadowJar` built `RealmShark-v1.2.3.jar`. Diagnostic history: the first final run on `f9bd3d9` failed 17 tests, 13 of them with `OutOfMemoryError` in the `ui.*` tests (512 MB test heap, 14 min 27 s). The cause was test-only and pre-existing on `main`: disposed `VisualEvidence` frames stayed in `Window.getWindows()`, the next test's theme install re-registered the Party roster's Alt+A mnemonic in Swing's static `KeyboardManager` under the disposed frame, and each such frame kept its workspace and 16 MB tile map alive (about 17 by the end of the `ui.*` tests; found with JFR old-object samples and a throwaway `KeyboardManager` probe). `46cdcd3` detaches the content when `VisualEvidence` releases its frame; the probe then found no frame left. A run of `f9bd3d9` before that also failed `ContentStyleTest.wrappingTextRelayout…` once under load (it passed in the final run) |
+| JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | exit 0 with the usage text, run from an empty scratch folder with its own `user.home` and `java.io.tmpdir`; the folder held no files afterwards |
 
 ## Storage measurement
 
