@@ -14,7 +14,8 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P3a Characters: gallery, sheet, journal v5 | [2026-09-27-p3a-characters.md](2026-09-27-p3a-characters.md) | `claude/realmshark-ui-ux-redesign-cb0914` | Merged: PR #22 (`04a61d4`) |
 | P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #23 (`b559bca`) |
 | P4 Quests | [2026-09-28-p4-quests.md](2026-09-28-p4-quests.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #24 (`e541874`) |
-| P5 Runs and DPS | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
+| P5a Runs: combat auto-save, feed, recap | [2026-09-28-p5a-runs.md](2026-09-28-p5a-runs.md) | `claude/redesign-handoff-next-steps-edrr7w` | Planned |
+| P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | written after P5a merges | `claude/redesign-handoff-next-steps-edrr7w` | Outline below |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
 Update the State column when a phase's PR merges and `main` is verified.
@@ -115,6 +116,7 @@ Outline:
    - Make `saved-resource-tabs` customizable.
    - Retire the Statistics view tabs (`historical-statistics-tabs`, Fame Table, Dungeon Stats) with the Statistics page.
    - Add the S6 screenshots missing for Timeline, Resources and Party.
+10. Status (2026-09-28, user decisions): P5 is split into two PRs. **P5a** ([plan](2026-09-28-p5a-runs.md)) covers items 1, 3 and 4 plus Settings › General › Combat history and S4: saved combat records (`encounters`, `encounter-detail`) and optional full detail (`combat-full`, default off, pruned after 30 days), summaries kept forever by default, the run feed and the run recap on the existing Runs page. **P5b** covers items 2 and 5–9 and S8; the single DPS meter moves into the Runs & DPS › Live meter tab and the DPS Logger page becomes a pointer (Alt+8 opens the tab). Storage measured in research: a card record is about 2 KB, a full summary 20–80 KB, the large test history about 24 MB of full summaries.
 
 ## P6 Loot and cleanup
 
