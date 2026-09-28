@@ -109,6 +109,26 @@ public class CustomizableTabsTest {
         });
     }
 
+    /** Closing and other hierarchy walks reach every tab's content: hidden, Analyst-only in Simple mode and conditional ones too. */
+    @Test public void contentsListEveryTabInSavedOrderAndThePaneLeadsBackToTheTabs() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            store.put("ui.tabs.character", "exalts,overview|");
+            JPanel overview = new JPanel(), gear = new JPanel(), exalts = new JPanel(), evidence = new JPanel(), death = new JPanel();
+            CustomizableTabs tabs = new CustomizableTabs("character", mode, store::get, store::put)
+                .add("overview", "Overview", overview).add("gear", "Gear", gear).add("exalts", "Exalts", exalts)
+                .addAnalyst("evidence", "Snapshot evidence", evidence).addWhen("death", "Death annotation", death, () -> false);
+            assertTrue(tabs.hide("gear"));
+            assertEquals(Arrays.asList("exalts", "overview"), tabs.visibleIds());
+            assertEquals(2, tabs.component().getTabCount());
+            assertEquals("Hidden, Analyst-only (Simple mode) and conditional tabs are listed, in the saved order",
+                Arrays.asList(exalts, overview, gear, evidence, death), tabs.contents());
+            tabs.move("overview", -1);
+            assertEquals(Arrays.asList(overview, exalts, gear, evidence, death), tabs.contents());
+            try { tabs.contents().clear(); fail("A read-only view"); } catch (UnsupportedOperationException expected) { }
+            assertSame(tabs, tabs.component().getClientProperty(CustomizableTabs.class));
+        });
+    }
+
     @Test public void invalidIdsAreRejected() {
         try { new CustomizableTabs("Bad Group", mode, store::get, store::put); fail(); } catch (IllegalArgumentException expected) { }
         try { tabs().add("gear", "Duplicate", new JPanel()); fail(); } catch (IllegalArgumentException expected) { }
