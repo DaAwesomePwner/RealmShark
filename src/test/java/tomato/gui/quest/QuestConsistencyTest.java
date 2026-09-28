@@ -30,6 +30,8 @@ import static org.junit.Assert.*;
 
 /** Exact logical shell geometry plus realized-window, posted-AWT-key integration; no capture or native key injection. */
 public class QuestConsistencyTest {
+    /** The Board opens on cards; the matrix drives the table, which is the Table view. */
+    @Rule public final QuestViewRule tableView = new QuestViewRule();
     private static final Dimension[] CLIENTS = {new Dimension(1240, 800), new Dimension(680, 520)};
     private static final int[] FONTS = {13, 16, 24};
     private static final String TOKEN = String.join("", Collections.nCopies(160, "W"));

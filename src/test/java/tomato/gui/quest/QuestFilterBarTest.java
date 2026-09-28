@@ -9,13 +9,15 @@ import tomato.gui.kit.FilterBar;
 import static org.junit.Assert.*;
 
 public class QuestFilterBarTest {
-    @Test public void questFiltersLiveInTheDrawerWhileSortAndNameTypesStayVisible() throws Exception {
+    /** Spec §6.5: category labeling ("Name types…") lives in the Filters drawer; search, reset, sort and the Board's arrangement stay in the row. */
+    @Test public void questFiltersAndNameTypesLiveInTheDrawerWhileSortAndGroupingStayVisible() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             QuestGUI ui = new QuestGUI(id -> "Item " + id, id -> null, new QuestGuiTest.MemoryPreferences());
             FilterBar bar = find(ui, FilterBar.class, "quests-filter-bar"); JComponent drawer = bar.drawerContent();
-            for (String name : new String[]{"quest-type", "quest-reward", "quest-repeat-mode", "quest-requirement-item", "quest-pinned-only", "quest-completed"})
+            for (String name : new String[]{"quest-type", "quest-reward", "quest-repeat-mode", "quest-requirement-item", "quest-pinned-only", "quest-completed",
+                    "quest-name-types"})
                 assertTrue(name, SwingUtilities.isDescendingFrom(find(ui, JComponent.class, name), drawer));
-            for (String name : new String[]{"quest-search", "quest-reset", "quest-sort", "quest-name-types"}) {
+            for (String name : new String[]{"quest-search", "quest-reset", "quest-sort", "quest-group-by", "quest-pinned-first", "quest-view"}) {
                 JComponent control = find(ui, JComponent.class, name);
                 assertTrue(name, SwingUtilities.isDescendingFrom(control, bar)); assertFalse(name, SwingUtilities.isDescendingFrom(control, drawer));
             }

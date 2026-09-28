@@ -11,7 +11,12 @@ import tomato.gui.history.FilterChips;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.SegmentedControl;
+import tomato.gui.kit.Sprites;
+import tomato.gui.kit.Tokens;
+import util.PropertiesManager;
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.table.*;
@@ -19,10 +24,22 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 import java.util.function.IntFunction;
+import java.util.function.LongSupplier;
 import java.util.prefs.Preferences;
 
-/** Read-only quest planner. The server's requirements and reward choices remain authoritative. */
+/**
+ * Read-only quest planner. The server's requirements and reward choices remain authoritative.
+ * The Board tab (id "captured") shows the quests as grouped painted cards (spec §6.5) or, as its Table view, the quest table with
+ * its split detail and footer actions exactly as before; one filter row, search and drawer serve both, and the Sort order is each
+ * view's order (the cards' within each group). Simple offers the other view in the ⋯ menu, Analyst a Cards/Table toggle; the
+ * view, grouping and "Pinned first" persist ({@link #VIEW_KEY}, {@link #GROUP_KEY}, {@link #PINNED_FIRST_KEY}). Card and board
+ * models are built on the EDT from the page's detached quest copies, only when the list, pins, type labels, filters, sort,
+ * grouping or "Pinned first" change and only while the cards show; the summary line re-reads its relative age once a minute.
+ */
 public class QuestGUI extends JPanel {
+    static final String VIEW_KEY = "ui.quests.view", GROUP_KEY = "ui.quests.group", PINNED_FIRST_KEY = "ui.quests.pinned-first";
+    /** Group-by choices and their saved ids, in QuestBoardModel.GroupBy order. */
+    private static final String[] GROUPS = {"Chest tier", "Type label", "None"}, GROUP_IDS = {"tier", "type", "none"};
     private final IntFunction<String> names;
     private final IntFunction<Icon> images;
     private final Preferences preferences;
@@ -66,12 +83,35 @@ public class QuestGUI extends JPanel {
     private boolean columnSizingPending;
     private final FilterBar filterBar = new FilterBar("quests");
     private Runnable clearFilters = () -> {};
+    // The Board's Cards view and its controls; the table, split detail and footer above are its Table view.
+    private final JComboBox<String> groupBy = new JComboBox<>(GROUPS);
+    private final JCheckBox pinnedFirst = new JCheckBox("Pinned first");
+    private final SegmentedControl view = new SegmentedControl("quest-view", "Cards", "Table");
+    private final JPanel boardControls = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.S, 0));
+    private final DisplayModeModel mode = DisplayModeModel.application();
+    private final QuestDetail detail;
+    private final QuestBoard board;
+    private final ViewBody body = new ViewBody();
+    private JSplitPane split;
+    private JPanel pinActions;
+    private JMenuItem viewItem;
+    private boolean cardsShown, ready, analyst;
+    /** The quest the drawer shows and the card the user last selected (in either view), by pin key; null for none. */
+    private String detailKey, cardKey;
+    /** The visible quests' cards in the Sort order, as last built. */
+    private List<QuestCardModel> cards = List.of();
+    private QuestBoardModel.Summary summaryModel;
+    /** When an unbound (legacy preview) panel last received a list; bound panels use the publication's capture time. */
+    private long updatedAt;
+    private LongSupplier clock = System::currentTimeMillis;
+    private final javax.swing.Timer summaryTimer = new javax.swing.Timer(60_000, e -> showSummaryText());
+    private int boardBuilds;
 
     public QuestGUI() {
         this(id -> {
             String name = IdToAsset.objectName(id);
             return name == null || name.isEmpty() ? "Unknown item #" + id : name;
-        }, id -> ImageBuffer.getOutlinedIcon(id, 24),
+        }, id -> ImageBuffer.getOutlinedIcon(id, 24), Sprites::sprite,
             Preferences.userNodeForPackage(QuestGUI.class));
     }
 
@@ -92,11 +132,15 @@ public class QuestGUI extends JPanel {
     /** Supply detached known account keys from the character journal for offline selection. */
     public void knownPlanningAccounts(Collection<String> accounts) { plans.knownAccounts(accounts); }
     public void openPlans() { views.show("plans"); views.select("plans"); tabs.requestFocusInWindow(); }
+    /** Explicit navigation to the Board: shows its tab even when a saved order hid it, and selects it. */
+    public void openBoard() { views.show("captured"); views.select("captured"); }
 
     private void listen() { if (source != null && !listening) { source.addListener(publicationListener); listening = true; } }
-    @Override public void addNotify() { super.addNotify(); listen(); if (source != null) schedulePublication(); ageTimer.start(); }
+    @Override public void addNotify() {
+        super.addNotify(); listen(); if (source != null) schedulePublication(); ageTimer.start(); summaryTimer.start();
+    }
     @Override public void removeNotify() {
-        ageTimer.stop();
+        ageTimer.stop(); summaryTimer.stop();
         if (listening) { source.removeListener(publicationListener); listening = false; }
         super.removeNotify();
     }
@@ -106,7 +150,7 @@ public class QuestGUI extends JPanel {
     private void applyPublication() {
         ProgressionData.Snapshot next = source.snapshot();
         if (publication != null && next.quests == publication.quests && next.scope == publication.scope) return;
-        if (publication != null && next.scope != publication.scope) table.clearSelection();
+        if (publication != null && next.scope != publication.scope) { table.clearSelection(); cardKey = null; closeDetail(false); }
         publication = next;
         quests = new ArrayList<>(); pinned.clear(); globalPinned.clear();
         captured = next.quests != null;
@@ -138,10 +182,18 @@ public class QuestGUI extends JPanel {
                 + (current ? "Last captured list; server changes require a fresh capture" : "Stale / unverified for the current capture");
         context.setText(text + "\n" + (current ? "Account-scoped snapshot" : publication.scope.reason) + " · Account pins; legacy global interests retained.");
         pin.setEnabled(selected() != null && canPin());
+        if (detailKey != null) detail.pinEnabled(canPin());
     }
 
+    /** Tests: injected names and icons; the cards and the detail drawer paint the same icon lookup (null paints the placeholder). */
     QuestGUI(IntFunction<String> names, IntFunction<Icon> images, Preferences preferences) {
+        this(names, images, (id, size) -> images.apply(id), preferences);
+    }
+
+    private QuestGUI(IntFunction<String> names, IntFunction<Icon> images, QuestCardRenderer.SpriteLookup sprites, Preferences preferences) {
         this.names = names; this.images = images; this.preferences = preferences;
+        detail = new QuestDetail(sprites);
+        board = new QuestBoard(detail, sprites);
         setLayout(new BorderLayout(0, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         summary.setName("quest-summary"); count.setName("quest-count");
@@ -186,10 +238,21 @@ public class QuestGUI extends JPanel {
             requirementItem.setText(""); requirementCount.setValue(0);
             refreshing = false; refresh();
         });
-        options.add(onlyPinned); options.add(completed);
+        // Category labeling lives in the Filters drawer (spec §6.5), beside the pinned and completed filters.
+        options.add(onlyPinned); options.add(completed); options.add(labels);
         filters.add(options, BorderLayout.CENTER);
-        // One filter row: search, reset, sort and type labels stay visible; every narrowing filter lives in the drawer.
-        filterBar.search(new WrapRow(search, reset, field("Sort by", sort), labels)).drawer(filters); clearFilters = reset::doClick;
+        // One filter row: search, reset, sort and the cards' grouping stay visible (the grouping and, in Analyst, the Cards/Table
+        // toggle wrap below the search when narrow); every narrowing filter lives in the drawer.
+        groupBy.setName("quest-group-by");
+        groupBy.setToolTipText("Group the cards by chest tier (from reward names), by your type labels, or not at all");
+        pinnedFirst.setName("quest-pinned-first");
+        pinnedFirst.setToolTipText("Put pinned quests first within each group");
+        pinnedFirst.setOpaque(false);
+        boardControls.setName("quest-board-controls");
+        boardControls.setOpaque(false);
+        boardControls.add(field("Group by", groupBy)); boardControls.add(pinnedFirst);
+        view.getAccessibleContext().setAccessibleName("Board view");
+        filterBar.search(new WrapRow(search, reset, field("Sort by", sort), boardControls, view)).drawer(filters); clearFilters = reset::doClick;
         header.add(filterBar, BorderLayout.CENTER);
 
         ContentStyle.table(table, ContentStyle.Density.COMFORTABLE);
@@ -217,7 +280,11 @@ public class QuestGUI extends JPanel {
         table.getTableHeader().addPropertyChangeListener(e -> {
             if ("font".equals(e.getPropertyName()) || "UI".equals(e.getPropertyName())) sizeColumnsLater();
         });
-        table.getSelectionModel().addListSelectionListener(e -> { if (!refreshing && !e.getValueIsAdjusting()) showDetails(); });
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (refreshing || e.getValueIsAdjusting()) return;
+            showDetails();
+            Quest q = selected(); cardKey = q == null ? null : key(q); // the user's row is the card the cards select
+        });
         JScrollPane list = ContentStyle.tableScroll(table, 3);
         JScrollPane detailScroll = new JScrollPane(details) {
             @Override public Dimension getMinimumSize() {
@@ -229,7 +296,7 @@ public class QuestGUI extends JPanel {
         list.setName("quest-list-scroll"); detailScroll.setName("quest-detail-scroll");
         detailScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         detailScroll.getVerticalScrollBar().setUnitIncrement(28);
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, list, detailScroll) {
+        split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, list, detailScroll) {
             @Override public void doLayout() {
                 super.doLayout();
                 int current = getUI().getDividerLocation(this);
@@ -242,21 +309,20 @@ public class QuestGUI extends JPanel {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         count.setFont(ContentStyle.metadata(ContentStyle.body()));
         footer.add(count, BorderLayout.CENTER);
-        pin.setEnabled(false); pin.addActionListener(e -> togglePin());
-        removeGlobal.setVisible(false); removeGlobal.addActionListener(e -> {
-            Quest q = selected(); if (q == null) return;
-            new QuestPins(preferences).removeGlobal(key(q)); QuestPinning.changed(); globalPinned.remove(key(q)); refresh();
-        });
-        JPanel pinActions = ContentStyle.controls(); pinActions.add(removeGlobal); pinActions.add(pin); footer.add(pinActions, BorderLayout.EAST);
+        pin.setEnabled(false); pin.addActionListener(e -> togglePin(selected()));
+        removeGlobal.setVisible(false); removeGlobal.addActionListener(e -> removeGlobal(selected()));
+        // The footer's pin actions are the Table view's; on the cards the detail drawer carries them.
+        pinActions = ContentStyle.controls(); pinActions.add(removeGlobal); pinActions.add(pin); footer.add(pinActions, BorderLayout.EAST);
         JButton plan = new JButton("Add to account plan"); plan.setName("quest-add-plan"); pinActions.add(plan);
         plans = new QuestPlanPanel(tomato.planning.PlanningStore.shared(), this::itemName);
-        plan.addActionListener(e -> { Quest q = selected(); views.show("plans"); views.select("plans"); if (q != null) plans.importQuest(q, globalPinned.contains(key(q)) ? key(q) : null); });
-        JScrollPane page = ContentStyle.page(header, split, footer);
+        plan.addActionListener(e -> addToPlan(selected()));
+        body.add(split); body.add(board);
+        JScrollPane page = ContentStyle.page(header, body, footer);
         page.setName("quest-page-scroll");
         page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
-        views.add("captured", "Captured quests", page).add("plans", "Saved plans", plans); add(tabs, BorderLayout.CENTER);
+        views.add("captured", "Board", page).add("plans", "Planner", plans); add(tabs, BorderLayout.CENTER);
         for (JComponent control : new JComponent[]{search, type, reward, sort, repeatMode, rewardMode, expirationMode,
-                requirementItem, requirementCount, onlyPinned, completed, labels, reset, pin, removeGlobal, plan}) revealOnFocus(control);
+                requirementItem, requirementCount, onlyPinned, completed, labels, reset, pin, removeGlobal, plan, groupBy, pinnedFirst}) revealOnFocus(control);
         // Swing transfers spinner keyboard focus to its editor, not to the spinner itself.
         revealOnFocus(((JSpinner.DefaultEditor) requirementCount.getEditor()).getTextField());
         table.addFocusListener(new java.awt.event.FocusAdapter() {
@@ -278,7 +344,31 @@ public class QuestGUI extends JPanel {
         });
         sort.addActionListener(e -> { table.getRowSorter().setSortKeys(null); refresh(); });
         completed.addActionListener(e -> refresh()); onlyPinned.addActionListener(e -> refresh());
-        rebuildFilters(); showDetails();
+
+        // Cards view: grouping and "Pinned first" rebuild only the cards; the view, grouping and toggle persist.
+        groupBy.setSelectedIndex(Math.max(0, Arrays.asList(GROUP_IDS).indexOf(PropertiesManager.getProperty(GROUP_KEY))));
+        pinnedFirst.setSelected(!"false".equals(PropertiesManager.getProperty(PINNED_FIRST_KEY)));
+        groupBy.addActionListener(e -> {
+            PropertiesManager.setProperties(GROUP_KEY, GROUP_IDS[Math.max(0, groupBy.getSelectedIndex())]);
+            groupBy.setToolTipText("Cards grouped by " + String.valueOf(groupBy.getSelectedItem()).toLowerCase(Locale.ROOT));
+            refreshBoard();
+        });
+        pinnedFirst.addActionListener(e -> { PropertiesManager.setProperties(PINNED_FIRST_KEY, Boolean.toString(pinnedFirst.isSelected())); refreshBoard(); });
+        view.onChange(index -> showCards(index == 0, true));
+        viewItem = filterBar.overflow().add("Table view", () -> showCards(!cardsShown, true));
+        viewItem.setName("quest-view-item");
+        board.onSelect(this::selectCard);
+        board.onOpen(this::openDetail);
+        detail.onPin(() -> togglePin(quest(detailKey)));
+        detail.onRemoveGlobal(() -> removeGlobal(quest(detailKey)));
+        detail.onPlan(() -> addToPlan(quest(detailKey)));
+        detail.onClose(() -> closeDetail(true));
+        summary.addPropertyChangeListener("UI", e -> { if (summaryModel != null) tintSummary(); }); // the stale tone follows the theme
+        showCards(!"table".equals(PropertiesManager.getProperty(VIEW_KEY)), false);
+        rebuildFilters(); showDetails(); showSummary();
+        ready = true;
+        refreshBoard();
+        mode.bind(this, this::modeChanged);
     }
 
     private void sizeRewardChoice() {
@@ -332,7 +422,7 @@ public class QuestGUI extends JPanel {
         List<Quest> snapshot = new ArrayList<>();
         if (data != null) for (QuestData q : data) if (q != null) snapshot.add(new Quest(q));
         Runnable apply = () -> {
-            quests = snapshot; captured = true;
+            quests = snapshot; captured = true; updatedAt = clock.getAsLong();
             loadPreferences();
             rebuildFilters(); refresh();
         };
@@ -434,14 +524,160 @@ public class QuestGUI extends JPanel {
             if (select < 0 && !visible.isEmpty()) select = 0;
             if (select >= 0) { int view = table.convertRowIndexToView(select); table.setRowSelectionInterval(view, view); }
         } finally { refreshing = false; }
-        long chests = quests.stream().filter(q -> !q.completed || q.repeatable).filter(q -> matchesReward(q, "Any quest chest")).count();
-        summary.setText(captured ? quests.size() + " quests captured  •  " + chests + " chest reward quests"
-            : "Enter the Daily Quest Room during capture to load your quests.");
+        showSummary();
         count.setText(captured ? visible.size() + " shown • Requirements shown; owned items not checked." : "No quests captured");
         for (JComboBox<String> combo : Arrays.asList(type, reward, sort)) combo.setToolTipText((String)combo.getSelectedItem());
         showDetails();
         showContext();
+        refreshBoard();
     }
+
+    /** The Board summary over the whole captured list (not only the matches): count, pins, when captured, and stale. */
+    private void showSummary() {
+        int pins = 0, repeatable = 0, done = 0;
+        for (Quest q : quests) { if (pinned.contains(key(q))) pins++; if (q.repeatable) repeatable++; if (q.completed) done++; }
+        summaryModel = new QuestBoardModel.Summary(quests.size(), pins, repeatable, done, captured ? capturedAt() : 0, stale());
+        showSummaryText();
+    }
+
+    /** Re-reads the summary's relative age (the minute timer), without rebuilding anything. */
+    private void showSummaryText() {
+        if (summaryModel == null) return;
+        summary.setText(summaryModel.text(clock));
+        tintSummary();
+    }
+
+    /** A stale list reads in the warn tone (spec §1: stale is labeled). */
+    private void tintSummary() {
+        summary.setForeground(summaryModel.stale() ? Tokens.tone(Tokens.Tone.WARN) : Tokens.color(Tokens.Role.TEXT));
+    }
+
+    /** When the shown list was received: the publication's capture time, or an unbound panel's last update; 0 when none. */
+    private long capturedAt() {
+        if (source == null) return captured ? updatedAt : 0;
+        return publication == null || publication.quests == null ? 0 : publication.quests.capturedAt;
+    }
+
+    /** The page's existing rule: a bound list that no longer matches the current capture (scope) is stale. */
+    private boolean stale() {
+        return source != null && publication != null && publication.quests != null
+            && !(publication.currentQuests() && source.scope() == publication.scope);
+    }
+
+    /** The user's own label for the quest's category, "" when unlabeled (no chip; never inferred). */
+    private String typeLabel(Quest q) {
+        String label = categoryNames.get(q.category);
+        return label == null ? "" : label.trim();
+    }
+
+    private QuestBoardModel.GroupBy groupBy() { return QuestBoardModel.GroupBy.values()[Math.max(0, groupBy.getSelectedIndex())]; }
+
+    /**
+     * Rebuilds the cards from the visible quests (the filters' result in the Sort order) and applies them: only when an input
+     * changed (every caller is one) and only while the cards show; switching to the cards does it then.
+     */
+    private void refreshBoard() {
+        if (!cardsShown || !ready) return;
+        List<QuestCardModel> next = new ArrayList<>(visible.size());
+        for (Quest q : visible) next.add(QuestCardModel.of(q, pinned.contains(key(q)), typeLabel(q), names));
+        cards = List.copyOf(next);
+        QuestBoardModel model = QuestBoardModel.build(cards, groupBy(), pinnedFirst.isSelected(), capturedAt(), stale());
+        boardBuilds++;
+        if (!captured) board.apply(model, "Plan your next turn-in",
+            "Enter the Daily Quest Room during capture to load your quests. Each card shows what a quest awards and what to bring.");
+        else if (quests.isEmpty()) board.apply(model, "No quests in the captured list",
+            "The server sent an empty quest list. Enter the Daily Quest Room during capture to refresh it.");
+        else board.apply(model, "No matching quests", "Change or reset your filters to show every captured quest.");
+        board.select(cardKey, false);
+        updateDetail();
+    }
+
+    /** Shows the cards or the table; the other stays in the tree, hidden and unmeasured. A user's choice is remembered. */
+    private void showCards(boolean show, boolean remember) {
+        cardsShown = show;
+        if (remember) PropertiesManager.setProperties(VIEW_KEY, show ? "cards" : "table");
+        split.setVisible(!show);
+        board.setVisible(show);
+        boardControls.setVisible(show);
+        pinActions.setVisible(!show);
+        view.setSelected(show ? 0 : 1);
+        viewItem.setText(show ? "Table view" : "Cards view");
+        if (!show) closeDetail(false);
+        body.revalidate(); body.repaint();
+        refreshBoard();
+    }
+
+    /** Analyst: the Cards/Table toggle in the filter row and the raw details; Simple: the other view in the ⋯ menu (hidden when alone). */
+    private void modeChanged(DisplayModeModel.Mode value) {
+        analyst = value == DisplayModeModel.Mode.ANALYST;
+        view.setVisible(analyst);
+        viewItem.setVisible(!analyst);
+        boolean items = false;
+        for (Component item : filterBar.overflow().menu().getComponents()) items |= item instanceof JMenuItem && item.isVisible();
+        filterBar.overflow().setVisible(items);
+        filterBar.revalidate(); filterBar.repaint();
+        updateDetail();
+    }
+
+    /** The user selected a card: the table selects the same quest, so the Table view and its actions follow. */
+    private void selectCard(String key) {
+        cardKey = key;
+        for (int i = 0; i < visible.size(); i++) if (key(visible.get(i)).equals(key)) {
+            int row = table.convertRowIndexToView(i);
+            if (row < 0 || table.getSelectedRow() == row) return;
+            refreshing = true;
+            try { table.setRowSelectionInterval(row, row); } finally { refreshing = false; }
+            showDetails();
+            return;
+        }
+    }
+
+    /** Enter, Space or a double-click on a card: the drawer shows it, revealed and focused at its Close button. */
+    private void openDetail(QuestCardModel card) {
+        detailKey = QuestBoard.key(card);
+        selectCard(detailKey);
+        updateDetail();
+        if (!detail.isVisible()) return;
+        SwingUtilities.invokeLater(() -> {
+            if (!detail.isVisible()) return;
+            ContentStyle.reveal(detail, new Rectangle(0, 0, detail.getWidth(), detail.getHeight()));
+            detail.closeButton().requestFocusInWindow();
+        });
+    }
+
+    /** Re-shows the drawer's quest from the newest cards and page state; closes it when the quest no longer shows. */
+    private void updateDetail() {
+        if (detailKey == null) return;
+        QuestCardModel card = null;
+        for (QuestCardModel c : cards) if (QuestBoard.key(c).equals(detailKey)) { card = c; break; }
+        Quest q = quest(detailKey);
+        if (!cardsShown || card == null || q == null) { closeDetail(false); return; }
+        detail.show(card, new QuestDetail.State(pinText(q), canPin(), globalPinned.contains(detailKey), analyst));
+    }
+
+    /** Closes the drawer; {@code refocus} hands keyboard focus back to the card it showed. */
+    private void closeDetail(boolean refocus) {
+        String key = detailKey;
+        detailKey = null;
+        if (detail.card() != null || detail.isVisible()) detail.clear();
+        if (refocus && key != null) board.focus(key);
+    }
+
+    /** The visible quest with pin key {@code key}, or null. */
+    private Quest quest(String key) {
+        if (key != null) for (Quest q : visible) if (key(q).equals(key)) return q;
+        return null;
+    }
+
+    private String pinText(Quest q) { return pinned.contains(key(q)) ? "Unpin quest" : source == null ? "Pin quest" : "Pin for account"; }
+
+    /** Tests: the Board's clock (the summary's "captured N ago" and an unbound list's receipt time). */
+    void clock(LongSupplier value) { clock = Objects.requireNonNull(value, "clock"); showSummaryText(); }
+    javax.swing.Timer summaryTimer() { return summaryTimer; }
+    int boardBuilds() { return boardBuilds; }
+    boolean cardsShown() { return cardsShown; }
+    QuestBoard board() { return board; }
+    QuestDetail detail() { return detail; }
 
     private boolean matchesReward(Quest q, String filter) {
         if (filter == null || filter.equals("All rewards")) return true;
@@ -574,14 +810,25 @@ public class QuestGUI extends JPanel {
         return q.completed ? "Completed" : "One-time";
     }
 
-    private void togglePin() {
-        Quest q = selected(); if (q == null || !canPin()) return;
+    /** Pins or unpins {@code q} (the Table's selected row, or the drawer's quest). */
+    private void togglePin(Quest q) {
+        if (q == null || !canPin()) return;
         String key = key(q); boolean value = !pinned.contains(key);
         if (value) pinned.add(key); else pinned.remove(key);
         if (source == null) { if (preferences != null) preferences.putBoolean("pin." + key, value); }
         else new QuestPins(preferences).set(pinAccount(), key, value);
         QuestPinning.changed();
         refresh();
+    }
+
+    private void removeGlobal(Quest q) {
+        if (q == null) return;
+        new QuestPins(preferences).removeGlobal(key(q)); QuestPinning.changed(); globalPinned.remove(key(q)); refresh();
+    }
+
+    private void addToPlan(Quest q) {
+        views.show("plans"); views.select("plans");
+        if (q != null) plans.importQuest(q, globalPinned.contains(key(q)) ? key(q) : null);
     }
 
     /** Category numbers are not self-describing; never guess daily/event from chest rarity or repeatability. */
@@ -637,6 +884,15 @@ public class QuestGUI extends JPanel {
         dialog.setSize(Math.min(660, screen.width), Math.min(520, screen.height));
         dialog.setLocationRelativeTo(this);
         return dialog;
+    }
+
+    /** Holds the Table view's split and the cards; only the visible one is laid out and measured, so the page sizes to it alone. */
+    private static final class ViewBody extends JPanel {
+        ViewBody() { super(null); setOpaque(false); setName("quest-board-body"); }
+        private Component shown() { for (Component child : getComponents()) if (child.isVisible()) return child; return null; }
+        @Override public Dimension getPreferredSize() { Component c = shown(); return c == null ? new Dimension(0, 0) : c.getPreferredSize(); }
+        @Override public Dimension getMinimumSize() { Component c = shown(); return c == null ? new Dimension(0, 0) : c.getMinimumSize(); }
+        @Override public void doLayout() { for (Component child : getComponents()) if (child.isVisible()) child.setBounds(0, 0, getWidth(), getHeight()); }
     }
 
     private static final class DetailPanel extends JPanel implements Scrollable {
