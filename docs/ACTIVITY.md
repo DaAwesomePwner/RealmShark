@@ -6,11 +6,67 @@ Activity export uses the last displayed history revision, including while frozen
 
 ## Runs
 
-Runs has its own sidebar entry and Alt+R shortcut. It lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, status, captured damage, and DPS. Live durations default to minutes (90 seconds displays as 1.5); the **Time** selector switches between minutes and seconds without changing saved timestamps or numeric sorting. Select a run for completion evidence, HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; the live **Export displayed history (unfiltered)** includes all retained dungeon runs and their linked events regardless of search.
+Runs has its own sidebar entry and Alt+R shortcut. It opens on the **feed**: every saved dungeon run of every session as a card, grouped by the day it was entered. The saved-runs archive table is the **Table view**, unchanged. In Simple, the feed's ⋯ menu offers **Table view** and the table's ⋯ menu **Cards view**; Analyst has a **Cards / Table** toggle above both. The choice is remembered (`ui.runs.view`). A run opens in the **run recap**, the page for reading one run: its facts, the damage meter and chart, loot, players, resources, timeline and evidence.
+
+### Run feed
+
+The feed reads saved history of all sessions, newest first, 50 runs at a time; **Load more** reads the next 50. The run in progress appears once its checkpoint is saved (about every 10 s while capture is on). Each day has a header: **Today**, **Yesterday**, or the weekday and date, then the loaded runs' count, how many completed and their summed observed time, for example "5 runs · 3 completed · 1 h 35 m". "More below" means the day continues past the loaded runs. The summary line says how many runs are loaded out of how many match; runs without an entry time or visit ID are counted there and listed only in the Table view. A warning line appears when a session's facts could not be read fully; the affected cards say which fact is missing.
+
+**Search saved runs** searches every saved run's text as the Table view does (Enter applies it at once). **Filters** holds one checkbox per outcome and the dungeon (the dungeons among the runs read so far); active filters show as chips with **Clear filters**. ⋯ **Refresh** reads again. The feed reads off the Swing thread when it first shows; afterwards it reads again only when saved history changed, checked when it shows and every 30 s while it shows. Arrow keys move within a day and Tab moves between days; Enter, Space or a double-click opens the run's recap.
+
+Each card shows the outcome as a chip and as the card's left edge, the portal, the dungeon, the entry time ("14:32" today, "Yesterday 22:10", else the date), the observed duration and the party. Below that come your damage line, the loot strip and a line of fame, deaths and exalt progress. Every fact comes from the run's own saved visit or from records linked to exactly that run (its session and visit ID); nothing is matched by dungeon name or time. A missing link is said in words (and in the card's accessible name), never shown as 0:
+
+| Card fact | Needs | Without it |
+| --- | --- | --- |
+| Outcome | The saved visit, its completion evidence and its session's state | **Unknown** |
+| Time and duration | The visit's entry time and last saved observation (the observed span, not a verified clear time) | "duration —" |
+| Party | The observed RotMG party | "Party —" (party not observed) |
+| Your DPS · rank · share | A combat recording linked to exactly this run with your verified local row. With several recordings, the one with the longest hit window | The reason, muted: "No combat recording is linked to this run." or "The local player's row was not verified for this encounter; another player's row is never substituted." |
+| Deaths | Your verified row, with a known name that no other player in that recording shares | Not shown |
+| Loot strip | Bags whose drop-time visit is exactly this run: up to eight sprites in bag-colored wells, most notable first, "+N" and a summary such as "1 UT · 1 ST · 2 potions" | "No loot recorded in this run" when the session saved bags but none in this run; when the session saved no bag at all, loot is unknown and the card says so |
+| Fame | Fame readings tagged with this run, each counted against the previous reading of the same account and character within one saved capture interval | Not shown (unknown, not 0) |
+| Exalt progress | An increase observed inside this visit | Not shown |
+
+Outcomes are shared by the feed, the recap and Home: **Completed** (completion evidence, as described below), **Left** (ended without it), **In progress** (this app run's open visit), **App ended** (a visit its session left open because the app closed or crashed) and **Unknown**. The Table view keeps its own outcome wording: a visit that a crashed launch left open still reads **In progress** there.
+
+Empty states say why nothing shows: no saved runs yet, no runs match the search and filters (**Clear filters**), saved runs could not be read (**Try again**), or saved history is not open in this app run (**Show the table**).
+
+### Run recap
+
+**Home › Recent runs** opens a run's recap with its Damage section expanded in one click; from the sidebar, **Runs** and then a card reach the same recap in two. **‹ Runs** returns to the feed and Back returns to where you came from. Routes that select a run's row, such as those from Timeline, Loot and Inspect or the recap's **Open in Runs table**, open the Table view on that row; **Browse saved history** also shows the Table view.
+
+The header shows the portal, dungeon, outcome, entry time, observed span, party and character (from fame readings tagged with this run) and, for a run in progress, when it was read. **Open in Runs table**, **Open in Loot** and **Open in Timeline** open the same exact run in those pages. Six tiles follow: **Your DPS** with your rank, **Damage share**, **Deaths** (with all players' deaths), **Fame**, **Loot** (item count and summary) and **Exalt progress**. Tiles use the run's longest linked recording and your verified row in it. An unknown tile shows "—", and its tooltip gives the reason.
+
+Sections remember whether they are open (`ui.collapse.run-recap-<section>`). Damage and Loot start open; Players, Resources and Timeline start closed; Evidence is in Analyst only. A section without content shows a one-line reason instead of disappearing.
+
+- **Damage** shows one recording as the meter recorded it, with every contributor. With several recordings a **Recording** picker lists them longest first ("Recording 1 of 2 · longest · 240 s window · 6 players"); the tiles keep the longest. The totals line gives the total damage, the first-to-last hit window and the player count. The damage-per-second chart shows **You** and **Top contributors** (the other saved players summed; **Others (top 12)** when some contributors were not saved) in Simple, a single summed line when no row is verified as yours, and one line per saved series in Analyst (your row and the top 12). Deaths are not placed on the chart: a death notification carries no time or object ID. The meter table lists rank, player (your row is highlighted and named "(you)"), damage with a bar, DPS, share, hits, biggest hit, damage taken and deaths. Select a row to see that player's damage by source (weapon, ability, summon, item effect) with its top items. DPS divides damage by the recording's first-to-last hit window, and share is of all recorded damage, unattributed hits included. At narrow widths the meter scrolls its own columns sideways.
+- **Loot** lists this run's bags with their color, drop time, items and kinds.
+- **Players** lists the players seen in the run with their class, four equipped items and **Inspect damage (inspected players only)**. That is the run's own Inspect tracking, not the recording's damage.
+- **Resources** charts your HP, MP and conditions as Resources & buffs does. Aggregate-only visits say why there is no chart.
+- **Timeline** lists this exact run's saved events, up to 500.
+- **Evidence** (Analyst) is the Table view's run details text: outcome, timing and coverage, party and recording.
+
+Reasons used when something is missing:
+
+- "No combat recording is linked to this run."
+- "The local player's row was not verified for this encounter; another player's row is never substituted."
+- "The damage over time and by source of this recording were not saved; only its totals are."
+- Your deaths are known only when your name is known and unique inside that recording.
+- Fame gained is unknown when no reading was tagged with the run, or when a reading has no earlier reading of the same character within one unbroken capture.
+- "No loot bag was saved in this run's session, so its loot is unknown."
+- "No saved Timeline events for this exact visit."
+
+A run that is not in this saved history shows **This run is not in saved history** with the archive's wording; no other run is substituted.
+
+### Table view
+
+The Table view lists observed **dungeon runs** (for example, Ice Citadel and Ocean Trench) with duration, progression increases, item/ability requests, capture issues, status, captured damage, and DPS. Live durations default to minutes (90 seconds displays as 1.5); the **Time** selector switches between minutes and seconds without changing saved timestamps or numeric sorting. Select a run for completion evidence, HP/MP ranges, condition coverage, party context, realm score, and retention information. The count and search apply to dungeon runs; the live **Export displayed history (unfiltered)** includes all retained dungeon runs and their linked events regardless of search.
 
 Combine outcomes and completion-evidence sources with minimum/maximum duration in seconds, capture issues and timing gaps. Live filters cover the retained displayed snapshot, including while paused. Saved filters and sorting cover the full selected session scope before paging. **Date bounds…** uses entry time by default; choose **OVERLAP** for observed-interval overlap. Missing duration does not satisfy a numeric range. Named views remember these queries.
 
 In saved Runs, Inspect and Resources, select one visit and choose **Export selected visit + Timeline…** for its full saved record and exactly session/visit-linked Timeline events. The preview states the linked count; events are not clipped to the visit query's dates. Shared page/all-match exports contain visit summaries. See [export populations](SESSION-HISTORY.md#export-the-intended-population).
+
+### Which areas are runs, and when a run is completed
 
 Nexus, Vault, Guild Halls, Pet Yard, Bazaar, daily rooms, the Realm overworld, Court of Oryx, tutorials, and known test maps are excluded from Runs. Their visits remain available in Timeline and Resources & buffs. Classification uses exact catalogued names, so content such as Battle for the Nexus still counts as a dungeon.
 
