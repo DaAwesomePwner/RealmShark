@@ -5,8 +5,7 @@ Base: P3b PR #23 merged as `b559bca` and verified before P4 began. P4 is one PR 
 `2a13d8a`).
 
 Fill every "Record" cell while executing the plan. An interrupted or failed run is not a pass: keep it below as diagnostic
-history and record the rerun that passed. Cells marked **[Coordinator]** are placeholders the coordinator fills after Wave C
-and the final run.
+history and record the rerun that passed. The coordinator filled the cells left for it after Wave C and the final run.
 
 ## Implementation method
 
@@ -89,8 +88,8 @@ no live capture and no bridge deliveries. `GRADLE` abbreviates the plan's comman
 | Wave C merge (Task 5) | the union of the wave's focused commands | on `362f00f` (quest, chat, route, `ShellRouteRegistrationTest`, Home, kit, planning, `WorkspaceUiTest`): 76 test classes, 347 tests, 3 failures, all known (`QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`) |
 | S3 (partial) | `ShellHookIntegrationTest.homeQuestsCardAndBoardShowPinnedQuestsAndRewardsForS3AndBackReturnsHome` | passed in the Wave C merge run and in the full suite — pinned quests and their rewards: 0 clicks on Home, 1 click to the Board (pinned first, reward sprites), Back returns to Home. The "expire today" half of S3 moves with the countdown phase |
 | Evidence (Task 6, on `fd26db4` plus the Task 6 commits) | `GRADLE test --tests "ui.QuestsEvidenceTest" --tests "ui.HomeEvidenceTest"` | **7 tests (3 + 4), 0 failures, 0 errors, 0 skipped**; 17 P4 screenshots in `build/p4-t6/ui-test/screenshots/redesign-p4-quests/` (15 from `QuestsEvidenceTest`, 2 from `HomeEvidenceTest`). A local mutation run (not committed) confirmed the guards: forcing the Board page's horizontal scroll bar failed every Board capture's sideways check, and showing the raw expiration in Simple failed the Simple details check. Task 5 was not on this base: the evidence opens the Board and the Planner with `QuestGUI.openBoard()` / `openPlans()` after the Quests route. Findings under "Evidence" below |
-| Final full suite and JAR (coordinator) | `GRADLE test shadowJar` | **[Coordinator: source head; tests / failures / errors / skipped; new failures versus the baseline, each investigated; the JAR built]** |
-| JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | **[Coordinator: exit code; the folder's contents afterwards]** |
+| Final full suite and JAR (coordinator) | `GRADLE test shadowJar` | on `f9c7383` (Tasks 1–8 merged): 350 test classes, **1562 / 4 / 0 / 5**. The four failures are baseline failures, unchanged (`StatisticsArchiveNativeTest.actualLootFactory…`, `QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`); no new failures versus the baseline (its load-sensitive `ContentStyleTest` failure passed). An earlier full run on `b523bd1` (Tasks 1–5) gave 1549 / 4 / 0 / 5 with the same four. `shadowJar` built `RealmShark-v1.2.3.jar` |
+| JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | exit 0 with the usage text, run from an empty scratch folder with its own `user.home` and `java.io.tmpdir`; the folder held no files afterwards |
 
 ## Evidence
 
