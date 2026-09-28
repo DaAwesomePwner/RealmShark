@@ -11,12 +11,14 @@ import packets.data.QuestData;
 public final class QuestFixtures {
     public static final int FORGOTTEN_KING = 1, MALUS = 2, FESTIVAL_TOKEN = 3;
     public static final int MIGHTY_CHEST = 10, STANDARD_CHEST = 11, ROYAL_EPIC_CHEST = 12, CULTISH_EPIC_CHEST = 13, BEGINNER_CHEST = 14;
+    /** A quest chest naming none of the four tiers: QuestTier.OTHER_CHEST. */
+    public static final int GOLDEN_CHEST = 15;
     /** An id no name lookup knows: its name is "Unknown item #9999". */
     public static final int UNKNOWN_ITEM = 9999;
     public static final Map<Integer, String> NAMES = Map.of(
         FORGOTTEN_KING, "Mark of the Forgotten King", MALUS, "Mark of Malus", FESTIVAL_TOKEN, "Festival Token",
         MIGHTY_CHEST, "Mighty Quest Chest", STANDARD_CHEST, "Standard Quest Chest", ROYAL_EPIC_CHEST, "Royal Epic Quest Chest",
-        CULTISH_EPIC_CHEST, "Cultish Epic Quest Chest", BEGINNER_CHEST, "Beginner Quest Chest");
+        CULTISH_EPIC_CHEST, "Cultish Epic Quest Chest", BEGINNER_CHEST, "Beginner Quest Chest", GOLDEN_CHEST, "Golden Quest Chest");
     /** The name lookup the Board gets: null for unknown ids, as the asset lookup without assets. */
     public static final IntFunction<String> ITEM_NAMES = NAMES::get;
 

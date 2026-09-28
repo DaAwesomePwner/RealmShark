@@ -37,14 +37,17 @@ public class QuestBoardModelTest {
     private static QuestCardModel uncaptured(String name) { QuestData d = data(name, 5, new int[] {MALUS}); d.rewards = null; return card(d, false, ""); }
 
     @Test public void tierGroupsKeepTheFixedOrderAndTitles() {
-        List<QuestCardModel> cards = List.of(uncaptured("Unknown"), card("Tokens", FESTIVAL_TOKEN), card("Beginner", BEGINNER_CHEST),
-            card("Standard", STANDARD_CHEST), card("Epic", CULTISH_EPIC_CHEST), card("Mighty", MIGHTY_CHEST), card("Royal", ROYAL_EPIC_CHEST));
+        List<QuestCardModel> cards = List.of(uncaptured("Unknown"), card("Tokens", FESTIVAL_TOKEN), card("Golden", GOLDEN_CHEST),
+            card("Beginner", BEGINNER_CHEST), card("Standard", STANDARD_CHEST), card("Epic", CULTISH_EPIC_CHEST), card("Mighty", MIGHTY_CHEST),
+            card("Royal", ROYAL_EPIC_CHEST));
         QuestBoardModel board = build(cards, GroupBy.TIER, true);
-        assertEquals(List.of("mighty", "epic", "standard", "beginner", "no-chest", "not-captured"), keys(board));
+        assertEquals(List.of("mighty", "epic", "standard", "beginner", "other-chest", "no-chest", "not-captured"), keys(board));
         assertEquals(List.of("Mighty quest chests", "Epic quest chests", "Standard quest chests", "Beginner quest chests",
-            "No quest chest", "Rewards not captured"), titles(board));
+            "Other quest chests", "No quest chest", "Rewards not captured"), titles(board));
         assertEquals("Input order within a group", List.of("Epic", "Royal"), names(board.groups().get(1)));
-        assertEquals(List.of("Unknown"), names(board.groups().get(5)));
+        assertEquals(List.of("Golden"), names(board.groups().get(4)));
+        assertEquals(List.of("Tokens"), names(board.groups().get(5)));
+        assertEquals(List.of("Unknown"), names(board.groups().get(6)));
     }
 
     @Test public void emptyGroupsAreOmitted() {

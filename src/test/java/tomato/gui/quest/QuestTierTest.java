@@ -9,7 +9,8 @@ import static tomato.gui.quest.QuestFixtures.*;
 
 /**
  * A quest's chest tier is the highest tier among its reward names under QuestGUI.matchesReward's name rules, never inferred from
- * ids; a quest with rewards but no tiered quest chest is NO_CHEST, and uncaptured rewards are NOT_CAPTURED, never NO_CHEST.
+ * ids; a quest chest naming none of the four tiers is OTHER_CHEST, a quest with rewards but no quest chest at all is NO_CHEST, and
+ * uncaptured rewards are NOT_CAPTURED, never NO_CHEST.
  */
 public class QuestTierTest {
     private static QuestTier tier(int... rewards) { return QuestTier.of(quest("Q", 5, new int[] {MALUS}, rewards), ITEM_NAMES); }
@@ -20,18 +21,19 @@ public class QuestTierTest {
     }
 
     @Test public void tiersKeepTheirOrderLabelsAndGroupKeys() {
-        assertEquals(List.of(QuestTier.MIGHTY, QuestTier.EPIC, QuestTier.STANDARD, QuestTier.BEGINNER, QuestTier.NO_CHEST, QuestTier.NOT_CAPTURED),
-            List.of(QuestTier.values()));
+        assertEquals(List.of(QuestTier.MIGHTY, QuestTier.EPIC, QuestTier.STANDARD, QuestTier.BEGINNER, QuestTier.OTHER_CHEST,
+            QuestTier.NO_CHEST, QuestTier.NOT_CAPTURED), List.of(QuestTier.values()));
         // The four chest labels are the Reward filter's tier options verbatim.
         assertEquals("Mighty quest chests", QuestTier.MIGHTY.label);
         assertEquals("Epic quest chests", QuestTier.EPIC.label);
         assertEquals("Standard quest chests", QuestTier.STANDARD.label);
         assertEquals("Beginner quest chests", QuestTier.BEGINNER.label);
+        assertEquals("Other quest chests", QuestTier.OTHER_CHEST.label);
         assertEquals("No quest chest", QuestTier.NO_CHEST.label);
         assertEquals("Rewards not captured", QuestTier.NOT_CAPTURED.label);
-        assertEquals("mighty epic standard beginner no-chest not-captured",
+        assertEquals("mighty epic standard beginner other-chest no-chest not-captured",
             String.join(" ", QuestTier.MIGHTY.key, QuestTier.EPIC.key, QuestTier.STANDARD.key, QuestTier.BEGINNER.key,
-                QuestTier.NO_CHEST.key, QuestTier.NOT_CAPTURED.key));
+                QuestTier.OTHER_CHEST.key, QuestTier.NO_CHEST.key, QuestTier.NOT_CAPTURED.key));
     }
 
     @Test public void eachTierComesFromTheRewardName() {
@@ -59,14 +61,20 @@ public class QuestTierTest {
         assertEquals(QuestTier.STANDARD, named("quest chest"));
     }
 
-    @Test public void rewardsWithoutATieredQuestChestAreNoChest() {
+    @Test public void rewardsWithoutAQuestChestAreNoChest() {
         assertEquals(QuestTier.NO_CHEST, tier(FORGOTTEN_KING, FESTIVAL_TOKEN));
         assertEquals("Captured and empty is no chest, not unknown", QuestTier.NO_CHEST, tier());
         assertEquals("A tier word outside a quest chest name does not count", QuestTier.NO_CHEST, named("Mighty Sword"));
         assertEquals(QuestTier.NO_CHEST, named("Standard Token"));
-        // A quest chest no tier filter matches ("Any quest chest" only) is in none of the four tiers.
-        assertEquals(QuestTier.NO_CHEST, named("Golden Quest Chest"));
-        assertEquals("Only an exact bare name is standard", QuestTier.NO_CHEST, named(" Quest Chest "));
+    }
+
+    @Test public void aQuestChestNamingNoTierIsOtherChest() {
+        // A quest chest no tier filter matches ("Any quest chest" only): a chest, but in none of the four tiers.
+        assertEquals(QuestTier.OTHER_CHEST, tier(GOLDEN_CHEST));
+        assertEquals(QuestTier.OTHER_CHEST, tier(FESTIVAL_TOKEN, GOLDEN_CHEST));
+        assertEquals("Only an exact bare name is standard", QuestTier.OTHER_CHEST, named(" Quest Chest "));
+        assertEquals("Any named tier ranks above it", QuestTier.BEGINNER, tier(GOLDEN_CHEST, BEGINNER_CHEST));
+        assertEquals(QuestTier.MIGHTY, tier(MIGHTY_CHEST, GOLDEN_CHEST));
     }
 
     @Test public void uncapturedRewardsAreNotCapturedNeverNoChest() {

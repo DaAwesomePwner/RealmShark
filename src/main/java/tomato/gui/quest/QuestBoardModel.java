@@ -22,7 +22,8 @@ record QuestBoardModel(List<Group> groups, Summary summary) {
     enum GroupBy { TIER, TYPE, NONE }
 
     /**
-     * One group. Keys: the tier's key (mighty, epic, standard, beginner, no-chest, not-captured); "type-" + category id, or "no-type";
+     * One group. Keys: the tier's key (mighty, epic, standard, beginner, other-chest, no-chest, not-captured); "type-" + category id,
+     * or "no-type";
      * "all". Categories the user gave the same label share one group (as the type filter matches by label), keyed by the lowest id.
      */
     record Group(String key, String title, List<QuestCardModel> cards) {
