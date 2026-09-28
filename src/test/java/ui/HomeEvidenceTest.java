@@ -17,6 +17,8 @@ import tomato.gui.kit.Card;
 import tomato.gui.kit.Chip;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
+import tomato.gui.kit.ItemSlot;
+import tomato.gui.kit.KitText;
 import tomato.history.SessionStore;
 import util.PropertiesManager;
 import static org.hamcrest.CoreMatchers.is;
@@ -28,6 +30,7 @@ import static ui.VisualEvidence.named;
  * P2 Home evidence (spec §11), Simple and Analyst: populated at 1240×800 and 680×520, fonts 13 and 18; empty, stale and
  * unavailable at 1240×800, font 13; preview (live sources over a fresh TomatoData with a temporary journal and history) at
  * 1240×800, font 13. 16 screenshots. P3b adds the hero's pet chip from live sources (2 screenshots in redesign-p3b-characters).
+ * P4 adds the Quests card with a pinned quest whose rewards were not captured (2 screenshots in redesign-p4-quests).
  * Synthetic data only; no capture.
  */
 public class HomeEvidenceTest {
@@ -136,6 +139,54 @@ public class HomeEvidenceTest {
                 }
             }
         } finally { journal.close(); }
+    }
+    /**
+     * P4, 2 captures (redesign-p4-quests): the Quests card over three pinned quests whose rewards were not captured (first), are a
+     * known none (second) and are listed (third). Only the first reads "Rewards not captured", whole beside its name; the known
+     * none keeps an empty strip. 1240×800 font 13 Simple and 680×520 font 18 Analyst.
+     */
+    @Test public void theQuestsCardTellsUncapturedRewardsApartFromNone() throws Exception {
+        long now = System.currentTimeMillis();
+        HomeModel populated = HomeModels.populated(now);
+        HomeModel model = new HomeModel(populated.hero(), populated.now(), populated.today(), populated.runs(), HomeModels.questsWithUncapturedRewards(now));
+        VisualEvidence p4 = new VisualEvidence("redesign-p4-quests"); // prints evidence's window into the P4 folder
+        for (Object[] variant : new Object[][] {{DisplayModeModel.Mode.SIMPLE, 1240, 800, 13}, {DisplayModeModel.Mode.ANALYST, 680, 520, 18}}) {
+            DisplayModeModel.Mode mode = (DisplayModeModel.Mode) variant[0];
+            int width = (Integer) variant[1], height = (Integer) variant[2], font = (Integer) variant[3];
+            HomePage[] page = new HomePage[1];
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(mode);
+                page[0] = new HomePage(null, HomeModels.NO_ACTIONS);
+                page[0].apply(model);
+                evidence.show(page[0], "Home quests rewards not captured", width, height, font);
+            });
+            evidence.settle();
+            SwingUtilities.invokeAndWait(() -> {
+                Card quests = named(page[0], "home-quests", Card.class);
+                quests.scrollRectToVisible(new java.awt.Rectangle(0, 0, quests.getWidth(), quests.getHeight())); // compact: Quests is below the fold
+            });
+            evidence.settle();
+            SwingUtilities.invokeAndWait(() -> {
+                p4.capture(SwingUtilities.getWindowAncestor(page[0]), "p4-home-quests-rewards-unknown-" + width + "-" + font + "-" + mode.name().toLowerCase(Locale.ROOT));
+                errors.checkSucceeds(() -> {
+                    Card quests = named(page[0], "home-quests", Card.class);
+                    KitText unknown = named(page[0], "home-quest-0-rewards-unknown", KitText.class);
+                    assertTrue("The first quest says its rewards were not captured", unknown.isShowing());
+                    assertEquals("Rewards not captured", unknown.getText());
+                    java.awt.Rectangle placed = SwingUtilities.convertRectangle(unknown.getParent(), unknown.getBounds(), quests);
+                    assertTrue("…whole inside the card, never cut short: " + placed + " in " + quests.getSize() + ", preferred " + unknown.getPreferredSize(),
+                        placed.x >= 0 && placed.x + placed.width <= quests.getWidth() && unknown.getWidth() >= unknown.getPreferredSize().width);
+                    assertFalse("No sprite stands in for unknown rewards", named(page[0], "home-quest-0-reward-0", ItemSlot.class).isShowing());
+                    assertFalse("A known empty list is not 'not captured'", named(page[0], "home-quest-1-rewards-unknown", KitText.class).isShowing());
+                    assertFalse(named(page[0], "home-quest-1-reward-0", ItemSlot.class).isShowing());
+                    assertTrue("A listed reward shows its sprite", named(page[0], "home-quest-2-reward-0", ItemSlot.class).isShowing());
+                    assertFalse(named(page[0], "home-quest-2-rewards-unknown", KitText.class).isShowing());
+                    assertEquals("3 pinned · 2 repeatable · 0 done", named(page[0], "home-quests-counts", KitText.class).getText());
+                    assertWhole(page[0], mode, width);
+                    return null;
+                });
+            });
+        }
     }
     private void capture(String state, HomeModel model, DisplayModeModel.Mode mode, int width, int height, int font) throws Exception {
         HomePage[] page = new HomePage[1];
