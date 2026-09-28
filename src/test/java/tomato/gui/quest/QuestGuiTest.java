@@ -1,5 +1,6 @@
 package tomato.gui.quest;
 
+import org.junit.Rule;
 import org.junit.Test;
 import static org.junit.Assert.*;
 import packets.data.QuestData;
@@ -9,6 +10,9 @@ import java.util.*;
 import java.util.prefs.AbstractPreferences;
 
 public class QuestGuiTest {
+    /** The Board opens on cards; these tests drive the table, which is the Table view. */
+    @Rule public final QuestViewRule tableView = new QuestViewRule();
+
     @Test public void stableIdsPresenceAndComparisonFacetsRemainDistinct() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             QuestGUI ui = panel();
@@ -163,7 +167,7 @@ public class QuestGuiTest {
             assertTrue(allText(ui).contains("Plan your next turn-in"));
             assertFalse(button(ui,"Pin quest").isEnabled());
             ui.update(new QuestData[0]);
-            assertEquals(0,table.getRowCount()); assertTrue(allText(ui).contains("0 quests captured"));
+            assertEquals(0,table.getRowCount()); assertTrue(allText(ui).contains("0 quests · 0 pinned · captured just now"));
             QuestData q = quest("Prior selected title",5,new int[]{1},10);
             q.description = "Obsolete detail sentinel";
             ui.update(new QuestData[]{q}); button(ui,"Pin quest").doClick();

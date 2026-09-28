@@ -18,10 +18,25 @@ public class QuestTabsTest {
         SwingUtilities.invokeAndWait(() -> {
             QuestGUI ui = new QuestGUI(id -> "Item " + id, id -> null, new QuestGuiTest.MemoryPreferences());
             JTabbedPane tabs = find(ui, JTabbedPane.class, "quests-tabs");
-            assertEquals(1, tabs.getTabCount()); assertEquals("Captured quests", tabs.getTitleAt(0));
+            assertEquals(1, tabs.getTabCount()); assertEquals("Board", tabs.getTitleAt(0));
             ui.openPlans();
-            assertEquals(Arrays.asList("Saved plans", "Captured quests"), Arrays.asList(tabs.getTitleAt(0), tabs.getTitleAt(1)));
-            assertEquals("Saved plans", tabs.getTitleAt(tabs.getSelectedIndex()));
+            assertEquals(Arrays.asList("Planner", "Board"), Arrays.asList(tabs.getTitleAt(0), tabs.getTitleAt(1)));
+            assertEquals("Planner", tabs.getTitleAt(tabs.getSelectedIndex()));
+            ui.openBoard();
+            assertEquals("Board", tabs.getTitleAt(tabs.getSelectedIndex()));
+        });
+    }
+
+    /** A pre-P4 saved order that hid the Board ("captured") keeps it hidden at startup; openBoard shows it by id and selects it. */
+    @Test public void openBoardShowsAHiddenBoardById() throws Exception {
+        PropertiesManager.setProperties(ORDER, "plans,captured|captured");
+        SwingUtilities.invokeAndWait(() -> {
+            QuestGUI ui = new QuestGUI(id -> "Item " + id, id -> null, new QuestGuiTest.MemoryPreferences());
+            JTabbedPane tabs = find(ui, JTabbedPane.class, "quests-tabs");
+            assertEquals(1, tabs.getTabCount()); assertEquals("Planner", tabs.getTitleAt(0));
+            ui.openBoard();
+            assertEquals(Arrays.asList("Planner", "Board"), Arrays.asList(tabs.getTitleAt(0), tabs.getTitleAt(1)));
+            assertEquals("Board", tabs.getTitleAt(tabs.getSelectedIndex()));
         });
     }
 

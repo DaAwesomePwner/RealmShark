@@ -13,7 +13,8 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.modern.DisplayFormat;
 
 /**
- * Pinned quests at a glance (spec §6.1): up to three pinned quests (open first) with their reward sprites, the pinned /
+ * Pinned quests at a glance (spec §6.1): up to three pinned quests (open first) with their reward sprites ("Rewards not
+ * captured" when the list had none for a quest, spec §1), the pinned /
  * repeatable / done counts and the list's age with a stale state. Unpinned quests are not listed. The whole card opens Quests.
  */
 final class QuestsCard extends HomeCard {
@@ -44,8 +45,9 @@ final class QuestsCard extends HomeCard {
     }
 
     /**
-     * EDT only; skips a section that shows exactly what is shown. No expiry countdown in P2: the format of
-     * QuestData.expiration is unconfirmed until P4 (spec O1), so nothing is parsed or guessed here.
+     * EDT only; skips a section that shows exactly what is shown (QuestLine equality includes rewardsKnown). No expiry
+     * countdown: the format of QuestData.expiration is unconfirmed (spec O1) and the countdown is deferred to its own phase
+     * (user decision, 2026-09-28), so nothing is parsed or guessed here.
      */
     void apply(HomeModel.Quests quests, long now) {
         String captured = ageText(quests, now);
@@ -87,9 +89,12 @@ final class QuestsCard extends HomeCard {
         return quests.capturedAt() > 0 ? "Captured " + HomeViews.ago(quests.capturedAt(), now) : "Capture time unknown";
     }
 
-    /** One pinned quest: name, Repeatable / One-time and Done badges, up to four reward sprites and "+N". */
+    /**
+     * One pinned quest: name, Repeatable / One-time and Done badges, up to four reward sprites and "+N". Rewards that were not
+     * captured read "Rewards not captured" (muted) in place of the sprites (spec §1: unknown is never shown as none).
+     */
     private static final class QuestRow extends JPanel {
-        private final KitText name = HomeViews.body(""), more = HomeViews.caption("");
+        private final KitText name = HomeViews.body(""), more = HomeViews.caption(""), unknown = HomeViews.caption("Rewards not captured");
         private final Chip kind = new Chip("", Tokens.Tone.INFO), done = new Chip(HomeViews.glyph('✓', "Done"), Tokens.Tone.GOOD);
         private final ItemSlot[] rewards = new ItemSlot[REWARDS];
 
@@ -99,7 +104,11 @@ final class QuestsCard extends HomeCard {
             String id = "home-quest-" + index;
             setName(id);
             name.setName(id + "-name"); kind.setName(id + "-kind"); done.setName(id + "-done"); more.setName(id + "-more");
+            unknown.setName(id + "-rewards-unknown");
+            unknown.setToolTipText("The captured quest list did not include this quest's rewards. Visit the Daily Quest Room to refresh it.");
+            unknown.setVisible(false);
             JPanel right = HomeViews.clear(new FlowLayout(FlowLayout.TRAILING, 2, 0));
+            right.add(unknown);
             for (int i = 0; i < REWARDS; i++) right.add(rewards[i] = HomeViews.named(new ItemSlot(24), id + "-reward-" + i));
             right.add(more);
             add(HomeViews.wrap(name, kind, done), BorderLayout.CENTER);
@@ -112,7 +121,8 @@ final class QuestsCard extends HomeCard {
             kind.setText(line.repeatable() ? HomeViews.glyph('↻', "Repeatable") : "One-time");
             kind.setTone(line.repeatable() ? Tokens.Tone.INFO : Tokens.Tone.NEUTRAL);
             done.setVisible(line.done());
-            int[] ids = line.rewardIds() == null ? new int[0] : line.rewardIds();
+            unknown.setVisible(!line.rewardsKnown());
+            int[] ids = line.rewardIds() == null ? new int[0] : line.rewardIds();   // empty when not captured
             StringBuilder names = new StringBuilder();
             for (int i = 0; i < REWARDS; i++) {
                 boolean shown = i < ids.length && ids[i] > 0;
@@ -125,7 +135,8 @@ final class QuestsCard extends HomeCard {
             more.setVisible(extra > 0);
             more.setText(extra > 0 ? "+" + extra : "");
             getAccessibleContext().setAccessibleName(title + (line.repeatable() ? ", repeatable" : ", one-time") + (line.done() ? ", done" : "")
-                + (names.length() == 0 ? ", no rewards listed" : ", rewards: " + names) + (extra > 0 ? " and " + extra + " more" : ""));
+                + (!line.rewardsKnown() ? ", rewards not captured" : names.length() == 0 ? ", no rewards listed" : ", rewards: " + names)
+                + (extra > 0 ? " and " + extra + " more" : ""));
         }
     }
 }

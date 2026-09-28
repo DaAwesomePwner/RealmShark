@@ -6,6 +6,7 @@ import java.util.*;
 import java.util.prefs.Preferences;
 import javax.swing.*;
 import org.junit.After;
+import org.junit.Rule;
 import org.junit.Test;
 import packets.data.QuestData;
 import tomato.backend.data.CharacterJournal;
@@ -15,6 +16,8 @@ import static org.junit.Assert.*;
 
 /** Home's pin lookups agree with what the Quests page stores when a quest is pinned or unpinned. */
 public class QuestPinningTest {
+    /** The Board opens on cards; these tests select a quest in the table, which is the Table view. */
+    @Rule public final QuestViewRule tableView = new QuestViewRule();
     private static final Preferences NODE = Preferences.userNodeForPackage(QuestGUI.class);
     private static final String ACCOUNT = CharacterJournal.accountKey("quest-pinning-fixture");
     private final List<String> keys = new ArrayList<>();

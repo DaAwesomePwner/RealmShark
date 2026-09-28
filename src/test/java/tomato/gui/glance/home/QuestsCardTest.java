@@ -52,6 +52,34 @@ public class QuestsCardTest {
             for (int i = 0; i < QuestsCard.SHOWN; i++) assertFalse(named(card, "home-quest-" + i, JPanel.class).isVisible());
         });
     }
+    /** Spec §1: rewards that were not captured are said so (muted), never an empty strip or "no rewards listed". */
+    @Test public void uncapturedRewardsAreToldApartFromNone() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            QuestsCard card = new QuestsCard(() -> {}, mode);
+            card.apply(HomeModels.questsWithUncapturedRewards(NOW), NOW);
+            KitText unknown = named(card, "home-quest-0-rewards-unknown", KitText.class);
+            assertTrue(unknown.isVisible());
+            assertEquals("Rewards not captured", unknown.getText());
+            assertEquals("Muted, as other not-captured text", Tokens.Role.TEXT_MUTED, unknown.role());
+            assertNotNull("It says why", unknown.getToolTipText());
+            for (int i = 0; i < QuestsCard.REWARDS; i++) assertFalse(named(card, "home-quest-0-reward-" + i, ItemSlot.class).isVisible());
+            assertFalse(named(card, "home-quest-0-more", JLabel.class).isVisible());
+            assertEquals("Oryx's Castle, one-time, rewards not captured", named(card, "home-quest-0", JPanel.class).getAccessibleContext().getAccessibleName());
+            assertFalse("A known empty list is not 'not captured'", named(card, "home-quest-1-rewards-unknown", KitText.class).isVisible());
+            assertEquals("A known empty list keeps today's wording", "Pirate Cave, repeatable, no rewards listed",
+                named(card, "home-quest-1", JPanel.class).getAccessibleContext().getAccessibleName());
+            assertFalse(named(card, "home-quest-2-rewards-unknown", KitText.class).isVisible());
+            assertTrue(named(card, "home-quest-2-reward-0", ItemSlot.class).isVisible());
+            // The unchanged-model skip compares rewardsKnown: a line that differs only there is applied.
+            List<HomeModel.QuestLine> lines = new ArrayList<>(HomeModels.questsWithUncapturedRewards(NOW).top());
+            lines.set(0, new HomeModel.QuestLine("Oryx's Castle", new int[0], true, false, false));
+            card.apply(new HomeModel.Quests(HomeModel.State.LIVE, 3, 2, 0, lines, NOW - 840_000L, false), NOW);
+            assertFalse(named(card, "home-quest-0-rewards-unknown", KitText.class).isVisible());
+            assertEquals("Oryx's Castle, one-time, no rewards listed", named(card, "home-quest-0", JPanel.class).getAccessibleContext().getAccessibleName());
+            card.apply(HomeModels.questsWithUncapturedRewards(NOW), NOW);
+            assertTrue(named(card, "home-quest-0-rewards-unknown", KitText.class).isVisible());
+        });
+    }
     @Test public void loadingEmptyUnavailableAndEvidence() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             QuestsCard card = new QuestsCard(() -> {}, mode);

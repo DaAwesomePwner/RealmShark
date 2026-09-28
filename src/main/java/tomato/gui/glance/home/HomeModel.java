@@ -77,13 +77,18 @@ public record HomeModel(Hero hero, Now now, Today today, Runs runs, Quests quest
         public Runs { Objects.requireNonNull(state, "state"); rows = rows == null ? List.of() : List.copyOf(rows); reason = text(reason); }
         public static Runs placeholder(State state, String reason) { return new Runs(state, List.of(), reason); }
     }
-    public record QuestLine(String name, int[] rewardIds, boolean repeatable, boolean done) {
-        public QuestLine { name = text(name); rewardIds = rewardIds == null ? new int[0] : rewardIds.clone(); }
+    /**
+     * One pinned quest. {@code rewardsKnown} false = the captured list had no reward list for it (a null array): "not
+     * captured", never "none", and {@code rewardIds} is then empty; true with no ids is a known empty reward list.
+     */
+    public record QuestLine(String name, int[] rewardIds, boolean rewardsKnown, boolean repeatable, boolean done) {
+        public QuestLine { name = text(name); rewardIds = rewardsKnown && rewardIds != null ? rewardIds.clone() : new int[0]; }
         @Override public int[] rewardIds() { return rewardIds.clone(); }
         @Override public boolean equals(Object other) {
-            return other instanceof QuestLine q && name.equals(q.name) && Arrays.equals(rewardIds, q.rewardIds) && repeatable == q.repeatable && done == q.done;
+            return other instanceof QuestLine q && name.equals(q.name) && Arrays.equals(rewardIds, q.rewardIds) && rewardsKnown == q.rewardsKnown
+                && repeatable == q.repeatable && done == q.done;
         }
-        @Override public int hashCode() { return Objects.hash(name, Arrays.hashCode(rewardIds), repeatable, done); }
+        @Override public int hashCode() { return Objects.hash(name, Arrays.hashCode(rewardIds), rewardsKnown, repeatable, done); }
     }
     /** Counts are meaningful in LIVE and STALE only. */
     public record Quests(State state, int pinned, int repeatable, int done, List<QuestLine> top, long capturedAt, boolean stale) {

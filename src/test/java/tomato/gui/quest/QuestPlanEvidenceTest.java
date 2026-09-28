@@ -2,10 +2,13 @@ package tomato.gui.quest;
 
 import org.junit.*;
 import static org.junit.Assert.*;
+import tomato.gui.kit.Collapsible;
+import tomato.gui.kit.Motion;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
 import tomato.planning.PlanData;
 import tomato.planning.PlanningStore;
+import util.PropertiesManager;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -15,14 +18,21 @@ import java.util.*;
 import java.util.concurrent.*;
 import javax.imageio.ImageIO;
 
-/** Synthetic full planning page evidence. Native method must run in the serialized desktop lane. */
+/**
+ * Synthetic full planning page evidence. Native method must run in the serialized desktop lane. The pages are the Planner's Table
+ * view (it opens on cards) and the manual stock editor is in its drawer; both preferences are restored.
+ */
 public class QuestPlanEvidenceTest {
+    private static final String STOCK = Collapsible.PREFIX + "quest-plan-stock";
+    @Rule public final QuestPlanPanelTest.TableView tableView = new QuestPlanPanelTest.TableView();
     private Font oldFont;
     private LookAndFeel oldLaf;
     private PlanningStore store;
     private QuestPlanPanel panel;
     private JFrame frame;
+    private String savedStock;
     @Before public void setup() throws Exception {
+        savedStock = PropertiesManager.getProperty(STOCK);
         SwingUtilities.invokeAndWait(() -> { oldFont = ContentStyle.body(); oldLaf = UIManager.getLookAndFeel(); VioletTheme.install(); });
         store = PlanningStore.memory();
         long end = System.currentTimeMillis() + 5000;
@@ -42,8 +52,10 @@ public class QuestPlanEvidenceTest {
             ContentStyle.applyFontDefaults();
         });
         store.close();
+        PropertiesManager.setProperties(STOCK, savedStock == null ? "" : savedStock);
     }
     private void create(int font) {
+        PropertiesManager.setProperties(STOCK, ""); // every page starts with the Manual stock drawer at its default (collapsed)
         ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font)); ContentStyle.applyFontDefaults();
         panel = new QuestPlanPanel(store, id -> id == 1 ? "Mark of the Forgotten King" : "Quest reward #" + id);
         panel.knownAccounts(Arrays.asList("synthetic-account", "synthetic-empty"));
@@ -77,6 +89,9 @@ public class QuestPlanEvidenceTest {
             }); settle();
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals(0, named("quest-plan-table", JTable.class).getRowCount()); capture("plans-empty-" + width + "-font" + font, panel);
+            });
+            expandStock();
+            SwingUtilities.invokeAndWait(() -> {
                 ContentStyle.reveal(named("quest-plan-held", JButton.class), new Rectangle(0, 0, named("quest-plan-held", JButton.class).getWidth(), named("quest-plan-held", JButton.class).getHeight()));
                 capture("plans-stock-controls-" + width + "-font" + font, panel);
             });
@@ -92,6 +107,7 @@ public class QuestPlanEvidenceTest {
                 named("quest-plan-item-id", JSpinner.class).setValue(1);
                 named("quest-plan-quantity", JSpinner.class).setValue(0L);
             }); settle();
+            expandStock();
             JButton held = namedOnEdt("quest-plan-held", JButton.class); focus(held);
             SwingUtilities.invokeAndWait(() -> assertTrue("Focus reveals entire held action", held.getVisibleRect().contains(new Rectangle(0, 0, held.getWidth(), held.getHeight()))));
             key(held, KeyEvent.VK_SPACE); settle();
@@ -113,6 +129,25 @@ public class QuestPlanEvidenceTest {
         }
     }
     private void settle() throws Exception { for (int i = 0; i < 8; i++) SwingUtilities.invokeAndWait(() -> { layout(panel); if (frame != null) frame.validate(); }); }
+    /**
+     * The manual stock editor is in a drawer that starts collapsed: open it as the user does and wait until its motion has laid it
+     * out in full. The motion's first frame comes after the click (until then the drawer measures at full height), so wait it out
+     * (Motion.MAX_MILLIS) before measuring.
+     */
+    private void expandStock() throws Exception {
+        SwingUtilities.invokeAndWait(() -> { if (!named("quest-plan-stock", Collapsible.class).expanded()) named("collapsible-quest-plan-stock", AbstractButton.class).doClick(); });
+        Thread.sleep(Motion.MAX_MILLIS + 50);
+        boolean[] open = {false}; long end = System.currentTimeMillis() + 5000;
+        while (!open[0] && System.currentTimeMillis() < end) {
+            settle();
+            SwingUtilities.invokeAndWait(() -> {
+                JComponent content = named("quest-plan-stock-content", JComponent.class);
+                open[0] = content.isVisible() && content.getHeight() >= content.getPreferredSize().height;
+            });
+            if (!open[0]) Thread.sleep(10);
+        }
+        assertTrue("The Manual stock drawer opens in full", open[0]);
+    }
     private static void layout(Container c) { c.doLayout(); for (Component child : c.getComponents()) if (child instanceof Container) layout((Container)child); }
     private void capture(String name, JComponent value) {
         try {
