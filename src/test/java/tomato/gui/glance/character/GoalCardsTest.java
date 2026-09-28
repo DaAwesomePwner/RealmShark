@@ -79,6 +79,14 @@ public class GoalCardsTest {
             assertEquals("Targets never advance: the full state stays with the chip", "Complete; fixed target retained", complete.getToolTipText());
             assertEquals("Complete; fixed target retained", complete.getAccessibleContext().getAccessibleDescription());
             assertTrue(named(tab, "character-goal-stat-0-bar", StatBar.class).maxed());
+            // "Complete" is already the remaining line: the chip would only say it again (P3b evidence review).
+            assertEquals("Complete", text(tab, "character-goal-stat-0-remaining"));
+            assertFalse("A chip that repeats the remaining line is hidden", complete.isVisible());
+            assertFalse("…and with no reconfirm chip its row takes no space", complete.getParent().isVisible());
+            assertTrue("The full state stays in the remaining line's tooltip",
+                named(tab, "character-goal-stat-0-remaining", JTextArea.class).getToolTipText().startsWith("Complete; fixed target retained"));
+            assertTrue("A chip that says more than the remaining line stays", state.isVisible());
+            assertTrue("A reconfirm chip keeps its row", named(tab, "character-goal-exalt-0-state", Chip.class).getParent().isVisible());
 
             assertEquals("5 completions to go", text(tab, "character-goal-exalt-0-remaining"));
             assertEquals("10 of 15 completions", named(tab, "character-goal-exalt-0-progress", JLabel.class).getText());

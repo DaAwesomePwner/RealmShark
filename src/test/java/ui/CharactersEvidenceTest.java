@@ -353,8 +353,10 @@ public class CharactersEvidenceTest {
         build(new CharacterJournal(temp.newFolder("journal").toPath().resolve("Characters").resolve("journal.json")), false);
         charactersTab("Exalts", "exalts-grid-empty", 1240, 800, 13, SIMPLE, () -> {}, () -> shown(shell, "character-exalts-grid-empty") != null,
             () -> assertNull("No tiles, no header", shown(shell, "tile-loot-boost")));
-        charactersTab("Pets", "pets-empty", 1240, 800, 13, SIMPLE, () -> {}, () -> shown(shell, "pet-empty") != null,
-            () -> assertNull(shown(shell, "pet-cards")));
+        charactersTab("Pets", "pets-empty", 1240, 800, 13, SIMPLE, () -> {}, () -> shown(shell, "pet-empty") != null, () -> {
+            assertNull(shown(shell, "pet-cards"));
+            assertNull("No pet: no feeding calculator", shown(shell, "pets-feeding"));
+        });
     }
 
     private void build(CharacterJournal characters, boolean live) throws Exception {

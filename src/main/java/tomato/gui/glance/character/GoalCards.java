@@ -110,21 +110,24 @@ final class GoalCards extends JPanel {
         String now = goal.current() == null ? DisplayFormat.UNAVAILABLE : Integer.toString(goal.current());
         KitText numbers = named(KitText.caption(stat ? "Base " + now + " of " + goal.goal() : now + " of " + goal.goal() + " completions"), name + "-progress");
         numbers.setToolTipText(goal.current() == null ? (stat ? "Base stat not captured" : "Exalt completions not captured") : null);
-        JTextArea remaining = named(text(goal.remainingText(), Type.body()), name + "-remaining");
-        remaining.setToolTipText(stat ? "Standard potions (+5 Life/Mana, +1 other stats) to the fixed target" : "Dungeon completions to the tier's threshold");
         // The chip names the state briefly ("Complete"; a chip cannot wrap in a narrow card at font 18) and its tooltip keeps
-        // CharacterGoals' full state ("Complete; fixed target retained": targets never advance). The remaining line already
-        // carries an unknown state's reason, so a chip would only repeat it.
+        // CharacterGoals' full state ("Complete; fixed target retained": targets never advance). A chip that would only repeat the
+        // remaining line is hidden: an unknown state's reason (the remaining line carries it), and "Complete" (then the remaining
+        // line's tooltip keeps the full state).
+        boolean repeats = brief(goal.state()).equals(goal.remainingText()), stateShown = known && !repeats;
+        JTextArea remaining = named(text(goal.remainingText(), Type.body()), name + "-remaining");
+        remaining.setToolTipText((repeats && known ? goal.state() + ". " : "")
+            + (stat ? "Standard potions (+5 Life/Mana, +1 other stats) to the fixed target" : "Dungeon completions to the tier's threshold"));
         Chip state = named(new Chip(brief(goal.state()), goal.remaining() != null && goal.remaining() == 0 ? Tokens.Tone.GOOD : Tokens.Tone.NEUTRAL), name + "-state");
         state.setToolTipText(goal.state());
         state.getAccessibleContext().setAccessibleDescription(goal.state());
-        state.setVisible(known);
+        state.setVisible(stateShown);
         Chip reconfirm = named(new Chip("Reconfirm target", Tokens.Tone.WARN), name + "-reconfirm");
         reconfirm.setVisible(goal.reconfirm());
         reconfirm.setToolTipText(stat ? "The class's local caps changed since this target was saved, or it exceeds the cap: review it under Manage goals"
             : "The dungeon mapping changed since this target was saved: review it under Manage goals");
         JPanel chips = row(state, reconfirm);
-        chips.setVisible(known || goal.reconfirm());
+        chips.setVisible(stateShown || goal.reconfirm());
         JComponent[] rows = {heading, bar, numbers, remaining, chips};
         if (!stat) {
             boolean mapped = !goal.earnIn().isEmpty();

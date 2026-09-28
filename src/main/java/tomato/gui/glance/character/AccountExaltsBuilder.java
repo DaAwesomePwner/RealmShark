@@ -53,13 +53,14 @@ final class AccountExaltsBuilder {
     }
 
     /**
-     * When the saved counts behind a class's boost last changed: that class's own time (exaltSeenByClass), else when any of the
-     * account's counts last changed (exaltSeen); 0 = unknown.
+     * When the saved counts behind the header's boost last changed. The boost depends on every class sharing the weapon, not only
+     * the header's class, so this is when any of the account's counts last changed (exaltSeen, the newest change of any class);
+     * the class's own time (exaltSeenByClass) only while the account's is unknown (0); 0 = unknown.
      */
     private static long seenAt(AccountRecord account, int classId) {
+        if (account.exaltSeen > 0) return account.exaltSeen;
         Long seen = account.exaltSeenByClass == null ? null : account.exaltSeenByClass.get(classId);
-        if (seen != null && seen > 0) return seen;
-        return Math.max(0, account.exaltSeen);
+        return seen != null && seen > 0 ? seen : 0;
     }
 
     /**

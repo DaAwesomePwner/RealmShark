@@ -47,6 +47,8 @@ public class PetTabTest {
             StatBar heal = named(tab, "character-pet-ability-bar-0", StatBar.class);
             assertEquals("StatBar.set(level, maxLevel)", "45 of 70", heal.getToolTipText());
             assertFalse(heal.maxed());
+            for (int i = 0; i < 3; i++) assertEquals("Below the max is progress, not a warning: the accent, as the gallery's cards",
+                Tokens.Role.ACCENT, named(tab, "character-pet-ability-bar-" + i, StatBar.class).progressRole());
             assertEquals("30 of 70", named(tab, "character-pet-ability-bar-1", StatBar.class).getToolTipText());
             StatBar locked = named(tab, "character-pet-ability-bar-2", StatBar.class);
             assertTrue("A locked slot's bar says so, never a level", locked.getToolTipText().startsWith("Locked"));

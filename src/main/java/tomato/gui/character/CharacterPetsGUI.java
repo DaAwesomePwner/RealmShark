@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 /**
  * Characters › Pets (spec §6.2): a gallery of the current account's pets as painted cards ({@link PetGalleryModel}), with the
  * local feeding calculator in a collapsed drawer that computes for the selected card's pet (the first card when none is selected).
+ * Without a pet the empty state, at the top, carries the one guidance line and the drawer is hidden.
  * - Pets: the account's equipped pets from the character journal, plus every Pet Yard pet ProgressionData holds while the player is
  *   in the yard this connection. The account is Home's current account (in game, else last seen this run, else the journal's most
  *   recently played character).
@@ -47,7 +48,9 @@ public class CharacterPetsGUI extends JPanel {
     private final PetCardRenderer renderer = new PetCardRenderer();
     private final TileList<PetGalleryModel.PetCard> cards =
         new TileList<>("pet-cards", renderer, PetGalleryModel.PetCard::key, PetCardRenderer::accessibleName);
-    private final EmptyState empty = new EmptyState("No pets yet", "Enter the Pet Yard to see your pets.", null);
+    /** The empty gallery's one guidance line (spec §7): what to do next depends on whether capture has seen an account. */
+    static final String NO_ACCOUNT = "Pets appear once capture has seen your account.", ENTER_YARD = "Enter the Pet Yard to see your pets.";
+    private final EmptyState empty = new EmptyState("No pets yet", ENTER_YARD, null);
     private final Body body = new Body(cards, empty);
     private final JPanel estimates = new JPanel(new BorderLayout(0, 8));
     private final JTextArea subject = ContentStyle.wrappingText("");
@@ -122,6 +125,7 @@ public class CharacterPetsGUI extends JPanel {
         calculator.add(estimates, BorderLayout.NORTH); calculator.add(form, BorderLayout.CENTER);
         feeding = new Collapsible("pets-feeding", "Feeding calculator", calculator, false);
         feeding.setName("pets-feeding");
+        feeding.setVisible(false); // nothing to feed until a build shows a pet (deliver)
         JScrollPane page = ContentStyle.page(context, scroll, feeding);
         page.setName("pet-page-scroll");
         page.getAccessibleContext().setAccessibleName("Pets; scroll for captured pets, feeding estimates and scenario controls");
@@ -335,7 +339,10 @@ public class CharacterPetsGUI extends JPanel {
         renderer.setDefinitions(built.definitions());
         applying = true;
         try { cards.setItems(built.cards()); } finally { applying = false; }
-        body.display(built.cards().isEmpty() ? empty : cards);
+        boolean none = built.cards().isEmpty();
+        empty.setBody(data != null && built.account() == null ? NO_ACCOUNT : ENTER_YARD);
+        body.display(none ? empty : cards);
+        if (feeding.isVisible() == none) { feeding.setVisible(!none); revalidate(); repaint(); } // the calculator needs a pet
         cards.repaint(); // names that load later change the painted family without changing the cards' keys
         showContext();
         showCalculator();
@@ -350,20 +357,22 @@ public class CharacterPetsGUI extends JPanel {
         System.err.println("[Pets] A pets gallery build failed; it is retried on the next refresh: " + text);
     }
 
-    /** The account shown and whether capture runs, then what the gallery holds. */
+    /**
+     * The account shown and whether capture runs, then (with pets) what the gallery holds. An empty gallery's guidance is the empty
+     * state's alone (spec §7: one empty message).
+     */
     private void showContext() {
         String capture = data == null ? "Unverified preview" : tomato.Tomato.isCaptureRunning() ? "Capture running" : "Capture stopped";
         String text;
         if (shown == null) text = (data == null ? "Account not verified" : "Reading pets…") + " · " + capture;
         else {
             String account = shown.account() != null ? shown.accountLabel() : data == null ? "Account not verified" : "No account yet";
+            text = account + " · " + capture;
             int yard = 0, equipped = 0, total = shown.cards().size();
             for (PetGalleryModel.PetCard card : shown.cards()) { if (card.inYard()) yard++; if (!card.equippedBy().isEmpty()) equipped++; }
-            String pets = total == 0 ? (data != null && shown.account() == null ? "Pets appear once capture has seen your account."
-                    : "No pets captured for this account yet.")
-                : total + (total == 1 ? " pet" : " pets") + " · " + (yard > 0 ? yard + " in the Pet Yard now" : "Pet Yard pets show while you are in the Pet Yard")
-                    + " · " + equipped + " equipped by your characters";
-            text = account + " · " + capture + "\n" + pets;
+            if (total > 0) text += "\n" + total + (total == 1 ? " pet" : " pets") + " · "
+                + (yard > 0 ? yard + " in the Pet Yard now" : "Pet Yard pets show while you are in the Pet Yard")
+                + " · " + equipped + " equipped by your characters";
         }
         if (failed != null) text += "\nPets could not be read; retrying: " + failed;
         if (!text.equals(context.getText())) context.setText(text);
@@ -378,8 +387,7 @@ public class CharacterPetsGUI extends JPanel {
         if (next.equals(calculated)) return;
         calculated = next;
         estimates.removeAll();
-        if (card == null) estimates.add(detail("Enter the Pet Yard to see your pets."), BorderLayout.NORTH);
-        else {
+        if (card != null) { // without a pet the drawer is hidden and the empty state says what to do
             PetSummary pet = card.pet();
             subject.setText("Estimates for " + pet.title() + (pet.instanceId() == null ? "" : " (instance " + pet.instanceId() + ")")
                 + (chosen ? "" : ". Select a pet card to estimate another pet."));
@@ -464,7 +472,11 @@ public class CharacterPetsGUI extends JPanel {
             if (changed) { revalidate(); repaint(); }
         }
         private Component shown() { for (Component c : getComponents()) if (c.isVisible()) return c; return null; }
-        @Override public void doLayout() { Component c = shown(); if (c != null) c.setBounds(0, 0, getWidth(), getHeight()); }
+        /** The cards fill the body; the empty state keeps its own height at the top, as the Exalts grid's (never centred in the page). */
+        @Override public void doLayout() {
+            Component c = shown();
+            if (c != null) c.setBounds(0, 0, getWidth(), c instanceof EmptyState ? Math.min(getHeight(), c.getPreferredSize().height) : getHeight());
+        }
         @Override public Dimension getPreferredSize() { Component c = shown(); return c == null ? new Dimension(0, 0) : c.getPreferredSize(); }
         @Override public Dimension getMinimumSize() { return getPreferredSize(); }
         public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }

@@ -48,10 +48,11 @@ public class FameModelTest {
         FameModel ten = model(series(0, 0, readings(FIRST, false, T0, 100, T0 + 10 * MINUTE, 160)));
         assertEquals("Sample fame is estimated from experience", DisplayValue.State.ESTIMATE, ten.perHour().state);
         assertTrue(ten.perHour().text(), ten.perHour().text().endsWith(" 360"));   // 60 fame over 10 minutes of readings
-        assertEquals("session of " + date(T0), ten.perHourBasis());
+        assertEquals("The session's first reading; the tab words it (\"session 4 days ago\")", new FameModel.RateBasis(T0, false), ten.perHourBasis());
+        assertTrue("The value's tooltip names the session in full", ten.perHour().detail.contains("the session of " + date(T0)));
         assertTrue(ten.perHour().detail, ten.perHour().detail.contains(FameModel.ESTIMATED));
         FameModel current = model(series(0, 0, readings("now", true, T1, 100, T1 + 20 * MINUTE, 200)));
-        assertEquals("this session", current.perHourBasis());
+        assertEquals(new FameModel.RateBasis(T1, true), current.perHourBasis());
         assertTrue(current.perHour().text().endsWith(" 300"));
     }
 
@@ -60,10 +61,10 @@ public class FameModelTest {
             readings(FIRST, false, T0, 100, T0 + 4 * MINUTE, 90, T0 + 10 * MINUTE, 150),   // +60 (the drop to 90 is ignored) in 10 min
             readings(SECOND, false, T1, 1_300, T1 + 9 * MINUTE, 1_400)));                   // the newest, but only 9 minutes
         assertTrue(model.perHour().text(), model.perHour().text().endsWith(" 360"));
-        assertEquals("session of " + date(T0), model.perHourBasis());
+        assertEquals(new FameModel.RateBasis(T0, false), model.perHourBasis());
         FameModel both = model(series(0, 0, readings(FIRST, false, T0, 100, T0 + 10 * MINUTE, 160), readings(SECOND, false, T1, 0, T1 + 30 * MINUTE, 1_000)));
         assertTrue("Each session divides by its own reading time", both.perHour().text().endsWith(" 2,000"));
-        assertEquals("session of " + date(T1), both.perHourBasis());
+        assertEquals(new FameModel.RateBasis(T1, false), both.perHourBasis());
     }
 
     @Test public void recordedGainAddsIncreasesWithinEachSession() {

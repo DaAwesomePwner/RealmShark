@@ -22,8 +22,9 @@ import tomato.gui.modern.DisplayFormat;
  * Paints one pet card of the Pets gallery (spec §6.2, §9): one component reused for every cell of the kit TileList. A 34 px skin
  * sprite, the pet's name, a rarity chip (none when the rarity is unknown), its family, three thin ability bars (level of the
  * pet's max level; an outlined "—" track when either is unknown, never an empty 0 bar; "Locked" below the slot's unlock level)
- * and one footer line: "In the Pet Yard now", "Equipped by Wizard #7", or both. Sizes follow the body font; colors come from
- * Tokens at paint time.
+ * and two footer lines: "In the Pet Yard now" while it is, then "Equipped by Wizard #7" while a character carries it (a line too
+ * long for the card is ellipsized; the tooltip and the accessible name keep it whole). Every card has room for both lines, so all
+ * cells are one height. Sizes follow the body font; colors come from Tokens at paint time.
  */
 final class PetCardRenderer extends JComponent implements ListCellRenderer<PetGalleryModel.PetCard>, Accessible {
     static final int SPRITE = 34, GAP = 10, BAR = 6; // GAP: space between cards (spec §5.2); BAR: the ability track's thickness
@@ -35,9 +36,12 @@ final class PetCardRenderer extends JComponent implements ListCellRenderer<PetGa
 
     /** One ability row: {@code value} "45/70", "45/—", "—" or "Locked"; {@code level} and {@code max} null when unknown. */
     record Bar(String name, String value, Integer level, Integer max, boolean locked) {}
-    /** The text one card paints (painted text is not in the component tree, so tests read it here); {@code chip} "" when none. */
-    record Lines(String title, String chip, String family, List<Bar> bars, String footer) {
-        Lines { bars = List.copyOf(bars); }
+    /**
+     * The text one card paints (painted text is not in the component tree, so tests read it here); {@code chip} "" when none;
+     * {@code footer} the footer lines that apply, in order (none, one or two).
+     */
+    record Lines(String title, String chip, String family, List<Bar> bars, List<String> footer) {
+        Lines { bars = List.copyOf(bars); footer = List.copyOf(footer); }
     }
 
     PetCardRenderer() { setOpaque(false); }
@@ -56,16 +60,19 @@ final class PetCardRenderer extends JComponent implements ListCellRenderer<PetGa
             bars.add(new Bar(ability.type() == null ? "Ability " + UNKNOWN : ability.name(), value, level, max, ability.locked()));
         }
         return new Lines(pet.title(), pet.rarity() == null ? "" : pet.rarity(), "Family: " + (pet.family() == null ? UNKNOWN : pet.family()),
-            bars, footer(card));
+            bars, footerLines(card));
     }
 
-    /** "In the Pet Yard now", "Equipped by Wizard #7, Knight #8 (dead)", or both joined by " · ". */
-    static String footer(PetGalleryModel.PetCard card) {
+    /** The footer lines: "In the Pet Yard now" while it is, then "Equipped by Wizard #7, Knight #8 (dead)" while carried. */
+    static List<String> footerLines(PetGalleryModel.PetCard card) {
         List<String> parts = new ArrayList<>(2);
         if (card.inYard()) parts.add("In the Pet Yard now");
         if (!card.equippedBy().isEmpty()) parts.add("Equipped by " + String.join(", ", card.equippedBy()));
-        return String.join(" · ", parts);
+        return parts;
     }
+
+    /** The footer lines joined by " · " (the tooltip's wording), "" when none. */
+    static String footer(PetGalleryModel.PetCard card) { return String.join(" · ", footerLines(card)); }
 
     /** What a screen reader announces for one card: every painted value, unknowns said as unknown. */
     static String accessibleName(PetGalleryModel.PetCard card) {
@@ -86,11 +93,20 @@ final class PetCardRenderer extends JComponent implements ListCellRenderer<PetGa
 
     Lines shown() { return lines; }
 
-    /** The list cell: the card plus half the gap between cards on each side, at the current body font. */
+    /** The baseline of footer line {@code line} (0 or 1) in the cell, at the current body font (paint uses the same rule). */
+    int footerBaseline(int line) { return footerBaseline(getFontMetrics(Type.emphasis()), getFontMetrics(Type.caption()), line); }
+
+    /** Below the sprite or the title and family, the three ability rows, then one caption line per footer line. */
+    private static int footerBaseline(FontMetrics title, FontMetrics caption, int line) {
+        int rowsTop = GAP / 2 + Tokens.M + Math.max(SPRITE, title.getHeight() + caption.getHeight()) + Tokens.S;
+        return rowsTop + 3 * row(caption) + 2 * Tokens.XS + Tokens.S + line * caption.getHeight() + caption.getAscent();
+    }
+
+    /** The list cell: the card plus half the gap between cards on each side, at the current body font; room for both footer lines. */
     Dimension cellSize() {
         FontMetrics title = getFontMetrics(Type.emphasis()), caption = getFontMetrics(Type.caption());
         int height = Tokens.M + Math.max(SPRITE, title.getHeight() + caption.getHeight()) + Tokens.S
-            + 3 * row(caption) + 2 * Tokens.XS + Tokens.S + caption.getHeight() + Tokens.M;
+            + 3 * row(caption) + 2 * Tokens.XS + Tokens.S + 2 * caption.getHeight() + Tokens.M;
         int width = Math.max(220, Math.round(ContentStyle.body().getSize2D() * 19f));
         return new Dimension(width + GAP, height + GAP);
     }
@@ -167,14 +183,17 @@ final class PetCardRenderer extends JComponent implements ListCellRenderer<PetGa
                 g.drawString(value, right - caption.stringWidth(value), textBaseline);
                 rowTop += rowHeight + Tokens.XS;
             }
-            int footerBaseline = rowTop - Tokens.XS + Tokens.S + caption.getAscent(), footerLeft = left;
-            if (card.inYard()) {
-                int dot = Math.max(6, caption.getAscent() / 2);
-                g.setColor(Tokens.tone(Tokens.Tone.GOOD));
-                g.fillOval(left, footerBaseline - caption.getAscent() / 2 - dot / 2, dot, dot);
-                footerLeft += dot + Tokens.XS;
+            List<String> footer = lines.footer();
+            for (int i = 0; i < footer.size(); i++) {
+                int footerBaseline = footerBaseline(titleMetrics, caption, i), footerLeft = left; // from the cell's top, as cellSize counts
+                if (i == 0 && card.inYard()) { // "In the Pet Yard now" leads with a dot
+                    int dot = Math.max(6, caption.getAscent() / 2);
+                    g.setColor(Tokens.tone(Tokens.Tone.GOOD));
+                    g.fillOval(left, footerBaseline - caption.getAscent() / 2 - dot / 2, dot, dot);
+                    footerLeft += dot + Tokens.XS;
+                }
+                text(g, footer.get(i), captionFont, caption, muted, footerLeft, footerBaseline, right - footerLeft); // ellipsized
             }
-            text(g, lines.footer(), captionFont, caption, muted, footerLeft, footerBaseline, right - footerLeft);
         } finally {
             g.dispose();
         }

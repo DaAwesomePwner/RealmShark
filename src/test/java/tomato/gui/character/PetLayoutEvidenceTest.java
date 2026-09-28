@@ -132,8 +132,8 @@ public class PetLayoutEvidenceTest {
                 List<PetGalleryModel.PetCard> items = cards(panel[0]).items();
                 assertEquals("Yard pets first, then equipped; one card per instance id; another account's pet left out",
                     List.of("pet:555", "pet:9001"), keys(items));
-                assertEquals("In the Pet Yard now", PetCardRenderer.lines(items.get(0)).footer());
-                assertEquals("Equipped by Wizard #7, Knight #8", PetCardRenderer.lines(items.get(1)).footer());
+                assertEquals(List.of("In the Pet Yard now"), PetCardRenderer.lines(items.get(0)).footer());
+                assertEquals(List.of("Equipped by Wizard #7, Knight #8"), PetCardRenderer.lines(items.get(1)).footer());
                 assertFalse(named(panel[0], "pet-empty", EmptyState.class).isVisible());
                 assertFalse("The feeding calculator starts collapsed", named(panel[0], "pets-feeding", Collapsible.class).expanded());
                 String context = named(panel[0], "pet-capture-context", JTextArea.class).getText();

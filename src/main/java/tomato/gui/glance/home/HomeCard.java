@@ -1,7 +1,9 @@
 package tomato.gui.glance.home;
 
+import javax.swing.JComponent;
 import tomato.gui.kit.Card;
 import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.modern.ContentStyle;
 
 /**
  * A Home card: explicit loading and unavailable states (spec §7; an unavailable reason is a warn banner inside the card) and
@@ -10,6 +12,16 @@ import tomato.gui.kit.DisplayModeModel;
 abstract class HomeCard extends Card {
     private final HomeViews.Reason status;
     private String explained;
+
+    /**
+     * Swaps the card's body. A part joining the card now (its content or empty state on the first model, the loading or unavailable
+     * line) first takes the current font: a font change (Settings refreshes the window's tree) made while it was out of the card,
+     * say while the card was loading, never reached it.
+     */
+    @Override public Card body(JComponent part) {
+        if (part.getParent() == null) ContentStyle.refreshFonts(part);
+        return super.body(part);
+    }
 
     HomeCard(DisplayModeModel mode, String name, String initialEvidence) {
         super(mode);

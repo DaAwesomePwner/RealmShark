@@ -9,14 +9,16 @@ import static tomato.gui.glance.character.SheetViews.named;
 
 /**
  * Sheet › Fame (spec §6.2): this character's fame now and its saved fame history, read exactly by account and character id
- * (FameHistory). Three tiles (Fame, Fame / hour, Recorded gain), the chart of every session's readings, and two captions for
- * what was left out: readings with no recorded account (older readings; they may be another account's character with the same
- * id) and saved sessions that could not be read. No readings: an empty state inviting play with capture on. Null (a new key
- * loading) shows nothing; a failed read shows a warn banner over whatever is shown. EDT only.
+ * (FameHistory). Three tiles (Fame, Fame / hour, Recorded gain; they wrap to fewer columns before a value or sub-line would be
+ * cut), the chart of every session's readings, and two captions for what was left out: readings with no recorded account (older
+ * readings; they may be another account's character with the same id) and saved sessions that could not be read. No readings:
+ * an empty state inviting play with capture on. Null (a new key loading) shows nothing; a failed read shows a warn banner over
+ * whatever is shown. EDT only.
  */
 final class FameTab extends JPanel {
     static final String EMPTY_TITLE = "No fame history for this character yet";
     static final String EMPTY_BODY = "Fame history records while you play this character with capture on.";
+    static final String HOUR_TIP = "Fame per hour of readings in the newest session with at least 10 minutes of readings";
     private final StatTile fame = new StatTile("Fame"), perHour = new StatTile("Fame / hour"), gained = new StatTile("Recorded gain");
     private final FameChart chart = new FameChart();
     private final EmptyState empty = named(new EmptyState(EMPTY_TITLE, EMPTY_BODY, null), "character-fame-empty");
@@ -24,7 +26,7 @@ final class FameTab extends JPanel {
     private final Banner unreadable = new Banner("character-fame-unreadable"), failed = new Banner("character-fame-failed");
     private final JPanel content;
     private FameModel shown;
-    private String shownFame = "";
+    private String shownFame = "", shownHour = "";
     private boolean applied;
 
     FameTab() {
@@ -32,13 +34,14 @@ final class FameTab extends JPanel {
         setOpaque(false);
         setName("character-fame");
         fame.setToolTipText("This character's fame: live while it is in game, else as the character journal last saved it");
-        perHour.setToolTipText("Fame per hour of readings in the newest session with at least 10 minutes of readings");
+        perHour.setToolTipText(HOUR_TIP);
         gained.setToolTipText("Fame gained while RealmShark recorded this character");
         unreadable.setTone(Tokens.Tone.WARN);
         failed.setTone(Tokens.Tone.WARN);
         failed.setVisible(false);
-        // Three tiles across on a wide sheet, fewer when narrow (never cut at 680 px or font 18).
-        JPanel tiles = ContentStyle.responsiveGrid(3, 170, Tokens.S);
+        // Three tiles across on a wide sheet, fewer when narrow or when a tile would be narrower than its value or sub-line (never
+        // cut at 680 px or font 18).
+        JPanel tiles = ContentStyle.responsiveGrid(3, 170, Tokens.S, true);
         tiles.setOpaque(false);
         tiles.add(fame); tiles.add(perHour); tiles.add(gained);
         content = named(KitLayouts.stack(Tokens.M, tiles, chart, empty, untagged, unreadable), "character-fame-content");
@@ -48,18 +51,22 @@ final class FameTab extends JPanel {
 
     /**
      * EDT. Called for every model and once a second (the presenter's refresh): an equal model is skipped while the Fame tile's
-     * "as of …" age reads the same.
+     * "as of …" age and the Fame / hour session's age read the same.
      */
     void apply(FameModel model) {
-        String line = fameLine(model);
-        if (applied && Objects.equals(model, shown) && line.equals(shownFame)) return;
+        String line = fameLine(model), hour = hourLine(model);
+        if (applied && Objects.equals(model, shown) && line.equals(shownFame) && hour.equals(shownHour)) return;
         applied = true;
         shown = model;
         shownFame = line;
+        shownHour = hour;
         content.setVisible(model != null); // loading: nothing, never an empty state
         if (model != null) {
             fame.setValue(model.current().value(), line.isEmpty() ? null : line);
-            perHour.setValue(model.perHour(), model.perHourBasis());
+            FameModel.RateBasis basis = model.perHourBasis();
+            perHour.setValue(model.perHour(), hour.isEmpty() ? null : hour);
+            perHour.setToolTipText(basis == null ? HOUR_TIP : "Fame per hour of readings in " + basis.fullName()
+                + ", the newest session with at least 10 minutes of readings");
             gained.setValue(model.gained(), model.gainedBasis());
             boolean any = !model.sessions().isEmpty();
             chart.setSessions(model.sessions());
@@ -91,6 +98,13 @@ final class FameTab extends JPanel {
         if (current.live()) return "Live";
         if (current.value().state != DisplayValue.State.STALE) return "";
         return "as of " + (current.savedAt() > 0 ? KitFormat.relative(current.savedAt()) : "an unknown time");
+    }
+
+    /** The Fame / hour sub-line: "this session", "session 4 days ago" (a week or older: its date), or "" without a rate. */
+    static String hourLine(FameModel model) {
+        FameModel.RateBasis basis = model == null ? null : model.perHourBasis();
+        if (basis == null) return "";
+        return basis.current() ? "this session" : "session " + KitFormat.relative(basis.start());
     }
 
     static String untaggedText(int count) {

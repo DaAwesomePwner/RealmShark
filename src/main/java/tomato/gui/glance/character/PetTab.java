@@ -60,6 +60,7 @@ final class PetTab extends JPanel {
         for (int i = 0; i < 3; i++) {
             names[i] = named(KitText.body(""), "character-pet-ability-name-" + i);
             bars[i] = named(new StatBar(), "character-pet-ability-bar-" + i);
+            bars[i].setProgressRole(Tokens.Role.ACCENT); // below the max is progress, not a warning (as the gallery's cards); full stays GOOD
             bars[i].getAccessibleContext().setAccessibleName("Ability " + (i + 1) + " level");
             levels[i] = named(KitText.caption(""), "character-pet-ability-level-" + i);
             c.gridy = i;

@@ -15,13 +15,14 @@ import tomato.gui.modern.DisplayFormat;
  * - {@code current}: the character's fame now. Live character fame while this exact character (the key's account and character
  *   id) is in game; else the journal's saved fame, stale, with the time the tab words as "as of …"; else unknown.
  * - {@code perHour}: Home's rule (only increases count; divided by the session's own first-to-last reading time; only with at
- *   least ten minutes of readings) for the newest session that qualifies, named by {@code perHourBasis}.
+ *   least ten minutes of readings) for the newest session that qualifies; {@code perHourBasis} is that session (null: no rate),
+ *   which the tab words as its sub-line ("this session", "session 4 days ago") and, with its date, in the tooltip.
  * - {@code gained}: every increase between readings within each shown session (decreases, and whatever changed between
  *   sessions while nothing recorded, are not counted), {@code gainedBasis} "over N sessions".
  * Readings are fame estimated from captured experience ({@code Entity.fame}: (exp + 40071) / 2000), not the game's fame stat,
  * so every value built from them is an estimate ("≈"); the live and saved fame are the game's own values.
  */
-record FameModel(String key, Current current, DisplayValue perHour, String perHourBasis, DisplayValue gained, String gainedBasis,
+record FameModel(String key, Current current, DisplayValue perHour, RateBasis perHourBasis, DisplayValue gained, String gainedBasis,
                  List<FameHistory.Session> sessions, int untagged, int unreadable) {
     /** Home's minimum (HomeArchive.RATE_MINIMUM_MILLIS, package-private there): ten minutes of readings, here within one session. */
     static final long RATE_MINIMUM_MILLIS = 10 * 60_000L;
@@ -36,6 +37,15 @@ record FameModel(String key, Current current, DisplayValue perHour, String perHo
     record Current(DisplayValue value, boolean live, long savedAt) {
         Current { Objects.requireNonNull(value, "value"); }
         static final Current UNKNOWN = new Current(DisplayValue.unknown(SheetModelBuilder.FAME_UNKNOWN), false, 0);
+    }
+
+    /**
+     * The session a rate comes from: its first reading's time (epoch ms) and whether it is the session recording now. The tab words
+     * its age when it shows it, so "session 4 days ago" advances between reads.
+     */
+    record RateBasis(long start, boolean current) {
+        /** "this session" or "the session of 2026-09-24": the full wording, for tooltips. */
+        String fullName() { return current ? "this session" : "the session of " + date(start); }
     }
 
     FameModel {
@@ -53,17 +63,18 @@ record FameModel(String key, Current current, DisplayValue perHour, String perHo
         // FameHistory returns only sessions with readings; a session without any has nothing to chart or count.
         List<FameHistory.Session> sessions = series.sessions().stream().filter(s -> !s.points().isEmpty()).collect(Collectors.toUnmodifiableList());
         DisplayValue perHour = DisplayValue.unknown(RATE_UNKNOWN), gained = DisplayValue.unknown(NO_READINGS);
-        String perHourBasis = null, gainedBasis = null;
+        RateBasis perHourBasis = null;
+        String gainedBasis = null;
         // The newest session with ten minutes of readings, divided by its own reading time only.
         for (int i = sessions.size() - 1; i >= 0; i--) {
             FameHistory.Session session = sessions.get(i);
             List<FameHistory.Point> points = session.points();
             long reading = points.get(points.size() - 1).time() - points.get(0).time();
             if (reading < RATE_MINIMUM_MILLIS) continue;
-            perHourBasis = session.current() ? "this session" : "session of " + date(points.get(0).time());
+            perHourBasis = new RateBasis(points.get(0).time(), session.current());
             perHour = DisplayValue.estimate(DisplayFormat.formatInteger(Math.round(gain(points) * 3_600_000.0 / reading)),
-                "Fame gained per hour of readings in " + (session.current() ? "" : "the ") + perHourBasis
-                    + ": increases only, over that session's own reading time. " + ESTIMATED + ".");
+                "Fame gained per hour of readings in " + perHourBasis.fullName() + ": increases only, over that session's own reading time. "
+                    + ESTIMATED + ".");
             break;
         }
         if (!sessions.isEmpty()) {
