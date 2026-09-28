@@ -38,7 +38,7 @@ The review sent fix rounds for two tasks, and one test-only fix; each landed as 
   session read at the moved clock; the old order raced the refresher.
 
 Merges on the integration branch: Task 3 `3bb2090`, Task 1 `654adbe`, Task 2 `3b0517e`, the test fix `322697b`, Task 4
-`e47916b`; Task 5 **[Coordinator: merge sha]**; Task 6 **[Coordinator: merge sha]**. Each task's own focused runs (RED and
+`e47916b`, Task 5 `362f00f`, Task 6 `ad0ae85`. Each task's own focused runs (RED and
 GREEN) are in its implementer report and the coordinator's review notes; the table below records the wave totals measured on
 the integration branch.
 
@@ -63,7 +63,8 @@ the integration branch.
   Board and Planner with their ids unchanged, `QuestGUI.openBoard()`.
 - Task 5: `QuestsFocus` and `QuestsRouteTarget` (a plain Quests route and `QuestsFocus.BOARD` open the Board, `PLANNER` the
   Planner; Back restores the tab), the `plans.quests` search entry through the navigator, Home's Quests card landing on the
-  Board, and the S3 click-path test. **[Coordinator: confirm against the merged Task 5.]**
+  Board, and the S3 click-path test (confirmed against the merged Task 5: `QuestsRouteTargetTest`, 7 tests, and the S3 method
+  plus the planning search's Back assertions in `ShellHookIntegrationTest`).
 - Task 6: `ui.QuestsEvidenceTest`, the Quests capture in `ui.HomeEvidenceTest`, `docs/DAILY-QUESTS.md`, `README.md` and this
   record.
 
@@ -76,11 +77,11 @@ no live capture and no bridge deliveries. `GRADLE` abbreviates the plan's comman
 |---|---|---|
 | Baseline full suite on `2a13d8a` (`b559bca` plus the plan; coordinator, before Wave A) | `GRADLE test` | tests / failures / errors / skipped: **1483 / 5 / 0 / 5**. The failures are pre-existing, not P4: `StatisticsArchiveNativeTest.actualLootFactoryFiltersBeforePagingAndRestoresNamedOccurrenceSelectionThroughExportFailure` (unreachable details rectangle), `QuestConsistencyTest.nameTypesDialogScrollsEditorsAndKeyboardCancelThenOkPreserveMeaning` (window focus without a window manager), `ContentStyleTest.wrappingTextRelayoutSettlesAfterWidthFontAndDocumentChanges` (load-sensitive under the full suite; passes alone), `ChatFiltersTest.editorSavesRulesAndRendersAlongsideIgnoredDesktopAndCompactViews` and `ChatConsistencyTest.nativeFilterDialogAt460By360OuterMinimumKeepsEveryEditorAndActionReachable` (dialog reachability) |
 | Tasks 1–4 focused tests | each task's commands (plan) | passed when implemented and after each fix round, except the known `QuestConsistencyTest.nameTypesDialog…` focus failure; per-task counts in the implementer reports and the coordinator's review notes |
-| Task 5 focused tests | `GRADLE test --tests "tomato.gui.quest.*" --tests "tomato.gui.chat.*" --tests "tomato.gui.route.*" --tests "tomato.ShellRouteRegistrationTest" --tests "tomato.gui.glance.home.*"` | **[Coordinator: classes / tests / failures from the Task 5 review]** |
+| Task 5 focused tests | `GRADLE test --tests "tomato.gui.quest.*" --tests "tomato.gui.chat.*" --tests "tomato.gui.route.*" --tests "tomato.ShellRouteRegistrationTest" --tests "tomato.gui.glance.home.*"` | `tomato.gui.quest.*` + `ShellHookIntegrationTest`: 104 tests, 1 failure (the known `QuestConsistencyTest.nameTypesDialog…`); the wider command: 251 tests, 3 failures, all known (`QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`) |
 | Wave A merge (Tasks 3, 1, 2: `3bb2090`, `654adbe`, `3b0517e`) | the union of the wave's focused commands | 51 test classes, 265 tests, 2 failures: the known `QuestConsistencyTest.nameTypesDialog…` focus failure, and a `HomeRefresherTest` window race (the test moved its clock before Home left Today), fixed by the test-only commit `e9e9467` (merge `322697b`) |
 | Wave B merge (Task 4, `e47916b`) | the union of the wave's focused commands (quest, kit, planning, Home, shell hook, workspace, modern, filter-bar evidence) | 60 test classes, 317 tests, 1 failure: the known `QuestConsistencyTest.nameTypesDialog…` focus failure without a window manager (the method's behavior is unchanged) |
-| Wave C merge (Task 5) | the union of the wave's focused commands | **[Coordinator: integration sha; classes / tests / failures]** |
-| S3 (partial) | `ShellHookIntegrationTest.homeQuestsCardAndBoardShowPinnedQuestsAndRewardsForS3AndBackReturnsHome` | **[Coordinator: result]** — pinned quests and their rewards: 0 clicks on Home, 1 click to the Board (pinned first, reward sprites), Back returns to Home. The "expire today" half of S3 moves with the countdown phase |
+| Wave C merge (Task 5) | the union of the wave's focused commands | on `362f00f` (quest, chat, route, `ShellRouteRegistrationTest`, Home, kit, planning, `WorkspaceUiTest`): 76 test classes, 347 tests, 3 failures, all known (`QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`) |
+| S3 (partial) | `ShellHookIntegrationTest.homeQuestsCardAndBoardShowPinnedQuestsAndRewardsForS3AndBackReturnsHome` | passed in the Wave C merge run and in the full suite — pinned quests and their rewards: 0 clicks on Home, 1 click to the Board (pinned first, reward sprites), Back returns to Home. The "expire today" half of S3 moves with the countdown phase |
 | Evidence (Task 6, on `fd26db4` plus the Task 6 commits) | `GRADLE test --tests "ui.QuestsEvidenceTest" --tests "ui.HomeEvidenceTest"` | **7 tests (3 + 4), 0 failures, 0 errors, 0 skipped**; 17 P4 screenshots in `build/p4-t6/ui-test/screenshots/redesign-p4-quests/` (15 from `QuestsEvidenceTest`, 2 from `HomeEvidenceTest`). A local mutation run (not committed) confirmed the guards: forcing the Board page's horizontal scroll bar failed every Board capture's sideways check, and showing the raw expiration in Simple failed the Simple details check. Task 5 was not on this base: the evidence opens the Board and the Planner with `QuestGUI.openBoard()` / `openPlans()` after the Quests route. Findings under "Evidence" below |
 | Final full suite and JAR (coordinator) | `GRADLE test shadowJar` | **[Coordinator: source head; tests / failures / errors / skipped; new failures versus the baseline, each investigated; the JAR built]** |
 | JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | **[Coordinator: exit code; the folder's contents afterwards]** |
