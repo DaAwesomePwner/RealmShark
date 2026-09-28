@@ -129,9 +129,13 @@ public class HomeRefresherTest {
         edt(refresher::start);
         await(() -> !models.isEmpty() && last(models).today().window() == TODAY && last(models).today().state() == State.LIVE, "today's good read");
         HomeArchive.Totals today = last(models).today().totals();
-        clock.addAndGet(60_000L);
+        // Switch first, then move the clock: a tick before the switch re-reads Today at the same clock (equal totals) and one
+        // after it reads this session, so Today's own last good read stays the one captured above (read 3 min before its re-read).
         edt(() -> refresher.setWindow(SESSION));
-        await(() -> last(models).today().window() == SESSION && last(models).today().state() == State.LIVE, "this session's good read");
+        clock.addAndGet(60_000L);
+        // This session's first read may still use the old clock; the interval re-read at the moved clock becomes its last good read.
+        await(() -> last(models).today().window() == SESSION && last(models).today().state() == State.LIVE
+            && last(models).today().totals().until() == clock.get(), "this session's good read at the moved clock");
         HomeArchive.Totals session = last(models).today().totals();
         sources.archiveFailure = new IOException("disk full");
         clock.addAndGet(2 * 60_000L);
