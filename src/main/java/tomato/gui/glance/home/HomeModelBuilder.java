@@ -242,7 +242,10 @@ public final class HomeModelBuilder {
     }
     static String lastUpdated(long readAt, long now, Throwable failure) { return "Last updated " + ago(readAt, now) + " · " + oneLine(failure); }
 
-    /** Pinned open, then pinned done quests (at most 3; spec §6.1 shows pinned quests only); counts over the whole list. */
+    /**
+     * Pinned open, then pinned done quests (at most 3; spec §6.1 shows pinned quests only); counts over the whole list. A null
+     * reward list was not captured (rewardsKnown false), which is not the same as an empty one (spec §1).
+     */
     public static HomeModel.Quests quests(ProgressionData.Snapshot snapshot, Predicate<QuestData> pinned, long now) {
         if (snapshot == null || snapshot.quests == null) return HomeModel.Quests.placeholder(State.EMPTY);
         Predicate<QuestData> isPinned = pinned == null ? quest -> false : pinned;
@@ -258,7 +261,8 @@ public final class HomeModelBuilder {
         List<HomeModel.QuestLine> top = new ArrayList<>();
         for (List<QuestData> group : List.of(pinnedOpen, pinnedDone))
             for (QuestData quest : group) if (top.size() < QUEST_LINES)
-                top.add(new HomeModel.QuestLine(quest.name != null && !quest.name.isBlank() ? quest.name : "Unnamed quest", quest.rewards, quest.repeatable, quest.completed));
+                top.add(new HomeModel.QuestLine(quest.name != null && !quest.name.isBlank() ? quest.name : "Unnamed quest", quest.rewards, quest.rewards != null,
+                    quest.repeatable, quest.completed));
         long capturedAt = snapshot.quests.capturedAt;
         boolean stale = !snapshot.currentQuests() || now - capturedAt >= QUEST_LIST_STALE_MILLIS;
         return new HomeModel.Quests(stale ? State.STALE : State.LIVE, pins, repeatable, done, top, capturedAt, stale);

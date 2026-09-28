@@ -63,10 +63,17 @@ public final class HomeModels {
     public static HomeArchive.Result result(HomeArchive.Window window, long now) { return new HomeArchive.Result(totals(window, now), runs(now)); }
     public static HomeModel.Quests quests(long now, boolean stale) {
         return new HomeModel.Quests(stale ? HomeModel.State.STALE : HomeModel.State.LIVE, 3, 5, 2, List.of(
-            new HomeModel.QuestLine("Mighty Lost Halls", new int[]{3180, 2591, 2592, 2593, 2594, 2595}, true, false),
-            new HomeModel.QuestLine("Epic Shatters", new int[]{2596}, false, false),
-            new HomeModel.QuestLine("Standard Snake Pit", new int[]{2597, 2598}, true, true)),
+            new HomeModel.QuestLine("Mighty Lost Halls", new int[]{3180, 2591, 2592, 2593, 2594, 2595}, true, true, false),
+            new HomeModel.QuestLine("Epic Shatters", new int[]{2596}, true, false, false),
+            new HomeModel.QuestLine("Standard Snake Pit", new int[]{2597, 2598}, true, true, true)),
             now - (stale ? 3 * 3_600_000L : 840_000L), stale);
+    }
+    /** Pinned quests whose rewards were not captured (first), are a known none (second) and are listed (third). */
+    public static HomeModel.Quests questsWithUncapturedRewards(long now) {
+        return new HomeModel.Quests(HomeModel.State.LIVE, 3, 2, 0, List.of(
+            new HomeModel.QuestLine("Oryx's Castle", null, false, false, false),
+            new HomeModel.QuestLine("Pirate Cave", new int[0], true, true, false),
+            new HomeModel.QuestLine("Epic Shatters", new int[]{2596}, true, true, false)), now - 840_000L, false);
     }
     /** The same hero with another journal key (null: the hero opens the Characters list). */
     public static HomeModel.Hero withKey(HomeModel.Hero h, String key) {
