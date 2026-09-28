@@ -734,7 +734,7 @@ public final class WorkspaceShell extends JPanel {
             case ENCOUNTER: case RESOURCES: return 7;
             case LOOT: return 8;
             case LOGGING: return 9;
-            case RUNS: return 10;
+            case RUNS: case RUN_RECAP: return 10; // The recap is a card on the Runs page.
             case TIMELINE: return 11;
             case BRIDGE_REVIEW: return 12;
             case NOTIFICATIONS: return 13;

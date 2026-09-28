@@ -160,8 +160,8 @@ public class TomatoGUI {
             public void actionPerformed(java.awt.event.ActionEvent e) { openBuild(); }
         });
         // Runs routes to rows (a visit or a query) bring the page's Table view forward; Back restores the view it left.
-        if (runsWorkspace instanceof ArchiveWorkspace)
-            navigator.register(runsPage.tableRoutes(archiveTarget(Destination.RUNS, (ArchiveWorkspace<?, ?, ?>) runsWorkspace)));
+        RouteTarget runsTable = runsWorkspace instanceof ArchiveWorkspace ? archiveTarget(Destination.RUNS, (ArchiveWorkspace<?, ?, ?>) runsWorkspace) : null;
+        if (runsTable != null) navigator.register(runsPage.tableRoutes(runsTable));
         registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         registerArchive(navigator, Destination.LOOT, lootWorkspace);
         // Analytics targets resolve exact visit/variant routes; registered later, so they are tried first.
@@ -173,13 +173,16 @@ public class TomatoGUI {
         // Investigation targets resolve exact visits and windows; null for live-only (no saved history) views.
         RouteTarget exactRun = tomato.gui.activity.ActivityRouteTarget.of(Destination.RUNS, runsWorkspace);
         if (exactRun != null) navigator.register(runsPage.tableRoutes(exactRun));
+        // The feed (a plain RUNS route) and one run's recap (RUN_RECAP with an exact visit), registered after the Table view's
+        // targets so they are tried first; RUNS routes with a visit or a query still reach the Table view on that row.
+        for (RouteTarget target : tomato.gui.runs.RunsRouteTarget.of(runsPage, runsTable, AppHistory::store, navigator)) navigator.register(target);
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.TIMELINE, timelineWorkspace));
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.INSPECT, inspectWorkspace));
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).resourcesRouteTarget());
         registerIfPresent(navigator, ((DpsGUI) dpsPanel).encounterRouteTarget());
         Navigator.install(navigator);
-        // A feed card opens its exact run in the Table view's workbench (the run recap replaces this with P5a Task 9).
-        runsPage.feed().onOpen(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUNS).withVisit(visit)));
+        // A feed card opens its exact run's recap; Back (or "‹ Runs") returns to the feed as it was left.
+        runsPage.feed().onOpen(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
         // The app opens on the first visible core destination; shells built directly keep page 0.
         shell.selectLanding();
         characterPanel.bindNavigator(navigator);
@@ -504,8 +507,8 @@ public class TomatoGUI {
             TomatoGUI::openCharacterFromHome,
             () -> openFromHome(tomato.gui.route.Route.to(Destination.MY_INFO)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.ENCOUNTER)),
-            // The exact VisitRef first; plain Runs only when no exact-visit target exists (no saved history store).
-            visit -> openFromHome(tomato.gui.route.Route.to(Destination.RUNS).withVisit(visit), tomato.gui.route.Route.to(Destination.RUNS)),
+            // The exact run's recap with its damage breakdown (S4); the plain feed only when the recap is rejected (no saved history).
+            visit -> openFromHome(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit), tomato.gui.route.Route.to(Destination.RUNS)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)));
     }
 
