@@ -2,8 +2,13 @@ package tomato.gui.character;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import com.formdev.flatlaf.FlatLightLaf;
+import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.TomatoData;
+import tomato.realmshark.RealmCharacter;
 import tomato.gui.kit.Collapsible;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.TileList;
@@ -17,12 +22,15 @@ import packets.data.enums.StatType;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 
 import static org.junit.Assert.*;
+import static tomato.gui.activity.SnapshotTestSupport.await;
 
 public class PetFeedingFormTest {
     /** The feeding calculator's drawer remembers whether it is open; every test starts from the default and restores the user's value. */
     private static final String FEEDING = Collapsible.PREFIX + "pets-feeding";
+    @Rule public TemporaryFolder temp = new TemporaryFolder();
     private String feeding;
 
     @Before public void defaultFeedingDrawer() { feeding = PropertiesManager.getProperty(FEEDING); PropertiesManager.setProperties(FEEDING, ""); }
@@ -113,7 +121,11 @@ public class PetFeedingFormTest {
                 frame.setVisible(false);
                 CharacterPetsGUI.clearPets();
                 frame.setVisible(true);
-                assertNotNull(label(panel, "Enter the Pet Yard to see your pets."));
+                // One empty message (spec §7, P3a finding 9): the empty state's body, no longer a second label in the drawer.
+                EmptyState empty = named(panel, "pet-empty", EmptyState.class);
+                assertTrue(empty.isVisible());
+                assertEquals("Enter the Pet Yard to see your pets.", text(empty));
+                assertNull("…said once", label(panel, "Enter the Pet Yard to see your pets."));
             } finally { frame.dispose(); CharacterPetsGUI.clearPets(); }
         });
     }
@@ -134,6 +146,7 @@ public class PetFeedingFormTest {
                 assertTrue("No pet yet: the invitation shows", named(panel, "pet-empty", EmptyState.class).isVisible());
                 assertEquals("No pets yet", named(panel, "pet-empty", EmptyState.class).getAccessibleContext().getAccessibleName());
                 assertFalse(named(panel, "pet-cards", TileList.class).isVisible());
+                assertFalse("No pet: nothing to feed, so no calculator", drawer.isVisible());
 
                 CharacterPetsGUI.addPet(pet(101, stat(StatType.PET_INSTANCE_ID_STAT, 10), stat(StatType.PET_MAX_ABILITY_POWER_STAT, 30),
                     stat(StatType.PET_FIRST_ABILITY_POWER_STAT, 1), stat(StatType.PET_FIRST_ABILITY_POINT_STAT, 100), stat(StatType.PET_FIRST_ABILITY_TYPE_STAT, 407)));
@@ -143,6 +156,7 @@ public class PetFeedingFormTest {
                 TileList<?> cards = named(panel, "pet-cards", TileList.class);
                 assertTrue(cards.isVisible());
                 assertFalse(named(panel, "pet-empty", EmptyState.class).isVisible());
+                assertTrue("A pet: the calculator shows", drawer.isVisible());
                 assertEquals(2, cards.items().size());
                 assertEquals("Pets", cards.getAccessibleContext().getAccessibleName());
                 assertTrue("Nothing selected: the calculator uses the first card's pet", text(panel).contains("Captured points: 100"));
@@ -162,6 +176,53 @@ public class PetFeedingFormTest {
                 assertTrue("Enter on a pet card opens its feeding calculator", drawer.expanded());
             } finally { frame.dispose(); CharacterPetsGUI.clearPets(); }
         });
+    }
+
+    /**
+     * An empty gallery says one thing (spec §7, P3a finding 9): the context line names only the account and the capture state, the
+     * empty state carries the one guidance line (which depends on whether an account is known) at the top of the page, like the
+     * Exalts grid's, and the feeding calculator hides while there is no pet to feed.
+     */
+    @Test public void anEmptyGalleryHasOneGuidanceLineAtTheTopAndNoFeedingCalculator() throws Exception {
+        CharacterJournal journal = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"));
+        TomatoData data = new TomatoData() { @Override public CharacterJournal characterJournal() { return journal; } };
+        CharacterPetsGUI[] panel = new CharacterPetsGUI[1];
+        JFrame[] frame = new JFrame[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                panel[0] = new CharacterPetsGUI(data);
+                frame[0] = new JFrame();
+                frame[0].setContentPane(panel[0]);
+                frame[0].setSize(900, 700);
+                frame[0].setVisible(true);
+            });
+            await(() -> named(panel[0], "pet-empty", EmptyState.class).isVisible());
+            SwingUtilities.invokeAndWait(() -> {
+                EmptyState empty = named(panel[0], "pet-empty", EmptyState.class);
+                assertEquals("No account known yet", "Pets appear once capture has seen your account.", text(empty));
+                assertEquals("No account yet · Capture stopped", named(panel[0], "pet-capture-context", JTextArea.class).getText());
+                assertFalse(named(panel[0], "pets-feeding", Collapsible.class).isVisible());
+                frame[0].validate();
+                assertEquals("Top-aligned, not centred in the page", empty.getPreferredSize().height, empty.getHeight());
+            });
+            RealmCharacter wizard = new RealmCharacter();
+            wizard.charId = 7; wizard.classNum = 782; wizard.receivedAt = System.currentTimeMillis();
+            wizard.supplied("class", wizard.receivedAt, "Character list");
+            journal.mergeRoster(PetFixtures.ACCOUNT, List.of(wizard)); // an account is known; no pet was captured
+            await(() -> named(panel[0], "pet-capture-context", JTextArea.class).getText().startsWith("Account · "));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("Account · " + PetFixtures.ACCOUNT.substring(0, 6) + " · Capture stopped",
+                    named(panel[0], "pet-capture-context", JTextArea.class).getText());
+                EmptyState empty = named(panel[0], "pet-empty", EmptyState.class);
+                assertTrue(empty.isVisible());
+                assertEquals("Enter the Pet Yard to see your pets.", text(empty));
+                assertEquals("Enter the Pet Yard to see your pets.", empty.getAccessibleContext().getAccessibleDescription());
+                assertFalse(named(panel[0], "pets-feeding", Collapsible.class).isVisible());
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> { if (frame[0] != null) frame[0].dispose(); });
+            journal.close();
+        }
     }
 
     /** A fully fed ability (level at the captured maximum) needs nothing: its zeros are exact, never "≈ 0". */
