@@ -104,7 +104,8 @@ public class ExaltsGridTest {
      */
     @Test public void aLastPlayedBoostIsStaleWithItsSavedCountsAgeAndTheClassInGameIsKnown() throws Exception {
         try (CharacterJournal journal = journal(false)) {
-            long seen = journal.accounts().stream().filter(a -> FIRST.equals(a.key)).findFirst().get().exaltSeenByClass.get(WIZARD);
+            // The account's newest change of any class: the header's boost depends on every class sharing the weapon.
+            long seen = journal.accounts().stream().filter(a -> FIRST.equals(a.key)).findFirst().get().exaltSeen;
             ExaltsGrid lastPlayed = refreshed(journal);
             SwingUtilities.invokeAndWait(() -> {
                 DisplayValue value = named(lastPlayed, "tile-loot-boost", StatTile.class).value();

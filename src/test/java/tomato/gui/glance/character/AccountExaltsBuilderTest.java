@@ -99,17 +99,25 @@ public class AccountExaltsBuilderTest {
     }
 
     /** The header's boost comes from saved counts: the model carries when they last changed (the class's time, else the account's). */
+    /**
+     * The header's boost depends on every class that shares the weapon, so its age is when any of the account's saved counts last
+     * changed (exaltSeen, the newest change of any class); a class's own time only when the account's is unknown.
+     */
     @Test public void theHeaderCarriesWhenItsSavedCountsLastChanged() {
         List<CharacterRecord> records = List.of(record(FIRST, 7, WIZARD, NOW - 2 * HOUR, false));
-        assertEquals("The header class's own change time", NOW - HOUR, build(List.of(first()), records, FIRST, null).headerSeenAt());
-        assertEquals("In game too: the model carries the time, the grid decides how to label it", NOW - 3 * HOUR,
-            build(List.of(first()), records, FIRST, live(FIRST, 8, WARRIOR)).headerSeenAt());
+        AccountRecord account = first(); account.exaltSeen = NOW - HOUR / 2; // the newest change of any class (here none of the three)
+        assertEquals("The account's newest change, not the header class's own (the Wizard's, 1 h ago)", NOW - HOUR / 2,
+            build(List.of(account), records, FIRST, null).headerSeenAt());
+        assertEquals("In game too: the model carries the time, the grid decides how to label it", NOW - HOUR / 2,
+            build(List.of(account), records, FIRST, live(FIRST, 8, WARRIOR)).headerSeenAt());
         AccountRecord accountOnly = first(); accountOnly.exaltSeenByClass.clear(); accountOnly.exaltSeen = NOW - 4 * HOUR;
-        assertEquals("Without the class's time: when the account's counts last changed", NOW - 4 * HOUR,
-            build(List.of(accountOnly), records, FIRST, null).headerSeenAt());
+        assertEquals("Only the account's time known", NOW - 4 * HOUR, build(List.of(accountOnly), records, FIRST, null).headerSeenAt());
+        assertEquals("The account's time unknown (0): the header class's own change time", NOW - HOUR,
+            build(List.of(first()), records, FIRST, null).headerSeenAt());
+        assertEquals("…of the class in game", NOW - 3 * HOUR, build(List.of(first()), records, FIRST, live(FIRST, 8, WARRIOR)).headerSeenAt());
         AccountRecord never = first(); never.exaltSeenByClass.clear();
         assertEquals("Neither known: 0, unknown", 0, build(List.of(never), records, FIRST, null).headerSeenAt());
-        assertEquals("No header class: 0", 0, build(List.of(first()), List.of(), FIRST, null).headerSeenAt());
+        assertEquals("No header class: 0", 0, build(List.of(account), List.of(), FIRST, null).headerSeenAt());
         assertEquals(0, AccountExalts.EMPTY.headerSeenAt());
     }
 
