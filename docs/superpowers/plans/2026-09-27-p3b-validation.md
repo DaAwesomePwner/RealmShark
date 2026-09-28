@@ -33,6 +33,20 @@ The review sent fix rounds for three tasks; each landed as its own commit before
 - Task 6: `9fdddb8` — 35% for every class of a fully exalted account, and a warn banner (`character-exalts-failed`) instead
   of a silent failure when an Exalts build fails.
 
+After Task 10, two more rounds landed, each reviewed by the coordinator before its merge:
+
+- **Whole-branch review** (independent, read-only, of `04a61d4..1b3e19a`): no Critical or Important finding; five Minor
+  findings, all fixed test-first in `ba6a254`..`599b559` (merge `26732de`): the layout matrix checks the real Fame tab;
+  the Exalts header's last-played loot boost is labeled stale with the age of the saved counts; the Pets feeding
+  calculator marks its estimates "≈"; the Fame tab's history cache keeps only the requested (account, character) streams;
+  the Overview pet card stays neutral while the sheet loads.
+- **UI polish from the evidence review** (`3d4f688`..`0744e3c`, merge `91a8a89`), for the coordinator's and Task 10's
+  screenshot findings: Fame tiles stay whole at 680 px and font 18 ("session <age>", full date in the tooltip); pet cards
+  have a two-line footer; the empty Pets tab shows one message and no calculator; a goal card's state chip no longer
+  repeats its remaining line; the Goals tab scrolls with the sheet page alone (one scroll bar); Sheet › Pet colors
+  ability bars as progress (`StatBar.setProgressRole`), matching the gallery; a Home card's swapped-in body takes the
+  current font (the P2 late-font finding); the Exalts header ages its boost by the account's newest change.
+
 Each task's own focused runs (RED and GREEN) are in its implementer report and the coordinator's review notes; the table
 below records the wave totals measured on the integration branch.
 
@@ -66,8 +80,26 @@ JDK 17 and Gradle 7.6.4 on Linux under Xvfb (`LC_ALL=C.UTF-8`), isolated build d
 | Wave B merge (Tasks 5–7, integration `5db70c9`) | the union of the wave's focused commands | 107 test classes, 642 tests, 0 failures |
 | Wave C merge (Tasks 8–9, integration `1b3e19a`) | the union of the wave's focused commands | 115 test classes, 687 tests, 0 failures |
 | Evidence (Task 10) | `GRADLE test --tests "ui.CharactersEvidenceTest" --tests "ui.HomeEvidenceTest"` | 12 tests (9 + 3), 0 failures, 0 errors, 0 skipped; 23 P3b screenshots in `build/p3b-t10/ui-test/screenshots/redesign-p3b-characters/` (the 21 P3a captures regenerate in `redesign-p3a-characters/`). Classes that share `CharacterFixtures` (`RosterViewsTest`, `CharacterCardRendererTest`, `CharacterSheetTest`, `ShellHookIntegrationTest`, `tomato.gui.glance.home.*`): 15 classes, 129 tests, 0 failures. Findings under "Evidence" below |
-| Final full suite and JAR (Task 10, coordinator) | `GRADLE test shadowJar` | _to record_ (tests / failures / errors / skipped; new failures versus the baseline) |
-| JAR smoke (Task 10, coordinator) | isolated `java -jar … --help` from an empty folder | _to record_ (exit code) |
+| Final full suite and JAR (coordinator, source head `91a8a89`) | `GRADLE test shadowJar` | **1480 tests, 6 failures, 0 errors, 5 skipped**; `shadowJar` built `RealmShark-v1.2.3.jar`. Four failures are the baseline's Linux/Xvfb environment failures (Statistics archive details rectangle, Quest name-types focus, two Chat filter dialogs); the baseline's fifth (`PreferencesStoreTest`) passes with `LC_ALL=C.UTF-8`. Two are new versus the baseline, and both were investigated (below). |
+| JAR smoke (coordinator) | isolated `java -jar … --help` from an empty folder | exit 0; the folder held only the captured output afterwards |
+
+**The two failures new versus the baseline** (full run on `91a8a89`):
+
+- `HomeRefreshTimingTest.liveTicksKeepHomesEdtWorkWithinOneFrame`: one of 50 samples took 28.5 ms ("apply plus layout at
+  most 16 ms on every live tick"), while the same run's median was 0.37 ms and p95 1.2 ms. Rerun alone it passed 6 of 6 on
+  `91a8a89` and 6 of 6 on the pre-polish head `26732de`; three alternating head/base pairs gave maxima of 2.5/1.8, 2.1/1.6
+  and 1.8/2.8 ms (head/base), so no regression. The polish round's Home change refreshes fonts only when a part joins a card
+  (`Card.body` returns early for the body already shown), never per tick. Cause: a single pause-length stall under
+  full-suite load; the assertion checks every sample.
+- `ContentStyleTest.nestedBorderLayoutHeaderRecomputesGridHeightAfterWindowResize`: "Balanced columns at 500 expected 1
+  but was 2", i.e. the frame had not reached its new 500 px width when the assertion ran (Xvfb has no window manager, so
+  `setSize` completes asynchronously). The polish round's `responsiveGrid` overload computes the same columns as before
+  when `fitContent` is false, as here. Rerun alone it passed 3 of 3 on `91a8a89` and 3 of 3 on `26732de`. The polish
+  round's implementer also saw another method of this class fail intermittently in combined runs on commits before its
+  `ContentStyle` change.
+
+Neither is in P3b's scope to change; both are timing-sensitive under load on this Linux runner and passed on Windows in
+earlier phases. They are recorded, not skipped or weakened.
 
 ## Evidence
 
@@ -124,6 +156,10 @@ Findings (none fixed in Task 10, which changes no main code):
    messages (the context line and the empty state). Sheet › Pet colors ability bars below the maximum amber (the stat bar's
    "needs" color), while the gallery cards use the accent color. In every capture (P3a too) the test window's title bar
    covers the top of the page heading; this comes from printing the decorated test frame, not from the app.
+
+Findings 1, 2, 3 (the Home font) and the observations in 4 were fixed in the UI polish round (`91a8a89`); the coordinator
+re-checked its captures (Goals in Analyst with one scroll bar and no repeated "Complete", pet cards with both footer lines,
+Fame at 680 px font 18 whole). The title-bar overlap is a harness artifact and stays.
 
 ## Deferred scope
 
