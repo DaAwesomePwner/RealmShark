@@ -34,7 +34,7 @@ public final class VisualEvidence extends ExternalResource {
     @Override protected void after() {
         try {
             SwingUtilities.invokeAndWait(() -> {
-                if (frame != null) frame.dispose();
+                release();
                 ContentStyle.setBodyFont(previousFont);
                 try { UIManager.setLookAndFeel(previousTheme); }
                 catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
@@ -58,7 +58,7 @@ public final class VisualEvidence extends ExternalResource {
     /** Separate EDT turns also deliver pending width/document revalidation before measurement. */
     public void settle() throws Exception {
         assertFalse(SwingUtilities.isEventDispatchThread());
-        for (int pass = 0; pass < 3; pass++) SwingUtilities.invokeAndWait(() -> UiTestLayout.settle(frame));
+        for (int pass = 0; pass < 3; pass++) SwingUtilities.invokeAndWait(() -> { if (frame != null) UiTestLayout.settle(frame); });
     }
 
     public void capture(String name) {
@@ -79,7 +79,20 @@ public final class VisualEvidence extends ExternalResource {
 
     public void closeWindow() {
         assertTrue(SwingUtilities.isEventDispatchThread());
-        if (frame != null) frame.dispose();
+        release();
+    }
+
+    /**
+     * Disposes the frame and detaches its content. A disposed frame stays in {@code Window.getWindows()} until it is collected,
+     * and the next test's theme install updates the UI of every window: a button's mnemonic in the old content (a window-wide
+     * key binding) would then be registered again in Swing's static KeyboardManager under the disposed frame, which keeps the
+     * frame, its workspace and its capture data alive for the rest of the test run.
+     */
+    private void release() {
+        if (frame == null) return;
+        frame.dispose();
+        frame.setContentPane(new JPanel());
+        frame = null;
     }
 
     public static void reachable(JComponent component) {
