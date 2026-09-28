@@ -283,7 +283,8 @@ public final class RunsRouteTarget implements RouteTarget {
             Throwable cause = failure;
             while (cause.getCause() != null) cause = cause.getCause();
             String message = cause.getMessage() == null || cause.getMessage().isBlank() ? cause.getClass().getSimpleName() : cause.getMessage();
-            return "This run could not be read from saved history: " + message + ". Nothing else is shown in its place; open it again to retry.";
+            // Starts with the recap's failed-read title, which is how the recap tells a failed read from a run not in saved history.
+            return RunRecapView.FAILED_TITLE + " from saved history: " + message + ". Nothing else is shown in its place; open it again to retry.";
         }
 
         private void close() {
