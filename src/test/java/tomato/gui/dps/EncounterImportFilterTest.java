@@ -134,6 +134,68 @@ public class EncounterImportFilterTest {
         assertTrue(EncounterImport.allowed(byte[].class));
     }
 
+    /**
+     * The package rules admit classes no field reaches (and classes added later): every class of {@code packets.data},
+     * {@code packets.incoming} and {@code packets.outgoing} (and their subpackages) on the classpath that the filter admits and
+     * that is serializable must have no deserialization hook, so admitting it by package needs no further review.
+     */
+    @Test public void everyClassThePackageRulesAdmitHasNoDeserializationHook() throws Exception {
+        ClassLoader loader = EncounterImport.class.getClassLoader();
+        Set<String> names = new TreeSet<>();
+        for (String folder : List.of("packets/data", "packets/incoming", "packets/outgoing")) names.addAll(classNames(loader, folder));
+        assertTrue("A plausible scan: " + names.size() + " classes", names.size() > PacketType.values().length / 2);
+        assertTrue(names.contains(MapInfoPacket.class.getName()) && names.contains(StatData.class.getName())
+            && names.contains(StatType.class.getName()) && names.contains(EnemyHitPacket.class.getName()));
+        List<String> hooked = new ArrayList<>(), unloadable = new ArrayList<>();
+        int admitted = 0;
+        for (String name : names) {
+            Class<?> type;
+            try { type = Class.forName(name, false, loader); }
+            catch (ClassNotFoundException | LinkageError failure) { unloadable.add(name + " (" + failure + ")"); continue; }
+            if (!EncounterImport.allowed(type) || !Serializable.class.isAssignableFrom(type)) continue;
+            admitted++;
+            if (Externalizable.class.isAssignableFrom(type)) hooked.add(name + " implements Externalizable");
+            try {
+                for (Method method : type.getDeclaredMethods())
+                    if (List.of("readObject", "readObjectNoData", "readResolve", "readExternal").contains(method.getName()))
+                        hooked.add(name + " declares " + method.getName());
+            } catch (LinkageError failure) { unloadable.add(name + " (" + failure + ")"); }
+        }
+        assertEquals("Classes that could not be inspected", List.of(), unloadable);
+        assertEquals("Admitted by package but with a deserialization hook: review before allowing them in recordings", List.of(), hooked);
+        assertTrue("Packet classes are admitted and inspected: " + admitted, admitted > PacketType.values().length / 2);
+        System.out.println("Package scan: " + names.size() + " classes in packets.data, packets.incoming and packets.outgoing; "
+            + admitted + " admitted and serializable, none with a deserialization hook");
+    }
+
+    /** Binary names of every class under {@code folder} (a package path, with its subpackages) in the loader's directories and jars. */
+    private static Set<String> classNames(ClassLoader loader, String folder) throws Exception {
+        Set<String> names = new TreeSet<>();
+        for (java.net.URL url : Collections.list(loader.getResources(folder))) {
+            if ("file".equals(url.getProtocol())) {
+                Path root = Paths.get(url.toURI());
+                try (java.util.stream.Stream<Path> files = Files.walk(root)) {
+                    files.filter(file -> file.toString().endsWith(".class")).forEach(file -> {
+                        String relative = root.relativize(file).toString().replace(File.separatorChar, '/');
+                        names.add((folder + "/" + relative.substring(0, relative.length() - ".class".length())).replace('/', '.'));
+                    });
+                }
+            } else if ("jar".equals(url.getProtocol())) {
+                java.net.JarURLConnection connection = (java.net.JarURLConnection) url.openConnection();
+                connection.setUseCaches(false);
+                try (java.util.jar.JarFile jar = connection.getJarFile()) {
+                    for (java.util.jar.JarEntry entry : Collections.list(jar.entries())) {
+                        String name = entry.getName();
+                        if (name.startsWith(folder + "/") && name.endsWith(".class"))
+                            names.add(name.substring(0, name.length() - ".class".length()).replace('/', '.'));
+                    }
+                }
+            } else fail("Cannot list " + url.getProtocol() + " resources for " + folder);
+        }
+        names.removeIf(name -> name.endsWith("package-info") || name.endsWith("module-info"));
+        return names;
+    }
+
     @Test public void aForeignClassIsRejectedByNameBeforeAnyOfItsCodeRuns() throws Exception {
         Foreign.ran.set(false);
         DpsData data = realistic(2, 3, 5, false);
