@@ -183,10 +183,18 @@ public class EncounterIdentityTest {
         VisitRef entered = log.visitForMap(enter("Lost Halls", "decoded"));
         data.setUserId(21, 7, "AAAAAA=="); spawn(21);
         data.setTime(1_000); hit(21, 500, 300);
+        Entity player = data.player, enemy = data.entityList.get(500);
+        TomatoData.MyInfoIdentity identity = data.myInfoIdentity();
+        assertTrue(data.isCurrentMyInfoSnapshot(identity, player, null, TomatoData.PetAvailability.UNKNOWN));
         data.captureTerminated();
         assertEquals(1, data.dpsData.size());
         assertEquals(List.of(0), handOffHits);
         assertEquals("The live meter starts empty", 0, data.getEntityHitList().length);
+        assertSame("The live world stays: the local player", player, data.player);
+        assertSame("…the objects in view", enemy, data.entityList.get(500));
+        assertSame(player, data.playerList.get(21));
+        assertSame("My Info's source of the local player survives the stop", identity, data.myInfoIdentity());
+        assertTrue(data.isCurrentMyInfoSnapshot(identity, player, null, TomatoData.PetAvailability.UNKNOWN));
         data.captureTerminated();   // another stop, or the start-failure path: nothing is open
         enter("Nexus", "decoded");   // moving on with nothing recorded since the stop adds nothing
         assertEquals("Closed once", 1, data.dpsData.size());
@@ -202,10 +210,13 @@ public class EncounterIdentityTest {
         CombatAutosave autosave = savingHistory();
         VisitRef entered = log.visitForMap(enter("Lost Halls", "decoded"));
         data.setUserId(21, 7, "AAAAAA=="); spawn(21);
-        data.setTime(1_000); hit(21, 500, 300);
+        data.setTime(1_000); hit(21, 500, 300); incoming(21, 500, 40);
         data.captureTerminated();
-        // Capture restarts in the same area: objects already in view are not announced again.
-        data.setTime(2_000); hit(21, 500, 200);
+        // Capture restarts in the same area: objects already in view are not announced again, and need not be.
+        data.setTime(2_000); hit(21, 500, 200); incoming(21, 500, 15);
+        assertEquals("The closed recording is detached: hits after the restart never change it", 300,
+            CombatSummaries.build(data.dpsData.get(0)).record().totalDamage);
+        assertNotSame(data.entityList.get(500), data.dpsData.get(0).hitList.get(500));
         enter("Nexus", "decoded");
         assertEquals(2, data.dpsData.size());
         assertTrue(autosave.flush(10_000));
@@ -214,10 +225,12 @@ public class EncounterIdentityTest {
         CombatRecord first = saved.get(data.dpsData.get(0).getRecordingId()), second = saved.get(data.dpsData.get(1).getRecordingId());
         assertEquals(entered, first.visit());
         assertEquals("The first recording is frozen at the stop", 300, first.totalDamage);
-        assertEquals(300, CombatSummaries.build(data.dpsData.get(0)).record().totalDamage);
+        assertEquals(300, first.local().damage); assertEquals(Long.valueOf(40), first.local().taken);
         assertNull("The remainder is not linked to the visit", second.visit());
-        assertNull(second.localObjectId);
-        assertEquals(200, second.totalDamage);
+        assertEquals("A known player's hit on a known enemy is attributed without re-announcement", Integer.valueOf(21), second.localObjectId);
+        assertEquals(200, second.totalDamage); assertEquals(0, second.unattributedDamage);
+        assertEquals(200, second.local().damage);
+        assertEquals("Incoming damage restarts with the remainder", Long.valueOf(15), second.local().taken);
         assertNotEquals(first.recordingId, second.recordingId);
     }
 
@@ -248,6 +261,12 @@ public class EncounterIdentityTest {
     private void hit(int attacker, int enemy, int damage) {
         DamagePacket packet = new DamagePacket();
         packet.targetId = enemy; packet.objectId = attacker; packet.damageAmount = damage; packet.bulletId = 1;
+        data.damage(packet);
+    }
+    /** An enemy's hit on a player, as a DAMAGE packet reports it (no player attacker). */
+    private void incoming(int target, int enemy, int damage) {
+        DamagePacket packet = new DamagePacket();
+        packet.targetId = target; packet.objectId = enemy; packet.damageAmount = damage; packet.bulletId = 2;
         data.damage(packet);
     }
 

@@ -330,10 +330,12 @@ public class TomatoData {
     /**
      * Capture stop (see {@code CapturePublication.terminated}): runs on the producer once its loop has ended, so no packet is
      * dispatched meanwhile. Closes the open encounter like {@link #clear()}'s close half, with the context frozen at entry
-     * (captured before the reset), and hands it to the combat history. The area itself stays current (map, seed, tiles and
-     * the capture identity), but the closed graph leaves capture state, so anything captured after a restart here is a
-     * separate recording without a visit link. Nothing happens when no logged area is open, or when nothing was recorded
-     * since an earlier stop closed it (a second stop, or the start-failure path).
+     * (captured before the reset), and hands it to the combat history. Only the recording is detached: it is built from a
+     * deep copy of the hit graph (one identity map, as DpsSnapshot copies it, so it shares no entity, hit or projectile with
+     * capture), then the live objects forget their recorded damage. The world stays as it is (map, seed, tiles, the local
+     * player and every object, drop, loot bag and projectile in view), so after a restart here a known player's hit on a
+     * known enemy is attributed as before, in a separate recording without a visit link. Nothing happens when no logged area
+     * is open, or when nothing was recorded since an earlier stop closed it (a second stop, or the start-failure path).
      */
     public void captureTerminated() {
         if (map == null || !isLoggedDungeon(map.displayName) || nothingSinceStop()) return;
@@ -341,11 +343,25 @@ public class TomatoData {
         EncounterContext context = new EncounterContext(encounterVisit, localObjectId,
             encounterEnteredAt > 0 ? encounterEnteredAt : System.currentTimeMillis());
         encounterVisit = null; encounterEnteredAt = 0; encounterLocalId = null; encounterLocalConflict = false;
-        DpsData closed = new DpsData(map, entityHitList, deathNotifications, dungeonTime(), timePcFirst, dpsPacketLog, player, context);
+        IdentityHashMap<Entity, Entity> copies = new IdentityHashMap<>();
+        HashMap<Integer, Entity> hits = new HashMap<>();
+        entityHitList.forEach((id, entity) -> hits.put(id, entity == null ? null : entity.copyForDisplay(copies)));
+        Entity closedPlayer = player == null ? null : player.copyForDisplay(copies);
+        DpsData closed = new DpsData(map, hits, new ArrayList<>(deathNotifications), dungeonTime(), timePcFirst,
+            new ArrayList<>(dpsPacketLog), closedPlayer, context);
         dpsData.add(closed);
         DpsGUI.updateLabel();
         dungeonTimeBeforeStop += Math.max(0, dungeonTime());
-        resetEncounterGraph();
+        // The remainder starts from nothing: no hits, deaths or packets, a new tick window, no recorded damage on live objects.
+        entityHitList = new HashMap<>();
+        deathNotifications = new ArrayList<>();
+        dpsPacketLog = new ArrayList<>();
+        timePc = -1;
+        timePcFirst = -1;
+        Set<Entity> live = Collections.newSetFromMap(new IdentityHashMap<>());
+        live.addAll(entityList.values()); live.addAll(playerList.values()); live.addAll(copies.keySet());
+        if (player != null) live.add(player);
+        for (Entity entity : live) if (entity != null) entity.clearRecordedDamage();
         closedAtStop = true;
         DpsGUI.updateMapPacket(this);   // the library lists it now, and the live meter starts empty
         closedEncounter = closed;
