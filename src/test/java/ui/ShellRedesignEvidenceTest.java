@@ -13,6 +13,7 @@ import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.notifications.NotificationsGUI;
 import tomato.gui.settings.AppearanceSection;
+import tomato.gui.settings.GeneralSection;
 import tomato.gui.settings.SettingsPage;
 import static org.junit.Assert.*;
 import static ui.VisualEvidence.completeButton;
@@ -37,7 +38,7 @@ public class ShellRedesignEvidenceTest {
                     SettingsPage[] settings = new SettingsPage[1];
                     SwingUtilities.invokeAndWait(() -> {
                         Themes.install(new Themes.Choice(variant, false));
-                        settings[0] = new SettingsPage(new NotificationsGUI(), () -> {}, new AppearanceSection(() -> {}));
+                        settings[0] = new SettingsPage(new NotificationsGUI(), () -> {}, new GeneralSection(), new AppearanceSection(() -> {}));
                         shell[0] = fixture(settings[0]);
                         evidence.show(shell[0], "Redesigned shell", size[0], size[1], font);
                     });
@@ -117,7 +118,7 @@ public class ShellRedesignEvidenceTest {
     }
 
     private static void assertSettingsAreWhole(WorkspaceShell shell) {
-        for (String name : new String[] {"settings-section-notifications", "settings-section-appearance", "settings-theme-0", "settings-theme-1",
+        for (String name : new String[] {"settings-section-notifications", "settings-section-general", "settings-section-appearance", "settings-theme-0", "settings-theme-1",
                 "settings-increase-contrast", "settings-reduce-motion", "settings-display-mode-0", "settings-display-mode-1"})
             completeButton(named(shell, name, AbstractButton.class));
     }

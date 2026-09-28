@@ -38,6 +38,7 @@ import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.kit.Sprites;
 import tomato.gui.settings.AppearanceSection;
+import tomato.gui.settings.GeneralSection;
 import tomato.gui.settings.SettingsPage;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.route.ArchiveRouteTarget;
@@ -110,8 +111,9 @@ public class TomatoGUI {
 
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
-        // Settings (page 13) hosts the existing Notifications page unchanged, beside Appearance.
-        settings = new SettingsPage(notifications, () -> notifications.selectSection(null), new AppearanceSection(TomatoGUI::refreshContentFonts));
+        // Settings (page 13) hosts the existing Notifications page unchanged, beside General and Appearance.
+        settings = new SettingsPage(notifications, () -> notifications.selectSection(null), new GeneralSection(),
+            new AppearanceSection(TomatoGUI::refreshContentFonts));
 
         SessionStore store = AppHistory.store();
         ViewStateStore states = ViewStateStore.application();
@@ -463,6 +465,8 @@ public class TomatoGUI {
             "Local typed alert rules; changes require Save in the editor", TomatoGUI::openEnchantPing);
         registerSearch("appearance.settings", "Appearance settings", "appearance theme dark light contrast motion simple analyst mode",
             "Settings > Appearance", "App-folder realmShark.properties", () -> openSettings(SettingsPage.APPEARANCE));
+        registerSearch("combat.settings", "Combat history (auto-save and full detail)", "combat dps encounter auto save full detail retention storage",
+            "Settings › General", "App-folder realmShark.properties", () -> openSettings(SettingsPage.GENERAL));
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
             "Bridge settings and journal use their configured local paths", () -> shell.select(12));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
