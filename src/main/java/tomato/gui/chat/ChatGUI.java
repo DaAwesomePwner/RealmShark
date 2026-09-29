@@ -150,6 +150,9 @@ public class ChatGUI extends JPanel {
         }
     }
 
+    /** Settings › Chat (P6a): the Chat filters… editor over this chat's live rules, for embedding in a page. EDT. */
+    public JComponent filtersEditor() { return explorer.filtersEditor(); }
+
     /** Compatibility entry point for application notices. Notices appear in All and System. */
     public static void appendTextAreaChat(String text) {
         ChatGUI current = instance;

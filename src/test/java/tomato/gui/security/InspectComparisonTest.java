@@ -107,7 +107,7 @@ public class InspectComparisonTest {
             store.put("runs", "journal:2", run("journal:2", 782, 2_222, 80_000, 90_000, 1, false)); store.flush();
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> inspect =
                 edt(() -> SecurityGUI.workspace(store, new JLabel("Live Inspect"), scratch, ViewStateStore.preferences(preferences)));
-            int[] page = {0};
+            String[] page = {"chat"};
             try {
                 ShellNavigator navigator = edt(() -> {
                     ShellNavigator created = new ShellNavigator(() -> page[0], value -> page[0] = value, WorkspaceShell::pageOf, 20);
@@ -115,7 +115,7 @@ public class InspectComparisonTest {
                 });
                 VisitRef ref = new VisitRef(store.currentId(), "journal:2");
                 assertTrue(edt(() -> navigator.open(Route.to(Destination.INSPECT).withVisit(ref))));
-                assertEquals(2, page[0]);
+                assertEquals("party", page[0]);
                 await(() -> !inspect.loading() && inspect.displayedPage() != null && named(inspect, ParsePanelGUI.class, null) != null);
                 ParsePanelGUI saved = edt(() -> named(inspect, ParsePanelGUI.class, null));
                 edt(() -> {

@@ -3,8 +3,11 @@ package tomato.gui.modern;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -24,25 +27,32 @@ import util.PropertiesManager;
 public final class WorkspaceShell extends JPanel {
     /** Back label when the routed origin is the page already shown. */
     public static final String BACK_TO_PREVIOUS_VIEW = "Back to previous view";
-    /** Titles by page index. Pages keep their indices until P6; NavEntry carries the stable IDs and grouping. */
-    public static final String[] TITLES = NavEntry.titles();
     /** Settings sits below the scrolling destination list, so it is always in reach. */
-    private static final int SETTINGS = NavEntry.forId("settings").page();
+    private static final String SETTINGS = "settings";
+    /** Shells open on Chat; the app then shows the landing page ({@link #selectLanding}). */
+    private static final String INITIAL = "chat";
     private final NavLayout layout;
     private final DisplayModeModel mode;
     private final Sidebar sidebar = new Sidebar();
     private final JPanel workspace = new JPanel(new BorderLayout(0, 8));
     private final JPanel branding = new JPanel(new CardLayout());
     private final JPanel nav = new JPanel(new GridBagLayout());
-    private final JScrollPane navScroll = new JScrollPane(nav);
+    /**
+     * The destination list (and the compact rail) has no box. The look and feel reinstalls a scroll pane border on every UI update, and a
+     * live theme switch updates this child after the shell's own {@link #refreshTheme}, so the list clears it again after each update.
+     */
+    private final JScrollPane navScroll = new JScrollPane(nav) {
+        @Override public void updateUI() { super.updateUI(); setBorder(null); }
+    };
     private final Component navGlue = Box.createVerticalGlue();
     private final JButton advancedToggle = new JButton();
     private final JPanel settingsRow = new JPanel(new BorderLayout());
     private final JPanel sideBottom = new JPanel(new BorderLayout());
     private final JPanel cards = ContentStyle.card(new CardLayout());
-    private final JComponent[] pages;
-    private final JToggleButton[] navigation = new JToggleButton[TITLES.length];
-    private final JRadioButtonMenuItem[] destinations = new JRadioButtonMenuItem[TITLES.length];
+    // Pages, sidebar rows and compact-menu items by destination ID, in NavEntry order.
+    private final Map<String, JComponent> pages = new LinkedHashMap<>();
+    private final Map<String, JToggleButton> navigation = new LinkedHashMap<>();
+    private final Map<String, JRadioButtonMenuItem> destinations = new LinkedHashMap<>();
     private final JButton compactNavigation = new JButton(new NavigationMenuIcon()) {
         @Override public Dimension getPreferredSize() {
             Dimension size = super.getPreferredSize();
@@ -74,34 +84,39 @@ public final class WorkspaceShell extends JPanel {
         browseHistory = KitButton.ghost("Browse saved history");
     private boolean assetsReady = true, setupBusy, captureRunning, captureFailed, preview;
     private CaptureState readiness = CaptureState.STOPPED;
-    private int selected;
+    private String selected = INITIAL;
     private JToggleButton scrollAnchor;
     private boolean scrollPending;
 
-    public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview) {
+    public WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview) {
         this(panels, toggleCapture, preview, null, null, null);
     }
 
-    public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview,
+    public WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview,
                           Runnable choose, Runnable retry, Runnable browse) {
         this(panels, toggleCapture, preview, choose, retry, browse, new NavLayout());
     }
 
     /** As above, with the sidebar arrangement read from and saved to {@code layout}; tests pass an in-memory one. */
-    public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview,
+    public WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview,
                           Runnable choose, Runnable retry, Runnable browse, NavLayout layout) {
         this(panels, toggleCapture, preview, choose, retry, browse, layout, DisplayModeModel.application());
     }
 
-    /** The full form: tests pass in-memory layout and display-mode models so they never touch saved preferences. */
-    public WorkspaceShell(JComponent[] panels, Runnable toggleCapture, boolean preview,
+    /**
+     * The full form: tests pass in-memory layout and display-mode models so they never touch saved preferences. {@code panels}
+     * holds one page per {@link NavEntry} ID, no more and no fewer.
+     */
+    public WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview,
                           Runnable choose, Runnable retry, Runnable browse, NavLayout layout, DisplayModeModel mode) {
         super(new BorderLayout());
         this.preview = preview;
         this.layout = Objects.requireNonNull(layout, "layout");
         this.mode = Objects.requireNonNull(mode, "mode");
-        if (panels.length != TITLES.length) throw new IllegalArgumentException("All feature panels are required");
-        pages = panels.clone();
+        Set<String> ids = new LinkedHashSet<>();
+        for (NavEntry entry : NavEntry.defaults()) ids.add(entry.id());
+        if (!panels.keySet().equals(ids)) throw new IllegalArgumentException("All feature panels are required");
+        for (String id : ids) pages.put(id, panels.get(id));
         sidebar.setPreferredSize(new Dimension(188, 0));
         JPanel brandRow = new JPanel(new BorderLayout(8, 0)); brandRow.setOpaque(false);
         brand.setFont(ContentStyle.emphasis(ContentStyle.body().deriveFont(ContentStyle.body().getSize2D() * 17f / ContentStyle.FONT_SIZE)));
@@ -129,18 +144,19 @@ public final class WorkspaceShell extends JPanel {
         popupAdvanced.setBorder(new EmptyBorder(4, 10, 2, 10));
         ContentStyle.font(popupAdvanced, Type.caption());
         ButtonGroup group = new ButtonGroup(), menuGroup = new ButtonGroup();
-        for (int i = 0; i < panels.length; i++) {
-            final int index = i;
-            NavEntry entry = NavEntry.forPage(i);
-            JToggleButton button = new NavigationButton(TITLES[i], new LineIcon(entry.icon()));
+        // CardLayout leaves its first card showing; the initial page goes first, so no other page is shown and hidden before it.
+        cards.add(pages.get(INITIAL), INITIAL);
+        for (NavEntry entry : NavEntry.defaults()) {
+            final String id = entry.id();
+            JToggleButton button = new NavigationButton(entry.title(), new LineIcon(entry.icon()));
             button.setFont(ContentStyle.body());
-            button.setName("nav-" + i); button.setToolTipText(TITLES[i] + "  (" + shortcutHint(i) + ")");
-            button.getAccessibleContext().setAccessibleName(TITLES[i]);
+            button.setName("nav-" + id); button.setToolTipText(entry.title() + shortcutHint(entry));
+            button.getAccessibleContext().setAccessibleName(entry.title());
             button.setHorizontalAlignment(SwingConstants.LEFT); button.setIconTextGap(8);
             // FlatLaf paints keyboard focus in its border, even with explicit navigation colors.
             button.setMargin(new Insets(2, 6, 2, 6)); button.setFocusPainted(true);
             button.putClientProperty("JComponent.minimumWidth", 0);
-            button.addActionListener(e -> select(index));
+            button.addActionListener(e -> select(id));
             button.addFocusListener(new FocusAdapter() {
                 @Override public void focusGained(FocusEvent e) {
                     scrollAnchor = button;
@@ -149,28 +165,29 @@ public final class WorkspaceShell extends JPanel {
             });
             // Right-click, Shift+F10 or the context-menu key opens the row's menu; Ctrl+Shift+Up/Down moves it.
             button.addMouseListener(new MouseAdapter() {
-                @Override public void mousePressed(MouseEvent e) { if (e.isPopupTrigger()) showContextMenu(index, e.getPoint()); }
-                @Override public void mouseReleased(MouseEvent e) { if (e.isPopupTrigger()) showContextMenu(index, e.getPoint()); }
+                @Override public void mousePressed(MouseEvent e) { if (e.isPopupTrigger()) showContextMenu(id, e.getPoint()); }
+                @Override public void mouseReleased(MouseEvent e) { if (e.isPopupTrigger()) showContextMenu(id, e.getPoint()); }
             });
             InputMap keys = button.getInputMap(WHEN_FOCUSED);
             keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK), "nav-menu");
             keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_CONTEXT_MENU, 0), "nav-menu");
             keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "nav-move-up");
             keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "nav-move-down");
-            button.getActionMap().put("nav-menu", action(() -> showContextMenu(index, null)));
-            button.getActionMap().put("nav-move-up", action(() -> moveEntry(index, -1)));
-            button.getActionMap().put("nav-move-down", action(() -> moveEntry(index, 1)));
-            navigation[i] = button; group.add(button);
+            button.getActionMap().put("nav-menu", action(() -> showContextMenu(id, null)));
+            button.getActionMap().put("nav-move-up", action(() -> moveEntry(id, -1)));
+            button.getActionMap().put("nav-move-down", action(() -> moveEntry(id, 1)));
+            navigation.put(id, button); group.add(button);
             // applyLayout places the rows in the user's order; Settings stays below the scrolling list.
-            if (i == SETTINGS) settingsRow.add(button); else nav.add(button);
-            cards.add(panels[i], Integer.toString(i));
-            KeyStroke shortcut = KeyStroke.getKeyStroke(shortcutKey(i), InputEvent.ALT_DOWN_MASK);
-            getInputMap(WHEN_IN_FOCUSED_WINDOW).put(shortcut, "page-" + i);
-            getActionMap().put("page-" + i, new AbstractAction() { public void actionPerformed(ActionEvent e) { select(index); focusPage(index); }});
-            JRadioButtonMenuItem destination = new JRadioButtonMenuItem(TITLES[i], button.getIcon());
-            destination.setName("compact-nav-" + i); destination.setAccelerator(shortcut);
-            destination.addActionListener(e -> { select(index); focusPage(index); });
-            destinations[i] = destination; menuGroup.add(destination); // rebuildPopup adds it in sidebar order
+            if (id.equals(SETTINGS)) settingsRow.add(button); else nav.add(button);
+            if (!id.equals(INITIAL)) cards.add(pages.get(id), id);
+            // The Alt key comes from the NavEntry, so it follows the ID; bindShortcut may give the key another action.
+            KeyStroke shortcut = entry.shortcut() == 0 ? null : KeyStroke.getKeyStroke(entry.shortcut(), InputEvent.ALT_DOWN_MASK);
+            if (shortcut != null) getInputMap(WHEN_IN_FOCUSED_WINDOW).put(shortcut, "page-" + id);
+            getActionMap().put("page-" + id, action(() -> { select(id); focusPage(id); }));
+            JRadioButtonMenuItem destination = new JRadioButtonMenuItem(entry.title(), button.getIcon());
+            destination.setName("compact-nav-" + id); destination.setAccelerator(shortcut);
+            destination.addActionListener(e -> { select(id); focusPage(id); });
+            destinations.put(id, destination); menuGroup.add(destination); // rebuildPopup adds it in sidebar order
         }
         advancedToggle.setName("nav-advanced");
         advancedToggle.setHorizontalAlignment(SwingConstants.LEFT); advancedToggle.setIconTextGap(6);
@@ -231,6 +248,8 @@ public final class WorkspaceShell extends JPanel {
         setupMessage.setName("capture-setup-message");
         setupMessage.getAccessibleContext().setAccessibleName("Capture readiness and asset setup");
         JScrollPane setupScroll = new JScrollPane(setupMessage) {
+            // Borderless after a live theme switch too, as the destination list.
+            @Override public void updateUI() { super.updateUI(); setBorder(null); }
             @Override public Dimension getPreferredSize() {
                 Dimension size = super.getPreferredSize();
                 size.height = Math.min(size.height, setupMessage.getFontMetrics(setupMessage.getFont()).getHeight() * 3 + 8);
@@ -286,14 +305,14 @@ public final class WorkspaceShell extends JPanel {
         // Alt+N keeps its page; Alt+, is the conventional settings shortcut (spec §4.1).
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, InputEvent.ALT_DOWN_MASK), "open-settings");
         getActionMap().put("open-settings", new AbstractAction() {
-            @Override public void actionPerformed(ActionEvent e) { select(SETTINGS); navigation[SETTINGS].requestFocusInWindow(); }
+            @Override public void actionPerformed(ActionEvent e) { select(SETTINGS); navigation.get(SETTINGS).requestFocusInWindow(); }
         });
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "toggle-display-mode");
         getActionMap().put("toggle-display-mode", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { mode.toggle(); }
         });
         refreshTheme();
-        select(0);
+        select(INITIAL);
     }
 
     @Override public void updateUI() {
@@ -346,13 +365,14 @@ public final class WorkspaceShell extends JPanel {
         // KitButton styles the primary action; the fill is also set directly so it holds before the style is reapplied.
         capture.setBackground(Tokens.color(Tokens.Role.PRIMARY));
         styleAdvancedToggle();
-        for (int i = 0; i < navigation.length; i++) if (navigation[i] != null) styleNavigation(i);
+        for (String id : navigation.keySet()) styleNavigation(id);
     }
 
-    private void styleNavigation(int index) {
-        boolean current = index == selected;
-        navigation[index].setForeground(Tokens.color(current ? Tokens.Role.SELECTION_TEXT : Tokens.Role.TEXT));
-        navigation[index].setBackground(Tokens.color(current ? Tokens.Role.SELECTION : Tokens.Role.NAV));
+    private void styleNavigation(String id) {
+        boolean current = id.equals(selected);
+        JToggleButton row = navigation.get(id);
+        row.setForeground(Tokens.color(current ? Tokens.Role.SELECTION_TEXT : Tokens.Role.TEXT));
+        row.setBackground(Tokens.color(current ? Tokens.Role.SELECTION : Tokens.Role.NAV));
         // Hover and pressed live in the style map, so the background stays the destination's own color.
         Map<String, Object> style = new HashMap<>();
         style.put("selectedBackground", Tokens.color(Tokens.Role.SELECTION));
@@ -364,7 +384,7 @@ public final class WorkspaceShell extends JPanel {
         Color rest = Tokens.color(current ? Tokens.Role.SELECTION : Tokens.Role.NAV);
         style.put("borderColor", rest);
         style.put("disabledBorderColor", rest);
-        navigation[index].putClientProperty("FlatLaf.style", style);
+        row.putClientProperty("FlatLaf.style", style);
     }
 
     /** The Advanced header reads as a quiet group label, with the rows' hover and focus treatment. */
@@ -389,8 +409,8 @@ public final class WorkspaceShell extends JPanel {
      * Actions for one destination: reorder, hide or unpin core rows, pin Advanced rows, restore hidden rows
      * and reset. Items that cannot apply stay visible but disabled, so the reason is discoverable.
      */
-    JPopupMenu contextMenu(int page) {
-        NavEntry entry = NavEntry.forPage(page);
+    JPopupMenu contextMenu(String page) {
+        NavEntry entry = entry(page);
         String id = entry.id();
         JPopupMenu menu = new JPopupMenu(entry.title());
         menu.setName("nav-menu");
@@ -403,7 +423,7 @@ public final class WorkspaceShell extends JPanel {
         } else if (entry.group() == NavEntry.Group.ADVANCED) {
             menu.add(menuItem("nav-menu-pin", "Pin to top", true, () -> change(() -> layout.pin(id), page)));
         }
-        // Settings is always listed and unlisted pages (Build, Statistics, DPS Logger) have no row, so only core and Advanced rows hide.
+        // Settings is always listed, so only core and Advanced rows hide.
         if (entry.group() == NavEntry.Group.CORE || entry.group() == NavEntry.Group.ADVANCED) {
             if (layout.isHidden(id)) menu.add(menuItem("nav-menu-show", "Show in sidebar", true, () -> change(() -> layout.show(id), page)));
             else menu.add(menuItem("nav-menu-hide", "Hide", layout.canHide(id), () -> change(() -> layout.hide(id), page)));
@@ -413,8 +433,8 @@ public final class WorkspaceShell extends JPanel {
         hidden.setName("nav-menu-show-hidden");
         for (NavEntry item : layout.hidden()) {
             JMenuItem restore = new JMenuItem(item.title(), new LineIcon(item.icon(), 16));
-            restore.setName("nav-menu-show-" + item.page());
-            restore.addActionListener(e -> change(() -> layout.show(item.id()), item.page()));
+            restore.setName("nav-menu-show-" + item.id());
+            restore.addActionListener(e -> change(() -> layout.show(item.id()), item.id()));
             hidden.add(restore);
         }
         hidden.setEnabled(hidden.getItemCount() > 0);
@@ -423,9 +443,9 @@ public final class WorkspaceShell extends JPanel {
         return menu;
     }
 
-    private void showContextMenu(int page, Point at) {
-        JToggleButton button = navigation[page];
-        if (!button.isShowing() || NavEntry.forPage(page).group() == NavEntry.Group.UNLISTED) return;
+    private void showContextMenu(String page, Point at) {
+        JToggleButton button = navigation.get(page);
+        if (!button.isShowing()) return;
         JPopupMenu menu = contextMenu(page);
         Point where = at != null ? at : new Point(0, button.getHeight());
         menu.show(button, where.x, where.y);
@@ -437,20 +457,20 @@ public final class WorkspaceShell extends JPanel {
             }
     }
 
-    private void moveEntry(int page, int delta) {
-        change(() -> layout.move(NavEntry.forPage(page).id(), delta), page);
+    private void moveEntry(String page, int delta) {
+        change(() -> layout.move(entry(page).id(), delta), page);
     }
 
     /**
      * Applies a saved-layout change, then re-lays the rows and keeps focus on the row the user acted on. When that row is
      * hidden now (Hide), focus goes where page navigation puts it ({@link #focusPage}); a hidden row never anchors scrolling.
      */
-    private void change(BooleanSupplier operation, int focus) {
+    private void change(BooleanSupplier operation, String focus) {
         if (!operation.getAsBoolean()) return;
         applyLayout();
-        JToggleButton row = navigation[focus];
+        JToggleButton row = navigation.get(focus), current = navigation.get(selected);
         if (row.isVisible()) { scrollAnchor = row; row.requestFocusInWindow(); }
-        else { scrollAnchor = navigation[selected].isVisible() ? navigation[selected] : null; focusPage(selected); }
+        else { scrollAnchor = current.isVisible() ? current : null; focusPage(selected); }
         scrollSelectedLater();
     }
 
@@ -470,21 +490,12 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void showNavigation() {
-        // Unlisted pages (Build, Statistics, DPS Logger) have no row or menu item, so while one is current the menu opens at the top
-        // of the destination list.
-        Component row = navigation[selected];
+        // Every destination has a menu item, and the current page's shows even while hidden or collapsed, so keyboard selection
+        // starts on it.
+        Component row = navigation.get(selected);
         Component anchor = compact ? compactNavigation : row.isShowing() ? row : navScroll;
         navigationPopup.show(anchor, 0, anchor == navScroll ? 0 : anchor.getHeight());
-        MenuElement start = destinations[selected].getParent() == navigationPopup && destinations[selected].isVisible()
-            ? destinations[selected] : firstListedDestination();
-        if (start != null) MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, start});
-    }
-
-    /** The first destination the compact menu shows; keyboard selection starts there when the current page is unlisted. */
-    private MenuElement firstListedDestination() {
-        for (Component item : navigationPopup.getComponents())
-            if (item instanceof JRadioButtonMenuItem && item.isVisible()) return (MenuElement) item;
-        return null;
+        MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, destinations.get(selected)});
     }
 
     /**
@@ -701,53 +712,66 @@ public final class WorkspaceShell extends JPanel {
         }
     }
 
-    public void select(int index) {
-        if (index < 0 || index >= navigation.length) throw new IllegalArgumentException("Invalid page");
-        selected = index; ((CardLayout) cards.getLayout()).show(cards, Integer.toString(index));
-        scrollAnchor = navigation[index];
-        NavEntry entry = NavEntry.forPage(index);
+    /** Shows the page with this {@link NavEntry} ID; an ID this shell does not have is rejected without any change. */
+    public void select(String id) {
+        NavEntry entry = entry(id);
+        selected = id; ((CardLayout) cards.getLayout()).show(cards, id);
+        scrollAnchor = navigation.get(id);
         title.setText(entry.title());
         // The description lives in the title's tooltip, so the header keeps a single line (spec §4.3).
         title.setToolTipText(entry.description());
         title.getAccessibleContext().setAccessibleDescription(entry.description());
-        for (int i = 0; i < navigation.length; i++) {
-            navigation[i].setSelected(i == index);
-            destinations[i].setSelected(i == index);
-            styleNavigation(i);
+        for (String page : navigation.keySet()) {
+            navigation.get(page).setSelected(page.equals(id));
+            destinations.get(page).setSelected(page.equals(id));
+            styleNavigation(page);
         }
         applyLayout(); // A hidden or collapsed destination shows while it is the current page.
         scrollSelected(); scrollSelectedLater();
         if (navigator != null) refreshBack(); // The label depends on whether Back returns to this page.
     }
-    public int getSelectedPage() { return selected; }
+    /** The {@link NavEntry} ID of the page shown. */
+    public String selectedPage() { return selected; }
 
     /** Shows the first visible core destination in the user's order; the app calls this once after startup wiring. */
-    public void selectLanding() { select(layout.landing().page()); }
+    public void selectLanding() { select(layout.landing().id()); }
 
-    /** Shell page for a routed destination, or {@link ShellNavigator#NO_PAGE} for dialog destinations. */
-    public static int pageOf(Destination destination) {
+    /** The page ({@link NavEntry} ID) of a routed destination, or {@link ShellNavigator#NO_PAGE} for dialog destinations. */
+    public static String pageOf(Destination destination) {
         switch (destination) {
-            case INSPECT: return 2;
-            case CHARACTERS: case CHARACTER_SHEET: return 3; // The sheet is a card on the Characters Roster tab.
-            case STATISTICS: return 4;
-            case QUESTS: return 5;
-            case MY_INFO: return 6;
-            // The live meter (with Resources & buffs nested in it) is the Live meter tab of Runs & DPS; page 7 only points there.
-            case ENCOUNTER: case RESOURCES: return 10;
-            case LOOT: return 8;
-            case LOGGING: return 9;
-            case RUNS: case RUN_RECAP: return 10; // The recap is a card on the Runs page, the Feed tab of Runs & DPS.
-            case TIMELINE: return 11;
-            case BRIDGE_REVIEW: return 12;
-            case NOTIFICATIONS: return 13;
-            case HOME: return 14;
+            case INSPECT: return "party";
+            case CHARACTERS: case CHARACTER_SHEET: return "characters"; // The sheet is a card on the Characters Roster tab.
+            case QUESTS: return "quests";
+            // Build is a tab of the character sheet: BuildRoute redirects to the sheet, or with no character to the Characters
+            // list, so a Build route always lands on Characters, and every routed destination keeps a real page.
+            case MY_INFO: return "characters";
+            // The live meter (with Resources & buffs nested in it) is the Live meter tab of Runs & DPS.
+            case ENCOUNTER: case RESOURCES: return "runs";
+            case LOOT: return "loot";
+            case LOGGING: return "logging";
+            case RUNS: case RUN_RECAP: return "runs"; // The recap is a card on the Runs page, the Feed tab of Runs & DPS.
+            case TIMELINE: return "timeline";
+            case BRIDGE_REVIEW: return "bridge-review";
+            case NOTIFICATIONS: return "settings";
+            case HOME: return "home";
             default: return ShellNavigator.NO_PAGE; // ALERT_DRAFT opens beside the current page.
         }
     }
 
+    /**
+     * Binds Alt+{@code keyCode}, anywhere in this shell's focused window, to {@code action} under {@code actionName}. A page's own
+     * Alt key, or an earlier binding, for that key is replaced; this is for keys that open a route rather than a page.
+     */
+    public void bindShortcut(int keyCode, String actionName, Runnable action) {
+        if (keyCode <= 0) throw new IllegalArgumentException("A shortcut needs a key: " + keyCode);
+        Objects.requireNonNull(actionName, "actionName"); Objects.requireNonNull(action, "action");
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(keyCode, InputEvent.ALT_DOWN_MASK), actionName);
+        getActionMap().put(actionName, action(action));
+    }
+
     /** Creates this shell's navigator; the caller installs it with {@code Navigator.install}. */
     public ShellNavigator createNavigator() {
-        ShellNavigator created = new ShellNavigator(this::getSelectedPage, this::select, WorkspaceShell::pageOf, ShellNavigator.DEFAULT_CAPACITY);
+        ShellNavigator created = new ShellNavigator(this::selectedPage, this::select, WorkspaceShell::pageOf, ShellNavigator.DEFAULT_CAPACITY);
         navigator = created;
         created.addChangeListener(this::refreshBack);
         refreshBack();
@@ -757,10 +781,11 @@ public final class WorkspaceShell extends JPanel {
     /** Visible only while a routed origin can be restored; Alt+Left works whenever it is shown. */
     private void refreshBack() {
         boolean available = navigator != null && navigator.canGoBack();
-        int page = available ? navigator.backPage() : -1;
+        String page = available ? navigator.backPage() : ShellNavigator.NO_PAGE;
+        NavEntry origin = page == null ? null : NavEntry.forId(page);
         // A route within the current page (for example Runs to a filtered Runs view) returns to that page's earlier
         // view; naming the page the user is already on would read as a no-op.
-        String label = page == selected ? BACK_TO_PREVIOUS_VIEW : page >= 0 && page < TITLES.length ? "Back to " + TITLES[page] : "Back";
+        String label = page != null && page.equals(selected) ? BACK_TO_PREVIOUS_VIEW : origin != null ? "Back to " + origin.title() : "Back";
         back.setText(label); back.getAccessibleContext().setAccessibleName(label);
         back.setToolTipText("Return to the view you came from, with its filters and selection (Alt+Left)");
         if (back.isVisible() != available) { back.setVisible(available); revalidate(); repaint(); }
@@ -773,19 +798,26 @@ public final class WorkspaceShell extends JPanel {
     }
 
     /** Keyboard focus for the page just shown ({@link #focusTarget}). */
-    private void focusPage(int page) { focusTarget(page).requestFocusInWindow(); }
+    private void focusPage(String page) { focusTarget(page).requestFocusInWindow(); }
 
     /**
-     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (an unlisted page such
-     * as Build, Statistics or DPS Logger, or a hidden row) the page's first focusable component in traversal order, else the page
-     * container.
+     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (a hidden row) the page's
+     * first focusable component in traversal order, else the page container.
      */
-    Component focusTarget(int page) {
-        if (NavEntry.forPage(page).group() != NavEntry.Group.UNLISTED && navigation[page].isVisible()) return navigation[page];
+    Component focusTarget(String page) {
+        JToggleButton row = navigation.get(entry(page).id()); // an ID with no page is an IllegalArgumentException
+        if (row.isVisible()) return row;
         Container root = cards.getFocusCycleRootAncestor();
         FocusTraversalPolicy policy = root == null ? null : root.getFocusTraversalPolicy();
-        Component first = policy == null ? null : policy.getFirstComponent(pages[page]);
+        Component first = policy == null ? null : policy.getFirstComponent(pages.get(page));
         return first != null ? first : cards;
+    }
+
+    /** The destination {@code id}; an ID this shell has no page for is an {@code IllegalArgumentException}. */
+    private NavEntry entry(String id) {
+        NavEntry entry = id == null || !pages.containsKey(id) ? null : NavEntry.forId(id);
+        if (entry == null) throw new IllegalArgumentException("Invalid page");
+        return entry;
     }
     public boolean isCompact() { return compact; }
     public void setCaptureState(boolean running) {
@@ -866,10 +898,11 @@ public final class WorkspaceShell extends JPanel {
         eyebrow.setVisible(!compact); sideFooter.setVisible(!compact);
         workspace.setBorder(compact ? new EmptyBorder(8, 8, 8, 8) : new EmptyBorder(12, 12, 10, 12));
         hint.setVisible(getWidth() >= 820);
-        for (int i = 0; i < navigation.length; i++) {
-            navigation[i].setText(compact ? "" : TITLES[i]);
-            navigation[i].setHorizontalAlignment(compact ? SwingConstants.CENTER : SwingConstants.LEFT);
-            navigation[i].setMargin(new Insets(2, compact ? 2 : 6, 2, compact ? 2 : 6));
+        for (NavEntry entry : NavEntry.defaults()) {
+            JToggleButton row = navigation.get(entry.id());
+            row.setText(compact ? "" : entry.title());
+            row.setHorizontalAlignment(compact ? SwingConstants.CENTER : SwingConstants.LEFT);
+            row.setMargin(new Insets(2, compact ? 2 : 6, 2, compact ? 2 : 6));
         }
         advancedToggle.setHorizontalAlignment(compact ? SwingConstants.CENTER : SwingConstants.LEFT);
         advancedToggle.setMargin(new Insets(2, compact ? 2 : 6, 2, compact ? 2 : 6));
@@ -892,8 +925,9 @@ public final class WorkspaceShell extends JPanel {
         gc.insets = new Insets(1, 0, 1, 0);
         for (NavEntry entry : layout.coreOrder()) {
             gc.gridy++;
-            grid.setConstraints(navigation[entry.page()], gc);
-            navigation[entry.page()].setVisible(!layout.isHidden(entry.id()) || entry.page() == selected);
+            JToggleButton row = navigation.get(entry.id());
+            grid.setConstraints(row, gc);
+            row.setVisible(!layout.isHidden(entry.id()) || entry.id().equals(selected));
         }
         gc.gridy++; gc.insets = new Insets(10, 0, 1, 0);
         grid.setConstraints(advancedToggle, gc);
@@ -901,14 +935,11 @@ public final class WorkspaceShell extends JPanel {
         gc.insets = new Insets(1, 0, 1, 0);
         for (NavEntry entry : layout.advancedOrder()) {
             gc.gridy++;
-            grid.setConstraints(navigation[entry.page()], gc);
+            JToggleButton row = navigation.get(entry.id());
+            grid.setConstraints(row, gc);
             boolean listed = layout.advancedOpen() && !layout.isHidden(entry.id());
-            navigation[entry.page()].setVisible(listed || entry.page() == selected);
+            row.setVisible(listed || entry.id().equals(selected));
         }
-        // Unlisted pages (Build, Statistics, DPS Logger) are reached by route, search and their shortcuts (Alt+7, Alt+5, Alt+8),
-        // never from the sidebar, even while current.
-        for (NavEntry entry : NavEntry.defaults())
-            if (entry.group() == NavEntry.Group.UNLISTED) navigation[entry.page()].setVisible(false);
         gc.gridy++; gc.weighty = 1; gc.insets = new Insets(0, 0, 0, 0);
         grid.setConstraints(navGlue, gc);
         refreshAdvancedToggle();
@@ -920,7 +951,6 @@ public final class WorkspaceShell extends JPanel {
      * The compact menu lists every sidebar destination in sidebar order and groups: core, then Advanced after
      * a labelled separator, then Settings. Hidden destinations stay attached but invisible, so keyboard
      * traversal skips them and they keep the current look and feel; the current page is always listed.
-     * Unlisted pages (Build, Statistics, DPS Logger) are never added.
      */
     private void rebuildPopup() {
         navigationPopup.removeAll();
@@ -936,8 +966,8 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private boolean addDestination(NavEntry entry) {
-        JRadioButtonMenuItem item = destinations[entry.page()];
-        item.setVisible(!layout.isHidden(entry.id()) || entry.page() == selected);
+        JRadioButtonMenuItem item = destinations.get(entry.id());
+        item.setVisible(!layout.isHidden(entry.id()) || entry.id().equals(selected));
         navigationPopup.add(item);
         return item.isVisible();
     }
@@ -959,23 +989,11 @@ public final class WorkspaceShell extends JPanel {
         scrollSelectedLater();
     }
 
-    /** The destination's keyboard shortcuts, as its tooltip shows them. */
-    private static String shortcutHint(int page) {
-        if (page == SETTINGS) return "Alt+, or Alt+N";
-        return "Alt+" + (char) shortcutKey(page); // VK_0..VK_9 and VK_A..VK_Z are their ASCII characters.
-    }
-
-    /** Alt+digit for the original pages in page order; letters for Runs, Timeline, Bridge Review, Settings and Home. */
-    private static int shortcutKey(int page) {
-        switch (page) {
-            case 9: return KeyEvent.VK_0;
-            case 10: return KeyEvent.VK_R;
-            case 11: return KeyEvent.VK_T;
-            case 12: return KeyEvent.VK_B;
-            case 13: return KeyEvent.VK_N;
-            case 14: return KeyEvent.VK_H;
-            default: return KeyEvent.VK_1 + page;
-        }
+    /** The destination's keyboard shortcuts as its tooltip shows them after the title, or nothing when it has none. */
+    private static String shortcutHint(NavEntry entry) {
+        if (entry.shortcut() == 0) return "";
+        String key = "Alt+" + (char) entry.shortcut(); // VK_0..VK_9 and VK_A..VK_Z are their ASCII characters.
+        return "  (" + (entry.id().equals(SETTINGS) ? "Alt+, or " + key : key) + ")";
     }
 
     @Override public void doLayout() {
@@ -983,7 +1001,7 @@ public final class WorkspaceShell extends JPanel {
         // Every row counts, collapsed and hidden ones too, so opening Advanced never shifts the page.
         Insets insets = sidebar.getInsets(), listInsets = nav.getInsets();
         int rows = Math.max(eyebrow.isVisible() ? eyebrow.getPreferredSize().width : 0, advancedToggle.getPreferredSize().width);
-        for (JToggleButton row : navigation) rows = Math.max(rows, row.getPreferredSize().width);
+        for (JToggleButton row : navigation.values()) rows = Math.max(rows, row.getPreferredSize().width);
         int width = rows + listInsets.left + listInsets.right + navScroll.getVerticalScrollBar().getPreferredSize().width;
         Insets brandingInsets = branding.getInsets();
         width = Math.max(width, compact ? compactNavigation.getPreferredSize().width + brandingInsets.left + brandingInsets.right
@@ -997,8 +1015,8 @@ public final class WorkspaceShell extends JPanel {
 
     private void scrollSelected() {
         // Customizing a different row must not scroll its keyboard focus back to the selected page.
-        JToggleButton button = scrollAnchor != null && scrollAnchor.isVisible() ? scrollAnchor : navigation[selected];
-        if (!button.isVisible()) return; // an unlisted page has no row to reveal; the list stays where the user left it.
+        JToggleButton button = scrollAnchor != null && scrollAnchor.isVisible() ? scrollAnchor : navigation.get(selected);
+        if (!button.isVisible()) return; // a row that is not shown has nothing to reveal; the list stays where the user left it.
         button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
     }
 

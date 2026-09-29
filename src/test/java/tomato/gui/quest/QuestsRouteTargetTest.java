@@ -105,20 +105,20 @@ public class QuestsRouteTargetTest {
         SwingUtilities.invokeAndWait(() -> {
             QuestGUI ui = panel();
             JTabbedPane tabs = tabs(ui);
-            int[] page = {WorkspaceShell.pageOf(Destination.QUESTS)};
+            String[] page = {WorkspaceShell.pageOf(Destination.QUESTS)};
             ShellNavigator navigator = new ShellNavigator(() -> page[0], next -> page[0] = next, WorkspaceShell::pageOf, 20);
             navigator.register(new RetainedHome());
             navigator.register(new QuestsRouteTarget(ui));
             assertTrue(navigator.open(Route.to(Destination.QUESTS).withPayload(QuestsFocus.PLANNER)));
             assertEquals("Planner", front(tabs));
             assertTrue(navigator.back());
-            assertEquals(5, page[0]); assertEquals("Back returns to the Board the Planner route left", "Board", front(tabs));
+            assertEquals("quests", page[0]); assertEquals("Back returns to the Board the Planner route left", "Board", front(tabs));
             select(tabs, "Planner");
             page[0] = WorkspaceShell.pageOf(Destination.HOME);
             assertTrue(navigator.open(Route.to(Destination.QUESTS)));
-            assertEquals(5, page[0]); assertEquals("Board", front(tabs));
+            assertEquals("quests", page[0]); assertEquals("Board", front(tabs));
             assertTrue(navigator.back());
-            assertEquals("Back returns Home", 14, page[0]);
+            assertEquals("Back returns Home", "home", page[0]);
         });
     }
 

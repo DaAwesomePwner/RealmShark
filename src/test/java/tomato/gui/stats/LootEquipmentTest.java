@@ -192,9 +192,12 @@ public class LootEquipmentTest {
     }
     private static int count(JTable table) { int count = 0; for (int i = 0; i < table.getRowCount(); i++) count += (Integer)table.getValueAt(i, 2); return count; }
     private static String totals(LootDashboard panel) { return named(panel, "loot-enchant-totals", JTextArea.class).getText(); }
+    /** The tabs became a view selector: chooses the view titled {@code name} as a user does; its table keeps its live index. */
     private static JTable table(LootDashboard panel, String name) {
-        JTabbedPane views = named(panel, "loot-views", JTabbedPane.class); int index = views.indexOfTab(name);
-        assertTrue("Missing " + name, index >= 0); views.setSelectedIndex(index);
+        JComboBox<?> views = named(panel, "loot-views", JComboBox.class); LootQuery.View view = null;
+        for (int i = 0; i < views.getItemCount(); i++) if (views.getItemAt(i) instanceof LootQuery.View && name.equals(views.getItemAt(i).toString())) view = (LootQuery.View) views.getItemAt(i);
+        int index = LootExploreModel.LIVE.indexOf(view);
+        assertTrue("Missing " + name, index >= 0); views.setSelectedItem(view);
         return named(panel, "loot-view-" + index, JTable.class);
     }
     private static JFrame show(LootDashboard panel) {

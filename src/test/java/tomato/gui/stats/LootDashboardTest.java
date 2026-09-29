@@ -32,7 +32,7 @@ public class LootDashboardTest {
                 assertEquals(2, table(panel[0], 2).getRowCount());
                 assertEquals(2, table(panel[0], 3).getRowCount());
                 assertEquals("Blue", table(panel[0], 4).getValueAt(0, 1));
-                find(panel[0], JComboBox.class).setSelectedItem("B.White");
+                named(panel[0], "loot-bag-filter", JComboBox.class).setSelectedItem("B.White");
                 assertEquals(2, table(panel[0], 1).getValueAt(0, 2));
                 assertEquals(1, table(panel[0], 4).getRowCount());
                 find(panel[0], JTextField.class).setText("Attack");
@@ -46,7 +46,7 @@ public class LootDashboardTest {
                 assertEquals("Lost Halls", table(panel[0], 1).getValueAt(0, 3));
                 JTextField search = find(panel[0], JTextField.class);
                 search.setText("["); assertEquals(0, table(panel[0], 0).getRowCount());
-                search.setText(""); find(panel[0], JComboBox.class).setSelectedItem("All bags");
+                search.setText(""); named(panel[0], "loot-bag-filter", JComboBox.class).setSelectedItem("All bags");
                 try {
                     for (int i = 0; i < 6; i++) {
                         table(panel[0], i); frame[0].validate();
@@ -116,7 +116,7 @@ public class LootDashboardTest {
             SwingUtilities.invokeAndWait(() -> {
                 frames[1] = show(panels[1]);
                 assertEquals(1106, table(panels[1], 0).getValueAt(0, 2));
-                find(panels[1], JComboBox.class).setSelectedItem("Blue");
+                named(panels[1], "loot-bag-filter", JComboBox.class).setSelectedItem("Blue");
                 assertEquals(1, table(panels[1], 0).getValueAt(0, 2));
                 assertEquals(1106, table(panels[0], 0).getValueAt(0, 2));
                 find(panels[0], JTextField.class).setText("missing");
@@ -133,12 +133,20 @@ public class LootDashboardTest {
         JFrame frame = new JFrame("Loot preview sample"); frame.setContentPane(panel);
         frame.setSize(1050, 650); frame.setVisible(true); frame.validate(); return frame;
     }
+    /** The tabs became a view selector: chooses the live view at {@code view} (its persisted index) as a user does. */
     private static JTable table(Container panel, int view) {
-        find(panel, JTabbedPane.class).setSelectedIndex(view);
+        named(panel, "loot-views", JComboBox.class).setSelectedItem(LootExploreModel.liveView(view));
         return rawTable(panel, view);
     }
     private static JTable rawTable(Container panel, int view) {
-        return find((Container)find(panel, JTabbedPane.class).getComponentAt(view), JTable.class);
+        return named(panel, "loot-view-" + view, JTable.class);
+    }
+    private static <T> T named(Container root, String name, Class<T> type) {
+        for (Component child : root.getComponents()) {
+            if (type.isInstance(child) && name.equals(child.getName())) return type.cast(child);
+            if (child instanceof Container) { T result = named((Container)child, name, type); if (result != null) return result; }
+        }
+        return null;
     }
     private static <T> T find(Container root, Class<T> type) {
         for (Component child : root.getComponents()) {

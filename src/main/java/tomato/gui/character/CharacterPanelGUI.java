@@ -2,6 +2,9 @@ package tomato.gui.character;
 
 import java.awt.BorderLayout;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
+import javax.swing.JComponent;
 import javax.swing.JPanel;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
@@ -18,14 +21,22 @@ import tomato.gui.route.Navigator;
 import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
-/** Characters (shell page 3): the Roster tab (the character list or one character's sheet), the account Exalts grid and Pets. */
+/**
+ * Characters (the shell's characters page): the Roster tab (the character list or one character's sheet), the account Exalts
+ * grid, Pets and, with saved history, the Analyst tab Fame history ({@link #hostFame}).
+ */
 public class CharacterPanelGUI extends JPanel {
+    /** The Analyst tab of saved character fame, in the {@code characters} tabs. */
+    public static final String FAME_HISTORY = "fame-history";
     private final CharacterJournal characters;
     private final CharacterJournalGUI journal;
     private final CharacterSheet sheet;
     private final CharacterRosterView roster;
     private final List<RouteTarget> routeTargets;
     private final CustomizableTabs tabs = new CustomizableTabs("characters");
+    /** Fame history's holder (null until hosted) and its content (null until the tab is first selected). */
+    private JPanel fameHolder;
+    private JComponent fame;
 
     public CharacterPanelGUI(TomatoData data) { this(data, ViewStateStore.application()); }
 
@@ -60,6 +71,45 @@ public class CharacterPanelGUI extends JPanel {
         // Another Characters tab refreshes the list and keeps the sheet's notes draft.
         tabs.component().addChangeListener(e -> { journal.refresh(); sheet.saveDraft(); });
         add(tabs.component(), BorderLayout.CENTER);
+    }
+
+    /**
+     * Adds the Analyst tab "Fame history" ({@value #FAME_HISTORY}) after Pets: saved character fame, moved from Statistics.
+     * {@code factory} builds its content (CharacterFameHistory's view, whose workspace starts a saved-history read) on the tab's
+     * first selection only, never at construction and never twice. The built content stays in the tab's holder, so the app's
+     * workspace close reaches it through the tabs' contents also while the tab is hidden or skipped in Simple. Without a call
+     * (no history store) there is no tab. Once. EDT.
+     */
+    public void hostFame(Supplier<JComponent> factory) {
+        Objects.requireNonNull(factory, "factory");
+        if (fameHolder != null) throw new IllegalStateException("Fame history is already hosted");
+        fameHolder = new JPanel(new BorderLayout());
+        fameHolder.setName("characters-fame-history");
+        fameHolder.setOpaque(false);
+        tabs.addAnalyst(FAME_HISTORY, "Fame history", fameHolder);
+        tabs.onSelect(id -> { if (FAME_HISTORY.equals(id)) buildFame(factory); });
+        if (FAME_HISTORY.equals(tabs.selectedId())) buildFame(factory);
+    }
+
+    /**
+     * Search's "Character fame history" (P6a): in Analyst, shows the Fame history tab (explicit navigation, so a tab hidden from the
+     * strip comes back) and brings it forward, which builds it on first use; returns whether it is in front. In Simple the tab is
+     * not offered, and without saved history there is none: nothing changes (the saved hidden set included) and it returns false.
+     * EDT.
+     */
+    public boolean showFameHistory() {
+        if (fameHolder == null || !DisplayModeModel.application().analyst()) return false;
+        tabs.show(FAME_HISTORY);
+        tabs.select(FAME_HISTORY);
+        return FAME_HISTORY.equals(tabs.selectedId());
+    }
+
+    private void buildFame(Supplier<JComponent> factory) {
+        if (fame != null) return;
+        fame = Objects.requireNonNull(factory.get(), "fame history view");
+        fameHolder.add(fame, BorderLayout.CENTER);
+        fameHolder.revalidate();
+        fameHolder.repaint();
     }
 
     public void bindNavigator(Navigator navigator) { roster.bindNavigator(navigator); sheet.bindNavigator(navigator); }

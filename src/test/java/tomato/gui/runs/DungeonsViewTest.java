@@ -326,7 +326,8 @@ public class DungeonsViewTest {
             assertTrue(view.analysisShown());
             assertEquals("Built on first Analysis show", 1, Stub.built.get());
             assertEquals(List.of(DungeonsView.VIEW_KEY + "=" + DungeonsView.ANALYSIS), writes);
-            assertTrue(named(view, "dungeons-statistics-banner", JComponent.class).isShowing());
+            assertTrue("The analysis shows, with no Statistics pointer above it (P6a)", made.get().isShowing());
+            assertFalse(hasNamed(view, "dungeons-statistics-banner"));
             named(modes, "dungeons-view-mode-0", AbstractButton.class).doClick();
             named(modes, "dungeons-view-mode-1", AbstractButton.class).doClick();
             assertEquals("Built once", 1, Stub.built.get());
@@ -429,5 +430,12 @@ public class DungeonsViewTest {
             queue.postEvent(new MouseEvent(target, MouseEvent.MOUSE_CLICKED, when, 0, x, y, i, false, MouseEvent.BUTTON1));
         }
         edt(() -> null);   // posted before this, so they have run
+    }
+
+    /** Whether any component under {@code root} is named {@code name}. */
+    private static boolean hasNamed(Container root, String name) {
+        for (Component child : root.getComponents())
+            if (name.equals(child.getName()) || child instanceof Container && hasNamed((Container) child, name)) return true;
+        return false;
     }
 }

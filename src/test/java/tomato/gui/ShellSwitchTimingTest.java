@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
-import java.util.function.ToIntFunction;
+import java.util.function.Function;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
@@ -36,6 +36,9 @@ import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.kit.Collapsible;
 import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.loot.LootHighlights;
+import tomato.gui.loot.LootPage;
+import tomato.gui.loot.LootTab;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.NavEntry;
 import tomato.gui.modern.NavLayout;
@@ -45,6 +48,7 @@ import tomato.gui.runs.RunFeedView;
 import tomato.gui.runs.RunsDpsPage;
 import tomato.gui.runs.RunsTab;
 import tomato.gui.runs.RunsViewRule;
+import tomato.gui.stats.LootTestDrops;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
 import tomato.history.encounter.CombatFixtures;
@@ -55,18 +59,22 @@ import static org.junit.Assert.*;
  * S8 (spec §1, §9): switching between core destinations takes at most 100 ms at p95 on the large synthetic history, on the real
  * shell (research R4 §2–§3; this reuses its probe). Synthetic data only: no capture, no bridge, isolated preferences and history.
  * - Fixture: {@code HomeHistoryFixture.writeLarge(30, 40)} plus {@code CombatFixtures.writeLarge} (1,200 runs with linked combat
- *   records) and 24 characters, in a visible 1240 × 800 frame. Loot, Chat and the Runs table read saved history (all sessions),
- *   and so do Recordings (the fixture is older than its default 30 days), all settled before measuring. A live fight of
+ *   records) and 24 characters, in a visible 1240 × 800 frame. Loot › Explore, Chat and the Runs table read saved history (all
+ *   sessions), and so do Recordings (the fixture is older than its default 30 days), all settled before measuring. A live fight of
  *   1,200 s × 8 players × 300 enemies × 10 hits/s (96,000 hits) is republished off the EDT, as the capture thread does, before
  *   every Live meter entry: the meter renders only a new snapshot, so without one the switch would cost nothing (R4 §0.7).
+ * - P6a: Loot is a page with the tabs Highlights · Explore, so it is entered twice, like Runs &amp; DPS, and a third test switches
+ *   its two tabs. The large fixture is dated in 2025, so this app run's session also saves {@value #TODAY_BAGS} bags dated today
+ *   (a UT every fifth bag, STs, stat potions): Highlights' Today then shows full tiles, the 200 newest notable drops and four
+ *   dungeons, read off the EDT on its first show (a Highlights read in flight counts as loading).
  * - Frame: one EDT turn of the switch (the shell's {@code select}, or the tab strip's), {@code validateInvalidComponents} and
  *   {@code paintDirtyRegions}. Follow-up: every later EDT event until nothing showing is loading (a showing Live meter that has
  *   not rendered the newest snapshot counts as loading) and the EDT is quiet. The longest follow-up event is bounded as well, so
  *   work moved to {@code invokeLater} cannot pass.
  * - Asserted: frame p95 ≤ 100 ms per destination (or tab) and overall; the p95 of the longest follow-up event ≤ 100 ms likewise;
- *   canaries: each Live meter sample rendered the snapshot published just before it (its summary names 300 enemies), and Loot
- *   and Chat show a saved page. A miss is measured once more and the first result printed (the S9 approach); a second miss
- *   samples the EDT stack for the report, then fails.
+ *   canaries: each Live meter sample rendered the snapshot published just before it (its summary names 300 enemies), Loot ›
+ *   Explore and Chat show a saved page, and Loot › Highlights shows a read of today's bags. A miss is measured once more and the
+ *   first result printed (the S9 approach); a second miss samples the EDT stack for the report, then fails.
  * - Logged ("S8 " lines in the test output): select, layout, paint, frame, the longest and the summed follow-up events and settle
  *   per destination, the follow-up events of at least 8 ms, the publish times, and a full-page paint per destination.
  */
@@ -79,13 +87,20 @@ public class ShellSwitchTimingTest {
     private static final int WARMUP = 3, ROUNDS = Integer.getInteger("s8.rounds", 20);
     private static final long SETTLE_CAP = TimeUnit.SECONDS.toNanos(3);
     private static final int FIGHT_SECONDS = 1_200, FIGHT_PLAYERS = 8, FIGHT_ENEMIES = 300, FIGHT_RATE = 10;
-    private static final int RUNS_PAGE = NavEntry.forId("runs").page();
+    private static final String RUNS_PAGE = NavEntry.forId("runs").id(), LOOT_PAGE = NavEntry.forId("loot").id();
+    /** Bags this app run's session saves today, so Loot › Highlights' Today has tiles, notable drops and dungeons to show. */
+    private static final int TODAY_BAGS = 400;
     /** Preference prefixes cleared, so the shell opens on its defaults; every key the test changes is restored afterwards. */
     private static final String[] CLEARED = {"ux.archive.", CustomizableTabs.PREFIX, "ui.nav.", "ui.quests.", Collapsible.PREFIX,
-        "ui.filters.", "ui.order.", DungeonsView.VIEW_KEY};
+        "ui.filters.", "ui.order.", DungeonsView.VIEW_KEY, LootHighlights.WINDOW_KEY};
 
-    /** One switch target: a core destination (its sidebar ID and page) and, on Runs & DPS, the tab in front (null elsewhere). */
-    private record Target(String id, String name, int page, RunsTab tab) {}
+    /**
+     * One switch target: a core destination (its sidebar ID and page) and, on Runs &amp; DPS, the tab in front (null elsewhere); on
+     * Loot, the Loot tab in front (null elsewhere).
+     */
+    private record Target(String id, String name, String page, RunsTab tab, LootTab lootTab) {
+        Target(String id, String name, String page, RunsTab tab) { this(id, name, page, tab, null); }
+    }
 
     private final Map<Field, Object> original = new LinkedHashMap<>();
     private final Map<String, String> savedPrefs = new LinkedHashMap<>();
@@ -102,9 +117,12 @@ public class ShellSwitchTimingTest {
     private RunsDpsPage runs;
     private DpsGUI dps;
     private MeterDpsGUI meter;
+    private LootPage loot;
+    private LootHighlights highlights;
     private TimingQueue queue;
-    private int currentPage = -1;
+    private String currentPage;
     private RunsTab currentTab;
+    private LootTab currentLootTab;
     private long setupNanos;
 
     @Before public void open() throws Exception {
@@ -127,6 +145,16 @@ public class ShellSwitchTimingTest {
         log("fixture written in " + ms(System.nanoTime() - written) + " ms (" + HomeHistoryFixture.LARGE_SESSIONS + " sessions x "
             + HomeHistoryFixture.LARGE_RUNS + " runs, each with a combat record)");
         store = new SessionStore(root, true, "synthetic");
+        // This app run's session saves today's bags (the large fixture is dated in 2025): Loot › Highlights' Today reads them.
+        // Dated within the last 20 s, never before local midnight, so all of them are today's.
+        long now = System.currentTimeMillis(), first = Math.max(now - 20_000L,
+            java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+        String[] areas = {"Lost Halls", "Ice Citadel", "Pirate Cave", "Snake Pit"};
+        for (int b = 0; b < TODAY_BAGS; b++)
+            store.append("loot", LootTestDrops.drop(b % 5 == 0 ? "White" : b % 5 == 1 ? "Orange" : "Purple", areas[b % areas.length],
+                first + (now - first) * b / TODAY_BAGS, null,LootTestDrops.item(40_000 + b, b % 5 == 0 ? LootTestDrops.Kind.UT : b % 5 == 1 ? LootTestDrops.Kind.ST : LootTestDrops.Kind.TIERED),
+                LootTestDrops.item(2793 + b % 2, LootTestDrops.Kind.POTION), LootTestDrops.item(50_000 + b, LootTestDrops.Kind.PLAIN)));
+        store.flush();
         remember(AppHistory.class, "store", store);
         remember(Tomato.class, "preview", true);
         for (Class<?> type : new Class<?>[] {TomatoGUI.class, ChatGUI.class})
@@ -152,12 +180,18 @@ public class ShellSwitchTimingTest {
             runs = named(shell, "runs-dps-page", RunsDpsPage.class);
             dps = find(shell, DpsGUI.class);
             meter = dps == null ? null : (MeterDpsGUI) field(DpsGUI.class, "displayMeter", dps);
-            currentPage = shell.getSelectedPage();
+            loot = named(shell, "loot-page", LootPage.class);
+            highlights = named(shell, "loot-highlights", LootHighlights.class);
+            currentPage = shell.selectedPage();
             currentTab = runs == null ? null : runs.selectedTab();
+            currentLootTab = loot == null ? null : loot.selectedTab();
         });
         assertNotNull("Runs & DPS is page " + RUNS_PAGE, runs);
         assertNotNull("The Live meter tab holds the single DPS meter", meter);
         assertEquals("Every Runs & DPS tab is shown (ui.tabs.runs cleared)", tabIds(), edt(() -> runs.tabs().visibleIds()));
+        assertNotNull("Loot is page " + LOOT_PAGE, loot);
+        assertNotNull("Loot › Highlights", highlights);
+        assertEquals("Both Loot tabs are shown (ui.tabs.loot cleared)", List.of(LootTab.HIGHLIGHTS.id(), LootTab.EXPLORE.id()), edt(() -> loot.tabs().visibleIds()));
         log("shell built and shown in " + ms(System.nanoTime() - built) + " ms; landing page " + currentPage);
         queue = new TimingQueue();
         Toolkit.getDefaultToolkit().getSystemEventQueue().push(queue);
@@ -171,12 +205,20 @@ public class ShellSwitchTimingTest {
         SwingUtilities.invokeAndWait(() -> named(runs, "encounter-scope-1", AbstractButton.class).doClick());
         settle("saved views", TimeUnit.SECONDS.toNanos(30));
         String recordings = edt(() -> named(runs, "encounter-summary", javax.swing.text.JTextComponent.class).getText());
-        int landing = currentPage;
-        SwingUtilities.invokeAndWait(() -> { runs.bring(RunsTab.FEED); shell.select(landing); });
+        // Loot › Highlights reads today's bags on its first show, and Explore shows its saved page once (P6a).
+        SwingUtilities.invokeAndWait(() -> { shell.select(LOOT_PAGE); loot.bring(LootTab.HIGHLIGHTS); });
+        settle("Loot highlights", TimeUnit.SECONDS.toNanos(30));
+        String read = edt(this::highlightsProblem);
+        assertNull("Loot › Highlights read today's bags: " + read, read);
+        SwingUtilities.invokeAndWait(() -> loot.bring(LootTab.EXPLORE));
+        settle("saved views", TimeUnit.SECONDS.toNanos(30));
+        String landing = currentPage;
+        SwingUtilities.invokeAndWait(() -> { runs.bring(RunsTab.FEED); loot.bring(LootTab.HIGHLIGHTS); shell.select(landing); });
         currentTab = RunsTab.FEED;
+        currentLootTab = LootTab.HIGHLIGHTS;
         settle("saved views", TimeUnit.SECONDS.toNanos(30));
         setupNanos = System.nanoTime() - begun;
-        log("saved views settled (Recordings: " + recordings + "); setup " + ms(setupNanos) + " ms");
+        log("saved views settled (Recordings: " + recordings + "; Loot highlights: " + edt(() -> named(highlights, "loot-highlights-source", JLabel.class).getText()) + "); setup " + ms(setupNanos) + " ms");
     }
 
     @After public void close() throws Exception {
@@ -203,13 +245,14 @@ public class ShellSwitchTimingTest {
     }
 
     /**
-     * The core destinations of the default sidebar, Runs & DPS entered twice (its Feed and its Live meter tab, selected while the
-     * page is hidden): 3 warm-up rounds, then 20 rounds (140 samples) in a seeded order that never enters the page shown.
+     * The core destinations of the default sidebar, Runs & DPS entered twice (its Feed and its Live meter tab) and Loot entered
+     * twice (its Highlights and its Explore tab), each tab selected while its page is hidden: 3 warm-up rounds, then 20 rounds
+     * (160 samples) in a seeded order that never enters the page shown.
      */
     @Test public void switchingCoreDestinationsStaysWithinOneHundredMsAtP95() throws Exception {
         long begun = System.nanoTime();
         List<Target> targets = destinations();
-        assertEquals("Six core destinations with Runs & DPS entered twice (S7)", 7, targets.size());
+        assertEquals("Six core destinations with Runs & DPS and Loot each entered twice (S7, P6a)", 8, targets.size());
         Pass pass = pass(targets, WARMUP, ROUNDS, target -> target.page, null);
         List<String> misses = pass.misses(targets);
         if (!misses.isEmpty()) {
@@ -245,13 +288,41 @@ public class ShellSwitchTimingTest {
         assertTrue("S8: Runs & DPS tab switches within 100 ms at p95 (frame and longest follow-up event), canaries hold: " + misses, misses.isEmpty());
     }
 
-    /** {@code new NavLayout(k -> null, (k, v) -> {}).core()}: the default core destinations, Runs & DPS as Feed and as Live meter. */
+    /** P6a: the two Loot tabs, switched through the tab strip while the page shows: 3 warm-up rounds, then 20 (40 samples). */
+    @Test public void switchingLootTabsStaysWithinOneHundredMsAtP95() throws Exception {
+        long begun = System.nanoTime();
+        List<Target> targets = new ArrayList<>();
+        for (LootTab tab : LootTab.values()) targets.add(new Target("loot", "Loot tab > " + tab.title(), LOOT_PAGE, null, tab));
+        SwingUtilities.invokeAndWait(() -> { loot.tabs().select(LootTab.HIGHLIGHTS.id()); shell.select(LOOT_PAGE); });
+        currentPage = LOOT_PAGE; currentLootTab = LootTab.HIGHLIGHTS;
+        settle("the Highlights tab", SETTLE_CAP);
+        Pass pass = pass(targets, WARMUP, ROUNDS, target -> target.lootTab.ordinal(), null);
+        List<String> misses = pass.misses(targets);
+        if (!misses.isEmpty()) {
+            report("first run, missed " + misses + "; measuring once more", pass, targets);
+            pass = pass(targets, WARMUP, ROUNDS, target -> target.lootTab.ordinal(), null);
+            misses = pass.misses(targets);
+        }
+        report("Loot tabs, large history, saved views, " + TODAY_BAGS + " bags saved today", pass, targets);
+        if (!misses.isEmpty()) diagnose(targets, target -> target.lootTab.ordinal());
+        log("Loot tabs: " + ms(System.nanoTime() - begun) + " ms measuring, " + ms(setupNanos) + " ms setup");
+        assertTrue("S8: Loot tab switches within 100 ms at p95 (frame and longest follow-up event), canaries hold: " + misses, misses.isEmpty());
+    }
+
+    /**
+     * {@code new NavLayout(k -> null, (k, v) -> {}).core()}: the default core destinations, Runs & DPS as Feed and as Live meter,
+     * Loot as Highlights and as Explore.
+     */
     private static List<Target> destinations() {
         List<Target> result = new ArrayList<>();
         for (NavEntry entry : new NavLayout(k -> null, (k, v) -> {}).core()) {
-            if (entry.page() != RUNS_PAGE) { result.add(new Target(entry.id(), entry.title(), entry.page(), null)); continue; }
+            if (entry.id().equals(LOOT_PAGE)) {
+                for (LootTab tab : LootTab.values()) result.add(new Target(entry.id(), entry.title() + " > " + tab.title(), entry.id(), null, tab));
+                continue;
+            }
+            if (!entry.id().equals(RUNS_PAGE)) { result.add(new Target(entry.id(), entry.title(), entry.id(), null)); continue; }
             for (RunsTab tab : new RunsTab[] {RunsTab.FEED, RunsTab.LIVE_METER})
-                result.add(new Target(entry.id(), entry.title() + " > " + tab.title(), entry.page(), tab));
+                result.add(new Target(entry.id(), entry.title() + " > " + tab.title(), entry.id(), tab));
         }
         return result;
     }
@@ -265,7 +336,7 @@ public class ShellSwitchTimingTest {
     // ---- measuring ----
 
     /** Warm-up rounds, then measured rounds; each round visits every target once in a seeded order ({@link #order}). */
-    private Pass pass(List<Target> targets, int warmup, int rounds, ToIntFunction<Target> key, Sampler sampler) throws Exception {
+    private Pass pass(List<Target> targets, int warmup, int rounds, Function<Target, Object> key, Sampler sampler) throws Exception {
         Pass pass = new Pass();
         for (int round = 0; round < warmup + rounds; round++)
             for (Target target : order(targets, key)) {
@@ -276,21 +347,21 @@ public class ShellSwitchTimingTest {
     }
 
     /** A seeded shuffle in which no target has the key of the one before it (the page, or the tab), starting from what is shown. */
-    private List<Target> order(List<Target> targets, ToIntFunction<Target> key) {
+    private List<Target> order(List<Target> targets, Function<Target, Object> key) {
         List<Target> order = new ArrayList<>(targets);
-        int shown = key.applyAsInt(new Target("", "", currentPage, currentTab));
+        Object shown = key.apply(new Target("", "", currentPage, currentTab, currentLootTab));
         while (true) {
             Collections.shuffle(order, random);
-            int previous = shown;
+            Object previous = shown;
             boolean alternates = true;
-            for (Target target : order) { int next = key.applyAsInt(target); if (next == previous) { alternates = false; break; } previous = next; }
+            for (Target target : order) { Object next = key.apply(target); if (Objects.equals(next, previous)) { alternates = false; break; } previous = next; }
             if (alternates) return order;
         }
     }
 
     /**
-     * One switch to {@code target}: a live fight published first when it is the Live meter; a page switch (a Runs & DPS tab is
-     * selected while the page is hidden) or, on the page shown, a tab switch; then the frame, the follow-up and the canary.
+     * One switch to {@code target}: a live fight published first when it is the Live meter; a page switch (a Runs & DPS or Loot
+     * tab is selected while the page is hidden) or, on the page shown, a tab switch; then the frame, the follow-up and the canary.
      */
     private Sample enter(Target target, Pass pass, Sampler sampler) throws Exception {
         DpsSnapshot published = null;
@@ -304,13 +375,16 @@ public class ShellSwitchTimingTest {
             if (published == null || published == before) pass.canary(target, "no new live snapshot was published before the switch");
         }
         Runnable action;
-        if (target.page != currentPage) {
+        if (!target.page.equals(currentPage)) {
             if (target.tab != null) SwingUtilities.invokeAndWait(() -> runs.tabs().select(target.tab.id()));
+            if (target.lootTab != null) SwingUtilities.invokeAndWait(() -> loot.tabs().select(target.lootTab.id()));
             action = () -> shell.select(target.page);
-        } else action = () -> runs.tabs().select(target.tab.id());
+        } else if (target.lootTab != null) action = () -> loot.tabs().select(target.lootTab.id());
+        else action = () -> runs.tabs().select(target.tab.id());
         Sample sample = measure(target, action, sampler);
         currentPage = target.page;
         if (target.tab != null) currentTab = target.tab;
+        if (target.lootTab != null) currentLootTab = target.lootTab;
         String problem = canary(target, published);
         if (problem != null) pass.canary(target, problem);
         return sample;
@@ -354,12 +428,20 @@ public class ShellSwitchTimingTest {
 
     /**
      * After the destination settled: the Live meter rendered the snapshot published just before the switch (its summary names
-     * every enemy, live), Loot and Chat show a saved page, and a Runs & DPS target shows its tab. Null when it holds.
+     * every enemy, live), Loot › Explore and Chat show a saved page, Loot › Highlights shows its read of today's bags, and a Runs &amp;
+     * DPS or Loot target shows its tab. Null when it holds.
      */
     private String canary(Target target, DpsSnapshot published) throws Exception {
         return edt(() -> {
-            if (shell.getSelectedPage() != target.page) return "page " + shell.getSelectedPage() + " is shown";
+            if (!shell.selectedPage().equals(target.page)) return "page " + shell.selectedPage() + " is shown";
             if (target.tab != null && runs.selectedTab() != target.tab) return "the " + runs.selectedTab() + " tab is in front";
+            if (target.lootTab != null && loot.selectedTab() != target.lootTab) return "the " + loot.selectedTab() + " Loot tab is in front";
+            if (target.lootTab == LootTab.HIGHLIGHTS) {
+                if (!highlights.isShowing()) return "Loot highlights are not showing";
+                String problem = highlightsProblem();
+                if (problem != null) return problem;
+            }
+            if (target.lootTab == LootTab.EXPLORE && !workspace("loot").isShowing()) return "the Loot workspace is not showing";
             if (target.tab == RunsTab.LIVE_METER) {
                 if (!meter.isShowing()) return "the meter is not showing";
                 if (field(DpsGUI.class, "rendered", dps) != published) return "the meter did not render the snapshot published before the switch";
@@ -374,6 +456,17 @@ public class ShellSwitchTimingTest {
             }
             return null;
         });
+    }
+
+    /** EDT: Loot › Highlights shows a read of today's bags (content, UT drops counted, notable drops listed); null when it does. */
+    private String highlightsProblem() {
+        Object state = call(highlights, "state");
+        if (!"content".equals(state)) return "Loot highlights show their " + state + " state";
+        String ut = named(highlights, "loot-tile-ut", tomato.gui.kit.StatTile.class).valueText();
+        if (!String.valueOf(TODAY_BAGS / 5).equals(ut)) return "Loot highlights count " + ut + " UT drops, not " + TODAY_BAGS / 5;
+        JList<?> notable = named(highlights, "loot-notable-grid", JList.class);
+        if (notable == null || notable.getModel().getSize() == 0) return "Loot highlights list no notable drop";
+        return null;
     }
 
     /** Setup: {@link #awaitQuiet} within {@code cap}, or fails (measuring an unsettled shell would time its reads, not the switch). */
@@ -402,12 +495,13 @@ public class ShellSwitchTimingTest {
         return meter.isShowing() && field(DpsGUI.class, "latest", dps) != field(DpsGUI.class, "rendered", dps);
     }
 
-    /** EDT: a showing archive workspace, run feed, Dungeons view or Recordings tab has a read in flight. */
+    /** EDT: a showing archive workspace, run feed, Dungeons view, Recordings tab or Loot highlights has a read in flight. */
     private static boolean busy(Container root) {
         for (Component child : root.getComponents()) {
             if (!child.isShowing()) continue;
             if (child instanceof ArchiveWorkspace && ((ArchiveWorkspace<?, ?, ?>) child).loading()) return true;
-            if ((child instanceof RunFeedView || child instanceof DungeonsView || child instanceof DungeonListGUI) && loading(child)) return true;
+            if ((child instanceof RunFeedView || child instanceof DungeonsView || child instanceof DungeonListGUI || child instanceof LootHighlights)
+                && loading(child)) return true;
             if (child instanceof Container && busy((Container) child)) return true;
         }
         return false;
@@ -473,7 +567,7 @@ public class ShellSwitchTimingTest {
     }
 
     /** After a second miss: one sampled pass (5 rounds) to name the handlers that dominate the EDT; the report only. */
-    private void diagnose(List<Target> targets, ToIntFunction<Target> key) throws Exception {
+    private void diagnose(List<Target> targets, Function<Target, Object> key) throws Exception {
         Sampler sampler = new Sampler(edtThread());
         try { pass(targets, 0, 5, key, sampler); }
         finally { sampler.close(); }
@@ -674,6 +768,11 @@ public class ShellSwitchTimingTest {
     }
     private static Object field(Class<?> type, String name, Object owner) {
         try { Field f = type.getDeclaredField(name); f.setAccessible(true); return f.get(owner); }
+        catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+    /** The owner's own package-private no-argument method (a view's test accessor, such as Loot highlights' {@code state()}). */
+    private static Object call(Object owner, String name) {
+        try { Method m = owner.getClass().getDeclaredMethod(name); m.setAccessible(true); return m.invoke(owner); }
         catch (ReflectiveOperationException e) { throw new AssertionError(e); }
     }
     private static Properties properties() {

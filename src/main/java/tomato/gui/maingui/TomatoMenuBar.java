@@ -6,17 +6,22 @@ import tomato.gui.chat.ChatGUI;
 import tomato.gui.chat.ChatPingGUI;
 import tomato.gui.dps.DpsDisplayOptions;
 import tomato.gui.dps.DpsGUI;
-import tomato.gui.stats.LootGUI;
+import tomato.gui.stats.LootCapture;
+import tomato.gui.stats.LootFilters;
 import tomato.realmshark.Sound;
 import tomato.realmshark.enums.LootBags;
 import util.PropertiesManager;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.settings.SettingsPage;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * Menu bar builder class
@@ -33,11 +38,78 @@ public class TomatoMenuBar implements ActionListener {
     private JCheckBoxMenuItem filterWhiteBag, filterOrangeBag, filterRedBag, filterGoldBag, filterEggBag, filterBlueBag, filterTealBag, filterPurpleBag, filterPinkBag, filterBrownBag;
     private JSlider soundSlider;
     private boolean syncingSound;
-    private JMenu file, edit, info;
+    private JMenu file, edit, info, filterBags;
     private JMenuBar jMenuBar;
     private JFrame frame;
     private static JMenuItem sniffer;
     private JRadioButtonMenuItem themeViolet;
+    /** P6a: while set, the menu entries that have a Settings section open it (see onOpenSettings). */
+    private Consumer<String> openSettings;
+    private final JMenuItem lootFilterSettings = new JMenuItem("Loot filter settings…"), chatSettings = new JMenuItem("Chat settings…");
+    private final JPopupMenu.Separator lootFilterSettingsGap = new JPopupMenu.Separator(), chatSettingsGap = new JPopupMenu.Separator();
+    {
+        lootFilterSettings.addActionListener(e -> openSettings(SettingsPage.LOOT_FILTERS));
+        chatSettings.addActionListener(e -> openSettings(SettingsPage.CHAT));
+    }
+
+    /** Chat › Save Chat's preference; absent means off (as the menu has always read it). Settings › Chat edits the same one. */
+    public static final String SAVE_CHAT = "saveChat";
+    private static final List<Runnable> saveChatListeners = new CopyOnWriteArrayList<>();
+
+    /** Whether chat is saved to its plain-text log (Chat › Save Chat, Settings › Chat). */
+    public static boolean saveChat() { return "true".equals(PropertiesManager.getProperty(SAVE_CHAT)); }
+
+    /**
+     * EDT. Chat › Save Chat's effect, shared with Settings › Chat: writes the preference, applies it to chat logging and then
+     * tells every Save Chat control, so the menu and the section always show the same value.
+     */
+    public static void setSaveChat(boolean save) {
+        PropertiesManager.setProperties(SAVE_CHAT, save ? "true" : "false");
+        ChatGUI.save = save;
+        for (Runnable listener : saveChatListeners) listener.run();
+    }
+
+    /** Runs on the EDT after each setSaveChat. */
+    public static void addSaveChatListener(Runnable listener) { saveChatListeners.add(listener); }
+
+    public static void removeSaveChatListener(Runnable listener) { saveChatListeners.remove(listener); }
+
+    /** Info › Java version's text, also shown by Settings › About. */
+    public static String javaVersion() {
+        return String.format("Java version: %s (%s-bit)", System.getProperty("java.version"), System.getProperty("sun.arch.data.model"));
+    }
+
+    /** Info › Java version's action, also Settings › About's Java version button. */
+    public static void showJavaVersion() {
+        JFrame frame = new JFrame("Java version");
+        realmshark.branding.AppIdentity.apply(frame);
+        JOptionPane.showMessageDialog(frame, javaVersion());
+    }
+
+    /**
+     * P6a: while {@code open} is set, Info › About opens Settings › About, Edit › Filter Loot ends with "Loot filter settings…" and
+     * Chat ends with "Chat settings…", each calling {@code open} with the SettingsPage section ID. Null restores the menus exactly as
+     * they were (About opens the dialog). May be called before or after {@link #make()}; EDT.
+     */
+    public void onOpenSettings(Consumer<String> open) {
+        openSettings = open;
+        applySettingsEntries();
+    }
+
+    private void applySettingsEntries() {
+        if (jMenuBar == null) return; // make() applies the current hook
+        JMenu[] menus = {filterBags, (JMenu) chat};
+        JComponent[][] entries = {{lootFilterSettingsGap, lootFilterSettings}, {chatSettingsGap, chatSettings}};
+        for (int i = 0; i < menus.length; i++) {
+            for (JComponent entry : entries[i]) menus[i].remove(entry);
+            if (openSettings != null) for (JComponent entry : entries[i]) menus[i].add(entry);
+        }
+    }
+
+    private void openSettings(String section) {
+        Consumer<String> open = openSettings;
+        if (open != null) open.accept(section);
+    }
 
     /** Shared by the header, keyboard shortcut and original File menu. */
     public static void togglePacketSniffer() {
@@ -73,7 +145,7 @@ public class TomatoMenuBar implements ActionListener {
         theme = new JMenu("Theme");
         fontMenu = new JMenu("Font");
         dpsOptions = new JMenu("DPS Options");
-        JMenu filterBags = new JMenu("Filter Loot");
+        filterBags = new JMenu("Filter Loot");
 
         edit = new JMenu("Edit");
         JMenuItem find = new JMenuItem("Find settings and actions…");
@@ -112,6 +184,8 @@ public class TomatoMenuBar implements ActionListener {
         chat.add(new JSeparator(SwingConstants.HORIZONTAL));
         chat.add(clearChat);
         setChatCheckbox();
+        // Settings › Chat changes Save Chat too; the checkbox follows every change.
+        addSaveChatListener(() -> saveChat.setSelected(saveChat()));
 
         soundSlider = new JSlider(0, 100, 100);
         soundSlider.addChangeListener(this::sliderChange);
@@ -169,66 +243,17 @@ public class TomatoMenuBar implements ActionListener {
         setSoundCheckbox();
         Sound.addListener(() -> SwingUtilities.invokeLater(this::setSoundCheckbox));
 
-        filterWhiteBag = new JCheckBoxMenuItem("Show White Bags");
-        filterWhiteBag.addActionListener(e -> {
-            LootGUI.filterWhiteBag = filterWhiteBag.isSelected();
-            PropertiesManager.setProperties("filterWhiteBag", Boolean.toString(filterWhiteBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterOrangeBag = new JCheckBoxMenuItem("Show Orange Bags");
-        filterOrangeBag.addActionListener(e -> {
-            LootGUI.filterOrangeBag = filterOrangeBag.isSelected();
-            PropertiesManager.setProperties("filterOrangeBag", Boolean.toString(filterOrangeBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterRedBag = new JCheckBoxMenuItem("Show Red Bags");
-        filterRedBag.addActionListener(e -> {
-            LootGUI.filterRedBag = filterRedBag.isSelected();
-            PropertiesManager.setProperties("filterRedBag", Boolean.toString(filterRedBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterGoldBag = new JCheckBoxMenuItem("Show Gold Bags");
-        filterGoldBag.addActionListener(e -> {
-            LootGUI.filterGoldBag = filterGoldBag.isSelected();
-            PropertiesManager.setProperties("filterGoldBag", Boolean.toString(filterGoldBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterEggBag = new JCheckBoxMenuItem("Show Egg Bags");
-        filterEggBag.addActionListener(e -> {
-            LootGUI.filterEggBag = filterEggBag.isSelected();
-            PropertiesManager.setProperties("filterEggBag", Boolean.toString(filterEggBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterBlueBag = new JCheckBoxMenuItem("Show Blue Bags");
-        filterBlueBag.addActionListener(e -> {
-            LootGUI.filterBlueBag = filterBlueBag.isSelected();
-            PropertiesManager.setProperties("filterBlueBag", Boolean.toString(filterBlueBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterTealBag = new JCheckBoxMenuItem("Show Teal Bags");
-        filterTealBag.addActionListener(e -> {
-            LootGUI.filterTealBag = filterTealBag.isSelected();
-            PropertiesManager.setProperties("filterTealBag", Boolean.toString(filterTealBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterPurpleBag = new JCheckBoxMenuItem("Show Purple Bags");
-        filterPurpleBag.addActionListener(e -> {
-            LootGUI.filterPurpleBag = filterPurpleBag.isSelected();
-            PropertiesManager.setProperties("filterPurpleBag", Boolean.toString(filterPurpleBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterPinkBag = new JCheckBoxMenuItem("Show Pink Bags");
-        filterPinkBag.addActionListener(e -> {
-            LootGUI.filterPinkBag = filterPinkBag.isSelected();
-            PropertiesManager.setProperties("filterPinkBag", Boolean.toString(filterPinkBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterBrownBag = new JCheckBoxMenuItem("Show Brown Bags");
-        filterBrownBag.addActionListener(e -> {
-            LootGUI.filterBrownBag = filterBrownBag.isSelected();
-            PropertiesManager.setProperties("filterBrownBag", Boolean.toString(filterBrownBag.isSelected()));
-            LootGUI.applyFilters();
-        });
+        // Filter Loot writes the shared LootFilters model; the checkboxes follow it, so another editor stays in sync.
+        filterWhiteBag = filterItem("Show White Bags", LootFilters.Kind.WHITE);
+        filterOrangeBag = filterItem("Show Orange Bags", LootFilters.Kind.ORANGE);
+        filterRedBag = filterItem("Show Red Bags", LootFilters.Kind.RED);
+        filterGoldBag = filterItem("Show Gold Bags", LootFilters.Kind.GOLD);
+        filterEggBag = filterItem("Show Egg Bags", LootFilters.Kind.EGG);
+        filterBlueBag = filterItem("Show Blue Bags", LootFilters.Kind.BLUE);
+        filterTealBag = filterItem("Show Teal Bags", LootFilters.Kind.TEAL);
+        filterPurpleBag = filterItem("Show Purple Bags", LootFilters.Kind.PURPLE);
+        filterPinkBag = filterItem("Show Pink Bags", LootFilters.Kind.PINK);
+        filterBrownBag = filterItem("Show Brown Bags", LootFilters.Kind.BROWN);
 
         // Add filter options to the Filter Loot menu
         filterBags.add(filterWhiteBag);
@@ -242,6 +267,7 @@ public class TomatoMenuBar implements ActionListener {
         filterBags.add(filterPinkBag);
         filterBags.add(filterBrownBag);
         loadFilteredBags();
+        LootFilters.get().addListener(this::loadFilteredBags);
 
         borders = new JMenuItem("Borders");
         borders.addActionListener(this);
@@ -348,6 +374,7 @@ public class TomatoMenuBar implements ActionListener {
         info.add(javav);
         info.add(bandwidth);
         jMenuBar.add(info);
+        applySettingsEntries();
 
         return jMenuBar;
     }
@@ -479,12 +506,12 @@ public class TomatoMenuBar implements ActionListener {
         if (dataSending != null) {
             boolean b = dataSending.equals("true");
             disableDataSending.setSelected(b);
-            LootGUI.lootSharing(b);
+            LootCapture.get().lootSharing(b);
         }
     }
 
     private void setChatCheckbox() {
-        String save = PropertiesManager.getProperty("saveChat");
+        String save = PropertiesManager.getProperty(SAVE_CHAT);
         if (save != null) {
             saveChat.setSelected(save.equals("true"));
             ChatGUI.save = save.equals("true");
@@ -566,46 +593,25 @@ public class TomatoMenuBar implements ActionListener {
         }
     }
 
+    private JCheckBoxMenuItem filterItem(String text, LootFilters.Kind kind) {
+        JCheckBoxMenuItem item = new JCheckBoxMenuItem(text);
+        item.addActionListener(e -> LootFilters.get().set(kind, item.isSelected()));
+        return item;
+    }
+
+    /** Selects each Filter Loot checkbox from LootFilters (absent preference = shown); runs again on every filter change (EDT). */
     private void loadFilteredBags() {
-        String whiteBag = PropertiesManager.getProperty("filterWhiteBag");
-        filterWhiteBag.setSelected(whiteBag == null || whiteBag.equals("true"));
-        LootGUI.filterWhiteBag = filterWhiteBag.isSelected();
-
-        String orangeBag = PropertiesManager.getProperty("filterOrangeBag");
-        filterOrangeBag.setSelected(orangeBag == null || orangeBag.equals("true"));
-        LootGUI.filterOrangeBag = filterOrangeBag.isSelected();
-
-        String redBag = PropertiesManager.getProperty("filterRedBag");
-        filterRedBag.setSelected(redBag == null || redBag.equals("true"));
-        LootGUI.filterRedBag = filterRedBag.isSelected();
-
-        String goldBag = PropertiesManager.getProperty("filterGoldBag");
-        filterGoldBag.setSelected(goldBag == null || goldBag.equals("true"));
-        LootGUI.filterGoldBag = filterGoldBag.isSelected();
-
-        String eggBag = PropertiesManager.getProperty("filterEggBag");
-        filterEggBag.setSelected(eggBag == null || eggBag.equals("true"));
-        LootGUI.filterEggBag = filterEggBag.isSelected();
-
-        String blueBag = PropertiesManager.getProperty("filterBlueBag");
-        filterBlueBag.setSelected(blueBag == null || blueBag.equals("true"));
-        LootGUI.filterBlueBag = filterBlueBag.isSelected();
-
-        String tealBag = PropertiesManager.getProperty("filterTealBag");
-        filterTealBag.setSelected(tealBag == null || tealBag.equals("true"));
-        LootGUI.filterTealBag = filterTealBag.isSelected();
-
-        String purpleBag = PropertiesManager.getProperty("filterPurpleBag");
-        filterPurpleBag.setSelected(purpleBag == null || purpleBag.equals("true"));
-        LootGUI.filterPurpleBag = filterPurpleBag.isSelected();
-
-        String pinkBag = PropertiesManager.getProperty("filterPinkBag");
-        filterPinkBag.setSelected(pinkBag == null || pinkBag.equals("true"));
-        LootGUI.filterPinkBag = filterPinkBag.isSelected();
-
-        String brownBag = PropertiesManager.getProperty("filterBrownBag");
-        filterBrownBag.setSelected(brownBag == null || brownBag.equals("true"));
-        LootGUI.filterBrownBag = filterBrownBag.isSelected();
+        LootFilters filters = LootFilters.get();
+        filterWhiteBag.setSelected(filters.shows(LootFilters.Kind.WHITE));
+        filterOrangeBag.setSelected(filters.shows(LootFilters.Kind.ORANGE));
+        filterRedBag.setSelected(filters.shows(LootFilters.Kind.RED));
+        filterGoldBag.setSelected(filters.shows(LootFilters.Kind.GOLD));
+        filterEggBag.setSelected(filters.shows(LootFilters.Kind.EGG));
+        filterBlueBag.setSelected(filters.shows(LootFilters.Kind.BLUE));
+        filterTealBag.setSelected(filters.shows(LootFilters.Kind.TEAL));
+        filterPurpleBag.setSelected(filters.shows(LootFilters.Kind.PURPLE));
+        filterPinkBag.setSelected(filters.shows(LootFilters.Kind.PINK));
+        filterBrownBag.setSelected(filters.shows(LootFilters.Kind.BROWN));
     }
 
 
@@ -678,7 +684,7 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == disableDataSending) { // disables data sharing
             boolean b = disableDataSending.isSelected();
             PropertiesManager.setProperties("disableDataSending", b ? "true" : "false");
-            LootGUI.lootSharing(b);
+            LootCapture.get().lootSharing(b);
         } else if (e.getSource() == chatPingMessage) { // chat ping message
             TomatoGUI.openChatPingMessage();
         } else if (e.getSource() == entityIdPingMessage) { // entity id ping message
@@ -688,9 +694,7 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == enchantPingMessage) { // enchant ping message
             TomatoGUI.openEnchantPing();
         } else if (e.getSource() == saveChat) { // chat save logs
-            boolean b = saveChat.isSelected();
-            PropertiesManager.setProperties("saveChat", b ? "true" : "false");
-            ChatGUI.save = b;
+            setSaveChat(saveChat.isSelected());
         } else if (e.getSource() == chatPing) { // sound chat ping pm
             boolean b = chatPing.isSelected();
             PropertiesManager.setProperties("chatPing", b ? "true" : "false");
@@ -852,15 +856,12 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == clearDpsLogs) { // clears the dps logs
             DpsGUI.clearDpsLogs();
         } else if (e.getSource() == about) { // Opens about window
-            new TomatoPopupAbout().addPopup(frame);
+            // With the Settings hook, About is Settings › About; otherwise the dialog, as before.
+            if (openSettings != null) openSettings(SettingsPage.ABOUT); else new TomatoPopupAbout().addPopup(frame);
         } else if (e.getSource() == bandwidth) { // Opens bandwidth window
             TomatoBandwidth.make(frame);
-        } else if (e.getSource() == javav) { // Opens bandwidth window
-            String version = System.getProperty("java.version");
-            String bit = System.getProperty("sun.arch.data.model");
-            JFrame frame = new JFrame("Java version");
-            realmshark.branding.AppIdentity.apply(frame);
-            JOptionPane.showMessageDialog(frame, String.format("Java version: %s (%s-bit)", version, bit));
+        } else if (e.getSource() == javav) { // Shows the Java version
+            showJavaVersion();
         }
     }
 

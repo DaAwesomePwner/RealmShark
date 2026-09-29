@@ -1,7 +1,7 @@
 package tomato.gui.runs;
 
 /**
- * The tabs of shell page 10, Runs & DPS (spec §6.3), in their default order. {@link #id()} is the stable tab ID the
+ * The tabs of Runs & DPS (the shell's {@code runs} page, spec §6.3), in their default order. {@link #id()} is the stable tab ID the
  * {@code CustomizableTabs("runs")} strip saves in {@code ui.tabs.runs}; {@link #title()} is the tab's label.
  */
 public enum RunsTab {

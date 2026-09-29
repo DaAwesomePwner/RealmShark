@@ -11,9 +11,10 @@ import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
 /**
- * The Build route (Destination.MY_INFO). Build is a tab on the character sheet (spec §6.2), so a plain MY_INFO route redirects
- * to the sheet's Build tab. The character is the one in game when the journal has it, else the journal's most recent. With no
- * character at all it stays on page 6, which says that Build moved. EDT only.
+ * The Build route (Destination.MY_INFO). Build is a tab on the character sheet (spec §6.2) and has no page of its own (P6a
+ * removed the pointer page), so a plain MY_INFO route redirects to the sheet's Build tab. The character is the one in game when
+ * the journal has it, else the journal's most recent. With no character at all it redirects to the Characters list, whose
+ * gallery says "No characters yet". EDT only.
  */
 public final class BuildRoute implements RouteTarget {
     private final Supplier<String> key;
@@ -43,12 +44,13 @@ public final class BuildRoute implements RouteTarget {
             && route.recordingId == null && route.payload == null && route.from == null && route.until == null;
     }
 
+    /** The sheet's Build tab for the current character, or the Characters list when there is none. */
     @Override public Route redirect(Route route) {
         String target = key.get();
-        return target == null ? null : sheet(target);
+        return target == null ? Route.to(Destination.CHARACTERS) : sheet(target);
     }
 
-    // Page 6 is a static pointer: nothing to capture, open or restore.
+    // This target has no view: its route always redirects, so there is nothing to capture, open or restore.
     @Override public Object captureState() { return null; }
     @Override public void open(Route route) { }
     @Override public void restoreState(Object state) { }

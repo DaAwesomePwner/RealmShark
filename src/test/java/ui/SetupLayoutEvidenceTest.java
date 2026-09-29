@@ -1,11 +1,12 @@
 package ui;
 
-import java.util.Arrays;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ErrorCollector;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import static org.junit.Assert.*;
 import static ui.VisualEvidence.*;
@@ -20,10 +21,10 @@ public class SetupLayoutEvidenceTest {
         String failure = "Assets unavailable: synthetic resources.assets could not be read.\n"
             + "Choose another file or Retry assets. Saved history remains available. No capture has started.";
         SwingUtilities.invokeAndWait(() -> {
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-            pages[10].add(new JLabel("Synthetic saved-run history remains available"));
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.get("runs").add(new JLabel("Synthetic saved-run history remains available"));
             shell[0] = new WorkspaceShell(pages, () -> fail("Error state must not start capture"), false,
-                choose::incrementAndGet, retry::incrementAndGet, () -> { browse.incrementAndGet(); shell[0].select(10); });
+                choose::incrementAndGet, retry::incrementAndGet, () -> { browse.incrementAndGet(); shell[0].select("runs"); });
             shell[0].setSetupState(failure, false, false);
         });
         for (int font : new int[]{13, 24}) for (int width : new int[]{1240, 680}) {
@@ -49,7 +50,7 @@ public class SetupLayoutEvidenceTest {
         }
         SwingUtilities.invokeAndWait(() -> {
             assertEquals(4, choose.get()); assertEquals(4, retry.get()); assertEquals(4, browse.get());
-            assertEquals(10, shell[0].getSelectedPage());
+            assertEquals("runs", shell[0].selectedPage());
             shell[0].setSetupState("Reading synthetic replacement...", false, true);
             assertFalse(named(shell[0], "retry-assets", JButton.class).isEnabled());
             assertTrue(named(shell[0], "browse-history", JButton.class).isEnabled());

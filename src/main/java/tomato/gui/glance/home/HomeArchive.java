@@ -1,11 +1,6 @@
 package tomato.gui.glance.home;
 
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.*;
 import java.util.*;
 import packets.packetcapture.logger.ActivityJournal;
@@ -14,6 +9,7 @@ import tomato.gui.dps.RecordedEncounter;
 import tomato.gui.runs.RunOutcome;
 import tomato.gui.stats.LootFacts;
 import tomato.history.AppHistory;
+import tomato.history.SessionStamps;
 import tomato.history.SessionStore;
 import tomato.history.encounter.CombatFacts;
 import tomato.history.encounter.CombatRecord;
@@ -91,6 +87,8 @@ public final class HomeArchive {
     }
 
     static final int RECENT = 5, LOOT_ICONS = 8, BUCKETS = 12;
+    /** The session folders whose files the kept facts come from (besides the session folder's own entries). */
+    private static final String[] FOLDERS = {"runs", "loot", "fame", "fame-latest", CombatFacts.RECORDS};
     /** Fame per hour needs at least ten minutes of readings (summed over sessions). */
     static final long RATE_MINIMUM_MILLIS = 10 * 60_000L;
     private static final Comparator<Candidate> NEWEST_FIRST = Comparator.comparingLong((Candidate c) -> c.visit().started).reversed()
@@ -294,13 +292,10 @@ public final class HomeArchive {
         int count = 0;
         for (SessionStore.SessionEntry entry : unreadable) {
             if (since == Long.MIN_VALUE) { count++; continue; }
-            List<Stamp> stamp = new ArrayList<>();
-            Path folder = store.directory().resolve(entry.id);
-            try {
-                Reader.list(stamp, folder, "");
-                for (String module : Reader.FOLDERS) Reader.list(stamp, folder.resolve(module), module + "/");
-            } catch (IOException unlisted) { count++; continue; }
-            for (Stamp file : stamp) if (file.modified() >= since) { count++; break; }
+            List<SessionStamps.Stamp> stamp;
+            try { stamp = SessionStamps.stamp(store.directory().resolve(entry.id), FOLDERS); }
+            catch (IOException unlisted) { count++; continue; }
+            for (SessionStamps.Stamp file : stamp) if (file.modified() >= since) { count++; break; }
         }
         return count;
     }
@@ -310,11 +305,10 @@ public final class HomeArchive {
      * One reader thread owns it (Home's "home-archive"). A closed or imported session's facts are reused while its stamp is
      * unchanged: the name, size and modification time of every entry in the session folder and of the files in its runs, loot,
      * fame, fame-latest and encounters folders (so a saved or pruned record is seen). The current session is read again every
-     * time and never kept.
+     * time and never kept. The stamp and the keeping are {@link SessionStamps}'.
      */
     public static final class Cache {
-        private Path root;
-        private final Map<String, Facts> sessions = new HashMap<>();
+        private final SessionStamps<Facts> sessions = new SessionStamps<>(FOLDERS);
 
         public Cache() {}
 
@@ -322,31 +316,25 @@ public final class HomeArchive {
         int size() { return sessions.size(); }
 
         /** Forgets everything when the store's folder changed, and the sessions that left the catalog. */
-        private void prepare(SessionStore store, List<SessionStore.SessionEntry> catalog) {
-            if (!store.directory().equals(root)) { sessions.clear(); root = store.directory(); }
-            Set<String> listed = new HashSet<>();
-            for (SessionStore.SessionEntry entry : catalog) listed.add(entry.id);
-            sessions.keySet().retainAll(listed);
-        }
+        private void prepare(SessionStore store, List<SessionStore.SessionEntry> catalog) { sessions.forgetGone(store, catalog); }
     }
 
-    /** One session's facts, each read on first use; {@code stamp} is null for the current session. */
+    /**
+     * One session's facts, each read on first use; {@code stamp} is null for the current session. Kept facts are filled in
+     * place: a module that failed to read stays null and is read again next time, while the others are reused.
+     */
     private static final class Facts {
-        final List<Stamp> stamp;
+        final List<SessionStamps.Stamp> stamp;
         Long end;
         List<ActivityJournal.Visit> runs;
         List<LootFacts.Bag> loot;
         List<AppHistory.FameSample> fame;
         List<CombatRecord> combat;
-        Facts(List<Stamp> stamp) { this.stamp = stamp; }
+        Facts(List<SessionStamps.Stamp> stamp) { this.stamp = stamp; }
     }
-
-    /** One entry as last seen: its path inside the session folder, size and modification time (epoch ms). */
-    private record Stamp(String name, long size, long modified) {}
 
     /** One read over one catalog listing: each session is stamped at most once; its facts come from the Cache while unchanged. */
     private static final class Reader {
-        private static final String[] FOLDERS = {"runs", "loot", "fame", "fame-latest", CombatFacts.RECORDS};
         private final SessionStore store;
         private final List<SessionStore.SessionEntry> catalog;
         private final Cache kept;
@@ -357,28 +345,11 @@ public final class HomeArchive {
         private Facts facts(SessionStore.Session session) throws IOException {
             Facts facts = checked.get(session.id);
             if (facts != null) return facts;
-            if (session.id.equals(store.currentId())) facts = new Facts(null);   // still being written: never kept
-            else {
-                List<Stamp> stamp = new ArrayList<>();
-                Path folder = store.directory().resolve(session.id);
-                list(stamp, folder, "");
-                for (String module : FOLDERS) list(stamp, folder.resolve(module), module + "/");
-                stamp.sort(Comparator.comparing(Stamp::name));
-                facts = kept.sessions.get(session.id);
-                if (facts == null || !facts.stamp.equals(stamp)) { facts = new Facts(stamp); kept.sessions.put(session.id, facts); }
-            }
+            // The current session gets fresh facts (a null stamp), never kept; a closed session's kept facts while its stamp is
+            // unchanged, else new empty facts, kept at once and filled as its modules are read.
+            facts = kept.sessions.get(store, session.id, Facts::new);
             checked.put(session.id, facts);
             return facts;
-        }
-
-        private static void list(List<Stamp> stamp, Path folder, String prefix) throws IOException {
-            if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) return;
-            try (DirectoryStream<Path> files = Files.newDirectoryStream(folder)) {
-                for (Path file : files) {
-                    BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                    stamp.add(new Stamp(prefix + file.getFileName(), attributes.size(), attributes.lastModifiedTime().toMillis()));
-                }
-            }
         }
 
         /** When the session ended; 0 while it is open. A crashed session (no end saved) ended when its files were last written. */
@@ -387,7 +358,7 @@ public final class HomeArchive {
             Facts facts = facts(session);
             if (facts.end == null) {
                 long last = session.started;   // the folder's own entries, as before the cache
-                for (Stamp file : facts.stamp) if (file.name().indexOf('/') < 0) last = Math.max(last, file.modified());
+                for (SessionStamps.Stamp file : facts.stamp) if (file.name().indexOf('/') < 0) last = Math.max(last, file.modified());
                 facts.end = last;
             }
             return facts.end;

@@ -7,7 +7,7 @@ import tomato.gui.history.ArchiveFilters;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.stats.LootQuery.*;
 
-/** Removable chips for loot facets, shared by the saved Loot/Statistics drawer and the live Loot explorer. */
+/** Removable chips for loot facets, shared by the saved Loot drawer and the live Loot explorer. */
 final class LootFacetChips {
     private LootFacetChips() {}
 

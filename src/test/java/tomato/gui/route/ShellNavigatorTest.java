@@ -19,7 +19,7 @@ public class ShellNavigatorTest {
             ShellNavigator navigator = pages.navigator(5);
             Fake runs = new Fake(Destination.RUNS, pages.log); runs.state = "runs-origin";
             navigator.register(runs);
-            pages.selected = 10;
+            pages.selected = "runs";
             assertFalse("No target for this destination", navigator.open(Route.to(Destination.LOOT)));
             assertFalse(navigator.canOpen(Route.to(Destination.LOOT)));
             runs.accept = false;
@@ -29,7 +29,7 @@ public class ShellNavigatorTest {
             assertFalse(navigator.open(Route.to(Destination.TIMELINE)));
             assertFalse(navigator.open(null));
             assertFalse(navigator.canGoBack()); assertEquals(0, navigator.depth());
-            assertEquals(10, pages.selected);
+            assertEquals("runs", pages.selected);
             assertTrue("No capture, open or page change happened: " + pages.log, pages.log.isEmpty());
             return null;
         });
@@ -41,16 +41,16 @@ public class ShellNavigatorTest {
             ShellNavigator navigator = pages.navigator(5);
             Fake runs = new Fake(Destination.RUNS, pages.log), timeline = new Fake(Destination.TIMELINE, pages.log);
             navigator.register(runs); navigator.register(timeline);
-            pages.selected = 10; runs.state = "session A · page 3 · row 7";
+            pages.selected = "runs"; runs.state = "session A · page 3 · row 7";
             assertTrue(navigator.canOpen(Route.to(Destination.TIMELINE).withVisit(VISIT)));
             assertTrue(navigator.open(Route.to(Destination.TIMELINE).withVisit(VISIT)));
-            assertEquals(Arrays.asList("capture RUNS", "open TIMELINE", "select 11"), pages.log);
+            assertEquals(Arrays.asList("capture RUNS", "open TIMELINE", "select timeline"), pages.log);
             assertEquals(VISIT, timeline.opened.visit);
-            assertEquals(10, navigator.backPage());
+            assertEquals("runs", navigator.backPage());
             runs.state = "changed while away";
             pages.log.clear();
             assertTrue(navigator.back());
-            assertEquals(Arrays.asList("restore RUNS session A · page 3 · row 7", "select 10"), pages.log);
+            assertEquals(Arrays.asList("restore RUNS session A · page 3 · row 7", "select runs"), pages.log);
             assertEquals("session A · page 3 · row 7", runs.state);
             assertFalse(navigator.canGoBack()); assertFalse(navigator.back());
             return null;
@@ -63,19 +63,19 @@ public class ShellNavigatorTest {
             ShellNavigator navigator = pages.navigator(5);
             Fake loot = new Fake(Destination.LOOT, pages.log);
             navigator.register(loot);
-            pages.selected = 0; // Chat: no route target, only its page is remembered.
+            pages.selected = "chat"; // Chat: no route target, only its page is remembered.
             assertTrue(navigator.open(Route.to(Destination.LOOT)));
-            assertEquals(8, pages.selected);
+            assertEquals("loot", pages.selected);
             loot.fail = true; pages.log.clear();
             assertFalse(navigator.open(Route.to(Destination.LOOT)));
-            assertEquals("A failed open leaves the current page and stack alone", 8, pages.selected);
+            assertEquals("A failed open leaves the current page and stack alone", "loot", pages.selected);
             assertEquals(1, navigator.depth());
-            assertTrue(navigator.back()); assertEquals(0, pages.selected);
+            assertTrue(navigator.back()); assertEquals("chat", pages.selected);
             // Dialog destinations have no page: they open beside the current view and add no Back entry.
             Fake draft = new Fake(Destination.ALERT_DRAFT, pages.log);
             navigator.register(draft);
             assertTrue(navigator.open(Route.to(Destination.ALERT_DRAFT).withPayload("sample")));
-            assertEquals(0, pages.selected); assertFalse(navigator.canGoBack());
+            assertEquals("chat", pages.selected); assertFalse(navigator.canGoBack());
             return null;
         });
     }
@@ -86,13 +86,13 @@ public class ShellNavigatorTest {
             ShellNavigator navigator = pages.navigator(3);
             Fake runs = new Fake(Destination.RUNS, pages.log);
             navigator.register(runs);
-            pages.selected = 10;
+            pages.selected = "runs";
             for (int i = 0; i < 5; i++) { runs.state = "origin " + i; assertTrue(navigator.open(Route.to(Destination.RUNS))); }
             assertEquals(3, navigator.depth());
             List<Object> restored = new ArrayList<>();
             while (navigator.back()) restored.add(runs.state);
             assertEquals(Arrays.asList("origin 4", "origin 3", "origin 2"), restored);
-            try { new ShellNavigator(() -> 0, page -> {}, d -> 0, 0); fail(); } catch (IllegalArgumentException expected) {}
+            try { new ShellNavigator(() -> "chat", page -> {}, d -> "chat", 0); fail(); } catch (IllegalArgumentException expected) {}
             return null;
         });
     }
@@ -104,7 +104,7 @@ public class ShellNavigatorTest {
             Fake generic = new Fake(Destination.RUNS, pages.log), specific = new Fake(Destination.RUNS, pages.log);
             generic.state = "generic"; specific.state = "specific";
             navigator.register(generic); navigator.register(specific);
-            pages.selected = 10;
+            pages.selected = "runs";
             assertTrue(navigator.open(Route.to(Destination.RUNS)));
             assertSame(specific.opened.destination, Destination.RUNS); assertNull(generic.opened);
             specific.accept = false;
@@ -145,7 +145,7 @@ public class ShellNavigatorTest {
             navigator.register(new Fake(Destination.RUNS, pages.log)); navigator.register(new Fake(Destination.LOOT, pages.log));
             assertEquals(0, navigator.backToken()); assertEquals(0, Navigator.NONE.nextBackToken());
             long expected = navigator.nextBackToken();
-            pages.selected = 10;
+            pages.selected = "runs";
             assertTrue(navigator.open(Route.to(Destination.LOOT)));
             assertEquals(expected, navigator.backToken());
             assertTrue(navigator.back());
@@ -159,16 +159,16 @@ public class ShellNavigatorTest {
     }
 
     static final class Pages {
-        int selected;
+        String selected = "chat";
         final List<String> log = new ArrayList<>();
         ShellNavigator navigator(int capacity) {
             return new ShellNavigator(() -> selected, page -> { selected = page; log.add("select " + page); }, Pages::page, capacity);
         }
-        static int page(Destination destination) {
+        static String page(Destination destination) {
             switch (destination) {
-                case RUNS: return 10;
-                case TIMELINE: return 11;
-                case LOOT: return 8;
+                case RUNS: return "runs";
+                case TIMELINE: return "timeline";
+                case LOOT: return "loot";
                 default: return ShellNavigator.NO_PAGE;
             }
         }

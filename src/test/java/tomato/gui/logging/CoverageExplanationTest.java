@@ -39,7 +39,8 @@ public class CoverageExplanationTest {
             assertTrue(text.contains("Decode failures: 1 (packet could not be decoded"));
             assertTrue(text.contains("Collection: paused; frames are not observed while paused, which is not zero activity"));
             assertTrue(text.contains("Collection: paused · Collection paused"));
-            assertTrue(text.contains("Views affected by decode issues: Resources & buffs (1 frames); Inspect (1 frames); Loot (1 frames)"));
+            // P6a: the INSPECT view is labeled by its page, Party (the ENCOUNTER view is the Live meter).
+            assertTrue(text.contains("Views affected by decode issues: Resources & buffs (1 frames); Party (1 frames); Loot (1 frames)"));
             assertTrue(text.contains("Diagnostic disk drops: 0 (writer lifetime"));
             assertTrue(text.contains("Sampled-out events: 0"));
             assertTrue(text.contains("Omitted stat deltas: 0"));
@@ -75,14 +76,14 @@ public class CoverageExplanationTest {
             edt(() -> {
                 LoggingGUI logging = new LoggingGUI(log, LoggingStateTestSupport.memoryStore());
                 LoggingRouteTarget target = new LoggingRouteTarget(logging);
-                int[] page = {10};
-                ShellNavigator navigator = new ShellNavigator(() -> page[0], value -> page[0] = value, d -> d == Destination.LOGGING ? 9 : 10, 5);
+                String[] page = {"runs"};
+                ShellNavigator navigator = new ShellNavigator(() -> page[0], value -> page[0] = value, d -> d == Destination.LOGGING ? "logging" : "runs", 5);
                 navigator.register(target);
                 assertFalse(navigator.canOpen(Route.to(Destination.LOGGING).withPayload(LoggingRouteTarget.packetFor(Destination.RUNS, "TEXT"))));
                 assertFalse(navigator.canOpen(Route.to(Destination.LOGGING).withPayload(LoggingRouteTarget.issuesFor(Destination.NOTIFICATIONS))));
                 assertFalse(navigator.canOpen(Route.to(Destination.LOGGING).withPayload("MAPINFO")));
                 assertTrue(navigator.open(Route.to(Destination.LOGGING).withPayload(LoggingRouteTarget.issuesFor(Destination.RUNS))));
-                assertEquals(9, page[0]);
+                assertEquals("logging", page[0]);
                 assertEquals("packets", logging.captureViewState().tab);
                 assertTrue(logging.captureViewState().tabs.get("packets").query.issues);
                 assertTrue(navigator.open(Route.to(Destination.LOGGING).withPayload(LoggingRouteTarget.packetFor(Destination.RUNS, "MAPINFO"))));
@@ -90,7 +91,7 @@ public class CoverageExplanationTest {
                 assertTrue(navigator.back());
                 assertTrue(logging.captureViewState().tabs.get("packets").query.issues);
                 assertTrue(navigator.back());
-                assertEquals(10, page[0]);
+                assertEquals("runs", page[0]);
                 return null;
             });
         }

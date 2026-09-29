@@ -10,7 +10,7 @@ import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
 /**
- * Routes into the Quests page (shell page 5). The page stays mounted: its filters, selection, detail and plans are never touched here.
+ * Routes into the Quests page (the shell's {@code quests} page). The page stays mounted: its filters, selection, detail and plans are never touched here.
  * - {@link Destination#QUESTS} without a payload, or with {@link QuestsFocus#BOARD}, brings the Board forward, so Home's Quests card
  *   lands on the Board even when the Planner was the tab last shown (spec S3).
  * - {@link QuestsFocus#PLANNER} brings the Planner forward and moves keyboard focus to the tabs once the page shows (search's "Quest
@@ -42,7 +42,7 @@ public final class QuestsRouteTarget implements RouteTarget {
         if (!accepts(route)) throw new IllegalArgumentException("Unsupported Quests route: " + route);
         if (route.payload != QuestsFocus.PLANNER) { quests.openBoard(); return; }
         quests.openPlans();
-        // ShellNavigator.open calls this before it selects page 5, so from another page openPlans' focus request finds the tabs
+        // ShellNavigator.open calls this before it selects the Quests page, so from another page openPlans' focus request finds the tabs
         // hidden. Ask again once the page shows (as CharactersRouteTarget does for the sheet), while the Planner is still in front.
         SwingUtilities.invokeLater(() -> { if (front() == QuestsFocus.PLANNER) tabs.requestFocusInWindow(); });
     }
@@ -53,7 +53,7 @@ public final class QuestsRouteTarget implements RouteTarget {
         int index = indexOf(tab);
         if (index >= 0) { tabs.setSelectedIndex(index); return; }
         // Hidden since the state was captured: only the page's own open methods show a tab. openPlans also asks for focus, which
-        // fails harmlessly while Back from another page has not yet selected page 5.
+        // fails harmlessly while Back from another page has not yet selected the Quests page.
         if (tab == QuestsFocus.BOARD) quests.openBoard(); else quests.openPlans();
     }
 

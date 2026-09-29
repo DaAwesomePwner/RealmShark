@@ -119,19 +119,6 @@ public class FameGraphPinTest {
         if (failure.get() != null) throw new AssertionError(failure.get());
     }
 
-    @Test public void liveTrackerShowsTheSameTextDelta() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            FameTrackerGUI fame = new FameTrackerGUI((session, done) -> done.accept(true));
-            fame.trackCapturedFame(7, 100, 60000); fame.trackCapturedFame(7, 130, 180000); fame.refreshNow();
-            GraphPanel graph = named(fame, null, GraphPanel.class);
-            graph.pinInterval(60000L, 180000L);
-            assertTrue(named(fame, "fame-graph-delta", JLabel.class).getText().contains("+30"));
-            fame.trackCapturedFame(7, 150, 240000); fame.refreshNow();
-            assertEquals(Long.valueOf(60000), graph.pinnedStart());
-            assertTrue(named(fame, "fame-graph-delta", JLabel.class).getText().startsWith("Pinned"));
-        });
-    }
-
     static <T> T named(Container root, String name, Class<T> type) {
         for (Component child : root.getComponents()) {
             if ((name == null || name.equals(child.getName())) && type.isInstance(child)) return type.cast(child);

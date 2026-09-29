@@ -43,12 +43,14 @@ import static org.junit.Assert.*;
  * lanes emit is accepted, and a stale load completing after Back cannot replace the restored state.
  */
 public class WaveThreeJourneyTest {
-    private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "statistics", "combat"};
+    /** Saved view states the composition reads, cleared then restored (P6a Task 12 removed the Statistics workspace). */
+    private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "combat"};
     /**
      * Runs & DPS opens on its first visible tab (the Feed by default), the Live meter's nested tabs keep their saved order, and the
-     * Recordings tab saves its view (the encounter library's live state) when the shell is removed: all three cleared, then restored.
+     * Recordings tab saves its view (the encounter library's live state) when the shell is removed, and Loot opens on its first visible
+     * tab (Highlights by default, P6a): all four cleared, then restored.
      */
-    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live"};
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live", "ui.tabs.loot"};
     private static final String V1 = "journal:v1", V2 = "journal:v2";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     /** The Runs page opens on the run cards; these journeys drive the archive table, its Table view. */
@@ -112,28 +114,31 @@ public class WaveThreeJourneyTest {
         assertTrue(open(Route.to(Destination.RUNS).withVisit(second)));
         await(() -> settled(runs) && runs.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(runs, row -> field(row, "visitId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(ActivityRoutes.timelineAround(second, 175_000, ActivityRoutes.AROUND_MILLIS)));
-        assertEquals(WorkspaceShell.pageOf(Destination.TIMELINE), (int) edt(shell::getSelectedPage));
+        assertEquals(WorkspaceShell.pageOf(Destination.TIMELINE), edt(shell::selectedPage));
         await(() -> settled(timeline) && timeline.state().query.bounds().from != null);
         assertEquals("Only the second visit's events inside [145 s, 205 s)", Arrays.asList("t2-a", "t2-b"),
             visitIds(timeline, row -> field(row, "recordId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.INSPECT).withVisit(second)));
         await(() -> settled(inspect) && inspect.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(inspect, row -> field(row, "visitId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.LOOT).withVisit(second)));
         await(() -> settled(loot) && loot.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(loot, row -> field(row, "visitId")));
         assertEquals(Collections.singletonList("Second visit sword"), visitIds(loot, row -> field(row, "name")));
-        backTo(runs, origin, 10);
+        // Loot is a page with Highlights and Explore (P6a): the visit route brings Explore, which holds the Loot workspace, forward.
+        assertEquals("The LOOT route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, edt(() -> lootPage().selectedTab()));
+        assertTrue("…whose content is the Loot workspace", edt(() -> SwingUtilities.isDescendingFrom(loot, exploreTab())));
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.RESOURCES).withVisit(second)));
-        assertEquals(WorkspaceShell.pageOf(Destination.RESOURCES), (int) edt(shell::getSelectedPage));
+        assertEquals(WorkspaceShell.pageOf(Destination.RESOURCES), edt(shell::selectedPage));
         // Resources & buffs is nested in the Live meter tab of Runs & DPS, the origin's own page (P5b): the route brings that tab
         // forward, and Back (below) brings the Feed forward before restoring the Runs table.
         assertEquals("RESOURCES brings the Live meter tab forward", RunsTab.LIVE_METER, edt(() -> runsDps().selectedTab()));
@@ -144,7 +149,7 @@ public class WaveThreeJourneyTest {
         ArchiveWorkspace<?, ?, ?> resources = workspace("combat");
         await(() -> settled(resources) && resources.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(resources, row -> field(row, "visitId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
         assertFalse(edt(() -> Navigator.current().canGoBack()));
     }
 
@@ -156,21 +161,25 @@ public class WaveThreeJourneyTest {
         await(() -> settled(runs) && runs.displayedPage().matches == 0);
         String detail = edt(() -> named(runs, JTextArea.class, "activity-archive-detail").getText());
         assertTrue(detail, detail.contains("Linked visit unavailable") && detail.contains("same dungeon name"));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(ActivityRoutes.timelineAround(foreign, 175_000, ActivityRoutes.AROUND_MILLIS)));
         await(() -> settled(timeline) && timeline.state().query.bounds().from != null);
         assertEquals(0, (long) edt(() -> timeline.displayedPage().matches));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.LOOT).withVisit(foreign)));
         await(() -> settled(loot));
         edt(() -> {
             assertEquals("No other session's loot is substituted", 0, loot.displayedPage().matches);
             assertTrue(named(loot, JTextArea.class, "loot-drill-summary").getText().contains("Linked run unavailable here"));
+            // P6a: the drill summary sits in Loot's Explore tab, which the route brought forward.
+            assertEquals(tomato.gui.loot.LootTab.EXPLORE, lootPage().selectedTab());
+            assertTrue("loot-drill-summary sits inside Explore",
+                SwingUtilities.isDescendingFrom(named(shell, JTextArea.class, "loot-drill-summary"), exploreTab()));
             return null;
         });
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
     }
 
     @Test public void everyRouteShapeTheLanesEmitIsAcceptedByTheProductionNavigator() throws Exception {
@@ -215,7 +224,7 @@ public class WaveThreeJourneyTest {
             edt(() -> {
                 assertEquals(destination + ": restored state survives the stale completion", origin.toJson(), runs.state().toJson());
                 assertEquals(originMatches, runs.displayedPage().matches);
-                assertEquals(10, shell.getSelectedPage());
+                assertEquals("runs", shell.selectedPage());
                 return null;
             });
         }
@@ -225,31 +234,31 @@ public class WaveThreeJourneyTest {
         VisitRef second = new VisitRef(store.currentId(), V2);
         tomato.gui.notifications.NotificationsGUI notifications = edt(() -> find(shell, tomato.gui.notifications.NotificationsGUI.class));
         JTextField search = edt(() -> named(notifications, JTextField.class, "sound-dungeon-search"));
-        edt(() -> { search.setText("Shat"); shell.select(1); return null; });
+        edt(() -> { search.setText("Shat"); shell.select("key-pops"); return null; });
         assertTrue(open(Route.to(Destination.NOTIFICATIONS).withPayload(tomato.gui.notifications.NotificationFocus.dungeon("Lost Halls"))));
         edt(() -> {
-            assertEquals(13, shell.getSelectedPage());
+            assertEquals("settings", shell.selectedPage());
             assertEquals("Lost Halls", search.getText());
             assertTrue(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
             assertTrue(Navigator.current().back()); // The user leaves with the shell Back, not the banner.
-            assertEquals(1, shell.getSelectedPage());
+            assertEquals("key-pops", shell.selectedPage());
             return null;
         });
         ArchiveWorkspace<?, ?, ?> runs = workspace("runs");
         ViewState<?, ?> origin = reviewQueue(runs);
         assertTrue(open(Route.to(Destination.LOOT).withVisit(second)));
         edt(() -> {
-            assertEquals(8, shell.getSelectedPage());
-            shell.select(13); // Revisit Notifications from the sidebar; the old banner may still be up.
+            assertEquals("loot", shell.selectedPage());
+            shell.select("settings"); // Revisit Notifications from the sidebar; the old banner may still be up.
             JButton stale = named(notifications, JButton.class, "sound-dungeon-focus-back");
             assertTrue("The stale banner is still showing", named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible()); stale.doClick();
-            assertEquals("The stale banner Back did not navigate", 13, shell.getSelectedPage());
+            assertEquals("The stale banner Back did not navigate", "settings", shell.selectedPage());
             assertTrue("The Runs -> Loot origin is still available", Navigator.current().canGoBack());
             assertFalse(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
             assertEquals("Pre-focus filter restored", "Shat", search.getText());
             return null;
         });
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
     }
 
     @Test public void leavingTheNotificationsPageEndsTheHandoffFocusAndRestoresFilters() throws Exception {
@@ -285,7 +294,7 @@ public class WaveThreeJourneyTest {
 
     /** Origin review queue: saved Runs in the current session with the third row selected. */
     private ViewState<?, ?> reviewQueue(ArchiveWorkspace<?, ?, ?> runs) throws Exception {
-        edt(() -> { shell.select(10); runs.showSaved(); return null; });
+        edt(() -> { shell.select("runs"); runs.showSaved(); return null; });
         await(() -> settled(runs) && runs.displayedPage().matches == 8);
         edt(() -> { select(runs, 2); return null; });
         ViewState<?, ?> origin = edt(runs::state);
@@ -298,18 +307,29 @@ public class WaveThreeJourneyTest {
         ViewState state = runs.state();
         runs.restore(state.withPosition(state.tab, Collections.singletonList(ref), ref, 0));
     }
-    private void backTo(ArchiveWorkspace<?, ?, ?> runs, ViewState<?, ?> origin, int page) throws Exception {
+    private void backTo(ArchiveWorkspace<?, ?, ?> runs, ViewState<?, ?> origin, String page) throws Exception {
         assertTrue(edt(() -> Navigator.current().back()));
         await(() -> settled(runs) && runs.state().query.equals(origin.query));
         edt(() -> {
-            assertEquals(page, shell.getSelectedPage());
+            assertEquals(page, shell.selectedPage());
             // Every origin here is the Runs table in the Feed tab of Runs & DPS: Back brings that tab forward first.
-            if (page == 10) assertEquals("Back returns to the Feed tab", RunsTab.FEED, runsDps().selectedTab());
+            if (page.equals("runs")) assertEquals("Back returns to the Feed tab", RunsTab.FEED, runsDps().selectedTab());
             assertEquals("Back restores query, page, selection and scroll anchor", origin.toJson(), runs.state().toJson());
             JTable table = named(runs, JTable.class, "saved-activity-table");
             assertEquals(origin.selected.get(0), runs.displayedPage().rows.get(table.convertRowIndexToModel(table.getSelectedRow())).ref);
             return null;
         });
+    }
+    /** Loot (P6a): the Highlights and Explore tabs. EDT. */
+    private tomato.gui.loot.LootPage lootPage() {
+        tomato.gui.loot.LootPage page = named(shell, tomato.gui.loot.LootPage.class, "loot-page");
+        assertNotNull("The loot page is Loot", page);
+        return page;
+    }
+    /** Loot's Explore tab content. EDT. */
+    private Component exploreTab() {
+        tomato.gui.loot.LootPage page = lootPage();
+        return page.tabs().component().getComponentAt(page.tabs().visibleIds().indexOf(tomato.gui.loot.LootTab.EXPLORE.id()));
     }
     /** Page 10, Runs & DPS. EDT. */
     private RunsDpsPage runsDps() {

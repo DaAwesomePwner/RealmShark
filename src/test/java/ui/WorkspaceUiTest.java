@@ -20,7 +20,7 @@ import static org.junit.Assert.*;
 public class WorkspaceUiTest {
     @Test public void appearanceSettingsAndTheThemeMenuStayInStep() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            shell.select(13);
+            shell.select("settings");
             tomato.gui.settings.SettingsPage settings = findType(shell, tomato.gui.settings.SettingsPage.class);
             assertNotNull("Settings is shell page 13", settings);
             settings.showSection(tomato.gui.settings.SettingsPage.APPEARANCE);
@@ -37,7 +37,7 @@ public class WorkspaceUiTest {
             } finally {
                 if (!(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme)) menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
                 settings.showSection(tomato.gui.settings.SettingsPage.NOTIFICATIONS);
-                shell.select(0);
+                shell.select("chat");
             }
         });
     }
@@ -49,11 +49,11 @@ public class WorkspaceUiTest {
         return null;
     }
     @Test public void applicationOpensOnTheFirstVisibleCoreDestination() {
-        assertEquals(new tomato.gui.modern.NavLayout().landing().page(), openedOn);
+        assertEquals(new tomato.gui.modern.NavLayout().landing().id(), openedOn);
     }
     private static JFrame frame;
     private static WorkspaceShell shell;
-    private static int openedOn = -1;
+    private static String openedOn;
 
     @BeforeClass public static void openApplication() throws Exception {
         Tomato.main(new String[] {"--preview"});
@@ -61,7 +61,7 @@ public class WorkspaceUiTest {
             frame = TomatoGUI.getFrame();
             assertNotNull("The actual application must open", frame);
             shell = (WorkspaceShell) frame.getContentPane();
-            openedOn = shell.getSelectedPage();
+            openedOn = shell.selectedPage();
         });
     }
 
@@ -78,39 +78,56 @@ public class WorkspaceUiTest {
         });
     }
 
-    @Test public void aboutMenuShowsOwnedBrandedDialogWithOriginalCredits() throws Exception {
+    /**
+     * P6a (user decision 2026-09-29: Settings gains About, and its menu entry opens it): in the app, Info › About opens Settings ›
+     * About, which shows the About dialog's content (the same AboutPanel), no longer a dialog. The dialog itself, still what About
+     * opens without the Settings hook, is checked by tomato.gui.settings.AboutSectionTest (modeless, its Close default button).
+     */
+    @Test public void aboutMenuOpensSettingsAboutWithTheOriginalCredits() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JMenuItem about = menuItem(frame.getJMenuBar(), "About");
             assertNotNull("The original About menu must remain reachable", about);
+            int windows = frame.getOwnedWindows().length;
+            shell.select("chat");
             about.doClick();
-            JDialog dialog = null;
-            for (Window window : frame.getOwnedWindows()) {
-                if (window instanceof JDialog && window.isShowing()
-                        && "About RealmShark".equals(((JDialog)window).getTitle())) dialog = (JDialog)window;
-            }
-            assertNotNull("About must be owned by the main window", dialog);
             try {
-                assertFalse("About should remain readable while using the app", dialog.isModal());
-                assertEquals(AppIdentity.icons(), dialog.getIconImages());
-                String text = visibleText(dialog);
+                assertEquals("About opens Settings", "settings", shell.selectedPage());
+                tomato.gui.settings.SettingsPage settings = findType(shell, tomato.gui.settings.SettingsPage.class);
+                assertEquals("…on its About section", tomato.gui.settings.SettingsPage.ABOUT, settings.currentSection());
+                for (Window window : frame.getOwnedWindows())
+                    assertFalse("No About dialog opens", window instanceof JDialog && window.isShowing()
+                        && "About RealmShark".equals(((JDialog)window).getTitle()));
+                assertEquals(windows, frame.getOwnedWindows().length);
+                JComponent section = null;
+                for (Component child : findAll(settings)) if ("settings-about".equals(child.getName())) section = (JComponent) child;
+                assertNotNull("Settings › About", section);
+                assertTrue(section.isShowing());
+                String text = visibleText(section);
                 assertTrue(text.contains("RealmShark"));
                 assertTrue(text.contains(realmshark.version.Version.VERSION));
                 assertTrue(text.contains("Realm of the Mad God"));
                 assertTrue(text.contains("Anon"));
                 assertTrue(text.contains("MIT License"));
                 assertFalse(text.toLowerCase(java.util.Locale.ROOT).contains("tomato"));
-                JLabel logo = findLogo(dialog);
+                JLabel logo = findLogo(section);
                 assertNotNull("About must display the product logo", logo);
                 assertEquals(80, logo.getIcon().getIconWidth());
                 assertEquals(80, logo.getIcon().getIconHeight());
                 assertEquals("RealmShark logo", logo.getAccessibleContext().getAccessibleName());
-                snapshot(dialog, "about.png");
-                assertNotNull(dialog.getRootPane().getDefaultButton());
-                assertEquals("Close", dialog.getRootPane().getDefaultButton().getText());
-                dialog.getRootPane().getDefaultButton().doClick();
-                assertFalse("Close should dispose the dialog", dialog.isDisplayable());
-            } finally { dialog.dispose(); }
+                snapshot(frame, "about.png");
+            } finally {
+                findType(shell, tomato.gui.settings.SettingsPage.class).showSection(tomato.gui.settings.SettingsPage.NOTIFICATIONS);
+                shell.select("chat");
+            }
         });
+    }
+    private static List<Component> findAll(Container root) {
+        List<Component> all = new ArrayList<>();
+        for (Component child : root.getComponents()) {
+            all.add(child);
+            if (child instanceof Container) all.addAll(findAll((Container) child));
+        }
+        return all;
     }
 
     @Test public void allOriginalSectionsRemainReachableAtRealizedNativeSizes() throws Exception {
@@ -127,11 +144,10 @@ public class WorkspaceUiTest {
                         + ", transform=" + frame.getGraphicsConfiguration().getDefaultTransform());
                     // The native peer may clamp the requested outer size at high display scaling.
                     assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
-                    for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
-                        AbstractButton button = findButton(shell, "nav-" + i);
-                        if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger are reached by route, search and shortcut, not the sidebar", button.isShowing()); continue; }
+                    for (NavEntry entry : NavEntry.defaults()) {
+                        AbstractButton button = findButton(shell, "nav-" + entry.id());
                         assertTrue(button.isShowing()); button.doClick();
-                        assertEquals(i, shell.getSelectedPage());
+                        assertEquals(entry.id(), shell.selectedPage());
                         assertTrue(button.isSelected());
                         assertTrue(button.getWidth() >= 32);
                         assertTrue(button.getHeight() >= 32);
@@ -155,14 +171,13 @@ public class WorkspaceUiTest {
                     layoutTree(shell);
                     assertEquals("Exact offscreen client size", size, shell.getSize());
                     assertEquals("Exact compact breakpoint", width < 1000, shell.isCompact());
-                    for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
-                        AbstractButton button = findButton(shell, "nav-" + i);
-                        if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", button.isVisible()); continue; }
+                    for (NavEntry entry : NavEntry.defaults()) {
+                        AbstractButton button = findButton(shell, "nav-" + entry.id());
                         button.doClick(); layoutTree(shell);
-                        assertEquals(i, shell.getSelectedPage());
+                        assertEquals(entry.id(), shell.selectedPage());
                         assertTrue(button.isVisible()); assertTrue(button.isSelected());
                         assertTrue(button.getWidth() >= 32); assertTrue(button.getHeight() >= 32);
-                        assertEquals(width < 1000 ? "" : WorkspaceShell.TITLES[i], button.getText());
+                        assertEquals(width < 1000 ? "" : entry.title(), button.getText());
                     }
                     System.out.println("Exact application client=" + size + ", compact=" + shell.isCompact());
                 }
@@ -237,30 +252,13 @@ public class WorkspaceUiTest {
         return null;
     }
 
-    @Test public void lootDungeonRenderingSurvivesUnavailableOptionalAssets() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            try {
-                java.lang.reflect.Method render = tomato.gui.stats.LootGUI.class.getDeclaredMethod(
-                        "displayDungeonIcon", packets.incoming.MapInfoPacket.class, JPanel.class);
-                render.setAccessible(true);
-                packets.incoming.MapInfoPacket map = new packets.incoming.MapInfoPacket();
-                map.name = "The Shatters"; map.dungeonModifiers = "UNKNOWN_MOD";
-                for (int i = 0; i < 3; i++) {
-                    JPanel row = new JPanel(); render.invoke(null, map, row);
-                    assertEquals(1,row.getComponentCount());
-                    assertTrue(((JLabel)row.getComponent(0)).getToolTipText().contains("The Shatters"));
-                }
-            } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
-        });
-    }
-
     @Test public void lightThemeAndContrastSwitchBackWithoutLosingTheWorkspace() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JMenuItem contrast = menuItem(frame.getJMenuBar(), "Increase contrast");
             // Preferences persist in the test working directory; start from a known state even after a failed run.
             if (contrast.isSelected()) contrast.doClick();
             try {
-                shell.select(7);
+                shell.select("runs");   // Runs & DPS: the Feed, and the DPS meter in its Live meter tab
                 menuItem(frame.getJMenuBar(), "Violet Light").doClick();
                 assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletLightTheme);
                 contrast.doClick();
@@ -269,11 +267,11 @@ public class WorkspaceUiTest {
                 menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
                 assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme);
                 assertFalse(tomato.gui.modern.Themes.increaseContrast());
-                assertEquals(7, shell.getSelectedPage());
+                assertEquals("runs", shell.selectedPage());
             } finally {
                 if (contrast.isSelected()) contrast.doClick();
                 menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
-                shell.select(0);
+                shell.select("chat");
             }
         });
     }
@@ -283,11 +281,11 @@ public class WorkspaceUiTest {
             frame.setSize(1240, 800); frame.validate();
             shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
             frame.validate();
-            for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
-                shell.select(i); frame.validate(); snapshot("page-" + i + ".png");
-                renderSubtabs(shell, "page-" + i);
+            for (NavEntry entry : NavEntry.defaults()) {
+                shell.select(entry.id()); frame.validate(); snapshot("page-" + entry.id() + ".png");
+                renderSubtabs(shell, "page-" + entry.id());
             }
-            shell.select(0);
+            shell.select("chat");
             ChatGUI.appendTextAreaChat("[Preview sample] 12:41 [Guild] Aster: Anyone up for a Shatters run?\n\n"
                 + "[Preview sample] 12:42 [Guild] Wren: Ready in Nexus. Bringing a key.\n\n"
                 + "[Preview sample] 12:42 [Party] Nova: Let's meet by the portal.\n");
@@ -303,7 +301,7 @@ public class WorkspaceUiTest {
         SwingUtilities.invokeAndWait(() -> {
             JMenuItem contrast = menuItem(frame.getJMenuBar(), "Increase contrast");
             try {
-                shell.select(0);
+                shell.select("chat");
                 ChatGUI.appendTextAreaChat("[Synthetic] Aster: Ready for the next run.\n");
                 for (String variant : new String[] {"Violet Dark", "Violet Light"}) {
                     menuItem(frame.getJMenuBar(), variant).doClick();
@@ -312,7 +310,7 @@ public class WorkspaceUiTest {
                         assertEquals(high, tomato.gui.modern.Themes.saved().increaseContrast);
                         assertEquals(variant.equals("Violet Light"),
                             tomato.gui.modern.Themes.saved().variant == tomato.gui.modern.Themes.Variant.LIGHT);
-                        assertEquals(0, shell.getSelectedPage());
+                        assertEquals("chat", shell.selectedPage());
                         for (int width : new int[] {1240, 680}) {
                             frame.setSize(width, width == 680 ? 520 : 800); frame.validate();
                             shell.dispatchEvent(new java.awt.event.ComponentEvent(shell, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
@@ -352,22 +350,23 @@ public class WorkspaceUiTest {
             } else if (c instanceof Container) renderSubtabs((Container)c, prefix);
         }
     }
-    @Test public void buildIsUnlistedButOpensByRouteUnderItsNewTitle() throws Exception {
+    @Test public void aBuildRouteWithoutACharacterOpensCharacters() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            int before = shell.getSelectedPage();
+            String before = shell.selectedPage();
             try {
-                // Build lands on page 6 only while no character exists: pin an empty journal, then put the app's own back.
+                // With no character a Build route opens the Characters list (P6a removed the Build pointer page): pin an empty
+                // journal, then put the app's own back.
                 tomato.backend.data.TomatoData app = appData();
                 tomato.backend.data.CharacterJournal previous = app.characterJournal();
                 tomato.gui.glance.character.SheetFixtures.inject(app, emptyJournal());
                 try {
                     assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
-                    assertEquals(6, shell.getSelectedPage());
-                    assertEquals("Build", pageTitle(shell).getText());
+                    assertEquals("characters", shell.selectedPage());
+                    assertEquals("Characters", pageTitle(shell).getText());
                 } finally { tomato.gui.glance.character.SheetFixtures.inject(app, previous); }
-                assertFalse("Build stays out of the sidebar while it is current", findButton(shell, "nav-6").isVisible());
+                assertNull("Build has no sidebar row of its own", findButton(shell, "nav-my-info"));
                 assertTrue(tomato.gui.route.Navigator.current().back());
-                assertEquals(before, shell.getSelectedPage());
+                assertEquals(before, shell.selectedPage());
             } finally { shell.select(before); }
         });
     }
@@ -387,12 +386,15 @@ public class WorkspaceUiTest {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.glance.character.SheetFixtures.inject(app, journal);
-                shell.select(14); // Home: opening the sheet from elsewhere is the main Alt+7 case
+                shell.select("home"); // Home: opening the sheet from elsewhere is the main Alt+7 case
                 frame.toFront();
-                shell.getActionMap().get("page-6").actionPerformed(null); // Alt+7
+                Object altSeven = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                    .get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, java.awt.event.InputEvent.ALT_DOWN_MASK));
+                assertEquals("Alt+7 is bound to the Build route", "open-build", altSeven);
+                shell.getActionMap().get(altSeven).actionPerformed(null); // Alt+7
             });
             tomato.gui.activity.SnapshotTestSupport.await(() -> {
-                if (shell.getSelectedPage() != 3) return false;
+                if (!"characters".equals(shell.selectedPage())) return false;
                 back[0] = findButton(shell, "character-sheet-back");
                 return back[0] != null && back[0].isFocusOwner();
             });
@@ -402,7 +404,7 @@ public class WorkspaceUiTest {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.route.Navigator.current().back();
                 tomato.gui.glance.character.SheetFixtures.inject(app, previous);
-                shell.select(0);
+                shell.select("chat");
             });
             restorePreferences(preferences);
         }
@@ -419,12 +421,12 @@ public class WorkspaceUiTest {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.glance.character.SheetFixtures.inject(app, journal);
-                shell.select(5); // Quests: another page, not Characters
+                shell.select("quests"); // Quests: another page, not Characters
                 frame.toFront();
                 assertTrue(tomato.gui.search.ActionRegistry.application().search("plans.characters").get(0).open());
             });
             tomato.gui.activity.SnapshotTestSupport.await(() -> {
-                if (shell.getSelectedPage() != 3) return false;
+                if (!"characters".equals(shell.selectedPage())) return false;
                 back[0] = findButton(shell, "character-sheet-back");
                 return back[0] != null && back[0].isFocusOwner();
             });
@@ -434,7 +436,7 @@ public class WorkspaceUiTest {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.route.Navigator.current().back();
                 tomato.gui.glance.character.SheetFixtures.inject(app, previous);
-                shell.select(0);
+                shell.select("chat");
             });
             restorePreferences(preferences);
         }

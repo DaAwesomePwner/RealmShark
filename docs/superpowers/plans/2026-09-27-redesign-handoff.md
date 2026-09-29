@@ -19,8 +19,9 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P3b Characters: Exalts grid, Pets, Pet/Fame tabs | #23 | Merged (Codex fix `9c0da67`) | `b559bca` |
 | P4 Quests: Board and Planner | #24 | Merged (Codex: no findings) | `e541874` |
 | P5a Runs: combat auto-save, feed, recap | #25 | Merged (Codex fix `21d896e`) | `3ab077c` |
-| **P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8** | open | **Implemented** ([2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md)); PR open | |
-| P6 Loot & cleanup | none | Outline only (roadmap) | |
+| P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | #26 | Merged (Codex fixes `a7b873e`) | `73400af` |
+| P6a Structure: IDs, retired pages, Loot, Statistics removal | open | Implemented, in review ([plan](2026-09-29-p6a-structure.md), [validation](2026-09-29-p6a-validation.md)) | |
+| P6b Consistency: Scope ▾, Advanced restyles, sidebar drag, final screenshots | none | Outline (P6a plan's "Deferred scope") | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
 
@@ -40,7 +41,13 @@ Done on 2026-09-27/28 (cloud session):
 
 - P5b implemented with subagent-driven development in five waves (Tasks 1–14) plus two polish tasks from the evidence review (15a, 15b), each reviewed and merged by the coordinator. S8 met (switching into the Live meter during a 300-enemy fight about 34 ms p95, down from 190–360 ms). Record: [2026-09-28-p5b-validation.md](2026-09-28-p5b-validation.md).
 
-1. **Handle the P5b PR:** review Codex comments, finish the root cause of the intermittent `QuestConsistencyTest.nativeCompactRequest…` failure (validation record), merge once both are resolved, and verify `main`; then plan P6.
+- PR #26 (P5b) merged as `73400af` after fixing its three Codex findings in `a7b873e` and root-causing an intermittent quest test (a late X11 resize echo in the test harness, fixed in `1498102`); `main` verified (tree equals the reviewed head, `shadowJar` and an isolated `--help` pass).
+
+- P6 researched (four notes: Loot and Statistics-only content, Advanced pages, destination IDs and retired pages, scope-row merge and docs) and split into two PRs by user decision. P6a planned as a contract plan ([2026-09-29-p6a-structure.md](2026-09-29-p6a-structure.md), 13 tasks in four waves). User decisions: two PRs (P6a structure, P6b consistency); re-home only the essential Statistics extras (Character fame to Characters as an Analyst tab; drop the `.fame` autosave and Sessions popup but keep "Open fame session file…", the per-map fame breakdown, live Dungeon Stats and the Live log's live-only facts); the spec's single "Scope ▾" chip in P6b; add Settings › Loot filters, Chat and About (in P6a).
+
+- P6a implemented with subagent-driven development: 13 tasks in four waves plus three polish tasks from the screenshot reviews (A, B1, B2), each reviewed and merged by the coordinator. The container restarted once during Task 12; its uncommitted work survived and the same implementer finished it. Final suite 2,020 tests with only the four known Linux/Xvfb failures; `shadowJar` and the isolated `--help` smoke pass. Record: [2026-09-29-p6a-validation.md](2026-09-29-p6a-validation.md).
+
+1. **Drive the P6a PR to merge** (Codex review under the standing permission), then record the merge and **plan P6b** (see the P6a plan's "Deferred scope" and the validation record's deferred evidence findings).
 2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
 The P5 and P5b research notes live in the session scratchpad; the plans quote their conclusions. A new session without them should re-run the research questions listed in each plan's "Sources" before implementing.
 
@@ -155,6 +162,11 @@ The skill is `superpowers:subagent-driven-development`. Keep a progress ledger f
 - **P0 source changes:** retire Darklaf, save more character data, auto-save combat per run (P5), target Java 17.
 - **Quests (P4):** badges, an expiry countdown and reward-first cards; no inventory "have it" check. The countdown waits for sanitized samples of the `QuestData.expiration` format (spec O1).
 - **Runs (P5):** run cards use exact links only.
+- **P6 (2026-09-29):**
+  - **Two PRs:** P6a (destination IDs, retired pages, loot capture out of the UI, Loot Highlights and Explore, Statistics removal, unused styles, Settings' Loot filters, Chat and About sections) and P6b (Scope ▾ merge on all seven archive pages, Advanced restyles, relative times and Analyst-only columns, sidebar drag, final Simple/Analyst screenshots and docs).
+  - **Statistics extras:** re-home the essentials only. Character fame moves to Characters as an Analyst tab; the `.fame` autosave and Sessions popup, the per-map fame breakdown, live Dungeon Stats and the Live log's live-only facts are dropped; "Open fame session file…" stays.
+  - **Scope row:** the spec's single "Scope: … ▾" chip.
+  - **Settings:** add Loot filters, Chat and About sections; the menu entries stay and open them.
 - **P2:**
   - One PR.
   - My Info became the unlisted "Build" page 6 (`NavEntry.Group.UNLISTED`); P3a then moved Build into the character sheet.
@@ -230,7 +242,7 @@ These come from the per-task and final reviews of P3a:
 
 - **P5:** the `LiveHomeSources` reprojection test checks map identity only.
 - **P6 de-duplication:**
-  - the `HomeArchive` folder-listing helper;
+  - the `HomeArchive` folder-listing helper (P6a Task 3 extracts `SessionStamps`; the items below stay P6b cleanup candidates);
   - splitting `CharacterJournal`'s v5 load helpers (the file grew by 239 lines);
   - stat labels and exalt thresholds are duplicated three times;
   - the journal key is spelled three ways (`BuildRoute.key`, `SheetModelBuilder.liveRef`, `Snapshot.journalKey`), and `liveRef` lacks the 64-hex check.

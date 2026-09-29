@@ -11,10 +11,11 @@ import tomato.history.archive.ArchiveQuery;
 import tomato.history.link.VisitRef;
 
 /**
- * Route adapter for the saved Loot (and Statistics) workspaces; the coordinator registers it. EDT only.
+ * Route adapter for the saved Loot workspace (Loot › Explore); the coordinator registers it. EDT only.
  * A LOOT route with an exact {@link VisitRef} opens that run's saved item occurrences scoped to its origin
- * session. A route carrying a Loot/Statistics query opens that query. Record, recording and local-object
- * references are not resolvable here and are rejected rather than approximated.
+ * session. A route carrying a Loot query opens that query. Record, recording and local-object references are
+ * not resolvable here and are rejected rather than approximated. A route with a payload (a {@code LootFocus}
+ * naming a Loot tab) is the Loot page's tab target's ({@code LootPage.tabTarget()}), never this target's.
  */
 public final class LootRouteTarget implements RouteTarget {
     private final Destination destination;
@@ -24,7 +25,7 @@ public final class LootRouteTarget implements RouteTarget {
 
     public LootRouteTarget(Destination destination, Supplier<ViewState<Facets,Sort>> capture,
                            Consumer<ArchiveQuery<Facets,Sort>> open, Consumer<ViewState<Facets,Sort>> restore) {
-        if (destination != Destination.LOOT && destination != Destination.STATISTICS) throw new IllegalArgumentException("Loot or Statistics only");
+        if (destination != Destination.LOOT) throw new IllegalArgumentException("Loot only");
         this.destination = destination; this.capture = Objects.requireNonNull(capture);
         this.open = Objects.requireNonNull(open); this.restore = Objects.requireNonNull(restore);
     }
@@ -41,9 +42,10 @@ public final class LootRouteTarget implements RouteTarget {
 
     @Override public Destination destination() { return destination; }
     @Override public boolean accepts(Route route) {
-        if (route == null || route.destination != destination || route.record != null || route.recordingId != null || route.localObjectId != null) return false;
+        if (route == null || route.destination != destination || route.record != null || route.recordingId != null || route.localObjectId != null
+            || route.payload != null) return false;
         if (route.query != null && !(route.query.facets() instanceof Facets)) return false;
-        if (route.visit != null && (destination != Destination.LOOT || !route.visit.sessionId.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"))) return false;
+        if (route.visit != null && !route.visit.sessionId.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")) return false;
         return route.visit != null || route.query != null;
     }
     @Override public Object captureState() { return capture.get(); }

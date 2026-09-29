@@ -11,8 +11,8 @@ import tomato.history.archive.ArchiveQuery;
 
 /**
  * The Dungeons tab's Analyst analysis (spec §6.3 Dungeons, user decision 2026-09-28: session comparison and A/B cohorts are
- * embedded in Dungeons): a saved-only archive workspace ({@link ArchiveWorkspace#savedOnly}) over the Statistics workspace's
- * dungeon views, unchanged — the dungeon loot profile, session comparison, dungeon statistics counters (activity-recorded
+ * embedded in Dungeons): a saved-only archive workspace ({@link ArchiveWorkspace#savedOnly}) over the saved
+ * dungeon views (formerly on the Statistics page), unchanged — the dungeon loot profile, session comparison, dungeon statistics counters (activity-recorded
  * exits, never summed into visits), enemy hit events, loot by source and A/B cohorts — opening on the session comparison of
  * every session, as the cards count. No live view: it reads saved history only.
  *

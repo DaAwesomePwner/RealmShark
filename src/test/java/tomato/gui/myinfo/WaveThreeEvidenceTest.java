@@ -1,6 +1,7 @@
 package tomato.gui.myinfo;
 
 import java.util.Arrays;
+import java.util.Map;
 import javax.swing.*;
 import org.junit.After;
 import org.junit.Rule;
@@ -14,6 +15,7 @@ import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.dps.RecordedEncounter;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.history.link.EncounterContext;
@@ -52,12 +54,12 @@ public class WaveThreeEvidenceTest {
         WorkspaceShell shell = edt(() -> {
             DpsGUI dps = new DpsGUI(library, DiscoveryLog.historyView(new ActivityJournal.State()));
             view[0] = new MyInfoGUI(data); MyInfoGUI.updatePlayer(player); MyInfoGuiTest.equipPet(data, 408);
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-            pages[6] = view[0]; pages[7] = dps;
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.put("characters", view[0]); pages.put("runs", dps);   // where Build (the sheet's tab) and the Live meter live
             WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Preview must not capture"), true);
             ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
             navigator.register(dps.encounterRouteTarget());
-            created.select(6); return created;
+            created.select("characters"); return created;
         });
         try {
             RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));
@@ -83,7 +85,7 @@ public class WaveThreeEvidenceTest {
                 assertTrue(panel(view[0]).explanationText().contains("Legacy recording"));
                 assertTrue(panel(view[0]).explanationText().contains("not attributable to you"));
             });
-            // An empty library (a fresh DPS Logger) says so rather than showing another recording.
+            // An empty library (a fresh DPS meter) says so rather than showing another recording.
             run(() -> { new DpsGUI(new TomatoData(), DiscoveryLog.historyView(new ActivityJournal.State())); panel(view[0]).reload(); });
             RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));
             footer(shell, view[0], "myinfo-recorded-dps-empty", () -> {

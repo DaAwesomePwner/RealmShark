@@ -5,13 +5,15 @@ import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.backend.data.DungeonStatData;
 import tomato.backend.data.Entity;
-import tomato.gui.history.SessionPanel;
+import tomato.gui.stats.LootQuery.*;
+import tomato.history.AppHistory;
 import tomato.history.SessionStore;
+import tomato.history.archive.*;
+import tomato.realmshark.ParseEnchants;
 import javax.swing.*;
 import java.nio.file.*;
 import java.util.*;
 import static org.junit.Assert.*;
-import static tomato.gui.history.SessionPanelTest.named;
 
 /** Synthetic projections only: no windows, desktop, assets or capture required. */
 public class ReportingStatisticsTest {
@@ -20,32 +22,45 @@ public class ReportingStatisticsTest {
         return new LootDashboard.Drop("White", "Ice Citadel", source, time,
             Collections.singletonList(new LootDashboard.Item(42, "Synthetic item", false)), "run");
     }
-    @Test public void globalNewestThousandSurviveNewestSessionFirstAndOutOfOrderRecords() throws Exception {
-        LootDashboard.Archive archive=new LootDashboard.Archive();
-        for(int i=1099;i>=0;i--)archive.accept("new",drop(10000+i,"new"));
-        for(int i=0;i<1100;i++)archive.accept("old",drop(i,"old"));
+    // LootDashboard.Archive fed only the removed historical Statistics view (P6a Task 12). The same Recent Drops rules hold on the
+    // live dashboard, whose one session key leaves the arrival ordinal to break equal timestamps.
+    @Test public void globalNewestThousandSurviveOutOfOrderRecords() throws Exception {
         SwingUtilities.invokeAndWait(()->{
-            LootDashboard view=archive.view();List<LootDashboard.Drop> recent=view.recentDrops();
+            LootDashboard view=new LootDashboard();
+            for(int i=1099;i>=0;i--)view.accept(drop(10000+i,"new"));
+            for(int i=0;i<1100;i++)view.accept(drop(i,"old"));
+            List<LootDashboard.Drop> recent=view.recentDrops();
             assertEquals(1000,recent.size());assertEquals(11099,recent.get(0).time);assertEquals(10100,recent.get(999).time);
             assertArrayEquals(new int[]{2200,2200},view.sessionTotals());
         });
     }
-    @Test public void equalTimestampsUseSessionAndLocalOrdinalWithoutCollapsingDuplicates() throws Exception {
-        LootDashboard.Archive first=new LootDashboard.Archive(),second=new LootDashboard.Archive();
-        for(int i=0;i<600;i++)first.accept("z",drop(1000,"z"+i));
-        for(int i=0;i<600;i++)first.accept("a",drop(1000,"a"+i));
-        for(int i=0;i<600;i++)second.accept("a",drop(1000,"a"+i));
-        for(int i=0;i<600;i++)second.accept("z",drop(1000,"z"+i));
+    @Test public void equalTimestampsUseTheArrivalOrdinalWithoutCollapsingDuplicates() throws Exception {
         SwingUtilities.invokeAndWait(()->{
-            List<LootDashboard.Drop> a=first.view().recentDrops(),b=second.view().recentDrops();
+            LootDashboard first=new LootDashboard(),second=new LootDashboard();
+            for(LootDashboard view:Arrays.asList(first,second)){
+                for(int i=0;i<600;i++)view.accept(drop(1000,"z"+i));
+                for(int i=0;i<600;i++)view.accept(drop(1000,"a"+i));
+            }
+            List<LootDashboard.Drop> a=first.recentDrops(),b=second.recentDrops();
             assertEquals(1000,a.size());for(int i=0;i<a.size();i++)assertEquals(a.get(i).dropper,b.get(i).dropper);
-            assertEquals("z599",a.get(0).dropper);assertEquals("a200",a.get(999).dropper);
+            assertEquals("a599",a.get(0).dropper);assertEquals("z200",a.get(999).dropper);
         });
     }
     private static ActivityJournal.Visit visit(String id,String map,long duration){
         ActivityJournal.Visit v=new ActivityJournal.Visit();v.id=id;v.map=map;v.started=1000;v.lastSeen=v.ended=1000+duration;return v;
     }
-    private static Object value(JTable table,String name){return table.getValueAt(0,table.getColumnModel().getColumnIndex(name));}
+    // The dead Statistics view (HistoricalStatistics.loot/statistics) was removed; the same rate, exclusion and coverage
+    // rules are asserted on the live StatisticsArchiveAdapter that Dungeons › Analysis and Loot's saved views read:
+    // Dungeon loot profile = View.RATES, Session comparison = View.SESSIONS, and the coverage label is in Row.evidence.
+    private static ArchiveQuery<Facets,Sort> query(String scope,View view){return LootQuery.initial(view,scope);}
+    private List<Row> rows(SessionStore store,ArchiveQuery<Facets,Sort> q)throws Exception{
+        try(ArchiveResult<Row> result=ArchiveResult.open(store,q,new StatisticsArchiveAdapter(q),temp.newFolder().toPath(),new Cancellation())){
+            List<Row> rows=new ArrayList<>();result.stream(ExportSelection.all(),row->rows.add(row.value),new Cancellation());return rows;
+        }
+    }
+    private static Row only(List<Row> rows){assertEquals(1,rows.size());return rows.get(0);}
+    private Row rate(SessionStore store,String scope)throws Exception{return only(rows(store,query(scope,View.RATES)));}
+    private Row session(SessionStore store,String scope)throws Exception{return only(rows(store,query(scope,View.SESSIONS)));}
     @Test public void ninetyNineUnknownVisitsCannotDiluteOneEvidencedVisit() throws Exception {
         Path root=temp.newFolder().toPath();String unknownId;
         try(SessionStore unknown=new SessionStore(root,true,"synthetic A")){
@@ -59,42 +74,31 @@ public class ReportingStatisticsTest {
         }
         try(SessionStore known=new SessionStore(root,true,"synthetic B")){
             known.put("runs","run",visit("run","Ice Citadel",60000));known.append("loot",drop(2000,"Boss"));known.flush();
-            SessionPanel.Loaded loaded=HistoricalStatistics.statistics(known,SessionStore.ALL,0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
-                assertEquals(1L,value(table,"Observed runs"));assertEquals(1.0,value(table,"Captured minutes"));
-                assertEquals(1L,value(table,"Items"));assertEquals(1.0,value(table,"Items / run"));assertEquals(60.0,value(table,"Items / hour"));
-                assertEquals(99L,value(table,"Excluded unknown-coverage runs"));assertEquals(0L,value(table,"Excluded imported runs"));
-                String details=named(panel,"history-loot-rate-details",JTextArea.class).getText();
-                assertTrue(details.contains("0 with no linked bags"));assertTrue(details.contains("99 unknown-coverage visits (5940000 observed milliseconds)"));
-                JTable sessions=named(panel,"history-session-comparison",JTable.class);assertEquals(2,sessions.getRowCount());
-                for(int row=0;row<sessions.getRowCount();row++){
-                    boolean unknownSession=Long.valueOf(99).equals(sessions.getValueAt(row,2));
-                    Object items=sessions.getValueAt(row,sessions.getColumnModel().getColumnIndex("Items"));
-                    if(unknownSession){assertNull(items);assertTrue(sessions.getValueAt(row,sessions.getColumnModel().getColumnIndex("Loot coverage")).toString().contains("coverage unknown"));}
-                    else assertEquals(1L,items);
-                }
-            });
+            Row rate=rate(known,SessionStore.ALL);
+            assertEquals((Long)1L,rate.runs);assertEquals((Long)60000L,rate.millis);
+            assertEquals((Long)1L,rate.items);assertEquals((Double)1.0,rate.perRun);assertEquals((Double)60.0,rate.perHour);
+            assertEquals((Long)99L,rate.unknownRuns);assertEquals((Long)0L,rate.importedRuns);assertEquals((Long)0L,rate.zeroLootRuns);
+            assertTrue(rate.evidence.contains("0 with no linked bags"));assertTrue(rate.evidence.contains("99 unknown-coverage visits (5940000 observed milliseconds)"));
+            List<Row> sessions=rows(known,query(SessionStore.ALL,View.SESSIONS));assertEquals(2,sessions.size());
+            for(Row row:sessions){
+                boolean unknownSession=Long.valueOf(99).equals(row.runs);
+                if(unknownSession){assertEquals(unknownId,row.session);assertNull(row.items);assertTrue(row.evidence.contains("No saved loot · coverage unknown"));}
+                else assertEquals((Long)1L,row.items);
+            }
             known.importSnapshot("synthetic run-only import","Imported fixture",1000,"runs","imported",visit("imported","Ice Citadel",60000));
-            SessionPanel.Loaded withImport=HistoricalStatistics.loot(known,SessionStore.ALL,0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JTable table=named(withImport.createView(),"history-dungeon-loot",JTable.class);
-                assertEquals(1L,value(table,"Observed runs"));assertEquals(1L,value(table,"Excluded imported runs"));assertEquals(99L,value(table,"Excluded unknown-coverage runs"));
-                assertEquals(1.0,value(table,"Items / run"));assertEquals(60.0,value(table,"Items / hour"));
-            });
+            Row withImport=rate(known,SessionStore.ALL);
+            assertEquals((Long)1L,withImport.runs);assertEquals((Long)1L,withImport.importedRuns);assertEquals((Long)99L,withImport.unknownRuns);
+            assertEquals((Double)1.0,withImport.perRun);assertEquals((Double)60.0,withImport.perHour);
         }
     }
     @Test public void evidencedSessionKeepsItsVisitWithoutLootInBothDenominators() throws Exception {
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
             store.put("runs","run",visit("run","Ice Citadel",60000));store.put("runs","empty",visit("empty","Ice Citadel",60000));
             store.append("loot",drop(2000,"Boss"));store.flush();
-            SessionPanel.Loaded loaded=HistoricalStatistics.loot(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
-                assertEquals(2L,value(table,"Observed runs"));assertEquals(2.0,value(table,"Captured minutes"));
-                assertEquals(.5,value(table,"Items / run"));assertEquals(30.0,value(table,"Items / hour"));assertEquals(0L,value(table,"Excluded unknown-coverage runs"));
-                assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("1 with no linked bags"));
-            });
+            Row rate=rate(store,store.currentId());
+            assertEquals((Long)2L,rate.runs);assertEquals((Long)120000L,rate.millis);
+            assertEquals((Double)0.5,rate.perRun);assertEquals((Double)30.0,rate.perHour);assertEquals((Long)0L,rate.unknownRuns);
+            assertEquals((Long)1L,rate.zeroLootRuns);assertTrue(rate.evidence.contains("1 with no linked bags"));
         }
     }
     @Test public void emptyBagEvidenceIsSessionScopedAndSurvivesDungeonFiltering() throws Exception {
@@ -106,23 +110,25 @@ public class ReportingStatisticsTest {
         }
         try(SessionStore unknown=new SessionStore(root,true,"synthetic unknown")){
             unknown.put("runs","empty",visit("empty","Lost Halls",60000));unknown.flush();
-            SessionPanel.Loaded known=HistoricalStatistics.loot(unknown,knownId,0,"Lost Halls");
-            SessionPanel.Loaded combined=HistoricalStatistics.loot(unknown,SessionStore.ALL,0,"Lost Halls");
-            SessionPanel.Loaded alone=HistoricalStatistics.loot(unknown,unknown.currentId(),0,"Lost Halls");
-            SwingUtilities.invokeAndWait(()->{
-                for(SessionPanel.Loaded loaded:Arrays.asList(known,combined)){
-                    JTable table=named(loaded.createView(),"history-dungeon-loot",JTable.class);
-                    assertEquals(1,table.getRowCount());assertEquals("Lost Halls",value(table,"Dungeon"));assertEquals(1L,value(table,"Observed runs"));
-                    assertEquals(0L,value(table,"Items"));assertEquals(0.0,value(table,"Items / run"));assertEquals(0.0,value(table,"Items / hour"));
-                    assertTrue(value(table,"Loot coverage").toString().contains("Partial"));
-                    assertEquals(loaded==combined?1L:0L,value(table,"Excluded unknown-coverage runs"));
-                }
-                JTable table=named(alone.createView(),"history-dungeon-loot",JTable.class);
-                assertEquals(0L,value(table,"Observed runs"));assertEquals(1L,value(table,"Excluded unknown-coverage runs"));
-                assertNull(value(table,"Items"));assertNull(value(table,"Items / run"));assertNull(value(table,"Items / hour"));
-                assertTrue(value(table,"Loot coverage").toString().contains("coverage unknown"));
-            });
+            // The dungeon filter is the rate text search or the dungeon facet; neither narrows the session's loot evidence.
+            for(String scope:Arrays.asList(knownId,SessionStore.ALL))for(ArchiveQuery<Facets,Sort> q:lostHalls(scope)){
+                Row row=only(rows(unknown,q));
+                assertEquals("Lost Halls",row.dungeon);assertEquals((Long)1L,row.runs);
+                assertEquals((Long)0L,row.items);assertEquals((Double)0.0,row.perRun);assertEquals((Double)0.0,row.perHour);
+                assertTrue(row.evidence.contains("Partial · session loot evidence"));
+                assertEquals(scope.equals(SessionStore.ALL)?(Long)1L:(Long)0L,row.unknownRuns);
+            }
+            for(ArchiveQuery<Facets,Sort> q:lostHalls(unknown.currentId())){
+                Row alone=only(rows(unknown,q));
+                assertEquals((Long)0L,alone.runs);assertEquals((Long)1L,alone.unknownRuns);
+                assertNull(alone.items);assertNull(alone.perRun);assertNull(alone.perHour);
+                assertTrue(alone.evidence.contains("No saved loot · coverage unknown"));
+            }
         }
+    }
+    private static List<ArchiveQuery<Facets,Sort>> lostHalls(String scope){
+        ArchiveQuery<Facets,Sort> text=query(scope,View.RATES).withText("Lost Halls"),facet=query(scope,View.RATES);
+        Facets f=facet.facets();f.dungeons.add("Lost Halls");return Arrays.asList(text,facet.withFacets(f));
     }
     @Test public void onlyEligibleSessionDurationsCanInvalidateTheHourlyRate() throws Exception {
         for(boolean knownMissingDuration:new boolean[]{false,true}){
@@ -133,14 +139,11 @@ public class ReportingStatisticsTest {
             try(SessionStore known=new SessionStore(root,true,"synthetic known")){
                 known.put("runs","run",visit("run","Ice Citadel",60000));known.append("loot",drop(2000,"Boss"));
                 if(knownMissingDuration)known.put("runs","gap",visit("gap","Ice Citadel",0));known.flush();
-                SessionPanel.Loaded loaded=HistoricalStatistics.loot(known,SessionStore.ALL,0,"");
-                SwingUtilities.invokeAndWait(()->{
-                    JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
-                    assertEquals(1L,value(table,"Excluded unknown-coverage runs"));assertEquals(knownMissingDuration?2L:1L,value(table,"Observed runs"));
-                    assertEquals(knownMissingDuration?.5:1.0,value(table,"Items / run"));
-                    if(knownMissingDuration){assertNull(value(table,"Items / hour"));assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("at least one visit has no positive observed duration"));}
-                    else assertEquals(60.0,value(table,"Items / hour"));
-                });
+                Row rate=rate(known,SessionStore.ALL);
+                assertEquals((Long)1L,rate.unknownRuns);assertEquals(knownMissingDuration?(Long)2L:(Long)1L,rate.runs);
+                assertEquals(knownMissingDuration?(Double)0.5:(Double)1.0,rate.perRun);
+                if(knownMissingDuration){assertNull(rate.perHour);assertTrue(rate.evidence.contains("at least one visit has no positive observed duration"));}
+                else assertEquals((Double)60.0,rate.perHour);
             }
         }
     }
@@ -148,13 +151,10 @@ public class ReportingStatisticsTest {
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
             store.put("runs","a",visit("a","Ice Citadel",60000));store.put("runs","b",visit("b","Ice Citadel",60000));
             store.append("loot",drop(2000,"Boss"));store.flush(); // Bag refers to absent visit "run".
-            SessionPanel.Loaded loaded=HistoricalStatistics.loot(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
-                assertEquals(2L,value(table,"Observed runs"));assertEquals(0L,value(table,"Excluded unknown-coverage runs"));assertEquals(1L,value(table,"Items"));
-                assertNull(value(table,"Items / run"));assertNull(value(table,"Items / hour"));
-                assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("Unassigned bags: 1"));
-            });
+            Row rate=rate(store,store.currentId());
+            assertEquals((Long)2L,rate.runs);assertEquals((Long)0L,rate.unknownRuns);assertEquals((Long)1L,rate.items);
+            assertNull(rate.perRun);assertNull(rate.perHour);
+            assertEquals((Long)1L,rate.unassignedBags);assertTrue(rate.evidence.contains("Unassigned bags: 1"));
         }
     }
     @Test public void unknownAndImportedOnlyCohortsDoNotBecomeRecordedZero() throws Exception {
@@ -164,43 +164,31 @@ public class ReportingStatisticsTest {
         }
         try(SessionStore unknown=new SessionStore(root,true,"synthetic")){
             unknown.put("runs","run",visit("run","Ice Citadel",60000));unknown.flush();
-            SessionPanel.Loaded loaded=HistoricalStatistics.loot(unknown,SessionStore.ALL,0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JTable table=named(loaded.createView(),"history-dungeon-loot",JTable.class);
-                assertEquals(0L,value(table,"Observed runs"));assertEquals(1L,value(table,"Excluded imported runs"));assertEquals(1L,value(table,"Excluded unknown-coverage runs"));
-                assertNull(value(table,"Items"));assertNull(value(table,"Items / run"));assertNull(value(table,"Items / hour"));
-                assertTrue(value(table,"Loot coverage").toString().contains("coverage unknown"));
-            });
+            Row rate=rate(unknown,SessionStore.ALL);
+            assertEquals((Long)0L,rate.runs);assertEquals((Long)1L,rate.importedRuns);assertEquals((Long)1L,rate.unknownRuns);
+            assertNull(rate.items);assertNull(rate.perRun);assertNull(rate.perHour);
+            assertTrue(rate.evidence.contains("No saved loot · coverage unknown"));
         }
     }
     @Test public void runOnlyImportsExposeUnavailableLootInBothReports() throws Exception {
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"Imported")){
             store.put("runs","run",visit("run","Ice Citadel",60000));store.flush();
-            SessionPanel.Loaded loaded=HistoricalStatistics.statistics(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JComponent panel=loaded.createView();JTable sessions=named(panel,"history-session-comparison",JTable.class);
-                assertEquals(1L,value(sessions,"Dungeon visits"));assertNull(value(sessions,"Items"));assertTrue(value(sessions,"Loot coverage").toString().contains("Not captured"));
-                JTable dungeons=named(panel,"history-dungeon-loot",JTable.class);
-                assertEquals(0L,value(dungeons,"Observed runs"));assertEquals(1L,value(dungeons,"Excluded imported runs"));assertNull(value(dungeons,"Items / run"));
-                assertTrue(named(panel,"history-loot-rate-details",JTextArea.class).getText().contains("run-only imported visits"));
-            });
+            Row session=session(store,store.currentId());
+            assertEquals((Long)1L,session.runs);assertNull(session.items);assertTrue(session.evidence.contains("Not captured · run-only import"));
+            Row dungeon=rate(store,store.currentId());
+            assertEquals((Long)0L,dungeon.runs);assertEquals((Long)1L,dungeon.importedRuns);assertNull(dungeon.perRun);
+            assertTrue(dungeon.evidence.contains("run-only imported visits"));
         }
     }
     @Test public void missingLootJournalIsUnknownButAnObservedEmptyBagEstablishesZero() throws Exception {
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
             store.put("runs","run",visit("run","Ice Citadel",60000));store.flush();
-            SessionPanel.Loaded unknown=HistoricalStatistics.statistics(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JTable table=named(unknown.createView(),"history-session-comparison",JTable.class);
-                assertNull(value(table,"Items"));assertTrue(value(table,"Loot coverage").toString().contains("coverage unknown"));
-            });
+            Row unknown=session(store,store.currentId());
+            assertNull(unknown.items);assertTrue(unknown.evidence.contains("No saved loot · coverage unknown"));
             store.append("loot",new LootDashboard.Drop("White","Ice Citadel","Boss",2000,Collections.emptyList(),"run"));store.flush();
-            SessionPanel.Loaded zero=HistoricalStatistics.loot(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JTable table=named(zero.createView(),"history-dungeon-loot",JTable.class);
-                assertEquals(0L,value(table,"Items"));assertEquals(0.0,value(table,"Items / run"));
-                assertEquals(1L,value(table,"White bags"));
-            });
+            Row zero=rate(store,store.currentId());
+            assertEquals((Long)0L,zero.items);assertEquals((Double)0.0,zero.perRun);
+            assertEquals((Long)1L,zero.whites);
         }
     }
     @Test public void aliasJoinIncludesZeroLootVisitsAndRateDetailsAndRejectsMissingDurations() throws Exception {
@@ -209,27 +197,93 @@ public class ReportingStatisticsTest {
             store.put("runs","run",visit("run",alias,60000));store.put("runs","empty",visit("empty",canonical,60000));
             List<LootDashboard.Item> items=Arrays.asList(new LootDashboard.Item(1,"A",false),new LootDashboard.Item(2,"B",false),new LootDashboard.Item(3,"C",false));
             store.append("loot",new LootDashboard.Drop("White",canonical,"Boss",2000,items,"run"));store.flush();
-            SessionPanel.Loaded loaded=HistoricalStatistics.loot(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JComponent panel=loaded.createView();JTable table=named(panel,"history-dungeon-loot",JTable.class);
-                assertEquals(1,table.getRowCount());assertEquals(canonical,value(table,"Dungeon"));
-                assertEquals(1.5,value(table,"Items / run"));assertEquals(90.0,value(table,"Items / hour"));
-                String details=named(panel,"history-loot-rate-details",JTextArea.class).getText();
-                assertTrue(details.contains("1 with no linked bags"));assertTrue(details.contains("120000 observed milliseconds"));
-            });
+            Row rate=rate(store,store.currentId());
+            assertEquals(canonical,rate.dungeon);
+            assertEquals((Double)1.5,rate.perRun);assertEquals((Double)90.0,rate.perHour);
+            assertTrue(rate.evidence.contains("1 with no linked bags"));assertTrue(rate.evidence.contains("120000 observed milliseconds"));
             store.put("runs","gap",visit("gap",canonical,0));store.flush();
-            SessionPanel.Loaded gap=HistoricalStatistics.loot(store,store.currentId(),0,"");
-            SwingUtilities.invokeAndWait(()->{
-                JTable table=named(gap.createView(),"history-dungeon-loot",JTable.class);
-                assertEquals(1.0,value(table,"Items / run"));assertNull(value(table,"Items / hour"));
-            });
+            Row gap=rate(store,store.currentId());
+            assertEquals((Double)1.0,gap.perRun);assertNull(gap.perHour);
         }
     }
+    @Test public void profilesIncludeZeroLootRunsAndCompareSessionsWithoutMixingCharacterIds() throws Exception {
+        // Moved from the deleted HistoricalStatisticsTest (same fixture), asserted on the live RATES, SESSIONS and FAME views.
+        Path root=temp.newFolder().toPath();String oldId;
+        try(SessionStore old=new SessionStore(root,true,"one")){
+            oldId=old.currentId();
+            ActivityJournal.Visit one=visit("run-one","Ice Citadel",60000),empty=visit("run-empty","Ice Citadel",60000);
+            empty.started+=60000;empty.lastSeen+=60000;empty.ended=empty.lastSeen;
+            old.put("runs",one.id,one);old.put("runs",empty.id,empty);
+            old.append("loot",new LootDashboard.Drop("White","Ice Citadel","Boss",2000,Arrays.asList(
+                new LootDashboard.Item(1,"UT blade","EQUIPMENT,WEAPON,UT",ParseEnchants.summarize("")),
+                new LootDashboard.Item(2,"ST robe","EQUIPMENT,ARMOR,ST",ParseEnchants.summarize("")),
+                new LootDashboard.Item(3,"Potion","EQUIPMENT,CONSUMABLE,STATPOTION",ParseEnchants.summarize(""))),"run-one"));
+            old.append("fame",new AppHistory.FameSample(7,100,1000,"Wizard"));old.append("fame",new AppHistory.FameSample(7,150,61000,"Wizard"));
+            old.flush();
+        }
+        try(SessionStore now=new SessionStore(root,true,"two")){
+            now.append("fame",new AppHistory.FameSample(7,300,1000,"Wizard"));now.append("fame",new AppHistory.FameSample(7,320,61000,"Wizard"));now.flush();
+            Row rate=rate(now,SessionStore.ALL);
+            assertEquals((Long)2L,rate.runs);assertEquals((Long)120000L,rate.millis);
+            assertEquals((Long)3L,rate.items);assertEquals((Double)1.5,rate.perRun);assertEquals((Double)90.0,rate.perHour);
+            assertEquals((Double)30.0,rate.utPerHour);assertEquals((Double)0.5,rate.whitesPerRun);
+            assertEquals((Long)1L,rate.uts);assertEquals((Long)1L,rate.sts);assertEquals((Long)1L,rate.potions);
+            Map<String,Double> gains=new HashMap<>();for(Row row:rows(now,query(SessionStore.ALL,View.SESSIONS)))gains.put(row.session,row.gain);
+            assertEquals(2,gains.size());assertEquals((Double)50.0,gains.get(oldId));assertEquals((Double)20.0,gains.get(now.currentId()));
+            List<Row> characters=rows(now,query(SessionStore.ALL,View.FAME));assertEquals(2,characters.size());
+            Set<String> characterSessions=new HashSet<>();for(Row row:characters){assertEquals((Integer)7,row.character);characterSessions.add(row.session);}
+            assertEquals(new HashSet<>(Arrays.asList(oldId,now.currentId())),characterSessions);
+            now.append("loot",new LootDashboard.Drop("White","Ice Citadel","Unknown",2000,Collections.emptyList(),"missing-run"));now.flush();
+            assertNull(rate(now,SessionStore.ALL).perRun);
+            now.delete(oldId);assertTrue(now.read(oldId,"loot",LootDashboard.Drop.class).isEmpty());
+        }
+    }
+    // Polish B1: a legacy saved bag without a name (no "bag" field) made every profile read fail ("drop.bag" is null). It is still a
+    // bag and its items count as before, but it is never a white bag, and the explanation says how many such bags there were.
+    @Test public void aSavedBagWithoutANameReadsInRatesAndSessionsAndIsNeverAWhiteBag() throws Exception {
+        Path root=temp.newFolder().toPath();
+        try(SessionStore store=new SessionStore(root,true,"synthetic")){
+            store.put("runs","run",visit("run","Ice Citadel",60000));
+            store.append("loot",new LootDashboard.Drop(null,"Ice Citadel","Boss",2000,Arrays.asList(
+                new LootDashboard.Item(1,"UT blade","EQUIPMENT,WEAPON,UT",ParseEnchants.summarize("")),
+                new LootDashboard.Item(2,"ST robe","EQUIPMENT,ARMOR,ST",ParseEnchants.summarize("")),
+                new LootDashboard.Item(3,"Potion","EQUIPMENT,CONSUMABLE,STATPOTION",ParseEnchants.summarize(""))),"run"));
+            store.append("loot",drop(3000,"Boss"));   // a named white bag in the same visit
+            store.flush();
+            List<String> saved=Files.readAllLines(root.resolve(store.currentId()).resolve("loot.jsonl"));
+            assertEquals(2,saved.size());assertFalse("The first saved bag has no bag field, as a legacy save",saved.get(0).contains("\"bag\""));
+            Row rate=rate(store,store.currentId());
+            assertEquals((Long)2L,rate.bags);assertEquals((Long)4L,rate.items);
+            assertEquals("Only the named white bag is a white bag",(Long)1L,rate.whites);
+            assertEquals((Long)1L,rate.uts);assertEquals((Long)1L,rate.sts);assertEquals((Long)1L,rate.potions);
+            assertEquals((Double)4.0,rate.perRun);assertEquals((Double)1.0,rate.whitesPerRun);
+            assertTrue(rate.evidence,rate.evidence.contains("4 items, 1 white bags, 1 UT gear, 1 ST gear, 1 stat potions (observed, not owned). 1 bag without a saved bag name is not counted as a white bag."));
+            Row session=session(store,store.currentId());
+            assertEquals((Long)2L,session.bags);assertEquals((Long)4L,session.items);assertEquals((Long)1L,session.whites);assertEquals((Long)1L,session.runs);
+            assertTrue(session.evidence,session.evidence.contains("Unassigned bags: 0. 1 bag without a saved bag name is not counted as a white bag."));
+        }
+    }
+    @Test public void theProfileCountsBagsWithoutASavedNameAndNamesThemInItsExplanation() {
+        LootProfile profile=new LootProfile();profile.runs=1;profile.millis=60000;
+        profile.add(new LootDashboard.Drop(null,"Ice Citadel","Boss",2000,Collections.emptyList(),"run"),true);
+        profile.add(new LootDashboard.Drop(" ","Ice Citadel","Boss",2000,Collections.emptyList(),"run"),true);   // blank: no name either (as Highlights)
+        profile.add(new LootDashboard.Drop("B.White","Ice Citadel","Boss",2000,Collections.emptyList(),"run"),true);
+        assertEquals(3,profile.bags);assertEquals(2,profile.unnamedBags);assertEquals(1,profile.whites);
+        assertTrue(profile.explanation(),profile.explanation().contains("0 items, 1 white bags, 0 UT gear, 0 ST gear, 0 stat potions (observed, not owned). 2 bags without a saved bag name are not counted as white bags."));
+        LootProfile named=new LootProfile();named.add(drop(2000,"Boss"),true);
+        assertFalse("No note when every bag has a name",named.explanation().contains("without a saved bag name"));
+    }
     @Test public void unassignedBagMakesRateUnavailableEvenWithAnEligibleVisit() {
-        HistoricalStatistics.Profile profile=new HistoricalStatistics.Profile();profile.runs=2;profile.millis=120000;
+        LootProfile profile=new LootProfile();profile.runs=2;profile.millis=120000;
         profile.add(drop(2000,"test"),false);
         assertNull(profile.perRun(profile.items));assertNull(profile.perHour(profile.items));
         assertTrue(profile.explanation().contains("Unassigned bags: 1"));
+    }
+    // The table row (columns and types) of the removed historical view is gone (P6a Task 12); its values are asserted directly.
+    @Test public void lootProfileWithEvidenceAndNoItemsIsZeroPerRunAndPartial() {
+        LootProfile profile=new LootProfile();profile.runs=2;profile.millis=120000;profile.lootEvidence=true;
+        assertEquals((Double)0.0,profile.perRun(profile.items));assertEquals(Long.valueOf(0),profile.lootValue(profile.items));
+        assertTrue(profile.coverage().startsWith("Partial"));
     }
     @Test public void ongoingActivityIsSeparateFromFinalizedExitsAndOldMetadataStaysUnknown() {
         DungeonStatData data=new DungeonStatData(temp.getRoot().toPath().resolve("synthetic.stats"));

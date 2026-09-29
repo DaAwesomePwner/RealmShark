@@ -23,8 +23,7 @@ public class WorkspaceShellHeaderTest {
     private final int[] browsed = {0};
 
     private WorkspaceShell shell(boolean preview) {
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-        for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
+        Map<String, JComponent> pages = TestPages.placeholders();
         WorkspaceShell shell = new WorkspaceShell(pages, () -> {}, preview, () -> {}, () -> {}, () -> browsed[0]++,
             new NavLayout(store::get, store::put), mode);
         resize(shell, 1240, 800);
@@ -34,12 +33,12 @@ public class WorkspaceShellHeaderTest {
     @Test public void headerShowsTheTitleWithItsDescriptionAsTooltipAndHistoryBesideTheModeSwitch() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell(false);
-            shell.select(2);
+            shell.select("party");
             JLabel title = named(shell, "page-title", JLabel.class);
             assertEquals("Party", title.getText());
-            assertEquals(NavEntry.forPage(2).description(), title.getToolTipText());
-            assertEquals(NavEntry.forPage(2).description(), title.getAccessibleContext().getAccessibleDescription());
-            assertNull("No subtitle line", visibleText(shell, NavEntry.forPage(2).description()));
+            assertEquals(NavEntry.forId("party").description(), title.getToolTipText());
+            assertEquals(NavEntry.forId("party").description(), title.getAccessibleContext().getAccessibleDescription());
+            assertNull("No subtitle line", visibleText(shell, NavEntry.forId("party").description()));
             JComponent header = named(shell, "workspace-header", JComponent.class);
             KitButton browse = named(shell, "browse-history", KitButton.class);
             assertEquals(KitButton.Variant.GHOST, browse.variant());

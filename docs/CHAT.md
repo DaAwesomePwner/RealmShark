@@ -44,6 +44,15 @@ Live and saved Chat views share the current local filter policy. Saving filters 
 
 **Save filters** applies changes immediately and reports disk saving separately. If saving fails, the rules remain active, the draft stays editable and **Retry save** is available; Cancel does not roll back applied settings. Rules persist locally in `realmShark.properties` when saving succeeds. Reset clears view filters, not spam protection. Ignored messages share the live buffer limit and are also retained in the structured session archive.
 
+### Settings › Chat
+
+**Settings › Chat** holds the same two settings in one place. Open it from Settings, from **Edit › Chat › Chat settings…** (the last entry of that menu) or from Settings search ("Chat settings (filters and saving)").
+
+- **Save chat** is **Edit › Chat › Save Chat**: the same preference with the same effect (a plain-text log of each message, ignored messages with their reason, in the app folder's chat folder). The checkbox and the menu item always agree. Saving chat does not change saved session history.
+- **Chat filters** is the chat filter editor itself, embedded, not a copy. It edits the live chat's rules, and **Save filters** applies and saves them exactly as the **Chat → Actions → Chat filters** dialog does, with the same save status and **Retry save**. **Cancel** discards unsaved edits by reloading the saved rules.
+
+Clearing chat stays in the Chat menu and on the Chat page.
+
 ### In-game ignore observation
 
 RealmShark can only show and log chat `TEXT` packets delivered to the captured connection. Its own hiding is local and happens after message retention. The account-list protocol documents ignore-list updates, not whether the current official server suppresses ignored senders' messages for every chat channel. No live delivery guarantee is established here: messages filtered by the server before delivery cannot be recovered by this toggle.

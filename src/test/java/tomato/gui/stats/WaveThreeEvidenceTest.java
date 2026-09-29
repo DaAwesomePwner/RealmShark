@@ -9,6 +9,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.history.*;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.gui.stats.LootQuery.*;
@@ -35,12 +36,6 @@ public class WaveThreeEvidenceTest {
 
     @After public void restore() throws Exception { run(() -> Navigator.install(Navigator.NONE)); }
 
-    private static WorkspaceShell shell(int page, JComponent content) {
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-        pages[page] = content;
-        WorkspaceShell shell = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
-        shell.select(page); return shell;
-    }
 
     private static JTable table(JComponent workspace) { return named(workspace, "loot-archive-table", JTable.class); }
     private static String label(JComponent workspace, String name) { return named(workspace, name, JTextArea.class).getText(); }
@@ -96,7 +91,7 @@ public class WaveThreeEvidenceTest {
             store.flush();
             ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> HistoricalStatistics.lootWorkspace(store, new LootDashboard(), scratch, memory.states));
             try {
-                WorkspaceShell shell = edt(() -> shell(8, workspace));
+                WorkspaceShell shell = edt(() -> TestPages.shell("loot", workspace));
                 run(() -> { Facets f = workspace.state().query.facets(); f.view = View.ITEMS; workspace.changeQuery(workspace.state().query.withFacets(f)); });
                 await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.displayedPage().unit.equals("item variants"));
                 run(() -> {
@@ -154,7 +149,7 @@ public class WaveThreeEvidenceTest {
                 run(() -> {
                     ShellNavigator navigator = shell.createNavigator(); Navigator.install(navigator);
                     navigator.register(LootRouteTarget.forWorkspace(Destination.LOOT, workspace, workspace::restore));
-                    shell.select(10);
+                    shell.select("runs");
                     assertTrue(navigator.open(Route.to(Destination.LOOT).withVisit(new VisitRef(UUID.randomUUID().toString(), "a"))));
                 });
                 await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.displayedPage().matches == 0
@@ -184,9 +179,10 @@ public class WaveThreeEvidenceTest {
         try (SessionStore a = new SessionStore(root, true, "baseline")) { baselineId = a.currentId(); runs(a, "a", 2, 0, BASE); a.flush(); }
         try (SessionStore store = new SessionStore(root, true, "candidate")) {
             runs(store, "b", 3, 2, BASE + 3_600_000); store.flush();
-            ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> SessionPanel.queried(store, "statistics", new JLabel("Live statistics"), new LootArchiveClient(scratch, true), memory.states));
+            // A/B cohorts live in Runs & DPS › Dungeons › Analysis (the Statistics workspace that also offered them went in P6a).
+            ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> DungeonAnalysis.workspace(store, scratch, memory.states));
             try {
-                WorkspaceShell shell = edt(() -> shell(4, workspace));
+                WorkspaceShell shell = edt(() -> TestPages.shell("runs", workspace));
                 run(() -> { Facets f = workspace.state().query.facets(); f.view = View.COHORTS; workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withFacets(f)); });
                 await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.state().query.facets().view == View.COHORTS);
                 wideAndCompact(evidence, shell, "cohort-not-chosen", () -> {
@@ -248,7 +244,7 @@ public class WaveThreeEvidenceTest {
             store.append("fame", new AppHistory.FameSample(8, 45, BASE + 20 * minute, "Priest"));
             store.flush();
             Facets f = new Facets(); f.view = View.FAME;
-            ArchiveQuery<Facets,Sort> q = LootQuery.initial(true).withScope(id).withFacets(f);
+            ArchiveQuery<Facets,Sort> q = LootQuery.initial(View.SESSIONS, ArchiveQuery.CURRENT).withScope(id).withFacets(f);
             FameSession session;
             try (ArchiveResult<Row> result = ArchiveResult.open(store, q, new StatisticsArchiveAdapter(q), temp.newFolder().toPath(), new Cancellation());
                  ArchiveResult.Lease<Row> lease = result.lease()) {

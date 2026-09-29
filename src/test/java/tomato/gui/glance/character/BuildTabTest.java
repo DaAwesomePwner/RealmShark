@@ -24,7 +24,6 @@ import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.KitButton;
 import tomato.gui.modern.WorkspaceShell;
-import tomato.gui.myinfo.BuildMovedPanel;
 import tomato.gui.myinfo.BuildRoute;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.route.*;
@@ -37,7 +36,10 @@ import static org.junit.Assert.*;
 import static tomato.gui.activity.SnapshotTestSupport.await;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
-/** Build on the character sheet: one MyInfoGUI, hosted in the sheet; every Build entry opens the sheet's Build tab; page 6 points there. */
+/**
+ * Build on the character sheet: one MyInfoGUI, hosted in the sheet; every Build entry opens the sheet's Build tab, or with no
+ * character the Characters list (P6a removed the Build pointer page).
+ */
 public class BuildTabTest {
     private static final String TABS = "ui.tabs.character";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
@@ -226,7 +228,7 @@ public class BuildTabTest {
         TomatoData data = new TomatoData();
         CharacterJournal journal = new CharacterJournal(temp.newFolder().toPath().resolve("journal.json"));
         inject(data, journal);
-        assertNull("No character at all: no key (page 6)", BuildRoute.key(data));
+        assertNull("No character at all: no key (the route opens Characters)", BuildRoute.key(data));
         String recent = seed(journal);
         assertEquals(recent, BuildRoute.key(data));
         data.liveCharacter.publish(live(ACCOUNT, 8, "Ann", null));
@@ -245,26 +247,17 @@ public class BuildTabTest {
                 sheet[0] = find(w.shell, CharacterSheet.class);
                 assertTrue("It lives in the sheet's Build tab", SwingUtilities.isDescendingFrom(find(w.shell, MyInfoGUI.class),
                     named(sheet[0], "character-build", BuildTab.class)));
-                BuildMovedPanel moved = find(w.shell, BuildMovedPanel.class);
-                assertNotNull("Page 6 only says that Build moved", moved);
-                moved.refresh();
                 HomePage home = find(w.shell, HomePage.class);
                 home.apply(HomeModels.populated(System.currentTimeMillis()));
                 Navigator navigator = Navigator.current();
-                for (String entry : new String[]{"MY_INFO route", "Alt+7", "Settings search", "Home Build", "Build moved button"}) {
-                    w.shell.select(14);
-                    switch (entry) {
-                        case "MY_INFO route": assertTrue(navigator.open(Route.to(Destination.MY_INFO))); break;
-                        case "Alt+7": w.shell.getActionMap().get("page-6").actionPerformed(null); break;
-                        case "Settings search": assertTrue(ActionRegistry.application().search("build.open").get(0).open()); break;
-                        case "Home Build": named(home, "home-build", AbstractButton.class).doClick(); break;
-                        default: named(moved, "build-moved-open", AbstractButton.class).doClick();
-                    }
-                    assertEquals(entry + " opens Characters", 3, w.shell.getSelectedPage());
+                for (String entry : BUILD_ENTRIES) {
+                    w.shell.select("home");
+                    openBuild(w.shell, home, navigator, entry);
+                    assertEquals(entry + " opens Characters", "characters", w.shell.selectedPage());
                     assertEquals(entry + " opens this character's sheet", w.key, sheet[0].key());
                     assertEquals(entry + " selects Build", "build", sheet[0].selectedTab());
                     assertTrue(entry + ": Back is available", navigator.back());
-                    assertEquals(entry + ": Back returns to Home", 14, w.shell.getSelectedPage());
+                    assertEquals(entry + ": Back returns to Home", "home", w.shell.selectedPage());
                 }
             });
             await(() -> "Sample".equals(named(sheet[0], "character-sheet-name", JLabel.class).getText())); // built off the EDT
@@ -286,19 +279,58 @@ public class BuildTabTest {
         }
     }
 
-    @Test public void withoutAnyCharacterBuildLandsOnTheBuildMovedPage() throws Exception {
+    /** P6a: with no character at all, every Build entry opens the Characters list ("No characters yet"); Back returns to Home. */
+    @Test public void withoutAnyCharacterEveryBuildEntryOpensTheCharactersList() throws Exception {
+        String view = PropertiesManager.getProperty("ui.characters.view");
+        PropertiesManager.setProperties("ui.characters.view", "gallery");   // the gallery's empty state; the Table view says it in its footer
         try (Workspace w = new Workspace(temp, false)) {
             SwingUtilities.invokeAndWait(() -> {
-                w.shell.select(14);
-                assertTrue(Navigator.current().open(Route.to(Destination.MY_INFO)));
-                assertEquals(6, w.shell.getSelectedPage());
-                BuildMovedPanel moved = find(w.shell, BuildMovedPanel.class);
-                moved.refresh();
-                assertFalse("Nothing to open yet", named(moved, "build-moved-open", AbstractButton.class).isEnabled());
-                assertTrue(Navigator.current().back());
-                assertEquals(14, w.shell.getSelectedPage());
+                assertNull("No Build pointer page remains", w.shell.getActionMap().get("page-my-info"));
+                HomePage home = find(w.shell, HomePage.class);
+                home.apply(HomeModels.populated(System.currentTimeMillis()));
+                Navigator navigator = Navigator.current();
+                CharacterSheet sheet = find(w.shell, CharacterSheet.class);
+                tomato.gui.character.CharacterRosterView roster = find(w.shell, tomato.gui.character.CharacterRosterView.class);
+                for (String entry : BUILD_ENTRIES) {
+                    w.shell.select("home");
+                    openBuild(w.shell, home, navigator, entry);
+                    assertEquals(entry + " opens Characters", "characters", w.shell.selectedPage());
+                    assertFalse(entry + " shows the list, not a sheet", roster.showingSheet() || visibleIn(sheet, w.shell));
+                    EmptyState none = named(w.shell, "character-gallery-empty", EmptyState.class);
+                    assertTrue(entry + ": the gallery says there is no character yet", visibleIn(none, w.shell));
+                    assertEquals("No characters yet", none.getAccessibleContext().getAccessibleName());
+                    assertTrue(entry + ": Back is available", navigator.back());
+                    assertEquals(entry + ": Back returns to Home", "home", w.shell.selectedPage());
+                }
             });
+        } finally { PropertiesManager.setProperties("ui.characters.view", view == null ? "" : view); }
+    }
+
+    /** Every way to open Build: the route, Alt+7 (TomatoGUI's key binding, no page of its own), Settings search and Home's hero. */
+    private static final String[] BUILD_ENTRIES = {"MY_INFO route", "Alt+7", "Settings search", "Home Build"};
+
+    private static void openBuild(WorkspaceShell shell, HomePage home, Navigator navigator, String entry) {
+        switch (entry) {
+            case "MY_INFO route": assertTrue(navigator.open(Route.to(Destination.MY_INFO))); break;
+            case "Alt+7": {
+                Object action = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                    .get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, java.awt.event.InputEvent.ALT_DOWN_MASK));
+                assertEquals("Alt+7 is bound to the Build route", "open-build", action);
+                shell.getActionMap().get(action).actionPerformed(null);
+                break;
+            }
+            case "Settings search": assertTrue(ActionRegistry.application().search("build.open").get(0).open()); break;
+            default: named(home, "home-build", AbstractButton.class).doClick();
         }
+    }
+
+    /** Visible up to {@code root} (the workspace has no window, so isShowing is false). */
+    private static boolean visibleIn(Component component, Container root) {
+        for (Component c = component; c != null; c = c.getParent()) {
+            if (!c.isVisible()) return false;
+            if (c == root) return true;
+        }
+        return false;
     }
 
     /**

@@ -5,7 +5,6 @@ import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 import packets.data.StatData;
 import packets.data.enums.StatType;
-import tomato.gui.stats.DungeonStats;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -63,8 +62,6 @@ public class DungeonStatData {
         int entityType = mob.objectType;
         info.addMob(entityType);
         sessionData.computeIfAbsent(dungeon, DungeonInfo::new).addMob(entityType);
-
-        DungeonStats.update(this, dungeon);
     }
 
     public synchronized void updateItems(String dungeon, Entity mob, Entity items) {
@@ -93,7 +90,6 @@ public class DungeonStatData {
             info.addItems(entityType, itemId);
             sessionData.computeIfAbsent(dungeon, DungeonInfo::new).addItems(entityType, itemId);
         }
-        DungeonStats.update(this, dungeon);
     }
 
     public void updateDungeon(String dungeon, long time) {
@@ -103,7 +99,6 @@ public class DungeonStatData {
             info.enteredDungeon++;
             DungeonInfo session = sessionData.computeIfAbsent(dungeon, DungeonInfo::new);
             session.totalTime += Math.max(0, time); session.enteredDungeon++;
-            DungeonStats.update(this, dungeon);
             info = null;
         }
         // Preserve the synchronous save contract, without holding up snapshot readers.
@@ -131,7 +126,6 @@ public class DungeonStatData {
                 throw failure;
             }
         }
-        DungeonStats.update(this, null);
     }
 
     private void loadHistory() {

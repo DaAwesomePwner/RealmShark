@@ -15,7 +15,7 @@ import tomato.gui.modern.ContentStyle;
 import util.PropertiesManager;
 
 /**
- * Home, shell page 14 (spec §6.1): the hero row; Now | Today; Recent runs | Quests at 1.5 : 1; everything stacks in the same
+ * Home, the shell's {@code home} page (spec §6.1): the hero row; Now | Today; Recent runs | Quests at 1.5 : 1; everything stacks in the same
  * order below 1000 px. HomeRefresher reads the sources on its own threads while this page is showing and its window is not
  * minimized, and pauses otherwise; the EDT only applies the immutable models it publishes (S9). Under the same conditions,
  * while the applied Now is a live run with a start time, a 1 s EDT timer advances only Now's elapsed time. With null
@@ -55,7 +55,7 @@ public final class HomePage extends JPanel {
         hero = new HeroCard(actions.characters(), actions.build(), mode);
         now = new NowCard(actions.meter(), mode);
         elapsedTick = new Timer(1_000, event -> now.tick(clock.getAsLong()));
-        today = new TodayTiles(window -> windowChanged(window, write), initial, mode);
+        today = new TodayTiles(window -> windowChanged(window, write), initial, mode, actions.loot());
         runs = new RecentRunsCard(actions.run(), mode);
         quests = new QuestsCard(actions.quests(), mode);
         JPanel grid = new JPanel(new Grid());

@@ -13,6 +13,7 @@ import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.DiscoveryLog;
 import tomato.gui.history.*;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.modern.TestPages;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import ui.VisualEvidence;
@@ -31,18 +32,18 @@ public class ActivityArchiveNativeTest {
     @Before public void isolateSavedResourceTabs() { savedTabs = util.PropertiesManager.getProperty(SAVED_TABS); util.PropertiesManager.setProperties(SAVED_TABS, ""); }
     @After public void restoreSavedResourceTabs() { util.PropertiesManager.setProperties(SAVED_TABS, savedTabs == null ? "" : savedTabs); }
 
-    @Test public void runsShowGlobalFilteredPagesAndPreviewTheExactLinkedPopulation() throws Exception { exercise(ActivityPanel.Mode.RUNS,"runs",10); }
-    @Test public void timelineShowsGlobalTypeMatchesAndPreservesExactEventDetails() throws Exception { exercise(ActivityPanel.Mode.TIMELINE,"timeline",11); }
-    @Test public void resourcesRestoreSavedUptimeTabAndSelectedPinnedVisit() throws Exception { exercise(ActivityPanel.Mode.COMBAT,"combat",7); }
+    @Test public void runsShowGlobalFilteredPagesAndPreviewTheExactLinkedPopulation() throws Exception { exercise(ActivityPanel.Mode.RUNS,"runs","runs"); }
+    @Test public void timelineShowsGlobalTypeMatchesAndPreservesExactEventDetails() throws Exception { exercise(ActivityPanel.Mode.TIMELINE,"timeline","timeline"); }
+    @Test public void resourcesRestoreSavedUptimeTabAndSelectedPinnedVisit() throws Exception { exercise(ActivityPanel.Mode.COMBAT,"combat","runs"); } // Resources & buffs is nested in the Live meter tab of Runs & DPS
 
-    private void exercise(ActivityPanel.Mode mode, String key, int page) throws Exception {
+    private void exercise(ActivityPanel.Mode mode, String key, String page) throws Exception {
         Path root = temp.newFolder().toPath(), scratch = temp.newFolder().toPath(), output = temp.newFolder().toPath();
         ActivityNativeFixtures.seed(root); Memory memory = new Memory();
         try (SessionStore store = new SessionStore(root,true,"native-reader"); DiscoveryLog log = new DiscoveryLog(null)) {
             log.setSaving(false);
             ActivityPanel live = edt(() -> new ActivityPanel(log,mode));
             ArchiveWorkspace<ActivityQueries.Row,ActivityQueries.Filters,ActivityQueries.Sort> workspace = edt(() -> ActivityPanel.workspace(store,live,mode,scratch,memory.states));
-            JComponent shell = edt(() -> shell(workspace,page));
+            JComponent shell = edt(() -> TestPages.shell(page,workspace));
             try {
                 edt(() -> { evidence.show(shell,key + " live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
                 evidence.settle(); edt(() -> { evidence.capture(key + "-live-default"); workspace.selectSession(SessionStore.ALL); return null; });

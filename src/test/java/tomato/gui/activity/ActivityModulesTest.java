@@ -97,15 +97,17 @@ public class ActivityModulesTest {
             VioletTheme.install();
             ActivityPanel runs=new ActivityPanel(log,ActivityPanel.Mode.RUNS),timeline=new ActivityPanel(log,ActivityPanel.Mode.TIMELINE);
             DpsGUI dps=new DpsGUI(new TomatoData(),log);
-            JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length];Arrays.setAll(pages,i->new JPanel());pages[7]=dps;pages[10]=runs;pages[11]=timeline;
+            // The app nests the DPS meter in Runs & DPS; here the Runs page holds the runs panel, so the meter takes a free page.
+            String meter="party";
+            Map<String,JComponent> pages=TestPages.placeholders();pages.put(meter,dps);pages.put("runs",runs);pages.put("timeline",timeline);
             WorkspaceShell shell=new WorkspaceShell(pages,()->{},true);JFrame frame=new JFrame("Activity modules · synthetic validation sample");frame.setContentPane(shell);frame.setSize(1240,800);frame.setVisible(true);
             try{
-                assertEquals("Runs & DPS",WorkspaceShell.TITLES[10]);assertEquals("Timeline",WorkspaceShell.TITLES[11]);
+                assertEquals("Runs & DPS",TestPages.title("runs"));assertEquals("Timeline",TestPages.title("timeline"));
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt R")));
                 assertNotNull(shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke("alt T")));
-                shell.select(10);JTable table=find(runs,JTable.class,null);await(()->table.getRowCount()==2);assertEquals(2,table.getRowCount());
+                shell.select("runs");JTable table=find(runs,JTable.class,null);await(()->table.getRowCount()==2);assertEquals(2,table.getRowCount());
                 table.setRowSelectionInterval(1,1);runs.refresh();assertEquals(1,table.getSelectedRow());
-                shell.select(11);await(()->find(timeline,JComboBox.class,"activity-visit").getItemCount()==3);
+                shell.select("timeline");await(()->find(timeline,JComboBox.class,"activity-visit").getItemCount()==3);
                 JTextField search=find(timeline,JTextField.class,"activity-search");
                 JTable events=find(timeline,JTable.class,"activity-table");
                 search.setText("Party roster");assertEquals(1,events.getRowCount());
@@ -113,14 +115,14 @@ public class ActivityModulesTest {
                 assertEquals("Party roster",events.getValueAt(0,2));events.setRowSelectionInterval(0,0);
                 assertTrue(find(timeline,JTextArea.class,"activity-detail").getText().contains("\"members\": []"));
                 search.setText("[no-such-event]");assertEquals(0,events.getRowCount());search.setText("");
-                shell.select(7);JTabbedPane tabs=find(dps,JTabbedPane.class,"dps-tabs");assertEquals("Resources & buffs",tabs.getTitleAt(1));tabs.setSelectedIndex(1);
+                shell.select(meter);JTabbedPane tabs=find(dps,JTabbedPane.class,"dps-tabs");assertEquals("Resources & buffs",tabs.getTitleAt(1));tabs.setSelectedIndex(1);
                 ActivityPanel combat=find(dps,ActivityPanel.class,"activity-combat");await(()->find(combat,JComboBox.class,"activity-visit").getItemCount()==2);combat.selectVisit(log.activityHistory().visits.get(0).id);
                 await(()->find(combat,JTable.class,null).getRowCount()==2);
                 assertEquals(2,find(combat,JTable.class,null).getRowCount());
                 assertTrue(find(combat,JTextArea.class,"activity-detail").getText().contains("Buff coverage"));
                 for(int width:new int[]{1240,760}){
                     frame.setSize(width,width==1240?800:680);frame.validate();shell.dispatchEvent(new ComponentEvent(shell,ComponentEvent.COMPONENT_RESIZED));frame.validate();
-                    for(int page:new int[]{10,11,7}){shell.select(page);frame.validate();capture(frame,"activity-"+width+"-"+page+".png");}
+                    for(String page:new String[]{"runs","timeline",meter}){shell.select(page);frame.validate();capture(frame,"activity-"+width+"-"+(page.equals(meter)?"dps-meter":page)+".png");}
                     CombatTimelineChart chart=find(combat,CombatTimelineChart.class,null);assertTrue(chart.getWidth()>300);
                     assertNotNull(chart.getToolTipText(new MouseEvent(chart,MouseEvent.MOUSE_MOVED,0,0,200,60,0,false)));
                     JTabbedPane views=find(combat,JTabbedPane.class,null);views.setSelectedIndex(1);frame.validate();capture(frame,"uptime-"+width+".png");views.setSelectedIndex(0);

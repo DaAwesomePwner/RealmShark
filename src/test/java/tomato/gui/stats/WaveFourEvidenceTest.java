@@ -65,19 +65,19 @@ public class WaveFourEvidenceTest {
             LootDashboard.Item exact=new LootDashboard.Item(123,"Fixture exact-enchant blade","WEAPON,UT",ParseEnchants.evidence(LootEquipmentTest.encode(32767,-1,-2,-3)));
             LootDashboard.Item legacy=new LootDashboard.Item(124,"Fixture legacy item",false);
             store.append("loot",new LootDashboard.Drop("White","Ice Citadel","Fixture boss",BASE,Arrays.asList(exact,legacy),"",DropContext.capture(null,BASE,null)));store.flush();
-            ArchiveQuery<LootQuery.Facets,LootQuery.Sort> q=LootQuery.initial(false).withScope(store.currentId());
+            ArchiveQuery<LootQuery.Facets,LootQuery.Sort> q=LootQuery.initial(LootQuery.View.OCCURRENCES,ArchiveQuery.CURRENT).withScope(store.currentId());
             try(ArchiveResult<LootQuery.Row> result=ArchiveResult.open(store,q,new LootArchiveAdapter(q),temp.newFolder().toPath(),new Cancellation())){
                 ArchivePage<LootQuery.Row> page=result.page(0,100,new Cancellation());
-                LootArchiveClient client=new LootArchiveClient(temp.newFolder().toPath(),false);
+                LootArchiveClient client=new LootArchiveClient(temp.newFolder().toPath(),LootExploreModel.views(),LootExploreModel.initialQuery());
                 JComponent panel=edt(()->client.render(page,ViewState.initial(q),new ArchiveClient.Binding<LootQuery.Facets,LootQuery.Sort>(){
                     public void queryChanged(ArchiveQuery<LootQuery.Facets,LootQuery.Sort> q){}public void viewChanged(ViewState<LootQuery.Facets,LootQuery.Sort> state){}public void refresh(){}
                 }));
                 // ArchiveWorkspace supplies this scroll fallback in production.
                 JComponent host=edt(()->tomato.gui.modern.ContentStyle.page(null,panel,null));
                 screens(host,"loot-initial-top",()->{
-                    JTabbedPane tabs=named(panel,"loot-archive-tabs",JTabbedPane.class);
-                    assertTrue("Initial tab header remains reachable",tabs.getVisibleRect().height>0);
-                    assertEquals("Initial archive view starts at its header",0,tabs.getVisibleRect().y);
+                    JComboBox<?> views=named(panel,"loot-archive-view",JComboBox.class);
+                    assertTrue("Initial view selector remains reachable",views.getVisibleRect().height>0);
+                    assertEquals("Initial archive view starts at its header",0,views.getVisibleRect().y);
                 });
                 screens(host,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("Exact enchantment evidence"));reveal(details);});
                 screens(host,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("LEGACY_NOT_RECORDED"));reveal(details);});

@@ -1,5 +1,6 @@
 package tomato.gui.modern;
 
+import java.awt.event.KeyEvent;
 import java.util.*;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -19,36 +20,33 @@ public class NavLayoutTest {
         NavLayout layout = layout();
         assertEquals(Arrays.asList("home", "characters", "runs", "loot", "quests", "chat"), ids(layout.core()));
         assertEquals(Arrays.asList("party", "key-pops", "timeline", "logging", "bridge-review"), ids(layout.advanced()));
-        assertEquals(13, layout.settings().page());
+        assertEquals("settings", layout.settings().id());
         assertFalse(layout.advancedOpen());
-        assertEquals(14, layout.landing().page());
+        assertEquals("home", layout.landing().id());
         assertTrue("Reading never writes", store.isEmpty());
-        String[] titles = NavEntry.titles();
-        assertEquals(15, titles.length);
-        assertEquals("Party", titles[2]);
-        assertEquals("Quests", titles[5]);
-        assertEquals("Build", titles[6]);
-        assertEquals("Settings", titles[13]);
-        assertEquals("Home", titles[14]);
-        Set<Integer> pages = new HashSet<>();
+        assertEquals("P6a removed the Build and DPS Logger pointer pages and the Statistics page", 12, NavEntry.defaults().size());
+        assertEquals("Party", TestPages.title("party"));
+        assertEquals("Quests", TestPages.title("quests"));
+        assertEquals("Settings", TestPages.title("settings"));
+        assertEquals("Home", TestPages.title("home"));
+        Set<Integer> shortcuts = new HashSet<>();
         Set<String> seen = new HashSet<>();
         for (NavEntry entry : NavEntry.defaults()) {
-            assertTrue("Unique page " + entry.page(), pages.add(entry.page()));
+            assertTrue("Unique shortcut " + entry.shortcut(), shortcuts.add(entry.shortcut()));
             assertTrue("Unique ID " + entry.id(), seen.add(entry.id()));
-            assertSame(entry, NavEntry.forPage(entry.page()));
             assertSame(entry, NavEntry.forId(entry.id()));
         }
-        assertEquals(15, pages.size());
-        NavEntry home = NavEntry.forId("home"), build = NavEntry.forId("my-info");
+        assertEquals(12, shortcuts.size());
+        NavEntry home = NavEntry.forId("home");
         assertSame("Home leads the defaults", home, NavEntry.defaults().get(0));
         assertEquals(LineIcon.HOME, home.icon());
         assertEquals(NavEntry.Group.CORE, home.group());
-        assertEquals("Build keeps My Info's ID and page", 6, build.page());
-        assertEquals(NavEntry.Group.UNLISTED, build.group());
+        assertNull("Build has no page of its own (Alt+7 opens the sheet's Build tab)", NavEntry.forId("my-info"));
+        assertFalse("Alt+7 belongs to no page", shortcuts.contains(KeyEvent.VK_7));
         assertFalse(layout.inCore("my-info"));
         assertFalse(ids(layout.advancedOrder()).contains("my-info"));
         assertNull(NavEntry.forId("no-such-page"));
-        try { new NavEntry("Bad Id", 0, "Bad", "Bad", 0, NavEntry.Group.CORE); fail(); } catch (IllegalArgumentException expected) { }
+        try { new NavEntry("Bad Id", "Bad", "Bad", 0, NavEntry.Group.CORE, 0); fail(); } catch (IllegalArgumentException expected) { }
     }
 
     @Test public void reorderingAndHidingPersistAndReload() {
@@ -157,27 +155,20 @@ public class NavLayoutTest {
         assertEquals("characters,home,runs,loot,quests,chat,timeline,party", store.get(NavLayout.ORDER_KEY));
     }
 
-    @Test public void statisticsAndDpsLoggerLeaveTheSidebarAndPageTenIsRunsAndDps() {
+    @Test public void statisticsAndDpsLoggerAreGoneAndRunsIsRunsAndDps() {
         NavLayout layout = layout();
-        NavEntry runs = NavEntry.forId("runs"), dps = NavEntry.forId("dps-logger"), statistics = NavEntry.forId("statistics");
-        assertEquals(10, runs.page());
+        NavEntry runs = NavEntry.forId("runs");
+        assertEquals(KeyEvent.VK_R, runs.shortcut());
         assertEquals("Runs & DPS", runs.title());
         assertEquals(LineIcon.SWORDS, runs.icon());
         assertEquals("Review runs, dungeons, live damage and recordings.", runs.description());
         assertEquals(NavEntry.Group.CORE, runs.group());
-        assertEquals("DPS Logger keeps its ID, page and title", 7, dps.page());
-        assertEquals("DPS Logger", dps.title());
-        assertEquals(NavEntry.Group.UNLISTED, dps.group());
-        assertEquals("Statistics keeps its ID, page and title", 4, statistics.page());
-        assertEquals("Statistics", statistics.title());
-        assertEquals(NavEntry.Group.UNLISTED, statistics.group());
-        String[] titles = NavEntry.titles();
-        assertEquals("Runs & DPS", titles[10]);
-        assertEquals("DPS Logger", titles[7]);
-        assertEquals("Statistics", titles[4]);
+        assertNull("The DPS Logger pointer page was removed (Alt+8 opens the Live meter)", NavEntry.forId("dps-logger"));
+        assertNull("The Statistics page was removed (Alt+5 opens Runs & DPS › Dungeons)", NavEntry.forId("statistics"));
+        assertEquals("Runs & DPS", TestPages.title("runs"));
         List<NavEntry> defaults = NavEntry.defaults();
-        assertEquals("Unlisted pages form the tail of the defaults", Arrays.asList("my-info", "dps-logger", "statistics"),
-            ids(defaults.subList(defaults.size() - 3, defaults.size())));
+        assertEquals("Settings is the tail of the defaults; no unlisted page follows it", Collections.singletonList("settings"),
+            ids(defaults.subList(defaults.size() - 1, defaults.size())));
         assertEquals("S7: six core destinations", 6, layout.core().size());
         assertEquals("Advanced (5)", 5, layout.advanced().size());
         for (String id : new String[] {"dps-logger", "statistics"}) {
@@ -191,6 +182,7 @@ public class NavLayoutTest {
         assertTrue("Nothing above wrote", store.isEmpty());
     }
 
+    /** Statistics (P6a Task 12) and DPS Logger (Task 6) are unknown IDs now: saved values are still read, ignored and dropped. */
     @Test public void savedStatisticsAndDpsLoggerEntriesAreIgnoredAndDroppedOnTheNextWrite() {
         store.put(NavLayout.ORDER_KEY, "dps-logger,characters,statistics,home");
         store.put(NavLayout.HIDDEN_KEY, "statistics,dps-logger,loot");
@@ -214,6 +206,38 @@ public class NavLayoutTest {
         assertTrue(layout.pin("party"));
         assertEquals("timeline,party", store.get(NavLayout.PINNED_KEY));
         assertEquals("characters,home,runs,loot,quests,chat,timeline,party", store.get(NavLayout.ORDER_KEY));
+    }
+
+    /**
+     * P6a removed the my-info and dps-logger pages. Their IDs stay readable in every saved key and are dropped on the next write,
+     * except that dps-logger is still written beside a hidden runs, so a P5b build does not un-hide Runs & DPS.
+     */
+    @Test public void removedPointerPageIdsAreIgnoredButDpsLoggerIsStillWrittenBesideAHiddenRuns() {
+        assertNull(NavEntry.forId("my-info"));
+        assertNull(NavEntry.forId("dps-logger"));
+        store.put(NavLayout.ORDER_KEY, "dps-logger,my-info,quests,home");
+        store.put(NavLayout.HIDDEN_KEY, "my-info,dps-logger,runs");
+        store.put(NavLayout.PINNED_KEY, "dps-logger,my-info,party");
+        NavLayout layout = layout();
+        assertEquals(Arrays.asList("quests", "home", "characters", "loot", "chat", "party"), ids(layout.core()));
+        assertEquals("Runs stays hidden: dps-logger, read as a raw string, was hidden beside it", Collections.singletonList("runs"), ids(layout.hidden()));
+        for (String id : new String[] {"my-info", "dps-logger"}) {
+            assertFalse(id, layout.inCore(id)); assertFalse(id, layout.isHidden(id)); assertFalse(id, layout.isPinned(id));
+            assertFalse(id + " has no row", layout.canHide(id));
+            assertFalse(layout.hide(id)); assertFalse(layout.show(id)); assertFalse(layout.pin(id)); assertFalse(layout.move(id, 1));
+        }
+        assertEquals("Reading never writes", "my-info,dps-logger,runs", store.get(NavLayout.HIDDEN_KEY));
+        assertTrue(layout.hide("loot"));
+        assertEquals("my-info is dropped; dps-logger is written beside the hidden runs", "runs,loot,dps-logger", store.get(NavLayout.HIDDEN_KEY));
+        assertTrue(layout.move("home", -1));
+        assertEquals("Both IDs leave the saved order", "home,quests,characters,runs,loot,chat,party", store.get(NavLayout.ORDER_KEY));
+        assertTrue(layout.unpin("party"));
+        assertEquals("…and the pinned list", "", store.get(NavLayout.PINNED_KEY));
+        assertTrue(layout.show("runs"));
+        assertEquals("A shown runs drops dps-logger too", "loot", store.get(NavLayout.HIDDEN_KEY));
+        assertTrue(layout.hide("runs"));
+        assertEquals("loot,runs,dps-logger", store.get(NavLayout.HIDDEN_KEY));
+        assertTrue("…and it stays hidden when read again", layout().isHidden("runs"));
     }
 
     @Test public void runsHiddenWhileDpsLoggerStayedVisibleShowsOnceSoTheMeterKeepsARow() {

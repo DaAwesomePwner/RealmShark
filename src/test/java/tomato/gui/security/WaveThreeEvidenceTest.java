@@ -1,7 +1,7 @@
 package tomato.gui.security;
 
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.util.Map;
 import java.util.UUID;
 import javax.swing.*;
 import org.junit.After;
@@ -13,6 +13,7 @@ import tomato.gui.activity.ActivityQueries;
 import tomato.gui.activity.ActivityRouteTarget;
 import tomato.gui.history.ArchiveNativeSupport;
 import tomato.gui.history.ArchiveWorkspace;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.history.SessionStore;
@@ -42,12 +43,12 @@ public class WaveThreeEvidenceTest {
                 edt(() -> SecurityGUI.workspace(store, new JLabel("Live Inspect"), scratch, memory.states));
             try {
                 WorkspaceShell shell = edt(() -> {
-                    JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-                    pages[2] = inspect;
+                    Map<String, JComponent> pages = TestPages.placeholders();
+                    pages.put("party", inspect);
                     WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.INSPECT, inspect));
-                    created.select(10); return created;
+                    created.select("runs"); return created;
                 });
                 VisitRef ref = new VisitRef(store.currentId(), "journal:2");
                 assertTrue(edt(() -> Navigator.current().open(Route.to(Destination.INSPECT).withVisit(ref))));

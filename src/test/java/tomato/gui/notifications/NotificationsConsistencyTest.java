@@ -5,10 +5,12 @@ import com.formdev.flatlaf.FlatLightLaf;
 import java.awt.*;
 import java.awt.event.ComponentEvent;
 import java.util.Collections;
+import java.util.Map;
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import org.junit.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
@@ -39,9 +41,9 @@ public class NotificationsConsistencyTest {
             new tomato.realmshark.AlertDecisions.Entry(tomato.realmshark.AlertDecisions.Source.CHAT).subject("Synthetic message " + i).explain("Matched"));
         SwingUtilities.invokeAndWait(() -> {
             theme(new VioletTheme(), 13); ui[0] = new NotificationsGUI();
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < pages.length; i++) pages[i] = i == 13 ? ui[0] : new JPanel();
-            shell[0] = new WorkspaceShell(pages, () -> {}, true); shell[0].select(13);
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.put("settings", ui[0]);
+            shell[0] = new WorkspaceShell(pages, () -> {}, true); shell[0].select("settings");
         });
         for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf(), new FlatDarkLaf()}) {
             for (int font : new int[] {13, 16, 24, 13}) for (Dimension geometry : new Dimension[] {new Dimension(1240, 800), new Dimension(680, 520)}) {

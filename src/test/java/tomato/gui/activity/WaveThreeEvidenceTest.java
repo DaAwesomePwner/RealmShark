@@ -1,7 +1,7 @@
 package tomato.gui.activity;
 
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.util.Map;
 import java.util.UUID;
 import javax.swing.*;
 import org.junit.After;
@@ -11,6 +11,7 @@ import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.history.ArchiveNativeSupport;
 import tomato.gui.history.ArchiveWorkspace;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.history.SessionStore;
@@ -32,10 +33,10 @@ public class WaveThreeEvidenceTest {
 
     @After public void restore() throws Exception { run(() -> Navigator.install(Navigator.NONE)); }
 
-    private static WorkspaceShell shell(int[] pageNumbers, JComponent... contents) {
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-        for (int i = 0; i < pageNumbers.length; i++) pages[pageNumbers[i]] = contents[i];
-        return new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
+    private static WorkspaceShell shell(String[] ids, JComponent... contents) {
+        Map<String, JComponent> pages = TestPages.placeholders();
+        for (int i = 0; i < ids.length; i++) pages.put(ids[i], contents[i]);
+        return TestPages.shell(pages);
     }
 
     private static String detail(JComponent workspace) {
@@ -101,11 +102,11 @@ public class WaveThreeEvidenceTest {
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.TIMELINE, scratch, memory.states));
             try {
                 WorkspaceShell shell = edt(() -> {
-                    WorkspaceShell created = shell(new int[]{10, 11}, runs, timeline);
+                    WorkspaceShell created = shell(new String[]{"runs", "timeline"}, runs, timeline);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.RUNS, runs));
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
-                    created.select(10); return created;
+                    created.select("runs"); return created;
                 });
                 await(() -> !runs.loading() && !timeline.loading());
                 assertTrue(edt(() -> Navigator.current().open(Route.to(Destination.RUNS).withVisit(new VisitRef(session, second.id)))));
@@ -169,10 +170,10 @@ public class WaveThreeEvidenceTest {
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.TIMELINE, scratch, memory.states));
             try {
                 WorkspaceShell shell = edt(() -> {
-                    WorkspaceShell created = shell(new int[]{10, 11}, runs, timeline);
+                    WorkspaceShell created = shell(new String[]{"runs", "timeline"}, runs, timeline);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
-                    created.select(10); return created;
+                    created.select("runs"); return created;
                 });
                 assertTrue(edt(() -> Navigator.current().open(ActivityRoutes.timelineAround(ref, moment, ActivityRoutes.AROUND_MILLIS))));
                 await(() -> ready(timeline) && timeline.displayedPage().matches == 6
@@ -180,7 +181,7 @@ public class WaveThreeEvidenceTest {
                     && ActivityArchiveUiTest.named(timeline, JTextArea.class, "timeline-window").getText().contains("Linked outcome ·"));
                 wideAndCompact(evidence, shell, "timeline-window-observed-later", () -> ready(timeline)
                     && ActivityArchiveUiTest.named(timeline, JTextArea.class, "timeline-window").getText().contains("Linked outcome ·"), () -> {
-                    assertEquals(11, shell.getSelectedPage());
+                    assertEquals("timeline", shell.selectedPage());
                     String banner = named(timeline, "timeline-window", JTextArea.class).getText();
                     assertTrue(banner, banner.contains(RunWorkbench.OBSERVED_LATER) && banner.contains("half-open"));
                     measureText(named(timeline, "timeline-window", JTextArea.class));
@@ -208,11 +209,11 @@ public class WaveThreeEvidenceTest {
             try {
                 WorkspaceShell shell = edt(() -> {
                     // Resources & buffs lives in Runs & DPS (page 10) since P5b; a route there selects that page.
-                    WorkspaceShell created = shell(new int[]{10, 11}, resources, timeline);
+                    WorkspaceShell created = shell(new String[]{"runs", "timeline"}, resources, timeline);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.RESOURCES, resources));
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
-                    created.select(10);
+                    created.select("runs");
                     assertTrue(navigator.open(Route.to(Destination.RESOURCES).withVisit(new VisitRef(store.currentId(), "journal:window"))));
                     return created;
                 });

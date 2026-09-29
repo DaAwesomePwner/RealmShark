@@ -15,6 +15,7 @@ import tomato.gui.activity.ActivityQueries;
 import tomato.gui.activity.ActivityRouteTarget;
 import tomato.gui.history.ArchiveNativeSupport;
 import tomato.gui.history.ArchiveWorkspace;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.history.SessionStore;
@@ -55,14 +56,15 @@ public class WaveThreeEvidenceTest {
             DpsGUI dps = edt(() -> new DpsGUI(data, DiscoveryLog.historyView(new ActivityJournal.State()), resources));
             try {
                 WorkspaceShell shell = edt(() -> {
-                    JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-                    pages[7] = dps; pages[10] = runs; pages[11] = timeline;
+                    Map<String, JComponent> pages = TestPages.placeholders();
+                    // The app nests the meter in Runs & DPS; here the runs page holds the Runs workspace, so the meter takes a free page.
+                    pages.put("party", dps); pages.put("runs", runs); pages.put("timeline", timeline);
                     WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.RUNS, runs));
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
                     navigator.register(dps.resourcesRouteTarget()); navigator.register(dps.encounterRouteTarget());
-                    created.select(7); return created;
+                    created.select("party"); return created;
                 });
                 String[] names = {"dps-link-linked", "dps-link-unlinked", "dps-link-legacy"};
                 DpsData[] shown = {linked, unlinked, legacy};

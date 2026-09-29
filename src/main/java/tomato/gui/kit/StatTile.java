@@ -6,7 +6,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import tomato.gui.modern.ContentStyle;
 
-/** Label, metric and optional sub-line on a raised surface. Replaces StatsUi.metrics and ad-hoc KPI cards. */
+/** Label, metric and optional sub-line on a raised surface. The kit's one KPI tile (it replaced the old StatsUi metric labels). */
 public class StatTile extends JPanel {
     private final String label;
     private final JLabel name = new JLabel(), value = new JLabel(), sub = new JLabel();
@@ -41,6 +41,9 @@ public class StatTile extends JPanel {
     }
 
     public DisplayValue value() { return current; }
+
+    /** The value exactly as shown ("—" when unknown, "≈ …" when estimated), read-only: for tests and accessibility checks. */
+    public String valueText() { return value.getText(); }
 
     /** Holds an optional Sparkline (Task 9). */
     public JPanel trendSlot() { return trend; }

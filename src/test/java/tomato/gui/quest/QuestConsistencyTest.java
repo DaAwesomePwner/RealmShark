@@ -8,8 +8,8 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.lang.reflect.Field;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,6 +23,7 @@ import packets.data.QuestData;
 import tomato.gui.TomatoGUI;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.VioletTheme;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.notifications.NotificationsGUI;
@@ -85,12 +86,11 @@ public class QuestConsistencyTest {
         }, preferences);
         // The shell matrix measures every filter control, so it runs with the Quests filter drawer open.
         ArchiveNativeSupport.drawer(named(quest, "quests-filter-bar", FilterBar.class), true);
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-        Arrays.setAll(pages, i -> new JPanel());
-        pages[5] = quest;
-        if (mixedPages) pages[13] = new NotificationsGUI();
+        Map<String, JComponent> pages = TestPages.placeholders();
+        pages.put("quests", quest);
+        if (mixedPages) pages.put("settings", new NotificationsGUI());
         shell = new WorkspaceShell(pages, () -> fail("Preview must never invoke capture"), true);
-        shell.select(5); ContentStyle.refreshFonts(shell);
+        shell.select("quests"); ContentStyle.refreshFonts(shell);
         // Offscreen JTable has no addNotify to install its header in the enclosing scroll pane.
         scroll("quest-list-scroll").setColumnHeaderView(table().getTableHeader());
     }
@@ -362,7 +362,7 @@ public class QuestConsistencyTest {
             settle(frame);
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals("Selected before navigation", table().getValueAt(0, 1));
-                search().setText("selected"); shell.select(13);
+                search().setText("selected"); shell.select("settings");
                 assertFalse(quest.isShowing()); assertTrue(named(shell, "sound-master", JSlider.class).isShowing());
                 Themes.install(new Themes.Choice(Themes.Variant.LIGHT, true)); SwingUtilities.updateComponentTreeUI(frame); font(24);
                 shell.refreshTheme();
@@ -380,11 +380,11 @@ public class QuestConsistencyTest {
             settle(frame);
             SwingUtilities.invokeAndWait(() -> {
                 VioletTheme.install(); SwingUtilities.updateComponentTreeUI(frame); font(24);
-                shell.refreshTheme(); shell.select(5);
+                shell.refreshTheme(); shell.select("quests");
             });
             settle(frame);
             SwingUtilities.invokeAndWait(() -> {
-                assertEquals(5, shell.getSelectedPage()); assertEquals("selected", search().getText());
+                assertEquals("quests", shell.selectedPage()); assertEquals("selected", search().getText());
                 assertEquals("Selected after hidden publication", table().getValueAt(table().getSelectedRow(), 1));
                 String content = text(named(quest, "quest-details", JPanel.class));
                 assertTrue(content.contains("Latest detached quest payload")); assertFalse(content.contains("Unpublished"));

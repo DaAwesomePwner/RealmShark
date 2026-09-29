@@ -12,6 +12,8 @@ import javax.swing.ImageIcon;
 
 /** Retained sprite references resolve through ImageBuffer's current cache after asset reloads. */
 public final class Sprites {
+    /** A well's room around its sprite, both sides together: a well {@code side} wide fits a sprite of up to {@code side - WELL}. */
+    public static final int WELL = 6;
     private static final Map<Long, Icon> cache = new HashMap<>();
 
     private Sprites() {}
@@ -25,6 +27,29 @@ public final class Sprites {
     }
 
     public static synchronized void clear() { cache.clear(); }
+
+    /**
+     * A rounded well at {@code x, y}, {@code side} square, tinted and outlined in the bag's color ({@link Tokens#bag}: muted when the
+     * bag was not saved), the sprite centered and scaled down to the well's room, never enlarged. Colors resolve now, so call it while
+     * painting. Shared by the run cards and Loot Highlights.
+     */
+    public static void paintWell(Component owner, Graphics2D g, Icon sprite, String bag, int x, int y, int side) {
+        Color color = Tokens.bag(bag);
+        g.setColor(Tokens.tint(color));
+        g.fillRoundRect(x, y, side - 1, side - 1, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
+        g.setColor(color);
+        g.drawRoundRect(x, y, side - 1, side - 1, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
+        int room = side - WELL, width = sprite.getIconWidth(), height = sprite.getIconHeight();
+        double scale = Math.min(1d, (double) room / Math.max(1, Math.max(width, height)));
+        Graphics2D icon = (Graphics2D) g.create();
+        try {
+            icon.translate(x + (side - width * scale) / 2, y + (side - height * scale) / 2);
+            icon.scale(scale, scale);
+            sprite.paintIcon(owner, icon, 0, 0);
+        } finally {
+            icon.dispose();
+        }
+    }
 
     public static boolean isPlaceholder(Icon icon) {
         return icon instanceof Placeholder || icon instanceof LiveSprite && ((LiveSprite) icon).current() instanceof Placeholder;

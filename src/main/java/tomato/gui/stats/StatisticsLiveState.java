@@ -6,7 +6,10 @@ import javax.swing.event.*;
 import tomato.gui.history.*;
 import tomato.history.archive.*;
 
-/** Explicitly bound live presentation controls, independent of the workspace's saved-data query. */
+/**
+ * Explicitly bound live presentation controls, independent of the workspace's saved-data query: the live loot dashboard's
+ * search, Recent Drops range, facets, view and table layouts ({@code loot-live}).
+ */
 final class StatisticsLiveState {
     enum Order { NONE }
     static final class Fields { Map<String,String> values=new LinkedHashMap<>(); }
@@ -28,20 +31,8 @@ final class StatisticsLiveState {
     private void watch(java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> save){long generation=++saveGeneration;save.whenComplete((result,error)->SwingUtilities.invokeLater(()->{if(generation==saveGeneration)status.setText(error==null&&result!=null&&result.isSuccess()?"Live view state saved":"Live view active; state save failed. Retry view save keeps the current controls.");}));}
     String value(String key,String fallback){return fields.values.getOrDefault(key,fallback);}
     void put(String key,String value){if(restoring||Objects.equals(fields.values.get(key),value))return;fields.values.put(key,value);state=state.withQuery(state.query.withFacets(fields));save();}
-    void tabs(JTabbedPane tabs){int index=parse(value(tabs.getName(),"0"),0);if(index>=0&&index<tabs.getTabCount())tabs.setSelectedIndex(index);tabs.addChangeListener(e->put(tabs.getName(),Integer.toString(tabs.getSelectedIndex())));}
-    /** Keep legacy numeric values canonical even when presentation tabs are reordered or hidden. */
-    void tabs(tomato.gui.kit.CustomizableTabs tabs, String... canonicalIds){
-        List<String> ids=Arrays.asList(canonicalIds);String key=tabs.component().getName();
-        int index=parse(value(key,"-1"),-1);
-        if(index>=0&&index<ids.size())tabs.select(ids.get(index)); // A hidden tab stays hidden; the current tab is kept.
-        tabs.onSelect(id->{int canonical=ids.indexOf(id);if(canonical>=0)put(key,Integer.toString(canonical));});
-    }
     void text(JTextField field){field.setText(value(field.getName(),field.getText()));field.getDocument().addDocumentListener(new DocumentListener(){private void save(){put(field.getName(),field.getText());}public void insertUpdate(DocumentEvent e){save();}public void removeUpdate(DocumentEvent e){save();}public void changedUpdate(DocumentEvent e){save();}});}
     void combo(JComboBox<?> combo){String selected=value(combo.getName(),String.valueOf(combo.getSelectedItem()));combo.setSelectedItem(selected);combo.addActionListener(e->put(combo.getName(),String.valueOf(combo.getSelectedItem())));}
-    void check(JCheckBox check){check.setSelected(Boolean.parseBoolean(value(check.getName(),Boolean.toString(check.isSelected()))));check.addActionListener(e->put(check.getName(),Boolean.toString(check.isSelected())));}
-    void table(JTable table,JScrollPane scroll){
-        table(table,scroll,row->Objects.toString(table.getModel().getValueAt(row,0),""));
-    }
     void table(JTable table,JScrollPane scroll,java.util.function.IntFunction<String> rowKey){
         if(state.tables.containsKey(table.getName()))HistoryTables.applyColumns(table,state.tables.get(table.getName()));
         if(table.getRowSorter()!=null){String[] saved=value(table.getName()+".sort","").split(":");if(saved.length==2)try{int column=Integer.parseInt(saved[0]);if(column>=0&&column<table.getModel().getColumnCount())table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(column,SortOrder.valueOf(saved[1]))));}catch(IllegalArgumentException ignored){ }

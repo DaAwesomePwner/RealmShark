@@ -11,10 +11,11 @@ import util.PropertiesManager;
 
 /**
  * The user's sidebar arrangement over the fixed destinations: the core order (including pinned
- * Advanced entries), hidden entries and whether the Advanced group is open. Page indices never change
- * here. Saved values are comma-separated NavEntry IDs; IDs this version does not know, and unlisted
- * destinations (Build, Statistics, DPS Logger), are ignored and dropped on the next write. The one
- * exception is {@code dps-logger}, saved beside a hidden {@code runs} (see {@code savedHidden()}).
+ * Advanced entries), hidden entries and whether the Advanced group is open. Saved values are
+ * comma-separated NavEntry IDs; IDs this version does not know (including {@code my-info} and
+ * {@code dps-logger}, the Build and DPS Logger pages, and {@code statistics}, all removed in P6a) are
+ * ignored and dropped on the next write. The one exception is {@code dps-logger}:
+ * still read as a raw string and still saved beside a hidden {@code runs} (see {@code savedHidden()}).
  * Settings is never hidden, and at least one core entry always stays visible. Use on the EDT.
  */
 public final class NavLayout {
@@ -42,9 +43,10 @@ public final class NavLayout {
             NavEntry.Group group = group(id);
             if (group == NavEntry.Group.CORE || group == NavEntry.Group.ADVANCED) hidden.add(id);
         }
-        // P5b moved the live meter from DPS Logger (now unlisted) into Runs & DPS. Someone who hid Runs but kept DPS Logger
-        // would lose the meter's row, so Runs shows again. Memory only, like Home above: the next save writes it, and a hidden
-        // Runs is always saved with dps-logger beside it, so this happens once and never undoes a later choice.
+        // P5b moved the live meter from DPS Logger into Runs & DPS (P6a then removed the DPS Logger page; its ID is read here as
+        // a raw string). Someone who hid Runs but kept DPS Logger would lose the meter's row, so Runs shows again. Memory only,
+        // like Home above: the next save writes it, and a hidden Runs is always saved with dps-logger beside it, so this happens
+        // once and never undoes a later choice.
         if (savedHidden.contains(RUNS) && !savedHidden.contains(DPS_LOGGER)) hidden.remove(RUNS);
         advancedOpen = "true".equals(read.apply(ADVANCED_KEY));
         // A hand-edited file may hide every core entry; the sidebar and the landing page still need one.
@@ -127,7 +129,7 @@ public final class NavLayout {
         return true;
     }
 
-    /** Only core and Advanced rows hide: Settings is always listed, unlisted pages have no row, and the last visible core entry stays. */
+    /** Only core and Advanced rows hide: Settings is always listed and the last visible core entry stays. */
     public boolean canHide(String id) {
         NavEntry.Group group = group(id);
         if ((group != NavEntry.Group.CORE && group != NavEntry.Group.ADVANCED) || hidden.contains(id)) return false;
@@ -184,7 +186,9 @@ public final class NavLayout {
 
     /**
      * The hidden IDs as saved. Hiding Runs & DPS also hides the live meter, so {@code dps-logger} is saved beside a hidden
-     * {@code runs}: the one-time un-hide in the constructor then leaves it hidden, and an older version hides both pages.
+     * {@code runs}: the one-time un-hide in the constructor then leaves it hidden, and an older version hides both pages. P6a
+     * removed the DPS Logger page, but the ID is still written so that a P5b build reading these preferences does not un-hide
+     * Runs & DPS.
      */
     private String savedHidden() {
         List<String> saved = new ArrayList<>(hidden);

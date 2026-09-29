@@ -10,6 +10,7 @@ import assets.IdToAsset;
 import assets.ImageBuffer;
 import com.formdev.flatlaf.FlatLightLaf;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.realmshark.enums.CharacterClass;
@@ -278,7 +279,7 @@ public class ParsePanelRefreshTest {
                 SecurityGUI inspect = new SecurityGUI(log);
                 panel = find(inspect, ParsePanelGUI.class);
                 JTabbedPane tabs = find(inspect, JTabbedPane.class);
-                assertEquals("Party", WorkspaceShell.TITLES[2]);
+                assertEquals("Party", TestPages.title("party"));
                 assertEquals("Current Area", tabs.getTitleAt(tabs.getSelectedIndex()));
                 ParsePanelGUI.addPlayer(1, player(1, "Here now", "Current guild"));
                 frame = new JFrame(); frame.setContentPane(inspect); frame.setSize(1000, 750); frame.setVisible(true);
@@ -471,13 +472,12 @@ public class ParsePanelRefreshTest {
         SwingUtilities.invokeAndWait(() -> {
             ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, 14));
             setLookAndFeel(new VioletTheme());
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
-            pages[2] = new SecurityGUI();
-            panel = find(pages[2], ParsePanelGUI.class);
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.put("party", new SecurityGUI());
+            panel = find(pages.get("party"), ParsePanelGUI.class);
             for (int i = 0; i < 30; i++) ParsePanelGUI.addPlayer(i, player(i, "Player" + i, "Guild"));
             shell.set(new WorkspaceShell(pages, () -> { }, false));
-            shell.get().select(2);
+            shell.get().select("party");
             frame = new JFrame();
             frame.setContentPane(shell.get());
             frame.setSize(680, 520);

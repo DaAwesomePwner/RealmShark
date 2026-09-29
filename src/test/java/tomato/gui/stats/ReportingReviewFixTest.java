@@ -51,10 +51,10 @@ public class ReportingReviewFixTest {
                 Row row=rows(result).get(0).value;assertEquals(1000L,row.time.longValue());assertEquals(150.0,row.firstFame,0);assertEquals(150.0,row.lastFame,0);
                 assertNull(row.gain);assertNull(row.millis);assertEquals(2L,row.count.longValue());assertTrue(row.evidence.contains("1 undated observations"));
                 assertEquals(1,result.page(0,100,new Cancellation()).counts.get("undated fame observations").value);
-                Path output=temp.newFolder().toPath();Path json=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.JSON,output,"fame",new LootArchiveClient(output,true).exportColumns(),new Cancellation());
+                Path output=temp.newFolder().toPath();Path json=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.JSON,output,"fame",CharacterFameHistory.client(output).exportColumns(),new Cancellation());
                 JsonObject document=JsonParser.parseString(new String(Files.readAllBytes(json),StandardCharsets.UTF_8)).getAsJsonObject();JsonObject value=document.getAsJsonArray("rows").get(0).getAsJsonObject().getAsJsonObject("value");
                 assertTrue(!value.has("gain")||value.get("gain").isJsonNull());assertTrue(!value.has("millis")||value.get("millis").isJsonNull());assertEquals(1000,value.get("time").getAsLong());
-                Path csv=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.CSV,output,"fame",new LootArchiveClient(output,true).exportColumns(),new Cancellation());
+                Path csv=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.CSV,output,"fame",CharacterFameHistory.client(output).exportColumns(),new Cancellation());
                 List<String> lines=Files.readAllLines(csv,StandardCharsets.UTF_8);List<String> header=csvLine(lines.get(1)),cells=csvLine(lines.get(2));
                 assertEquals("",cells.get(header.indexOf("Fame change")));assertEquals("",cells.get(header.indexOf("Observed / finalized milliseconds")));assertEquals("1000",cells.get(header.indexOf("Timestamp (epoch ms)")));
                 FameSession graph=LootArchiveClient.readFame(lease,store.currentId(),new Cancellation());assertEquals(2,graph.getCharacterData(7).size());assertEquals(Collections.singletonList(new Fame(150,1000)),graph.datedSamples(7));
