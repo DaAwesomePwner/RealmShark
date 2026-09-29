@@ -7,6 +7,7 @@ import tomato.gui.chat.ChatPingGUI;
 import tomato.gui.dps.DpsDisplayOptions;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.stats.LootGUI;
+import tomato.gui.stats.LootFilters;
 import tomato.realmshark.Sound;
 import tomato.realmshark.enums.LootBags;
 import util.PropertiesManager;
@@ -169,66 +170,17 @@ public class TomatoMenuBar implements ActionListener {
         setSoundCheckbox();
         Sound.addListener(() -> SwingUtilities.invokeLater(this::setSoundCheckbox));
 
-        filterWhiteBag = new JCheckBoxMenuItem("Show White Bags");
-        filterWhiteBag.addActionListener(e -> {
-            LootGUI.filterWhiteBag = filterWhiteBag.isSelected();
-            PropertiesManager.setProperties("filterWhiteBag", Boolean.toString(filterWhiteBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterOrangeBag = new JCheckBoxMenuItem("Show Orange Bags");
-        filterOrangeBag.addActionListener(e -> {
-            LootGUI.filterOrangeBag = filterOrangeBag.isSelected();
-            PropertiesManager.setProperties("filterOrangeBag", Boolean.toString(filterOrangeBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterRedBag = new JCheckBoxMenuItem("Show Red Bags");
-        filterRedBag.addActionListener(e -> {
-            LootGUI.filterRedBag = filterRedBag.isSelected();
-            PropertiesManager.setProperties("filterRedBag", Boolean.toString(filterRedBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterGoldBag = new JCheckBoxMenuItem("Show Gold Bags");
-        filterGoldBag.addActionListener(e -> {
-            LootGUI.filterGoldBag = filterGoldBag.isSelected();
-            PropertiesManager.setProperties("filterGoldBag", Boolean.toString(filterGoldBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterEggBag = new JCheckBoxMenuItem("Show Egg Bags");
-        filterEggBag.addActionListener(e -> {
-            LootGUI.filterEggBag = filterEggBag.isSelected();
-            PropertiesManager.setProperties("filterEggBag", Boolean.toString(filterEggBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterBlueBag = new JCheckBoxMenuItem("Show Blue Bags");
-        filterBlueBag.addActionListener(e -> {
-            LootGUI.filterBlueBag = filterBlueBag.isSelected();
-            PropertiesManager.setProperties("filterBlueBag", Boolean.toString(filterBlueBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterTealBag = new JCheckBoxMenuItem("Show Teal Bags");
-        filterTealBag.addActionListener(e -> {
-            LootGUI.filterTealBag = filterTealBag.isSelected();
-            PropertiesManager.setProperties("filterTealBag", Boolean.toString(filterTealBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterPurpleBag = new JCheckBoxMenuItem("Show Purple Bags");
-        filterPurpleBag.addActionListener(e -> {
-            LootGUI.filterPurpleBag = filterPurpleBag.isSelected();
-            PropertiesManager.setProperties("filterPurpleBag", Boolean.toString(filterPurpleBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterPinkBag = new JCheckBoxMenuItem("Show Pink Bags");
-        filterPinkBag.addActionListener(e -> {
-            LootGUI.filterPinkBag = filterPinkBag.isSelected();
-            PropertiesManager.setProperties("filterPinkBag", Boolean.toString(filterPinkBag.isSelected()));
-            LootGUI.applyFilters();
-        });
-        filterBrownBag = new JCheckBoxMenuItem("Show Brown Bags");
-        filterBrownBag.addActionListener(e -> {
-            LootGUI.filterBrownBag = filterBrownBag.isSelected();
-            PropertiesManager.setProperties("filterBrownBag", Boolean.toString(filterBrownBag.isSelected()));
-            LootGUI.applyFilters();
-        });
+        // Filter Loot writes the shared LootFilters model; the checkboxes follow it, so another editor stays in sync.
+        filterWhiteBag = filterItem("Show White Bags", LootFilters.Kind.WHITE);
+        filterOrangeBag = filterItem("Show Orange Bags", LootFilters.Kind.ORANGE);
+        filterRedBag = filterItem("Show Red Bags", LootFilters.Kind.RED);
+        filterGoldBag = filterItem("Show Gold Bags", LootFilters.Kind.GOLD);
+        filterEggBag = filterItem("Show Egg Bags", LootFilters.Kind.EGG);
+        filterBlueBag = filterItem("Show Blue Bags", LootFilters.Kind.BLUE);
+        filterTealBag = filterItem("Show Teal Bags", LootFilters.Kind.TEAL);
+        filterPurpleBag = filterItem("Show Purple Bags", LootFilters.Kind.PURPLE);
+        filterPinkBag = filterItem("Show Pink Bags", LootFilters.Kind.PINK);
+        filterBrownBag = filterItem("Show Brown Bags", LootFilters.Kind.BROWN);
 
         // Add filter options to the Filter Loot menu
         filterBags.add(filterWhiteBag);
@@ -242,6 +194,7 @@ public class TomatoMenuBar implements ActionListener {
         filterBags.add(filterPinkBag);
         filterBags.add(filterBrownBag);
         loadFilteredBags();
+        LootFilters.get().addListener(this::loadFilteredBags);
 
         borders = new JMenuItem("Borders");
         borders.addActionListener(this);
@@ -566,46 +519,25 @@ public class TomatoMenuBar implements ActionListener {
         }
     }
 
+    private JCheckBoxMenuItem filterItem(String text, LootFilters.Kind kind) {
+        JCheckBoxMenuItem item = new JCheckBoxMenuItem(text);
+        item.addActionListener(e -> LootFilters.get().set(kind, item.isSelected()));
+        return item;
+    }
+
+    /** Selects each Filter Loot checkbox from LootFilters (absent preference = shown); runs again on every filter change (EDT). */
     private void loadFilteredBags() {
-        String whiteBag = PropertiesManager.getProperty("filterWhiteBag");
-        filterWhiteBag.setSelected(whiteBag == null || whiteBag.equals("true"));
-        LootGUI.filterWhiteBag = filterWhiteBag.isSelected();
-
-        String orangeBag = PropertiesManager.getProperty("filterOrangeBag");
-        filterOrangeBag.setSelected(orangeBag == null || orangeBag.equals("true"));
-        LootGUI.filterOrangeBag = filterOrangeBag.isSelected();
-
-        String redBag = PropertiesManager.getProperty("filterRedBag");
-        filterRedBag.setSelected(redBag == null || redBag.equals("true"));
-        LootGUI.filterRedBag = filterRedBag.isSelected();
-
-        String goldBag = PropertiesManager.getProperty("filterGoldBag");
-        filterGoldBag.setSelected(goldBag == null || goldBag.equals("true"));
-        LootGUI.filterGoldBag = filterGoldBag.isSelected();
-
-        String eggBag = PropertiesManager.getProperty("filterEggBag");
-        filterEggBag.setSelected(eggBag == null || eggBag.equals("true"));
-        LootGUI.filterEggBag = filterEggBag.isSelected();
-
-        String blueBag = PropertiesManager.getProperty("filterBlueBag");
-        filterBlueBag.setSelected(blueBag == null || blueBag.equals("true"));
-        LootGUI.filterBlueBag = filterBlueBag.isSelected();
-
-        String tealBag = PropertiesManager.getProperty("filterTealBag");
-        filterTealBag.setSelected(tealBag == null || tealBag.equals("true"));
-        LootGUI.filterTealBag = filterTealBag.isSelected();
-
-        String purpleBag = PropertiesManager.getProperty("filterPurpleBag");
-        filterPurpleBag.setSelected(purpleBag == null || purpleBag.equals("true"));
-        LootGUI.filterPurpleBag = filterPurpleBag.isSelected();
-
-        String pinkBag = PropertiesManager.getProperty("filterPinkBag");
-        filterPinkBag.setSelected(pinkBag == null || pinkBag.equals("true"));
-        LootGUI.filterPinkBag = filterPinkBag.isSelected();
-
-        String brownBag = PropertiesManager.getProperty("filterBrownBag");
-        filterBrownBag.setSelected(brownBag == null || brownBag.equals("true"));
-        LootGUI.filterBrownBag = filterBrownBag.isSelected();
+        LootFilters filters = LootFilters.get();
+        filterWhiteBag.setSelected(filters.shows(LootFilters.Kind.WHITE));
+        filterOrangeBag.setSelected(filters.shows(LootFilters.Kind.ORANGE));
+        filterRedBag.setSelected(filters.shows(LootFilters.Kind.RED));
+        filterGoldBag.setSelected(filters.shows(LootFilters.Kind.GOLD));
+        filterEggBag.setSelected(filters.shows(LootFilters.Kind.EGG));
+        filterBlueBag.setSelected(filters.shows(LootFilters.Kind.BLUE));
+        filterTealBag.setSelected(filters.shows(LootFilters.Kind.TEAL));
+        filterPurpleBag.setSelected(filters.shows(LootFilters.Kind.PURPLE));
+        filterPinkBag.setSelected(filters.shows(LootFilters.Kind.PINK));
+        filterBrownBag.setSelected(filters.shows(LootFilters.Kind.BROWN));
     }
 
 

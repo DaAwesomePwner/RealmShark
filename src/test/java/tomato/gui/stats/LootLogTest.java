@@ -46,12 +46,13 @@ public class LootLogTest {
         ExecutorService capture = Executors.newSingleThreadExecutor();
         SendLoot.Session sharing = new SendLoot.Session(new LootDelivery(
             () -> { throw new AssertionError("Opted-out log must not connect"); }, 2, false, false));
-        boolean whiteFilter = LootGUI.filterWhiteBag;
+        LootCapture loot = new LootCapture(new TomatoData(), sharing);
+        String whiteFilter = util.PropertiesManager.getProperty(LootFilters.Kind.WHITE.key());
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    view[0] = new LootGUI(new TomatoData(), sharing);
-                    LootGUI.lootSharing(true); LootGUI.filterWhiteBag = true;
+                    view[0] = new LootGUI(loot);
+                    loot.lootSharing(true); LootFilters.get().set(LootFilters.Kind.WHITE, true);
                     LootGUI.editFont(ContentStyle.body());
                     Field field = LootGUI.class.getDeclaredField("lootPanel"); field.setAccessible(true);
                     rows[0] = (JPanel)field.get(view[0]);
@@ -60,13 +61,13 @@ public class LootLogTest {
                         public void componentRemoved(ContainerEvent e) { if (!SwingUtilities.isEventDispatchThread()) offEdtMutation.set(true); }
                     });
                     capture.submit(() -> {
-                        LootGUI.updateExaltStats();
+                        loot.updateExaltStats();
                         Entity player = new Entity(null, 1, 0); player.objectType = 768;
                         Entity bag = new Entity(null, 2, 0); bag.objectType = LootBags.WHITE.getId();
                         StatData item = new StatData(); item.statValue = 999991;
                         bag.stat.set(StatType.INVENTORY_0_STAT, item);
                         MapInfoPacket map = new MapInfoPacket(); map.name = "The Shatters";
-                        for (int i = 0; i < 1105; i++) LootGUI.update(map, bag, null, player, i);
+                        for (int i = 0; i < 1105; i++) loot.update(map, bag, null, player, i);
                         item.statValue = -1; map.name = "Changed after capture"; bag.objectType = 0;
                     }).get(10, TimeUnit.SECONDS);
                     assertArrayEquals(new int[]{1105, 1105}, view[0].getDashboard().sessionTotals());
@@ -90,8 +91,9 @@ public class LootLogTest {
                 assertEquals(999991, bag.stat.get(StatType.INVENTORY_0_STAT).statValue);
                 assertTrue(hasTooltip(newest, "The Shatters"));
                 assertTrue(newest.isVisible());
-                LootGUI.filterWhiteBag = false; LootGUI.applyFilters(); assertFalse(newest.isVisible());
-                LootGUI.filterWhiteBag = true; LootGUI.applyFilters(); assertTrue(newest.isVisible());
+                // Filter Loot changes reach the log through LootFilters listeners, without an explicit apply.
+                LootFilters.get().set(LootFilters.Kind.WHITE, false); assertFalse(newest.isVisible());
+                LootFilters.get().set(LootFilters.Kind.WHITE, true); assertTrue(newest.isVisible());
                 Font font = ContentStyle.body().deriveFont(28f); LootGUI.editFont(font);
                 JLabel count = (JLabel)newest.getComponent(1);
                 assertEquals(font, count.getFont());
@@ -100,7 +102,8 @@ public class LootLogTest {
         } finally {
             capture.shutdownNow();
             sharing.close();
-            SwingUtilities.invokeAndWait(() -> { LootGUI.filterWhiteBag = whiteFilter; LootGUI.editFont(ContentStyle.body()); });
+            restoreProperty(LootFilters.Kind.WHITE.key(), whiteFilter);
+            SwingUtilities.invokeAndWait(() -> LootGUI.editFont(ContentStyle.body()));
         }
     }
 
@@ -110,15 +113,16 @@ public class LootLogTest {
         boolean whiteEnabled = tomato.realmshark.Sound.whitebag.isEnabled();
         ExecutorService capture = Executors.newSingleThreadExecutor();
         try {
-            SwingUtilities.invokeAndWait(() -> { new LootGUI(new TomatoData(), sharing); LootGUI.lootSharing(true); });
+            // Bag sounds play from the non-UI capture with device sounds (P6a); no LootGUI is built.
+            LootCapture loot = new LootCapture(new TomatoData(), sharing); loot.lootSharing(true);
             tomato.realmshark.Sound.whitebag.setEnabled(false);
             tomato.realmshark.AlertDecisions.INSTANCE.clear();
             capture.submit(() -> {
-                LootGUI.updateExaltStats(); // enables the producer, as capture does once exalt stats arrive
+                loot.updateExaltStats(); // enables the producer, as capture does once exalt stats arrive
                 Entity player = new Entity(null, 1, 0); player.objectType = 768;
                 Entity bag = new Entity(null, 2, 0); bag.objectType = LootBags.WHITE.getId();
                 MapInfoPacket map = new MapInfoPacket(); map.name = "The Shatters";
-                LootGUI.update(map, bag, null, player, 1);
+                loot.update(map, bag, null, player, 1);
             }).get(10, TimeUnit.SECONDS);
             boolean recorded = false;
             for (tomato.realmshark.AlertDecisions.Decision d : tomato.realmshark.AlertDecisions.INSTANCE.snapshot(true))
@@ -135,25 +139,24 @@ public class LootLogTest {
         SendLoot.Session sharing = new SendLoot.Session(new LootDelivery(() -> transport, 2, true, false));
         ExecutorService capture = Executors.newSingleThreadExecutor();
         LootGUI[] view = new LootGUI[1];
+        TomatoData data = new TomatoData();
+        data.setPropList("itemPings", new java.util.ArrayList<>());
+        LootCapture loot = new LootCapture(data, sharing);
         try {
-            SwingUtilities.invokeAndWait(() -> {
-                TomatoData data = new TomatoData();
-                data.setPropList("itemPings", new java.util.ArrayList<>());
-                view[0] = new LootGUI(data, sharing);
-            });
+            SwingUtilities.invokeAndWait(() -> view[0] = new LootGUI(loot));
             Entity bag = new Entity(null, 2, 0); bag.objectType = LootBags.BROWN.getId();
             bag.pos = new packets.data.WorldPosData();
             StatData item = new StatData(); item.statValue = 999991; bag.stat.set(StatType.INVENTORY_0_STAT, item);
             Entity player = new Entity(null, 1, 0); player.objectType = 768;
             MapInfoPacket map = new MapInfoPacket(); map.name = "The Shatters";
-            capture.submit(() -> { LootGUI.updateExaltStats(); LootGUI.update(map, bag, null, player, 1); }).get(2, TimeUnit.SECONDS);
+            capture.submit(() -> { loot.updateExaltStats(); loot.update(map, bag, null, player, 1); }).get(2, TimeUnit.SECONDS);
             assertEquals("Composition rejected the fixture: " + sharing.snapshot().lastError, 1, sharing.snapshot().queued);
             assertTrue(transport.connectEntered.await(2, TimeUnit.SECONDS));
             // Capture can publish another bag while the sole sender is still in connect.
-            capture.submit(() -> LootGUI.update(map, bag, null, player, 2)).get(2, TimeUnit.SECONDS);
+            capture.submit(() -> loot.update(map, bag, null, player, 2)).get(2, TimeUnit.SECONDS);
             CountDownLatch heartbeat = new CountDownLatch(1);
             SwingUtilities.invokeLater(() -> {
-                LootGUI.lootSharing(true);
+                loot.lootSharing(true);
                 view[0].refreshDeliveryStatus();
                 heartbeat.countDown();
             });
@@ -185,12 +188,13 @@ public class LootLogTest {
             SwingUtilities.invokeAndWait(() -> {
                 TomatoData data = new TomatoData();
                 data.setPropList("itemPings", new java.util.ArrayList<>(java.util.Collections.singletonList("999991")));
-                LootGUI view = new LootGUI(data, sharing);
+                LootCapture loot = new LootCapture(data, sharing);
+                LootGUI view = new LootGUI(loot);
                 Entity bag = new Entity(null, 2, 0);
                 StatData item = new StatData(); item.statValue = 999991; bag.stat.set(StatType.INVENTORY_0_STAT, item);
                 AtomicBoolean alerted = new AtomicBoolean();
-                LootGUI.lootSharing(false);
-                view.notifyItems(bag, decision -> alerted.set(true), () -> fail("Preview cannot share"));
+                loot.lootSharing(false);
+                loot.notifyItems(bag, decision -> alerted.set(true), () -> fail("Preview cannot share"));
                 view.refreshDeliveryStatus();
                 assertTrue(alerted.get());
                 assertTrue(findStatus(view).getAccessibleContext().getAccessibleDescription().contains("Preview — sending disabled"));
@@ -204,7 +208,7 @@ public class LootLogTest {
         LootGUI[] view = new LootGUI[1]; JFrame[] frame = new JFrame[1];
         try {
             SwingUtilities.invokeAndWait(() -> {
-                view[0] = new LootGUI(new TomatoData(), sharing);
+                view[0] = new LootGUI(new LootCapture(new TomatoData(), sharing));
                 frame[0] = new JFrame("Loot layout regression");
                 // Match StatisticsGUI: short windows scroll the page rather than shrink data rows.
                 frame[0].setContentPane(StatsUi.page(view[0], 570));
@@ -233,6 +237,17 @@ public class LootLogTest {
             SwingUtilities.invokeAndWait(() -> { if (frame[0] != null) frame[0].dispose(); });
             sharing.close();
         }
+    }
+
+    /** Restores a preference exactly, including "absent" (the Filter Loot keys treat absent as shown). */
+    private static void restoreProperty(String key, String value) throws Exception {
+        util.PropertiesManager.flush().toCompletableFuture().get(3, TimeUnit.SECONDS);
+        if (value != null) util.PropertiesManager.setProperties(key, value);
+        else {
+            Field field = util.PropertiesManager.class.getDeclaredField("properties"); field.setAccessible(true);
+            ((java.util.Properties)field.get(null)).remove(key);
+        }
+        util.PropertiesManager.flush().toCompletableFuture().get(3, TimeUnit.SECONDS);
     }
 
     private static JTextArea findStatus(Container root) {
