@@ -20,7 +20,7 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P4 Quests: Board and Planner | #24 | Merged (Codex: no findings) | `e541874` |
 | P5a Runs: combat auto-save, feed, recap | #25 | Merged (Codex fix `21d896e`) | `3ab077c` |
 | P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | #26 | Merged (Codex fixes `a7b873e`) | `73400af` |
-| P6a Structure: IDs, retired pages, Loot, Statistics removal | none | Planned ([plan](2026-09-29-p6a-structure.md)) | |
+| P6a Structure: IDs, retired pages, Loot, Statistics removal | open | Implemented, in review ([plan](2026-09-29-p6a-structure.md), [validation](2026-09-29-p6a-validation.md)) | |
 | P6b Consistency: Scope ▾, Advanced restyles, sidebar drag, final screenshots | none | Outline (P6a plan's "Deferred scope") | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
@@ -45,7 +45,9 @@ Done on 2026-09-27/28 (cloud session):
 
 - P6 researched (four notes: Loot and Statistics-only content, Advanced pages, destination IDs and retired pages, scope-row merge and docs) and split into two PRs by user decision. P6a planned as a contract plan ([2026-09-29-p6a-structure.md](2026-09-29-p6a-structure.md), 13 tasks in four waves). User decisions: two PRs (P6a structure, P6b consistency); re-home only the essential Statistics extras (Character fame to Characters as an Analyst tab; drop the `.fame` autosave and Sessions popup but keep "Open fame session file…", the per-map fame breakdown, live Dungeon Stats and the Live log's live-only facts); the spec's single "Scope ▾" chip in P6b; add Settings › Loot filters, Chat and About (in P6a).
 
-1. **Implement P6a when the user says so** (subagent-driven, as P5b: Wave A starts with the ID pass, which merges first). Then open the P6a PR under the standing permission, and plan P6b after it merges.
+- P6a implemented with subagent-driven development: 13 tasks in four waves plus three polish tasks from the screenshot reviews (A, B1, B2), each reviewed and merged by the coordinator. The container restarted once during Task 12; its uncommitted work survived and the same implementer finished it. Final suite 2,020 tests with only the four known Linux/Xvfb failures; `shadowJar` and the isolated `--help` smoke pass. Record: [2026-09-29-p6a-validation.md](2026-09-29-p6a-validation.md).
+
+1. **Drive the P6a PR to merge** (Codex review under the standing permission), then record the merge and **plan P6b** (see the P6a plan's "Deferred scope" and the validation record's deferred evidence findings).
 2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
 The P5 and P5b research notes live in the session scratchpad; the plans quote their conclusions. A new session without them should re-run the research questions listed in each plan's "Sources" before implementing.
 

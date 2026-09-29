@@ -310,7 +310,19 @@ Merged: Task 11 `b74e2ff`, then Polish A `9a2c03f` (screenshot fixes from Tasks 
 
 ### Wave D outcomes (coordinator review)
 
-_To be filled after review._
+Merged: Task 13 `07c882c` (`8188a2f`), then Polish B1 `9e6842a` + `052e939` (`3a162b2`) and Polish B2 `07ab232` (`0625e34`), the two
+polish tasks run in parallel on separate files from the coordinator's review of the Task 13 captures.
+
+- **Task 13:** `ui.LootEvidenceTest` (7 tests, 27 captures in the real shell, the capture title band padded); S6 adds the live
+  Explore dashboard inside the Loot workspace and pads all 112 captures; S8 enters Loot as Highlights and as Explore and switches the
+  Loot tabs (Loot about 12 ms p95 at most; every core destination at or under about 23 ms); `docs/LOOT.md`, `docs/STATISTICS.md` as
+  "Where Statistics went", the module docs and README; the validation record. It found a pre-existing bug (finding 2).
+- **Polish B1:** saved loot views read bags without a saved name (loot profile, session comparison, cohorts, By Bag with an "Unknown
+  bag (name not saved)" row, no "null" facet); the sidebar keeps no border after a live theme switch; new Loot and Settings
+  descriptions; a one-view workspace hides its view selector.
+- **Polish B2:** Highlights' four tiles share one row at 1240×800 font 13 (wrapping sub-lines); Settings › Chat keeps Save filters and
+  Cancel in view at both reference sizes.
+- The findings left for P6b are listed in the validation record's "Coordinator review of the evidence".
 
 ---
 

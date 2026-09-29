@@ -127,8 +127,8 @@ are the local checks.
 | S6 | `GRADLE test --tests "tomato.gui.history.FilterBarEvidenceTest"` (alone) | Task 13: **1 test, 0 failures**; 14 pages × 8 states = **112 captures** in `build/p6a-t13/ui-test/screenshots/redesign-p1c/`; one filter row at 1240×800 font 13 with the drawer closed and active chips on every page, Loot's view selector live and saved. Diagnostic history: the first run of the new `loot-explore-live` page failed a Task 13 expectation, not the app (it expected the Loot workspace's own row to be hidden while live; it shows only the scope controls, Browse saved, the session, Refresh and ⋯, and P6b merges it). The check now asserts that the workspace's saved search and Filters toggle are hidden while live. Two passing runs followed, the second with the padded frame |
 | Evidence (Task 13) | `GRADLE test --tests "ui.LootEvidenceTest"` (alone) | **7 tests, 0 failures, 0 errors, 0 skipped** (run 2); 27 captures in `build/p6a-t13/ui-test/screenshots/redesign-p6a-loot/`. Diagnostic history: run 1 failed 5 of 7 tests. All but one cause were test-side: the empty fixture saved this app run's bag, so Today had a bag and showed real zeros; tile text was compared with the label's "2 (partial)"; header rows were read through `toString()`; compact captures did not scroll to the selector or the fame table; and "four tiles in one row" is not true in the real shell (finding 1, now asserted as whole tiles in at most two rows). The remaining failure was real: a saved-only view failed to read a legacy bag without a name (finding 2). The Explore fixture now holds no such bag, and the failing capture is kept in the coordinator's scratchpad (`p6/t13-evidence/`) |
 | `tomato.gui.loot.*` (Task 13) | `GRADLE test --tests "tomato.gui.loot.*"` | 6 classes, **46 tests, 0 failures**: nothing else moved |
-| Final full suite and JAR | `GRADLE test shadowJar` | _Final full suite and JAR smoke: filled in by the coordinator._ |
-| JAR smoke | isolated `java -jar … --help` from an empty folder | _Filled in by the coordinator with the final suite._ |
+| Final full suite and JAR | `GRADLE test shadowJar` on `0625e34` (alone) | **2,020 tests in 401 classes: 4 failures, 0 errors, 5 skipped.** The four failures are exactly the Linux/Xvfb baseline ones (`StatisticsArchiveNativeTest.actualLootFactory…`, `QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`); `ContentStyleTest` passed in this run. Baseline: P5b's 1,895 / 5 / 0 / 5 on `a42f9fc` (the fifth, the quest harness race, was fixed in `1498102`). `shadowJar` built `RealmShark-v1.2.3.jar` (9.9 MB) |
+| JAR smoke | isolated `java -jar … --help` from an empty folder | exit 0 with the usage text (`--help`, `--preview`, `--path`), from an empty scratch folder with its own `user.home` and `java.io.tmpdir`; the folders held no files afterwards |
 
 **`ContentStyleTest` (Waves A and C).** It loads only `ContentStyle` and `VioletTheme`, both byte-identical to P5b's merge. The
 assertions that fail (an extra relayout after the width settles, and a grid height after a window resize) belong to the known
@@ -317,6 +317,36 @@ Findings from Task 13, which changed no main code:
     is open (pre-existing). The capture harness's title band is now padded in `LootEvidenceTest` and `FilterBarEvidenceTest`; older
     evidence tests still show it over the page heading.
 
+## Coordinator review of the evidence
+
+The coordinator looked at the captures and decided each finding. Two polish tasks ran in parallel on separate files, each test-first
+and reviewed like the plan's tasks:
+
+- **Polish B1** (`9e6842a`, `052e939`; merge `3a162b2`):
+  - **Finding 2 (fixed, real bug):** `LootProfile` counts a bag without a saved name as a bag (its items count) but never as a white
+    bag, and its explanation says how many such bags it saw. Dungeon loot profile, Session comparison and A/B cohorts now read such a
+    history. The same review found that saved **By Bag** also failed on such a bag and that the bag facet listed a bag named "null":
+    `LootArchiveAdapter` now groups them on one "Unknown bag (name not saved)" row, leaves them out of the bag facet, and search
+    finds them by that label, never by "null". `docs/LOOT.md` explains it.
+  - **Finding 3 (fixed):** the sidebar's scroll pane clears its border after each of its own UI updates, so a live theme switch no
+    longer boxes the list or the compact rail.
+  - **Finding 12 (fixed):** new Loot and Settings descriptions.
+  - **Finding 10, part (fixed):** a workspace offering one view hides its view selector row (Characters › Fame history).
+- **Polish B2** (`07ab232`; merge `0625e34`):
+  - **Finding 1 (fixed):** Highlights' tiles wrap their sub-lines between their " · " parts, so the four tiles share one row at
+    1240×800 font 13 in the real shell and go two by two at 680×520 font 18 (one per row before).
+  - **Finding 9, part (fixed):** Settings › Chat's editor fills the section and its own lists scroll, so Save filters, Cancel and the
+    save status are in view without scrolling at both reference sizes. At 680×520 font 18 this leaves two small stacked scroll areas.
+
+Focused runs: Polish B1 265 tests (1 failure, the known `StatisticsArchiveNativeTest.actualLootFactory…`), then 202 tests with the By
+Bag fix (the same one failure); Polish B2 83 tests, 0 failures, twice.
+
+**Deferred to P6b** (pre-existing or consistency work that P6b's restyles cover): findings 4 (long names and dungeon-cell summaries
+ellipsize; tooltips keep the text), 5 ("Unknown" versus "Unknown area"), 6 (blank Slots and Applied in saved Explore; potions counted
+under Unknown rarity), 7 (Analyst-level captions in Simple saved Explore), 8 (view-state buttons; compact wraps), 9's remaining inset
+and a single pinned-footer scroll for Settings › Chat at 680×520, 10's loot facets and Name column width, 11 (light-theme tile
+contrast), and By Bag's explicit Bag and Name sorts not placing the Unknown bag row last.
+
 ## PR review
 
 _PR review: filled in by the coordinator._
@@ -330,5 +360,4 @@ _PR review: filled in by the coordinator._
 - **Not in P6:** Resources & buffs stays nested in the Live meter; building `CombatMeterData` off the EDT; a per-map fame breakdown and
   live Dungeon Stats (dropped by user decision).
 - **Left for later:** `RunFeedSource`'s own stamp cache (Task 3); Home's Notable loot tile does not pass its Today / This session
-  choice to Highlights (Task 11; the Highlights caption names its period); hardening `ContentStyleTest`; evidence findings 1–13 above,
-  until the coordinator's review decides them.
+  choice to Highlights (Task 11; the Highlights caption names its period); hardening `ContentStyleTest`; the evidence findings deferred to P6b in "Coordinator review of the evidence".
