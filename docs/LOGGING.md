@@ -2,7 +2,7 @@
 
 Logging inspects the same passively decoded traffic used by DPS and loot tracking. It does not inject into the game, modify packets, or make game-server requests. Start capture, enable collection, and enter a fresh area to gather data.
 
-Gameplay history now has dedicated views: **Runs** (Alt+R), **Timeline** (Alt+T), and **DPS Logger > Resources & buffs**. See [Activity modules](ACTIVITY.md) for their controls and interpretation.
+Gameplay history now has dedicated views: **Runs & DPS** (Alt+R), **Timeline** (Alt+T), and **Runs & DPS › Live meter › Resources & buffs**. See [Activity modules](ACTIVITY.md) for their controls and interpretation.
 
 ## Diagnostic views
 
