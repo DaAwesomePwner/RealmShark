@@ -129,6 +129,51 @@ public class LootDashboardTest {
         }
     }
 
+    /**
+     * B1(b), B2: stat potions have no enchant slots, so the live rarity summary counts them apart ("· N stat potions (no enchant slots)"), never
+     * under Unknown; an area without a known name reads "Unknown area" in Last dungeon, By Dungeon and Recent Drops, while the
+     * model, sorting and search keep the captured name.
+     */
+    @Test public void theRaritySummaryCountsPotionsApartAndUnknownAreasReadUnknownArea() throws Exception {
+        LootDashboard[] panel = new LootDashboard[1]; JFrame[] frame = new JFrame[1];
+        LootDashboard.Item potion = new LootDashboard.Item(2591, "Potion of Attack", true);
+        LootDashboard.Item rare = new LootDashboard.Item(910001, "Synthetic blade", "WEAPON,UT", tomato.realmshark.ParseEnchants.summarize(LootEquipmentTest.encode(-1, -1)));
+        LootDashboard.Item unread = new LootDashboard.Item(910002, "Synthetic bow", "WEAPON,UT", tomato.realmshark.ParseEnchants.summarize(null));
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                panel[0] = new LootDashboard();
+                panel[0].acceptAll(Arrays.asList(
+                    new LootDashboard.Drop("White", "Lost Halls", "Boss", 1000, Arrays.asList(potion, potion, unread)),
+                    new LootDashboard.Drop("Blue", "Unknown", "Minion", 2000, Arrays.asList(rare))));
+                frame[0] = show(panel[0]);
+                JTable items = table(panel[0], 0);
+                assertEquals("4 drops shown · Unenchanted (0 slots): 0 · Uncommon (1): 0 · Rare (2): 1 · Legendary (3): 0 · Divine (4): 0 · Unknown: 1"
+                    + " · 2 stat potions (no enchant slots)", named(panel[0], "loot-enchant-totals", JTextArea.class).getText());
+                int blade = row(items, 1, "Synthetic blade");
+                assertEquals("Unknown", items.getValueAt(blade, 3));
+                assertEquals(tomato.gui.stats.LootFacts.UNKNOWN_AREA, text(items, blade, 3));
+                assertEquals("Lost Halls", text(items, row(items, 1, "Synthetic bow"), 3));
+                JTable dungeons = table(panel[0], 5);
+                int unknown = row(dungeons, 0, "Unknown");
+                assertEquals(tomato.gui.stats.LootFacts.UNKNOWN_AREA, text(dungeons, unknown, 0));
+                JTable recent = table(panel[0], 4);
+                int blue = row(recent, 1, "Blue");
+                assertEquals("Unknown", recent.getValueAt(blue, 3));
+                assertEquals(tomato.gui.stats.LootFacts.UNKNOWN_AREA, text(recent, blue, 3));
+                assertEquals("Lost Halls", text(recent, row(recent, 1, "White"), 3));
+            });
+        } finally { SwingUtilities.invokeAndWait(() -> { if (frame[0] != null) frame[0].dispose(); }); }
+    }
+    /** The view row whose value in view column {@code column} is {@code value}. */
+    private static int row(JTable table, int column, Object value) {
+        for (int row = 0; row < table.getRowCount(); row++) if (value.equals(table.getValueAt(row, column))) return row;
+        throw new AssertionError("No row with " + value + " in " + table.getName());
+    }
+    /** The text a user sees in a cell: the realized renderer's. */
+    private static String text(JTable table, int row, int column) {
+        return ((JLabel) table.prepareRenderer(table.getCellRenderer(row, column), row, column)).getText();
+    }
+
     private static JFrame show(LootDashboard panel) {
         JFrame frame = new JFrame("Loot preview sample"); frame.setContentPane(panel);
         frame.setSize(1050, 650); frame.setVisible(true); frame.validate(); return frame;

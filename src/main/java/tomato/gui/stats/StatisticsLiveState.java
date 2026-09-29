@@ -9,26 +9,43 @@ import tomato.history.archive.*;
 /**
  * Explicitly bound live presentation controls, independent of the workspace's saved-data query: the live loot dashboard's
  * search, Recent Drops range, facets, view and table layouts ({@code loot-live}).
+ * <p>Polish B5: saving is quiet while it works. After a failed save the status line explains it and the live row's ⋯ offers
+ * "Retry view save" and "Reset saved live view"; while an unreadable saved state blocks saving, it offers Reset only.
  */
 final class StatisticsLiveState {
     enum Order { NONE }
     static final class Fields { Map<String,String> values=new LinkedHashMap<>(); }
     private final ViewStateStore store;private final String key;
     private ViewState<Fields,Order> state;private Fields fields;private boolean restoring;
-    private boolean saveBlocked;private long saveGeneration;
+    private boolean saveBlocked,saveFailed;private long saveGeneration;
     private final JTextArea status=tomato.gui.modern.ContentStyle.wrappingText("");
+    private final JMenuItem retry=new JMenuItem("Retry view save"),reset=new JMenuItem("Reset saved live view");
+    /** The live row's ⋯ section for Retry and Reset: empty (and so hidden) while saving works; null until attached. */
+    private tomato.gui.kit.OverflowMenu.Section actions;
     StatisticsLiveState(ViewStateStore store,String key){
         this.store=store;this.key=key;state=ViewState.initial(ArchiveQuery.of(ArchiveQuery.CURRENT,new Fields(),Fields.class,Order.NONE));
         try{ViewState<Fields,Order> saved=store.load(key,state);if(saved.query.facets().values==null)throw new IllegalArgumentException("Missing live controls");state=saved;}catch(RuntimeException failure){reject(failure.getMessage());}fields=state.query.facets();
     }
-    StatisticsLiveState attach(JPanel owner){
-        JPanel feedback=new JPanel(new java.awt.BorderLayout(5,0));status.setName(key+"-state-status");status.getAccessibleContext().setAccessibleName("Live view state persistence");feedback.add(status);
-        JButton reset=new JButton("Reset saved live view"),retry=new JButton("Retry view save");retry.setName(key+"-retry-state");retry.addActionListener(e->save());reset.addActionListener(e->{saveBlocked=false;watch(store.reset(key));});JPanel actions=tomato.gui.modern.ContentStyle.controls();actions.add(retry);actions.add(reset);feedback.add(actions,java.awt.BorderLayout.EAST);
-        java.awt.BorderLayout layout=(java.awt.BorderLayout)owner.getLayout();java.awt.Component old=layout.getLayoutComponent(java.awt.BorderLayout.SOUTH);JPanel footer=new JPanel(new java.awt.BorderLayout(0,4));if(old!=null)footer.add(old);footer.add(feedback,java.awt.BorderLayout.SOUTH);owner.add(footer,java.awt.BorderLayout.SOUTH);return this;
+    /** Puts the status line under {@code owner}'s footer (BorderLayout SOUTH) and Retry/Reset in {@code more}, shown only when needed. */
+    StatisticsLiveState attach(JPanel owner,tomato.gui.kit.OverflowMenu more){
+        status.setName(key+"-state-status");status.getAccessibleContext().setAccessibleName("Live view state persistence");
+        retry.setName(key+"-retry-state");reset.setName(key+"-reset-state");retry.addActionListener(e->save());reset.addActionListener(e->{saveBlocked=false;watch(store.reset(key));});
+        retry.getAccessibleContext().setAccessibleDescription("Saves the current live controls again");
+        reset.getAccessibleContext().setAccessibleDescription("Replaces the saved live view with the current controls");
+        actions=more.section(key+"-state");
+        java.awt.BorderLayout layout=(java.awt.BorderLayout)owner.getLayout();java.awt.Component old=layout.getLayoutComponent(java.awt.BorderLayout.SOUTH);JPanel footer=new JPanel(new java.awt.BorderLayout(0,4));if(old!=null)footer.add(old);footer.add(status,java.awt.BorderLayout.SOUTH);owner.add(footer,java.awt.BorderLayout.SOUTH);
+        present();return this;
     }
-    void reject(String message){saveBlocked=true;status.setText("Saved live view unavailable: "+message+". Reset saved live view to enable saving; current controls remain usable.");}
-    private void save(){if(!saveBlocked)try{watch(store.save(key,state));}catch(RuntimeException failure){status.setText("Live view active; state save failed: "+failure.getMessage());}}
-    private void watch(java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> save){long generation=++saveGeneration;save.whenComplete((result,error)->SwingUtilities.invokeLater(()->{if(generation==saveGeneration)status.setText(error==null&&result!=null&&result.isSuccess()?"Live view state saved":"Live view active; state save failed. Retry view save keeps the current controls.");}));}
+    void reject(String message){saveBlocked=true;status.setText("Saved live view unavailable: "+message+". Reset saved live view (⋯) to enable saving; current controls remain usable.");present();}
+    private void save(){if(!saveBlocked)try{watch(store.save(key,state));}catch(RuntimeException failure){saveFailed=true;status.setText("Live view active; state save failed: "+failure.getMessage());present();}}
+    private void watch(java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> save){long generation=++saveGeneration;save.whenComplete((result,error)->SwingUtilities.invokeLater(()->{if(generation!=saveGeneration)return;
+        saveFailed=!(error==null&&result!=null&&result.isSuccess());status.setText(saveFailed?"Live view active; state save failed. Retry view save (⋯) keeps the current controls.":"Live view state saved");present();}));}
+    /** The status line shows only on a failure; ⋯ offers Retry after a failed save and Reset while saving fails or is blocked. */
+    private void present(){
+        status.setVisible(saveBlocked||saveFailed);
+        if(actions==null)return;
+        if(saveBlocked)actions.replace(reset);else if(saveFailed)actions.replace(retry,reset);else actions.clear();
+    }
     String value(String key,String fallback){return fields.values.getOrDefault(key,fallback);}
     void put(String key,String value){if(restoring||Objects.equals(fields.values.get(key),value))return;fields.values.put(key,value);state=state.withQuery(state.query.withFacets(fields));save();}
     void text(JTextField field){field.setText(value(field.getName(),field.getText()));field.getDocument().addDocumentListener(new DocumentListener(){private void save(){put(field.getName(),field.getText());}public void insertUpdate(DocumentEvent e){save();}public void removeUpdate(DocumentEvent e){save();}public void changedUpdate(DocumentEvent e){save();}});}

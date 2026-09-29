@@ -11,6 +11,7 @@ import javax.swing.*;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitTables;
 import tomato.gui.kit.ViewSelector;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
@@ -25,7 +26,10 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     private final Path scratch;
     /** The views the view selector offers (a routed or restored view outside them is still shown, as its "Current view"). */
     private final Set<View> views;private final ArchiveQuery<Facets,Sort> initial;
-    /** Loot › Explore's shared view (its selector lists Simple and Analyst views and carries choices to live); null elsewhere. */
+    /**
+     * Loot › Explore's one view and selector (the live dashboard's, in the filter row: the saved view builds no view row), its
+     * display mode for the saved presentation, and the ⋯ that takes the drill-downs; null elsewhere.
+     */
     private final LootExploreModel explore;
     /**
      * A client whose view selector offers only {@code views} (in the views' usual order), opening on {@code initial}: Loot ›
@@ -36,8 +40,8 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
      */
     public LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial){this(scratch,views,initial,null);}
     /**
-     * Loot › Explore's saved half: {@code views} with {@code explore}'s Simple and Analyst lists, and each view chosen here carried
-     * to the live dashboard. Null {@code explore}: the view-subset client above.
+     * Loot › Explore's saved half: {@code views}, chosen with {@code explore}'s one selector (Simple and Analyst lists; each choice
+     * carried to the live dashboard). In Simple its saved view is plainer (Polish B4). Null {@code explore}: the view-subset client above.
      */
     LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial,LootExploreModel explore){
         this.scratch=scratch;this.initial=Objects.requireNonNull(initial,"initial");this.explore=explore;
@@ -47,8 +51,8 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     }
     /** The views the view selector offers. */
     public Set<View> views(){return views;}
-    /** A view's tooltip in the selector: the item views' definitions, and on Loot › Explore "Saved history only" for the others. */
-    private String tooltip(View view){return LootExploreModel.live(view)?LootExploreModel.tooltip(view):explore!=null?LootExploreModel.SAVED_ONLY:null;}
+    /** A view's tooltip in the view row's selector (not built on Loot › Explore): the item views' definitions. */
+    private String tooltip(View view){return LootExploreModel.live(view)?LootExploreModel.tooltip(view):null;}
     public ArchiveQuery<Facets,Sort> initialQuery(){return initial;}
     public Path scratchDirectory(){return scratch;}
     public int pageSize(){return 100;}
@@ -65,7 +69,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     private static <V> HistoryTables.Column<Row,V> col(String id,String label,Class<V> type,java.util.function.Function<Row,V> value,ColumnKind kind){return new HistoryTables.Column<>(id,label,type,value,null,kind);}
     static List<HistoryTables.Column<Row,?>> columns(){return Arrays.asList(
         col("type","Row unit/type",String.class,r->r.type,ColumnKind.STATUS),new HistoryTables.Column<>("time","Timestamp (epoch ms)",Long.class,r->r.time,timeRenderer(),ColumnKind.DATE_TIME),col("name","Name",String.class,r->r.name,ColumnKind.ITEM),
-        col("session","Source session",String.class,r->r.session,ColumnKind.ID),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId,ColumnKind.ID),col("dungeon","Dungeon",String.class,r->r.dungeon,ColumnKind.DUNGEON),col("bag","Bag",String.class,r->r.bag,ColumnKind.STATUS),col("dropper","Dropper",String.class,r->r.dropper,ColumnKind.TEXT),
+        col("session","Source session",String.class,r->r.session,ColumnKind.ID),col("visit","Recorded visit ID (within session)",String.class,r->r.visitId,ColumnKind.ID),new HistoryTables.Column<>("dungeon","Dungeon",String.class,r->r.dungeon,areaRenderer(),ColumnKind.DUNGEON),new HistoryTables.Column<>("bag","Bag",String.class,r->r.bag,blankRenderer(ColumnKind.STATUS),ColumnKind.STATUS),col("dropper","Dropper",String.class,r->r.dropper,ColumnKind.TEXT),
         col("item","Item ID",Integer.class,r->r.itemId,ColumnKind.ID),col("tier","Tier",String.class,r->r.tier,ColumnKind.STATUS),col("rarity","Rarity",String.class,r->r.rarity,ColumnKind.STATUS),col("slots","Slots",Integer.class,r->r.slots,ColumnKind.COUNT),col("applied","Applied enchants",Integer.class,r->r.applied,ColumnKind.COUNT),
         col("count","Occurrences / sample observations / count",Long.class,r->r.count,ColumnKind.COUNT),col("bags","Bags",Long.class,r->r.bags,ColumnKind.COUNT),col("items","Items",Long.class,r->r.items,ColumnKind.COUNT),col("runs","Visits / activity-recorded exits",Long.class,r->r.runs,ColumnKind.COUNT),new HistoryTables.Column<>("millis","Observed / finalized milliseconds",Long.class,r->r.millis,durationRenderer(),ColumnKind.DURATION),new HistoryTables.Column<>("average","Average finalized milliseconds / exit",Long.class,r->r.averageMillis,durationRenderer(),ColumnKind.DURATION),
         col("whites","White bags",Long.class,r->r.whites,ColumnKind.COUNT),col("uts","UT gear",Long.class,r->r.uts,ColumnKind.COUNT),col("sts","ST gear",Long.class,r->r.sts,ColumnKind.COUNT),col("potions","Stat potions",Long.class,r->r.potions,ColumnKind.COUNT),col("completed","Completed",Long.class,r->r.completed,ColumnKind.COUNT),col("unknown","Excluded unknown visits",Long.class,r->r.unknownRuns,ColumnKind.COUNT),col("imports","Excluded imported visits",Long.class,r->r.importedRuns,ColumnKind.COUNT),
@@ -83,6 +87,18 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     /** Epoch-millisecond values render as local date/time; the model (sort, copy, export) keeps the exact value. Zero/negative means undated. */
     static javax.swing.table.TableCellRenderer timeRenderer(){return new ContentStyle.Cell(){protected void setValue(Object value){
         setText(value==null?DisplayFormat.UNAVAILABLE:((Number)value).longValue()<=0?"Undated":DisplayFormat.formatTimestamp(((Number)value).longValue()));}};}
+    /**
+     * Display only (Polish B3): a blank saved value (a bag saved without a name) reads "—", as a missing one does; the model,
+     * sorting, Copy and CSV keep "".
+     */
+    static javax.swing.table.TableCellRenderer blankRenderer(ColumnKind kind){javax.swing.table.TableCellRenderer base=KitTables.renderer(kind);
+        return (table,value,selected,focus,row,column)->base.getTableCellRendererComponent(table,value==null||value.toString().trim().isEmpty()?null:value,selected,focus,row,column);}
+    /**
+     * Display only (Polish B2): an area capture could not name ("Unknown", "Unrecognized area") reads {@value LootFacts#UNKNOWN_AREA};
+     * a blank one (a summary of many areas, such as a bag type) reads "—". Keys, facets, drills and exports keep the saved name.
+     */
+    static javax.swing.table.TableCellRenderer areaRenderer(){javax.swing.table.TableCellRenderer base=KitTables.renderer(ColumnKind.DUNGEON);
+        return (table,value,selected,focus,row,column)->base.getTableCellRendererComponent(table,value==null||value.toString().trim().isEmpty()?null:LootFacts.areaLabel(value.toString()),selected,focus,row,column);}
     /** Millisecond durations render as h:mm:ss; unknown stays distinct from a recorded zero. */
     static javax.swing.table.TableCellRenderer durationRenderer(){ContentStyle.Cell cell=new ContentStyle.Cell(){protected void setValue(Object value){
         setText(value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatDurationHMS(((Number)value).longValue()));}};cell.setHorizontalAlignment(SwingConstants.RIGHT);return cell;}
@@ -127,24 +143,33 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private boolean restoring=true;
         private final JTextArea linkStatus=ContentStyle.wrappingText(" "),rateStatus=ContentStyle.wrappingText(" ");
         private JTextArea countText;
-        private final JButton showOccurrences=new JButton("Occurrences of selected variant"),showVisit=new JButton("Loot from selected run"),
-            openRun=new JButton("Open recorded run"),rateDetails=new JButton("Dungeon rate calculation");
-        private final ViewSelector<View> selector=new ViewSelector<>("loot-archive-view",View::toString,LootArchiveClient.this::tooltip);
-        private final JLabel caption=new JLabel(LootExploreModel.SAVED_ONLY){
-            @Override public void updateUI(){super.updateUI();setForeground(ContentStyle.color("muted"));}
-        };
+        /** After a cohort input error the count line keeps its warning until a valid Compare re-renders. */
+        private boolean staleCounts;
+        /** The drill-downs: ⋯ items on Loot › Explore (Polish B4), a button row under the table elsewhere (the rate drill on Dungeons › Analysis). */
+        private final AbstractButton showOccurrences=drillAction("Occurrences of selected variant"),showVisit=drillAction("Loot from selected run"),
+            openRun=drillAction("Open recorded run"),rateDetails=drillAction("Dungeon rate calculation");
+        /** The view row's selector: only without Explore, whose one selector leads the workspace's filter row. */
+        private ViewSelector<View> selector;
+        /** Fame history's Name column: the layout's own width (-1: not fitted), the width fitted to the viewport (-1: none), and the fit's guards. */
+        private int nameWidth=-1,fitted=-1;private boolean fitting,refitting;
         Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
             super(new BorderLayout(0,5));this.page=page;this.current=state;this.binding=binding;View view=state.query.facets().view;
             // One view selector replaces the tabs (P6a): the offered views, and a routed or restored view outside them as its "Current view".
-            add(head(view),BorderLayout.NORTH);
+            // On Loot › Explore that selector is the live dashboard's (P6b), in the filter row; elsewhere it heads the saved view.
+            if(explore==null)add(head(view),BorderLayout.NORTH);
             JPanel body=new JPanel(new BorderLayout(0,4));add(body,BorderLayout.CENTER);
             JPanel top=new JPanel(new BorderLayout(0,4));
             // Cohort inputs define the comparison itself, so they stay in the view; every other facet lives in the Filters drawer.
             if(view==View.COHORTS)top.add(analyticalFilters(view),BorderLayout.NORTH);
-            countText=ContentStyle.wrappingText(description(view)+"\n"+countDescription(page));countText.setName("loot-archive-counts");top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
+            countText=ContentStyle.wrappingText("");countText.setName("loot-archive-counts");top.add(countText,BorderLayout.SOUTH);body.add(top,BorderLayout.NORTH);
+            // Explore's count line follows the mode (Simple: one plain line); the mode never changes the query.
+            if(explore!=null)explore.mode().bind(this,mode->counts());else counts();
             table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);sizeColumns(table);
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
+            // Polish B4: an Items column that reads "—" on every row says nothing in Simple, so Explore's Simple leaves it out of every
+            // layout; Analyst shows it as the layout says. Display only: saved layouts keep the user's own choice for it.
+            if(explore!=null&&page.rows.stream().allMatch(row->row.value.items==null))KitTables.analystOnly(table,explore.mode(),"items");
             scroll=ContentStyle.tableScroll(table,3);details.setName("loot-archive-details");details.getAccessibleContext().setAccessibleName("Selected archive record evidence");
             JScrollPane detailScroll=new JScrollPane(details) {
                 @Override public Dimension getMinimumSize() {
@@ -156,49 +181,107 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             detailScroll.setPreferredSize(new Dimension(300,130));JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,detailScroll);split.setResizeWeight(.75);body.add(split);
             JPanel actions=new JPanel(new BorderLayout());Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("Compact",visible(compact));presets.put("All analytical columns",visible(defaults));
             // The column tools go to the workspace ⋯ (filters()); moves and resizes are still remembered with the view state.
-            java.util.function.Consumer<ViewState.Table> saveLayout=layout->{current=current.withTable(view.name(),layout);savePosition();};
+            java.util.function.Consumer<ViewState.Table> saveLayout=layout->{current=current.withTable(view.name(),layoutWidths(layout));savePosition();};
             HistoryTables.rememberLayout(table,saveLayout);tools=HistoryTables.columnTools(table,defaults,presets,saveLayout);
             if(view.loot()||view==View.RATES)actions.add(drillActions(view),BorderLayout.NORTH);
             if(view==View.SESSIONS||view==View.FAME){JButton graph=new JButton("Open selected session's full fame graph");graph.setName("archive-open-fame");graph.addActionListener(e->openFame(graph));actions.add(graph,BorderLayout.SOUTH);}
             body.add(actions,BorderLayout.SOUTH);
             table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!restoring){savePosition();int r=table.getSelectedRow();if(r>=0)detail(page.rows.get(r));updateDrill(selected());}});
             scroll.getViewport().addChangeListener(e->{if(!restoring)savePosition();});HistoryTables.restorePosition(table,scroll,page,current);
+            if(view==View.FAME)fillName();
             restoring=false;
             ArchiveRow<Row> restored=selected();if(restored!=null)detail(restored);updateDrill(restored);
+            if(explore!=null){
+                // Explore's drill-downs are ⋯ items: they follow this view's enablement (the workspace disables a stale view), and the
+                // selector shows the view rendered (a choice, restore, route or drill).
+                addPropertyChangeListener("enabled",e->updateDrill(selected()));
+                explore.drills(view.loot()?Arrays.asList(showOccurrences,showVisit,openRun,rateDetails):view==View.RATES?Collections.singletonList(rateDetails):Collections.<Component>emptyList());
+                explore.rendered(current);
+            }
+        }
+        /** A drill-down action: an item of the workspace ⋯ on Loot › Explore, a button in the view elsewhere. */
+        private AbstractButton drillAction(String text){return explore!=null?new JMenuItem(text):new JButton(text);}
+        /**
+         * The count line. Analyst (and every workspace without Explore): the view's description and every count with its unit and
+         * population. Explore in Simple (Polish B4): one plain line such as "9 bags · 15 item variants · 22 items", with the full text
+         * in its tooltip; the accessible description is always the full text.
+         */
+        private void counts(){
+            if(staleCounts)return;
+            View view=current.query.facets().view;String full=description(view)+"\n"+countDescription(page);
+            boolean plain=explore!=null&&!explore.mode().analyst();
+            countText.setText(plain?plainCounts(view,page):full);countText.setToolTipText(plain?countTooltip(view,page):null);
+            countText.getAccessibleContext().setAccessibleDescription(full);
         }
         /**
-         * The view row: the selector and, on Loot › Explore, the "Saved history only" caption for a view the live dashboard lacks.
-         * The Simple/Analyst mode relists the selector and never changes the query. A workspace that offers one view (Characters ›
-         * Fame history) has nothing to choose, so the row is hidden while that view is shown; a routed or restored view outside it
-         * keeps the row, whose selector leads back to the offered view.
+         * The view row: the selector over the offered views, in the views' usual order, never changing the query. A workspace that
+         * offers one view (Characters › Fame history) has nothing to choose, so the row is hidden while that view is shown; a routed or
+         * restored view outside it keeps the row, whose selector leads back to the offered view. Not built on Loot › Explore.
          */
         private JComponent head(View view){
+            selector=new ViewSelector<>("loot-archive-view",View::toString,LootArchiveClient.this::tooltip);
             JPanel row=ContentStyle.controls();row.setName("loot-archive-view-row");row.add(selector.component());
             row.setVisible(views.size()>1||!views.contains(view));
-            caption.setName("loot-archive-view-caption");caption.setFont(ContentStyle.metadata(ContentStyle.body()));caption.putClientProperty("html.disable",true);
-            caption.setToolTipText("This view reads saved history; the live view has no equivalent.");caption.setVisible(explore!=null&&!LootExploreModel.live(view));row.add(caption);
-            relist(view);
-            if(explore!=null)explore.mode().bind(this,mode->relist(current.query.facets().view));
+            List<View> offered=new ArrayList<>();for(View candidate:View.values())if(views.contains(candidate))offered.add(candidate);
+            selector.setItems(offered,Collections.<View>emptyList(),view);selector.select(view);
             selector.onChange(this::choose);
             return row;
         }
-        /** Explore: the Simple views, then the Analyst ones in Analyst; elsewhere every offered view in the views' usual order. */
-        private void relist(View view){
-            List<View> simple=new ArrayList<>(),analyst=new ArrayList<>();
-            if(explore==null){for(View candidate:View.values())if(views.contains(candidate))simple.add(candidate);}
-            else{for(View candidate:LootExploreModel.SIMPLE)if(views.contains(candidate))simple.add(candidate);
-                if(explore.mode().analyst())for(View candidate:LootExploreModel.ANALYST)if(views.contains(candidate))analyst.add(candidate);}
-            selector.setItems(simple,analyst,view);selector.select(view);
-        }
-        /** A user's choice: the tabs' logic (the view, its own position, the query), then Explore carries it to the live dashboard. */
+        /** A user's choice in the view row: the tabs' logic (the view, its own position, the query). */
         private void choose(View selected){
             if(restoring)return;Facets f=current.query.facets();f.view=selected;current=current.withPosition(selected.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(f));
-            if(explore!=null)explore.chosenSaved(selected);
+        }
+        /**
+         * Polish B7 (Fame history): while the columns fit, Name takes the table's spare width instead of the table ending at about
+         * 60 %. Display only: {@link #nameWidth} is the layout's own Name width (the applied layout, a preset or Reset, or the user's
+         * drag); the fitted width is never saved as a layout change, and a layout saved for another reason records the layout's own
+         * Name width ({@link #layoutWidths}).
+         */
+        private void fillName(){
+            javax.swing.table.TableColumn name=nameColumn();if(name!=null)nameWidth=name.getWidth();
+            scroll.getViewport().addComponentListener(new java.awt.event.ComponentAdapter(){@Override public void componentResized(java.awt.event.ComponentEvent e){fitName();}});
+            table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener(){
+                // A column shown or hidden, or another width, changes what is spare: refit after the layout the change triggers.
+                public void columnAdded(javax.swing.event.TableColumnModelEvent e){refit();}
+                public void columnRemoved(javax.swing.event.TableColumnModelEvent e){refit();}
+                public void columnMoved(javax.swing.event.TableColumnModelEvent e){}
+                public void columnMarginChanged(javax.swing.event.ChangeEvent e){
+                    if(fitting)return;javax.swing.table.TableColumn shown=nameColumn();
+                    // Name changed by anything but the fit (a drag, a preset, Reset, a restored layout): that is the layout's width now.
+                    if(shown!=null&&nameWidth>=0&&shown.getWidth()!=(fitted<0?nameWidth:fitted)){nameWidth=shown.getWidth();fitted=-1;}
+                    refit();
+                }
+                public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e){}
+            });
+        }
+        private void refit(){if(refitting)return;refitting=true;SwingUtilities.invokeLater(()->{refitting=false;fitName();});}
+        private void fitName(){
+            javax.swing.table.TableColumn name=nameColumn();int viewport=scroll.getViewport().getWidth();
+            if(name==null||viewport<=0||table.getTableHeader().getResizingColumn()!=null)return;
+            if(nameWidth<0)nameWidth=name.getWidth();   // Name was hidden when the view was built
+            int others=0;for(javax.swing.table.TableColumn column:Collections.list(table.getColumnModel().getColumns()))if(column!=name)others+=column.getWidth();
+            int width=Math.max(nameWidth,viewport-others);
+            if(width!=name.getWidth()){
+                // Marked as HistoryTables' own change, so the layout listener does not save the fitted width.
+                Object before=table.getClientProperty(HistoryTables.RESTORING_COLUMNS);table.putClientProperty(HistoryTables.RESTORING_COLUMNS,true);fitting=true;
+                try{name.setPreferredWidth(width);name.setWidth(width);}finally{fitting=false;table.putClientProperty(HistoryTables.RESTORING_COLUMNS,before);}
+            }
+            fitted=width==nameWidth?-1:width;
+        }
+        /** A layout to save: Fame history's Name keeps the layout's own width, never the width fitted to the viewport. */
+        private ViewState.Table layoutWidths(ViewState.Table layout){
+            if(nameWidth<0)return layout;List<ViewState.Column> columns=new ArrayList<>();
+            for(ViewState.Column column:layout.columns)columns.add("name".equals(column.id)?new ViewState.Column(column.id,nameWidth,column.visible):column);
+            return new ViewState.Table(layout.preset,columns);
+        }
+        private javax.swing.table.TableColumn nameColumn(){
+            for(javax.swing.table.TableColumn column:Collections.list(table.getColumnModel().getColumns()))if("name".equals(column.getIdentifier()))return column;
+            return null;
         }
         /** After a cohort input error the shown comparison no longer matches the inputs: clear it until a valid Compare runs. */
         private void cohortInputInvalid(){
             restoring=true;try{table.clearSelection();((javax.swing.table.DefaultTableModel)table.getModel()).setRowCount(0);}finally{restoring=false;}
-            countText.setText(STALE_COHORT);countText.setForeground(ContentStyle.color("rose"));
+            staleCounts=true;countText.setToolTipText(null);countText.setText(STALE_COHORT);countText.setForeground(ContentStyle.color("rose"));
             details.setText("No comparison shown: the previous results were cleared because the cohort inputs are not valid. Export still uses the last applied comparison, not these invalid inputs.");details.setCaretPosition(0);
             revalidate();repaint();
         }
@@ -216,7 +299,8 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             rateDetails.addActionListener(e->{ArchiveRow<Row> row=selected();if(row==null||row.value.dungeon==null||row.value.dungeon.isEmpty())return;Facets next=current.query.facets();next.variant=next.visitSession=next.visitId=null;next.dungeons=new LinkedHashSet<>(Collections.singleton(row.value.dungeon));drill(next,View.RATES);});
             openRun.addActionListener(e->{ArchiveRow<Row> row=selected();tomato.history.link.VisitRef ref=row==null?null:row.value.visitRef();if(ref==null)return;
                 if(!Navigator.current().open(runRoute(ref)))linkStatus.setText("The Runs workspace did not accept run "+ref+"; nothing was opened.");});
-            if(view.loot()){buttons.add(showOccurrences);buttons.add(showVisit);buttons.add(openRun);}buttons.add(rateDetails);
+            // Explore puts them in the workspace ⋯ (the constructor hands them over); the drill summary, Clear and the reasons stay here.
+            if(explore==null){if(view.loot()){buttons.add(showOccurrences);buttons.add(showVisit);buttons.add(openRun);}buttons.add(rateDetails);}
             JPanel lines=new JPanel();lines.setLayout(new BoxLayout(lines,BoxLayout.Y_AXIS));
             if(f.drilled()){JTextArea active=ContentStyle.wrappingText(drillSummary(f)+(f.visitSession!=null&&page.matches==0?VISIT_UNAVAILABLE:""));active.setName("loot-drill-summary");active.getAccessibleContext().setAccessibleName(active.getText());lines.add(active);
                 JButton clear=new JButton("Clear drill-down");clear.setName("loot-clear-drill");clear.addActionListener(e->{Facets next=current.query.facets();next.variant=next.visitSession=next.visitId=null;query(current.query.withFacets(next));});buttons.add(clear);}
@@ -228,11 +312,15 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private void drill(Facets next,View target){next.view=target;current=current.withPosition(target.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(next));}
         private void updateDrill(ArchiveRow<Row> row){
             Row r=row==null?null:row.value;tomato.history.link.VisitRef ref=r==null?null:r.visitRef();
-            showOccurrences.setEnabled(r!=null&&"variant".equals(r.type)&&r.variantKey()!=null);
-            showVisit.setEnabled(ref!=null);rateDetails.setEnabled(r!=null&&r.dungeon!=null&&!r.dungeon.isEmpty()&&!"rate".equals(r.type));
-            boolean navigable=ref!=null&&Navigator.current().canOpen(runRoute(ref));openRun.setEnabled(navigable);
+            // ⋯ items are outside this view's tree, so they also follow its enablement (a stale view is disabled until replaced).
+            boolean usable=explore==null||isEnabled();
+            showOccurrences.setEnabled(usable&&r!=null&&"variant".equals(r.type)&&r.variantKey()!=null);
+            showVisit.setEnabled(usable&&ref!=null);rateDetails.setEnabled(usable&&r!=null&&r.dungeon!=null&&!r.dungeon.isEmpty()&&!"rate".equals(r.type));
+            boolean navigable=ref!=null&&Navigator.current().canOpen(runRoute(ref));openRun.setEnabled(usable&&navigable);
             linkStatus.setText(runLinkStatus(r,ref,navigable));linkStatus.getAccessibleContext().setAccessibleName(linkStatus.getText());
             rateStatus.setText(rateStatus(r));rateStatus.getAccessibleContext().setAccessibleName(rateStatus.getText());
+            // The reasons also travel with the actions, which may be far from these lines (in ⋯).
+            showVisit.setToolTipText(linkStatus.getText());openRun.setToolTipText(linkStatus.getText());rateDetails.setToolTipText(rateStatus.getText());
         }
         private void query(ArchiveQuery<Facets,Sort> q){binding.queryChanged(q);}
         ArchiveFilters filters(){
@@ -240,9 +328,15 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             if(view.loot())drawer.add(new LootFacetControls(current.query.facets(),choices("facet.bag."),choices("facet.dungeon."),f->query(current.query.withFacets(f))),BorderLayout.NORTH);
             else if(view!=View.COHORTS)drawer.add(analyticalFilters(view),BorderLayout.NORTH);
             drawer.add(dateControls(),BorderLayout.CENTER);
-            List<FilterBar.ActiveFilter> chips=LootFacetChips.chips(current.query::facets,f->query(current.query.withFacets(f)));
+            // Polish B7: loot facets and dungeon selection do not filter fame, so Character fame shows only its Character ID chip.
+            List<FilterBar.ActiveFilter> chips=view==View.FAME?characterChip():LootFacetChips.chips(current.query::facets,f->query(current.query.withFacets(f)));
             ArchiveFilters.dates(chips,current.query,this::query);
             return new ArchiveFilters(drawer,chips,tools);
+        }
+        private List<FilterBar.ActiveFilter> characterChip(){
+            List<FilterBar.ActiveFilter> chips=new ArrayList<>();String character=current.query.facets().character;
+            if(!character.isEmpty())chips.add(new FilterBar.ActiveFilter("Character ID "+character,()->{Facets next=current.query.facets();next.character="";query(current.query.withFacets(next));}));
+            return chips;
         }
 
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
@@ -256,8 +350,11 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
                 return new CohortControls(current.query.facets(),sessions,ZoneId.of(current.query.bounds().zone),f->query(current.query.withFacets(f)),this::cohortInputInvalid);}
             JPanel p=ContentStyle.controls();Facets f=current.query.facets();JTextField dungeon=new JTextField(String.join(";",f.dungeons),16),identity=new JTextField(view==View.FAME?f.character:f.enemy,8);
             dungeon.getAccessibleContext().setAccessibleName("Exact dungeons separated by semicolons");identity.getAccessibleContext().setAccessibleName(view==View.FAME?"Exact character ID":"Exact enemy ID");
-            p.add(new JLabel("Dungeons (semicolon-separated)"));p.add(dungeon);if(view==View.FAME||view==View.ENEMIES||view==View.SOURCES){p.add(new JLabel(view==View.FAME?"Character ID":"Enemy ID"));p.add(identity);}
-            JButton apply=new JButton("Apply analytical filters");p.add(apply);apply.addActionListener(e->{Facets next=current.query.facets();next.dungeons=new LinkedHashSet<>();for(String name:dungeon.getText().split(";"))if(!name.trim().isEmpty())next.dungeons.add(name.trim());if(view==View.FAME)next.character=identity.getText().trim();else next.enemy=identity.getText().trim();query(current.query.withFacets(next));});return p;
+            // Fame has no map association, so no dungeon field (Polish B7): Character ID is its one analytical filter.
+            if(view!=View.FAME){p.add(new JLabel("Dungeons (semicolon-separated)"));p.add(dungeon);}if(view==View.FAME||view==View.ENEMIES||view==View.SOURCES){p.add(new JLabel(view==View.FAME?"Character ID":"Enemy ID"));p.add(identity);}
+            JButton apply=new JButton("Apply analytical filters");p.add(apply);apply.addActionListener(e->{Facets next=current.query.facets();
+                if(view!=View.FAME){next.dungeons=new LinkedHashSet<>();for(String name:dungeon.getText().split(";"))if(!name.trim().isEmpty())next.dungeons.add(name.trim());}
+                if(view==View.FAME)next.character=identity.getText().trim();else next.enemy=identity.getText().trim();query(current.query.withFacets(next));});return p;
         }
         private JComponent dateControls(){
             JPanel p=ContentStyle.controls();ArchiveQuery.Bounds b=current.query.bounds();JTextField from=new JTextField(b.from==null?"":Instant.ofEpochMilli(b.from).toString(),16),until=new JTextField(b.until==null?"":Instant.ofEpochMilli(b.until).toString(),16),zone=new JTextField(b.zone,10);
@@ -306,6 +403,24 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         :view==View.FAME?"Text searches session, character ID and class; bounds select fame samples. Undated observations are counted separately, never ordered as epoch zero; incomplete chronology has no gain/elapsed interval. Loot facets and dungeon selection do not filter fame (map association not captured). Open graph uses the whole pinned session."
         :"Whole-visit analytical cohort: scope, dungeon and visit entry/overlap bounds. Item/bag/enchant facets are not applied. Text searches "+(view==View.SESSIONS?"session label/build/ID":"dungeon names")+". Saved bag evidence establishes eligibility per session; unknown sessions remain excluded.";}
     private static String countDescription(ArchivePage<Row> page){StringJoiner s=new StringJoiner(" · ");page.counts.forEach((key,value)->{if(!key.startsWith("facet."))s.add(key+": "+value.value+" "+value.unit+" ["+value.population+"]");});return s.toString();}
+    /**
+     * Simple's count line (Polish B4): the loot views' matching bags, item variants and items ("9 bags · 15 item variants · 22
+     * items"), the other views' counts by name; a count the page lacks reads "—", never 0.
+     */
+    static String plainCounts(View view,ArchivePage<Row> page){
+        if(view.loot())return plain(page,"matching bags","bag","bags")+" · "+plain(page,"matching variants","item variant","item variants")+" · "+plain(page,"matching occurrences","item","items");
+        StringJoiner s=new StringJoiner(" · ");page.counts.forEach((key,value)->{if(!key.startsWith("facet."))s.add(key+": "+DisplayFormat.formatInteger(value.value));});return s.toString();
+    }
+    private static String plain(ArchivePage<Row> page,String key,String one,String many){
+        ArchiveAdapter.Count count=page.counts.get(key);return count==null?DisplayFormat.UNAVAILABLE+" "+many:DisplayFormat.formatInteger(count.value)+" "+(count.value==1?one:many);
+    }
+    /** The plain line's tooltip: the view's description, then each count with its unit and population, one per line. */
+    private static String countTooltip(View view,ArchivePage<Row> page){
+        StringBuilder html=new StringBuilder("<html><body style='width:420px'>").append(escape(description(view)));
+        page.counts.forEach((key,value)->{if(!key.startsWith("facet."))html.append("<br>").append(escape(key+": "+value.value+" "+value.unit+" ["+value.population+"]"));});
+        return html.append("</body></html>").toString();
+    }
+    private static String escape(String text){return text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");}
     private static List<String> visible(ViewState.Table layout){List<String> ids=new ArrayList<>();for(ViewState.Column c:layout.columns)if(c.visible)ids.add(c.id);return ids;}
     private static ViewState.Table compact(ViewState.Table defaults,View view){
         Set<String> ids=new LinkedHashSet<>(view==View.OCCURRENCES?Arrays.asList("time","name","dungeon","bag","slots","applied","runLink"):view==View.RECENT?Arrays.asList("time","name","bag","dungeon","items"):view==View.RATES?Arrays.asList("name","items","runs","zeroLoot","millis","perRun","rate","unknown","imports","unassigned"):view==View.SESSIONS?Arrays.asList("name","runs","millis","items","gain"):view==View.FAME?Arrays.asList("name","first","last","gain"):view==View.COUNTERS?Arrays.asList("name","runs","millis","average","hits","items","ongoing"):view==View.ENEMIES?Arrays.asList("name","dungeon","hits","items"):view==View.SOURCES?Arrays.asList("name","dungeon","dropper","item","count"):view==View.COHORTS?Arrays.asList("name","runs","items","millis","perRun","rate","median","runChange","hourChange","unknown","imports"):Arrays.asList("name","count","bags","items","slots","applied"));

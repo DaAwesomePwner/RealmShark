@@ -69,7 +69,7 @@ public class StatisticsArchiveNativeTest {
                     assertEquals(130,workspace.displayedPage().matches); assertTrue(named(workspace,"loot-archive-details",JTextArea.class).getText().contains("Origin:"));
                     archiveControls(workspace,"loot","loot-archive-table","loot-archive-details");
                 });
-                edt(() -> { named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.BAGS); return null; });
+                edt(() -> { named(workspace,"loot-views",JComboBox.class).setSelectedItem(View.BAGS); return null; });
                 await(() -> ready(workspace) && workspace.state().query.facets().view == View.BAGS);
                 assertEquals(1,edt(() -> workspace.displayedPage().matches).longValue());
                 edt(() -> { workspace.loadNamed("Needle occurrences"); return null; });

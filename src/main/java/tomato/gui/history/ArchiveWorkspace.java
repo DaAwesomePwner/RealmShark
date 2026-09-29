@@ -3,6 +3,7 @@ package tomato.gui.history;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import tomato.gui.activity.SnapshotRefresh;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.OverflowMenu;
 import tomato.gui.modern.ContentStyle;
@@ -51,6 +52,11 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     /** The mode the last request() showed; null before the first. */
     private Boolean shownArchive;
     private Path exportFolder;
+    /**
+     * The displayed result's status caption for each mode (P6b): Analyst's rows, page, pinned revision, sort and coverage note;
+     * Simple's only what asks for action or qualifies the rows (no matches, a partial read), often nothing, and then no line.
+     */
+    private String analystCaption,simpleCaption;
     private String librarySelection;
     private ViewState<F,S> state;private ArchiveResult<R> result;private ArchiveQuery<F,S> resultQuery;
     private ArchivePage<R> displayed;
@@ -112,6 +118,15 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         JPanel paging=ContentStyle.controls();paging.add(previous);paging.add(next);paging.add(stop);paging.add(cancelExport);stop.setVisible(false);cancelExport.setVisible(false);
         JPanel texts=new JPanel();texts.setLayout(new BoxLayout(texts,BoxLayout.Y_AXIS));texts.add(status);texts.add(saveStatus);
         footer.setName(name+"-archive-footer");footer.add(paging,BorderLayout.NORTH);footer.add(texts,BorderLayout.CENTER);
+        // The result's caption follows the mode while it is shown (other messages stay as they are); an empty status takes no line.
+        DisplayModeModel.application().bind(this,mode->{String shown=status.getText();
+            if(analystCaption!=null&&(shown.equals(analystCaption)||shown.equals(simpleCaption)))status.setText(mode==DisplayModeModel.Mode.ANALYST?analystCaption:simpleCaption);});
+        status.getDocument().addDocumentListener(new javax.swing.event.DocumentListener(){
+            private void fit(){status.setVisible(status.getDocument().getLength()>0);}
+            public void insertUpdate(javax.swing.event.DocumentEvent e){fit();}
+            public void removeUpdate(javax.swing.event.DocumentEvent e){fit();}
+            public void changedUpdate(javax.swing.event.DocumentEvent e){fit();}
+        });
         add(ContentStyle.page(filterBar,cards,footer));
         stop.addActionListener(e->{invalidateView();cancel.cancel();refresh.invalidate();loading=false;status.setText("Read cancelled. Refresh to retry.");updateActions();});
         search.addActionListener(e->changeQuery(state.query.withText(search.getText())));
@@ -332,7 +347,9 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         if(tools==null)toolsSection.clear();else{tools.setEnabled(true);tools.addTo(filterBar.overflow());}
         List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(sortLabel(item));
         String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; use Clear to reset filters. "):"";
-        status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
+        analystCaption=empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown";
+        simpleCaption=(empty+(displayed.issues.isEmpty()?"":"Partial: "+displayed.issues.size()+" saved source(s) could not be read; their rows are missing.")).trim();
+        status.setText(DisplayModeModel.application().analyst()?analystCaption:simpleCaption);
         if(old!=null&&old!=result)old.close();persist();updateActions();
     }
     /** Readable sort wording, e.g. "time (descending)", instead of raw enum names. */

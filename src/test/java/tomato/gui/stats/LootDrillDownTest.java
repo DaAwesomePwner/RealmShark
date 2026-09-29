@@ -198,7 +198,7 @@ public class LootDrillDownTest {
                 edt(() -> { Facets f = workspace.state().query.facets(); f.view = View.ITEMS; workspace.changeQuery(workspace.state().query.withFacets(f)); return null; });
                 await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.displayedPage().unit.equals("item variants"));
                 edt(() -> {
-                    JButton occurrences = named(workspace, "loot-drill-occurrences", JButton.class);
+                    JMenuItem occurrences = drill(workspace, "loot-drill-occurrences");
                     assertFalse(occurrences.isEnabled());
                     named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(0, 0);
                     assertTrue(named(workspace, "loot-run-link-status", JTextArea.class).getText().contains("Variants combine many runs"));
@@ -209,12 +209,12 @@ public class LootDrillDownTest {
                 assertTrue(linkedRow >= 0);
                 edt(() -> {
                     named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(linkedRow, linkedRow);
-                    assertFalse(named(workspace, "loot-open-run", JButton.class).isEnabled());
+                    assertFalse(drill(workspace, "loot-open-run").isEnabled());
                     assertTrue(named(workspace, "loot-run-link-status", JTextArea.class).getText().contains("Runs view unavailable in this window"));
                     assertTrue(named(workspace, "loot-drill-summary", JTextArea.class).getText().contains("exact variant 1/0/0"));
                     named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(1 - linkedRow, 1 - linkedRow);
                     assertTrue(named(workspace, "loot-run-link-status", JTextArea.class).getText().contains("no recorded visit ID"));
-                    assertFalse(named(workspace, "loot-drill-visit", JButton.class).isEnabled());
+                    assertFalse(drill(workspace, "loot-drill-visit").isEnabled());
                     return null; });
                 List<Route> routes = new ArrayList<>();
                 Navigator.install(new Navigator() {
@@ -226,12 +226,12 @@ public class LootDrillDownTest {
                 edt(() -> {
                     JTable table = named(workspace, "loot-archive-table", JTable.class);
                     table.setRowSelectionInterval(linkedRow, linkedRow);
-                    JButton run = named(workspace, "loot-open-run", JButton.class);
+                    JMenuItem run = drill(workspace, "loot-open-run");
                     assertTrue(run.isEnabled()); run.doClick(); return null; });
                 assertEquals(1, routes.size()); assertEquals(new VisitRef(session, "a"), routes.get(0).visit); assertEquals(Destination.RUNS, routes.get(0).destination);
-                edt(() -> { named(workspace, "loot-drill-visit", JButton.class).doClick(); return null; });
+                edt(() -> { drill(workspace, "loot-drill-visit").doClick(); return null; });
                 await(() -> !workspace.loading() && "a".equals(workspace.state().query.facets().visitId) && workspace.displayedPage().matches == 1);
-                edt(() -> { named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(0, 0); named(workspace, "loot-drill-rate", JButton.class).doClick(); return null; });
+                edt(() -> { named(workspace, "loot-archive-table", JTable.class).setRowSelectionInterval(0, 0); drill(workspace, "loot-drill-rate").doClick(); return null; });
                 await(() -> !workspace.loading() && workspace.state().query.facets().view == View.RATES && workspace.displayedPage().matches == 1);
                 edt(() -> {
                     assertFalse(workspace.state().query.facets().drilled());
@@ -243,6 +243,12 @@ public class LootDrillDownTest {
                     return null; });
             } finally { edt(() -> { workspace.close(); return null; }); }
         } finally { prefs.shutdown(5, TimeUnit.SECONDS, message -> {}); }
+    }
+
+    /** A drill-down of Loot › Explore's saved view by name: an item of the workspace ⋯ since P6b (it was a button under the table). */
+    static JMenuItem drill(ArchiveWorkspace<?,?,?> workspace, String name) {
+        for (java.awt.Component item : ArchiveNativeSupport.more(workspace).menu().getComponents()) if (name.equals(item.getName())) return (JMenuItem) item;
+        throw new AssertionError("No ⋯ drill-down " + name);
     }
 
     interface Checked<T> { T get() throws Exception; }
