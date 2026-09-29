@@ -132,7 +132,8 @@ public class DpsFilterBarTest {
     /**
      * Enemy cards are exactly as wide as the visible enemy list (split at its default width, in the Live meter tab): a long
      * boss name and subtitle ellipsize (the tooltip keeps them), the list never scrolls sideways, and the Boss chip lies
-     * wholly inside the visible list at 1240×800 font 13 and 680×520 font 18.
+     * wholly inside the visible list at 1240×800 font 13; at 680×520 font 18, where the list is at its floor, the card either
+     * keeps the chip that way or folds it into its facts ("Boss · …", P5b polish) with the name across the card.
      */
     @Test public void enemyCardsFitTheListSoTheBossChipIsNeverClipped() throws Exception {
         String longName = "Synthetic Archdemon of the Endless Overflowing Enemy Card Title";
@@ -166,17 +167,164 @@ public class DpsFilterBarTest {
                     BorderLayout layout = (BorderLayout) card.getLayout();
                     Component chip = layout.getLayoutComponent(BorderLayout.EAST);
                     JLabel title = (JLabel) layout.getLayoutComponent(BorderLayout.NORTH), subtitle = (JLabel) layout.getLayoutComponent(BorderLayout.SOUTH);
-                    assertTrue(chip.isVisible());
-                    assertEquals(name + ": the whole chip is laid out", chip.getPreferredSize().width, chip.getWidth());
-                    Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
-                    assertTrue(name + ": the Boss chip " + chipInList + " lies inside the visible list " + list.getVisibleRect(), list.getVisibleRect().contains(chipInList));
-                    assertTrue(name + ": the long name ellipsizes beside the chip", title.getX() + title.getWidth() <= chip.getX() && title.getWidth() < title.getPreferredSize().width);
-                    assertTrue(name + ": the subtitle stays beside the chip", subtitle.getX() + subtitle.getWidth() <= chip.getX());
+                    assertTrue(name + ": a wide card keeps the chip", chip.isVisible() || size[0] == 680);
+                    if (chip.isVisible()) {
+                        assertEquals(name + ": the whole chip is laid out", chip.getPreferredSize().width, chip.getWidth());
+                        Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
+                        assertTrue(name + ": the Boss chip " + chipInList + " lies inside the visible list " + list.getVisibleRect(), list.getVisibleRect().contains(chipInList));
+                        assertTrue(name + ": the long name ellipsizes beside the chip", title.getX() + title.getWidth() <= chip.getX() && title.getWidth() < title.getPreferredSize().width);
+                        assertTrue(name + ": the subtitle stays beside the chip", subtitle.getX() + subtitle.getWidth() <= chip.getX());
+                    } else {
+                        assertTrue(name + ": the folded chip opens the facts: " + subtitle.getText(), subtitle.getText().startsWith("Boss · "));
+                        Insets padding = card.getInsets();
+                        assertEquals(name + ": the long name spans the card", card.getWidth() - padding.left - padding.right, title.getWidth());
+                        assertTrue(name + ": the long name keeps ten characters: " + shown(title), kept(shown(title)) >= 10 && title.getWidth() < title.getPreferredSize().width);
+                    }
                     assertTrue("The tooltip keeps the full name", card.getToolTipText().contains(longName) && card.getToolTipText().contains(subtitle.getText()));
                     evidence.capture(name);
                     return null;
                 });
             }
+        } finally { edt(() -> { evidence.closeWindow(); return null; }); }
+    }
+
+    /**
+     * P5b polish (evidence findings 1 and 3, coordinator balance): at compact widths the meter table keeps its first column
+     * (rank, name, bar and amount) whole when the split allows it, and otherwise the enemy list sits at its floor (ten average
+     * letters, "..." and the card padding, no chip), where names keep at least ten characters (a boss card folds its chip into
+     * its facts: "Boss · …"); at 1240×800 font 13 the 0.32 share keeps a wide card's chip and whole facts. The table keeps its
+     * minimum width and three rows; nothing scrolls sideways. A divider the reader moved stays where they left it.
+     */
+    @Test public void enemyCardsKeepReadableNamesAndFactsBesideTheBossChip() throws Exception {
+        TomatoData data = new TomatoData(); DpsData fight = colossus(data); data.dpsData.add(fight);
+        DpsGUI dps = edt(() -> new DpsGUI(data, null, new JPanel()));
+        WorkspaceShell shell = shell(livePage(dps), dps, fight);
+        try {
+            for (int[] size : new int[][]{{1240, 800, 13}, {680, 520, 18}, {680, 520, 13}, {760, 520, 18}, {1240, 800, 18}}) {
+                String name = "dps-meter-enemy-names-" + size[0] + "-" + size[2];
+                edt(() -> { evidence.show(shell, name, size[0], size[1], size[2]); return null; });
+                evidence.settle();
+                edt(() -> {
+                    MeterDpsGUI meter = dps.meter();
+                    @SuppressWarnings("unchecked") JList<Entity> list = field(meter, "enemyList", JList.class);
+                    JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, list);
+                    JSplitPane split = field(meter, "split", JSplitPane.class);
+                    JScrollPane page = VisualEvidence.named(dps, "dps-damage-scroll", JScrollPane.class);
+                    ui.WaveThreeEvidence.reveal(scroll, scroll.getHeight());
+                    assertFalse(name + ": the enemy list does not scroll sideways", scroll.getHorizontalScrollBar().isShowing());
+                    Rectangle splitInPage = SwingUtilities.convertRectangle(split.getParent(), split.getBounds(), page.getViewport());
+                    assertTrue(name + ": the meter " + splitInPage + " fits the page " + page.getViewport().getSize(), splitInPage.x + splitInPage.width <= page.getViewport().getWidth());
+                    Component table = split.getRightComponent();
+                    assertTrue(name + ": the table keeps its minimum width (" + table.getWidth() + " of " + table.getMinimumSize().width + ")",
+                        table.getWidth() >= table.getMinimumSize().width);
+                    JPanel first = laidOut(list, 0);
+                    String all = shown(slot(first, BorderLayout.NORTH));
+                    int floor = noChipFloor(list, first, slot(first, BorderLayout.NORTH));
+                    Component enemies = split.getLeftComponent();
+                    boolean whole = firstColumnWhole(meter);
+                    System.out.println(name + ": enemy list side " + enemies.getWidth() + " px (floor " + floor + "), table side " + table.getWidth()
+                        + " px, first column " + meter.table().getColumnModel().getColumn(0).getWidth() + " px in a " + meter.tableScroll().getViewport().getWidth()
+                        + " px viewport (" + (whole ? "whole" : "cut") + "), first card \"" + all + "\"");
+                    assertTrue(name + ": the table's first column is whole, or the enemy list is at its no-chip floor (list side " + enemies.getWidth() + ", floor " + floor + ")",
+                        whole || enemies.getWidth() <= floor);
+                    if (size[0] == 760) assertTrue(name + ": where the split allows it, the table's first column is whole", whole);
+                    assertTrue(name + ": the first card keeps ten characters: \"" + all + "\"", kept(all) >= 10);
+                    if (size[0] == 1240) assertEquals(name + ": the first card is whole (list " + list.getWidth() + " px)", "All enemies · 13", all);
+                    int index = -1;
+                    for (int i = 0; i < list.getModel().getSize(); i++) if (list.getModel().getElementAt(i) != null && list.getModel().getElementAt(i).isBossMob()) index = i;
+                    assertEquals("Highest max HP first: the boss", 1, index);
+                    JPanel card = laidOut(list, index);
+                    JLabel title = slot(card, BorderLayout.NORTH), subtitle = slot(card, BorderLayout.SOUTH);
+                    Component chip = ((BorderLayout) card.getLayout()).getLayoutComponent(BorderLayout.EAST);
+                    String name1 = shown(title), facts = shown(subtitle);
+                    System.out.println(name + ": enemy list " + list.getWidth() + " px, split " + split.getWidth() + " px (divider " + split.getDividerLocation()
+                        + "), boss title \"" + name1 + "\", subtitle \"" + facts + "\", chip " + (chip.isVisible() ? "shown" : "hidden"));
+                    assertTrue(name + ": the boss name keeps at least ten characters: \"" + name1 + "\" (list " + list.getWidth() + " px)", kept(name1) >= 10);
+                    if (!chip.isVisible()) assertTrue(name + ": without the chip the facts open with the Boss marker: " + subtitle.getText(), subtitle.getText().startsWith("Boss · "));
+                    if (size[0] == 1240 && size[2] == 13) {
+                        assertTrue(name + ": a wide card keeps the chip", chip.isVisible());
+                        assertEquals(name + ": the boss facts are whole beside the chip (list " + list.getWidth() + " px)", "400,000 HP · 89.4k dmg · 71.9 s", facts);
+                    }
+                    String tip = card.getToolTipText();
+                    assertTrue("The tooltip keeps the full text: " + tip, tip.contains("Synthetic Colossus") && tip.contains("Boss") && tip.contains("400,000 HP · 89.4k dmg · 71.9 s"));
+                    assertEquals(tip, card.getAccessibleContext().getAccessibleName());
+                    if (size[0] == 680 && size[2] == 18) assertMeterUsable(dps, name);
+                    evidence.capture(name);
+                    return null;
+                });
+            }
+            // A divider the reader moved (a drag or the keys end in setDividerLocation) is theirs: a relayout keeps it.
+            int moved = edt(() -> {
+                JSplitPane split = field(dps.meter(), "split", JSplitPane.class);
+                int location = split.getDividerLocation() + 40;
+                split.setDividerLocation(location);
+                return location;
+            });
+            evidence.settle();
+            edt(() -> {
+                JSplitPane split = field(dps.meter(), "split", JSplitPane.class);
+                split.revalidate();
+                return null;
+            });
+            evidence.settle();
+            assertEquals("The reader's divider stays", moved, (int) edt(() -> field(dps.meter(), "split", JSplitPane.class).getDividerLocation()));
+        } finally { edt(() -> { evidence.closeWindow(); return null; }); }
+    }
+
+    /**
+     * P5b polish (evidence finding 7): ‹ · position · › · Go live · Pause are one unit. Beside the search (the scope slot) or
+     * wrapped below it, the five controls share one row in that order: alone as the S6 matrix shows the meter (680×520 font 18
+     * split them, "‹" staying on the search row), and in the Live meter tab; the one-row check at 1240×800 font 13 still passes.
+     */
+    @Test public void encounterControlsStayTogetherWhenTheyWrap() throws Exception {
+        TomatoData data = new TomatoData(); DpsData fight = encounter(data, "Synthetic Halls"); data.dpsData.add(fight);
+        DpsGUI dps = edt(() -> new DpsGUI(data, null, new JPanel()));
+        edt(() -> { assertTrue(dps.showEncounter(dps.encounters().find(fight).id)); return null; });
+        int[][] sizes = {{680, 520, 18}, {680, 520, 13}, {1240, 800, 18}, {1240, 800, 13}};
+        try {
+            for (int[] size : sizes) {
+                String name = "dps-meter-scope-alone-" + size[0] + "-" + size[2];
+                edt(() -> { evidence.show(dps, name, size[0], size[1], size[2]); return null; });
+                evidence.settle();
+                edt(() -> { assertScopeTogether(name, dps, size[0] == 1240 && size[2] == 13); evidence.capture(name); return null; });
+            }
+        } finally { edt(() -> { evidence.closeWindow(); return null; }); }
+        WorkspaceShell shell = shell(livePage(dps), dps, fight);
+        try {
+            for (int[] size : sizes) {
+                String name = "dps-meter-scope-" + size[0] + "-" + size[2];
+                edt(() -> { evidence.show(shell, name, size[0], size[1], size[2]); return null; });
+                evidence.settle();
+                edt(() -> {
+                    VisualEvidence.named(dps, "dps-damage-scroll", JScrollPane.class).getViewport().setViewPosition(new Point(0, 0));
+                    assertScopeTogether(name, dps, size[0] == 1240 && size[2] == 13);
+                    evidence.capture(name);
+                    return null;
+                });
+            }
+            // 24 pt in a compact window: a line of its own is narrower than the unit, so the controls wrap inside it; every one
+            // stays whole inside the row, "‹" beside the position it steps.
+            String name = "dps-meter-scope-680-24";
+            edt(() -> { evidence.show(shell, name, 680, 520, 24); return null; });
+            evidence.settle();
+            edt(() -> {
+                FilterBar bar = bar(dps);
+                assertInsideRow(name, bar);
+                Rectangle previous = null;
+                for (String control : new String[]{"dps-previous-encounter", "dps-open-library", "dps-next-encounter", "dps-go-live", "dps-pause-view"}) {
+                    JComponent component = VisualEvidence.named(bar, control, JComponent.class);
+                    Rectangle bounds = component.getBounds();
+                    assertTrue(name + ": " + control + " " + bounds + " is whole inside its unit " + component.getParent().getSize(), component.isShowing()
+                        && bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= component.getParent().getWidth() && bounds.y + bounds.height <= component.getParent().getHeight());
+                    if (previous == null) previous = SwingUtilities.convertRectangle(component.getParent(), bounds, bar);
+                    else if ("dps-open-library".equals(control)) {
+                        Rectangle position = SwingUtilities.convertRectangle(component.getParent(), bounds, bar);
+                        assertTrue(name + ": ‹ " + previous + " beside the position " + position, Math.abs(position.getCenterY() - previous.getCenterY()) < previous.height / 2.0);
+                    }
+                }
+                evidence.capture(name);
+                return null;
+            });
         } finally { edt(() -> { evidence.closeWindow(); return null; }); }
     }
 
@@ -407,6 +555,71 @@ public class DpsFilterBarTest {
         assertTrue(name + ": the search slot and Filters share one row", Math.abs(slotY - filtersY) < filters.getHeight());
     }
 
+    /**
+     * The encounter controls share one row in order (‹, position, ›, Go live, Pause), inside the filter row; at desktop width
+     * they sit in the scope slot beside the search on the filter row's single line.
+     */
+    private static void assertScopeTogether(String name, DpsGUI dps, boolean desktop) {
+        FilterBar bar = bar(dps);
+        assertInsideRow(name, bar);
+        Rectangle first = null;
+        int right = Integer.MIN_VALUE;
+        StringBuilder placed = new StringBuilder();
+        for (String control : new String[]{"dps-previous-encounter", "dps-open-library", "dps-next-encounter", "dps-go-live", "dps-pause-view"}) {
+            JComponent component = VisualEvidence.named(bar, control, JComponent.class);
+            assertTrue(name + ": " + control + " shows", component.isShowing());
+            Rectangle bounds = SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), bar);
+            placed.append(control).append(' ').append(bounds).append("; ");
+            if (first == null) first = bounds;
+            assertTrue(name + ": the encounter controls share one row: " + placed, Math.abs(bounds.getCenterY() - first.getCenterY()) < first.height / 2.0);
+            assertTrue(name + ": the encounter controls keep their order: " + placed, bounds.x >= right);
+            right = bounds.x + bounds.width;
+        }
+        assertEquals("1 of 1", VisualEvidence.named(bar, "dps-open-library", AbstractButton.class).getText());
+        if (desktop) {
+            assertOneFilterRow(name, bar);
+            Component search = dps.meter().searchField();
+            int searchY = SwingUtilities.convertPoint(search, 0, search.getHeight() / 2, bar).y;
+            assertTrue(name + ": beside the search at desktop width: " + placed, Math.abs(first.getCenterY() - searchY) < first.height / 2.0);
+        }
+    }
+
+    /** Whether the damage table shows its first column (rank, name, bar and amount) whole, with no sideways scroll needed for it. */
+    private static boolean firstColumnWhole(MeterDpsGUI meter) {
+        Rectangle column = meter.table().getTableHeader().getHeaderRect(0), view = meter.tableScroll().getViewport().getViewRect();
+        return view.x <= column.x && column.x + column.width <= view.x + view.width;
+    }
+    /**
+     * The enemy list side's floor as the coordinator set it: ten average lowercase letters of the title font, "..." and the card
+     * padding (no chip), with the list's own insets, its scroll pane's border and vertical scroll bar.
+     */
+    private static int noChipFloor(JList<Entity> list, JPanel card, JLabel title) {
+        FontMetrics metrics = title.getFontMetrics(title.getFont());
+        JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, list);
+        Insets padding = card.getInsets(), own = list.getInsets(), border = scroll.getInsets();
+        return Math.round(10 * metrics.stringWidth("abcdefghijklmnopqrstuvwxyz") / 26f) + metrics.stringWidth("...") + padding.left + padding.right
+            + own.left + own.right + border.left + border.right + scroll.getVerticalScrollBar().getPreferredSize().width;
+    }
+    /** The text a label paints at its current size (JLabel's own clipping, "..." included). */
+    private static String shown(JLabel label) {
+        Insets insets = label.getInsets();
+        Rectangle view = new Rectangle(insets.left, insets.top, label.getWidth() - insets.left - insets.right, label.getHeight() - insets.top - insets.bottom);
+        return SwingUtilities.layoutCompoundLabel(label, label.getFontMetrics(label.getFont()), label.getText(), label.getIcon(), label.getVerticalAlignment(),
+            label.getHorizontalAlignment(), label.getVerticalTextPosition(), label.getHorizontalTextPosition(), view, new Rectangle(), new Rectangle(), label.getIconTextGap());
+    }
+    /** Characters of the text a clipped label keeps before its "...". */
+    private static int kept(String shown) {
+        String text = shown.endsWith("...") ? shown.substring(0, shown.length() - 3) : shown;
+        return text.codePointCount(0, text.length());
+    }
+    /** The renderer's card for row {@code index}, laid out at the cell's bounds as the list paints it (one shared panel: read it before the next call). */
+    private static JPanel laidOut(JList<Entity> list, int index) {
+        JPanel card = (JPanel) list.getCellRenderer().getListCellRendererComponent(list, list.getModel().getElementAt(index), index, false, false);
+        card.setBounds(list.getCellBounds(index, index)); card.doLayout();
+        return card;
+    }
+    private static JLabel slot(JPanel card, String where) { return (JLabel) ((BorderLayout) card.getLayout()).getLayoutComponent(where); }
+
     /** No sideways overflow: every showing control of the row lies inside the row's width. */
     private static void assertInsideRow(String name, FilterBar bar) {
         List<JComponent> controls = new ArrayList<>();
@@ -500,6 +713,28 @@ public class DpsFilterBarTest {
             hits.put(enemy.id, enemy);
         }
         return new DpsData(map(mapName), hits, new ArrayList<>(), 3000, 1000, null);
+    }
+    /**
+     * The evidence fight's enemy list (ui.RunsDpsEvidenceTest): four players on twelve minions (2,000 to 6,000 HP) and the boss
+     * "Synthetic Colossus" (400,000 HP, 89.4k recorded damage over a 71.9 s window), whose card reads "400,000 HP · 89.4k dmg
+     * · 71.9 s"; names do not depend on the asset catalog.
+     */
+    private static DpsData colossus(TomatoData data) {
+        Entity[] players = {player(data, 1, "Alpha", 768), player(data, 2, "Bravo", 775), player(data, 3, "Charlie", 768), player(data, 4, "Delta", 775)};
+        HashMap<Integer, Entity> hits = new HashMap<>();
+        Entity boss = new Entity(data, 2000, 0) {
+            @Override public boolean isBossMob() { return true; }
+            @Override public String name() { return "Synthetic Colossus"; }
+        };
+        List<Entity> enemies = new ArrayList<>(Collections.singletonList(boss));
+        for (int e = 0; e < 12; e++) enemies.add(new Entity(data, 1000 + e, 0) { @Override public String name() { return "Synthetic Warden"; } });
+        for (Entity enemy : enemies) {
+            StatData hp = new StatData(); hp.statValue = enemy == boss ? 400_000 : 2_000 * (enemy.id % 3 + 1); enemy.stat.set(StatType.MAX_HP_STAT, hp);
+            for (Entity player : players) enemy.genericDamageHit(player, new Projectile(enemy == boss ? 22_350 : 100 + player.id), 1000 + player.id);
+            enemy.updateDamageTaken(1000); enemy.updateDamageTaken(enemy == boss ? 72_900 : 3000);
+            hits.put(enemy.id, enemy);
+        }
+        return new DpsData(map("Synthetic Halls"), hits, new ArrayList<>(), 72_900, 1000, null);
     }
     private static Entity player(TomatoData data, int id, String name, int type) {
         Entity player = new Entity(data, id, 0) { @Override public String name() { return name; } };

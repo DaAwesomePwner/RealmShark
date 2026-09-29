@@ -177,6 +177,47 @@ public class DpsPresentationTest {
         });
     }
 
+    /**
+     * P5b polish: a narrow boss card (the Boss marker in its facts, no chip) keeps the pinned renderer shape: a JPanel with the
+     * title NORTH and the facts SOUTH, the LAF focus border outermost and painted, the card padding, in both themes.
+     */
+    @Test public void narrowBossCardKeepsTheRendererShapeAndFocusBorder() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Entity player = new Entity(null, 1, 0) { @Override public String name() { return "Alice"; } };
+            player.objectType = 768;
+            Entity boss = new Entity(null, 11, 0) {
+                @Override public String name() { return "Synthetic Colossus"; }
+                @Override public boolean isBossMob() { return true; }
+            };
+            boss.genericDamageHit(player, new Projectile(1200), 1000);
+            boss.updateDamageTaken(1000); boss.updateDamageTaken(3000);
+            MapInfoPacket map = new MapInfoPacket(); map.name = "Test encounter";
+            MeterDpsGUI meter = new MeterDpsGUI();
+            meter.renderData(map, Collections.singletonList(boss), new ArrayList<>(), 3000, true);
+            JList<Entity> enemies = enemyList(meter);
+            enemies.setSize(140, 400);
+            for (LookAndFeel laf : new LookAndFeel[]{new VioletTheme(), new FlatLightLaf()}) {
+                setLaf(laf); SwingUtilities.updateComponentTreeUI(meter); ContentStyle.refreshFonts(meter);
+                Border listFocus = BorderFactory.createLineBorder(Color.CYAN, 2);
+                UIManager.getLookAndFeelDefaults().put("List.focusCellHighlightBorder", listFocus);
+                UIManager.getLookAndFeelDefaults().put("List.focusSelectedCellHighlightBorder", listFocus);
+                for (boolean selected : new boolean[]{false, true}) {
+                    JComponent card = enemyCell(enemies, selected, true);
+                    assertTrue(card instanceof JPanel);
+                    BorderLayout layout = (BorderLayout) card.getLayout();
+                    assertFalse("No chip on a 140 px card", layout.getLayoutComponent(BorderLayout.EAST).isVisible());
+                    assertEquals("Synthetic Colossus", ((JLabel) layout.getLayoutComponent(BorderLayout.NORTH)).getText());
+                    assertTrue(((JLabel) layout.getLayoutComponent(BorderLayout.SOUTH)).getText().startsWith("Boss · "));
+                    assertTrue("The LAF focus border stays outermost", card.getBorder() instanceof CompoundBorder
+                        && ((CompoundBorder) card.getBorder()).getOutsideBorder() == listFocus);
+                    Insets insets = card.getInsets();
+                    assertTrue(insets.left >= 10); assertTrue(insets.top >= 6);
+                    assertPaintedBorder(card, Color.CYAN);
+                }
+            }
+        });
+    }
+
     private static JComponent north(JComponent card) { return (JComponent)((BorderLayout)card.getLayout()).getLayoutComponent(BorderLayout.NORTH); }
     private static JComponent south(JComponent card) { return (JComponent)((BorderLayout)card.getLayout()).getLayoutComponent(BorderLayout.SOUTH); }
 

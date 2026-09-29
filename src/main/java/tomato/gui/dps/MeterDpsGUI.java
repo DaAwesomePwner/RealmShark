@@ -35,17 +35,27 @@ import tomato.gui.modern.LineIcon;
 /**
  * Interactive encounter overview with a stable selection during live updates. Players rank by the chosen metric
  * (true rank, fixed-width prefix), carry their class hue and sprite, and your row keeps the accent wash; enemies are
- * cards with a Boss chip; a player's hit details open in a drawer under the table, with Explore in a footer that is
- * always visible. A refill adds the enemy list in one model event and the renderers reuse their borders, derived
- * fonts and number formats (S8: a 300-enemy refill made about 45,000 renderer calls one element at a time). The filter
- * controls are package-private for the host's filter row (DpsGUI's {@code FilterBar("dps-meter")}): a standalone meter
- * still applies them and shows no filter row of its own.
+ * cards with a Boss chip (a Boss marker in the facts when a card is too narrow for the chip) in a list that keeps its
+ * default share of the width until the reader moves the divider; a player's hit details open in a drawer under the
+ * table, with Explore in a footer that is always visible. A refill adds the enemy list in one model event and the
+ * renderers reuse their borders, derived fonts and number formats (S8: a 300-enemy refill made about 45,000 renderer
+ * calls one element at a time). The filter controls are package-private for the host's filter row (DpsGUI's
+ * {@code FilterBar("dps-meter")}): a standalone meter still applies them and shows no filter row of its own.
  */
 public class MeterDpsGUI extends DisplayDpsGUI {
     private static final int[] METRIC_COLUMNS = {2, 3, 5, 8, 9};
     static final String ALL_CLASSES = "All classes", BOSSES_ONLY = "Bosses only";
     /** The enemy order that is also a filter: only boss cards (and their players) remain. */
     private static final int BOSSES_INDEX = 3;
+    /**
+     * The enemy list's default share of the meter's width until the reader moves the divider; then the split's resize weight.
+     * At 1240×800 font 13 it keeps a boss card's facts whole beside the chip. At compact widths the table's first column comes
+     * first and the list takes the rest down to its floor ({@link #placeEnemies}).
+     */
+    static final float ENEMY_SHARE = .32f;
+    /** Characters of an enemy name a boss card keeps beside its chip; a narrower card opens its facts with the marker instead. */
+    static final int TITLE_CHARACTERS = 10;
+    private static final String BOSS = "Boss";
     private final JComboBox<String> enemySort = new JComboBox<>(new String[]{"Highest enemy HP", "Latest hit", "Longest fight", BOSSES_ONLY});
     private final JComboBox<String> classes = new JComboBox<>(new String[]{ALL_CLASSES});
     /** Runs after every filter or scope change; the host's chips follow (DpsGUI). */
@@ -91,6 +101,11 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private final Map<Entity, Long> damageByEnemy = new IdentityHashMap<>();
     /** EDT-only number formats shared by the renderers. */
     private final Formats formats = new Formats();
+    private final EnemyCardRenderer cards = new EnemyCardRenderer();
+    /** Divider location the meter last placed at the enemy list's default share; -1 before the first placement. */
+    private int placedDivider = -1;
+    /** The reader moved the divider (a drag or the split's keys): the default share no longer applies. */
+    private boolean readerDivider;
     /** Derived table fonts, rebuilt only when the table font object changes (font edits and theme refreshes replace it). */
     private Font tableFont, tableEmphasis, tableMetadata;
     /** The mode the enemy cards were last measured in; object IDs show only in Analyst. */
@@ -138,11 +153,18 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         notices.add(captureWarning, BorderLayout.NORTH); notices.add(routeNotice, BorderLayout.SOUTH);
         header.add(controls, BorderLayout.CENTER); header.add(notices, BorderLayout.SOUTH);
         add(header, BorderLayout.NORTH);
-        JPanel left = new JPanel(new BorderLayout(4, 4));
+        JScrollPane enemyScroll = new JScrollPane(enemyList);
+        JPanel left = new JPanel(new BorderLayout(4, 4)) {
+            // The enemy list's floor: a card keeps ten average letters of its name (EnemyCardRenderer.minimumWidth; a boss card folds its chip).
+            @Override public Dimension getMinimumSize() {
+                Insets scroll = enemyScroll.getInsets();
+                return new Dimension(cards.minimumWidth(enemyList) + scroll.left + scroll.right + enemyScroll.getVerticalScrollBar().getPreferredSize().width, 80);
+            }
+        };
         enemyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         ContentStyle.font(enemyList, ContentStyle.body());
-        enemyList.setCellRenderer(new EnemyCardRenderer());
-        left.add(new JScrollPane(enemyList), BorderLayout.CENTER);
+        enemyList.setCellRenderer(cards);
+        left.add(enemyScroll, BorderLayout.CENTER);
         ContentStyle.table(table); table.setAutoCreateRowSorter(true);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setName("dps-player-table");
@@ -262,9 +284,23 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         table.getActionMap().put("dps-close-details", closeAction);
         getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(escape, "dps-close-details");
         getActionMap().put("dps-close-details", closeAction);
-        split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
-        left.setMinimumSize(new Dimension(150, 80)); right.setMinimumSize(new Dimension(260, 80));
-        split.setDividerLocation(245); split.setResizeWeight(.24); add(split, BorderLayout.CENTER);
+        split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right) {
+            @Override public void doLayout() {
+                // The enemy list keeps its default share of the width at every size the meter is shown at (a split
+                // otherwise keeps the location it first painted at and shares later resizes by weight, so a meter first
+                // shown wide left the list at its floor when compact) until the reader moves the divider. A location that
+                // changed between two layouts was moved from outside (a drag or the split's keys); from then on the split
+                // keeps the reader's divider and shares resizes by its weight.
+                if (placedDivider >= 0 && getDividerLocation() != placedDivider) readerDivider = true;
+                super.doLayout();
+                if (readerDivider || getWidth() <= 0) return;
+                int target = placeEnemies(this);
+                if (target != getDividerLocation()) { setDividerLocation(target); super.doLayout(); }
+                placedDivider = getDividerLocation();
+            }
+        };
+        right.setMinimumSize(new Dimension(260, 80));
+        split.setResizeWeight(ENEMY_SHARE); add(split, BorderLayout.CENTER);
         enemySort.addActionListener(e -> rebuildEnemies());
         enemyList.addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !updating) rebuildScope(); });
         classes.addActionListener(e -> { if (!updating) filterRows(); });
@@ -285,6 +321,29 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         // Object IDs on the enemy cards follow Simple/Analyst; re-measure the cards only when the mode really changed
         // (the binding also runs whenever the meter becomes displayable).
         DisplayModeModel.application().bind(this, mode -> { if (mode != shownMode) { shownMode = mode; enemies.refresh(); } });
+    }
+
+    /**
+     * The enemy list's default divider location. The player rows are the meter's core: at compact widths the table keeps its
+     * first column (rank, name, bar and amount) whole when the split allows it and the list takes the rest down to its floor;
+     * where even the floor leaves the column short, the floor wins (names stay readable; a boss card folds its chip into its
+     * facts). At wide widths the list takes its {@link #ENEMY_SHARE}. The table never loses its minimum width.
+     */
+    private int placeEnemies(JSplitPane pane) {
+        Insets insets = pane.getInsets();
+        int available = pane.getWidth() - insets.left - insets.right - pane.getDividerSize();
+        int tableMinimum = pane.getRightComponent().getMinimumSize().width;
+        int rest = available - Math.max(tableMinimum, firstColumnWidth());
+        int enemies = Math.max(pane.getLeftComponent().getMinimumSize().width, Math.min(Math.round(available * ENEMY_SHARE), rest));
+        return insets.left + Math.max(0, Math.min(enemies, available - tableMinimum));
+    }
+    /** The table side's width at which the first column shows whole: the column, the scroll pane's border and, when shown, its vertical scroll bar. */
+    private int firstColumnWidth() {
+        if (table.getColumnCount() == 0) return 0;
+        Insets outer = right.getInsets(), border = tableScroll.getInsets();
+        JScrollBar bar = tableScroll.getVerticalScrollBar();
+        return outer.left + outer.right + border.left + border.right + (bar.isVisible() ? bar.getPreferredSize().width : 0)
+            + table.getColumnModel().getColumn(0).getWidth();
     }
 
     /**
@@ -761,26 +820,40 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     /**
      * Enemy cards: the LAF cell border (focus) outermost, then a rounded card; the name NORTH, the facts SOUTH and a
-     * Boss chip EAST. The card border is cached per LAF cell border, the derived fonts per list font and the card
-     * colors per theme (updateUI clears them), so a refill builds no borders, fonts or formats per card.
+     * Boss chip EAST. A boss card too narrow to keep {@value #TITLE_CHARACTERS} characters of its name beside the chip
+     * drops the chip and opens its facts with the marker ("Boss · 400,000 HP …", Boss in the warn tone), so the name
+     * keeps the card's width; the tooltip and accessible name keep the full text either way. The card border is cached
+     * per LAF cell border, the derived fonts, title metrics and chip width per list font and the card colors per theme
+     * (updateUI clears them), so a refill builds no borders, fonts or formats per card.
      */
     private final class EnemyCardRenderer extends DefaultListCellRenderer {
         private final JPanel row = new JPanel(new CardRowLayout());
-        private final JLabel title = new JLabel(), subtitle = new JLabel();
-        private final Chip boss = new Chip("Boss", Tokens.Tone.WARN);
+        private final JLabel title = new JLabel();
+        private final CardFacts subtitle = new CardFacts();
+        private final Chip boss = new Chip(BOSS, Tokens.Tone.WARN);
         private final Map<Border, Border> borders = new IdentityHashMap<>();
         private Font base, titleFont, subtitleFont;
-        private Color raised, muted;
+        /** The title font's metrics and the widths of JLabel's "...", of ten average lowercase letters and of the chip, per font. */
+        private FontMetrics titleMetrics;
+        private int clip, letters, chip;
+        private Color raised, muted, warn;
         EnemyCardRenderer() {
-            title.putClientProperty("html.disable", true); subtitle.putClientProperty("html.disable", true);
+            title.putClientProperty("html.disable", true);
             row.setOpaque(false); // the card paints its own rounded fill inside the LAF border
             row.add(title, BorderLayout.NORTH); row.add(subtitle, BorderLayout.SOUTH); row.add(boss, BorderLayout.EAST);
         }
         @Override public void updateUI() {
             super.updateUI();
             if (row == null) return; // DefaultListCellRenderer's constructor runs this before the fields exist
-            borders.clear(); base = null; raised = null; muted = null;
+            borders.clear(); base = null; raised = null; muted = null; warn = null;
             SwingUtilities.updateComponentTreeUI(row);
+        }
+        private void fonts(Font font) {
+            if (font == base) return;
+            base = font; titleFont = ContentStyle.emphasis(font); subtitleFont = ContentStyle.metadata(font);
+            title.setFont(titleFont); subtitle.setFont(subtitleFont); boss.setFont(subtitleFont);
+            titleMetrics = title.getFontMetrics(titleFont); clip = titleMetrics.stringWidth("..."); chip = boss.getPreferredSize().width;
+            letters = Math.round(TITLE_CHARACTERS * titleMetrics.stringWidth("abcdefghijklmnopqrstuvwxyz") / 26f);
         }
         @Override public Component getListCellRendererComponent(JList<?> l, Object v, int i, boolean s, boolean f) {
             super.getListCellRendererComponent(l, v, i, s, f); // LAF colors and the focus border
@@ -790,21 +863,76 @@ public class MeterDpsGUI extends DisplayDpsGUI {
                 borders.put(cell, card = BorderFactory.createCompoundBorder(cell, CARD));
             }
             row.setBorder(card);
-            Font font = l.getFont();
-            if (font != base) { base = font; titleFont = ContentStyle.emphasis(font); subtitleFont = ContentStyle.metadata(font); }
+            fonts(l.getFont());
             title.setFont(titleFont); subtitle.setFont(subtitleFont); boss.setFont(subtitleFont);
-            if (raised == null) { raised = Tokens.color(Tokens.Role.RAISED); muted = ContentStyle.color("muted"); }
+            if (raised == null) { raised = Tokens.color(Tokens.Role.RAISED); muted = ContentStyle.color("muted"); warn = Tokens.tone(Tokens.Tone.WARN); }
             Entity e = (Entity) v;
-            title.setText(e == null ? "All enemies · " + formats.integer(Math.max(0, l.getModel().getSize() - 1)) : e.name() == null ? "Unknown enemy" : e.name());
-            subtitle.setText(e == null ? "Encounter totals" : cardFacts(e, DisplayModeModel.application().analyst()));
-            boolean isBoss = e != null && e.isBossMob();
-            boss.setVisible(isBoss);
+            String name = e == null ? "All enemies · " + formats.integer(Math.max(0, l.getModel().getSize() - 1)) : e.name() == null ? "Unknown enemy" : e.name();
+            String facts = e == null ? "Encounter totals" : cardFacts(e, DisplayModeModel.application().analyst());
+            boolean isBoss = e != null && e.isBossMob(), chipped = isBoss && roomBesideChip(l, card, name);
+            title.setText(name);
+            // A selected card paints the marker in the selection foreground, as the rest of its facts (the chip's own
+            // tint is what keeps the warn tone readable on it).
+            subtitle.setText(isBoss && !chipped ? BOSS + " · " + facts : facts);
+            subtitle.marker(isBoss && !chipped ? (s ? getForeground() : warn) : null);
+            boss.setVisible(chipped);
             row.setBackground(s ? getBackground() : raised); title.setForeground(getForeground());
             subtitle.setForeground(s ? getForeground() : muted);
-            String tip = title.getText() + (isBoss ? " · Boss" : "") + " · " + subtitle.getText();
+            String tip = name + (isBoss ? " · " + BOSS : "") + " · " + facts;
             row.setToolTipText(tip.startsWith("<html>") ? " " + tip : tip);
             row.getAccessibleContext().setAccessibleName(tip);
             return row;
+        }
+        /**
+         * Whether a card as wide as the list's cells (a vertical list lays each out at its width) keeps the first
+         * {@value #TITLE_CHARACTERS} characters of {@code name} and JLabel's "..." beside the chip, summing the characters
+         * as JLabel's clipping does. Before the list has a width, the chip stays.
+         */
+        private boolean roomBesideChip(JList<?> list, Border card, String name) {
+            if (list.getWidth() <= 0) return true;
+            Insets own = list.getInsets(), padding = card.getBorderInsets(row);
+            int room = list.getWidth() - own.left - own.right - padding.left - padding.right - chip - ((BorderLayout) row.getLayout()).getHgap();
+            if (name.codePointCount(0, name.length()) <= TITLE_CHARACTERS) return room >= titleMetrics.stringWidth(name);
+            int kept = 0;
+            for (int at = 0; at < TITLE_CHARACTERS; at++) kept += titleMetrics.charWidth(name.charAt(at));
+            return room >= kept + clip;
+        }
+        /**
+         * The enemy list's floor: the narrowest card that keeps {@value #TITLE_CHARACTERS} average lowercase letters of a name
+         * and "...", in the list's font and cell border. It leaves no room for the chip: a boss card that narrow folds it into
+         * its facts, so the table keeps more of its width at compact sizes.
+         */
+        int minimumWidth(JList<?> list) {
+            fonts(list.getFont());
+            Border cell = UIManager.getBorder("List.cellNoFocusBorder");
+            Insets own = list.getInsets(), outer = cell == null ? new Insets(0, 0, 0, 0) : cell.getBorderInsets(this), padding = CARD.getBorderInsets(row);
+            return own.left + own.right + outer.left + outer.right + padding.left + padding.right + letters + clip;
+        }
+    }
+    /**
+     * An enemy card's facts. On a narrow boss card they open with "Boss · " and the word is painted in the marker color: the
+     * label paints the rest of its line (its color, clipped with its own "..."), a helper label the word at the same place
+     * and baseline (a label painted inside another label's paint would move that label's text; see RankIcon).
+     */
+    private static final class CardFacts extends JLabel {
+        private final JLabel word = new JLabel(BOSS);
+        private Color marker;
+        CardFacts() { putClientProperty("html.disable", true); word.putClientProperty("html.disable", true); }
+        /** The marker's color, or null for plain facts. */
+        void marker(Color color) { marker = color; }
+        @Override public void updateUI() { super.updateUI(); if (word != null) word.updateUI(); }
+        @Override protected void paintComponent(Graphics g) {
+            String text = getText();
+            if (marker == null || text == null || !text.startsWith(BOSS)) { super.paintComponent(g); return; }
+            Insets insets = getInsets();
+            int start = insets.left, end = Math.min(getWidth() - insets.right, start + getFontMetrics(getFont()).stringWidth(BOSS));
+            int height = getHeight() - insets.top - insets.bottom;
+            Graphics rest = g.create();
+            try { rest.clipRect(end, 0, Math.max(0, getWidth() - end), getHeight()); super.paintComponent(rest); } finally { rest.dispose(); }
+            if (end <= start || height <= 0) return;
+            word.setFont(getFont()); word.setForeground(marker); word.setSize(end - start, height);
+            Graphics head = g.create(start, insets.top, end - start, height);
+            try { word.paint(head); } finally { head.dispose(); }
         }
     }
     /** The rounded card inside the LAF cell border, filled with the cell's background and outlined in the subtle border color. */

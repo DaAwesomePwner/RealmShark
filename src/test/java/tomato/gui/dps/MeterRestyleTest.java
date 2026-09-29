@@ -2,6 +2,7 @@ package tomato.gui.dps;
 
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.List;
@@ -209,6 +210,103 @@ public class MeterRestyleTest {
             Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY);
             assertEquals("Numbers follow the FORMAT locale", "900.000 HP · 1,2k dmg · 2,0 s", slot(card(list, 1), BorderLayout.SOUTH).getText());
         });
+    }
+
+    /**
+     * P5b polish: a boss card too narrow to keep ten characters of the name beside the chip drops the chip and opens its facts
+     * with the Boss marker ("Boss · 400,000 HP …", Boss in the warn tone), so the name takes the card's whole width; a wide card
+     * keeps the chip. The tooltip and accessible name keep the full text with "Boss" either way; other cards never move.
+     */
+    @Test public void narrowBossCardMovesTheBossMarkerIntoItsFacts() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            TomatoData data = new TomatoData();
+            Entity alpha = player(data, 1, "Alpha", 768);
+            Entity boss = new Entity(data, 12, 0) {
+                @Override public boolean isBossMob() { return true; }
+                @Override public String name() { return "Synthetic Colossus"; }
+            };
+            StatData hp = new StatData(); hp.statValue = 400_000; boss.stat.set(StatType.MAX_HP_STAT, hp);
+            boss.genericDamageHit(alpha, new Projectile(89_400), 1000);
+            boss.updateDamageTaken(1000); boss.updateDamageTaken(72_900);
+            Entity minion = enemy(data, 11, 1000, alpha, 300);
+            MeterDpsGUI meter = new MeterDpsGUI();
+            meter.renderData(map("Synthetic dungeon"), Arrays.asList(boss, minion), new ArrayList<>(), 0, true);
+            JList<Entity> list = enemyList(meter);
+            assertSame(boss, list.getModel().getElementAt(1));
+
+            list.setSize(480, 600);
+            JPanel wide = laidOut(list, 1);
+            Chip chip = (Chip) layout(wide).getLayoutComponent(BorderLayout.EAST);
+            assertTrue("A wide card keeps the chip", chip.isVisible());
+            assertEquals("400,000 HP · 89.4k dmg · 71.9 s", slot(wide, BorderLayout.SOUTH).getText());
+            String tip = wide.getToolTipText();
+            assertEquals("Synthetic Colossus · Boss · 400,000 HP · 89.4k dmg · 71.9 s", tip);
+            assertEquals(tip, wide.getAccessibleContext().getAccessibleName());
+
+            list.setSize(150, 600);
+            JPanel narrow = laidOut(list, 1);
+            JLabel title = slot(narrow, BorderLayout.NORTH), facts = slot(narrow, BorderLayout.SOUTH);
+            assertFalse("A narrow card drops the chip (list 150 px)", chip.isVisible());
+            assertEquals("The facts open with the Boss marker", "Boss · 400,000 HP · 89.4k dmg · 71.9 s", facts.getText());
+            Insets insets = narrow.getInsets();
+            assertEquals("The name takes the card's whole width", narrow.getWidth() - insets.left - insets.right, title.getWidth());
+            String shown = shown(title);
+            assertTrue("The name keeps at least ten characters: " + shown, (shown.endsWith("...") ? shown.length() - 3 : shown.length()) >= 10);
+            assertEquals("The tooltip keeps the full text", tip, narrow.getToolTipText());
+            assertEquals(tip, narrow.getAccessibleContext().getAccessibleName());
+
+            // Boss in the warn tone, the facts after it in the subtitle's own (muted) color.
+            BufferedImage image = new BufferedImage(narrow.getWidth(), narrow.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = image.createGraphics();
+            try { narrow.paint(g); } finally { g.dispose(); }
+            FontMetrics metrics = facts.getFontMetrics(facts.getFont());
+            int start = facts.getX() + facts.getInsets().left, marker = start + metrics.stringWidth("Boss"), rest = start + metrics.stringWidth("Boss · ");
+            Color warn = Tokens.tone(Tokens.Tone.WARN), muted = facts.getForeground(), surface = narrow.getBackground();
+            assertTrue("Boss is painted in the warn tone", warm(image, start, marker, facts, warn, muted, surface) > 0);
+            assertEquals("The facts after it are not", 0, warm(image, rest, facts.getX() + facts.getWidth(), facts, warn, muted, surface));
+
+            // A selected narrow card paints the marker in the selection foreground like the rest of its facts.
+            JPanel selected = (JPanel) list.getCellRenderer().getListCellRendererComponent(list, boss, 1, true, false);
+            assertEquals("Boss · 400,000 HP · 89.4k dmg · 71.9 s", slot(selected, BorderLayout.SOUTH).getText());
+            // Other cards never carry the marker; the first card stays "All enemies".
+            assertEquals("1,000 HP · 300 dmg · 2.0 s", slot(laidOut(list, 2), BorderLayout.SOUTH).getText());
+            assertEquals("Encounter totals", slot(laidOut(list, 0), BorderLayout.SOUTH).getText());
+
+            list.setSize(480, 600);
+            JPanel again = laidOut(list, 1);
+            assertTrue("Widening brings the chip back", chip.isVisible());
+            assertEquals("400,000 HP · 89.4k dmg · 71.9 s", slot(again, BorderLayout.SOUTH).getText());
+        });
+    }
+
+    /** Pixels in columns [from, to) of the label's rows that are nearer the warn tone than to the label's color and the card surface. */
+    private static int warm(BufferedImage image, int from, int to, JLabel label, Color warn, Color muted, Color surface) {
+        int count = 0;
+        for (int y = label.getY(); y < label.getY() + label.getHeight(); y++) for (int x = Math.max(0, from); x < Math.min(to, image.getWidth()); x++) {
+            Color pixel = new Color(image.getRGB(x, y), true);
+            if (pixel.getAlpha() < 200) continue;
+            double toWarn = distance(pixel, warn);
+            if (toWarn < distance(pixel, muted) && toWarn < distance(pixel, surface)) count++;
+        }
+        return count;
+    }
+    private static double distance(Color a, Color b) {
+        int r = a.getRed() - b.getRed(), g = a.getGreen() - b.getGreen(), bl = a.getBlue() - b.getBlue();
+        return Math.sqrt(r * r + g * g + bl * bl);
+    }
+    /** The text a label paints at its current size (JLabel's own clipping, "..." included). */
+    private static String shown(JLabel label) {
+        Insets insets = label.getInsets();
+        Rectangle view = new Rectangle(insets.left, insets.top, label.getWidth() - insets.left - insets.right, label.getHeight() - insets.top - insets.bottom);
+        return SwingUtilities.layoutCompoundLabel(label, label.getFontMetrics(label.getFont()), label.getText(), label.getIcon(), label.getVerticalAlignment(),
+            label.getHorizontalAlignment(), label.getVerticalTextPosition(), label.getHorizontalTextPosition(), view, new Rectangle(), new Rectangle(), label.getIconTextGap());
+    }
+    /** The card for row {@code index} laid out at the width the list gives its cells (the renderer reuses one panel). */
+    private static JPanel laidOut(JList<Entity> list, int index) {
+        JPanel card = card(list, index);
+        Insets insets = list.getInsets();
+        card.setSize(list.getWidth() - insets.left - insets.right, card.getPreferredSize().height); card.doLayout();
+        return card;
     }
 
     @Test public void detailsDrawerOpensOnSelectionAndEscapeOrCloseClearsIt() throws Exception {
