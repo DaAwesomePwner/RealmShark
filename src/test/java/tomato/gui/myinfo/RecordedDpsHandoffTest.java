@@ -61,7 +61,7 @@ public class RecordedDpsHandoffTest {
             assertTrue(panel.openButton().isEnabled());
             panel.openButton().doClick(); return null;
         });
-        assertEquals(7, page[0]);
+        assertEquals("The meter's page (Runs & DPS since P5b)", WorkspaceShell.pageOf(Destination.ENCOUNTER), page[0]);
         edt(() -> {
             assertNotNull("The exact recording is displayed", dps.currentEncounterId());
             JTable meter = named(dps, JTable.class, "dps-player-table");

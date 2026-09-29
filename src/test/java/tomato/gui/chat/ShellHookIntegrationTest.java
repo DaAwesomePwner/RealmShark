@@ -86,6 +86,9 @@ public class ShellHookIntegrationTest {
     /** The Quests page's saved tabs and Board choices: cleared so each shell opens on the Board's default Cards view, then restored. */
     private static final String[] QUEST_PREFERENCES = {"ui.tabs.quests", "ui.quests.view", "ui.quests.group", "ui.quests.pinned-first"};
     private final Map<String,String> questPreferences = new LinkedHashMap<>();
+    /** The Runs & DPS tabs and the Live meter's nested tabs: cleared so each shell opens on the Feed with every tab shown, then restored. */
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps"};
+    private final Map<String,String> tabPreferences = new LinkedHashMap<>();
     /** The run recap's section choices (ui.collapse.run-recap-*): cleared so each recap opens with its defaults, then restored. */
     private static final String[] RECAP_PREFERENCES = {"damage", "loot", "players", "resources", "timeline", "evidence"};
     private final Map<String,String> recapPreferences = new LinkedHashMap<>();
@@ -104,6 +107,10 @@ public class ShellHookIntegrationTest {
         }
         for (String key : QUEST_PREFERENCES) {
             questPreferences.put(key, PropertiesManager.getProperty(key));
+            PropertiesManager.setProperties(key, "");
+        }
+        for (String key : TAB_PREFERENCES) {
+            tabPreferences.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
         }
         for (String id : RECAP_PREFERENCES) {
@@ -145,6 +152,7 @@ public class ShellHookIntegrationTest {
         });
         for (String key : archiveKeys()) PropertiesManager.setProperties(key, archivePreferences.getOrDefault(key, ""));
         for (String key : QUEST_PREFERENCES) { String saved = questPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
+        for (String key : TAB_PREFERENCES) { String saved = tabPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
         for (Map.Entry<String,String> saved : recapPreferences.entrySet()) PropertiesManager.setProperties(saved.getKey(), saved.getValue() == null ? "" : saved.getValue());
         PropertiesManager.flush().toCompletableFuture().get(5, TimeUnit.SECONDS);
         if (temporaryDirectory != null) System.setProperty("java.io.tmpdir", temporaryDirectory);
@@ -251,11 +259,13 @@ public class ShellHookIntegrationTest {
             home.apply(model);
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
             String[] cards = {"home-hero", "home-now", "home-quests"};
-            int[] pages = {3, 7, 5}; // Characters, DPS Logger, Quests
+            int[] pages = {3, 10, 5}; // Characters, Runs & DPS (the Live meter moved there in P5b), Quests
             for (int i = 0; i < cards.length; i++) {
                 shell.select(14);
                 named(home, cards[i], tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null);
                 assertEquals(cards[i] + " opens its page", pages[i], shell.getSelectedPage());
+                if (cards[i].equals("home-now"))
+                    assertEquals("The Now card opens the Live meter tab", tomato.gui.runs.RunsTab.LIVE_METER, runsDps().selectedTab());
                 assertTrue(navigator.back());
                 assertEquals(cards[i] + ": Back returns to Home", 14, shell.getSelectedPage());
             }
@@ -722,6 +732,202 @@ public class ShellHookIntegrationTest {
             assertEquals(2, reader.read(session, "chat", ChatMessage.class).size());
             assertEquals(Collections.singletonList("Final collected value"), reader.read(session, "integration-final", String.class));
         }
+    }
+
+    /**
+     * P5b: page 10 is Runs & DPS, whose tabs are the Feed (the Runs page), Dungeons, the app's single DPS meter (Live meter) and
+     * the encounter library (Recordings); page 7 only points there. ENCOUNTER and RESOURCES routes bring the Live meter forward,
+     * and Back returns to the page and the tab they left (the page's composite Back state).
+     */
+    @Test public void runsAndDpsHostsTheMeterAndRecordingsAndMeterRoutesBringTheLiveMeterForward() throws Exception {
+        packets.incoming.MapInfoPacket map = new packets.incoming.MapInfoPacket(); map.name = map.displayName = "Lost Halls";
+        tomato.history.link.VisitRef visit = new tomato.history.link.VisitRef(store.currentId(), "journal:1");
+        tomato.backend.data.DpsData fight = new tomato.backend.data.DpsData(map, new HashMap<>(), new ArrayList<>(), 60_000, 160_001,
+            null, null, new tomato.history.link.EncounterContext(visit, 21, 160_001));
+        data.dpsData.add(fight);
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.dps.DpsGUI dps = find(shell, tomato.gui.dps.DpsGUI.class);
+            dps.encounters().captured(data.dpsData.toArray(new tomato.backend.data.DpsData[0]));
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            JTabbedPane tabs = named(page, "runs-tabs", JTabbedPane.class);
+            java.util.List<String> titles = new ArrayList<>();
+            for (int i = 0; i < tabs.getTabCount(); i++) titles.add(tabs.getTitleAt(i));
+            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Recordings"), titles);
+            assertEquals("Runs & DPS opens on the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+            assertSame("The Feed is the Runs page", named(shell, "runs-page", tomato.gui.runs.RunsPage.class), page.feed());
+            assertSame("The Live meter tab is the app's single DPS meter", dps, tabs.getComponentAt(tabs.indexOfTab("Live meter")));
+            assertNotNull("Recordings hosts the encounter library, not a dialog",
+                find(named(page, "runs-recordings-slot", JPanel.class), tomato.gui.dps.DungeonListGUI.class));
+            assertNotNull("Page 7 only points to Runs & DPS", find(shell, tomato.gui.dps.DpsMovedPanel.class));
+            assertEquals(10, WorkspaceShell.pageOf(tomato.gui.route.Destination.ENCOUNTER));
+            assertEquals(10, WorkspaceShell.pageOf(tomato.gui.route.Destination.RESOURCES));
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+
+            shell.select(0);
+            assertTrue("A plain ENCOUNTER route (Home's Now card)", navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.ENCOUNTER)));
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("…opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+
+            // From the Feed on the same page: an exact recording opens in the Live meter; Back brings the Feed forward again.
+            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.ENCOUNTER).withRecording(fight.getRecordingId(), null)));
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertEquals("The exact recording shows", dps.encounters().find(fight).id, dps.currentEncounterId());
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Back returns to the Feed it left", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+
+            shell.select(0);
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RESOURCES).withVisit(visit)));
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("RESOURCES opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            JTabbedPane nested = named(dps, "dps-tabs", JTabbedPane.class);
+            assertEquals("…on its Resources & buffs tab", "Resources & buffs", nested.getTitleAt(nested.getSelectedIndex()));
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+        });
+    }
+
+    /** Alt+8, the DPS Logger pointer's two buttons and the meter's library button open their tab through the navigator; Back returns. */
+    @Test public void altEightThePointerAndTheLibraryButtonOpenTheirTabsAndBackReturns() throws Exception {
+        int windows = Window.getWindows().length;
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            Action altEight = shell.getActionMap().get("page-7");   // WorkspaceShellLayoutTest pins Alt+8 to "page-7"
+            shell.select(0);
+            altEight.actionPerformed(null);
+            assertEquals("Alt+8 opens Runs & DPS", 10, shell.getSelectedPage());
+            assertEquals("…on the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertTrue("Alt+8 goes through the navigator", navigator.back()); assertEquals(0, shell.getSelectedPage());
+            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
+            assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.LIVE_METER.id()));
+            altEight.actionPerformed(null);
+            assertEquals("Alt+8 brings a hidden Live meter forward (explicit navigation)", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertFalse(page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.LIVE_METER.id()));
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Back returns to the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+
+            shell.select(7);
+            tomato.gui.dps.DpsMovedPanel pointer = find(shell, tomato.gui.dps.DpsMovedPanel.class);
+            named(pointer, "dps-moved-open", AbstractButton.class).doClick();
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Open Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals("Back returns to the pointer", 7, shell.getSelectedPage());
+            named(pointer, "dps-moved-recordings", AbstractButton.class).doClick();
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Open Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals(7, shell.getSelectedPage());
+
+            // The meter's library button opens the Recordings tab, no longer a modal dialog; Back returns to the Live meter.
+            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
+            AbstractButton library = named(find(shell, tomato.gui.dps.DpsGUI.class), "dps-open-library", AbstractButton.class);
+            assertTrue(library.isEnabled());
+            library.doClick();
+            assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+        });
+        assertEquals("No dialog opened", windows, Window.getWindows().length);
+    }
+
+    /** The Live meter, Recordings and Statistics (no longer in the sidebar) are found by search and open through their routes. */
+    @Test public void searchOpensTheLiveMeterRecordingsAndStatistics() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            assertEquals(1, registry.search("dps.meter").size());
+            tomato.gui.search.ActionDescriptor meter = registry.search("dps.meter").get(0);
+            assertEquals("Live DPS meter", meter.label);
+            assertEquals("Runs & DPS › Live meter", meter.location);
+            assertEquals("The old page name finds it", Collections.singletonList("dps.meter"), ids(registry.search("dps logger")));
+            assertEquals("…and so does its shortcut", Collections.singletonList("dps.meter"), ids(registry.search("alt+8")));
+            assertEquals(1, registry.search("dps.recordings").size());
+            tomato.gui.search.ActionDescriptor recordings = registry.search("dps.recordings").get(0);
+            assertEquals("Recordings (encounter library)", recordings.label);
+            assertEquals("Runs & DPS › Recordings", recordings.location);
+            assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
+            assertEquals(1, registry.search("statistics.open").size());
+            tomato.gui.search.ActionDescriptor statistics = registry.search("statistics.open").get(0);
+            assertEquals("Statistics (fame table, live loot log)", statistics.label);
+            assertEquals("Statistics (not in the sidebar)", statistics.location);
+            // The entries other tests search for stay unambiguous.
+            assertEquals(1, registry.search("build.open").size());
+            assertEquals(1, registry.search("combat.settings").size());
+            assertEquals("combat.settings", registry.search("full detail retention").get(0).id);
+
+            shell.select(0);
+            assertTrue(meter.open());
+            assertEquals(10, shell.getSelectedPage()); assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(recordings.open());
+            assertEquals(10, shell.getSelectedPage()); assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(statistics.open());
+            assertEquals("Statistics stays page 4", 4, shell.getSelectedPage());
+            assertFalse("…without a sidebar row", named(shell, "nav-4", AbstractButton.class).isVisible());
+        });
+    }
+
+    /** Browse saved history is explicit navigation to the Runs table: the Feed comes forward, even from a hidden Feed tab. */
+    @Test public void browseSavedHistoryBringsTheFeedForward() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
+            TomatoGUI.browseSavedHistory();
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Browse saved history shows the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+            assertTrue("…on its Table view", page.feed().feed().tableShown());
+            page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
+            assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.FEED.id()));
+            shell.select(0);
+            TomatoGUI.browseSavedHistory();
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals(tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+            assertFalse("A hidden Feed is shown again", page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.FEED.id()));
+        });
+    }
+
+    /**
+     * A hidden tab is detached from the tree, so closing walks the tabs' contents too: hidden Feed and Live meter tabs (and the
+     * Live meter's hidden Resources & buffs tab inside) still release their saved readers.
+     */
+    @Test public void hiddenFeedAndLiveMeterTabsStillCloseTheirWorkspaces() throws Exception {
+        ArchiveWorkspace<?,?,?> runs = workspace("runs"), combat = workspace("combat");
+        SwingUtilities.invokeAndWait(() -> { runs.showSaved(); combat.showSaved(); });
+        await(() -> !runs.loading() && runs.displayedPage() != null && !combat.loading() && combat.displayedPage() != null);
+        java.util.List<ArchivePage<?>> pages = edt(() -> Arrays.asList(runs.displayedPage(), combat.displayedPage()));
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            JTabbedPane nested = named(shell, "dps-tabs", JTabbedPane.class);
+            assertTrue(((tomato.gui.kit.CustomizableTabs) nested.getClientProperty(tomato.gui.kit.CustomizableTabs.class)).hide("resources"));
+            assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.FEED.id()));
+            assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.LIVE_METER.id()));
+            assertNull("The hidden Feed is detached", named(shell, "runs-session-view", ArchiveWorkspace.class));
+            assertNull("…and so is the hidden Live meter with its Resources workspace", named(shell, "combat-session-view", ArchiveWorkspace.class));
+        });
+        for (ArchivePage<?> page : pages) try (ArchiveResult.Lease<?> open = page.lease()) { assertNotNull(open); }
+        gui.closeWorkspace();
+        for (ArchivePage<?> page : pages) {
+            try (ArchiveResult.Lease<?> unexpected = page.lease()) { fail("A hidden tab's workspace kept its result owner"); }
+            catch (java.io.IOException expected) { /* Owner closed. */ }
+        }
+    }
+
+    /** Page 10, Runs & DPS. */
+    private tomato.gui.runs.RunsDpsPage runsDps() {
+        tomato.gui.runs.RunsDpsPage page = named(shell, "runs-dps-page", tomato.gui.runs.RunsDpsPage.class);
+        assertNotNull("Page 10 is the Runs & DPS page", page);
+        return page;
+    }
+    private static java.util.List<String> ids(java.util.List<tomato.gui.search.ActionDescriptor> found) {
+        java.util.List<String> ids = new ArrayList<>();
+        for (tomato.gui.search.ActionDescriptor entry : found) ids.add(entry.id);
+        return ids;
     }
 
     @Test public void previewQueriesKeepCapturedDataReadOnlyAndAvailabilityUnknownWhileViewStatePersists() throws Exception {
