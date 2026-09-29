@@ -1,23 +1,31 @@
 package tomato.gui.history;
 
+import com.google.gson.Gson;
 import java.awt.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import javax.swing.*;
 import org.junit.*;
+import org.junit.rules.ErrorCollector;
 import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import packets.packetcapture.logger.DiscoveryLog;
 import tomato.backend.data.DpsData;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.bridge.BridgeConfig;
+import tomato.bridge.BridgePayload;
+import tomato.bridge.BridgeService;
 import tomato.gui.activity.ActivityPanel;
 import tomato.gui.activity.ActivityQueries;
+import tomato.gui.bridge.BridgeReviewGUI;
 import tomato.gui.character.CharacterJournalGUI;
 import tomato.gui.character.TableViewRule;
 import tomato.gui.chat.ChatArchiveClient;
@@ -27,11 +35,16 @@ import tomato.gui.dps.DungeonListGUI;
 import tomato.gui.dps.Filter;
 import tomato.gui.keypop.KeyPopArchiveClient;
 import tomato.gui.keypop.KeypopGUI;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.FilterBarAssert;
+import tomato.gui.logging.LoggingGUI;
+import tomato.gui.modern.FormattingTestSupport;
 import tomato.gui.quest.QuestGUI;
 import tomato.gui.runs.DungeonsView;
 import tomato.gui.security.ParsePanelGUI;
+import tomato.gui.security.SecurityGUI;
 import tomato.gui.stats.HistoricalStatistics;
 import tomato.gui.stats.LootDashboard;
 import tomato.gui.stats.LootQuery;
@@ -49,15 +62,26 @@ import static tomato.gui.chat.SocialArchiveTestSupport.edt;
  * live mode), and checks Loot's view selector, live and saved. The retired Statistics page and its sub-pages, exempt until P6, are
  * gone (P6a): every page with a filter row is in this matrix. P6b Task 14: Loot › Explore has one view selector, leading the row it
  * shows, and live its dashboard's row hosts the Scope chip (the workspace's row is hidden).
+ *
+ * <p>P6b Task 15 (strict S6): every archive page is captured live too, its own row hosting the Scope chip ({@code -live}: Runs'
+ * table, Timeline, Resources, Chat, Key-pops and Party's three tabs, with SecurityGUI in its workspace), beside saved history, which
+ * now includes saved Party; Logging (every tab) and Bridge review (Review and Logs) join the matrix. At 1240×800 font 13 with the
+ * drawer closed, every filter row a page shows passes {@link FilterBarAssert#assertOneRow} (every control of the top row on its
+ * first line, the row under 1.6 control heights). On archive pages, in every capture, the chip is in the row the page shows and the
+ * workspace's row is not showing while live. Pages are shown in Simple, and Party's Analyst-only Ability Use in Analyst.
  */
 public class FilterBarEvidenceTest {
     @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public VisualEvidence evidence = new VisualEvidence("redesign-p1c");
+    /** One-row failures are collected, so a run captures and names every page whose row wraps; the test still fails for each. */
+    @Rule public ErrorCollector rows = new ErrorCollector();
     private final Map<String, String> savedPreferences = new LinkedHashMap<>();
+    private DisplayModeModel.Mode applicationMode;
 
     @Before public void isolatePreferences() throws Exception {
         edt(() -> {
+            applicationMode = DisplayModeModel.application().mode();
             for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.character", "ui.tabs.quests",
                     "ui.filters.runs.open", "ui.filters.loot.open", "ui.filters.chat.open", "ui.filters.keypops.open",
                     "ui.filters.characters.open", "ui.filters.quests.open",
@@ -66,7 +90,14 @@ public class FilterBarEvidenceTest {
                     // P5b: the Live meter, Recordings and Dungeons drawers, the meter's nested tabs and the Dungeons view.
                     "ui.filters.dps-meter.open", "ui.filters.encounter-library.open", "ui.filters.dungeons.open", "ui.tabs.dps", "ui.dungeons.view",
                     // P6a: Loot's live filter row.
-                    "ui.filters.loot-live.open"}) {
+                    "ui.filters.loot-live.open",
+                    // P6b Task 15: the live rows, saved Party, Logging and Bridge review; their tab layouts; the live Party roster's
+                    // application view state (the live owner binds it); and the display mode, which the pages set.
+                    "ui.filters.activity-runs.open", "ui.filters.activity-timeline.open", "ui.filters.activity-combat.open", "ui.filters.chat-live.open",
+                    "ui.filters.keypops-live.open", "ui.filters.inspect-runs.open", "ui.filters.ability.open", "ui.filters.inspect.open",
+                    "ui.filters.logging.open", "ui.filters.bridge-review.open", "ui.filters.bridge-logs.open",
+                    "ui.tabs.inspect", "ui.tabs.logging", "ui.tabs.bridge", "ui.tabs.keypops-live", "ui.tabs.keypops-saved",
+                    "ux.archive.inspect-live-roster", DisplayModeModel.KEY}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -77,7 +108,11 @@ public class FilterBarEvidenceTest {
     @After public void restorePreferences() throws Exception {
         // Disposal can queue a final view-state save; restore only after that EDT work drains.
         edt(() -> null);
-        edt(() -> { savedPreferences.forEach((key, value) -> util.PropertiesManager.setProperties(key, value == null ? "" : value)); return null; });
+        edt(() -> {
+            DisplayModeModel.application().set(applicationMode);
+            savedPreferences.forEach((key, value) -> util.PropertiesManager.setProperties(key, value == null ? "" : value));
+            return null;
+        });
     }
 
     /** The Party roster is not the live owner, but clear any roster a live owner left so no capture state outlives the test. */
@@ -114,12 +149,27 @@ public class FilterBarEvidenceTest {
         final String name; final JComponent root; final FilterBar bar; final BooleanSupplier ready;
         /** The frame's content: {@code root} padded clear of the harness's title band and edges. */
         final JComponent framed;
+        /** Runs once on the EDT before the page's first capture: the tab it shows and its chips, when {@code root} hosts several pages. */
+        Runnable prepare;
+        /** Simple, or Analyst for an Analyst-only tab. */
+        DisplayModeModel.Mode mode = DisplayModeModel.Mode.SIMPLE;
+        /** Whether the page applies filters shown as chips; a row without a drawer has none to show (Party › Runs, Bridge › Logs). */
+        boolean chips = true;
         Page(String name, JComponent root, FilterBar bar, BooleanSupplier ready) {
             this.name = name; this.root = root; this.bar = bar; this.ready = ready;
-            JPanel padded = new JPanel(new BorderLayout());
-            padded.setBorder(BorderFactory.createEmptyBorder(BAND, EDGE, EDGE, EDGE));
-            padded.add(root, BorderLayout.CENTER);
-            framed = padded;
+            framed = new JPanel(new BorderLayout());
+            framed.setBorder(BorderFactory.createEmptyBorder(BAND, EDGE, EDGE, EDGE));
+        }
+        Page prepare(Runnable value) { prepare = value; return this; }
+        Page analyst() { mode = DisplayModeModel.Mode.ANALYST; return this; }
+        Page withoutChips() { chips = false; return this; }
+        /**
+         * Pads {@code root} into this page's frame content (pages of one component take it in turn) and sets the mode. A component
+         * leaving the displayed frame stops following the mode until it is shown again, so {@link #prepare} runs once it shows.
+         */
+        void mount() {
+            if (root.getParent() != framed) framed.add(root, BorderLayout.CENTER);
+            DisplayModeModel.application().set(mode);
         }
     }
 
@@ -129,7 +179,13 @@ public class FilterBarEvidenceTest {
         Path timelineScratch = temp.newFolder().toPath(), resourcesScratch = temp.newFolder().toPath(), exploreScratch = temp.newFolder().toPath();
         // Loot › Explore live keeps its own view states: the saved Loot page's state (archive mode) must not restore into it.
         ArchiveNativeSupport.Memory exploreStates = new ArchiveNativeSupport.Memory();
-        try (SessionStore store = new SessionStore(root, true, "p1c-evidence"); DiscoveryLog log = new DiscoveryLog(null)) {
+        // P6b Task 15: the live pages' workspaces keep their own view states too, so none restores the saved pages' archive mode.
+        ArchiveNativeSupport.Memory liveStates = new ArchiveNativeSupport.Memory();
+        Path liveJournal = temp.newFolder().toPath(), liveScratch = temp.newFolder().toPath(), partySavedScratch = temp.newFolder().toPath();
+        Files.write(liveJournal.resolve("activity-history.json"), new Gson().toJson(liveJournal()).getBytes(StandardCharsets.UTF_8));
+        try (SessionStore store = new SessionStore(root, true, "p1c-evidence"); DiscoveryLog log = new DiscoveryLog(null);
+             DiscoveryLog retained = new DiscoveryLog(liveJournal); DiscoveryLog diagnostics = new DiscoveryLog(null); BridgeService bridge = bridge()) {
+            retained.setSaving(false); diagnostics.setSaving(false);
             for (int i = 0; i < 6; i++) {
                 ActivityJournal.Visit visit = new ActivityJournal.Visit(); visit.id = "visit-" + i; visit.map = i % 2 == 0 ? "Lost Halls" : "Ice Citadel";
                 visit.started = 1_790_000_000_000L + i * 600_000L; visit.lastSeen = visit.ended = visit.started + 420_000L; store.put("runs", visit.id, visit);
@@ -162,8 +218,7 @@ public class FilterBarEvidenceTest {
                 ArchiveWorkspace<LootQuery.Row, LootQuery.Facets, LootQuery.Sort> explore = HistoricalStatistics.lootWorkspace(store, exploreLive, exploreScratch, exploreStates.states);
                 VisualEvidence.named(exploreLive, "loot-kind", JComboBox.class).setSelectedItem(LootQuery.Kind.UT_EQUIPMENT);
                 VisualEvidence.named(exploreLive, "loot-apply-facets", AbstractButton.class).doClick();
-                built.add(new Page("loot-explore-live", explore, VisualEvidence.named(exploreLive, "loot-live-filter-bar", FilterBar.class),
-                    () -> !explore.state().archive && !explore.loading()));
+                built.add(new Page("loot-explore-live", explore, VisualEvidence.named(exploreLive, "loot-live-filter-bar", FilterBar.class), live(explore)));
                 ArchiveWorkspace<ChatArchiveClient.Row, ChatArchiveClient.Facets, ChatArchiveClient.Sort> chat =
                     (ArchiveWorkspace<ChatArchiveClient.Row, ChatArchiveClient.Facets, ChatArchiveClient.Sort>) new ChatGUI(new TomatoData()).workspace(store, chatScratch, memory.states);
                 ChatArchiveClient.Facets channel = chat.state().query.facets(); channel.channel = "GUILD"; channel.starredOnly = true;
@@ -210,20 +265,110 @@ public class FilterBarEvidenceTest {
                 built.add(new Page("dungeons", dungeons, VisualEvidence.named(dungeons, "dungeons-filter-bar", FilterBar.class), () -> cards.getModel().getSize() == 1));
                 return built;
             });
-            try {
-                for (Page page : pages) for (int font : new int[]{13, 18}) for (int[] size : new int[][]{{1240, 800}, {680, 520}}) for (boolean open : new boolean[]{false, true}) {
-                    edt(() -> { ArchiveNativeSupport.drawer(page.bar, open); evidence.show(page.framed, page.name, size[0] + 2 * EDGE, size[1] + BAND + EDGE, font); return null; });
-                    ArchiveNativeSupport.await(page.ready); evidence.settle(); ArchiveNativeSupport.await(page.ready);
-                    edt(() -> {
-                        evidence.capture("p1c-" + page.name + "-" + size[0] + "-" + font + (open ? "-filters-open" : "-filters-closed"));
-                        assertEquals(page.name + " keeps the matrix size (padded clear of the title band)", new Dimension(size[0], size[1]), page.root.getSize());
-                        assertEquals(open, page.bar.drawerOpen());
-                        assertEquals(page.name + " drawer visibility", open, page.bar.drawerContent().isShowing());
-                        assertTrue(page.name + " shows its active filters as chips", page.bar.activeCount() > 0);
-                        if (!open && size[0] == 1240 && font == 13) assertOneFilterRow(page.name, page.bar);
-                        if (!open && size[0] == 1240 && font == 13 && page.name.startsWith("loot")) assertLootViewSelector(page);
-                        return null;
+            // P6b Task 15: the live host rows, each with filters applied as chips, over a retained journal of two visits.
+            ActivityPanel runsLive = edt(() -> new ActivityPanel(retained, ActivityPanel.Mode.RUNS)), timelineLive = edt(() -> new ActivityPanel(retained, ActivityPanel.Mode.TIMELINE)),
+                resourcesLive = edt(() -> new ActivityPanel(retained, ActivityPanel.Mode.COMBAT));
+            edt(() -> { timelineLive.refresh(); resourcesLive.refresh(); return null; });
+            ArchiveNativeSupport.await(() -> visits(timelineLive) == 3 && visits(resourcesLive) == 2);   // "All visits" and both, or both
+            pages.addAll(edt(() -> {
+                List<Page> built = new ArrayList<>();
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> runs =
+                    ActivityPanel.workspace(store, runsLive, ActivityPanel.Mode.RUNS, liveScratch.resolve("runs"), liveStates.states);
+                ActivityQueries.Filters run = new ActivityQueries.Filters(); run.outcomes.add(ActivityQueries.Outcome.COMPLETED); run.maximumDurationMillis = 600_000L;
+                runsLive.setRunFilters(run);
+                built.add(new Page("runs-live", runs, runs.liveFilterBar(), live(runs)));
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline =
+                    ActivityPanel.workspace(store, timelineLive, ActivityPanel.Mode.TIMELINE, liveScratch.resolve("timeline"), liveStates.states);
+                timelineLive.selectVisit("live-visit-0"); VisualEvidence.named(timelineLive, "activity-kind", JComboBox.class).setSelectedItem("Party");
+                built.add(new Page("timeline-live", timeline, timeline.liveFilterBar(), live(timeline)));
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> resources =
+                    ActivityPanel.workspace(store, resourcesLive, ActivityPanel.Mode.COMBAT, liveScratch.resolve("combat"), liveStates.states);
+                resourcesLive.selectVisit("live-visit-0");   // the older visit: a chip (the newest is the default)
+                built.add(new Page("resources-live", resources, resources.liveFilterBar(), live(resources)));
+                ChatGUI chatLive = new ChatGUI(new TomatoData());
+                ArchiveWorkspace<?, ?, ?> chat = (ArchiveWorkspace<?, ?, ?>) chatLive.workspace(store, liveScratch.resolve("chat"), liveStates.states);
+                VisualEvidence.named(chatLive, "chat-player", JTextField.class).setText("Wren"); VisualEvidence.button(chatLive, "Starred").doClick();
+                built.add(new Page("chat-live", chat, chat.liveFilterBar(), live(chat)));
+                KeypopGUI keypopsLive = new KeypopGUI();
+                ArchiveWorkspace<?, ?, ?> keypops = (ArchiveWorkspace<?, ?, ?>) keypopsLive.workspace(store, liveScratch.resolve("keypops"), liveStates.states);
+                VisualEvidence.named(keypopsLive, "keypop-type", JComboBox.class).setSelectedItem("Key");
+                VisualEvidence.named(keypopsLive, "keypop-period", JComboBox.class).setSelectedIndex(1);
+                built.add(new Page("keypops-live", keypops, keypops.liveFilterBar(), live(keypops)));
+                // Party: one page in its workspace, a page per tab; the roster's facet and Ability Use's heuristic and window as chips.
+                SecurityGUI partyLive = securityPage(retained);
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> party = SecurityGUI.workspace(store, partyLive, liveScratch.resolve("inspect"), liveStates.states);
+                VisualEvidence.named(partyLive, "inspect-facet-2", JComboBox.class).setSelectedIndex(1);
+                FilterBar abilityBar = FormattingTestSupport.field(FormattingTestSupport.field(partyLive, "abilityUse", JComponent.class), "filterBar", FilterBar.class);
+                String[][] partyTabs = {{"area", "inspect-roster"}, {"runs", "inspect-runs"}, {"ability", "ability"}};
+                for (String[] tab : partyTabs) {
+                    // Ability Use is Analyst-only: its tab (and so its row) is in the page only while Analyst shows it.
+                    FilterBar bar = "ability".equals(tab[0]) ? abilityBar : VisualEvidence.named(partyLive, tab[1] + "-filter-bar", FilterBar.class);
+                    Page page = new Page("party-" + tab[0] + "-live", party, bar, live(party)).prepare(() -> {
+                        tabs(partyLive, "inspect").select(tab[0]);
+                        if ("ability".equals(tab[0]) && abilityBar.activeCount() == 0) {
+                            VisualEvidence.named(partyLive, "ability-kind", JComboBox.class).setSelectedIndex(1);
+                            VisualEvidence.named(partyLive, "ability-range", JComboBox.class).setSelectedIndex(1);
+                        }
                     });
+                    if ("runs".equals(tab[0])) page.withoutChips();   // search only: no drawer
+                    if ("ability".equals(tab[0])) page.analyst();
+                    built.add(page);
+                }
+                // Saved Party: its workspace's row over the saved runs, with run facets as chips (the saved pages' view states).
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> partySaved = SecurityGUI.workspace(store, securityPage(log), partySavedScratch, memory.states);
+                ActivityQueries.Filters partyRuns = partySaved.state().query.facets(); partyRuns.outcomes.add(ActivityQueries.Outcome.LEFT); partyRuns.minimumDurationMillis = 60_000L;
+                partySaved.changeQuery(partySaved.state().query.withFacets(partyRuns)); built.add(archive("party-saved", partySaved));
+                // Logging: one page, a capture set per tab, each with its own search as a chip (and Packets' and Event samples' check).
+                LoggingGUI logging = loggingPage(diagnostics, new ArchiveNativeSupport.Memory().states);
+                JTextField loggingSearch = VisualEvidence.named(logging, "logging-search", JTextField.class);
+                for (String tab : new String[]{"discovery", "reentry", "packets", "stats", "events", "fields"})
+                    built.add(new Page("logging-" + tab, logging, VisualEvidence.named(logging, "logging-filter-bar", FilterBar.class),
+                        () -> FormattingTestSupport.field(logging, "snapshot", Object.class) != null).prepare(() -> {
+                            tabs(logging, "logging").select(tab);
+                            loggingSearch.setText("800");
+                            if ("packets".equals(tab)) VisualEvidence.button(logging, "Observed packets only").doClick();
+                            if ("events".equals(tab)) VisualEvidence.named(logging, "logging-changed", AbstractButton.class).doClick();
+                        }));
+                // Bridge review over a local-review-only bridge: Review with an outcome and a status as chips; Logs has no drawer.
+                BridgeReviewGUI review = new BridgeReviewGUI(bridge);
+                built.add(new Page("bridge-review", review, VisualEvidence.named(review, "bridge-review-filter-bar", FilterBar.class), () -> true).prepare(() -> {
+                    tabs(review, "bridge").select("review");
+                    VisualEvidence.named(review, "bridge-outcome-filter", JComboBox.class).setSelectedItem(BridgeService.Outcome.LOCAL);
+                    VisualEvidence.named(review, "bridge-status-filter", JComboBox.class).setSelectedItem("Local only");
+                }));
+                built.add(new Page("bridge-logs", review, VisualEvidence.named(review, "bridge-logs-filter-bar", FilterBar.class), () -> true)
+                    .prepare(() -> tabs(review, "bridge").select("logs")).withoutChips());
+                return built;
+            }));
+            try {
+                for (Page page : pages) {
+                    edt(() -> { page.mount(); evidence.show(page.framed, page.name, 1240 + 2 * EDGE, 800 + BAND + EDGE, 13); return null; });
+                    // Once shown in its mode, the page's tab and chips, with every other row's drawer closed (Party › Runs also shows
+                    // the roster's row, whose drawer the Current Area captures left open); a row without a drawer (Discovery,
+                    // Party › Runs, Bridge › Logs) has no open state to capture.
+                    boolean drawer = edt(() -> {
+                        if (page.prepare != null) page.prepare.run();
+                        List<FilterBar> all = new ArrayList<>(); bars(page.root, all, false);
+                        for (FilterBar other : all) if (other != page.bar) ArchiveNativeSupport.drawer(other, false);
+                        return page.bar.drawerContent() != null;
+                    });
+                    for (int font : new int[]{13, 18}) for (int[] size : new int[][]{{1240, 800}, {680, 520}}) for (boolean open : drawer ? new boolean[]{false, true} : new boolean[]{false}) {
+                        edt(() -> { ArchiveNativeSupport.drawer(page.bar, open); evidence.show(page.framed, page.name, size[0] + 2 * EDGE, size[1] + BAND + EDGE, font); return null; });
+                        ArchiveNativeSupport.await(page.ready); evidence.settle(); ArchiveNativeSupport.await(page.ready);
+                        edt(() -> {
+                            evidence.capture("p1c-" + page.name + "-" + size[0] + "-" + font + (open ? "-filters-open" : "-filters-closed"));
+                            assertEquals(page.name + " keeps the matrix size (padded clear of the title band)", new Dimension(size[0], size[1]), page.root.getSize());
+                            assertEquals(page.name + " shows the mode it was set to", page.mode, DisplayModeModel.application().mode());
+                            assertEquals(open, page.bar.drawerOpen());
+                            if (drawer) assertEquals(page.name + " drawer visibility", open, page.bar.drawerContent().isShowing());
+                            if (page.chips) assertTrue(page.name + " shows its active filters as chips", page.bar.activeCount() > 0);
+                            else assertNull(page.name + ": no drawer, so no filters to show as chips", page.bar.drawerContent());
+                            if (page.root instanceof ArchiveWorkspace) assertScope(page);
+                            if (!open && size[0] == 1240 && font == 13) rows.checkSucceeds(() -> { assertEveryRowIsOneRow(page); return null; });
+                            if (!open && size[0] == 1240 && font == 13 && page.name.startsWith("loot")) assertLootViewSelector(page);
+                            return null;
+                        });
+                    }
                 }
             } finally {
                 edt(() -> {
@@ -241,6 +386,8 @@ public class FilterBarEvidenceTest {
     private static Page archive(String name, ArchiveWorkspace<?, ?, ?> workspace) {
         return new Page(name, workspace, workspace.filterBar(), () -> ArchiveNativeSupport.ready(workspace) && workspace.state().archive);
     }
+    /** A workspace showing its live component: nothing is read from saved history. */
+    private static BooleanSupplier live(ArchiveWorkspace<?, ?, ?> workspace) { return () -> !workspace.state().archive && !workspace.loading(); }
 
     /**
      * Runs &amp; DPS › Recordings over {@code meter}'s recordings and {@code store}'s saved history, with the test's view states
@@ -272,16 +419,106 @@ public class FilterBarEvidenceTest {
         return roster.newInstance(false);
     }
 
+    /** The Party page over {@code log} (its package-private constructor; the app's reads the application's log and view states). */
+    private static SecurityGUI securityPage(DiscoveryLog log) throws ReflectiveOperationException {
+        Constructor<SecurityGUI> page = SecurityGUI.class.getDeclaredConstructor(DiscoveryLog.class); page.setAccessible(true);
+        return page.newInstance(log);
+    }
+
+    /** The Logging page over {@code log} with in-memory view states (its package-private constructor), reading its first snapshot. */
+    private static LoggingGUI loggingPage(DiscoveryLog log, ViewStateStore states) throws ReflectiveOperationException {
+        Constructor<LoggingGUI> page = LoggingGUI.class.getDeclaredConstructor(DiscoveryLog.class, ViewStateStore.class); page.setAccessible(true);
+        LoggingGUI logging = page.newInstance(log, states); logging.refresh(); return logging;
+    }
+
+    /** The customizable tab group {@code group} inside {@code root}, through its pane ({@code <group>-tabs}). */
+    private static CustomizableTabs tabs(Container root, String group) {
+        return (CustomizableTabs) VisualEvidence.named(root, group + "-tabs", JTabbedPane.class).getClientProperty(CustomizableTabs.class);
+    }
+
+    private static int visits(ActivityPanel panel) { return VisualEvidence.named(panel, "activity-visit", JComboBox.class).getItemCount(); }
+
+    /** The live pages' retained journal: two dungeon visits with resource conditions and an entry of each of three kinds. */
+    private static ActivityJournal.State liveJournal() {
+        ActivityJournal.State state = new ActivityJournal.State();
+        String[] maps = {"Lost Halls", "Ice Citadel"}, kinds = {"Equipment changed", "Resources", "Party roster"};
+        for (int v = 0; v < maps.length; v++) {
+            ActivityJournal.Visit visit = new ActivityJournal.Visit(); visit.id = "live-visit-" + v; visit.map = maps[v];
+            visit.started = 1_790_100_000_000L + v * 1_200_000L; visit.lastSeen = visit.ended = visit.started + 360_000L;
+            visit.conditionObservedMillis = 300_000; visit.conditions.put("Damaging", 120_000L);
+            state.visits.add(visit);
+            for (int e = 0; e < kinds.length; e++) {
+                ActivityJournal.Entry entry = new ActivityJournal.Entry(); entry.id = visit.id + "-event-" + e; entry.visitId = visit.id; entry.map = maps[v];
+                entry.time = visit.started + e * 60_000L; entry.kind = kinds[e]; entry.detail = "Synthetic observation";
+                entry.values = new LinkedHashMap<>(); entry.values.put("hp", 700); entry.values.put("mp", 150);
+                state.entries.add(entry);
+            }
+        }
+        return state;
+    }
+
+    /**
+     * A local-review-only bridge (sending off): four synthetic drops are reviewed against a synthetic CSV and nothing is posted; the
+     * transport refuses every call.
+     */
+    private BridgeService bridge() throws Exception {
+        Path csv = temp.newFile("bridge-items.csv").toPath();
+        Files.write(csv, "Item Name\nTest Sword\nCrystal Wand\nMystic Blade\n".getBytes(StandardCharsets.UTF_8));
+        Properties settings = new Properties(); String x = BridgeConfig.PREFIX;
+        settings.setProperty(x + "enabled", "true"); settings.setProperty(x + "send", "false"); settings.setProperty(x + "csv_path", csv.toString());
+        BridgeService service = new BridgeService(temp.newFolder().toPath().resolve("bridge-fixture.properties"), false,
+            (endpoint, json) -> { throw new java.io.IOException("S6 evidence never posts"); }, 20);
+        service.configure(new BridgeConfig(settings), false, false);
+        String[][] drops = {{"Test Sword", "The Shatters"}, {"Unlisted ST", "Lost Halls"}, {"Crystal Wand", "Ice Citadel"}, {"Mystic Blade", "Lost Halls"}};
+        List<BridgePayload.Drop> received = new ArrayList<>();
+        for (int i = 0; i < drops.length; i++)
+            received.add(new BridgePayload.Drop(new BridgePayload.Item(42 + i, drops[i][0], "EQUIPMENT", "UT", "", false), 7 + i % 2, i % 2 == 0 ? "Example" : "Fixture", "Wizard", drops[i][1], false, false, 9, 0));
+        service.receive(received);
+        service.awaitIdle(3000);
+        return service;
+    }
+
+    /**
+     * An archive page's Scope chip and rows: live, the page's own row hosts the chip and the workspace's row is not showing; saved,
+     * the chip is in the workspace's row. The chip is inside the workspace and in the row the page shows.
+     */
+    private static void assertScope(Page page) {
+        ArchiveWorkspace<?, ?, ?> workspace = (ArchiveWorkspace<?, ?, ?>) page.root;
+        boolean live = page.name.endsWith("-live");
+        assertEquals(page.name + ": live or saved history", !live, workspace.state().archive);
+        assertSame(page.name + ": the row the page shows", live ? workspace.liveFilterBar() : workspace.filterBar(), page.bar);
+        FilterBarAssert.assertChipInVisibleBar(workspace);
+        assertTrue(page.name + ": the Scope chip is in the row the page shows", SwingUtilities.isDescendingFrom(ArchiveNativeSupport.scope(workspace), page.bar));
+        if (live) assertFalse(page.name + ": the workspace's row is not showing while live", workspace.filterBar().isShowing());
+    }
+
+    /** S6 at 1240×800 font 13 with the drawer closed: every filter row the page shows, its own among them, is one row. */
+    private static void assertEveryRowIsOneRow(Page page) {
+        List<FilterBar> shown = new ArrayList<>(); bars(page.root, shown, true);
+        assertTrue(page.name + ": its filter row shows", shown.contains(page.bar));
+        for (FilterBar bar : shown) {
+            System.out.println("S6 " + page.name + ": " + FilterBarAssert.describeRow(bar));
+            assertFalse(page.name + ": " + bar.getName() + "'s drawer is closed", bar.drawerOpen());
+            try { FilterBarAssert.assertOneRow(bar); }
+            catch (AssertionError failure) { throw new AssertionError(page.name + ": " + failure.getMessage(), failure); }
+        }
+    }
+    /** The filter rows inside {@code root}, or only those showing. */
+    private static void bars(Container root, List<FilterBar> found, boolean showingOnly) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof FilterBar && (!showingOnly || child.isShowing())) found.add((FilterBar) child);
+            if (child instanceof Container) bars((Container) child, found, showingOnly);
+        }
+    }
+
     /**
      * Loot's one view selector (P6a; one control since P6b Task 14): it leads the search slot of the row the page shows. Live, that
      * is the dashboard's row, which inside the Loot workspace also hosts the Scope chip while the workspace's row (saved search,
      * Filters) is hidden; saved, it is the workspace's row, and the saved view builds no selector of its own.
      */
     private static void assertLootViewSelector(Page page) {
-        AbstractButton filters = VisualEvidence.named(page.bar, page.bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class);
-        Component slot = filters.getParent().getComponent(0);
         JComboBox<?> selector = VisualEvidence.named(page.root, "loot-views", JComboBox.class);
-        assertTrue(page.name + ": the view selector sits in the search slot", selector.isShowing() && SwingUtilities.isDescendingFrom(selector, slot));
+        assertTrue(page.name + ": the view selector sits in the search slot", selector.isShowing() && SwingUtilities.isDescendingFrom(selector, page.bar.searchSlot()));
         if (!(page.root instanceof ArchiveWorkspace)) return;
         ArchiveWorkspace<?, ?, ?> workspace = (ArchiveWorkspace<?, ?, ?>) page.root;
         assertEquals(page.name + ": live or saved history", !page.name.endsWith("-live"), workspace.state().archive);
@@ -290,7 +527,10 @@ public class FilterBarEvidenceTest {
             assertFalse(page.name + ": the saved search is hidden while live", VisualEvidence.named(workspace, "loot-history-search", JComponent.class).isShowing());
             assertFalse(page.name + ": the saved Filters toggle is hidden while live",
                 VisualEvidence.named(workspace.filterBar(), "loot-filters", AbstractButton.class).isShowing());
-        } else assertNull("loot: the saved view builds no selector of its own", search(workspace, "loot-archive-view"));
+        } else {
+            assertTrue("loot: the selector is in the workspace's search slot", SwingUtilities.isDescendingFrom(selector, workspace.filterBar().searchSlot()));
+            assertNull("loot: the saved view builds no selector of its own", search(workspace, "loot-archive-view"));
+        }
     }
     private static Component search(Container root, String name) {
         for (Component child : root.getComponents()) {
@@ -298,13 +538,5 @@ public class FilterBarEvidenceTest {
             if (child instanceof Container) { Component found = search((Container) child, name); if (found != null) return found; }
         }
         return null;
-    }
-
-    /** S6 at desktop width: with the drawer closed, the search slot and the Filters toggle share one row. */
-    private static void assertOneFilterRow(String name, FilterBar bar) {
-        AbstractButton filters = VisualEvidence.named(bar, bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class);
-        Component slot = filters.getParent().getComponent(0);
-        int slotY = SwingUtilities.convertPoint(slot, 0, 0, bar).y, filtersY = SwingUtilities.convertPoint(filters, 0, 0, bar).y;
-        assertTrue(name + ": the search slot and Filters share one row", Math.abs(slotY - filtersY) < filters.getHeight());
     }
 }

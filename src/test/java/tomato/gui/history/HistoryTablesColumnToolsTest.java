@@ -229,16 +229,20 @@ public class HistoryTablesColumnToolsTest {
         }
     }
 
-    @Test public void controlsStayAThinWrapperThatStillSavesLayouts() throws Exception {
+    /**
+     * P6b Task 15: the retired {@code HistoryTables.controls} button row is gone; its last check moves to the ⋯ tools, wired as the
+     * archive clients wire them (the layout listener, then the tools): a Column preset ▸ choice applies and saves its layout, and a
+     * later resize still saves.
+     */
+    @Test public void aPresetFromTheColumnToolsThenAResizeBothSaveTheLayout() throws Exception {
         List<ViewState.Table> saves = new ArrayList<>();
         JTable table = edt(() -> {
             JTable t = table("wrapped");
-            JComponent controls = HistoryTables.controls(t, HistoryTables.columnState(t, "Default"), Collections.singletonMap("Compact", List.of("area")), saves::add);
-            JComboBox<?> preset = null;
-            for (Component c : controls.getComponents()) if (c instanceof JComboBox) preset = (JComboBox<?>) c;
-            assertNotNull(preset);
-            assertEquals("Column preset", preset.getAccessibleContext().getAccessibleName());
-            preset.setSelectedItem("Compact");
+            HistoryTables.rememberLayout(t, saves::add);
+            HistoryTables.ColumnTools tools = HistoryTables.columnTools(t, HistoryTables.columnState(t, "Default"), Collections.singletonMap("Compact", List.of("area")), saves::add);
+            assertEquals("Column preset", tools.presets().getText());
+            assertEquals("wrapped-column-preset", tools.presets().getName());
+            radio(tools, "Compact").doClick();
             assertEquals(List.of("area"), order(t));
             column(t, "area").setWidth(310);
             return t;

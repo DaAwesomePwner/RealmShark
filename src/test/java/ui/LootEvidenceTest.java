@@ -378,7 +378,6 @@ public class LootEvidenceTest {
             assertEquals(LootQuery.View.ITEMS, selector().getSelectedItem());
             FilterBar bar = VisualEvidence.named(shell, "loot-live-filter-bar", FilterBar.class);
             assertFalse(bar.drawerOpen());
-            assertOneFilterRow("loot-live", bar);
             FilterBarAssert.assertOneRow(bar);
             assertTrue("The view selector sits in the live filter row's search slot", SwingUtilities.isDescendingFrom(selector(), searchSlot(bar)));
             FilterBarAssert.assertChipInVisibleBar(workspace());
@@ -418,7 +417,6 @@ public class LootEvidenceTest {
             assertEquals(LootQuery.View.ITEMS, selector().getSelectedItem());
             assertFalse("All Items is not saved-only", caption().isVisible());
             FilterBar bar = workspace().filterBar();
-            assertOneFilterRow("loot", bar);
             FilterBarAssert.assertOneRow(bar);
             assertTrue("The one view selector leads the saved filter row's search slot", SwingUtilities.isDescendingFrom(selector(), bar.searchSlot()));
             FilterBarAssert.assertChipInVisibleBar(workspace());
@@ -486,8 +484,8 @@ public class LootEvidenceTest {
             show("Settings chat", size[0], size[1], size[2], mode, () -> TomatoGUI.openSettings(SettingsPage.CHAT));
             capture("settings-chat", size[0], size[2], mode, "", () -> {
                 assertSettings(SettingsPage.CHAT, "settings-chat");
-                // Polish B2 (finding 9): the editor fills the section under Saving and scrolls its own lists, so its footer (Save
-                // filters, Cancel and the save status) is in view as the section opens, before anything is scrolled.
+                // Polish B2 (finding 9), kept by P6b: Saving and the editor scroll together in one page over a pinned footer (Save
+                // filters, Cancel and the save status), so the footer is in view as the section opens, before anything is scrolled.
                 assertInViewWithoutScrolling("chat-save-filters", "chat-cancel-filters", "chat-filter-save-status");
                 AbstractButton save = VisualEvidence.named(shell, "settings-chat-save", AbstractButton.class);
                 assertFalse("Save chat is off (key cleared)", save.isSelected());
@@ -886,13 +884,6 @@ public class LootEvidenceTest {
         return texts.isEmpty() ? "" : texts.get(texts.size() - 1);
     }
 
-    /** S6 at desktop width, as FilterBarEvidenceTest checks it: with the drawer closed, the search slot and Filters share one row. */
-    private static void assertOneFilterRow(String name, FilterBar bar) {
-        AbstractButton filters = VisualEvidence.named(bar, bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class);
-        Component slot = filters.getParent().getComponent(0);
-        int slotY = SwingUtilities.convertPoint(slot, 0, 0, bar).y, filtersY = SwingUtilities.convertPoint(filters, 0, 0, bar).y;
-        assertTrue(name + ": the search slot and Filters share one row", Math.abs(slotY - filtersY) < filters.getHeight());
-    }
     private static Component searchSlot(FilterBar bar) {
         return VisualEvidence.named(bar, bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class).getParent().getComponent(0);
     }
