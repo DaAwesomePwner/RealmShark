@@ -54,7 +54,14 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private final JTextField search = new JTextField(12);
     private final JCheckBox colors = new JCheckBox("Class colors", true);
     private final EnemyModel enemies = new EnemyModel();
-    private final JList<Entity> enemyList = new JList<>(enemies);
+    /**
+     * Cards exactly as wide as the visible list: a vertical JList lays each cell out at its own width, so tracking the
+     * viewport makes a long name or subtitle ellipsize beside a Boss chip that stays whole, instead of widening every card
+     * past the viewport (a sideways scroll bar with the chip cut off). The tooltip keeps the full text.
+     */
+    private final JList<Entity> enemyList = new JList<Entity>(enemies) {
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+    };
     private final JLabel summary = new JLabel("Waiting for combat");
     private final JLabel scope = new JLabel(" ") {
         @Override public void updateUI() { super.updateUI(); setForeground(ContentStyle.color("muted")); }

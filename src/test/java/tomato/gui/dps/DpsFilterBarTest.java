@@ -77,16 +77,8 @@ public class DpsFilterBarTest {
     @Test public void oneFilterRowInTheLiveMeterTabAndAUsableMeterWhenCompact() throws Exception {
         TomatoData data = new TomatoData(); DpsData fight = encounter(data, "Synthetic Halls"); data.dpsData.add(fight);
         DpsGUI dps = edt(() -> new DpsGUI(data, null, new JPanel()));
-        RunsDpsPage page = edt(() -> new RunsDpsPage(new RunsPage(new JPanel(), () -> null), dps));
-        closing.add(page);
-        WorkspaceShell shell = edt(() -> {
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-            pages[10] = page;
-            WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
-            created.select(10); page.bring(RunsTab.LIVE_METER);
-            assertTrue(dps.showEncounter(dps.encounters().find(fight).id));
-            return created;
-        });
+        RunsDpsPage page = livePage(dps);
+        WorkspaceShell shell = shell(page, dps, fight);
         try {
             for (int font : new int[]{13, 18}) for (int[] size : new int[][]{{1240, 800}, {680, 520}}) for (boolean open : new boolean[]{false, true}) {
                 String name = "dps-meter-" + size[0] + "-" + font + (open ? "-filters-open" : "-filters-closed");
@@ -135,6 +127,57 @@ public class DpsFilterBarTest {
                 });
             }
         } finally { edt(() -> { ArchiveNativeSupport.drawer(bar(dps), false); evidence.closeWindow(); return null; }); }
+    }
+
+    /**
+     * Enemy cards are exactly as wide as the visible enemy list (split at its default width, in the Live meter tab): a long
+     * boss name and subtitle ellipsize (the tooltip keeps them), the list never scrolls sideways, and the Boss chip lies
+     * wholly inside the visible list at 1240×800 font 13 and 680×520 font 18.
+     */
+    @Test public void enemyCardsFitTheListSoTheBossChipIsNeverClipped() throws Exception {
+        String longName = "Synthetic Archdemon of the Endless Overflowing Enemy Card Title";
+        TomatoData data = new TomatoData();
+        Entity boss = new Entity(data, 6_000_060, 0) {
+            @Override public boolean isBossMob() { return true; }
+            @Override public String name() { return longName; }
+        };
+        DpsData fight = encounter(data, "Synthetic Halls", boss);
+        data.dpsData.add(fight);
+        DpsGUI dps = edt(() -> new DpsGUI(data, null, new JPanel()));
+        WorkspaceShell shell = shell(livePage(dps), dps, fight);
+        try {
+            edt(() -> { DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST); return null; }); // the subtitle adds the object ID
+            for (int[] size : new int[][]{{1240, 800, 13}, {680, 520, 18}}) {
+                String name = "dps-meter-enemy-cards-" + size[0] + "-" + size[2];
+                edt(() -> { evidence.show(shell, name, size[0], size[1], size[2]); return null; });
+                evidence.settle();
+                edt(() -> {
+                    @SuppressWarnings("unchecked") JList<Entity> list = field(dps.meter(), "enemyList", JList.class);
+                    JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, list);
+                    ui.WaveThreeEvidence.reveal(scroll, scroll.getHeight());
+                    assertFalse(name + ": the enemy list does not scroll sideways (list " + list.getWidth() + ", viewport " + scroll.getViewport().getWidth() + ")",
+                        scroll.getHorizontalScrollBar().isShowing());
+                    int index = -1;
+                    for (int i = 0; i < list.getModel().getSize(); i++) if (list.getModel().getElementAt(i) == boss) index = i;
+                    assertTrue("The boss card is listed", index > 0);
+                    Rectangle cell = list.getCellBounds(index, index);
+                    JPanel card = (JPanel) list.getCellRenderer().getListCellRendererComponent(list, boss, index, false, false);
+                    card.setBounds(cell); card.doLayout();   // as the list paints it: the renderer at the cell's bounds
+                    BorderLayout layout = (BorderLayout) card.getLayout();
+                    Component chip = layout.getLayoutComponent(BorderLayout.EAST);
+                    JLabel title = (JLabel) layout.getLayoutComponent(BorderLayout.NORTH), subtitle = (JLabel) layout.getLayoutComponent(BorderLayout.SOUTH);
+                    assertTrue(chip.isVisible());
+                    assertEquals(name + ": the whole chip is laid out", chip.getPreferredSize().width, chip.getWidth());
+                    Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
+                    assertTrue(name + ": the Boss chip " + chipInList + " lies inside the visible list " + list.getVisibleRect(), list.getVisibleRect().contains(chipInList));
+                    assertTrue(name + ": the long name ellipsizes beside the chip", title.getX() + title.getWidth() <= chip.getX() && title.getWidth() < title.getPreferredSize().width);
+                    assertTrue(name + ": the subtitle stays beside the chip", subtitle.getX() + subtitle.getWidth() <= chip.getX());
+                    assertTrue("The tooltip keeps the full name", card.getToolTipText().contains(longName) && card.getToolTipText().contains(subtitle.getText()));
+                    evidence.capture(name);
+                    return null;
+                });
+            }
+        } finally { edt(() -> { evidence.closeWindow(); return null; }); }
     }
 
     @Test public void searchSlotDrawerAndMoreActionsHoldTheMeterControls() throws Exception {
@@ -414,16 +457,41 @@ public class DpsFilterBarTest {
         VisualEvidence.find(bar, AbstractButton.class, b -> ("Remove filter: " + label).equals(b.getAccessibleContext().getAccessibleName())).doClick();
     }
 
-    /** Four players of two classes on a boss and a minion; names do not depend on the asset catalog. */
-    private static DpsData encounter(TomatoData data, String mapName) {
+    /** The Live meter tab of a Runs & DPS page around {@code dps}; closed after the test. */
+    private RunsDpsPage livePage(DpsGUI dps) throws Exception {
+        RunsDpsPage page = edt(() -> new RunsDpsPage(new RunsPage(new JPanel(), () -> null), dps));
+        closing.add(page);
+        return page;
+    }
+
+    /** A synthetic shell with {@code page} as page 10, its Live meter tab in front, showing {@code shown}. */
+    private static WorkspaceShell shell(RunsDpsPage page, DpsGUI dps, DpsData shown) throws Exception {
+        return edt(() -> {
+            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
+            pages[10] = page;
+            WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
+            created.select(10); page.bring(RunsTab.LIVE_METER);
+            assertTrue(dps.showEncounter(dps.encounters().find(shown).id));
+            return created;
+        });
+    }
+
+    /**
+     * Four players of two classes on a boss and a minion (and {@code more} enemies, with 1,234,567,890 max HP); names do not
+     * depend on the asset catalog.
+     */
+    private static DpsData encounter(TomatoData data, String mapName, Entity... more) {
         Entity[] players = {player(data, 1, "Alpha", 768), player(data, 2, "Bravo", 775), player(data, 3, "Charlie", 768), player(data, 4, "Delta", 775)};
         Entity boss = new Entity(data, 50, 0) { @Override public boolean isBossMob() { return true; } }, minion = new Entity(data, 51, 0);
-        for (Entity enemy : new Entity[]{boss, minion}) {
-            StatData hp = new StatData(); hp.statValue = enemy == boss ? 900_000 : 1000; enemy.stat.set(StatType.MAX_HP_STAT, hp);
-            for (Entity player : players) enemy.genericDamageHit(player, new Projectile(100 * player.id + enemy.id), 1000 + player.id);
+        List<Entity> enemies = new ArrayList<>(Arrays.asList(boss, minion));
+        enemies.addAll(Arrays.asList(more));
+        HashMap<Integer, Entity> hits = new HashMap<>();
+        for (Entity enemy : enemies) {
+            StatData hp = new StatData(); hp.statValue = enemy == boss ? 900_000 : enemy == minion ? 1000 : 1_234_567_890; enemy.stat.set(StatType.MAX_HP_STAT, hp);
+            for (Entity player : players) enemy.genericDamageHit(player, new Projectile(100 * player.id + enemy.id % 1000), 1000 + player.id);
             enemy.updateDamageTaken(1000); enemy.updateDamageTaken(3000);
+            hits.put(enemy.id, enemy);
         }
-        HashMap<Integer, Entity> hits = new HashMap<>(); hits.put(boss.id, boss); hits.put(minion.id, minion);
         return new DpsData(map(mapName), hits, new ArrayList<>(), 3000, 1000, null);
     }
     private static Entity player(TomatoData data, int id, String name, int type) {
