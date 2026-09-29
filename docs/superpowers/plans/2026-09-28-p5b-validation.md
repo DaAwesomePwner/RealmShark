@@ -7,7 +7,7 @@ Recordings, the single DPS meter moves into the Live meter tab, Statistics and D
 harness and is met.
 
 Fill every "Record" cell while executing the plan. An interrupted or failed run is not a pass: keep it below as diagnostic
-history and record the rerun that passed. Cells marked **[Coordinator]** are filled by the coordinator after Task 14 merges.
+history and record the rerun that passed. The coordinator filled the cells it owns after the polish tasks merged.
 
 ## Implementation method
 
@@ -121,8 +121,8 @@ these are the local checks.
 | Reads | `GRADLE test --tests "tomato.gui.dps.RecordingsSourceTest" --tests "tomato.gui.runs.DungeonsSourceTest"` | Task 14 on `18ab0bd` plus the evidence commit: 7 + 10 tests, 0 failures; times under "Reads" below |
 | S6 | `GRADLE test --tests "tomato.gui.history.FilterBarEvidenceTest"` (alone) | Task 14: **1 test, 0 failures** (three runs); 12 pages × 8 states = 96 captures in `build/p5b-t14/ui-test/screenshots/redesign-p1c/`; one filter row at 1240×800 font 13 with the drawer closed and active chips on every page |
 | Evidence (Task 14) | `GRADLE test --tests "ui.RunsDpsEvidenceTest"` (alone) | **5 tests, 0 failures, 0 errors, 0 skipped** (runs 2 and 3); 16 screenshots in `build/p5b-t14/ui-test/screenshots/redesign-p5b-runs-dps/`. Diagnostic history: run 1 failed 3 tests, all test-side (the live row sorts last, so a lookup by row 0 was wrong; the summary panel's title starts with "Summary · "; the live snapshot's enemy copies take their names and the Boss label from the asset catalog, which the test has no entries for) and showed the meter's "Your character data has not arrived" warning, because the fixture had no resolved local character; the fixture now names its enemies and labels the boss through synthetic asset entries and sets the capture's own character, as capture does. A local mutation run (test-side, not committed) confirmed the guards: forcing a horizontal scroll bar on the meter's page failed the sideways check of all four Live meter captures, and expecting "Advanced (4)" failed the sidebar capture. Findings under "Evidence" below |
-| Final full suite and JAR | `GRADLE test shadowJar` | **[Coordinator]** on `<sha>`: test classes, tests / failures / errors / skipped, new failures versus the baseline, `shadowJar` output |
-| JAR smoke | isolated `java -jar … --help` from an empty folder | **[Coordinator]** exit code, usage text, folder empty afterwards |
+| Final full suite and JAR | `GRADLE test shadowJar` | on `a42f9fc` (Tasks 1–15 merged): 387 test classes, **1895 / 5 / 0 / 5**, 6 min 23 s. Four failures are exactly the baseline's (`StatisticsArchiveNativeTest.actualLootFactory…`, `QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…`, `ChatConsistencyTest.nativeFilterDialog…`). The fifth, `QuestConsistencyTest.nativeCompactRequestRevealsKeyboardTargetsAcrossFontsAndThemes`, is **intermittent and not yet root-caused**: run alone it failed 3 of 15 times at `a42f9fc` and 2 of 11 at `614e9c0` (the Task 6 merge), and passed 17 of 17 on P5a `main` (`3ab077c`) and 11 of 11 at `e89bd9d`. Each failure hits a different geometry assertion after scrolling or focus at 680×520 (summary offscreen, a wrapped line reachable, a spinner field visible); the page's scroll pane is not yet validated at those points in P5a and P5b alike, and the test calls no code Task 6 changed functionally. The investigation continues (see the PR). `shadowJar` built `RealmShark-v1.2.3.jar` |
+| JAR smoke | isolated `java -jar … --help` from an empty folder | exit 0 with the usage text, from an empty scratch folder with its own `user.home` and `java.io.tmpdir`; the folder held no files afterwards |
 
 ## S8 page switching
 

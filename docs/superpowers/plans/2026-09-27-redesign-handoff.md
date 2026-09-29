@@ -19,7 +19,7 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P3b Characters: Exalts grid, Pets, Pet/Fame tabs | #23 | Merged (Codex fix `9c0da67`) | `b559bca` |
 | P4 Quests: Board and Planner | #24 | Merged (Codex: no findings) | `e541874` |
 | P5a Runs: combat auto-save, feed, recap | #25 | Merged (Codex fix `21d896e`) | `3ab077c` |
-| **P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8** | none yet | **Planned** ([2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md)) | |
+| **P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8** | open | **Implemented** ([2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md)); PR open | |
 | P6 Loot & cleanup | none | Outline only (roadmap) | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
@@ -38,7 +38,9 @@ Done on 2026-09-27/28 (cloud session):
 
 - P5b researched (four notes: shell and tabs, Live meter and Recordings, Dungeons and Statistics, S8 baseline with a timing probe) and planned as a contract plan ([2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md), 14 tasks in five waves). User decisions: one PR with the live scope-row merge moved to P6; Dungeons cards count finished runs; comparison and cohorts embedded in Dungeons (Analyst); no per-recording delete.
 
-1. **Implement P5b** with subagent-driven development (Wave A: Tasks 1–5 in parallel), then open its PR once done and pushed (standing permission above).
+- P5b implemented with subagent-driven development in five waves (Tasks 1–14) plus two polish tasks from the evidence review (15a, 15b), each reviewed and merged by the coordinator. S8 met (switching into the Live meter during a 300-enemy fight about 34 ms p95, down from 190–360 ms). Record: [2026-09-28-p5b-validation.md](2026-09-28-p5b-validation.md).
+
+1. **Handle the P5b PR:** review Codex comments, finish the root cause of the intermittent `QuestConsistencyTest.nativeCompactRequest…` failure (validation record), merge once both are resolved, and verify `main`; then plan P6.
 2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
 The P5 and P5b research notes live in the session scratchpad; the plans quote their conclusions. A new session without them should re-run the research questions listed in each plan's "Sources" before implementing.
 
