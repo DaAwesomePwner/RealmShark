@@ -25,11 +25,16 @@ public class ShellRouteRegistrationTest {
     /** Runs routes below may choose the Table view; the saved choice is restored after. */
     @Rule public final tomato.gui.runs.RunsViewRule runsView = tomato.gui.runs.RunsViewRule.cards();
     private static final String[] RECAP_SECTIONS = {"damage", "loot", "players", "resources", "timeline", "evidence"};
+    /** The Runs & DPS tabs, the Live meter's nested tabs and the Recordings tab's saved view (the encounter library's live state). */
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live"};
 
     @Test public void createdWorkspaceRegistersAnalyticsTargetsAndCloseUninstallsTheNavigator() throws Exception {
         java.util.Map<String, String> recapSections = new java.util.HashMap<>();
         for (String id : RECAP_SECTIONS) {   // the run recap's section choices: its defaults here, restored after
             String key = tomato.gui.kit.Collapsible.PREFIX + "run-recap-" + id;
+            recapSections.put(key, util.PropertiesManager.getProperty(key)); util.PropertiesManager.setProperties(key, "");
+        }
+        for (String key : TAB_PREFERENCES) {   // Runs & DPS opens on the Feed with every tab shown; restored after
             recapSections.put(key, util.PropertiesManager.getProperty(key)); util.PropertiesManager.setProperties(key, "");
         }
         Field storeField = AppHistory.class.getDeclaredField("store"); storeField.setAccessible(true);
@@ -102,6 +107,29 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.back()); assertFalse("…then to the Table view", runs.recapShown());
                 assertTrue(runs.feed().tableShown());
                 assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+
+                // P5b: page 10 is Runs & DPS; the live meter and Resources & buffs moved there from page 7, which only points there.
+                tomato.gui.runs.RunsDpsPage runsDps = find(workspace, tomato.gui.runs.RunsDpsPage.class);
+                assertNotNull("Page 10 is the Runs & DPS page", runsDps);
+                assertSame("…whose Feed is the Runs page", runs, runsDps.feed());
+                assertEquals(10, tomato.gui.modern.WorkspaceShell.pageOf(Destination.ENCOUNTER));
+                assertEquals(10, tomato.gui.modern.WorkspaceShell.pageOf(Destination.RESOURCES));
+                assertNotNull("Page 7 points to the Live meter", find(workspace, tomato.gui.dps.DpsMovedPanel.class));
+                assertTrue("A plain ENCOUNTER route is the Live meter's", navigator.canOpen(Route.to(Destination.ENCOUNTER)));
+                for (tomato.gui.runs.RunsTab tab : tomato.gui.runs.RunsTab.values())
+                    assertTrue("Each tab has a route: " + tab, navigator.canOpen(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tab))));
+                assertFalse("The Feed's dungeon filter has no route until the Dungeons tab wires it",
+                    navigator.canOpen(Route.to(Destination.RUNS).withPayload(new tomato.gui.runs.RunsFocus(tomato.gui.runs.RunsTab.FEED, "Lost Halls"))));
+                assertFalse("A tab route carries nothing else",
+                    navigator.canOpen(Route.to(Destination.RUNS).withVisit(visit).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
+                assertTrue(navigator.open(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
+                assertEquals(10, workspace.getSelectedPage());
+                assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, runsDps.selectedTab());
+                assertTrue(navigator.open(Route.to(Destination.ENCOUNTER)));
+                assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, runsDps.selectedTab());
+                assertTrue(navigator.back());
+                assertEquals("Back returns to the tab left", tomato.gui.runs.RunsTab.RECORDINGS, runsDps.selectedTab());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
             });
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> assertSame(Navigator.NONE, Navigator.current()));
@@ -113,6 +141,14 @@ public class ShellRouteRegistrationTest {
             for (java.util.Map.Entry<String, String> saved : recapSections.entrySet())
                 util.PropertiesManager.setProperties(saved.getKey(), saved.getValue() == null ? "" : saved.getValue());
         }
+    }
+
+    private static <T> T find(java.awt.Container root, Class<T> type) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (type.isInstance(child)) return type.cast(child);
+            if (child instanceof java.awt.Container) { T found = find((java.awt.Container) child, type); if (found != null) return found; }
+        }
+        return null;
     }
 
     private static tomato.gui.runs.RunsPage runsPage(java.awt.Container root) {

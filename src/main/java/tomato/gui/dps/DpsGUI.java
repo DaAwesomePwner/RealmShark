@@ -33,6 +33,8 @@ public class DpsGUI extends JPanel {
 
     private TomatoData data;
     private JButton next, prev, live, dList;
+    /** What the library button opens (the Recordings tab, set by the shell); null while none is set. */
+    private Runnable openLibrary;
     private StringDpsGUI displayString;
     private IconDpsGUI displayIcon;
     private DisplayDpsGUI centerDisplay;
@@ -111,7 +113,10 @@ public class DpsGUI extends JPanel {
         next.setToolTipText("Next saved encounter");
         prev.setToolTipText("Previous saved encounter");
         live.setToolTipText("Return to the current encounter");
-        dList.setToolTipText("Choose an encounter from the dungeon list");
+        // The encounter library is the Recordings tab of Runs & DPS: the button opens it through the shell's hook (onOpenLibrary),
+        // so it stays disabled, with the reason, in a meter built without one.
+        dList.setName("dps-open-library");
+        onOpenLibrary(null);
 
         next.addActionListener(event -> nextDpsLogDungeon());
         prev.addActionListener(event -> previousDpsLogDungeon());
@@ -252,8 +257,18 @@ public class DpsGUI extends JPanel {
         if (!paused.isSelected() && liveUpdates && centerDisplay.isShowing() && latest != rendered) updateGui();
     }
 
+    /**
+     * EDT: {@code open} runs when the meter's library button ("Live" or "3/12") is pressed; the shell opens Runs & DPS › Recordings
+     * through its navigator, so Back returns to the meter. Null disables the button (no library to open).
+     */
+    public void onOpenLibrary(Runnable open) {
+        openLibrary = open;
+        dList.setEnabled(open != null);
+        dList.setToolTipText(open != null ? "Choose a recording in Runs & DPS › Recordings" : "Recordings are not available in this view");
+    }
+
     private void dListButton(JButton dpsLabel) {
-        DungeonListGUI.open(this, data);
+        if (openLibrary != null) openLibrary.run();
     }
 
     private void comboAction(ActionEvent actionEvent) {
@@ -457,7 +472,7 @@ public class DpsGUI extends JPanel {
         return result;
     }
 
-    /** Detached origin/destination state of the DPS Logger page for Back. */
+    /** Detached origin/destination state of the Live meter (Runs & DPS › Live meter) for Back. */
     private static final class RouteState {
         final String tab; final boolean live; final String entry; final Object resources;
         RouteState(String tab, boolean live, String entry, Object resources) { this.tab = tab; this.live = live; this.entry = entry; this.resources = resources; }
@@ -467,7 +482,7 @@ public class DpsGUI extends JPanel {
             resources == null ? null : resources.captureState());
     }
     private void restoreRouteState(Object value, RouteTarget resources) {
-        if (!(value instanceof RouteState)) throw new IllegalArgumentException("Not a DPS Logger route state");
+        if (!(value instanceof RouteState)) throw new IllegalArgumentException("Not a Live meter route state");
         RouteState state = (RouteState) value;
         if (resources != null && state.resources != null) resources.restoreState(state.resources);
         if (state.live || state.entry == null || !showEncounter(state.entry)) { if (!liveUpdates) setIndex(-1); }
@@ -584,7 +599,7 @@ public class DpsGUI extends JPanel {
     }
 
     /** What Clear DPS Logs clears (its menu tooltip and any confirmation): only this app run's list, never saved history. */
-    public static final String CLEAR_LOGS_HELP = "Clears this app run's encounter list in the DPS Logger (recordings kept in memory)."
+    public static final String CLEAR_LOGS_HELP = "Clears this app run's encounter list in the Live meter (recordings kept in memory)."
         + " Saved combat history (combat summaries and any kept full detail) is not deleted.";
 
     /**

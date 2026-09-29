@@ -158,7 +158,8 @@ public class DpsInvestigationTest {
                     Navigator.install(created);
                     created.register(ActivityRouteTarget.of(Destination.RUNS, runs));
                     created.register(dps.resourcesRouteTarget()); created.register(dps.encounterRouteTarget());
-                    page[0] = 7; return created;
+                    // The meter is the origin on its own page (Runs & DPS since P5b), where the navigator captures its state for Back.
+                    page[0] = WorkspaceShell.pageOf(Destination.ENCOUNTER); return created;
                 });
                 edt(() -> {
                     assertTrue(dps.showEncounter(entry(dps, second)));
@@ -173,9 +174,9 @@ public class DpsInvestigationTest {
                 assertEquals("The second same-name encounter opens only its own visit", b.id, edt(() -> runs.state().query.facets().visitId));
                 await(() -> !runs.loading() && runs.displayedPage() != null && runs.displayedPage().matches == 1);
                 assertEquals(b.id, edt(() -> runs.displayedPage().rows.get(0).value.visitId));
-                assertTrue(edt(navigator::back)); assertEquals(7, page[0]);
+                assertTrue(edt(navigator::back)); assertEquals(WorkspaceShell.pageOf(Destination.ENCOUNTER), page[0]);
                 edt(() -> { button(dps, "dps-open-resources").doClick(); return null; });
-                assertEquals(7, page[0]);
+                assertEquals("Resources' page (Runs & DPS since P5b)", WorkspaceShell.pageOf(Destination.RESOURCES), page[0]);
                 assertSame(resources, edt(() -> dps.combatTabs().getSelectedComponent()));
                 await(() -> !resources.loading() && resources.displayedPage() != null && resources.displayedPage().matches == 1);
                 assertEquals(b.id, edt(() -> resources.displayedPage().rows.get(0).value.visitId));

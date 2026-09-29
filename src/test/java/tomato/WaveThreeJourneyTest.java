@@ -16,6 +16,8 @@ import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.history.ViewState;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
+import tomato.gui.runs.RunsDpsPage;
+import tomato.gui.runs.RunsTab;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
 import tomato.history.archive.ArchiveRow;
@@ -42,6 +44,11 @@ import static org.junit.Assert.*;
  */
 public class WaveThreeJourneyTest {
     private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "statistics", "combat"};
+    /**
+     * Runs & DPS opens on its first visible tab (the Feed by default), the Live meter's nested tabs keep their saved order, and the
+     * Recordings tab saves its view (the encounter library's live state) when the shell is removed: all three cleared, then restored.
+     */
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live"};
     private static final String V1 = "journal:v1", V2 = "journal:v2";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     /** The Runs page opens on the run cards; these journeys drive the archive table, its Table view. */
@@ -51,6 +58,7 @@ public class WaveThreeJourneyTest {
     private Object previousStore, previousPreview;
     private String previousTmp;
     private final Map<String, String> previousStates = new HashMap<>();
+    private final Map<String, String> previousTabs = new HashMap<>();
     private SessionStore store;
     private TomatoGUI gui;
     private WorkspaceShell shell;
@@ -63,6 +71,7 @@ public class WaveThreeJourneyTest {
             previousStates.put(name, util.PropertiesManager.getProperty("ux.archive." + name));
             util.PropertiesManager.setProperties("ux.archive." + name, "");
         }
+        for (String key : TAB_PREFERENCES) { previousTabs.put(key, util.PropertiesManager.getProperty(key)); util.PropertiesManager.setProperties(key, ""); }
         previousTmp = System.getProperty("java.io.tmpdir");
         System.setProperty("java.io.tmpdir", temp.newFolder("scratch").getAbsolutePath());
         store = new SessionStore(temp.newFolder("history").toPath(), true, "synthetic");
@@ -88,6 +97,8 @@ public class WaveThreeJourneyTest {
         SwingUtilities.invokeAndWait(() -> { if (shell != null) shell.removeNotify(); });
         for (Map.Entry<String, String> state : previousStates.entrySet())
             util.PropertiesManager.setProperties("ux.archive." + state.getKey(), state.getValue() == null ? "" : state.getValue());
+        for (Map.Entry<String, String> saved : previousTabs.entrySet())
+            util.PropertiesManager.setProperties(saved.getKey(), saved.getValue() == null ? "" : saved.getValue());
         System.setProperty("java.io.tmpdir", previousTmp);
         storeField.set(null, previousStore); previewField.set(null, previousPreview);
         if (store != null) store.close();
@@ -123,6 +134,13 @@ public class WaveThreeJourneyTest {
 
         assertTrue(open(Route.to(Destination.RESOURCES).withVisit(second)));
         assertEquals(WorkspaceShell.pageOf(Destination.RESOURCES), (int) edt(shell::getSelectedPage));
+        // Resources & buffs is nested in the Live meter tab of Runs & DPS, the origin's own page (P5b): the route brings that tab
+        // forward, and Back (below) brings the Feed forward before restoring the Runs table.
+        assertEquals("RESOURCES brings the Live meter tab forward", RunsTab.LIVE_METER, edt(() -> runsDps().selectedTab()));
+        assertEquals("…on Resources & buffs", "Resources & buffs", edt(() -> {
+            JTabbedPane nested = named(shell, JTabbedPane.class, "dps-tabs");
+            return nested.getTitleAt(nested.getSelectedIndex());
+        }));
         ArchiveWorkspace<?, ?, ?> resources = workspace("combat");
         await(() -> settled(resources) && resources.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(resources, row -> field(row, "visitId")));
@@ -285,11 +303,19 @@ public class WaveThreeJourneyTest {
         await(() -> settled(runs) && runs.state().query.equals(origin.query));
         edt(() -> {
             assertEquals(page, shell.getSelectedPage());
+            // Every origin here is the Runs table in the Feed tab of Runs & DPS: Back brings that tab forward first.
+            if (page == 10) assertEquals("Back returns to the Feed tab", RunsTab.FEED, runsDps().selectedTab());
             assertEquals("Back restores query, page, selection and scroll anchor", origin.toJson(), runs.state().toJson());
             JTable table = named(runs, JTable.class, "saved-activity-table");
             assertEquals(origin.selected.get(0), runs.displayedPage().rows.get(table.convertRowIndexToModel(table.getSelectedRow())).ref);
             return null;
         });
+    }
+    /** Page 10, Runs & DPS. EDT. */
+    private RunsDpsPage runsDps() {
+        RunsDpsPage page = named(shell, RunsDpsPage.class, "runs-dps-page");
+        assertNotNull("Page 10 is the Runs & DPS page", page);
+        return page;
     }
     private static boolean settled(ArchiveWorkspace<?, ?, ?> workspace) { return !workspace.loading() && workspace.displayedPage() != null; }
     private boolean open(Route route) throws Exception { return edt(() -> Navigator.current().open(route)); }
