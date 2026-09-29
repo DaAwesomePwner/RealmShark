@@ -1,7 +1,6 @@
 package tomato.gui.stats;
 
 import java.awt.*;
-import java.util.Locale;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -10,44 +9,9 @@ import javax.swing.table.DefaultTableModel;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 
-/** Shared presentation for the statistics workspace. */
+/** Shared presentation for Loot › Explore's live loot view (and the saved fame graph's controls). */
 final class StatsUi {
     private StatsUi() {}
-
-    /** Keeps short application windows usable without squeezing charts or tables to zero height. */
-    static JScrollPane page(JComponent content, int minimumHeight) {
-        reserveTableSpace(content);
-        class Page extends JPanel implements Scrollable {
-            Page() { super(new BorderLayout()); add(content); }
-            private int contentHeight() { return Math.max(minimumHeight, content.getMinimumSize().height); }
-            @Override public Dimension getPreferredSize() { return new Dimension(800, contentHeight()); }
-            public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
-            public int getScrollableUnitIncrement(Rectangle r, int orientation, int direction) { return 24; }
-            public int getScrollableBlockIncrement(Rectangle r, int orientation, int direction) { return Math.max(24, r.height - 24); }
-            public boolean getScrollableTracksViewportWidth() { return true; }
-            public boolean getScrollableTracksViewportHeight() { return getParent() != null && getParent().getHeight() >= contentHeight(); }
-        }
-        JScrollPane scroll = new JScrollPane(new Page()); scroll.setBorder(null);
-        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.getVerticalScrollBar().setUnitIncrement(24); return scroll;
-    }
-
-    private static void reserveTableSpace(Component component) {
-        if (component instanceof JScrollPane) {
-            JScrollPane scroll = (JScrollPane)component;
-            Component view = scroll.getViewport().getView();
-            if (view instanceof JTable) {
-                JTable table = (JTable)view; Dimension minimum = scroll.getMinimumSize();
-                Runnable resize = () -> scroll.setMinimumSize(new Dimension(minimum.width,
-                    Math.max(minimum.height, tableScrollHeight(scroll, table))));
-                resize.run();
-                table.addPropertyChangeListener("rowHeight", e -> resize.run());
-                if (table.getTableHeader() != null) table.getTableHeader().addPropertyChangeListener("preferredSize", e -> resize.run());
-                return;
-            }
-        }
-        if (component instanceof Container) for (Component child : ((Container)component).getComponents()) reserveTableSpace(child);
-    }
 
     static JPanel heading(String title, String description) {
         JPanel panel = new JPanel(new BorderLayout(0, 4));
@@ -60,28 +24,6 @@ final class StatsUi {
 
     static JTextArea note(String text) {
         return ContentStyle.wrappingText(text, 1);
-    }
-
-    static JPanel metrics(JLabel[] values, String... names) {
-        // Two responsive pairs keep four summaries balanced at 4, 2 or 1 columns.
-        JPanel row = ContentStyle.responsiveGrid(names.length == 4 ? 2 : names.length, names.length == 4 ? 358 : 175, 8);
-        JPanel cells = row;
-        for (int i = 0; i < names.length; i++) {
-            if (names.length == 4 && i % 2 == 0) { cells = ContentStyle.responsiveGrid(2, 175, 8); row.add(cells); }
-            JPanel card = new JPanel(new BorderLayout(0, 4)) {
-                @Override public void updateUI() { super.updateUI(); setBackground(ContentStyle.color("surface")); }
-            };
-            card.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-            values[i] = new JLabel("—") {
-                @Override public void updateUI() { super.updateUI(); setForeground(ContentStyle.color("violet")); }
-            };
-            values[i].setFont(ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 18f / ContentStyle.FONT_SIZE));
-            values[i].getAccessibleContext().setAccessibleDescription(names[i]);
-            card.add(values[i], BorderLayout.CENTER);
-            JLabel caption = new JLabel(names[i]); caption.setFont(ContentStyle.metadata(ContentStyle.body()));
-            card.add(caption, BorderLayout.SOUTH); cells.add(card);
-        }
-        return row;
     }
 
     static JPanel stack(Component... children) {
@@ -136,10 +78,6 @@ final class StatsUi {
             public void removeUpdate(DocumentEvent e) { action.run(); }
             public void changedUpdate(DocumentEvent e) { action.run(); }
         });
-    }
-
-    static boolean matches(String text, String query) {
-        return text != null && text.toLowerCase(Locale.ROOT).contains(query.trim().toLowerCase(Locale.ROOT));
     }
 
     static DefaultTableModel model(String[] names, Class<?>... types) {
@@ -203,26 +141,12 @@ final class StatsUi {
         });
     }
 
-    static void exactColumns(JTable table, int... columns) {
-        for (int column : columns) table.getColumnModel().getColumn(column).setCellRenderer(new ContentStyle.Cell() {
-            protected void setValue(Object value) { setText(DisplayFormat.formatExact((Number)value)); }
-        });
-    }
-
     /** Timestamp models retain epoch millis; text and zone labels are always rendered together. */
     static void timestampColumn(JTable table, int column) {
         table.getColumnModel().getColumn(column).setCellRenderer(new ContentStyle.Cell() {
             protected void setValue(Object value) {
                 setText(value == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatTimestamp(((Number)value).longValue()));
                 setToolTipText(DisplayFormat.UNAVAILABLE.equals(getText()) ? null : getText() + " (" + DisplayFormat.timestampZoneLabel() + ")");
-            }
-        });
-    }
-
-    static void durationColumn(JTable table, int column) {
-        table.getColumnModel().getColumn(column).setCellRenderer(new ContentStyle.Cell() {
-            protected void setValue(Object value) {
-                setText(value == null ? "—" : Formatters.formatDurationHMS(((Number)value).longValue()));
             }
         });
     }

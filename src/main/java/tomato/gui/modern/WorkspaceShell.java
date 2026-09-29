@@ -415,7 +415,7 @@ public final class WorkspaceShell extends JPanel {
         } else if (entry.group() == NavEntry.Group.ADVANCED) {
             menu.add(menuItem("nav-menu-pin", "Pin to top", true, () -> change(() -> layout.pin(id), page)));
         }
-        // Settings is always listed and the unlisted page (Statistics) has no row, so only core and Advanced rows hide.
+        // Settings is always listed, so only core and Advanced rows hide.
         if (entry.group() == NavEntry.Group.CORE || entry.group() == NavEntry.Group.ADVANCED) {
             if (layout.isHidden(id)) menu.add(menuItem("nav-menu-show", "Show in sidebar", true, () -> change(() -> layout.show(id), page)));
             else menu.add(menuItem("nav-menu-hide", "Hide", layout.canHide(id), () -> change(() -> layout.hide(id), page)));
@@ -437,7 +437,7 @@ public final class WorkspaceShell extends JPanel {
 
     private void showContextMenu(String page, Point at) {
         JToggleButton button = navigation.get(page);
-        if (!button.isShowing() || entry(page).group() == NavEntry.Group.UNLISTED) return;
+        if (!button.isShowing()) return;
         JPopupMenu menu = contextMenu(page);
         Point where = at != null ? at : new Point(0, button.getHeight());
         menu.show(button, where.x, where.y);
@@ -482,21 +482,12 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void showNavigation() {
-        // The unlisted page (Statistics) has no row or menu item, so while it is current the menu opens at the top of the
-        // destination list.
+        // Every destination has a menu item, and the current page's shows even while hidden or collapsed, so keyboard selection
+        // starts on it.
         Component row = navigation.get(selected);
         Component anchor = compact ? compactNavigation : row.isShowing() ? row : navScroll;
         navigationPopup.show(anchor, 0, anchor == navScroll ? 0 : anchor.getHeight());
-        JRadioButtonMenuItem current = destinations.get(selected);
-        MenuElement start = current.getParent() == navigationPopup && current.isVisible() ? current : firstListedDestination();
-        if (start != null) MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, start});
-    }
-
-    /** The first destination the compact menu shows; keyboard selection starts there when the current page is unlisted. */
-    private MenuElement firstListedDestination() {
-        for (Component item : navigationPopup.getComponents())
-            if (item instanceof JRadioButtonMenuItem && item.isVisible()) return (MenuElement) item;
-        return null;
+        MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {navigationPopup, destinations.get(selected)});
     }
 
     /**
@@ -742,7 +733,6 @@ public final class WorkspaceShell extends JPanel {
         switch (destination) {
             case INSPECT: return "party";
             case CHARACTERS: case CHARACTER_SHEET: return "characters"; // The sheet is a card on the Characters Roster tab.
-            case STATISTICS: return "statistics";
             case QUESTS: return "quests";
             // Build is a tab of the character sheet: BuildRoute redirects to the sheet, or with no character to the Characters
             // list, so a Build route always lands on Characters, and every routed destination keeps a real page.
@@ -803,12 +793,12 @@ public final class WorkspaceShell extends JPanel {
     private void focusPage(String page) { focusTarget(page).requestFocusInWindow(); }
 
     /**
-     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (the unlisted Statistics
-     * page, or a hidden row) the page's first focusable component in traversal order, else the page container.
+     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (a hidden row) the page's
+     * first focusable component in traversal order, else the page container.
      */
     Component focusTarget(String page) {
-        JToggleButton row = navigation.get(page);
-        if (entry(page).group() != NavEntry.Group.UNLISTED && row.isVisible()) return row;
+        JToggleButton row = navigation.get(entry(page).id()); // an ID with no page is an IllegalArgumentException
+        if (row.isVisible()) return row;
         Container root = cards.getFocusCycleRootAncestor();
         FocusTraversalPolicy policy = root == null ? null : root.getFocusTraversalPolicy();
         Component first = policy == null ? null : policy.getFirstComponent(pages.get(page));
@@ -942,10 +932,6 @@ public final class WorkspaceShell extends JPanel {
             boolean listed = layout.advancedOpen() && !layout.isHidden(entry.id());
             row.setVisible(listed || entry.id().equals(selected));
         }
-        // The unlisted page (Statistics) is reached by route, search and its shortcut (Alt+5), never from the sidebar, even while
-        // current.
-        for (NavEntry entry : NavEntry.defaults())
-            if (entry.group() == NavEntry.Group.UNLISTED) navigation.get(entry.id()).setVisible(false);
         gc.gridy++; gc.weighty = 1; gc.insets = new Insets(0, 0, 0, 0);
         grid.setConstraints(navGlue, gc);
         refreshAdvancedToggle();
@@ -957,7 +943,6 @@ public final class WorkspaceShell extends JPanel {
      * The compact menu lists every sidebar destination in sidebar order and groups: core, then Advanced after
      * a labelled separator, then Settings. Hidden destinations stay attached but invisible, so keyboard
      * traversal skips them and they keep the current look and feel; the current page is always listed.
-     * The unlisted page (Statistics) is never added.
      */
     private void rebuildPopup() {
         navigationPopup.removeAll();
@@ -1023,7 +1008,7 @@ public final class WorkspaceShell extends JPanel {
     private void scrollSelected() {
         // Customizing a different row must not scroll its keyboard focus back to the selected page.
         JToggleButton button = scrollAnchor != null && scrollAnchor.isVisible() ? scrollAnchor : navigation.get(selected);
-        if (!button.isVisible()) return; // an unlisted page has no row to reveal; the list stays where the user left it.
+        if (!button.isVisible()) return; // a row that is not shown has nothing to reveal; the list stays where the user left it.
         button.scrollRectToVisible(new Rectangle(0, 0, button.getWidth(), button.getHeight()));
     }
 

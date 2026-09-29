@@ -65,9 +65,10 @@ public class ShellRouteRegistrationTest {
                 assertTrue("Loot resolves an exact visit through the analytics target",
                     navigator.canOpen(Route.to(Destination.LOOT).withVisit(visit)));
                 ArchiveQuery<LootQuery.Facets, LootQuery.Sort> query = ArchiveQuery.of(ArchiveQuery.CURRENT, new LootQuery.Facets(), LootQuery.Facets.class, LootQuery.Sort.TIME);
-                assertTrue(navigator.canOpen(Route.to(Destination.STATISTICS).withQuery(query)));
-                assertFalse("Statistics cannot resolve a visit and says so by rejecting it",
-                    navigator.canOpen(Route.to(Destination.STATISTICS).withVisit(visit)));
+                // P6a Task 12: Statistics and its STATISTICS routes are gone; its query route's role is Loot's.
+                assertTrue("A Loot query opens Explore on it", navigator.canOpen(Route.to(Destination.LOOT).withQuery(query)));
+                assertFalse("No target takes a visit route that also names a Loot tab (the workspace targets reject payloads)",
+                    navigator.canOpen(Route.to(Destination.LOOT).withVisit(visit).withPayload(new tomato.gui.loot.LootFocus(tomato.gui.loot.LootTab.EXPLORE))));
                 assertTrue(navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.issuesFor(Destination.RUNS))));
                 assertFalse("Only allowlisted packets of the affected view are routable",
                     navigator.canOpen(Route.to(Destination.LOGGING).withPayload(tomato.gui.logging.LoggingRouteTarget.packetFor(Destination.RUNS, "TEXT"))));

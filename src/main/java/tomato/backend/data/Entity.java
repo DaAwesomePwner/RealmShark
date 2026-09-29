@@ -14,7 +14,6 @@ import tomato.backend.SecurityAbilityUseCheck;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
-import tomato.gui.stats.FameTableBridge;
 import tomato.realmshark.RealmCharacter;
 import tomato.realmshark.enums.CharacterClass;
 
@@ -724,7 +723,9 @@ public void genericDamageHit(
         }
         // The sample's provenance: this entity's own account stat (the account of this update), hashed exactly as the journal
         // keys it; null until the stat arrives. My Info's published identity can still be the previous account at this point.
-        FameTableBridge.observeFame(charId, CharacterJournal.accountKeyOf(this), fame, time, className);
+        // History owns change detection (an unchanged reading is not appended); Home, the sheet's Fame tab, the Run feed and
+        // Characters › Fame history read these samples.
+        tomato.history.AppHistory.fame(charId, CharacterJournal.accountKeyOf(this), fame, time, className);
     }
 
     /**
@@ -805,7 +806,7 @@ public void genericDamageHit(
 
     /**
      * Attempts to get class name from ObjectType when character data is not available in charMap.
-     * This provides a fallback for displaying proper class names in the fame table.
+     * This provides a fallback class name for the saved fame samples (Characters › Fame history shows it).
      */
     private String getClassNameFromObjectType(int charId) {
         // Try to get class name from current player's ObjectType if available

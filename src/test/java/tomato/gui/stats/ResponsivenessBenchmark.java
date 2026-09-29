@@ -87,10 +87,9 @@ public final class ResponsivenessBenchmark {
             describe(samples);
             long started = System.nanoTime();
             // Separate fixtures prevent warmup history and counters contaminating measurement.
-            fame(2000, true);
+            // P6a removed the Statistics page's live fame table and graph, and with them the fame pipeline measured here.
             discovery(2000, true);
             logicalActivity(2000, true);
-            fame(samples, false);
             discovery(samples, false);
             logicalActivity(samples, false);
             checkAsync();
@@ -144,130 +143,25 @@ public final class ResponsivenessBenchmark {
             System.getProperty("sun.java2d.uiScale", "default"));
         out("workingDir=%s; preview=true; noSound=true (master mute); no app main/capture/network", Paths.get("").toAbsolutePath());
         out("Logical clock: epoch=%d, span=6 h, %.3f ticks/s; integer timestamps; no random inputs", EPOCH, samples / 21600.0);
-        out("Fame: 4 characters, 240 map visits, gain every 10 updates; FameTableBridge.observeFame; in-memory autosave completion.");
         out("Discovery: decoded NEWTICK with 4 local stats + rotating remote object; 240 MAPINFO/CREATE_SUCCESS pairs; Detailed sampling; DiscoveryLog(null).");
         out("Observer replay ends in unique map '%s' and a final party-roster marker (partyId=%d + samples); included in producer work/frame count.", FINAL_MAP, FINAL_PARTY_BASE);
-        out("Fame/discovery: hidden first half, visible second half, >=2.5 s paced window per measured half; 15 ms EDT probes include showing/catch-up.");
-        out("UI: Violet theme, 1440x900 window, both fame views / all four discovery views showing simultaneously (synthetic stress layout).");
+        out("Discovery: hidden first half, visible second half, >=2.5 s paced window per measured half; 15 ms EDT probes include showing/catch-up.");
+        out("UI: Violet theme, 1440x900 window, all four discovery views showing simultaneously (synthetic stress layout).");
         out("Discovery wall timestamps are NOT six-hour observation time: separate public ActivityJournal replay uses the logical clock and 16 long visits.");
-        out("Scope: synthetic decoded-observer and fame-API throughput, not decoding/capture/end-to-end throughput or six hours of real execution.");
+        out("Scope: synthetic decoded-observer throughput, not decoding/capture/end-to-end throughput or six hours of real execution.");
         out("Producer active time includes payload construction, boundary/autosave work and model lock waits, excludes batch pacing; wall throughput includes pacing.");
         out("EDT latency=enqueue-to-dispatch; nearest-rank median/p95/max; one outstanding probe, skipped ticks reported (coordinated omission disclosed).");
         out("Heartbeat storage cap=%d (no per-event latency buffer); p95 with <%d observations is marked insufficient.", HEARTBEAT_CAPACITY, P95_MIN_SAMPLES);
         out("Allocation: %s; approximate bytes on main/producer + AWT EDT, including harness overhead; excludes SwingWorker, timer thread, GC/native and other workers.", ALLOCATION.status);
         out("Heap before/after requested GC is process-wide observational used heap, not precise retained/model cost; explicit GC may be ignored.");
-        out("Hard functional budgets: table last samples<=4; histories<=generated workload; activity visits<=200/events<=1000;");
+        out("Hard functional budgets: activity visits<=200/events<=1000;");
         out("  diagnostic events<=1500/deltas<=24; each timeline<=1000/visit and <=12000 total; hidden render/snapshot work=0; unchanged revision copies=0.");
         out("Timeline caps are upper-bound assertions for every --samples value; saturation is reported, not required (1000 ms resource sampling depends on tick alignment).");
         out("Report-only budgets: heartbeat p95<=100 ms/max<=1000 ms; total wall<=30 s. Safety limits: 10 s EDT/drain wait; 120 s JVM watchdog.");
-        out("Fame pending is a boolean flag: report batch samples/set samples/final flags, NOT measured queue depth or proof of one callback.");
-        out("One-callback behavior is covered separately by FameTrackingStateTest.blockedEdtHasOneRefreshPerViewAndHiddenViewsCatchUpOnShow.");
         out("Discovery private worker queue depth is unavailable via public APIs. Only the harness's own outstanding heartbeat is bounded here.");
         out("Discovery catch-up checks final snapshot content independently in Runs/Timeline/Combat; Combat also checks an explicitly selected older retained visit.");
         out("Copy counters count copied rows/references, not bytes; pinned export materialization is outside ActivityJournal's observer-owned counters.");
-        out("Fame graph/session samples and visits are workload-bounded, not claimed to have a production lifetime retention cap.");
         out("Stalled I/O coverage belongs to PreferencesStoreTest, BridgeResponsivenessTest and LootDeliveryTest; this run measures tracking/view pipelines.");
-    }
-
-    private static void fame(int samples, boolean warmup) throws Exception {
-        FameFixture fixture = new FameFixture();
-        edt(fixture::create);
-        String prefix = warmup ? "warmup/fame" : "fame";
-        try {
-            if (!warmup) heap(prefix + "/baseline");
-            int half = samples / 2;
-            IntConsumer update = i -> fixture.update(i, samples);
-            produce(prefix + "/hidden", 0, half, warmup, update, fixture::samplePendingFlags);
-            require(fixture.table.trackingCounts().snapshots == 0 && fixture.graph.trackingCounts().snapshots == 0, "Hidden fame does not snapshot presentation");
-            require(fixture.table.refreshCounts().rendered == 0 && fixture.graph.refreshCounts().rendered == 0, "Hidden fame does not render");
-            fixture.checkRetention(half, samples);
-            produce(prefix + "/visible", half, samples, warmup, update, fixture::samplePendingFlags, () -> fixture.frame.setVisible(true));
-            await(() -> fixture.table.refreshCounts().pending == 0 && fixture.graph.refreshCounts().pending == 0, "Fame pending flags clear");
-            require(fixture.table.refreshCounts().rendered > 0 && fixture.graph.refreshCounts().rendered > 0, "Fame catches up on show");
-            fixture.checkRetention(samples, samples);
-            edt(() -> {
-                require(fixture.table.isShowing() && fixture.graph.isShowing(), "Real fame views showing");
-                JTable table = named(fixture.table, "fame-characters", JTable.class);
-                require(table.getRowCount() == CHARACTERS, "Visible fame rows catch up");
-                boolean latest = false;
-                for (int row = 0; row < table.getRowCount(); row++) {
-                    if (((Number)table.getValueAt(row, 3)).longValue() == fameValue(samples - 1, samples)) latest = true;
-                }
-                require(latest, "Visible fame table contains final value");
-                java.util.List<Fame> scores = find(fixture.graph, GraphPanel.class).getScores();
-                require(!scores.isEmpty() && scores.get(scores.size() - 1).getFame() == fameValue(samples - 1, samples), "Graph contains final value");
-                fixture.frame.setVisible(false);
-            });
-            FameTrackingModel.TableCounts table = fixture.table.trackingCounts();
-            FameTrackingModel.HistoryCounts graph = fixture.graph.trackingCounts();
-            out("%s retained: chars=%d lastSamples=%d visits=%d+%d graphSamples=%d; autosaves=%d (model save preparation included; async saver/serialization/disk excluded)",
-                prefix, table.characters, table.lastSamples, table.closedVisits, table.openVisits, graph.samples, fixture.saves);
-            out("%s production copies: tableSnapshots=%d visitRows=%d graphSnapshots=%d sampleRefs=%d; scheduled/rendered counters table=%d/%d graph=%d/%d",
-                prefix, table.snapshots, table.copiedVisits, graph.snapshots, graph.copiedSamples,
-                fixture.table.refreshCounts().scheduled, fixture.table.refreshCounts().rendered,
-                fixture.graph.refreshCounts().scheduled, fixture.graph.refreshCounts().rendered);
-            out("%s pending FLAGS: batchSamples=%d setSamples table=%d graph=%d finalFlags table=%s graph=%s (not queue-depth instrumentation)",
-                prefix, fixture.pendingFlagSamples, fixture.tableFlagSetSamples, fixture.graphFlagSetSamples,
-                fixture.table.refreshCounts().pending != 0, fixture.graph.refreshCounts().pending != 0);
-            if (!warmup) {
-                heap(prefix + "/retained-after-workload");
-                timed("fame/full-table", fixture.table::trackingSnapshot);
-                timed("fame/full-history", fixture.graph::getFameData);
-                timed("fame/selected-60s-graph", () -> fixture.graph.trackingSnapshot(null, 60000));
-                FameTrackingModel.TableCounts afterTable = fixture.table.trackingCounts();
-                FameTrackingModel.HistoryCounts afterGraph = fixture.graph.trackingCounts();
-                out("fame explicit-copy deltas: tableSnapshots=%d visitRows=%d graphSnapshots=%d sampleRefs=%d",
-                    afterTable.snapshots - table.snapshots, afterTable.copiedVisits - table.copiedVisits,
-                    afterGraph.snapshots - graph.snapshots, afterGraph.copiedSamples - graph.copiedSamples);
-                FameTrackingModel.TableSnapshot state = fixture.table.trackingSnapshot();
-                for (int id = 1; id <= CHARACTERS; id++) {
-                    int first = ((id - 1) * samples + CHARACTERS - 1) / CHARACTERS;
-                    int last = (id * samples + CHARACTERS - 1) / CHARACTERS - 1;
-                    require(state.observed.get(id) == logicalTime(last, samples) - logicalTime(first, samples),
-                        "Unchanged fame observations retain time, excluding other characters");
-                }
-            }
-        } finally {
-            edt(() -> { fixture.frame.dispose(); FameTableBridge.getInstance().setFameTablePanel(null); FameTableBridge.getInstance().setFameTrackerGUI(null); });
-        }
-    }
-
-    private static final class FameFixture {
-        FameTablePanel table;
-        FameTrackerGUI graph;
-        JFrame frame;
-        int previousVisit = -1, saves, pendingFlagSamples, tableFlagSetSamples, graphFlagSetSamples;
-        void create() {
-            table = new FameTablePanel(null);
-            graph = new FameTrackerGUI((session, completion) -> { saves++; completion.accept(true); });
-            FameTableBridge.getInstance().setFameTablePanel(table);
-            FameTableBridge.getInstance().setFameTrackerGUI(graph);
-            frame = frame("Synthetic fame", 1, 2, table, graph);
-        }
-        void update(int i, int samples) {
-            int visit = visit(i, samples, VISITS), id = character(i, samples);
-            long time = logicalTime(i, samples), fame = fameValue(i, samples);
-            if (visit != previousVisit) { table.onMapChange(map(visit), time); previousVisit = visit; }
-            FameTableBridge.observeFame(id, fame, time, "Synthetic class " + id);
-        }
-        void samplePendingFlags() {
-            pendingFlagSamples++;
-            if (table.refreshCounts().pending != 0) tableFlagSetSamples++;
-            if (graph.refreshCounts().pending != 0) graphFlagSetSamples++;
-        }
-        void checkRetention(int count, int total) {
-            FameTrackingModel.TableCounts t = table.trackingCounts();
-            FameTrackingModel.HistoryCounts h = graph.trackingCounts();
-            require(t.characters == character(count - 1, total) && t.lastSamples == t.characters, "One latest table sample per observed character");
-            require(t.closedVisits + t.openVisits == visit(count - 1, total, VISITS) + 1, "Fame visit boundaries preserved");
-            long expectedSamples = (count + 9) / 10;
-            for (int id = 1; id < CHARACTERS; id++) {
-                int switchIndex = (id * total + CHARACTERS - 1) / CHARACTERS;
-                if (switchIndex < count && switchIndex % 10 != 0) expectedSamples++;
-            }
-            require(h.samples == expectedSamples, "Capture history retains exactly the generated changes and switches");
-            require(table.getCurrentFame(character(count - 1, total)).longValue() == fameValue(count - 1, total), "Tracking advances while hidden/visible");
-        }
     }
 
     private static void discovery(int samples, boolean warmup) throws Exception {
@@ -491,8 +385,6 @@ public final class ResponsivenessBenchmark {
 
     private static StatData stat(int id, int value) { StatData stat = new StatData(); stat.statTypeNum = id; stat.statValue = value; return stat; }
     private static int visit(int i, int samples, int visits) { return (int)((long)i * visits / samples); }
-    private static int character(int i, int samples) { return 1 + visit(i, samples, CHARACTERS); }
-    private static long fameValue(int i, int samples) { return 1000L * character(i, samples) + i / 10; }
     private static long logicalTime(int i, int samples) { return EPOCH + LOGICAL_MS * i / (samples - 1); }
     private static String map(int visit) { return visit % 2 == 0 ? "Ice Citadel" : "Ocean Trench"; }
 

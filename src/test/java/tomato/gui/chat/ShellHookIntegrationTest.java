@@ -96,7 +96,8 @@ public class ShellHookIntegrationTest {
     /** The run recap's section choices (ui.collapse.run-recap-*): cleared so each recap opens with its defaults, then restored. */
     private static final String[] RECAP_PREFERENCES = {"damage", "loot", "players", "resources", "timeline", "evidence"};
     private final Map<String,String> recapPreferences = new LinkedHashMap<>();
-    private static final String[] MODULES = {"chat", "keypops", "inspect", "statistics", "loot", "runs", "timeline"};
+    /** The queried archive workspaces of the shell (P6a Task 12 removed the Statistics one). */
+    private static final String[] MODULES = {"chat", "keypops", "inspect", "loot", "runs", "timeline"};
     /**
      * P6a Task 11: Loot's tabs (it opens on Highlights with both tabs shown), the Characters tabs (the Fame history search entry
      * may show that tab) and the Highlights window: cleared, then restored.
@@ -657,7 +658,6 @@ public class ShellHookIntegrationTest {
             assertNotNull(find(workspace("chat"), ChatGUI.class));
             assertNotNull(find(workspace("keypops"), tomato.gui.keypop.KeypopGUI.class));
             assertNotNull(find(workspace("inspect"), tomato.gui.security.SecurityGUI.class));
-            assertNotNull(find(workspace("statistics"), tomato.gui.stats.StatisticsGUI.class));
             assertNotNull(find(workspace("loot"), tomato.gui.stats.LootDashboard.class));
             assertNotNull(find(workspace("runs"), tomato.gui.activity.ActivityPanel.class));
             tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
@@ -685,7 +685,7 @@ public class ShellHookIntegrationTest {
             for (String index : new String[]{"key-pops", "loot", "runs", "chat"}) named(shell, "nav-" + index, JToggleButton.class).doClick();
             assertEquals(past, chat.state().query.scope()); assertTrue(chat.state().archive);
             assertEquals(SessionStore.ALL, workspace("keypops").state().query.scope());
-            assertTrue(workspace("loot").state().archive); assertFalse(workspace("statistics").state().archive);
+            assertTrue(workspace("loot").state().archive);
             assertFalse(workspace("runs").state().archive);
             gui.closeWorkspace(); shell.removeNotify();
         });
@@ -697,7 +697,7 @@ public class ShellHookIntegrationTest {
             assertEquals(1, restored.displayedPage().matches); assertEquals(past, restored.state().query.scope());
             assertEquals("Past conversation", restored.state().query.text());
             assertEquals(SessionStore.ALL, workspace("keypops").state().query.scope());
-            assertTrue(workspace("loot").state().archive); assertFalse(workspace("statistics").state().archive);
+            assertTrue(workspace("loot").state().archive); assertFalse(workspace("runs").state().archive);
             restored.selectSession(ArchiveQuery.CURRENT); assertFalse(restored.state().archive);
             restored.loadNamed("Past review");
             assertEquals(past, restored.state().query.scope()); assertTrue(restored.state().archive);
@@ -808,7 +808,7 @@ public class ShellHookIntegrationTest {
 
     /**
      * Alt+8 (TomatoGUI's key binding; P6a removed the DPS Logger page) and the meter's library button open their tab through the
-     * navigator; Back returns. Recordings is also reached by search (searchOpensTheLiveMeterRecordingsAndStatistics).
+     * navigator; Back returns. Recordings is also reached by search (searchOpensTheLiveMeterAndRecordings).
      */
     @Test public void altEightAndTheLibraryButtonOpenTheirTabsAndBackReturns() throws Exception {
         int windows = Window.getWindows().length;
@@ -884,8 +884,74 @@ public class ShellHookIntegrationTest {
         });
     }
 
-    /** The Live meter, Recordings and Statistics (no longer in the sidebar) are found by search and open through their routes. */
-    @Test public void searchOpensTheLiveMeterRecordingsAndStatistics() throws Exception {
+    /**
+     * P6a Task 12: Statistics is gone. Alt+5 (TomatoGUI's key binding) opens Runs & DPS › Dungeons through the navigator, bringing a
+     * hidden Dungeons tab forward (explicit navigation); Back returns. No page, row, compact-menu item, page action, route,
+     * destination, search entry, Dungeons banner or link for Statistics remains.
+     */
+    @Test public void altFiveOpensDungeonsWithABackEntryAndStatisticsIsGone() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            Object binding = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, java.awt.event.InputEvent.ALT_DOWN_MASK));
+            assertEquals("Alt+5 is bound to the Dungeons route", "open-dungeons", binding);
+            Action altFive = shell.getActionMap().get(binding);
+            shell.select("chat");
+            altFive.actionPerformed(null);
+            assertEquals("Alt+5 opens Runs & DPS", "runs", shell.selectedPage());
+            assertEquals("…on Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+            assertEquals("Back to Chat", named(shell, "navigate-back", AbstractButton.class).getText());
+            assertTrue("Alt+5 goes through the navigator", navigator.back()); assertEquals("chat", shell.selectedPage());
+            shell.select("runs"); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
+            assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.DUNGEONS.id()));
+            altFive.actionPerformed(null);
+            assertEquals("Alt+5 brings a hidden Dungeons tab forward (explicit navigation)", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+            assertFalse(page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.DUNGEONS.id()));
+            assertTrue(navigator.back());
+            assertEquals("runs", shell.selectedPage());
+            assertEquals("Back returns to the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+
+            JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
+            assertNull("No Statistics row", named(shell, "nav-statistics", AbstractButton.class));
+            assertNull("No Statistics compact menu item", named(popup, "compact-nav-statistics", JMenuItem.class));
+            assertNull("No Statistics page action", shell.getActionMap().get("page-statistics"));
+            try { shell.select("statistics"); fail("Statistics is no page"); }
+            catch (IllegalArgumentException expected) { assertEquals("Invalid page", expected.getMessage()); }
+            assertNull("No Statistics destination entry", tomato.gui.modern.NavEntry.forId("statistics"));
+            for (tomato.gui.route.Destination destination : tomato.gui.route.Destination.values())
+                assertNotEquals("No Statistics route destination", "STATISTICS", destination.name());
+            for (Component component : descendants(shell))
+                assertNotEquals("No Statistics page is built", "StatisticsGUI", component.getClass().getSimpleName());
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            assertTrue("No Statistics search entry", registry.search("statistics.open").isEmpty());
+            assertEquals("Its words lead to Dungeons", Collections.singletonList("dungeons.open"), ids(registry.search("statistics")));
+            assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("dungeon stats")));
+            assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("alt+5")));
+            assertTrue("…and fame to Characters › Fame history", ids(registry.search("fame")).contains("fame.history"));
+            JComponent dungeons = named(page, "dungeons-view", JComponent.class);
+            assertNull("No Statistics pointer on the Dungeons analysis", named(dungeons, "dungeons-statistics-banner", JComponent.class));
+            assertNull("No Open Statistics link", named(dungeons, "dungeons-open-statistics", AbstractButton.class));
+        });
+    }
+
+    /** Every component under {@code root}, including the contents of hidden customizable tabs. */
+    private static java.util.List<Component> descendants(Component root) {
+        java.util.List<Component> all = new ArrayList<>();
+        Deque<Component> todo = new ArrayDeque<>(Collections.singletonList(root));
+        Set<Component> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        while (!todo.isEmpty()) {
+            Component next = todo.pop();
+            if (!seen.add(next)) continue;
+            all.add(next);
+            Object tabs = next instanceof JComponent ? ((JComponent) next).getClientProperty(tomato.gui.kit.CustomizableTabs.class) : null;
+            if (tabs instanceof tomato.gui.kit.CustomizableTabs) todo.addAll(((tomato.gui.kit.CustomizableTabs) tabs).contents());
+            if (next instanceof Container) todo.addAll(Arrays.asList(((Container) next).getComponents()));
+        }
+        return all;
+    }
+
+    /** The Live meter and Recordings are found by search and open through their routes (the Statistics entry went with the page: see the Alt+5 test). */
+    @Test public void searchOpensTheLiveMeterAndRecordings() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
             tomato.gui.runs.RunsDpsPage page = runsDps();
@@ -901,10 +967,6 @@ public class ShellHookIntegrationTest {
             assertEquals("Recordings (encounter library)", recordings.label);
             assertEquals("Runs & DPS › Recordings", recordings.location);
             assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
-            assertEquals(1, registry.search("statistics.open").size());
-            tomato.gui.search.ActionDescriptor statistics = registry.search("statistics.open").get(0);
-            assertEquals("Statistics (fame table, live loot log)", statistics.label);
-            assertEquals("Statistics (not in the sidebar)", statistics.location);
             // The entries other tests search for stay unambiguous.
             assertEquals(1, registry.search("build.open").size());
             assertEquals(1, registry.search("combat.settings").size());
@@ -917,11 +979,6 @@ public class ShellHookIntegrationTest {
             assertTrue(recordings.open());
             assertEquals("runs", shell.selectedPage()); assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
             assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
-            assertTrue(statistics.open());
-            assertEquals("Statistics stays page 4", "statistics", shell.selectedPage());
-            assertFalse("…without a sidebar row", named(shell, "nav-statistics", AbstractButton.class).isVisible());
-            assertTrue("Search opens Statistics through the navigator, so Back returns", navigator.back());
-            assertEquals("chat", shell.selectedPage());
         });
     }
 
@@ -1057,35 +1114,6 @@ public class ShellHookIntegrationTest {
         }
     }
 
-    /** Codex review: the Analysis banner's Open Statistics goes through the navigator, so Back returns to the Dungeons analysis. */
-    @Test public void theAnalysisStatisticsLinkLeavesDungeonsWithABackEntry() throws Exception {
-        tomato.gui.kit.DisplayModeModel mode = tomato.gui.kit.DisplayModeModel.application();
-        tomato.gui.kit.DisplayModeModel.Mode before = mode.mode();
-        String saved = PropertiesManager.getProperty(tomato.gui.kit.DisplayModeModel.KEY);
-        try {
-            edt(() -> {
-                tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
-                shell.select("chat");
-                assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
-                    .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS))));
-                tomato.gui.runs.DungeonsView view = named(runsDps(), "dungeons-view", tomato.gui.runs.DungeonsView.class);
-                mode.set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST);
-                view.analyze("Lost Halls");
-                AbstractButton link = named(view, "dungeons-open-statistics", AbstractButton.class);
-                assertTrue("The shell wires the link", link.isVisible());
-                link.doClick();
-                assertEquals("Statistics", "statistics", shell.selectedPage());
-                assertTrue("Back is recorded", navigator.back());
-                assertEquals("runs", shell.selectedPage());
-                assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, runsDps().selectedTab());
-                return null;
-            });
-        } finally {
-            SwingUtilities.invokeAndWait(() -> mode.set(before));
-            PropertiesManager.setProperties(tomato.gui.kit.DisplayModeModel.KEY, saved == null ? "" : saved);
-        }
-    }
-
     /** Without saved history the Dungeons tab says so, and its Analysis view is a note: the analysis workspace is never built. */
     @Test public void withoutSavedHistoryTheDungeonsTabSaysSoAndNeverBuildsItsAnalysis() throws Exception {
         gui.closeWorkspace(); SwingUtilities.invokeAndWait(() -> shell.removeNotify());
@@ -1187,10 +1215,10 @@ public class ShellHookIntegrationTest {
     }
 
     /**
-     * Search finds the Dungeons tab by its contents ({@code dungeons.open}) without making the other entries ambiguous, and the
-     * Statistics page's banner opens it; Back returns to where each came from. Dungeons' own Analysis link opens Statistics.
+     * Search finds the Dungeons tab by its contents ({@code dungeons.open}) without making the other entries ambiguous; Back
+     * returns. (The Statistics page's banner and Dungeons' "Open Statistics" link went with the page, P6a Task 12.)
      */
-    @Test public void searchAndTheStatisticsBannerOpenDungeonsAndBackReturns() throws Exception {
+    @Test public void searchOpensDungeonsAndBackReturns() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
             tomato.gui.runs.RunsDpsPage page = runsDps();
@@ -1208,31 +1236,13 @@ public class ShellHookIntegrationTest {
             assertEquals(Collections.singletonList("dps.meter"), ids(registry.search("dps logger")));
             assertEquals(Collections.singletonList("dps.meter"), ids(registry.search("alt+8")));
             assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
-            assertEquals(1, registry.search("statistics.open").size());
+            assertTrue("The Statistics entry went with the page", registry.search("statistics.open").isEmpty());
 
             shell.select("chat");
             assertTrue(dungeons.open());
             assertEquals("runs", shell.selectedPage());
             assertEquals(tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
             assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
-
-            shell.select("statistics");
-            tomato.gui.kit.Banner banner = named(shell, "statistics-dungeons-banner", tomato.gui.kit.Banner.class);
-            assertNotNull("Statistics points to Dungeons", banner);
-            assertEquals("Dungeon stats, session comparison and cohorts are in Runs & DPS › Dungeons.", banner.text());
-            AbstractButton link = named(shell, "statistics-open-dungeons", AbstractButton.class);
-            assertTrue(link.isVisible());
-            assertEquals("Open Dungeons", link.getText());
-            link.doClick();
-            assertEquals("runs", shell.selectedPage());
-            assertEquals("The banner opens Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals("Back returns to Statistics", "statistics", shell.selectedPage());
-
-            shell.select("runs");
-            AbstractButton statistics = named(named(page, "dungeons-view", JComponent.class), "dungeons-open-statistics", AbstractButton.class);
-            assertTrue("Dungeons' Analysis link to Statistics is wired", statistics.isVisible());
-            statistics.doClick();
-            assertEquals("statistics", shell.selectedPage());
         });
     }
 
@@ -1284,7 +1294,7 @@ public class ShellHookIntegrationTest {
             assertSame(highlights, tabs.getComponentAt(0));
             assertSame("Explore is the Loot workspace", workspace("loot"), tabs.getComponentAt(1));
             tomato.gui.stats.LootDashboard live = find(workspace("loot"), tomato.gui.stats.LootDashboard.class);
-            assertSame("Explore's live card is attached to the app's loot capture, not to Statistics",
+            assertSame("Explore's live card is attached to the app's loot capture",
                 field(tomato.gui.stats.LootCapture.get().feed(), "state"), field(live, "state"));
             assertSame("The shell binds the loot capture to the game data", data, field(tomato.gui.stats.LootCapture.get(), "data"));
             JMenuItem sharing = more(highlights, "loot-sharing-status"), filters = more(highlights, "loot-filter-settings");
@@ -1405,7 +1415,7 @@ public class ShellHookIntegrationTest {
                 assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
                 assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("cohorts")));
                 assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("session comparison")));
-                assertEquals(1, registry.search("statistics.open").size());
+                assertTrue("The Statistics entry went with the page", registry.search("statistics.open").isEmpty());
                 assertEquals(1, registry.search("appearance.settings").size());
                 assertEquals(1, registry.search("plans.characters").size());
 
@@ -1590,7 +1600,6 @@ public class ShellHookIntegrationTest {
             buildShell(); assertNull(find(shell, ArchiveWorkspace.class));
             assertNotNull(find(shell, ChatGUI.class)); assertNotNull(find(shell, tomato.gui.keypop.KeypopGUI.class));
             assertNotNull(find(shell, tomato.gui.security.SecurityGUI.class));
-            assertNotNull(find(shell, tomato.gui.stats.StatisticsGUI.class));
             assertNotNull(find(shell, tomato.gui.stats.LootDashboard.class));
             TomatoGUI.browseSavedHistory(); assertEquals("runs", shell.selectedPage());
         });

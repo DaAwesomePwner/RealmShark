@@ -13,7 +13,6 @@ import packets.packetcapture.logger.DiscoveryLog;
 import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
-import tomato.gui.stats.FameTableBridge;
 import static org.junit.Assert.*;
 
 /**
@@ -110,34 +109,26 @@ public class FameProvenanceTest {
         assertEquals(1, read("fame-latest").size());
     }
 
+    /** Entity records its fame straight into history (P6a Task 12: the fame table and graph bridge went with Statistics). */
     @Test public void entityFameStampsTheAccountKeyOfItsOwnAccountStat() throws Exception {
-        Field panel = FameTableBridge.class.getDeclaredField("fameTablePanel"), tracker = FameTableBridge.class.getDeclaredField("fameTrackerGUI");
-        panel.setAccessible(true); tracker.setAccessible(true);
-        FameTableBridge bridge = FameTableBridge.getInstance();
-        Object previousPanel, previousTracker;
-        synchronized (bridge) { previousPanel = panel.get(bridge); previousTracker = tracker.get(bridge); panel.set(bridge, null); tracker.set(bridge, null); }
-        try {
-            Method fame = Entity.class.getDeclaredMethod("fame", long.class); fame.setAccessible(true);
-            Entity entity = new Entity(new TomatoData(), 7, 0); entity.setUser(9104);
-            StatData experience = new StatData(); experience.stringStatValue = Long.toString(100 * 2000L - 40071);
-            entity.stat.set(StatType.EXP_STAT, experience);
-            fame.invoke(entity, 1_000L);   // the account stat has not arrived yet
-            StatData account = new StatData(); account.stringStatValue = "synthetic-account";
-            entity.stat.set(StatType.ACCOUNT_ID_STAT, account);
-            experience.stringStatValue = Long.toString(110 * 2000L - 40071);
-            fame.invoke(entity, 2_000L);
-            StatData blank = new StatData(); blank.stringStatValue = "  ";
-            entity.stat.set(StatType.ACCOUNT_ID_STAT, blank);
-            experience.stringStatValue = Long.toString(120 * 2000L - 40071);
-            fame.invoke(entity, 3_000L);
-            List<AppHistory.FameSample> samples = read("fame");
-            assertEquals(3, samples.size());
-            assertNull("Unknown until the account stat arrives", samples.get(0).account);
-            assertEquals("The same hashed key the journal uses", CharacterJournal.accountKey("synthetic-account"), samples.get(1).account);
-            assertEquals(110, samples.get(1).fame);
-            assertNull("A blank account stat is unknown", samples.get(2).account);
-        } finally {
-            synchronized (bridge) { panel.set(bridge, previousPanel); tracker.set(bridge, previousTracker); }
-        }
+        Method fame = Entity.class.getDeclaredMethod("fame", long.class); fame.setAccessible(true);
+        Entity entity = new Entity(new TomatoData(), 7, 0); entity.setUser(9104);
+        StatData experience = new StatData(); experience.stringStatValue = Long.toString(100 * 2000L - 40071);
+        entity.stat.set(StatType.EXP_STAT, experience);
+        fame.invoke(entity, 1_000L);   // the account stat has not arrived yet
+        StatData account = new StatData(); account.stringStatValue = "synthetic-account";
+        entity.stat.set(StatType.ACCOUNT_ID_STAT, account);
+        experience.stringStatValue = Long.toString(110 * 2000L - 40071);
+        fame.invoke(entity, 2_000L);
+        StatData blank = new StatData(); blank.stringStatValue = "  ";
+        entity.stat.set(StatType.ACCOUNT_ID_STAT, blank);
+        experience.stringStatValue = Long.toString(120 * 2000L - 40071);
+        fame.invoke(entity, 3_000L);
+        List<AppHistory.FameSample> samples = read("fame");
+        assertEquals(3, samples.size());
+        assertNull("Unknown until the account stat arrives", samples.get(0).account);
+        assertEquals("The same hashed key the journal uses", CharacterJournal.accountKey("synthetic-account"), samples.get(1).account);
+        assertEquals(110, samples.get(1).fame);
+        assertNull("A blank account stat is unknown", samples.get(2).account);
     }
 }

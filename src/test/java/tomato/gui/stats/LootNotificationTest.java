@@ -36,7 +36,7 @@ public class LootNotificationTest {
         PropertiesManager.setProperties("enchantPing.selected", "777,888");
         data = new TomatoData();
         sharing = new SendLoot.Session(new LootDelivery(() -> { throw new AssertionError("Notification tests must not connect"); }, 2, true, false));
-        // Item and enchant pings run in the non-UI capture (P6a); no LootGUI is built.
+        // Item and enchant pings run in the non-UI capture (P6a); no loot page is built.
         capture = new LootCapture(data, sharing);
     }
 

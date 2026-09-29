@@ -56,7 +56,7 @@ public class LootExploreTest {
     static final List<String> SIMPLE = List.of("All Items", "Stat Potions", "Whites", "By Bag", "By Dungeon", "UTs", "STs", "Tiered", "Recent Drops");
     static final List<String> ANALYST = List.of("[Analyst]", "Item occurrences", "Dungeon loot profile", "Session comparison", "A/B cohorts",
         "Enemy hit events", "Loot by source");
-    private static final String[] PREFERENCES = {DisplayModeModel.KEY, "ui.filters.loot.open", "ui.filters.loot-live.open", "ui.filters.statistics.open"};
+    private static final String[] PREFERENCES = {DisplayModeModel.KEY, "ui.filters.loot.open", "ui.filters.loot-live.open", "ui.filters.dungeon-analysis.open"};
 
     private final Map<String, String> values = new ConcurrentHashMap<>(), remembered = new HashMap<>();
     private final ViewStateStore states = new ViewStateStore(new ViewStateStore.Storage() {
@@ -111,17 +111,16 @@ public class LootExploreTest {
             assertNull("The view tabs are gone", named(workspace, "loot-archive-tabs"));
             return null;
         });
-        // The Statistics workspace keeps its full set until it is removed: every view, in one list, in both modes.
-        ArchiveWorkspace<Row, Facets, Sort> statistics = edt(() -> SessionPanel.queried(store(), "statistics", new JLabel("Live"),
-            new LootArchiveClient(temp.newFolder().toPath(), true), states));
-        closing.add(0, statistics::close);
-        edt(() -> { statistics.showSaved(); return null; });
-        await(() -> ready(statistics));
+        // A workspace without Explore's lists (the Statistics workspace was one, removed in P6a; Dungeons › Analysis is another)
+        // offers every view it is given, in one list, in both modes.
+        ArchiveWorkspace<Row, Facets, Sort> analysis = edt(() -> DungeonAnalysis.workspace(store(), temp.newFolder().toPath(), states));
+        closing.add(0, analysis::close);
+        await(() -> ready(analysis));
         edt(() -> {
-            List<String> every = new ArrayList<>(); for (View view : View.values()) every.add(view.toString());
-            assertEquals(every, rows(saved(statistics)));
+            List<String> every = new ArrayList<>(); for (View view : View.values()) if (DungeonAnalysis.VIEWS.contains(view)) every.add(view.toString());
+            assertEquals(every, rows(saved(analysis)));
             DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
-            assertEquals(every, rows(saved(statistics)));
+            assertEquals(every, rows(saved(analysis)));
             return null;
         });
     }

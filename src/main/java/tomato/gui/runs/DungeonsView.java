@@ -24,7 +24,7 @@ import util.PropertiesManager;
  * The Runs &amp; DPS page's Dungeons tab (spec §6.3 Dungeons; user decisions 2026-09-28): one painted card per dungeon over every
  * saved session ({@link DungeonsSource}: completion over finished runs, labeled observed; average duration, loot per completed
  * run and best personal DPS from completed runs only; each unknown "—" with its reason) and, in Analyst mode, the Analysis view
- * (session comparison, A/B cohorts and the other dungeon analyses of the Statistics workspace, saved history only).
+ * (session comparison, A/B cohorts, dungeon statistics and the other saved dungeon analyses, saved history only).
  * - Views: Cards (default) and Analysis, remembered in {@link #VIEW_KEY}; restoring the preference only selects. Analyst shows a
  *   Cards · Analysis switch ({@code dungeons-view-mode}); Simple hides it, and switching to Simple while Analysis shows returns
  *   to the cards (the preference is kept: the mode's switch is not the user's choice).
@@ -42,8 +42,8 @@ import util.PropertiesManager;
  *   action, or its menu (Shift+F10, the context-menu key or a right click), runs Show runs, Open best run (the exact run and
  *   recording, {@link #onOpenRecap}; only when known) or Analyze (Analyst: the Analysis view with that dungeon as its facet).
  * - Analysis: built by the caller's factory on its first show (a restored preference selects it but builds nothing until it
- *   shows; the Dungeons analysis workspace reads saved history from its constructor), under a one-line banner that points to
- *   the Statistics page for the Fame Table and the live loot log. {@link #close} closes the worker and the built view.
+ *   shows; the Dungeons analysis workspace reads saved history from its constructor). {@link #close} closes the worker and the
+ *   built view.
  * EDT only, except the reads.
  */
 public final class DungeonsView extends JPanel implements AutoCloseable {
@@ -51,7 +51,6 @@ public final class DungeonsView extends JPanel implements AutoCloseable {
     /** How often the showing cards compare the store's stamp (visits are saved about every 10 s while capturing). */
     static final int POLL_MILLIS = 30_000;
     static final String ISSUES = "Some saved sessions could not be read fully; the cards say what is missing.";
-    static final String STATISTICS = "The Fame Table and the live loot log stay on the Statistics page.";
 
     /** How the view reads the cards: a {@link DungeonsSource} over the history store in production. Off the EDT only. */
     interface Cards {
@@ -85,11 +84,9 @@ public final class DungeonsView extends JPanel implements AutoCloseable {
     private final JPanel emptyHolder = new JPanel(new BorderLayout());
     private final JScrollPane cardsPage;
     private final JPanel analysisHolder = new JPanel(new BorderLayout(0, Tokens.S));
-    private final KitButton statisticsLink = KitButton.ghost("Open Statistics");
     private final javax.swing.Timer poll = new javax.swing.Timer(POLL_MILLIS, e -> check());
     private Consumer<String> openRuns = canonical -> { };
     private BiConsumer<VisitRef, String> openRecap = (ref, recording) -> { };
-    private Runnable openStatistics;
     private DungeonsQuery query = DungeonsQuery.all();
     private DungeonsModel model;
     private List<DungeonCardModel> shown = List.of();
@@ -189,21 +186,9 @@ public final class DungeonsView extends JPanel implements AutoCloseable {
             if (cardsPage.isShowing()) { poll.start(); check(); } else poll.stop();
         });
 
-        // Analysis: the Statistics pointer above the analysis view, which is built on its first show.
+        // Analysis: the analysis view, built on its first show.
         analysisHolder.setName("dungeons-analysis");
         analysisHolder.setOpaque(false);
-        Banner pointer = new Banner("dungeons-statistics-banner");
-        pointer.setTone(Tokens.Tone.INFO);
-        pointer.setText(STATISTICS);
-        statisticsLink.setName("dungeons-open-statistics");
-        statisticsLink.getAccessibleContext().setAccessibleDescription("Opens the Statistics page (Fame Table, live loot log)");
-        statisticsLink.addActionListener(e -> { if (openStatistics != null) openStatistics.run(); });
-        statisticsLink.setVisible(false);   // until the shell says how to open Statistics
-        JPanel pointerRow = new JPanel(new BorderLayout(Tokens.S, 0));
-        pointerRow.setOpaque(false);
-        pointerRow.add(pointer, BorderLayout.CENTER);
-        pointerRow.add(statisticsLink, BorderLayout.EAST);
-        analysisHolder.add(pointerRow, BorderLayout.NORTH);
         analysisHolder.addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && analysisHolder.isShowing() && analysisShown) ensureAnalysis();
         });
@@ -228,8 +213,6 @@ public final class DungeonsView extends JPanel implements AutoCloseable {
     public void onOpenRuns(Consumer<String> action) { openRuns = Objects.requireNonNull(action, "action"); }
     /** What Open best run runs: the best run's exact reference and its recording ID (null when the record has none). */
     public void onOpenRecap(BiConsumer<VisitRef, String> action) { openRecap = Objects.requireNonNull(action, "action"); }
-    /** What the Analysis banner's "Open Statistics" runs; the link shows once this is set. */
-    public void onOpenStatistics(Runnable action) { openStatistics = Objects.requireNonNull(action, "action"); statisticsLink.setVisible(true); }
     /** Explicit navigation to the cards: brings them forward and remembers it. EDT. */
     public void showCards() { select(false, true); }
     /** Whether the Analysis view is the one shown (or selected while the tab is hidden). */

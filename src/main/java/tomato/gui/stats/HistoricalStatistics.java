@@ -7,8 +7,9 @@ import tomato.gui.history.ViewStateStore;
 import tomato.gui.kit.DisplayModeModel;
 
 /**
- * The saved Loot and Statistics workspaces: each pairs its live view with worker-built archive projections of durable
- * sessions. Dungeon loot rates and their coverage rules live in {@link StatisticsArchiveAdapter} and {@link LootProfile}.
+ * The saved Loot workspace (Loot › Explore): the live loot view beside worker-built archive projections of durable sessions.
+ * Dungeon loot rates and their coverage rules live in {@link StatisticsArchiveAdapter} and {@link LootProfile}. The Statistics
+ * workspace this class also built left with the Statistics page (P6a); its saved view states are orphaned, never read.
  */
 public final class HistoricalStatistics {
     private HistoricalStatistics(){}
@@ -25,10 +26,5 @@ public final class HistoricalStatistics {
             new LootArchiveClient(scratch,LootExploreModel.views(),LootExploreModel.initialQuery(),explore),states);
         explore.attach(live,workspace);
         return workspace;
-    }
-    public static ArchiveWorkspace<LootQuery.Row,LootQuery.Facets,LootQuery.Sort> statisticsWorkspace(
-            SessionStore store,StatisticsGUI live,java.nio.file.Path scratch,ViewStateStore states){
-        live.bindViewState(states);
-        return SessionPanel.queried(store,"statistics",live,new LootArchiveClient(scratch,true),states);
     }
 }

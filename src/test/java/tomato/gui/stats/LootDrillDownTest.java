@@ -121,7 +121,7 @@ public class LootDrillDownTest {
     }
 
     @Test public void savedQueriesWithoutDrillFacetsRestoreUnchangedAndDrillFacetsRoundTrip() {
-        ArchiveQuery<Facets,Sort> q = LootQuery.initial(false);
+        ArchiveQuery<Facets,Sort> q = LootQuery.initial(View.OCCURRENCES, ArchiveQuery.CURRENT);
         JsonObject legacy = q.toJson();
         assertFalse(legacy.getAsJsonObject("facets").has("variant")); assertFalse(legacy.getAsJsonObject("facets").has("visitId"));
         JsonObject older = JsonParser.parseString(legacy.toString()).getAsJsonObject();
@@ -137,7 +137,7 @@ public class LootDrillDownTest {
 
     @Test public void routeTargetOpensExactVisitOccurrencesAndRejectsUnresolvableReferences() {
         String session = "01234567-89ab-cdef-0123-456789abcdef";
-        ArchiveQuery<Facets,Sort> current = LootQuery.initial(false);
+        ArchiveQuery<Facets,Sort> current = LootQuery.initial(View.OCCURRENCES, ArchiveQuery.CURRENT);
         Facets f = current.facets(); f.view = View.ITEMS; f.variant = "1/0/0"; current = current.withFacets(f);
         List<ArchiveQuery<Facets,Sort>> opened = new ArrayList<>(); List<Object> restored = new ArrayList<>();
         ViewState<Facets,Sort> origin = ViewState.initial(current);
@@ -154,8 +154,33 @@ public class LootDrillDownTest {
         assertFalse(target.accepts(route.withRecording("recording", 7)));
         assertFalse(target.accepts(Route.to(Destination.LOOT)));
         assertFalse(target.accepts(Route.to(Destination.LOOT).withVisit(new VisitRef("not-a-session", "v"))));
-        assertFalse(new LootRouteTarget(Destination.STATISTICS, () -> origin, opened::add, restored::add).accepts(Route.to(Destination.STATISTICS).withVisit(new VisitRef(session, "v"))));
-        assertTrue(new LootRouteTarget(Destination.STATISTICS, () -> origin, opened::add, restored::add).accepts(Route.to(Destination.STATISTICS).withQuery(current)));
+        // P6a Task 12: Statistics and its STATISTICS target are gone; a LOOT query route is accepted (LOOT only: see the next test).
+        assertTrue(target.accepts(Route.to(Destination.LOOT).withQuery(current)));
+    }
+
+    /**
+     * P6a Task 12: a LOOT route with a payload (a {@code LootFocus} naming a Loot tab) belongs to the Loot page's tab target, never
+     * to the saved workspace's visit and query target; and the target serves LOOT only now that Statistics is gone.
+     */
+    @Test public void routeTargetRejectsPayloadRoutesAndServesLootOnly() {
+        String session = "01234567-89ab-cdef-0123-456789abcdef";
+        ArchiveQuery<Facets,Sort> current = LootQuery.initial(View.ITEMS, ArchiveQuery.CURRENT);
+        ViewState<Facets,Sort> origin = ViewState.initial(current);
+        List<ArchiveQuery<Facets,Sort>> opened = new ArrayList<>();
+        LootRouteTarget target = new LootRouteTarget(Destination.LOOT, () -> origin, opened::add, state -> { });
+        Object focus = new tomato.gui.loot.LootFocus(tomato.gui.loot.LootTab.EXPLORE);
+        Route visit = Route.to(Destination.LOOT).withVisit(new VisitRef(session, "v")), query = Route.to(Destination.LOOT).withQuery(current);
+        assertTrue(target.accepts(visit)); assertTrue(target.accepts(query));
+        assertFalse("A visit route with a Loot tab payload is the tab target's", target.accepts(visit.withPayload(focus)));
+        assertFalse("…and so is a query route with one", target.accepts(query.withPayload(focus)));
+        assertFalse(target.accepts(Route.to(Destination.LOOT).withPayload(focus)));
+        try { target.open(query.withPayload(focus)); fail("A payload route is not opened here"); } catch (IllegalArgumentException expected) { }
+        assertTrue(opened.isEmpty());
+        for (Destination destination : Destination.values()) {
+            if (destination == Destination.LOOT) continue;
+            try { new LootRouteTarget(destination, () -> origin, opened::add, state -> { }); fail(destination + " is not a Loot destination"); }
+            catch (IllegalArgumentException expected) { }
+        }
     }
 
     @Test public void workspaceDrillsVariantToOccurrenceToVerifiedRunAndExplainsUnavailableNavigation() throws Exception {

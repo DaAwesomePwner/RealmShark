@@ -146,7 +146,6 @@ public class WorkspaceUiTest {
                     assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
                     for (NavEntry entry : NavEntry.defaults()) {
                         AbstractButton button = findButton(shell, "nav-" + entry.id());
-                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Statistics is reached by route, search and shortcut, not the sidebar", button.isShowing()); continue; }
                         assertTrue(button.isShowing()); button.doClick();
                         assertEquals(entry.id(), shell.selectedPage());
                         assertTrue(button.isSelected());
@@ -174,7 +173,6 @@ public class WorkspaceUiTest {
                     assertEquals("Exact compact breakpoint", width < 1000, shell.isCompact());
                     for (NavEntry entry : NavEntry.defaults()) {
                         AbstractButton button = findButton(shell, "nav-" + entry.id());
-                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Statistics has no sidebar row", button.isVisible()); continue; }
                         button.doClick(); layoutTree(shell);
                         assertEquals(entry.id(), shell.selectedPage());
                         assertTrue(button.isVisible()); assertTrue(button.isSelected());
@@ -252,23 +250,6 @@ public class WorkspaceUiTest {
             if (c instanceof Container) { JTextArea area = findFailure((Container)c); if (area != null) return area; }
         }
         return null;
-    }
-
-    @Test public void lootDungeonRenderingSurvivesUnavailableOptionalAssets() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            try {
-                java.lang.reflect.Method render = tomato.gui.stats.LootGUI.class.getDeclaredMethod(
-                        "displayDungeonIcon", packets.incoming.MapInfoPacket.class, JPanel.class);
-                render.setAccessible(true);
-                packets.incoming.MapInfoPacket map = new packets.incoming.MapInfoPacket();
-                map.name = "The Shatters"; map.dungeonModifiers = "UNKNOWN_MOD";
-                for (int i = 0; i < 3; i++) {
-                    JPanel row = new JPanel(); render.invoke(null, map, row);
-                    assertEquals(1,row.getComponentCount());
-                    assertTrue(((JLabel)row.getComponent(0)).getToolTipText().contains("The Shatters"));
-                }
-            } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
-        });
     }
 
     @Test public void lightThemeAndContrastSwitchBackWithoutLosingTheWorkspace() throws Exception {

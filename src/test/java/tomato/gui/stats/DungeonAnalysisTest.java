@@ -79,19 +79,23 @@ public class DungeonAnalysisTest {
     }
 
     @Test public void theInitialQueryVariantMatchesTheExistingWorkspaces() {
-        assertEquals(LootQuery.initial(false).toJson(), LootQuery.initial(View.OCCURRENCES, ArchiveQuery.CURRENT).toJson());
-        assertEquals(LootQuery.initial(true).toJson(), LootQuery.initial(View.SESSIONS, ArchiveQuery.CURRENT).toJson());
+        // P6a Task 12: no boolean client or LootQuery.initial(boolean) remains; each workspace passes its own first query.
+        assertEquals(LootQuery.initial(View.ITEMS, ArchiveQuery.CURRENT).toJson(), LootExploreModel.initialQuery().toJson());
+        assertEquals(LootQuery.initial(View.FAME, SessionStore.ALL).toJson(), CharacterFameHistory.initialQuery().toJson());
         ArchiveQuery<Facets, Sort> initial = DungeonAnalysis.initialQuery();
         assertEquals("Every session, as the cards", SessionStore.ALL, initial.scope());
         assertEquals(View.SESSIONS, initial.facets().view);
         assertEquals(EnumSet.of(View.RATES, View.SESSIONS, View.COHORTS, View.COUNTERS, View.ENEMIES, View.SOURCES), DungeonAnalysis.VIEWS);
         assertEquals(EnumSet.of(View.RATES, View.SESSIONS, View.COHORTS, View.COUNTERS, View.ENEMIES, View.SOURCES),
             new LootArchiveClient(temp.getRoot().toPath(), DungeonAnalysis.VIEWS, initial).views());
-        assertEquals("The boolean Loot client keeps its views", EnumSet.complementOf(EnumSet.of(View.FAME, View.COUNTERS, View.ENEMIES, View.SOURCES, View.COHORTS)),
-            new LootArchiveClient(temp.getRoot().toPath(), false).views());
+        assertEquals("A client offers exactly the views it is given", LootExploreModel.views(),
+            new LootArchiveClient(temp.getRoot().toPath(), LootExploreModel.views(), LootExploreModel.initialQuery()).views());
+        assertEquals(EnumSet.of(View.FAME), CharacterFameHistory.client(temp.getRoot().toPath()).views());
         assertEquals("The Loot workspace (Explore) offers the item views and the Analyst views, never counters or fame",
             EnumSet.complementOf(EnumSet.of(View.FAME, View.COUNTERS)), LootExploreModel.views());
-        assertEquals("The Statistics workspace keeps every view", EnumSet.allOf(View.class), new LootArchiveClient(temp.getRoot().toPath(), true).views());
+        Set<View> homes = EnumSet.copyOf(LootExploreModel.views()); homes.addAll(DungeonAnalysis.VIEWS); homes.add(View.FAME);
+        assertEquals("With the Statistics workspace gone, every view keeps a home: Explore, Dungeons › Analysis or Fame history",
+            EnumSet.allOf(View.class), homes);
         try { new LootArchiveClient(temp.getRoot().toPath(), EnumSet.of(View.RATES), initial); fail("The initial view must be offered"); }
         catch (IllegalArgumentException expected) { }
     }

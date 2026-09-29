@@ -1,6 +1,5 @@
 package tomato.gui.stats;
 
-import com.google.gson.Gson;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -8,28 +7,13 @@ import java.util.*;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import org.junit.Test;
-import tomato.backend.data.DungeonStatData;
-import tomato.gui.modern.VioletTheme;
-import tomato.gui.stats.data.MapFameData;
 import static org.junit.Assert.*;
 
+/**
+ * The saved fame graph's windows and the live loot views' shared counts. (P6a removed the Statistics page: its live fame graph,
+ * fame table, dungeon stats and page renders went with it.)
+ */
 public class StatisticsExplorerTest {
-    @Test public void equalFameCharacterSwitchesReachGraphAndPinnedSelectionStaysPinned() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            FameTrackerGUI panel = new FameTrackerGUI();
-            tomato.backend.data.FameTracker.trackFame(9101, 159929, 1000);
-            tomato.backend.data.FameTracker.trackFame(9102, 159929, 2000);
-            assertTrue(panel.getFameData().containsKey(9101)); assertTrue(panel.getFameData().containsKey(9102));
-            assertEquals(1000, panel.getFameData().get(9101).get(0).getTime());
-            panel.refreshNow();
-            named(panel, "fame-graph-character", JComboBox.class).setSelectedItem("Character #9101");
-            FameTrackerGUI.updateFame(9102, 150, System.currentTimeMillis() + 60000);
-            panel.refreshNow();
-            assertEquals("Character #9101", named(panel, "fame-graph-character", JComboBox.class).getSelectedItem());
-            assertEquals(100, find(panel, GraphPanel.class).getScores().get(0).getFame(), 0);
-        });
-    }
-
     @Test public void graphWindowsUseLatestSampleAndHandleFlatAndDuplicateTimestamps() throws Exception {
         ArrayList<Fame> samples = new ArrayList<>(Arrays.asList(new Fame(100, 0), new Fame(110, 60000), new Fame(110, 120000)));
         assertEquals(2, GraphPanel.window(samples, 60000).size());
@@ -39,65 +23,6 @@ public class StatisticsExplorerTest {
             render(graph, "statistics-flat-graph", 850, 420);
             graph.setScores(new ArrayList<>(Arrays.asList(new Fame(100, 5), new Fame(110, 5))));
             render(graph, "statistics-same-time", 850, 420);
-        });
-    }
-
-    @Test public void fameMapsTrackOnlyActiveCharacterAndIncludeOpenAndZeroGainVisitsOnce() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            FameTableBridge.getInstance().setFameTrackerGUI(null);
-            FameTablePanel panel = new FameTablePanel(null);
-            panel.onMapChange("Sprite World", 1000);
-            panel.updateFame(1, 100, 1000, "Wizard");
-            panel.updateFame(1, 120, 61000, "Wizard");
-            assertEquals(1, panel.getMapFameData().get(1).size());
-            assertEquals(20, panel.getMapFameData().get(1).get(0).getFameGained(), 0);
-            panel.onMapChange("Lost Halls", 62000);
-            panel.updateFame(1, 125, 63000, "Wizard");
-            assertEquals(5, panel.getCurrentMapData().get(1).getFameGained(), 0);
-            panel.updateFame(2, 500, 64000, "Priest");
-            panel.updateFame(2, 510, 124000, "Priest");
-            panel.onMapChange("Nexus", 125000);
-            assertEquals(2, panel.getMapFameData().get(1).size());
-            assertEquals(1, panel.getMapFameData().get(2).size());
-            panel.updateFame(2, 510, 126000, "Priest");
-            panel.onMapChange("Nexus", 127000);
-            assertEquals(2, panel.getMapFameData().get(2).size());
-            assertEquals(0, panel.getMapFameData().get(2).get(1).getFameGained(), 0);
-            panel.refreshNow();
-            JTable table = named(panel, "fame-characters", JTable.class);
-            table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
-            assertTrue(table.getValueAt(0, 0).toString().contains("Priest"));
-            named(panel, "fame-search", JTextField.class).setText("wizard");
-            panel.refreshNow();
-            assertEquals(1, table.getRowCount());
-            assertEquals(25.0, (Double)table.getValueAt(0, 4), 0);
-            assertEquals(2, named(panel, "fame-maps", JTable.class).getRowCount());
-            named(panel, "fame-map-search", JTextField.class).setText("sprite");
-            panel.refreshNow();
-            assertEquals(1, named(panel, "fame-maps", JTable.class).getRowCount());
-            named(panel, "fame-search", JTextField.class).setText("["); panel.refreshNow(); assertEquals(0, table.getRowCount());
-        });
-    }
-
-    @Test public void dungeonFiltersPreserveLootOnlySourcesAndNumericSorting() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            DungeonStats panel = new DungeonStats(); DungeonStatData data = dungeonSample();
-            DungeonStats.update(data, null); panel.refreshData();
-            JTable dungeons = named(panel, "dungeon-table", JTable.class);
-            assertEquals(2, dungeons.getRowCount());
-            dungeons.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(1, SortOrder.DESCENDING)));
-            assertEquals("Lost Halls", dungeons.getValueAt(0, 0));
-            dungeons.setRowSelectionInterval(0, 0);
-            assertEquals(3, named(panel, "dungeon-enemies", JTable.class).getRowCount());
-            assertEquals(3, named(panel, "dungeon-items", JTable.class).getRowCount());
-            named(panel, "dungeon-search", JTextField.class).setText("halls"); assertEquals(1, dungeons.getRowCount());
-            data.data.get("Lost Halls").addItems(77, 333);
-            DungeonStats.update(data, "Lost Halls"); panel.refreshData(); assertEquals(1, dungeons.getRowCount());
-            assertEquals(4, named(panel, "dungeon-items", JTable.class).getRowCount());
-            named(panel, "dungeon-detail-search", JTextField.class).setText("333");
-            assertEquals(1, named(panel, "dungeon-items", JTable.class).getRowCount());
-            named(panel, "dungeon-search", JTextField.class).setText("["); assertEquals(0, dungeons.getRowCount());
-            assertEquals(0, named(panel, "dungeon-items", JTable.class).getRowCount());
         });
     }
 
@@ -167,61 +92,10 @@ public class StatisticsExplorerTest {
         }
     }
 
-    @Test public void renderPopulatedStatisticsAtDesktopAndCompactWidths() throws Exception {
-        SwingUtilities.invokeAndWait(() -> {
-            VioletTheme.install(); StatisticsGUI panel = new StatisticsGUI(null);
-            long start = 1700000000000L;
-            FameTablePanel table = FameTablePanel.getInstance();
-            FameTableBridge.getInstance().setFameTrackerGUI(null); // Fixture creation must not autosave.
-            table.onMapChange("Lost Halls", start);
-            for (int i = 0; i < 21; i++) {
-                long fame = 2500 + i * 13 + (i > 12 ? 90 : 0);
-                FameTrackerGUI.updateFame(101, fame, start + i * 60000);
-                table.updateFame(101, fame, start + i * 60000, "Wizard");
-            }
-            table.onMapChange("The Shatters", start + 1260000);
-            table.updateFame(202, 6800, start + 1260000, "Priest");
-            table.updateFame(202, 7120, start + 1800000, "Priest");
-            DungeonStats.update(dungeonSample(), null);
-            find(panel, DungeonStats.class).refreshData();
-            LootDashboard loot = panel.getLootDashboard();
-            loot.accept(new LootDashboard.Drop("White", "Lost Halls", "Marble Colossus", start, Arrays.asList(new LootDashboard.Item(999992, "Preview white item", false))));
-            loot.accept(new LootDashboard.Drop("Blue", "Sprite World", "Limon", start + 60000, Arrays.asList(new LootDashboard.Item(999993, "Potion of Dexterity", true))));
-            JTabbedPane tabs = named(panel, "statistics-tabs", JTabbedPane.class);
-            for (int width : new int[]{1040, 680}) {
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    tabs.setSelectedIndex(i); render(panel, "statistics-" + i + "-" + width, width, 710);
-                }
-                tabs.setSelectedIndex(1);
-                find(table, JTabbedPane.class).setSelectedIndex(1); render(panel, "statistics-map-" + width, width, 710);
-            }
-            tabs.setSelectedIndex(3);
-            named(panel, "dungeon-views", JTabbedPane.class).setSelectedIndex(2);
-            render(panel, "statistics-dungeon-loot", 1040, 710);
-            Map<String, JComponent> pages = tomato.gui.modern.TestPages.placeholders();
-            pages.put("statistics", panel); pages.put("loot", loot);
-            tomato.gui.modern.WorkspaceShell shell = new tomato.gui.modern.WorkspaceShell(pages, () -> {}, true); shell.select("statistics");
-            for (int i = 0; i < tabs.getTabCount(); i++) {
-                tabs.setSelectedIndex(i); render(shell, "statistics-workspace-" + i, 1240, 800);
-                render(shell, "statistics-workspace-compact-" + i, 760, 620);
-            }
-        });
-    }
-
-    private static DungeonStatData dungeonSample() {
-        return new Gson().fromJson("{\"data\":{\"Lost Halls\":{\"name\":\"Lost Halls\",\"enteredDungeon\":100,\"totalTime\":9876000,\"entityDamaged\":{\"55\":1000},\"entityLoot\":{\"55\":{\"lootList\":{\"111\":8}},\"66\":{\"lootList\":{\"222\":2}},\"0\":{\"lootList\":{\"222\":1}}}},\"Sprite World\":{\"name\":\"Sprite World\",\"enteredDungeon\":9,\"totalTime\":320000,\"entityDamaged\":{},\"entityLoot\":{}}}}", DungeonStatData.class);
-    }
     private static void render(JComponent panel, String name, int width, int height) {
-        JFrame frame = new JFrame("Statistics · Preview sample"); frame.setContentPane(panel);
+        JFrame frame = new JFrame("Fame graph · Preview sample"); frame.setContentPane(panel);
         try {
             frame.setSize(width, height); frame.setVisible(true); frame.validate();
-            FameTablePanel fameTable = panel instanceof FameTablePanel ? (FameTablePanel)panel : find(panel, FameTablePanel.class);
-            FameTrackerGUI fameGraph = panel instanceof FameTrackerGUI ? (FameTrackerGUI)panel : find(panel, FameTrackerGUI.class);
-            if (fameTable != null) fameTable.refreshNow();
-            if (fameGraph != null) fameGraph.refreshNow();
-            if (panel instanceof tomato.gui.modern.WorkspaceShell) {
-                panel.dispatchEvent(new java.awt.event.ComponentEvent(panel, java.awt.event.ComponentEvent.COMPONENT_RESIZED));
-            }
             // A second layout pass accounts for wrapped filter bars after receiving their actual width.
             invalidateTree(panel); frame.validate(); invalidateTree(panel); frame.validate();
             BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
@@ -256,12 +130,5 @@ public class StatisticsExplorerTest {
     /** The tabs became a view selector: chooses the live view at {@code index} (its persisted index) as a user does. */
     private static void view(LootDashboard panel, int index) {
         named(panel, "loot-views", JComboBox.class).setSelectedItem(LootExploreModel.liveView(index));
-    }
-    private static <T> T find(Container root, Class<T> type) {
-        for (Component c : root.getComponents()) {
-            if (type.isInstance(c)) return type.cast(c);
-            if (c instanceof Container) { T result = find((Container)c, type); if (result != null) return result; }
-        }
-        return null;
     }
 }

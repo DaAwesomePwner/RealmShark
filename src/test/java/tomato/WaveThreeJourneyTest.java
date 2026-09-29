@@ -43,7 +43,8 @@ import static org.junit.Assert.*;
  * lanes emit is accepted, and a stale load completing after Back cannot replace the restored state.
  */
 public class WaveThreeJourneyTest {
-    private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "statistics", "combat"};
+    /** Saved view states the composition reads, cleared then restored (P6a Task 12 removed the Statistics workspace). */
+    private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "combat"};
     /**
      * Runs & DPS opens on its first visible tab (the Feed by default), the Live meter's nested tabs keep their saved order, and the
      * Recordings tab saves its view (the encounter library's live state) when the shell is removed, and Loot opens on its first visible

@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.*;
 import java.util.concurrent.*;
-import javax.swing.SwingUtilities;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Element;
@@ -26,8 +25,7 @@ import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.myinfo.BuildEstimates;
 import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.security.ParsePanelGUI;
-import tomato.gui.stats.FameTablePanel;
-import tomato.gui.stats.LootGUI;
+import tomato.gui.stats.LootCapture;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
 import tomato.realmshark.HttpCharListRequest;
@@ -626,7 +624,7 @@ public class TomatoData {
                 // Apply any per-tick overrides (e.g., HM/TR variants) after all fabricated attributions are known
                 lootAttribution.applyPerTickOverrides();
 
-                // Second pass: update stats + GUI + SendLoot (SendLoot invoked inside LootGUI)
+                // Second pass: dungeon totals, the Bridge, then the loot capture (saved loot, sounds, pings and SendLoot)
 
                 for (int i = 0; i < processedBags.size(); i++) {
                     Entity bag = processedBags.get(i);
@@ -638,7 +636,7 @@ public class TomatoData {
                     }
 
                     tomato.bridge.BridgeService.getInstance().receive(this, map, bag, player, timePc);
-                    LootGUI.update(map, bag, mob, player, timePc,
+                    LootCapture.get().update(map, bag, mob, player, timePc,
                         tomato.gui.stats.DropContext.capture(map, player, timePc, currentEvidenceVisit()));
                 }
 
@@ -1382,9 +1380,6 @@ public class TomatoData {
             StatData id = details.stat.get(StatType.PET_INSTANCE_ID_STAT);
             progression.equipped(progression.scope(), id != null ? PetAvailability.PRESENT : petAvailability, id == null ? null : id.statValue);
         } else progression.equipped(progression.scope(), PetAvailability.UNKNOWN, null);
-        SwingUtilities.invokeLater(() -> {
-            FameTablePanel.updateRealmChars();
-        });
     }
 
     private static boolean validPetAbilities(RealmCharacter character) {
@@ -1471,7 +1466,7 @@ public class TomatoData {
         chars = null; charMap = null;
         RealmCharacter.exalts = new TreeMap<>();
         regularVault.clearChar(); seasonalVault.clearChar();
-        SwingUtilities.invokeLater(LootGUI::updateExaltStats);
+        LootCapture.get().updateExaltStats();
     }
 
     private void requestMetadata(boolean roster) {
@@ -1513,7 +1508,7 @@ public class TomatoData {
                 });
                 RealmCharacter.exalts = next;
                 characterJournal().exalts(journalAccount, next);
-                SwingUtilities.invokeLater(LootGUI::updateExaltStats);
+                LootCapture.get().updateExaltStats();
             }
         }
     }
@@ -1853,11 +1848,6 @@ public class TomatoData {
 
     public void bootload() {
         dungeonStatData.load();
-    }
-
-    /** Bind the initialized history after the view exists, without reading the file again. */
-    public void publishDungeonStats() {
-        tomato.gui.stats.DungeonStats.update(dungeonStatData, null);
     }
 
     /**

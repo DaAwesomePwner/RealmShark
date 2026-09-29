@@ -22,26 +22,28 @@ public class ReportingStatisticsTest {
         return new LootDashboard.Drop("White", "Ice Citadel", source, time,
             Collections.singletonList(new LootDashboard.Item(42, "Synthetic item", false)), "run");
     }
-    @Test public void globalNewestThousandSurviveNewestSessionFirstAndOutOfOrderRecords() throws Exception {
-        LootDashboard.Archive archive=new LootDashboard.Archive();
-        for(int i=1099;i>=0;i--)archive.accept("new",drop(10000+i,"new"));
-        for(int i=0;i<1100;i++)archive.accept("old",drop(i,"old"));
+    // LootDashboard.Archive fed only the removed historical Statistics view (P6a Task 12). The same Recent Drops rules hold on the
+    // live dashboard, whose one session key leaves the arrival ordinal to break equal timestamps.
+    @Test public void globalNewestThousandSurviveOutOfOrderRecords() throws Exception {
         SwingUtilities.invokeAndWait(()->{
-            LootDashboard view=archive.view();List<LootDashboard.Drop> recent=view.recentDrops();
+            LootDashboard view=new LootDashboard();
+            for(int i=1099;i>=0;i--)view.accept(drop(10000+i,"new"));
+            for(int i=0;i<1100;i++)view.accept(drop(i,"old"));
+            List<LootDashboard.Drop> recent=view.recentDrops();
             assertEquals(1000,recent.size());assertEquals(11099,recent.get(0).time);assertEquals(10100,recent.get(999).time);
             assertArrayEquals(new int[]{2200,2200},view.sessionTotals());
         });
     }
-    @Test public void equalTimestampsUseSessionAndLocalOrdinalWithoutCollapsingDuplicates() throws Exception {
-        LootDashboard.Archive first=new LootDashboard.Archive(),second=new LootDashboard.Archive();
-        for(int i=0;i<600;i++)first.accept("z",drop(1000,"z"+i));
-        for(int i=0;i<600;i++)first.accept("a",drop(1000,"a"+i));
-        for(int i=0;i<600;i++)second.accept("a",drop(1000,"a"+i));
-        for(int i=0;i<600;i++)second.accept("z",drop(1000,"z"+i));
+    @Test public void equalTimestampsUseTheArrivalOrdinalWithoutCollapsingDuplicates() throws Exception {
         SwingUtilities.invokeAndWait(()->{
-            List<LootDashboard.Drop> a=first.view().recentDrops(),b=second.view().recentDrops();
+            LootDashboard first=new LootDashboard(),second=new LootDashboard();
+            for(LootDashboard view:Arrays.asList(first,second)){
+                for(int i=0;i<600;i++)view.accept(drop(1000,"z"+i));
+                for(int i=0;i<600;i++)view.accept(drop(1000,"a"+i));
+            }
+            List<LootDashboard.Drop> a=first.recentDrops(),b=second.recentDrops();
             assertEquals(1000,a.size());for(int i=0;i<a.size();i++)assertEquals(a.get(i).dropper,b.get(i).dropper);
-            assertEquals("z599",a.get(0).dropper);assertEquals("a200",a.get(999).dropper);
+            assertEquals("a599",a.get(0).dropper);assertEquals("z200",a.get(999).dropper);
         });
     }
     private static ActivityJournal.Visit visit(String id,String map,long duration){
@@ -242,13 +244,11 @@ public class ReportingStatisticsTest {
         assertNull(profile.perRun(profile.items));assertNull(profile.perHour(profile.items));
         assertTrue(profile.explanation().contains("Unassigned bags: 1"));
     }
-    @Test public void lootProfileRowFollowsItsColumnsAndTypes() {
+    // The table row (columns and types) of the removed historical view is gone (P6a Task 12); its values are asserted directly.
+    @Test public void lootProfileWithEvidenceAndNoItemsIsZeroPerRunAndPartial() {
         LootProfile profile=new LootProfile();profile.runs=2;profile.millis=120000;profile.lootEvidence=true;
-        Object[] row=profile.row("Ice Citadel");
-        assertEquals(LootProfile.COLUMNS.length,row.length);assertEquals(LootProfile.COLUMNS.length,LootProfile.TYPES.length);
-        for(int i=0;i<row.length;i++)if(row[i]!=null)assertTrue(LootProfile.COLUMNS[i],LootProfile.TYPES[i].isInstance(row[i]));
-        assertEquals("Ice Citadel",row[0]);assertEquals(0.0,row[Arrays.asList(LootProfile.COLUMNS).indexOf("Items / run")]);
-        assertTrue(row[LootProfile.COLUMNS.length-1].toString().startsWith("Partial"));
+        assertEquals((Double)0.0,profile.perRun(profile.items));assertEquals(Long.valueOf(0),profile.lootValue(profile.items));
+        assertTrue(profile.coverage().startsWith("Partial"));
     }
     @Test public void ongoingActivityIsSeparateFromFinalizedExitsAndOldMetadataStaysUnknown() {
         DungeonStatData data=new DungeonStatData(temp.getRoot().toPath().resolve("synthetic.stats"));

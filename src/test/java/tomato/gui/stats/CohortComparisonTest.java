@@ -24,7 +24,7 @@ public class CohortComparisonTest {
 
     private Map<String,Row> compare(SessionStore store, Cohort baseline, Cohort candidate, Set<String> dungeons, Outcome outcome) throws Exception {
         Facets f = new Facets(); f.view = View.COHORTS; f.baseline = baseline; f.candidate = candidate; f.dungeons.addAll(dungeons); f.outcome = outcome;
-        ArchiveQuery<Facets,Sort> q = LootQuery.initial(true).withScope(SessionStore.ALL).withFacets(f);
+        ArchiveQuery<Facets,Sort> q = LootQuery.initial(View.SESSIONS, ArchiveQuery.CURRENT).withScope(SessionStore.ALL).withFacets(f);
         Map<String,Row> rows = new LinkedHashMap<>();
         try (ArchiveResult<Row> result = ArchiveResult.open(store, q, new CohortArchiveAdapter(q), temp.newFolder().toPath(), new Cancellation())) {
             result.stream(ExportSelection.all(), row -> rows.put(row.value.name, row.value), new Cancellation());
@@ -102,7 +102,7 @@ public class CohortComparisonTest {
         try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
             runs(store, "r", 1, 1, 1000); store.flush();
             Facets f = new Facets(); f.view = View.COHORTS;
-            ArchiveQuery<Facets,Sort> q = LootQuery.initial(true).withFacets(f);
+            ArchiveQuery<Facets,Sort> q = LootQuery.initial(View.SESSIONS, ArchiveQuery.CURRENT).withFacets(f);
             try (ArchiveResult<Row> result = ArchiveResult.open(store, q, new CohortArchiveAdapter(q), temp.newFolder().toPath(), new Cancellation())) {
                 assertEquals(0, result.matches);
                 assertEquals(0, result.page(0, 10, new Cancellation()).counts.get("cohorts chosen").value);
@@ -116,7 +116,8 @@ public class CohortComparisonTest {
         }
     }
 
-    @Test public void statisticsWorkspaceEditsCohortsThroughQueryIntent() throws Exception {
+    /** A/B cohorts are edited in Dungeons › Analysis (the Statistics workspace that also offered them went with the page, P6a). */
+    @Test public void dungeonAnalysisEditsCohortsThroughQueryIntent() throws Exception {
         Path root = temp.newFolder().toPath(), scratch = temp.newFolder().toPath();
         PreferencesStore prefs = new PreferencesStore(temp.getRoot().toPath().resolve("views.properties")); prefs.preload();
         ViewStateStore states = ViewStateStore.preferences(prefs);
@@ -124,7 +125,7 @@ public class CohortComparisonTest {
         try (SessionStore a = new SessionStore(root, true, "first")) { first = a.currentId(); runs(a, "a", 3, 1, 1000); a.flush(); }
         try (SessionStore store = new SessionStore(root, true, "second")) {
             runs(store, "b", 1, 4, 1000); store.flush();
-            ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> SessionPanel.queried(store, "statistics", new JLabel("Live"), new LootArchiveClient(scratch, true), states));
+            ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> DungeonAnalysis.workspace(store, scratch, states));
             try {
                 edt(() -> { Facets f = workspace.state().query.facets(); f.view = View.COHORTS; workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withFacets(f)); return null; });
                 await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.state().query.facets().view == View.COHORTS);

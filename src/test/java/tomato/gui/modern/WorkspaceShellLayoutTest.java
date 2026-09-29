@@ -139,20 +139,22 @@ public class WorkspaceShellLayoutTest {
             assertEquals("Reading never rewrites the saved order", "quests", store.get(NavLayout.ORDER_KEY));
         });
     }
-    @Test public void hidingARowNeverAnchorsOnAHiddenRowAndFocusFallsToThePage() throws Exception {
+    /**
+     * P6a Task 12: the unlisted Statistics page was the only current page without a row, so its focus-into-the-page case went with
+     * the group; a hidden row still never anchors.
+     */
+    @Test public void hidingARowNeverAnchorsOnAHiddenRow() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Map<String, JComponent> pages = TestPages.placeholders();
-            JButton statistics = new JButton("Estimate");
-            pages.get("statistics").add(statistics);
             WorkspaceShell shell = new WorkspaceShell(pages, () -> {}, true, null, null, null, new NavLayout(store::get, store::put));
             JFrame frame = new JFrame("Hidden row focus");
             frame.setContentPane(shell); frame.setSize(1240, 800); frame.setVisible(true);   // the focus traversal policy orders only a showing window
             try {
-                shell.select("statistics");   // Statistics: unlisted, no row
+                shell.select("characters");
                 click(shell.contextMenu("loot"), "nav-menu-hide");
                 assertFalse(named(shell, "nav-loot", AbstractButton.class).isVisible());
-                assertNull("No visible row to anchor on while Statistics is current", shell.scrollAnchor());
-                assertSame("Focus goes into Statistics, which has no row", statistics, shell.focusTarget("statistics"));
+                assertSame("The hidden row never anchors; the current page's row does", named(shell, "nav-characters", AbstractButton.class),
+                    shell.scrollAnchor());
                 click(shell.contextMenu("characters"), "nav-menu-show-loot");
                 shell.select("loot");
                 click(shell.contextMenu("loot"), "nav-menu-hide");   // the current page's own row
@@ -226,14 +228,13 @@ public class WorkspaceShellLayoutTest {
             shell.select("loot");
             assertTrue("A hidden page shows while it is current", loot.isVisible());
             assertFalse(bridge.isVisible());
-            shell.select("statistics");
-            assertFalse(loot.isVisible());
-            assertFalse("Statistics never shows in the sidebar, even while current", named(shell, "nav-statistics", AbstractButton.class).isVisible());
+            shell.select("home");
+            assertFalse("Once another page is current, the hidden page leaves the sidebar", loot.isVisible());
         });
     }
 
     @Test public void titlesAndRoutesKeepTheirPageIndices() throws Exception {
-        assertEquals(13, NavEntry.defaults().size());
+        assertEquals("Twelve destinations (P6a removed Statistics)", 12, NavEntry.defaults().size());
         assertEquals("home", WorkspaceShell.pageOf(Destination.HOME));
         assertEquals("Build is a tab of the character sheet, on the Characters page", "characters", WorkspaceShell.pageOf(Destination.MY_INFO));
         assertEquals("Home", TestPages.title("home"));
@@ -280,37 +281,29 @@ public class WorkspaceShellLayoutTest {
     }
 
 
-    @Test public void statisticsKeepsItsPageAndShortcutButNoRowOrMenuEntryAndDpsLoggerIsGone() throws Exception {
+    /** P6a: the Statistics page (Task 12) and the DPS Logger pointer page (Task 6) are gone; no page owns Alt+5 or Alt+8. */
+    @Test public void statisticsAndDpsLoggerAreGoneAndNoPageOwnsAltFiveOrAltEight() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
             InputMap keys = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-            assertEquals("Statistics keeps Alt+5", "page-statistics", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
+            assertNull("No page owns Alt+5: TomatoGUI binds it to Dungeons", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
             assertNull("No page owns Alt+8: TomatoGUI binds it to the Live meter", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_8, InputEvent.ALT_DOWN_MASK)));
-            assertNull(shell.getActionMap().get("page-dps-logger"));
             AbstractButton runs = named(shell, "nav-runs", AbstractButton.class);
             assertEquals("Runs & DPS", runs.getText());
             assertEquals("Runs & DPS", runs.getAccessibleContext().getAccessibleName());
             assertEquals("Runs & DPS  (Alt+R)", runs.getToolTipText());
+            assertEquals(Arrays.asList("home", "characters", "runs", "loot", "quests", "chat"), listedRows(shell));
             JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
-            for (String page : new String[] {"statistics"}) {
-                shell.getActionMap().get("page-" + page).actionPerformed(null);
-                assertEquals(page, shell.selectedPage());
-                assertEquals(TestPages.title(page), named(shell, "page-title", JLabel.class).getText());
-                AbstractButton row = named(shell, "nav-" + page, AbstractButton.class);
-                assertNotNull("The row exists for its name, selection and shortcut", row);
-                assertTrue(row.isSelected());
-                assertFalse("Never listed in the sidebar, even while current", row.isVisible());
-                assertEquals(Arrays.asList("home", "characters", "runs", "loot", "quests", "chat"), listedRows(shell));
-                assertNull("Never added to the compact menu", named(popup, "compact-nav-" + page, JMenuItem.class));
-                assertFalse(menuPages(popup).contains(page));
-                JPopupMenu menu = shell.contextMenu(page);
-                for (String absent : new String[] {"nav-menu-move-up", "nav-menu-move-down", "nav-menu-hide", "nav-menu-show", "nav-menu-pin"})
-                    assertNull("No row to customize: " + absent, item(menu, absent));
+            for (String removed : new String[] {"statistics", "dps-logger"}) {
+                assertNull(removed + " has no page action", shell.getActionMap().get("page-" + removed));
+                assertNull(removed + " has no row", named(shell, "nav-" + removed, AbstractButton.class));
+                assertNull("…and no compact menu item", named(popup, "compact-nav-" + removed, JMenuItem.class));
+                assertFalse(menuPages(popup).contains(removed));
+                try { shell.contextMenu(removed); fail(removed + " is no destination"); }
+                catch (IllegalArgumentException expected) { assertEquals("Invalid page", expected.getMessage()); }
+                try { shell.select(removed); fail(removed + " is no page"); }
+                catch (IllegalArgumentException expected) { assertEquals("Invalid page", expected.getMessage()); }
             }
-            assertNull("The DPS Logger pointer page has no row", named(shell, "nav-dps-logger", AbstractButton.class));
-            assertNull("…and no compact menu item", named(popup, "compact-nav-dps-logger", JMenuItem.class));
-            assertFalse(menuPages(popup).contains("dps-logger"));
-            assertEquals("Statistics", TestPages.title("statistics"));
             assertEquals("Runs & DPS", TestPages.title("runs"));
         });
     }
@@ -362,7 +355,8 @@ public class WorkspaceShellLayoutTest {
             assertArrayEquals(new int[] {1, 1, 1}, ran);
             assertEquals("The replaced page is not selected", "chat", shell.selectedPage());
             assertEquals("Other pages keep their keys", "page-runs", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.ALT_DOWN_MASK)));
-            assertEquals("page-statistics", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
+            assertEquals("page-quests", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_6, InputEvent.ALT_DOWN_MASK)));
+            assertNull("No page owns Alt+5 (TomatoGUI binds it to Dungeons)", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
         });
     }
 

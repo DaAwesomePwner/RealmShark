@@ -26,16 +26,14 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.kit.ViewSelector;
 
 /**
- * Session summaries shared by Statistics and the Loot workspace; the live state is a headless {@link Feed}; filters are view-local.
- * One view selector ({@code loot-views}, in the filter row's search slot) picks the table shown; with saved history it is Loot ›
- * Explore's live half ({@link LootExploreModel}).
+ * Loot › Explore's live loot view: session summaries over a headless {@link Feed} (the app's is {@code LootCapture.get().feed()});
+ * filters are view-local. One view selector ({@code loot-views}, in the filter row's search slot) picks the table shown; with
+ * saved history it is Loot › Explore's live half ({@link LootExploreModel}).
  */
 public final class LootDashboard extends JPanel {
     static final int RECENT_LIMIT = 1000;
     private final Feed feed;
     private final State state;
-    private final List<LootDashboard> siblings = new ArrayList<>();   // guarded by state
-    private final boolean historical;
     private final StatTile[] metrics = {new StatTile("Matching bags"), new StatTile("Matching items"), new StatTile("Matching stat potions"),
         new StatTile("Matching white bags")};
     private final JLabel results = new JLabel();
@@ -72,16 +70,11 @@ public final class LootDashboard extends JPanel {
 
     /** A view over a private feed (tests and fixtures); the app attaches its live views to {@code LootCapture.get().feed()}. */
     public LootDashboard() { this(new Feed()); }
+    /** Another view over {@code shared}'s feed (tests): the same counts, with its own filters, view and saved state. */
+    LootDashboard(LootDashboard shared) { this(shared.feed); }
     /** A live view attached to {@code feed}: it shows every bag the feed receives and refreshes on the EDT. */
-    public LootDashboard(Feed feed) { this(feed, false); }
-    /** A sibling view of {@code shared}'s feed; {@link #bindSiblingViewState} binds the siblings made this way. */
-    LootDashboard(LootDashboard shared) {
-        this(shared.feed, false);
-        synchronized (state) { shared.siblings.add(this); }
-    }
-    private LootDashboard(Feed feed, boolean historical) {
-        super(new BorderLayout(0, 8)); this.feed = feed; this.state = feed.state;this.historical=historical;
-        scopeNote.setText(scopeDescription());
+    public LootDashboard(Feed feed) {
+        super(new BorderLayout(0, 8)); this.feed = feed; this.state = feed.state;
         synchronized (state) { state.views.add(this); }
         bagFilter.setName("loot-bag-filter"); dungeonFilter.setName("loot-dungeon-filter"); recentRange.setName("loot-recent-range");
         dungeonFilter.setPrototypeDisplayValue("All dungeons / Lost Halls");
@@ -94,7 +87,7 @@ public final class LootDashboard extends JPanel {
         JPanel choices = new JPanel(new BorderLayout(0, 4)); choices.add(locations, BorderLayout.NORTH); choices.add(recentRow, BorderLayout.SOUTH);
         JPanel drawer = new JPanel(new BorderLayout(0, 4)); drawer.add(choices, BorderLayout.NORTH); drawer.add(facetControls, BorderLayout.CENTER);
         filterBar.search(new WrapRow(views.component(), search, reset)).drawer(drawer); clearFilters = reset::doClick;
-        add(StatsUi.stack(StatsUi.heading("Loot explorer", (historical ? "Saved drops in the selected session scope. " : "Observed drops this app session. ") + "Facets/search filter full aggregates; the view narrows the displayed rows."),
+        add(StatsUi.stack(StatsUi.heading("Loot explorer", "Observed drops this app session. Facets/search filter full aggregates; the view narrows the displayed rows."),
             tiles(metrics), filterBar), BorderLayout.NORTH);
         enchantTotals.setName("loot-enchant-totals");
         cards.setName("loot-view-cards");
@@ -160,8 +153,6 @@ public final class LootDashboard extends JPanel {
         for(int i=0;i<tables.length;i++){final int view=i;viewState.table(tables[i],scrolls[i],row->row<rowKeys.get(view).size()?rowKeys.get(view).get(row):"");}
         rebuildFacetControls();invalidateScope();
     }
-    /** Binds the views made from this one ({@link #LootDashboard(LootDashboard)}), never other views that share the app's feed. */
-    void bindSiblingViewState(ViewStateStore store,String key){List<LootDashboard> bound;synchronized(state){bound=new ArrayList<>(siblings);}for(LootDashboard sibling:bound)sibling.bindViewState(store,key);}
     private void rememberFacets(){if(viewState!=null)viewState.put("facets",tomato.history.SessionStore.JSON.toJson(facets));}
     private static LootQuery.View liveView(int index){return LootExploreModel.liveView(index);}
     /**
@@ -219,7 +210,7 @@ public final class LootDashboard extends JPanel {
     private static boolean itemView(int view) { return view < 3 || view >= 6; }
     private String scopeDescription() {
         return "Observed drops, not pickups · Tiered: weapons/armor T13+, abilities T6+ · Slots = unlocked enchant slots (including empty); Enchants = applied effects. Rarity follows slot count; unavailable counts are — and missing/invalid rarity is Unknown.\nWhites: contents of white / boosted white bags · Recent Drops searches the globally newest "
-            + DisplayFormat.formatInteger(RECENT_LIMIT) + " bags by timestamp (ties: session and record order); item summaries retain " + (historical ? "the selected session scope." : "the full app session.");
+            + DisplayFormat.formatInteger(RECENT_LIMIT) + " bags by timestamp (ties: session and record order); item summaries retain the full app session.";
     }
 
     void accept(Drop drop) { feed.accept(drop); }
@@ -320,15 +311,6 @@ public final class LootDashboard extends JPanel {
         state.recent.add(new Recent(drop, session, ordinal));
         if(state.recent.size()>RECENT_LIMIT)state.recent.pollFirst();
     }
-    static final class Archive {
-        private final Feed feed=new Feed();
-        private final State state=feed.state;
-        private final Map<String, Long> ordinals = new HashMap<>();
-        void accept(Drop drop){accept("",drop);}
-        void accept(String session, Drop drop){long ordinal=ordinals.getOrDefault(session,0L);ordinals.put(session,ordinal+1);accumulate(state,drop,session,ordinal);state.version++;}
-        LootDashboard view(){return new LootDashboard(feed,true);}
-    }
-    void searchHistory(String query){search.setText(query);}
     int[] sessionTotals() { synchronized (state) { return new int[]{state.totalBags, state.totalItems}; } }
 
     private void invalidateScope() { renderedVersion = -1; refresh(); }
@@ -360,7 +342,7 @@ public final class LootDashboard extends JPanel {
         }
         if (summary != null) {
             // Unknown is never 0: past the bag-composition bound an item query cannot count bags (item totals stay exact).
-            String source = historical ? "Saved drops in the selected session scope" : "Observed drops this app session, not pickups";
+            String source = "Observed drops this app session, not pickups";
             DisplayValue unknownBags = DisplayValue.unknown("Bag counts unavailable: more than 25,000 bag compositions; item totals remain complete");
             metrics[0].setValue(summary.bagsKnown ? DisplayValue.count((long) summary.bags, source, null) : unknownBags, null);
             metrics[1].setValue(DisplayValue.count((long) summary.items, source, null), null);
@@ -477,7 +459,7 @@ public final class LootDashboard extends JPanel {
                 + " · Legendary (3): " + DisplayFormat.formatInteger(counts[3]) + " · Divine (4): " + DisplayFormat.formatInteger(counts[4]) + " · Unknown: " + DisplayFormat.formatInteger(counts[5]));
         }
         results.setText(summary!=null&&!summary.bagsKnown?"Live filtered bag counts unavailable: more than 25,000 bag compositions. Item totals remain complete; query saved occurrences for exact bag counts."
-            :summary == null || summary.bags == 0 ? (historical ? "No saved loot in this scope; recording coverage may be unknown. Adjust the filters or inspect Session comparison." : "No matching live loot. Adjust filters; capture records future observations.")
+            :summary == null || summary.bags == 0 ? "No matching live loot. Adjust filters; capture records future observations."
             : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + liveView(view) + " · View/facets/search cover full live aggregates. Recent Drops rows/range use 1,000 retained bags; tiles remain full-session facet totals.");
     }
     static final class Item {

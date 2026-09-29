@@ -30,7 +30,7 @@ public class FameVisitAssociationTest {
         store.append("fame", new AppHistory.FameSample(8, 20, 2000, "Priest"));
         store.flush();
         Facets f = new Facets(); f.view = View.FAME;
-        ArchiveQuery<Facets,Sort> q = LootQuery.initial(true).withScope(id).withFacets(f);
+        ArchiveQuery<Facets,Sort> q = LootQuery.initial(View.SESSIONS, ArchiveQuery.CURRENT).withScope(id).withFacets(f);
         try (ArchiveResult<Row> result = ArchiveResult.open(store, q, new StatisticsArchiveAdapter(q), temp.newFolder().toPath(), new Cancellation());
              ArchiveResult.Lease<Row> lease = result.lease()) {
             result.stream(ExportSelection.all(), row -> rows.add(row.value), new Cancellation());

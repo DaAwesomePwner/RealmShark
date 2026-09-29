@@ -1,10 +1,7 @@
 package tomato.backend.data;
 
-import java.awt.Component;
-import java.awt.Container;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -22,10 +19,8 @@ import packets.incoming.VaultContentPacket;
 import tomato.backend.TomatoPacketCapture;
 import tomato.gui.character.CharacterPetsGUI;
 import tomato.gui.keypop.KeypopGUI;
-import tomato.gui.stats.FameTablePanel;
 import tomato.gui.stats.LootCapture;
 import tomato.gui.stats.LootFacts;
-import tomato.gui.stats.LootGUI;
 import tomato.realmshark.LootDelivery;
 import tomato.realmshark.RealmCharacter;
 import tomato.realmshark.RealmCharacterStats;
@@ -45,15 +40,13 @@ public class CharacterPublicationTest {
     private TomatoData data;
     private String roster;
     private CharacterPetsGUI pets;
-    private FameTablePanel fame;
     private LootCapture loot;
     private SendLoot.Session sharing;
 
     @Before public void isolateModelsAndViews() throws Exception {
         onEdt(() -> {
-            for (Class<?> type : new Class<?>[]{CharacterPetsGUI.class, FameTablePanel.class, LootGUI.class})
-                replaceStatic(type, "INSTANCE", null);
-            // Loot capture left the UI (P6a): isolate the app's LootCapture instead of LootGUI's former static game data.
+            replaceStatic(CharacterPetsGUI.class, "INSTANCE", null);
+            // Loot capture left the UI (P6a): isolate the app's LootCapture.
             replaceStatic(LootCapture.class, "instance", null);
         });
         savedExalts = RealmCharacter.exalts;
@@ -84,9 +77,10 @@ public class CharacterPublicationTest {
         }
     }
 
-    @Test public void acceptedRosterPublishesEquippedPetAndFameBaselinesOnEdtWithoutSamples() throws Exception {
+    /** P6a Task 12: the live Fame Table and its roster baselines went with Statistics; the equipped pet still publishes. */
+    @Test public void acceptedRosterPublishesTheEquippedPetWithoutWaitingForTheEdt() throws Exception {
         identify();
-        onEdt(() -> { pets = new CharacterPetsGUI(data); fame = new FameTablePanel(data); });
+        onEdt(() -> pets = new CharacterPetsGUI(data));
         data.charListHttpRequest();
         assertTrue(data.awaitMetadataIdle(2000));
         assertNull("HTTP completion alone cannot publish a roster", data.chars);
@@ -101,11 +95,10 @@ public class CharacterPublicationTest {
             data.rememberCharacter(); // Accept the worker response through the real capture-side publication path.
             assertNotNull(data.pet);
             assertFalse("Detached pet publication is available without waiting for the EDT", petCache().isEmpty());
-            assertEquals("Char", fame.getClassNameForCharacterId(8));
         } finally { release.countDown(); }
 
         onEdt(() -> {
-            assertFalse(pets.isShowing()); assertFalse(fame.isShowing());
+            assertFalse(pets.isShowing());
             assertEquals(2, data.chars.size()); assertTrue(data.characterDataRecieved);
             assertEquals(2, journal.characters().size());
             Stat cached = petCache().get(42);
@@ -115,25 +108,6 @@ public class CharacterPublicationTest {
             assertNotSame(data.pet.stat, cached);
             data.pet.stat.get(StatType.PET_FIRST_ABILITY_POWER_STAT).statValue = 1;
             assertEquals(50, cached.get(StatType.PET_FIRST_ABILITY_POWER_STAT).statValue);
-            assertEquals("Fixture Wizard", fame.getClassNameForCharacterId(7));
-            assertEquals("Fixture Wizard", fame.getClassNameForCharacterId(8));
-            assertNull("Roster baselines are not captured fame samples", fame.getCurrentFame(7));
-            assertNull(fame.getCurrentFame(8));
-            assertTrue(fame.getMapFameData().isEmpty());
-            JTable table = namedTable(fame, "fame-characters");
-            assertNotNull(table); assertEquals("Hidden tracking does not render rows", 0, table.getRowCount());
-            Method refresh = FameTablePanel.class.getDeclaredMethod("refreshNow"); refresh.setAccessible(true); refresh.invoke(fame);
-            assertEquals(2, table.getRowCount());
-            for (int row = 0; row < 2; row++) {
-                int id = table.getValueAt(row, 0).toString().contains("#7") ? 7 : 8;
-                double baseline = id == 7 ? 500 : 900;
-                assertEquals("Not observed", table.getValueAt(row, 1));
-                assertEquals(baseline, (Double)table.getValueAt(row, 2), 0);
-                assertEquals(baseline, (Double)table.getValueAt(row, 3), 0);
-                assertEquals(0d, (Double)table.getValueAt(row, 4), 0);
-                assertEquals(0L, table.getValueAt(row, 5));
-                assertNull(table.getValueAt(row, 6));
-            }
         });
     }
 
@@ -306,7 +280,7 @@ public class CharacterPublicationTest {
         data.charListHttpRequest(); assertTrue(data.awaitMetadataIdle(2000)); data.rememberCharacter();
     }
 
-    /** Installs a capture on a fake sharing session as the app's; TomatoData's static LootGUI calls reach it, with no page built. */
+    /** Installs a capture on a fake sharing session as the app's; TomatoData's LootCapture calls reach it, with no page built. */
     private void openLoot() throws Exception {
         sharing = new SendLoot.Session(new LootDelivery(() -> { throw new AssertionError("Tracking tests must not connect"); }, 2, false, false));
         data.setPropList("itemPings", new ArrayList<>());
@@ -318,7 +292,7 @@ public class CharacterPublicationTest {
     private void observeLoot() {
         Entity bag = new Entity(null, 2, 0); bag.objectType = LootBags.BROWN.getId();
         StatData item = new StatData(); item.statValue = 999991; bag.stat.set(StatType.INVENTORY_0_STAT, item);
-        LootGUI.update(null, bag, null, data.player, 1000);
+        LootCapture.get().update(null, bag, null, data.player, 1000);   // what TomatoData's loot tick calls
     }
 
     /** Bags and items the capture recorded, from its feed's detached snapshot. */
@@ -376,13 +350,6 @@ public class CharacterPublicationTest {
         field.set(null, value);
     }
     private static Field field(Class<?> type, String name) throws Exception { Field field = type.getDeclaredField(name); field.setAccessible(true); return field; }
-    private static JTable namedTable(Container root, String name) {
-        for (Component child : root.getComponents()) {
-            if (child instanceof JTable && name.equals(child.getName())) return (JTable)child;
-            if (child instanceof Container) { JTable found = namedTable((Container)child, name); if (found != null) return found; }
-        }
-        return null;
-    }
     private interface EdtAction { void run() throws Exception; }
     private static void onEdt(EdtAction action) throws Exception {
         SwingUtilities.invokeAndWait(() -> { try { action.run(); } catch (Exception e) { throw new AssertionError(e); } });

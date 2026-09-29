@@ -23,24 +23,14 @@ import tomato.history.archive.*;
 /** One independently persisted workspace; every inner archive filter sends query intent upstream. */
 public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     private final Path scratch;
-    /**
-     * The views the view selector offers (a routed or restored view outside them is still shown, as its "Current view"); null
-     * initial: {@link LootQuery#initial(boolean)}.
-     */
-    private final Set<View> views;private final boolean statistics;private final ArchiveQuery<Facets,Sort> initial;
+    /** The views the view selector offers (a routed or restored view outside them is still shown, as its "Current view"). */
+    private final Set<View> views;private final ArchiveQuery<Facets,Sort> initial;
     /** Loot › Explore's shared view (its selector lists Simple and Analyst views and carries choices to live); null elsewhere. */
     private final LootExploreModel explore;
-    /** The Loot (statistics false: the loot views, rates and sessions) or Statistics (every view) workspace's client. */
-    public LootArchiveClient(Path scratch,boolean statistics){
-        this.scratch=scratch;this.statistics=statistics;this.initial=null;this.explore=null;
-        Set<View> offered=EnumSet.noneOf(View.class);
-        for(View candidate:View.values())if(statistics||candidate!=View.FAME&&!candidate.counters()&&candidate!=View.COHORTS)offered.add(candidate);
-        views=Collections.unmodifiableSet(offered);
-    }
     /**
-     * A client whose view selector offers only {@code views} (in the views' usual order), opening on {@code initial} (the Dungeons
-     * analysis: rates, sessions, counters, enemies, sources and cohorts). Queries, rows, drill-downs and exports are the
-     * Statistics workspace's, unchanged.
+     * A client whose view selector offers only {@code views} (in the views' usual order), opening on {@code initial}: Loot ›
+     * Explore's saved half, Dungeons › Analysis (rates, sessions, counters, enemies, sources and cohorts) and Characters › Fame
+     * history (fame). Queries, rows, drill-downs and exports are the same for every view set.
      *
      * @throws IllegalArgumentException when {@code views} is empty or does not offer {@code initial}'s view
      */
@@ -50,7 +40,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
      * to the live dashboard. Null {@code explore}: the view-subset client above.
      */
     LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial,LootExploreModel explore){
-        this.scratch=scratch;this.statistics=true;this.initial=Objects.requireNonNull(initial,"initial");this.explore=explore;
+        this.scratch=scratch;this.initial=Objects.requireNonNull(initial,"initial");this.explore=explore;
         if(views==null||views.isEmpty())throw new IllegalArgumentException("A workspace offers at least one view");
         if(!views.contains(initial.facets().view))throw new IllegalArgumentException("The initial view "+initial.facets().view.name()+" is not offered");
         this.views=Collections.unmodifiableSet(EnumSet.copyOf(views));
@@ -59,7 +49,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     public Set<View> views(){return views;}
     /** A view's tooltip in the selector: the item views' definitions, and on Loot › Explore "Saved history only" for the others. */
     private String tooltip(View view){return LootExploreModel.live(view)?LootExploreModel.tooltip(view):explore!=null?LootExploreModel.SAVED_ONLY:null;}
-    public ArchiveQuery<Facets,Sort> initialQuery(){return initial!=null?initial:LootQuery.initial(statistics);}
+    public ArchiveQuery<Facets,Sort> initialQuery(){return initial;}
     public Path scratchDirectory(){return scratch;}
     public int pageSize(){return 100;}
     public ArchiveAdapter<Row,Facets,Sort> adapter(ArchiveQuery<Facets,Sort> q){View view=q.facets().view;return view.loot()?new LootArchiveAdapter(q):view==View.COHORTS?new CohortArchiveAdapter(q):new StatisticsArchiveAdapter(q);}

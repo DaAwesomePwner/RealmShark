@@ -11,8 +11,6 @@ import java.util.*;
  * visit duration or an empty denominator makes the rate unavailable (null), never zero. Unknown loot counts are null.
  */
 final class LootProfile {
-    static final String[] COLUMNS={"Dungeon","Observed runs","Items / run","Items / hour","UT / hour","Captured minutes","Items","White bags","UT gear","ST gear","Stat potions","Completed","Whites / run","UT / run","ST / run","Potions / run","Excluded imported runs","Excluded unknown-coverage runs","Loot coverage"};
-    static final Class<?>[] TYPES={String.class,Long.class,Double.class,Double.class,Double.class,Double.class,Long.class,Long.class,Long.class,Long.class,Long.class,Long.class,Double.class,Double.class,Double.class,Double.class,Long.class,Long.class,String.class};
     long runs,completed,millis,items,whites,uts,sts,potions,damage;boolean unassigned;
     long bags,unassignedBags,excludedRuns,unknownRuns,unknownMillis,ongoing;
     boolean imported,missingDuration,lootEvidence;
@@ -33,5 +31,4 @@ final class LootProfile {
         +"\nEligibility requires at least one saved bag in the same session; even an empty or unassigned bag establishes partial module evidence, not complete recording."
         +"\n"+(!lootEvidence?"Rates unavailable: no saved loot evidence; absence does not establish zero.":unassigned?"Rates unavailable: unassigned drops would mix numerator and denominator scopes.":runs==0?"Rates unavailable: no eligible observed visits.":"Zero-loot visits within evidenced sessions remain in the denominator; unknown-coverage sessions do not. No claim of complete recording or true drop probability.")
         +(missingDuration?" Hourly rates unavailable: at least one visit has no positive observed duration.":"");}
-    Object[] row(String name){return new Object[]{name,runs,perRun(items),perHour(items),perHour(uts),millis/60000.0,lootValue(items),lootValue(whites),lootValue(uts),lootValue(sts),lootValue(potions),completed,perRun(whites),perRun(uts),perRun(sts),perRun(potions),excludedRuns,unknownRuns,coverage()};}
 }
