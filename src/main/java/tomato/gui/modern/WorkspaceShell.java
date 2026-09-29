@@ -34,7 +34,7 @@ public final class WorkspaceShell extends JPanel {
     private static final String SETTINGS = "settings";
     /** Shells open on Chat; the app then shows the landing page ({@link #selectLanding}). */
     private static final String INITIAL = "chat";
-    /** Row accessible descriptions: the keyboard alternatives to dragging (WCAG 2.2 SC 2.5.7); the tooltips keep title and Alt key. */
+    /** Row accessible descriptions follow the Alt key with the keyboard alternatives to dragging ({@link #rowDescription}). */
     private static final String MOVE_HINT = "Ctrl+Shift+Up or Down to move; Shift+F10 for options", MENU_HINT = "Shift+F10 for options";
     /** The sidebar drag's line thickness, and the band at the list's top and bottom edges (half a row) that autoscrolls. */
     private static final int DROP_LINE = 2, AUTOSCROLL_EDGE = 16;
@@ -1122,9 +1122,8 @@ public final class WorkspaceShell extends JPanel {
         gc.gridy++; gc.weighty = 1; gc.insets = new Insets(0, 0, 0, 0);
         grid.setConstraints(navGlue, gc);
         // Listed core rows move (drag, Ctrl+Shift+Up/Down, the menu); the others only have their menu.
-        for (Map.Entry<String, JToggleButton> each : navigation.entrySet())
-            each.getValue().getAccessibleContext().setAccessibleDescription(
-                layout.inCore(each.getKey()) && !layout.isHidden(each.getKey()) ? MOVE_HINT : MENU_HINT);
+        for (NavEntry entry : NavEntry.defaults())
+            navigation.get(entry.id()).getAccessibleContext().setAccessibleDescription(rowDescription(entry));
         refreshAdvancedToggle();
         rebuildPopup();
         nav.revalidate(); nav.repaint();
@@ -1174,9 +1173,24 @@ public final class WorkspaceShell extends JPanel {
 
     /** The destination's keyboard shortcuts as its tooltip shows them after the title, or nothing when it has none. */
     private static String shortcutHint(NavEntry entry) {
+        String keys = shortcutKeys(entry);
+        return keys.isEmpty() ? "" : "  (" + keys + ")";
+    }
+
+    /** The destination's keyboard shortcuts, for example "Alt+H", or "" when it has none. */
+    private static String shortcutKeys(NavEntry entry) {
         if (entry.shortcut() == 0) return "";
         String key = "Alt+" + (char) entry.shortcut(); // VK_0..VK_9 and VK_A..VK_Z are their ASCII characters.
-        return "  (" + (entry.id().equals(SETTINGS) ? "Alt+, or " + key : key) + ")";
+        return entry.id().equals(SETTINGS) ? "Alt+, or " + key : key;
+    }
+
+    /**
+     * A row's accessible description: its shortcut, which the tooltip fallback used to announce, then the keyboard alternatives to
+     * dragging (WCAG 2.2 SC 2.5.7). Only listed core rows move; the others have their menu.
+     */
+    private String rowDescription(NavEntry entry) {
+        String keys = shortcutKeys(entry), hint = layout.inCore(entry.id()) && !layout.isHidden(entry.id()) ? MOVE_HINT : MENU_HINT;
+        return keys.isEmpty() ? hint : keys + ". " + hint;
     }
 
     @Override public void doLayout() {

@@ -349,20 +349,35 @@ public class WorkspaceShellDragTest {
         });
     }
 
-    /** Rows show the keyboard alternatives in their accessible description (WCAG 2.2 SC 2.5.7); tooltips keep their pinned text. */
-    @Test public void rowsDescribeTheKeyboardAlternatives() throws Exception {
+    /**
+     * Rows describe their Alt key (what the tooltip fallback used to announce) and then the keyboard alternatives to dragging
+     * (WCAG 2.2 SC 2.5.7); tooltips keep their pinned text. Every destination has an Alt key, so no row reads the hint alone.
+     */
+    @Test public void rowsDescribeTheirShortcutAndTheKeyboardAlternatives() throws Exception {
         store.put(NavLayout.PINNED_KEY, "timeline");
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell(1240, 800);
-            for (String id : new String[] {"home", "chat", "timeline"})
-                assertEquals(id, "Ctrl+Shift+Up or Down to move; Shift+F10 for options", row(shell, id).getAccessibleContext().getAccessibleDescription());
-            for (String id : new String[] {"party", "settings"})
-                assertEquals(id + " does not move", "Shift+F10 for options", row(shell, id).getAccessibleContext().getAccessibleDescription());
-            assertEquals("Home  (Alt+H)", row(shell, "home").getToolTipText());
+            String move = "Ctrl+Shift+Up or Down to move; Shift+F10 for options", menu = "Shift+F10 for options";
+            assertEquals("Alt+H. " + move, description(shell, "home"));
+            assertEquals("Alt+1. " + move, description(shell, "chat"));
+            assertEquals("A pinned Advanced row moves", "Alt+T. " + move, description(shell, "timeline"));
+            assertEquals("An unpinned Advanced row has only its menu", "Alt+3. " + menu, description(shell, "party"));
+            assertEquals("Settings has both keys and only its menu", "Alt+, or Alt+N. " + menu, description(shell, "settings"));
+            for (NavEntry entry : NavEntry.defaults()) {
+                assertNotEquals(entry.id() + " has an Alt key", 0, entry.shortcut());
+                assertTrue(entry.id(), description(shell, entry.id()).startsWith("Alt+"));
+            }
+            assertEquals("Tooltips are unchanged", "Home  (Alt+H)", row(shell, "home").getToolTipText());
+            assertEquals("Settings  (Alt+, or Alt+N)", row(shell, "settings").getToolTipText());
             WorkspaceShellLayoutTest.click(shell.contextMenu("party"), "nav-menu-pin");
-            assertEquals("Pinned, it moves", "Ctrl+Shift+Up or Down to move; Shift+F10 for options",
-                row(shell, "party").getAccessibleContext().getAccessibleDescription());
+            assertEquals("Pinned, it moves", "Alt+3. " + move, description(shell, "party"));
+            WorkspaceShellLayoutTest.click(shell.contextMenu("loot"), "nav-menu-hide");
+            assertEquals("Hidden, it only has its menu", "Alt+9. " + menu, description(shell, "loot"));
         });
+    }
+
+    private static String description(WorkspaceShell shell, String id) {
+        return row(shell, id).getAccessibleContext().getAccessibleDescription();
     }
 
     private WorkspaceShell shell(int width, int height) {
