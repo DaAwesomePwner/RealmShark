@@ -42,6 +42,9 @@ public class StatTile extends JPanel {
 
     public DisplayValue value() { return current; }
 
+    /** The value exactly as shown ("—" when unknown, "≈ …" when estimated), read-only: for tests and accessibility checks. */
+    public String valueText() { return value.getText(); }
+
     /** Holds an optional Sparkline (Task 9). */
     public JPanel trendSlot() { return trend; }
 

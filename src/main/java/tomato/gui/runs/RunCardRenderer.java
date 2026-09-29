@@ -38,7 +38,7 @@ import tomato.gui.modern.ContentStyle;
  */
 public final class RunCardRenderer extends JComponent implements ListCellRenderer<RunCardModel>, Accessible {
     /** Portal and loot sprite sizes, the well around a loot sprite, the space between cards, the outcome edge and the share bar. */
-    static final int PORTAL = 40, LOOT = 20, WELL = 6, GAP = 10, EDGE = 4, BAR = 4;
+    static final int PORTAL = 40, LOOT = 20, WELL = Sprites.WELL, GAP = 10, EDGE = 4, BAR = 4;
     /** A known run without a bag: its loot is a real none. */
     static final String NO_LOOT = "No loot recorded in this run";
     /**
@@ -266,7 +266,7 @@ public final class RunCardRenderer extends JComponent implements ListCellRendere
                 Strip strip = strip(lines, caption, right - left);
                 int well = LOOT + WELL, slotX = left;
                 for (RunCardModel.LootItem item : lines.loot()) {
-                    well(this, g, Sprites.sprite(item.id(), LOOT), item.bag(), slotX, row + strip.wellTop(), well);
+                    Sprites.paintWell(this, g, Sprites.sprite(item.id(), LOOT), item.bag(), slotX, row + strip.wellTop(), well);
                     slotX += well + Tokens.XS;
                 }
                 text(g, lines.lootMore(), captionFont, caption, muted, left + strip.moreX(), row + strip.moreBaseline(), right - left - strip.moreX());
@@ -276,25 +276,6 @@ public final class RunCardRenderer extends JComponent implements ListCellRendere
             text(g, lines.facts(), captionFont, caption, ink, left, row + caption.getAscent(), right - left);
         } finally {
             g.dispose();
-        }
-    }
-
-    /** A rounded well tinted and outlined in the bag's color (muted when the bag was not saved), the sprite centered and fitted. */
-    private static void well(Component owner, Graphics2D g, Icon sprite, String bag, int x, int y, int side) {
-        Color color = Tokens.bag(bag);
-        g.setColor(Tokens.tint(color));
-        g.fillRoundRect(x, y, side - 1, side - 1, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
-        g.setColor(color);
-        g.drawRoundRect(x, y, side - 1, side - 1, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
-        int room = side - WELL, width = sprite.getIconWidth(), height = sprite.getIconHeight();
-        double scale = Math.min(1d, (double) room / Math.max(1, Math.max(width, height)));
-        Graphics2D icon = (Graphics2D) g.create();
-        try {
-            icon.translate(x + (side - width * scale) / 2, y + (side - height * scale) / 2);
-            icon.scale(scale, scale);
-            sprite.paintIcon(owner, icon, 0, 0);
-        } finally {
-            icon.dispose();
         }
     }
 
