@@ -19,10 +19,16 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.CollectionControl;
 import tomato.gui.activity.SnapshotRefresh;
+import tomato.gui.history.FilterChips;
 import tomato.gui.history.ViewState;
 import tomato.gui.history.ViewStateStore;
+import tomato.gui.history.WrapRow;
 import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.OverflowMenu;
+import tomato.gui.kit.Tokens;
 import tomato.gui.history.HistoryTables;
 
 /** A searchable, bounded view over sanitized discovery data, refreshed only on the EDT. */
@@ -33,17 +39,30 @@ public final class LoggingGUI extends JPanel {
         "FOR_RECONNECT", "RECONNECT", "HELLO", "QUEUE_INFORMATION", "FAILURE", "MAPINFO", "LOAD", "CREATE_SUCCESS"));
     private final DiscoveryLog log;
     private final JLabel summary = new JLabel(), losses = new JLabel(), exportStatus = new JLabel(" ");
-    private final JTextField search = new JTextField(18);
+    private final JTextField search = new JTextField(12); // 12 columns: one chip and Clear still fit the row at 1240×800, font 13.
     private final JCheckBox observedOnly = new JCheckBox("Observed packets only");
     private final JCheckBox issuesOnly = new JCheckBox("Packet issues only");
     private final JCheckBox freeze = new JCheckBox("Pause this view");
     private final CollectionControl enabled;
-    private final JCheckBox save = new JCheckBox("Save diagnostic samples");
-    private final JComboBox<String> sampling = new JComboBox<>(new String[] {"Sampled", "Detailed"});
+    // One filter row (S6): [Search][Reset filters] [Filters · n][chips][Clear] … [collection][Pause][⋯]; the facets live in the drawer.
+    private final FilterBar filterBar = new FilterBar("logging");
+    private final KitButton reset = KitButton.ghost("Reset filters"), coverage = KitButton.ghost("Diagnostic coverage");
+    private final JPanel searchRow, trailing = new JPanel(new GridBagLayout()) {
+        // As tall as the search slot's line, so collection and Pause centre on the search field.
+        @Override public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            size.height = Math.max(size.height, Math.max(search.getPreferredSize().height, reset.getPreferredSize().height) + 4);
+            return size;
+        }
+    };
+    private boolean narrowRow;
+    // ⋯ items: disk samples and the sampling rate are collector settings, not view state.
+    private final JCheckBoxMenuItem save = new JCheckBoxMenuItem("Save diagnostic samples");
+    private final JRadioButtonMenuItem sampled = new JRadioButtonMenuItem("Sampled"), detailed = new JRadioButtonMenuItem("Detailed");
     private final CustomizableTabs tabGroup = new CustomizableTabs("logging");
     private final JTabbedPane tabs = tabGroup.component();
     private boolean tabSyncPending;
-    private final JPanel facets = ContentStyle.controls(), chips = ContentStyle.controls();
+    private final JPanel facets = ContentStyle.controls();
     private final JLabel counts = new JLabel();
     private final JComboBox<String> packetFacet = new JComboBox<>(), statFacet = new JComboBox<>(), objectFacet = new JComboBox<>(), areaFacet = new JComboBox<>(), outcomeFacet = new JComboBox<>();
     private final JCheckBox changedOnly = new JCheckBox("Changed values only");
@@ -53,8 +72,6 @@ public final class LoggingGUI extends JPanel {
     private final JButton openFolder = new JButton("Open report folder");
     private Path reportFolder;
     private final List<DiscoveryCatalog.SchemaField> catalog = DiscoveryCatalog.fields();
-    private LoggingQuery chipQuery;
-    private Map<String,Object> chipState;
     private final DataTable packets = new DataTable("ID", "Packet", "Direction", "Evidence", "Count", "Bytes", "Decode errors", "Trailing", "Type listeners");
     private final DataTable stats = new DataTable("ID", "Stat", "Observations", "Changes", "Latest", "Secondary", "Min", "Max", "Withheld");
     private final DataTable events = new DataTable("Time", "Area", "Packet", "Outcome", "Bytes", "Selected values / stat samples");
@@ -83,30 +100,33 @@ public final class LoggingGUI extends JPanel {
         enabled = new CollectionControl(log, this::refresh);
         setName("logging-panel");
         JPanel top = new Header(); top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        JPanel controls = ContentStyle.controls();
         save.setSelected(log.isSaving());
         save.setToolTipText("Save rotating diagnostic samples (and legacy activity checkpoints when no session store is attached). Separate from automatic session history; queued writes may finish.");
         save.addActionListener(e -> log.setSaving(save.isSelected()));
-        sampling.setToolTipText("Sampled: one event per type per second, plus important events and errors. Activity aggregates use every clean packet. Detailed: every packet; at most 24 stat samples each.");
-        sampling.getAccessibleContext().setAccessibleName("Diagnostic event sampling");
-        sampling.addActionListener(e -> { if (!refreshing) log.setSampleMillis(sampling.getSelectedIndex() == 0 ? 1000 : 0); });
-        controls.add(enabled); controls.add(save); controls.add(sampling); controls.add(freeze);
         freeze.setToolTipText("Pause is temporary. Reopening or loading a saved view resumes fresh diagnostics; saved views never restore collection or disk-saving controls.");
-        controls.add(ContentStyle.detailsButton("Diagnostic coverage", () -> {
+        coverage.setName("logging-coverage"); coverage.getAccessibleContext().setAccessibleName("Diagnostic coverage");
+        coverage.setToolTipText("What the counters cover: decode failures, retention and delta-cache evictions, and the collection state");
+        coverage.addActionListener(e -> {
             if (snapshot != null) ContentStyle.showDetails(this, "Diagnostic coverage", DiagnosticCoverage.describe(snapshot));
-        }));
-        JPanel actions = ContentStyle.controls();
-        actions.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));
+        });
         JButton export = new JButton("Export report"); export.addActionListener(e -> export());
         export.setToolTipText("Preview the chosen snapshot and counts, then export all retained diagnostics. Display filters are recorded, not applied.");
         exportSource.setName("logging-export-source"); exportSource.getAccessibleContext().setAccessibleName("Diagnostic export source");
-        JButton clear = new JButton("Clear data");
-        clear.setToolTipText("Clear diagnostic counters and samples. Runs, Timeline and resource history remain available.");
-        clear.addActionListener(e -> { log.clearDiagnostics(); freeze.setSelected(false); refresh(); });
         search.setToolTipText("Literal search of displayed columns and retained nested stat names, IDs, objects and values");
         search.setName("logging-search");search.getAccessibleContext().setAccessibleName("Search logging views");
-        JPanel searchBox = new JPanel(new BorderLayout(5,0)); JLabel searchLabel = new JLabel("Search");searchLabel.setLabelFor(search);searchBox.add(searchLabel, BorderLayout.WEST); searchBox.add(search);
-        actions.add(searchBox); actions.add(observedOnly); actions.add(issuesOnly); controls.add(clear);
+        search.putClientProperty("JTextField.placeholderText", "Search logging views…");
+        reset.setName("logging-reset"); reset.setToolTipText("Clear this tab's search and facets");
+        reset.addActionListener(e -> resetFilters());
+        searchRow = new WrapRow(search, reset);
+        trailing.setOpaque(false);
+        filterBar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        filterBar.search(searchRow).drawer(facets);
+        placeTrailing(false);
+        // Collection and Pause move after Reset filters when the row is too narrow for its right slot.
+        filterBar.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent e) { fitRow(); }
+        });
+        search.addPropertyChangeListener("font", e -> fitRow());
         JPanel exportActions = ContentStyle.controls(); exportActions.add(exportSource); exportActions.add(export); exportActions.add(openFolder);
         openFolder.setEnabled(false); openFolder.addActionListener(e -> {
             final Path folder=reportFolder;
@@ -117,18 +137,21 @@ public final class LoggingGUI extends JPanel {
             }.execute();
         });
         exportActions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        top.add(controls); top.add(actions);
+        top.add(filterBar);
+        // The drawer holds each tab's facets (visibility rules in updateFacets) and the packet/stat-change checks.
         configureFacet(packetFacet, "Packet"); configureFacet(statFacet, "Stat"); configureFacet(objectFacet, "Object");
         configureFacet(areaFacet, "Area"); configureFacet(outcomeFacet, "Outcome");
         changedOnly.setName("logging-changed"); changedOnly.addActionListener(e -> { if (!refreshing) { activeTable().filters.changed=changedOnly.isSelected(); filter(); } });
-        facets.add(changedOnly); facets.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(facets);
-        chips.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(chips);
+        facets.add(changedOnly); facets.add(observedOnly); facets.add(issuesOnly);
         counts.setName("logging-counts"); counts.getAccessibleContext().setAccessibleName("Matching and retained diagnostic rows");
+        counts.setBorder(BorderFactory.createEmptyBorder(2, 8, 0, 8));
         counts.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(counts);
-        controls.setAlignmentX(Component.LEFT_ALIGNMENT); actions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        summary.setAlignmentX(Component.LEFT_ALIGNMENT); losses.setAlignmentX(Component.LEFT_ALIGNMENT);
+        losses.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (JLabel label : new JLabel[]{summary, losses, exportStatus}) label.setFont(ContentStyle.metadata(ContentStyle.body()));
-        summary.setBorder(BorderFactory.createEmptyBorder(4, 8, 2, 8)); top.add(summary);
+        // Diagnostic coverage is a Ghost link beside the summary's first line.
+        JPanel summaryRow = ContentStyle.controls(); ((FlowLayout) summaryRow.getLayout()).setAlignOnBaseline(true);
+        summary.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 0)); summaryRow.add(summary); summaryRow.add(coverage);
+        summaryRow.setAlignmentX(Component.LEFT_ALIGNMENT); top.add(summaryRow);
         losses.setBorder(BorderFactory.createEmptyBorder(2, 8, 6, 8)); top.add(losses);
         // Tab IDs are the saved-state keys (TAB_KEYS), so saved Logging views survive reordering and hiding.
         tabGroup.add("discovery", "Discovery", discoveries.scroll()).add("reentry", "Re-entry trace", reentry.scroll()).add("packets", "Packets", packets.scroll())
@@ -217,7 +240,10 @@ public final class LoggingGUI extends JPanel {
         addHierarchyListener(e -> { if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0) visibilityChanged(); });
         updateFacets(); filter();
         viewState=new LoggingViewState(store,this::captureViewState,this::applyViewState,this::validateViewState);
-        viewState.controls().setAlignmentX(Component.LEFT_ALIGNMENT); top.add(viewState.controls(),0);
+        viewState.prompts=LoggingViewState.Prompts.dialogs(this);
+        JLabel status=viewState.status; status.setAlignmentX(Component.LEFT_ALIGNMENT); status.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        top.add(status, 1); // Under the filter row; shown only while saving or reading saved views fails.
+        buildOverflow();
         viewState.restore();
         stateReady=true;
     }
@@ -238,7 +264,7 @@ public final class LoggingGUI extends JPanel {
                 for (DataTable table:allTables()) if (differentRun || table!=events && table!=reentry) table.table.clearSelection();
             }
             revision=next.revision; snapshot=next.data;
-            enabled.refresh(); save.setSelected(log.isSaving()); sampling.setSelectedIndex(snapshot.sampleMillis==0 ? 1 : 0);
+            enabled.refresh(); save.setSelected(log.isSaving()); (snapshot.sampleMillis==0 ? detailed : sampled).setSelected(true);
             refreshing=false; refreshTables();
         },error->exportStatus.setText("Could not refresh diagnostics; retrying on the next refresh."));
     }
@@ -404,32 +430,75 @@ public final class LoggingGUI extends JPanel {
             changedOnly.setVisible(active==events); changedOnly.setSelected(q.changed);
             observedOnly.setVisible(active==packets); issuesOnly.setVisible(active==packets);
             observedOnly.setSelected(packets.filters.observed); issuesOnly.setSelected(packets.filters.issues);
-            facets.setVisible(active!=discoveries);
+            // Discovery has no facets, so it has no drawer and no Filters toggle; the open state is kept for the other tabs.
+            JComponent drawer=active==discoveries ? null : facets;
+            if (filterBar.drawerContent()!=drawer) FilterChips.keepingFocus(() -> filterBar.drawer(drawer));
         } finally { refreshing=before; }
     }
-    private void chip(String label, Runnable clear) {
-        JButton button=new JButton((label.length()>48 ? label.substring(0,45) + "…" : label) + " ×");
-        button.setToolTipText(label); button.getAccessibleContext().setAccessibleName("Remove filter: " + label);
-        button.addActionListener(e -> { clear.run(); updateFacets(); filter(); }); chips.add(button);
+    /** A removable chip; its action reads the displayed tab's query when clicked, so a kept chip never clears another tab. */
+    private FilterBar.ActiveFilter chip(String label, java.util.function.Consumer<LoggingQuery> clear) {
+        return new FilterBar.ActiveFilter(label.length()>48 ? label.substring(0,45) + "…" : label,
+            () -> { clear.accept(activeTable().filters); updateFacets(); filter(); });
     }
     private void updateChips() {
-        LoggingQuery q=activeTable().filters; Map<String,Object> state=q.metadata();
-        if (chipQuery==q && state.equals(chipState)) return; // Keep keyboard targets intact across background refreshes.
-        chipQuery=q; chipState=state; chips.removeAll();
-        if (!q.text.isEmpty()) chip("Search: " + q.text, () -> search.setText(""));
-        if (!q.packet.isEmpty()) chip("Packet: " + q.packet, () -> q.packet="");
-        if (q.stat!=null) chip("Stat: " + q.stat, () -> q.stat=null);
-        if (q.object!=null) chip("Object: " + q.object, () -> { q.object=null; if (q.area==null) q.captureRun=""; });
-        if (q.area!=null) chip("Area: " + q.area, () -> { q.area=null; if (q.object==null) q.captureRun=""; });
-        if (!q.captureRun.isEmpty()) chip("Capture: " + q.captureRun, () -> { q.captureRun=""; q.object=null; q.area=null; });
-        if (!q.outcome.isEmpty()) chip("Outcome: " + q.outcome, () -> q.outcome="");
-        if (!q.fieldPath.isEmpty()) chip("Field: " + q.fieldPath, () -> q.fieldPath="");
-        if (q.changed) chip("Changed values", () -> q.changed=false);
-        if (q.observed) chip("Observed packets", () -> q.observed=false);
-        if (q.issues) chip("Packet issues", () -> q.issues=false);
-        JButton reset=new JButton("Reset filters"); reset.setName("logging-reset");
-        reset.addActionListener(e -> { activeTable().filters=new LoggingQuery(); search.setText(""); updateFacets(); filter(); });
-        chips.add(reset); chips.revalidate(); chips.repaint();
+        LoggingQuery q=activeTable().filters; List<FilterBar.ActiveFilter> active=new ArrayList<>();
+        if (!q.text.isEmpty()) active.add(chip("Search: " + q.text, c -> search.setText("")));
+        if (!q.packet.isEmpty()) active.add(chip("Packet: " + q.packet, c -> c.packet=""));
+        if (q.stat!=null) active.add(chip("Stat: " + q.stat, c -> c.stat=null));
+        if (q.object!=null) active.add(chip("Object: " + q.object, c -> { c.object=null; if (c.area==null) c.captureRun=""; }));
+        if (q.area!=null) active.add(chip("Area: " + q.area, c -> { c.area=null; if (c.object==null) c.captureRun=""; }));
+        if (!q.captureRun.isEmpty()) active.add(chip("Capture: " + q.captureRun, c -> { c.captureRun=""; c.object=null; c.area=null; }));
+        if (!q.outcome.isEmpty()) active.add(chip("Outcome: " + q.outcome, c -> c.outcome=""));
+        if (!q.fieldPath.isEmpty()) active.add(chip("Field: " + q.fieldPath, c -> c.fieldPath=""));
+        if (q.changed) active.add(chip("Changed values", c -> c.changed=false));
+        if (q.observed) active.add(chip("Observed packets", c -> c.observed=false));
+        if (q.issues) active.add(chip("Packet issues", c -> c.issues=false));
+        // Unchanged labels keep the existing chips, so background refreshes leave keyboard targets intact. Clear = Reset filters.
+        FilterChips.update(filterBar, active, this::resetFilters, false);
+    }
+    private void resetFilters() { activeTable().filters=new LoggingQuery(); search.setText(""); updateFacets(); filter(); }
+    /** Collection and Pause use the row's right slot when it has room; on narrow rows they wrap after Reset filters. */
+    private void placeTrailing(boolean narrow) {
+        narrowRow=narrow;
+        FilterChips.keepingFocus(() -> {
+            if (narrow) { searchRow.add(enabled); searchRow.add(freeze); }
+            else {
+                GridBagConstraints gap=new GridBagConstraints(); // The bar's right slot already leads with a gap.
+                trailing.add(enabled, gap); gap.insets=new Insets(0, Tokens.XS + 2, 0, 0); trailing.add(freeze, gap);
+            }
+            filterBar.scope(narrow ? null : trailing);
+            searchRow.revalidate(); trailing.revalidate();
+        });
+    }
+    private void fitRow() { SwingUtilities.invokeLater(() -> { boolean narrow=narrowFit(); if (narrow!=narrowRow) placeTrailing(narrow); }); }
+    private boolean narrowFit() {
+        int needed=search.getPreferredSize().width+reset.getPreferredSize().width+(enabled.isVisible() ? enabled.getPreferredSize().width : 0)
+            +freeze.getPreferredSize().width+filterBar.overflow().getPreferredSize().width+10*search.getFontMetrics(search.getFont()).charWidth('m');
+        return filterBar.getWidth()>0 && filterBar.getWidth()<needed;
+    }
+    /** ⋯: saved views, then the collector's disk-sample and sampling settings, then Clear data (Danger, confirmed). */
+    private void buildOverflow() {
+        OverflowMenu more=filterBar.overflow();
+        more.menu().add(viewState.menu()); more.addSeparator();
+        save.setName("logging-save-samples"); more.menu().add(save);
+        JMenu rate=more.submenu("Sampling"); rate.setName("logging-sampling");
+        rate.setToolTipText("Sampled: one event per type per second, plus important events and errors. Activity aggregates use every clean packet. Detailed: every packet; at most 24 stat samples each.");
+        rate.getAccessibleContext().setAccessibleName("Diagnostic event sampling");
+        ButtonGroup rates=new ButtonGroup();
+        for (JRadioButtonMenuItem item:new JRadioButtonMenuItem[]{sampled,detailed}) { rates.add(item); rate.add(item); }
+        sampled.addActionListener(e -> { if (!refreshing) log.setSampleMillis(1000); });
+        detailed.addActionListener(e -> { if (!refreshing) log.setSampleMillis(0); });
+        more.addSeparator();
+        JMenuItem clear=new JMenuItem("Clear data…") {
+            @Override public void updateUI() { super.updateUI(); setForeground(Tokens.color(Tokens.Role.BAD)); }
+        };
+        clear.setName("logging-clear-data");
+        clear.setToolTipText("Clear diagnostic counters and samples. Runs, Timeline and resource history remain available.");
+        clear.addActionListener(e -> clearData()); more.menu().add(clear);
+    }
+    private void clearData() {
+        if (!viewState.prompts.confirm("Clear diagnostic data", "Clear diagnostic counters and retained samples?\nRuns, Timeline and resource history remain available.")) return;
+        log.clearDiagnostics(); freeze.setSelected(false); refresh();
     }
     private void openSamples() {
         Object selected=activeTable().selected(); LoggingQuery target=new LoggingQuery();

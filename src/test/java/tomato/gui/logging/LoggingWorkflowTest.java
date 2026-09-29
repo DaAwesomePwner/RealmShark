@@ -57,7 +57,9 @@ public class LoggingWorkflowTest {
                 assertEquals(4,tabs.getSelectedIndex()); assertEquals("1: HP_STAT",combo(view,"stat").getSelectedItem());
                 assertEquals("Any",combo(view,"packet").getSelectedItem()); assertEquals(2,table(view).getRowCount());
                 tabs.setSelectedIndex(2); assertTrue(field(view,"observedOnly",JCheckBox.class).isSelected());
-                tabs.setSelectedIndex(0); assertFalse(combo(view,"packet").getParent().isVisible());
+                // Discovery has no facets: its FilterBar has no drawer, so the facet is read through its field there.
+                tabs.setSelectedIndex(0); assertFalse(field(view,"packetFacet",JComboBox.class).getParent().isVisible());
+                assertNull(named(view,"logging-filter-bar",tomato.gui.kit.FilterBar.class).drawerContent());
                 for (int i=0;i<tabs.getTabCount();i++) {
                     tabs.setSelectedIndex(i);
                     assertNotNull(table(view).getAccessibleContext().getAccessibleName());
