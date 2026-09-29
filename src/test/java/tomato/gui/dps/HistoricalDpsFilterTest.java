@@ -96,7 +96,8 @@ public class HistoricalDpsFilterTest {
 
     private static void assertEveryMode(DpsGUI view, Set<String> expected, Set<String> highlighted, boolean unavailable) {
         JComboBox<?> mode = (JComboBox<?>) field(view, "viewMode");
-        for (int style = 0; style < 3; style++) {
+        int equipment = DpsDisplayOptions.equipmentOption;   // a static option: restored so later tests see the default
+        try { for (int style = 0; style < 3; style++) {
             DpsDisplayOptions.equipmentOption = style == 2 ? 3 : 0;
             mode.setSelectedIndex(style == 0 ? 0 : 1); DpsGUI.update();
             assertEquals("Mode " + style, expected, visibleNames(view, style));
@@ -104,7 +105,7 @@ public class HistoricalDpsFilterTest {
             JTextArea notice = (JTextArea) field(view, "filterNotice");
             assertEquals(unavailable, notice.isVisible());
             if (unavailable) assertTrue(notice.getText().contains("unavailable"));
-        }
+        } } finally { DpsDisplayOptions.equipmentOption = equipment; }
     }
 
     private static Set<String> visibleNames(DpsGUI view, int style) {

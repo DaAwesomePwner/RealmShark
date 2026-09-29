@@ -288,6 +288,13 @@ public class DpsFilterBarTest {
     }
 
     @Test public void legacyIsAnAnalystOptionAndSimpleReturnsToMeters() throws Exception {
+        int equipment = DpsDisplayOptions.equipmentOption;
+        // Legacy shows the text display unless the equipment option asks for icons (3); other tests change this static option.
+        DpsDisplayOptions.equipmentOption = 0;
+        try { legacyIsAnAnalystOption(); } finally { DpsDisplayOptions.equipmentOption = equipment; }
+    }
+
+    private void legacyIsAnAnalystOption() throws Exception {
         edt(() -> {
             TomatoData data = new TomatoData(); DpsData fight = encounter(data, "Synthetic Halls"); data.dpsData.add(fight);
             DpsGUI dps = new DpsGUI(data, null, new JPanel());
