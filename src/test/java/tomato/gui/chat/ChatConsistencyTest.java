@@ -6,6 +6,7 @@ import java.awt.*;
 import java.awt.event.ComponentEvent;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
 import javax.swing.table.TableCellRenderer;
@@ -13,6 +14,7 @@ import javax.swing.table.TableColumn;
 import javax.swing.text.BadLocationException;
 import org.junit.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import util.PropertiesManager;
@@ -41,8 +43,8 @@ public class ChatConsistencyTest {
             ChatFilters.Settings settings = filters.settings(); settings.ignoredPlayers.add(sender); filters.apply(settings, false);
             chat[0] = new ChatExplorer(() -> {}, filters, () -> "Remote whisper identities may be unavailable.");
             tomato.gui.history.ArchiveNativeSupport.drawer(find(chat[0], "chat-live-filter-bar", tomato.gui.kit.FilterBar.class), true);
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < pages.length; i++) pages[i] = i == 0 ? chat[0] : new JPanel();
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.put("chat", chat[0]);
             shell[0] = new WorkspaceShell(pages, () -> {}, true);
             JTable table = find(chat[0], "chat-messages", JTable.class);
             // JTable normally mounts this in addNotify; the fixture intentionally has no native peer.

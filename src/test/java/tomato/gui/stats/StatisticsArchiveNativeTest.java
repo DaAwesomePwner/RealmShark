@@ -11,6 +11,7 @@ import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.backend.data.TomatoData;
 import tomato.gui.history.*;
+import tomato.gui.modern.TestPages;
 import tomato.gui.stats.LootQuery.*;
 import tomato.history.*;
 import tomato.history.archive.*;
@@ -44,7 +45,7 @@ public class StatisticsArchiveNativeTest {
         Path root = history(), scratch = temp.newFolder().toPath(), output = temp.newFolder().toPath(); Memory memory = new Memory();
         try (SessionStore store = new SessionStore(root,true,"reader")) {
             ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> HistoricalStatistics.lootWorkspace(store,new LootDashboard(),scratch,memory.states));
-            JComponent shell = edt(() -> shell(workspace,8));
+            JComponent shell = edt(() -> TestPages.shell("loot",workspace));
             try {
                 edt(() -> { evidence.show(shell,"Loot live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
                 evidence.settle(); edt(() -> { evidence.capture("loot-live-default"); workspace.selectSession(SessionStore.ALL); return null; });
@@ -88,7 +89,7 @@ public class StatisticsArchiveNativeTest {
         Path root = history(), scratch = temp.newFolder().toPath(), output = temp.newFolder().toPath(); Memory memory = new Memory();
         try (SessionStore store = new SessionStore(root,true,"reader")) {
             ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> HistoricalStatistics.statisticsWorkspace(store,new StatisticsGUI(new TomatoData()),scratch,memory.states));
-            JComponent shell = edt(() -> shell(workspace,4));
+            JComponent shell = edt(() -> TestPages.shell("statistics",workspace));
             try {
                 edt(() -> { evidence.show(shell,"Statistics live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
                 evidence.settle(); edt(() -> { evidence.capture("statistics-live-default"); workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withText("native-evidence")); return null; });

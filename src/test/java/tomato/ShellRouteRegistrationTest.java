@@ -58,7 +58,7 @@ public class ShellRouteRegistrationTest {
             SwingUtilities.invokeAndWait(() -> {
                 shell.set(gui.createWorkspace());
                 assertEquals("The app lands on the first visible core destination",
-                    new tomato.gui.modern.NavLayout().landing().page(), ((tomato.gui.modern.WorkspaceShell) shell.get()).getSelectedPage());
+                    new tomato.gui.modern.NavLayout().landing().id(), ((tomato.gui.modern.WorkspaceShell) shell.get()).selectedPage());
                 Navigator navigator = Navigator.current();
                 assertNotSame(Navigator.NONE, navigator);
                 assertTrue("Loot resolves an exact visit through the analytics target",
@@ -78,17 +78,17 @@ public class ShellRouteRegistrationTest {
                 assertFalse("The list takes no payload",
                     navigator.canOpen(Route.to(Destination.CHARACTERS).withPayload(new tomato.gui.glance.character.SheetFocus(character, null))));
                 tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
-                int landing = workspace.getSelectedPage();
+                String landing = workspace.selectedPage();
                 assertTrue("Build keeps its route although the sidebar never lists it", navigator.open(Route.to(Destination.MY_INFO)));
-                assertEquals(6, workspace.getSelectedPage());
+                assertEquals("my-info", workspace.selectedPage());
                 assertTrue(navigator.open(Route.to(Destination.HOME)));
-                assertEquals(14, workspace.getSelectedPage());
-                assertTrue(navigator.back()); assertEquals(6, workspace.getSelectedPage());
-                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+                assertEquals("home", workspace.selectedPage());
+                assertTrue(navigator.back()); assertEquals("my-info", workspace.selectedPage());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
 
                 // Runs routes resolve by shape: the feed and recap targets are tried first, and routes to rows still reach the
                 // Table view's targets (a visit: the exact run's row; a query: the archive's query).
-                assertEquals(10, tomato.gui.modern.WorkspaceShell.pageOf(Destination.RUN_RECAP));
+                assertEquals("runs", tomato.gui.modern.WorkspaceShell.pageOf(Destination.RUN_RECAP));
                 assertTrue("A run recap takes one exact visit", navigator.canOpen(Route.to(Destination.RUN_RECAP).withVisit(visit)));
                 assertFalse("…and needs one", navigator.canOpen(Route.to(Destination.RUN_RECAP)));
                 assertFalse("…and nothing but the visit", navigator.canOpen(Route.to(Destination.RUN_RECAP).withVisit(visit).withPayload("focus")));
@@ -97,7 +97,7 @@ public class ShellRouteRegistrationTest {
                 tomato.gui.runs.RunsPage runs = runsPage(workspace);
                 assertNotNull("Page 10 is the Runs page", runs);
                 assertTrue(navigator.open(Route.to(Destination.RUNS).withVisit(visit)));
-                assertEquals(10, workspace.getSelectedPage());
+                assertEquals("runs", workspace.selectedPage());
                 assertTrue("A Runs route to a row still opens the Table view on it", runs.feed().tableShown());
                 assertFalse(runs.recapShown());
                 assertTrue(navigator.open(Route.to(Destination.RUN_RECAP).withVisit(visit)));
@@ -109,14 +109,14 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.back()); assertTrue("Back returns to the recap", runs.recapShown());
                 assertTrue(navigator.back()); assertFalse("…then to the Table view", runs.recapShown());
                 assertTrue(runs.feed().tableShown());
-                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
 
                 // P5b: page 10 is Runs & DPS; the live meter and Resources & buffs moved there from page 7, which only points there.
                 tomato.gui.runs.RunsDpsPage runsDps = find(workspace, tomato.gui.runs.RunsDpsPage.class);
                 assertNotNull("Page 10 is the Runs & DPS page", runsDps);
                 assertSame("…whose Feed is the Runs page", runs, runsDps.feed());
-                assertEquals(10, tomato.gui.modern.WorkspaceShell.pageOf(Destination.ENCOUNTER));
-                assertEquals(10, tomato.gui.modern.WorkspaceShell.pageOf(Destination.RESOURCES));
+                assertEquals("runs", tomato.gui.modern.WorkspaceShell.pageOf(Destination.ENCOUNTER));
+                assertEquals("runs", tomato.gui.modern.WorkspaceShell.pageOf(Destination.RESOURCES));
                 assertNotNull("Page 7 points to the Live meter", find(workspace, tomato.gui.dps.DpsMovedPanel.class));
                 assertTrue("A plain ENCOUNTER route is the Live meter's", navigator.canOpen(Route.to(Destination.ENCOUNTER)));
                 for (tomato.gui.runs.RunsTab tab : tomato.gui.runs.RunsTab.values())
@@ -126,19 +126,19 @@ public class ShellRouteRegistrationTest {
                 assertFalse("A tab route carries nothing else",
                     navigator.canOpen(Route.to(Destination.RUNS).withVisit(visit).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
                 assertTrue(navigator.open(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
-                assertEquals(10, workspace.getSelectedPage());
+                assertEquals("runs", workspace.selectedPage());
                 assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, runsDps.selectedTab());
                 assertTrue(navigator.open(Route.to(Destination.ENCOUNTER)));
                 assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, runsDps.selectedTab());
                 assertTrue(navigator.back());
                 assertEquals("Back returns to the tab left", tomato.gui.runs.RunsTab.RECORDINGS, runsDps.selectedTab());
-                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
 
                 // P5b Task 12: the Dungeons tab holds the cards; a Feed route with a dungeon (the cards' Show runs) shows the Feed's
                 // cards filtered to that canonical dungeon, and Back returns to Dungeons.
                 assertNotNull("The Dungeons tab holds the cards", find(runsDps, tomato.gui.runs.DungeonsView.class));
                 assertTrue(navigator.open(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS))));
-                assertEquals(10, workspace.getSelectedPage());
+                assertEquals("runs", workspace.selectedPage());
                 assertEquals(tomato.gui.runs.RunsTab.DUNGEONS, runsDps.selectedTab());
                 assertTrue(navigator.open(Route.to(Destination.RUNS).withPayload(new tomato.gui.runs.RunsFocus(tomato.gui.runs.RunsTab.FEED, "Lost Halls"))));
                 assertEquals(tomato.gui.runs.RunsTab.FEED, runsDps.selectedTab());
@@ -146,7 +146,7 @@ public class ShellRouteRegistrationTest {
                 assertEquals("Lost Halls", runs.feed().query().map());
                 assertTrue(navigator.back());
                 assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, runsDps.selectedTab());
-                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
             });
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> assertSame(Navigator.NONE, Navigator.current()));

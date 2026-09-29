@@ -252,19 +252,19 @@ public class BuildTabTest {
                 home.apply(HomeModels.populated(System.currentTimeMillis()));
                 Navigator navigator = Navigator.current();
                 for (String entry : new String[]{"MY_INFO route", "Alt+7", "Settings search", "Home Build", "Build moved button"}) {
-                    w.shell.select(14);
+                    w.shell.select("home");
                     switch (entry) {
                         case "MY_INFO route": assertTrue(navigator.open(Route.to(Destination.MY_INFO))); break;
-                        case "Alt+7": w.shell.getActionMap().get("page-6").actionPerformed(null); break;
+                        case "Alt+7": w.shell.getActionMap().get("page-my-info").actionPerformed(null); break;
                         case "Settings search": assertTrue(ActionRegistry.application().search("build.open").get(0).open()); break;
                         case "Home Build": named(home, "home-build", AbstractButton.class).doClick(); break;
                         default: named(moved, "build-moved-open", AbstractButton.class).doClick();
                     }
-                    assertEquals(entry + " opens Characters", 3, w.shell.getSelectedPage());
+                    assertEquals(entry + " opens Characters", "characters", w.shell.selectedPage());
                     assertEquals(entry + " opens this character's sheet", w.key, sheet[0].key());
                     assertEquals(entry + " selects Build", "build", sheet[0].selectedTab());
                     assertTrue(entry + ": Back is available", navigator.back());
-                    assertEquals(entry + ": Back returns to Home", 14, w.shell.getSelectedPage());
+                    assertEquals(entry + ": Back returns to Home", "home", w.shell.selectedPage());
                 }
             });
             await(() -> "Sample".equals(named(sheet[0], "character-sheet-name", JLabel.class).getText())); // built off the EDT
@@ -289,14 +289,14 @@ public class BuildTabTest {
     @Test public void withoutAnyCharacterBuildLandsOnTheBuildMovedPage() throws Exception {
         try (Workspace w = new Workspace(temp, false)) {
             SwingUtilities.invokeAndWait(() -> {
-                w.shell.select(14);
+                w.shell.select("home");
                 assertTrue(Navigator.current().open(Route.to(Destination.MY_INFO)));
-                assertEquals(6, w.shell.getSelectedPage());
+                assertEquals("my-info", w.shell.selectedPage());
                 BuildMovedPanel moved = find(w.shell, BuildMovedPanel.class);
                 moved.refresh();
                 assertFalse("Nothing to open yet", named(moved, "build-moved-open", AbstractButton.class).isEnabled());
                 assertTrue(Navigator.current().back());
-                assertEquals(14, w.shell.getSelectedPage());
+                assertEquals("home", w.shell.selectedPage());
             });
         }
     }

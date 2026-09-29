@@ -2,7 +2,7 @@ package tomato.gui.logging;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
+import java.util.Map;
 import javax.swing.*;
 import org.junit.After;
 import org.junit.Rule;
@@ -11,6 +11,7 @@ import packets.PacketType;
 import packets.incoming.NewTickPacket;
 import packets.packetcapture.logger.DiscoveryLog;
 import packets.reader.BufferReader;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import ui.VisualEvidence;
@@ -37,18 +38,18 @@ public class WaveThreeEvidenceTest {
             log.setEnabled(false);
             LoggingGUI logging = edt(() -> new LoggingGUI(log, LoggingStateTestSupport.memoryStore()));
             WorkspaceShell shell = edt(() -> {
-                JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-                pages[9] = logging;
+                Map<String, JComponent> pages = TestPages.placeholders();
+                pages.put("logging", logging);
                 WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic logging must not capture"), true);
                 ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                 navigator.register(new LoggingRouteTarget(logging));
-                created.select(10); return created;
+                created.select("runs"); return created;
             });
             JDialog[] coverage = new JDialog[1];
             try {
                 assertTrue(edt(() -> Navigator.current().open(Route.to(Destination.LOGGING).withPayload(LoggingRouteTarget.issuesFor(Destination.RUNS)))));
                 wideAndCompact(evidence, shell, "logging-packet-issues-route", () -> { try { return snapshot(logging) != null; } catch (Exception e) { throw new AssertionError(e); } }, () -> {
-                    assertEquals(9, shell.getSelectedPage());
+                    assertEquals("logging", shell.selectedPage());
                     assertTrue(logging.captureViewState().tabs.get("packets").query.issues);
                     assertShows(shell, "Back to Runs & DPS");
                     assertShows(logging, "Collection: paused");

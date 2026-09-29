@@ -73,7 +73,7 @@ public class TomatoGUI {
     /** The run feed with {@link #runsWorkspace} as its Table view: the Feed tab of {@link #runsDps}. */
     private static tomato.gui.runs.RunsPage runsPage;
     /**
-     * Page 10, Runs & DPS: the feed ({@link #runsPage}), the per-dungeon cards (Dungeons), the single DPS meter (Live meter) and
+     * Runs & DPS (the {@code runs} page): the feed ({@link #runsPage}), the per-dungeon cards (Dungeons), the single DPS meter (Live meter) and
      * the encounter library (Recordings).
      */
     private static tomato.gui.runs.RunsDpsPage runsDps;
@@ -118,7 +118,7 @@ public class TomatoGUI {
 
         menuBar = new TomatoMenuBar();
         notifications = new tomato.gui.notifications.NotificationsGUI();
-        // Settings (page 13) hosts the existing Notifications page unchanged, beside General and Appearance.
+        // Settings hosts the existing Notifications page unchanged, beside General and Appearance.
         settings = new SettingsPage(notifications, () -> notifications.selectSection(null), new GeneralSection(),
             new AppearanceSection(TomatoGUI::refreshContentFonts));
 
@@ -133,7 +133,7 @@ public class TomatoGUI {
         runsWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.RUNS);
         // The run feed opens on the saved-run cards; the archive workspace is kept whole as its Table view.
         runsPage = new tomato.gui.runs.RunsPage(runsWorkspace, AppHistory::store);
-        // Runs & DPS (page 10, spec §6.3): the feed, the per-dungeon cards, the single DPS meter and the encounter library are tabs
+        // Runs & DPS (spec §6.3): the feed, the per-dungeon cards, the single DPS meter and the encounter library are tabs
         // of one page. The library is the Recordings tab, no longer a modal dialog: the meter's library button opens it through
         // the navigator, so Back returns to the meter. Their open actions are wired once the navigator exists (below).
         runsDps = new tomato.gui.runs.RunsDpsPage(runsPage, dpsPanel);
@@ -152,16 +152,24 @@ public class TomatoGUI {
         JComponent timelineWorkspace = ActivityPanel.workspace(DiscoveryLog.INSTANCE, ActivityPanel.Mode.TIMELINE);
         // Home reads its sources on its own refresher thread while it is showing (S9); AppHistory::store also sees a store opened later.
         home = new HomePage(new tomato.gui.glance.home.LiveHomeSources(data, AppHistory::store), homeActions());
-        shell = new WorkspaceShell(new JComponent[] {
-            chatPanel.workspace(), keypopPanel.workspace(), inspectWorkspace,
-            characterPanel, statisticsWorkspace,
-            questPanel, new tomato.gui.myinfo.BuildMovedPanel(TomatoGUI::openBuild, () -> tomato.gui.myinfo.BuildRoute.key(data) != null),
-            new tomato.gui.dps.DpsMovedPanel(TomatoGUI::openLiveMeter, TomatoGUI::openRecordings), // page 7 only points to Runs & DPS
-            lootWorkspace,
-            logging,
-            runsDps,
-            timelineWorkspace,
-            new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()), settings, home},
+        // Pages by NavEntry ID, built in their historical order.
+        java.util.Map<String, JComponent> pages = new java.util.LinkedHashMap<>();
+        pages.put("chat", chatPanel.workspace());
+        pages.put("key-pops", keypopPanel.workspace());
+        pages.put("party", inspectWorkspace);
+        pages.put("characters", characterPanel);
+        pages.put("statistics", statisticsWorkspace);
+        pages.put("quests", questPanel);
+        pages.put("my-info", new tomato.gui.myinfo.BuildMovedPanel(TomatoGUI::openBuild, () -> tomato.gui.myinfo.BuildRoute.key(data) != null));
+        pages.put("dps-logger", new tomato.gui.dps.DpsMovedPanel(TomatoGUI::openLiveMeter, TomatoGUI::openRecordings)); // only points to Runs & DPS
+        pages.put("loot", lootWorkspace);
+        pages.put("logging", logging);
+        pages.put("runs", runsDps);
+        pages.put("timeline", timelineWorkspace);
+        pages.put("bridge-review", new tomato.gui.bridge.BridgeReviewGUI(tomato.bridge.BridgeService.getInstance()));
+        pages.put("settings", settings);
+        pages.put("home", home);
+        shell = new WorkspaceShell(pages,
             TomatoMenuBar::togglePacketSniffer, Tomato.isPreview(), Tomato::chooseAssets, Tomato::retryAssets, TomatoGUI::browseSavedHistory);
         mainPanel = shell;
         navigator = shell.createNavigator();
@@ -169,7 +177,7 @@ public class TomatoGUI {
         for (RouteTarget target : characterPanel.routeTargets()) navigator.register(target);
         // Quests: a plain route (Home's Quests card) opens the Board, QuestsFocus.PLANNER the Planner; Back returns to the tab left.
         navigator.register(new tomato.gui.quest.QuestsRouteTarget(questPanel));
-        // Every page-10 target is a Runs & DPS target (RunsDpsPage.routes, tabTarget, liveMeterTarget): opening brings its tab
+        // Every target of the runs page is a Runs & DPS target (RunsDpsPage.routes, tabTarget, liveMeterTarget): opening brings its tab
         // forward, and each captures and restores the page's one Back state, the tab in front and that tab's owner state, since
         // the navigator captures one target per page. Today's registration order is kept.
         tomato.gui.runs.RunsDpsPage page = runsDps;
@@ -178,14 +186,15 @@ public class TomatoGUI {
         navigator.register(page.liveMeterTarget(() -> page.tabs().component().requestFocusInWindow()));
         registerRetainedPage(Destination.HOME);
         // Build is a tab on the character sheet (spec §6.2). The Build route, Settings search, the Home hero and Alt+7 open it for
-        // the character in game, else the most recent one. Page 6 only says that Build moved, for when no character exists yet.
+        // the character in game, else the most recent one. The my-info page only says that Build moved, for when no character
+        // exists yet.
         navigator.register(new tomato.gui.myinfo.BuildRoute(() -> tomato.gui.myinfo.BuildRoute.key(data)));
-        shell.getActionMap().put("page-6", new AbstractAction() {
+        shell.getActionMap().put("page-my-info", new AbstractAction() {
             public void actionPerformed(java.awt.event.ActionEvent e) { openBuild(); }
         });
-        // The live meter is the Live meter tab of Runs & DPS; page 7 only points there. Alt+8 opens that tab through the navigator
-        // (a Back entry, as Alt+7 adds), and the target moves focus to the tab strip once the page shows.
-        shell.getActionMap().put("page-7", new AbstractAction() {
+        // The live meter is the Live meter tab of Runs & DPS; the dps-logger page only points there. Alt+8 opens that tab through
+        // the navigator (a Back entry, as Alt+7 adds), and the target moves focus to the tab strip once the page shows.
+        shell.getActionMap().put("page-dps-logger", new AbstractAction() {
             public void actionPerformed(java.awt.event.ActionEvent e) { openLiveMeter(); }
         });
         // Runs routes to rows (a visit or a query) bring the Feed tab and its Table view forward; Back restores the view it left.
@@ -223,7 +232,7 @@ public class TomatoGUI {
         // A feed card opens its exact run's recap; Back (or "‹ Runs") returns to the feed as it was left.
         runsPage.feed().onOpen(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
         wireRunsTabs(recordings, dungeons, (DpsGUI) dpsPanel);
-        // The app opens on the first visible core destination; shells built directly keep page 0.
+        // The app opens on the first visible core destination; shells built directly keep Chat.
         shell.selectLanding();
         characterPanel.bindNavigator(navigator);
 
@@ -274,7 +283,7 @@ public class TomatoGUI {
         return note;
     }
 
-    /** Page 13 owns both the Settings section and the nested notification view. Back restores both. */
+    /** The settings page owns both the Settings section and the nested notification view. Back restores both. */
     private static void registerSettingsNotifications(ShellNavigator navigator, SettingsPage page,
             tomato.gui.notifications.NotificationsGUI notifications) {
         RouteTarget delegate = tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
@@ -518,7 +527,7 @@ public class TomatoGUI {
             // Explicit navigation to the archive: the Feed tab (shown again if hidden), then its Table view, before the page shows.
             if (runsDps != null) runsDps.bring(tomato.gui.runs.RunsTab.FEED);
             if (runsPage != null) runsPage.showTable();
-            if (shell != null) shell.select(10);
+            if (shell != null) shell.select("runs");
             if (runsWorkspace instanceof ArchiveWorkspace)
                 ((ArchiveWorkspace<?, ?, ?>) runsWorkspace).selectSession(SessionStore.ALL);
             else if (runsWorkspace instanceof tomato.gui.history.SessionPanel)
@@ -574,7 +583,7 @@ public class TomatoGUI {
         registerSearch("combat.settings", "Combat history (auto-save and full detail)", "combat dps encounter auto save full detail retention storage",
             "Settings › General", "App-folder realmShark.properties", () -> openSettings(SettingsPage.GENERAL));
         registerSearch("bridge.review", "Guild Bridge settings and saved review", "sharing bridge guild delivery", "Bridge Review",
-            "Bridge settings and journal use their configured local paths", () -> shell.select(12));
+            "Bridge settings and journal use their configured local paths", () -> shell.select("bridge-review"));
         registerSearch("plans.characters", "Character and exalt goals", "maxing potions character goals equipment death", "Characters",
             "Characters/plans.json; death notes in Characters/journal.json", () -> characterPanel.openGoals());
         registerSearch("plans.quests", "Quest requirements and manual stock", "quest plan held reservations repeats", "Quests",
@@ -618,7 +627,7 @@ public class TomatoGUI {
             () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)));
     }
 
-    /** Alt+7 and page 6's button: the Build route (the sheet's Build tab, or page 6 while no character exists). */
+    /** Alt+7 and the my-info page's button: the Build route (the sheet's Build tab, or my-info while no character exists). */
     private static void openBuild() {
         if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO));
     }
@@ -636,11 +645,12 @@ public class TomatoGUI {
 
     /**
      * Settings search and the Dungeons Analysis link: the Statistics page (out of the sidebar), through the navigator so Back
-     * returns to where the link was used. Without saved history no Statistics route target exists, so page 4 is selected as it is.
+     * returns to where the link was used. Without saved history no Statistics route target exists, so the statistics page is
+     * selected as it is.
      */
     private static void openStatistics() {
         if (navigator != null && navigator.open(tomato.gui.route.Route.to(Destination.STATISTICS))) return;
-        if (shell != null) shell.select(4);
+        if (shell != null) shell.select("statistics");
     }
 
     /** Settings search and the Statistics banner: the Dungeons tab of Runs & DPS, through the navigator (Back returns). */
@@ -681,7 +691,7 @@ public class TomatoGUI {
     /**
      * Opens chat message ping window.
      */
-    /** Opens Settings (shell page 13) on one of its sections, such as {@link SettingsPage#APPEARANCE}. */
+    /** Opens Settings on one of its sections, such as {@link SettingsPage#APPEARANCE}. */
     public static void openSettings(String section) {
         if (shell != null) shell.select(WorkspaceShell.pageOf(Destination.NOTIFICATIONS));
         if (settings != null) settings.showSection(section);

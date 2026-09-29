@@ -5,6 +5,7 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -17,6 +18,7 @@ import tomato.backend.data.*;
 import tomato.gui.glance.character.CharacterSheet;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.stats.Formatters;
@@ -82,17 +84,16 @@ public class CharacterJournalLayoutTest {
         if (frame == null && shell != null && shell.isDisplayable()) shell.removeNotify();
         ContentStyle.setBodyFont(new Font("Segoe UI", Font.PLAIN, font));
         ContentStyle.applyFontDefaults();
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-        for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
+        Map<String, JComponent> pages = TestPages.placeholders();
         // Production Roster / Exalts / Pets tabs, not just the journal as a frame's content.
-        pages[3] = new CharacterPanelGUI(new TomatoData() {
+        pages.put("characters", new CharacterPanelGUI(new TomatoData() {
             @Override public CharacterJournal characterJournal() { return journal; }
-        });
-        panel = find(pages[3], CharacterJournalGUI.class);
-        view = find(pages[3], CharacterRosterView.class); sheet = view.sheet();
+        }));
+        panel = find(pages.get("characters"), CharacterJournalGUI.class);
+        view = find(pages.get("characters"), CharacterRosterView.class); sheet = view.sheet();
         view.bindNavigator(tomato.gui.route.Navigator.NONE); // Enter switches cards in place even if another test left a navigator installed.
         shell = new WorkspaceShell(pages, () -> {}, false);
-        shell.select(3);
+        shell.select("characters");
         ContentStyle.refreshFonts(shell);
     }
 

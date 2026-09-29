@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -19,7 +18,6 @@ import org.junit.rules.ErrorCollector;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.Motion;
 import tomato.gui.kit.OverflowMenu;
-import tomato.gui.modern.WorkspaceShell;
 import tomato.history.archive.*;
 import ui.VisualEvidence;
 import util.PreferencesStore;
@@ -94,13 +92,6 @@ public final class ArchiveNativeSupport {
             queue.postEvent(new java.awt.event.KeyEvent(target, java.awt.event.KeyEvent.KEY_RELEASED, when, 0, keyCode, java.awt.event.KeyEvent.CHAR_UNDEFINED));
             delivered.get(5, TimeUnit.SECONDS);
         } finally { KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(observer); }
-    }
-
-    public static WorkspaceShell shell(JComponent content, int page) {
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-        pages[page] = content;
-        WorkspaceShell shell = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
-        shell.select(page); return shell;
     }
 
     public static void matrix(VisualEvidence evidence, ErrorCollector errors, JComponent root, String name,

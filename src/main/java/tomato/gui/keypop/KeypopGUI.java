@@ -126,11 +126,11 @@ public class KeypopGUI extends JPanel {
         tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
         if (navigator.canOpen(route) && navigator.open(route)) return "Showing " + exact + " in Notifications. No choice was changed.";
         tomato.gui.modern.WorkspaceShell shell = source == null ? null : (tomato.gui.modern.WorkspaceShell)SwingUtilities.getAncestorOfClass(tomato.gui.modern.WorkspaceShell.class, source);
-        int origin = shell == null ? -1 : shell.getSelectedPage();
+        String origin = shell == null ? null : shell.selectedPage();
         tomato.gui.TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS);
         tomato.gui.notifications.NotificationsGUI page = tomato.gui.notifications.NotificationsGUI.displayed();
         if (page == null) return "Notifications is unavailable here, so " + exact + " was not shown. No choice was changed.";
-        page.focusDungeon(exact, origin < 0 ? null : () -> shell.select(origin));
+        page.focusDungeon(exact, origin == null ? null : () -> shell.select(origin));
         return "Showing " + exact + " in Notifications. No choice was changed.";
     }
 

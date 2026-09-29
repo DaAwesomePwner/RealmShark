@@ -11,8 +11,8 @@ import util.PropertiesManager;
 
 /**
  * The user's sidebar arrangement over the fixed destinations: the core order (including pinned
- * Advanced entries), hidden entries and whether the Advanced group is open. Page indices never change
- * here. Saved values are comma-separated NavEntry IDs; IDs this version does not know, and unlisted
+ * Advanced entries), hidden entries and whether the Advanced group is open. Saved values are
+ * comma-separated NavEntry IDs; IDs this version does not know, and unlisted
  * destinations (Build, Statistics, DPS Logger), are ignored and dropped on the next write. The one
  * exception is {@code dps-logger}, saved beside a hidden {@code runs} (see {@code savedHidden()}).
  * Settings is never hidden, and at least one core entry always stays visible. Use on the EDT.

@@ -36,7 +36,7 @@ public class RouteBackRestoreTest {
             ShellNavigatorTest.Pages pages = new ShellNavigatorTest.Pages();
             ShellNavigator navigator = edt(() -> pages.navigator(5));
             ArchiveRouteTarget<Event, Facets, Sort> target = new ArchiveRouteTarget<>(Destination.RUNS, workspace);
-            edt(() -> { navigator.register(target); pages.selected = 10; workspace.changeQuery(query(id).withFacets(new Facets(3))); return null; });
+            edt(() -> { navigator.register(target); pages.selected = "runs"; workspace.changeQuery(query(id).withFacets(new Facets(3))); return null; });
             await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.displayedPage().matches == 20);
             edt(() -> { workspace.selectPage(2); return null; });
             await(() -> !workspace.loading() && workspace.displayedPage().page == 2);
@@ -69,7 +69,7 @@ public class RouteBackRestoreTest {
                 assertEquals(ref, workspace.state().anchor); assertEquals(4, workspace.state().anchorOffset);
                 assertEquals(Arrays.asList(13, 14, 15, 16, 17), values(workspace.displayedPage()));
                 assertEquals(1, client.table.getSelectedRow());
-                assertEquals(10, pages.selected);
+                assertEquals("runs", pages.selected);
                 assertFalse(navigator.canGoBack());
                 return null;
             });

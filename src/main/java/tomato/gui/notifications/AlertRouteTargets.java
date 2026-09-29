@@ -16,7 +16,7 @@ public final class AlertRouteTargets {
 
     /**
      * {@link Destination#NOTIFICATIONS}: accepts no payload or a {@link NotificationFocus}.
-     * {@code showPage} selects the Notifications shell page (e.g. {@code () -> shell.select(13)}).
+     * {@code showPage} selects the Notifications shell page (e.g. {@code () -> shell.select("settings")}).
      */
     public static RouteTarget notifications(NotificationsGUI page, Runnable showPage) {
         return new RouteTarget() {

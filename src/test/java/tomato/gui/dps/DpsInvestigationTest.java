@@ -31,7 +31,7 @@ import static tomato.gui.activity.ActivityArchiveUiTest.*;
 /** COMBAT-3 link status/actions and COMBAT-4 paged event explorer over synthetic encounters; no capture. */
 public class DpsInvestigationTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
-    private final int[] page = {0};
+    private final String[] page = {"chat"};
 
     @After public void uninstall() throws Exception { edt(() -> { Navigator.install(null); return null; }); }
 
@@ -170,7 +170,7 @@ public class DpsInvestigationTest {
                     assertTrue(text(dps).contains("Open Timeline unavailable"));
                     button(dps, "dps-open-run").doClick(); return null;
                 });
-                assertEquals(10, page[0]);
+                assertEquals("runs", page[0]);
                 assertEquals("The second same-name encounter opens only its own visit", b.id, edt(() -> runs.state().query.facets().visitId));
                 await(() -> !runs.loading() && runs.displayedPage() != null && runs.displayedPage().matches == 1);
                 assertEquals(b.id, edt(() -> runs.displayedPage().rows.get(0).value.visitId));

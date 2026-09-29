@@ -1,5 +1,6 @@
 package tomato.gui.modern;
 
+import java.awt.event.KeyEvent;
 import java.util.*;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -19,36 +20,34 @@ public class NavLayoutTest {
         NavLayout layout = layout();
         assertEquals(Arrays.asList("home", "characters", "runs", "loot", "quests", "chat"), ids(layout.core()));
         assertEquals(Arrays.asList("party", "key-pops", "timeline", "logging", "bridge-review"), ids(layout.advanced()));
-        assertEquals(13, layout.settings().page());
+        assertEquals("settings", layout.settings().id());
         assertFalse(layout.advancedOpen());
-        assertEquals(14, layout.landing().page());
+        assertEquals("home", layout.landing().id());
         assertTrue("Reading never writes", store.isEmpty());
-        String[] titles = NavEntry.titles();
-        assertEquals(15, titles.length);
-        assertEquals("Party", titles[2]);
-        assertEquals("Quests", titles[5]);
-        assertEquals("Build", titles[6]);
-        assertEquals("Settings", titles[13]);
-        assertEquals("Home", titles[14]);
-        Set<Integer> pages = new HashSet<>();
+        assertEquals(15, NavEntry.defaults().size());
+        assertEquals("Party", TestPages.title("party"));
+        assertEquals("Quests", TestPages.title("quests"));
+        assertEquals("Build", TestPages.title("my-info"));
+        assertEquals("Settings", TestPages.title("settings"));
+        assertEquals("Home", TestPages.title("home"));
+        Set<Integer> shortcuts = new HashSet<>();
         Set<String> seen = new HashSet<>();
         for (NavEntry entry : NavEntry.defaults()) {
-            assertTrue("Unique page " + entry.page(), pages.add(entry.page()));
+            assertTrue("Unique shortcut " + entry.shortcut(), shortcuts.add(entry.shortcut()));
             assertTrue("Unique ID " + entry.id(), seen.add(entry.id()));
-            assertSame(entry, NavEntry.forPage(entry.page()));
             assertSame(entry, NavEntry.forId(entry.id()));
         }
-        assertEquals(15, pages.size());
+        assertEquals(15, shortcuts.size());
         NavEntry home = NavEntry.forId("home"), build = NavEntry.forId("my-info");
         assertSame("Home leads the defaults", home, NavEntry.defaults().get(0));
         assertEquals(LineIcon.HOME, home.icon());
         assertEquals(NavEntry.Group.CORE, home.group());
-        assertEquals("Build keeps My Info's ID and page", 6, build.page());
+        assertEquals("Build keeps My Info's ID and Alt+7", KeyEvent.VK_7, build.shortcut());
         assertEquals(NavEntry.Group.UNLISTED, build.group());
         assertFalse(layout.inCore("my-info"));
         assertFalse(ids(layout.advancedOrder()).contains("my-info"));
         assertNull(NavEntry.forId("no-such-page"));
-        try { new NavEntry("Bad Id", 0, "Bad", "Bad", 0, NavEntry.Group.CORE); fail(); } catch (IllegalArgumentException expected) { }
+        try { new NavEntry("Bad Id", "Bad", "Bad", 0, NavEntry.Group.CORE, 0); fail(); } catch (IllegalArgumentException expected) { }
     }
 
     @Test public void reorderingAndHidingPersistAndReload() {
@@ -160,21 +159,20 @@ public class NavLayoutTest {
     @Test public void statisticsAndDpsLoggerLeaveTheSidebarAndPageTenIsRunsAndDps() {
         NavLayout layout = layout();
         NavEntry runs = NavEntry.forId("runs"), dps = NavEntry.forId("dps-logger"), statistics = NavEntry.forId("statistics");
-        assertEquals(10, runs.page());
+        assertEquals(KeyEvent.VK_R, runs.shortcut());
         assertEquals("Runs & DPS", runs.title());
         assertEquals(LineIcon.SWORDS, runs.icon());
         assertEquals("Review runs, dungeons, live damage and recordings.", runs.description());
         assertEquals(NavEntry.Group.CORE, runs.group());
-        assertEquals("DPS Logger keeps its ID, page and title", 7, dps.page());
+        assertEquals("DPS Logger keeps its ID, Alt key and title", KeyEvent.VK_8, dps.shortcut());
         assertEquals("DPS Logger", dps.title());
         assertEquals(NavEntry.Group.UNLISTED, dps.group());
-        assertEquals("Statistics keeps its ID, page and title", 4, statistics.page());
+        assertEquals("Statistics keeps its ID, Alt key and title", KeyEvent.VK_5, statistics.shortcut());
         assertEquals("Statistics", statistics.title());
         assertEquals(NavEntry.Group.UNLISTED, statistics.group());
-        String[] titles = NavEntry.titles();
-        assertEquals("Runs & DPS", titles[10]);
-        assertEquals("DPS Logger", titles[7]);
-        assertEquals("Statistics", titles[4]);
+        assertEquals("Runs & DPS", TestPages.title("runs"));
+        assertEquals("DPS Logger", TestPages.title("dps-logger"));
+        assertEquals("Statistics", TestPages.title("statistics"));
         List<NavEntry> defaults = NavEntry.defaults();
         assertEquals("Unlisted pages form the tail of the defaults", Arrays.asList("my-info", "dps-logger", "statistics"),
             ids(defaults.subList(defaults.size() - 3, defaults.size())));

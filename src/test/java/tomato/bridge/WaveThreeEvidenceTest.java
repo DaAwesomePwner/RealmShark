@@ -50,10 +50,10 @@ public class WaveThreeEvidenceTest {
     }
 
     private static JComponent shell(BridgeReviewGUI panel) {
-        JComponent[] pages = new JComponent[tomato.gui.modern.WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-        pages[12] = panel;
+        Map<String, JComponent> pages = tomato.gui.modern.TestPages.placeholders();
+        pages.put("bridge-review", panel);
         tomato.gui.modern.WorkspaceShell shell = new tomato.gui.modern.WorkspaceShell(pages, () -> fail("Synthetic Bridge must not capture"), true);
-        shell.select(12); return shell;
+        shell.select("bridge-review"); return shell;
     }
 
     private static JTextArea area(BridgeReviewGUI panel, String name) { return named(panel, name, JTextArea.class); }

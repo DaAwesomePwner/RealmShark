@@ -27,6 +27,7 @@ import tomato.gui.history.ArchiveNativeSupport;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.OverflowMenu;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.runs.RunsDpsPage;
 import tomato.gui.runs.RunsPage;
@@ -687,10 +688,10 @@ public class DpsFilterBarTest {
     /** A synthetic shell with {@code page} as page 10, its Live meter tab in front, showing {@code shown}. */
     private static WorkspaceShell shell(RunsDpsPage page, DpsGUI dps, DpsData shown) throws Exception {
         return edt(() -> {
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-            pages[10] = page;
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.put("runs", page);
             WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
-            created.select(10); page.bring(RunsTab.LIVE_METER);
+            created.select("runs"); page.bring(RunsTab.LIVE_METER);
             assertTrue(dps.showEncounter(dps.encounters().find(shown).id));
             return created;
         });

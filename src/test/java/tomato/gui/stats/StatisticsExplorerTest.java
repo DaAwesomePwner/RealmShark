@@ -198,9 +198,9 @@ public class StatisticsExplorerTest {
             tabs.setSelectedIndex(3);
             named(panel, "dungeon-views", JTabbedPane.class).setSelectedIndex(2);
             render(panel, "statistics-dungeon-loot", 1040, 710);
-            JComponent[] pages = new JComponent[tomato.gui.modern.WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-            pages[4] = panel; pages[8] = loot;
-            tomato.gui.modern.WorkspaceShell shell = new tomato.gui.modern.WorkspaceShell(pages, () -> {}, true); shell.select(4);
+            Map<String, JComponent> pages = tomato.gui.modern.TestPages.placeholders();
+            pages.put("statistics", panel); pages.put("loot", loot);
+            tomato.gui.modern.WorkspaceShell shell = new tomato.gui.modern.WorkspaceShell(pages, () -> {}, true); shell.select("statistics");
             for (int i = 0; i < tabs.getTabCount(); i++) {
                 tabs.setSelectedIndex(i); render(shell, "statistics-workspace-" + i, 1240, 800);
                 render(shell, "statistics-workspace-compact-" + i, 760, 620);

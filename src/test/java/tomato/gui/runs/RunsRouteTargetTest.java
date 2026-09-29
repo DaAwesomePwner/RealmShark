@@ -36,7 +36,7 @@ import static tomato.gui.runs.RunFeedViewTest.named;
  * targets accept, opening the recap (loading first, built off the EDT, Damage expanded), the newest-request guard, the in-place
  * recording choice, Back to the feed or the Table view exactly as left (with the workspace's own state), "‹ Runs", a recap opened
  * from another page that Back leaves, plain Runs routes, restore never showing a view the state did not show, unreadable runs.
- * A real ShellNavigator with WorkspaceShell.pageOf; fake Home (14), Loot (8) and Table view targets. Preferences are isolated or
+ * A real ShellNavigator with WorkspaceShell.pageOf; fake Home, Loot and Table view targets. Preferences are isolated or
  * restored (ui.collapse.run-recap-*, the feed's view in a map).
  */
 public class RunsRouteTargetTest {
@@ -94,7 +94,7 @@ public class RunsRouteTargetTest {
 
     /** One Runs page with its targets registered as TomatoGUI registers them, on a real navigator starting on Home (14). */
     final class Shell {
-        final int[] selected = {14};
+        final String[] selected = {"home"};
         final ShellNavigator navigator = new ShellNavigator(() -> selected[0], page -> selected[0] = page, WorkspaceShell::pageOf, ShellNavigator.DEFAULT_CAPACITY);
         final Fake home = new Fake(Destination.HOME, null), loot = new Fake(Destination.LOOT, "loot-state"), table = new Fake(Destination.RUNS, "workspace-1");
         final RunsPage page;
@@ -138,7 +138,7 @@ public class RunsRouteTargetTest {
 
     @Test public void theRecapTakesOnlyAnExactVisitAndPlainRunsOnlyNothing() throws Exception {
         Shell shell = new Shell();
-        assertEquals("The recap is a card on the Runs page", 10, WorkspaceShell.pageOf(Destination.RUN_RECAP));
+        assertEquals("The recap is a card on the Runs page", "runs", WorkspaceShell.pageOf(Destination.RUN_RECAP));
         edt(() -> {
             assertTrue(shell.recap.accepts(recap(RunFixtures.A1)));
             assertFalse("A recap needs a run", shell.recap.accepts(Route.to(Destination.RUN_RECAP)));
@@ -175,14 +175,14 @@ public class RunsRouteTargetTest {
         shell.builds.gate = new CountDownLatch(1);
         assertTrue(shell.open(recap(RunFixtures.A1)));
         edt(() -> {
-            assertEquals("The recap opens on the Runs page", 10, shell.selected[0]);
+            assertEquals("The recap opens on the Runs page", "runs", shell.selected[0]);
             assertTrue(shell.page.recapShown());
             assertTrue("Loading first; nothing of another run shows", shell.view().loading());
             assertEquals(RunFixtures.A1, shell.view().ref());
             Collapsible damage = named(shell.view(), "run-recap-damage", Collapsible.class);
             assertTrue("Opening a run is explicit navigation to its damage breakdown", damage.expanded());
             assertEquals("true", PropertiesManager.getProperty(Collapsible.PREFIX + "run-recap-damage"));
-            assertEquals("Back returns to Home", 14, shell.navigator.backPage());
+            assertEquals("Back returns to Home", "home", shell.navigator.backPage());
             return null;
         });
         shell.builds.gate.countDown();
@@ -195,12 +195,12 @@ public class RunsRouteTargetTest {
             assertEquals(new RunsState(true, RunFixtures.A1, null, false, "workspace-1"), shell.recap.captureState());
 
             assertTrue(shell.navigator.back());
-            assertEquals(14, shell.selected[0]);
+            assertEquals("home", shell.selected[0]);
             assertFalse("Back left the Runs page, so it shows what it showed before: the feed", shell.page.recapShown());
             assertFalse("…on Cards, as it was", shell.page.feed().tableShown());
             assertTrue("The Table view's state was not touched", shell.table.restored.isEmpty());
             assertTrue("Opening the page's feed again", shell.navigator.open(Route.to(Destination.RUNS)));
-            assertEquals(10, shell.selected[0]);
+            assertEquals("runs", shell.selected[0]);
             assertFalse(shell.page.recapShown());
             return null;
         });
@@ -208,16 +208,16 @@ public class RunsRouteTargetTest {
 
     @Test public void fromTheFeedBackAndTheBackLinkReturnToTheFeedAsLeft() throws Exception {
         Shell shell = new Shell();
-        edt(() -> { shell.selected[0] = 10; return null; });
+        edt(() -> { shell.selected[0] = "runs"; return null; });
         assertTrue(shell.open(recap(RunFixtures.A1)));
         shell.settled(RunFixtures.A1);
         edt(() -> {
             assertEquals(1, shell.navigator.depth());
-            assertEquals("Back returns to this page's feed", 10, shell.navigator.backPage());
+            assertEquals("Back returns to this page's feed", "runs", shell.navigator.backPage());
             named(shell.view(), "run-recap-back", KitButton.class).doClick();
             assertFalse("‹ Runs shows the feed", shell.page.recapShown());
             assertEquals("…by going Back: the entry that led here is used, not left behind", 0, shell.navigator.depth());
-            assertEquals(10, shell.selected[0]);
+            assertEquals("runs", shell.selected[0]);
             assertFalse(shell.page.feed().tableShown());
 
             shell.page.showTable();   // the user's Table view, with the workspace in some state
@@ -240,7 +240,7 @@ public class RunsRouteTargetTest {
     @Test public void afterARowRouteTheTableViewsCaptureAlsoCountsAsTheFeedForTheBackLink() throws Exception {
         Shell shell = new Shell();
         edt(() -> {
-            shell.selected[0] = 10;
+            shell.selected[0] = "runs";
             assertTrue("A Runs row route still reaches the Table view's target", shell.navigator.open(Route.to(Destination.RUNS).withVisit(RunFixtures.A1)));
             assertEquals(RunFixtures.A1, shell.table.opened.get(0).visit);
             assertTrue(shell.page.feed().tableShown());
@@ -267,18 +267,18 @@ public class RunsRouteTargetTest {
         edt(() -> {
             named(shell.view(), "run-recap-back", KitButton.class).doClick();
             assertFalse("‹ Runs leads to the Runs feed, never to Home", shell.page.recapShown());
-            assertEquals(10, shell.selected[0]);
+            assertEquals("runs", shell.selected[0]);
             assertEquals("The entry back to Home stays", 1, shell.navigator.depth());
-            assertEquals(14, shell.navigator.backPage());
+            assertEquals("home", shell.navigator.backPage());
             assertTrue(shell.navigator.back());
-            assertEquals(14, shell.selected[0]);
+            assertEquals("home", shell.selected[0]);
             return null;
         });
     }
 
     @Test public void aRecordingChoiceRebuildsInPlaceAndBackToTheRecapKeepsIt() throws Exception {
         Shell shell = new Shell();
-        edt(() -> { shell.selected[0] = 10; return null; });
+        edt(() -> { shell.selected[0] = "runs"; return null; });
         assertTrue(shell.open(recap(RunFixtures.A1)));
         shell.settled(RunFixtures.A1);
         edt(() -> {
@@ -295,11 +295,11 @@ public class RunsRouteTargetTest {
             assertEquals(List.of("v1/null", "v1/r-v1-short"), shell.builds.calls);
             assertEquals(new RunsState(true, RunFixtures.A1, "r-v1-short", false, "workspace-1"), shell.recap.captureState());
             named(shell.view(), "run-recap-open-loot", KitButton.class).doClick();
-            assertEquals("The recap's links go through the navigator", 8, shell.selected[0]);
+            assertEquals("The recap's links go through the navigator", "loot", shell.selected[0]);
             assertEquals(RunFixtures.A1, shell.loot.opened.get(0).visit);
             assertEquals(2, shell.navigator.depth());
             assertTrue(shell.navigator.back());
-            assertEquals(10, shell.selected[0]);
+            assertEquals("runs", shell.selected[0]);
             assertTrue("Back returns to the recap", shell.page.recapShown());
             assertEquals(RunFixtures.A1, shell.view().ref());
             assertEquals("…on the recording chosen", "r-v1-short", shell.view().model().damage().selected());
@@ -352,7 +352,7 @@ public class RunsRouteTargetTest {
 
     @Test public void plainRunsAndRestoreShowOnlyTheViewTheStateShowed() throws Exception {
         Shell shell = new Shell();
-        edt(() -> { shell.selected[0] = 10; shell.page.showTable(); return null; });
+        edt(() -> { shell.selected[0] = "runs"; shell.page.showTable(); return null; });
         assertTrue(shell.open(recap(RunFixtures.A1)));
         shell.settled(RunFixtures.A1);
         edt(() -> {

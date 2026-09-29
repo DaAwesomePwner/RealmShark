@@ -36,22 +36,22 @@ public class ShellHookIntegrationTest {
             assertNotNull("Notifications keeps its page, inside Settings", notifications);
             assertNotNull(named(settings, "settings-appearance", JComponent.class));
             settings.showSection(tomato.gui.settings.SettingsPage.APPEARANCE);
-            shell.select(0);
+            shell.select("chat");
             TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS);
-            assertEquals(13, shell.getSelectedPage());
+            assertEquals("settings", shell.selectedPage());
             assertEquals(tomato.gui.settings.SettingsPage.NOTIFICATIONS, settings.currentSection());
             JTabbedPane tabs = find(notifications, JTabbedPane.class);
             assertEquals(tomato.gui.notifications.NotificationsGUI.KEY_POPS, tabs.getTitleAt(tabs.getSelectedIndex()));
             settings.showSection(tomato.gui.settings.SettingsPage.APPEARANCE);
-            shell.select(0);
+            shell.select("chat");
             assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.NOTIFICATIONS)));
-            assertEquals(13, shell.getSelectedPage());
+            assertEquals("settings", shell.selectedPage());
             assertEquals("The Notifications route shows its section", tomato.gui.settings.SettingsPage.NOTIFICATIONS, settings.currentSection());
             assertTrue(tomato.gui.route.Navigator.current().back());
-            assertEquals(0, shell.getSelectedPage());
+            assertEquals("chat", shell.selectedPage());
             tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
             assertTrue(registry.search("appearance.settings").get(0).open());
-            assertEquals(13, shell.getSelectedPage());
+            assertEquals("settings", shell.selectedPage());
             assertEquals(tomato.gui.settings.SettingsPage.APPEARANCE, settings.currentSection());
             assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.NOTIFICATIONS)));
             assertEquals(tomato.gui.settings.SettingsPage.NOTIFICATIONS, settings.currentSection());
@@ -60,11 +60,11 @@ public class ShellHookIntegrationTest {
                     tomato.gui.settings.SettingsPage.APPEARANCE, settings.currentSection());
             assertNotNull("Settings hosts General", named(settings, "settings-general", JComponent.class));
             assertNotNull(named(settings, "settings-combat-full-detail", JCheckBox.class));
-            shell.select(0);
+            shell.select("chat");
             assertEquals(1, registry.search("combat.settings").size());
             assertEquals("Combat history is found by its words", "combat.settings", registry.search("full detail retention").get(0).id);
             assertTrue(registry.search("combat.settings").get(0).open());
-            assertEquals(13, shell.getSelectedPage());
+            assertEquals("settings", shell.selectedPage());
             assertEquals("The Combat history entry opens Settings › General",
                     tomato.gui.settings.SettingsPage.GENERAL, settings.currentSection());
             Icon before = tomato.gui.kit.Sprites.sprite(987_654_321, 24);
@@ -185,23 +185,23 @@ public class ShellHookIntegrationTest {
             assertFalse(registry.search("history location").isEmpty());
             assertFalse(registry.search("item alert").isEmpty());
             boolean capture = Tomato.isCaptureRunning();
-            shell.select(0);
+            shell.select("chat");
             assertEquals(1, registry.search("plans.characters").size());
-            assertEquals(0, shell.getSelectedPage());
+            assertEquals("chat", shell.selectedPage());
             assertTrue(registry.search("plans.characters").get(0).open());
-            assertEquals(3, shell.getSelectedPage());
-            assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals(0, shell.getSelectedPage());
-            assertTrue(registry.search("plans.quests").get(0).open()); assertEquals(5, shell.getSelectedPage());
+            assertEquals("characters", shell.selectedPage());
+            assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals("chat", shell.selectedPage());
+            assertTrue(registry.search("plans.quests").get(0).open()); assertEquals("quests", shell.selectedPage());
             JTabbedPane quests = named(shell, "quests-tabs", JTabbedPane.class);
             assertEquals("The search opens the Planner", "Planner", quests.getTitleAt(quests.getSelectedIndex()));
-            assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(tomato.gui.route.Navigator.current().back()); assertEquals("chat", shell.selectedPage());
             // The search opens the Planner through the navigator, so its tab switch is part of the Back entry: from the Board on the
             // Quests page, Back returns to the Board.
-            shell.select(5); quests.setSelectedIndex(quests.indexOfTab("Board"));
+            shell.select("quests"); quests.setSelectedIndex(quests.indexOfTab("Board"));
             assertTrue(registry.search("plans.quests").get(0).open());
-            assertEquals(5, shell.getSelectedPage()); assertEquals("Planner", quests.getTitleAt(quests.getSelectedIndex()));
+            assertEquals("quests", shell.selectedPage()); assertEquals("Planner", quests.getTitleAt(quests.getSelectedIndex()));
             assertTrue(tomato.gui.route.Navigator.current().back());
-            assertEquals(5, shell.getSelectedPage());
+            assertEquals("quests", shell.selectedPage());
             assertEquals("Back returns to the Board the search left", "Board", quests.getTitleAt(quests.getSelectedIndex()));
             assertEquals(capture, Tomato.isCaptureRunning());
         });
@@ -212,11 +212,11 @@ public class ShellHookIntegrationTest {
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
             tomato.gui.character.CharacterRosterView roster = find(shell, tomato.gui.character.CharacterRosterView.class);
             assertNotNull("The Characters Roster tab hosts the list and the sheet", roster);
-            shell.select(0);
+            shell.select("chat");
             String unknown = "0".repeat(64) + ":404";
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.CHARACTER_SHEET)
                 .withPayload(new tomato.gui.glance.character.SheetFocus(unknown, null))));
-            assertEquals(3, shell.getSelectedPage());
+            assertEquals("characters", shell.selectedPage());
             assertTrue(roster.showingSheet());
             tomato.gui.activity.SnapshotTestSupport.await(roster.sheet()::ready); // at once here; from Task 5 the sheet reads off the EDT
             assertTrue("An unknown key shows the unavailable state",
@@ -225,7 +225,7 @@ public class ShellHookIntegrationTest {
             assertFalse("A plain Characters route shows the list", roster.showingSheet());
             assertTrue(navigator.back());
             assertTrue("Back restores the sheet", roster.showingSheet()); assertEquals(unknown, roster.sheet().key());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
         });
     }
 
@@ -236,20 +236,20 @@ public class ShellHookIntegrationTest {
             assertNotNull("Home is shell page 14", home);
             assertEquals("home-page", home.getName());
             assertNotNull("Home shows its cards", named(home, "home-hero", tomato.gui.kit.Card.class));
-            shell.select(0);
+            shell.select("chat");
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.HOME)));
-            assertEquals(14, shell.getSelectedPage());
+            assertEquals("home", shell.selectedPage());
             assertTrue(home.isVisible());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
             tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
             assertEquals(1, registry.search("build.open").size());
             assertEquals("Build (weapon damage and recovery)", registry.search("build.open").get(0).label);
             assertTrue(registry.search("build.open").get(0).open());
-            assertEquals(6, shell.getSelectedPage());
+            assertEquals("my-info", shell.selectedPage());
             assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
             assertNotNull("With no character, page 6 says that Build moved", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
-            assertFalse("Build never takes a sidebar row", named(shell, "nav-6", AbstractButton.class).isVisible());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertFalse("Build never takes a sidebar row", named(shell, "nav-my-info", AbstractButton.class).isVisible());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
         });
     }
 
@@ -263,23 +263,23 @@ public class ShellHookIntegrationTest {
             home.apply(model);
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
             String[] cards = {"home-hero", "home-now", "home-quests"};
-            int[] pages = {3, 10, 5}; // Characters, Runs & DPS (the Live meter moved there in P5b), Quests
+            String[] pages = {"characters", "runs", "quests"}; // Characters, Runs & DPS (the Live meter moved there in P5b), Quests
             for (int i = 0; i < cards.length; i++) {
-                shell.select(14);
+                shell.select("home");
                 named(home, cards[i], tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null);
-                assertEquals(cards[i] + " opens its page", pages[i], shell.getSelectedPage());
+                assertEquals(cards[i] + " opens its page", pages[i], shell.selectedPage());
                 if (cards[i].equals("home-now"))
                     assertEquals("The Now card opens the Live meter tab", tomato.gui.runs.RunsTab.LIVE_METER, runsDps().selectedTab());
                 assertTrue(navigator.back());
-                assertEquals(cards[i] + ": Back returns to Home", 14, shell.getSelectedPage());
+                assertEquals(cards[i] + ": Back returns to Home", "home", shell.selectedPage());
             }
             named(home, "home-build", AbstractButton.class).doClick();
-            assertEquals("The hero's Build action opens page 6", 6, shell.getSelectedPage());
+            assertEquals("The hero's Build action opens page 6", "my-info", shell.selectedPage());
             assertNotNull("With no character yet, that is the Build moved page", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
             assertTrue(navigator.back());
-            assertEquals(14, shell.getSelectedPage());
+            assertEquals("home", shell.selectedPage());
             named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);
-            assertEquals("A recent run opens Runs", 10, shell.getSelectedPage());
+            assertEquals("A recent run opens Runs", "runs", shell.selectedPage());
             // Home's Recent runs opens the run recap (P5a), no longer the Table view's row.
             tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
             assertTrue("The exact run shows in the Runs page's recap", runs.recapShown());
@@ -287,7 +287,7 @@ public class ShellHookIntegrationTest {
             assertEquals("The recap shows that exact visit, not a name or time match", visit, ((tomato.gui.runs.RunRecapView) runs.recap()).ref());
             opened[0] = visit;
             assertTrue(navigator.back());
-            assertEquals(14, shell.getSelectedPage());
+            assertEquals("home", shell.selectedPage());
         });
         // The synthetic Home model's run is not in this saved history: the recap says so for that exact reference.
         tomato.gui.runs.RunRecapView recap = edt(() -> (tomato.gui.runs.RunRecapView) named(shell, "runs-page", tomato.gui.runs.RunsPage.class).recap());
@@ -334,7 +334,7 @@ public class ShellHookIntegrationTest {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
             home.apply(tomato.gui.glance.home.HomeModels.populated(now).withRuns(recent));
-            shell.select(14);
+            shell.select("home");
             java.util.List<String> outcomes = new ArrayList<>();
             for (tomato.gui.glance.home.HomeArchive.RecentRun run : recent.rows()) outcomes.add(run.outcome());
             assertEquals("Newest first: in progress, left, then the last completed run", "In progress", outcomes.get(0));
@@ -348,7 +348,7 @@ public class ShellHookIntegrationTest {
             clicked[0] = System.nanoTime();
             named(home, "home-run-2", JComponent.class).getActionMap().get("open-run").actionPerformed(null); clicks++;
             assertEquals("S4 takes one click from Home", 1, clicks);
-            assertEquals("The row opens Runs", 10, shell.getSelectedPage());
+            assertEquals("The row opens Runs", "runs", shell.selectedPage());
             tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
             assertTrue("…on the run recap", runs.recapShown());
             assertEquals(last, ((tomato.gui.runs.RunRecapView) runs.recap()).ref());
@@ -359,7 +359,7 @@ public class ShellHookIntegrationTest {
         SwingUtilities.invokeAndWait(() -> {
             assertDamageBreakdown(recap, last);
             assertTrue(tomato.gui.route.Navigator.current().back());
-            assertEquals("Back returns Home", 14, shell.getSelectedPage());
+            assertEquals("Back returns Home", "home", shell.selectedPage());
             assertFalse("…and the Runs page no longer shows the recap Back left", named(shell, "runs-page", tomato.gui.runs.RunsPage.class).recapShown());
         });
 
@@ -367,8 +367,8 @@ public class ShellHookIntegrationTest {
         tomato.gui.runs.RunsPage runs = edt(() -> named(shell, "runs-page", tomato.gui.runs.RunsPage.class));
         int[] clicks = {0};
         SwingUtilities.invokeAndWait(() -> {
-            named(shell, "nav-10", JToggleButton.class).doClick(); clicks[0]++;
-            assertEquals(10, shell.getSelectedPage());
+            named(shell, "nav-runs", JToggleButton.class).doClick(); clicks[0]++;
+            assertEquals("runs", shell.selectedPage());
             assertFalse("Runs shows the feed", runs.recapShown());
             assertFalse("…on its cards", runs.feed().tableShown());
             runs.feed().refresh();   // what showing the Cards view in a window does
@@ -391,7 +391,7 @@ public class ShellHookIntegrationTest {
             assertDamageBreakdown(recap, last);
             named(recap, "run-recap-back", AbstractButton.class).doClick();
             assertFalse("‹ Runs returns to the feed", runs.recapShown());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertFalse("…using the Back entry that led to the recap", tomato.gui.route.Navigator.current().canGoBack());
         });
         System.out.println("S4: Home 1 click, sidebar 2 clicks; the recap applied " + fromHome + " ms after the Home click");
@@ -435,12 +435,12 @@ public class ShellHookIntegrationTest {
                 SwingUtilities.invokeAndWait(() -> {
                     tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
                     home.apply(tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis()));
-                    shell.select(14);
+                    shell.select("home");
                     JLabel needs = named(home, "home-hero-needs", JLabel.class);
                     assertEquals("S2, 0 clicks: Home names the stat and the count", "Needs WIS 3 potions", needs.getText());
                     assertTrue(shown(needs));
                     named(home, "home-hero", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null); // click 1
-                    assertEquals("The hero opens the Characters page", 3, shell.getSelectedPage());
+                    assertEquals("The hero opens the Characters page", "characters", shell.selectedPage());
                     tomato.gui.glance.character.CharacterSheet sheet = find(shell, tomato.gui.glance.character.CharacterSheet.class);
                     assertEquals("…on its own character's sheet", tomato.gui.glance.home.HomeModels.KEY, sheet.key());
                     assertEquals("…at Overview", "overview", sheet.selectedTab());
@@ -452,7 +452,7 @@ public class ShellHookIntegrationTest {
                     assertTrue("S2, 1 click: the Overview names the stat and the count", shown(named(shell, "character-overview-needs", JComponent.class)));
                     tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
                     assertTrue(navigator.back());
-                    assertEquals("Back returns Home", 14, shell.getSelectedPage());
+                    assertEquals("Back returns Home", "home", shell.selectedPage());
                     tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
                     int clicks = 0;
                     named(home, "home-hero", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null); clicks++;
@@ -467,7 +467,7 @@ public class ShellHookIntegrationTest {
                     assertTrue("S5: all eight stats' tiers show", all(exalts, tomato.gui.kit.PipMeter.class).size() >= 8);
                     assertTrue("S5: with the distance to the next tier", texts(exalts).stream().anyMatch(t -> t.contains("to next tier")));
                     assertTrue(tomato.gui.route.Navigator.current().back());
-                    assertEquals(14, shell.getSelectedPage());
+                    assertEquals("home", shell.selectedPage());
                 });
             } finally {
                 journal.close();
@@ -505,7 +505,7 @@ public class ShellHookIntegrationTest {
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
                 home.apply(tomato.gui.glance.home.HomeModels.populated(now).withQuests(section));
-                shell.select(14);
+                shell.select("home");
                 String[] pinned = {"Mighty haul", "Festival exchange"}; // open pinned quests in the list's order
                 int[][] rewards = {{900_201}, {900_401, 900_402, 900_403}};
                 for (int i = 0; i < pinned.length; i++) {
@@ -526,7 +526,7 @@ public class ShellHookIntegrationTest {
                 int clicks = 0;
                 named(home, "home-quests", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null); clicks++;
                 assertEquals("S3 takes one click from Home", 1, clicks);
-                assertEquals("The Quests card opens the Quests page", 5, shell.getSelectedPage());
+                assertEquals("The Quests card opens the Quests page", "quests", shell.selectedPage());
                 assertEquals("…on the Board, not the Planner last shown", "Board", tabs.getTitleAt(tabs.getSelectedIndex()));
                 java.util.List<tomato.gui.quest.QuestsRouteTargetTest.ShownCard> cards =
                     tomato.gui.quest.QuestsRouteTargetTest.shownCards(find(shell, tomato.gui.quest.QuestGUI.class));
@@ -541,7 +541,7 @@ public class ShellHookIntegrationTest {
                 for (tomato.gui.quest.QuestsRouteTargetTest.ShownCard card : cards)
                     assertTrue(card.list() + " shows on the page", shown(named(shell, card.list(), tomato.gui.kit.TileList.class)));
                 assertTrue(tomato.gui.route.Navigator.current().back());
-                assertEquals("Back returns Home", 14, shell.getSelectedPage());
+                assertEquals("Back returns Home", "home", shell.selectedPage());
             });
         } finally {
             pins.removeNode(); // in-memory Preferences are shared by every test in the JVM
@@ -557,12 +557,12 @@ public class ShellHookIntegrationTest {
             tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
             tomato.gui.glance.home.HomeModel model = tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis());
             home.apply(model.withHero(tomato.gui.glance.home.HomeModels.withKey(model.hero(), null)));
-            shell.select(14);
+            shell.select("home");
             named(home, "home-hero", tomato.gui.kit.Card.class).getActionMap().get("open-card").actionPerformed(null);
-            assertEquals(3, shell.getSelectedPage());
+            assertEquals("characters", shell.selectedPage());
             assertFalse("The list shows, not a sheet", shown(find(shell, tomato.gui.glance.character.CharacterSheet.class)));
             assertTrue(tomato.gui.route.Navigator.current().back());
-            assertEquals(14, shell.getSelectedPage());
+            assertEquals("home", shell.selectedPage());
         });
     }
 
@@ -615,7 +615,7 @@ public class ShellHookIntegrationTest {
         store.append("chat", message); store.flush();
         ArchiveWorkspace<?,?,?> panel = workspace("chat");
         // The app now opens on the first core page; saved-history bindings only act while their page is shown.
-        SwingUtilities.invokeAndWait(() -> { shell.select(0); panel.selectSession(SessionStore.ALL); });
+        SwingUtilities.invokeAndWait(() -> { shell.select("chat"); panel.selectSession(SessionStore.ALL); });
         await(() -> !panel.loading() && named(panel, "chat-archive-messages", JTable.class) != null);
         Field field = ChatGUI.class.getDeclaredField("filters"); field.setAccessible(true);
         ChatFilters livePolicy = (ChatFilters)field.get(find(panel, ChatGUI.class));
@@ -671,7 +671,7 @@ public class ShellHookIntegrationTest {
         await(() -> !chat.loading() && chat.displayedPage() != null);
         edt(() -> chat.saveNamed("Past review")).toCompletableFuture().get(5, TimeUnit.SECONDS);
         SwingUtilities.invokeAndWait(() -> {
-            for (int index : new int[]{1, 8, 10, 0}) named(shell, "nav-" + index, JToggleButton.class).doClick();
+            for (String index : new String[]{"key-pops", "loot", "runs", "chat"}) named(shell, "nav-" + index, JToggleButton.class).doClick();
             assertEquals(past, chat.state().query.scope()); assertTrue(chat.state().archive);
             assertEquals(SessionStore.ALL, workspace("keypops").state().query.scope());
             assertTrue(workspace("loot").state().archive); assertFalse(workspace("statistics").state().archive);
@@ -692,7 +692,7 @@ public class ShellHookIntegrationTest {
             assertEquals(past, restored.state().query.scope()); assertTrue(restored.state().archive);
             assertEquals(Collections.singletonList("Past review"), ViewStateStore.application().names("chat"));
             TomatoGUI.browseSavedHistory();
-            assertEquals(10, shell.getSelectedPage()); assertEquals(SessionStore.ALL, workspace("runs").state().query.scope());
+            assertEquals("runs", shell.selectedPage()); assertEquals(SessionStore.ALL, workspace("runs").state().query.scope());
             assertTrue("Browse saved history shows the Table view", named(shell, "runs-page", tomato.gui.runs.RunsPage.class).feed().tableShown());
             assertEquals(past, restored.state().query.scope());
         });
@@ -763,33 +763,33 @@ public class ShellHookIntegrationTest {
             assertNotNull("Recordings hosts the encounter library, not a dialog",
                 find(named(page, "runs-recordings-slot", JPanel.class), tomato.gui.dps.DungeonListGUI.class));
             assertNotNull("Page 7 only points to Runs & DPS", find(shell, tomato.gui.dps.DpsMovedPanel.class));
-            assertEquals(10, WorkspaceShell.pageOf(tomato.gui.route.Destination.ENCOUNTER));
-            assertEquals(10, WorkspaceShell.pageOf(tomato.gui.route.Destination.RESOURCES));
+            assertEquals("runs", WorkspaceShell.pageOf(tomato.gui.route.Destination.ENCOUNTER));
+            assertEquals("runs", WorkspaceShell.pageOf(tomato.gui.route.Destination.RESOURCES));
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
 
-            shell.select(0);
+            shell.select("chat");
             assertTrue("A plain ENCOUNTER route (Home's Now card)", navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.ENCOUNTER)));
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("…opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
 
             // From the Feed on the same page: an exact recording opens in the Live meter; Back brings the Feed forward again.
-            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
+            shell.select("runs"); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.ENCOUNTER).withRecording(fight.getRecordingId(), null)));
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
             assertEquals("The exact recording shows", dps.encounters().find(fight).id, dps.currentEncounterId());
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to the Feed it left", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
 
-            shell.select(0);
+            shell.select("chat");
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RESOURCES).withVisit(visit)));
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("RESOURCES opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
             JTabbedPane nested = named(dps, "dps-tabs", JTabbedPane.class);
             assertEquals("…on its Resources & buffs tab", "Resources & buffs", nested.getTitleAt(nested.getSelectedIndex()));
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
         });
     }
 
@@ -799,40 +799,40 @@ public class ShellHookIntegrationTest {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.runs.RunsDpsPage page = runsDps();
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
-            Action altEight = shell.getActionMap().get("page-7");   // WorkspaceShellLayoutTest pins Alt+8 to "page-7"
-            shell.select(0);
+            Action altEight = shell.getActionMap().get("page-dps-logger");   // WorkspaceShellLayoutTest pins Alt+8 to "page-dps-logger"
+            shell.select("chat");
             altEight.actionPerformed(null);
-            assertEquals("Alt+8 opens Runs & DPS", 10, shell.getSelectedPage());
+            assertEquals("Alt+8 opens Runs & DPS", "runs", shell.selectedPage());
             assertEquals("…on the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
-            assertTrue("Alt+8 goes through the navigator", navigator.back()); assertEquals(0, shell.getSelectedPage());
-            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
+            assertTrue("Alt+8 goes through the navigator", navigator.back()); assertEquals("chat", shell.selectedPage());
+            shell.select("runs"); page.tabs().select(tomato.gui.runs.RunsTab.FEED.id());
             assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.LIVE_METER.id()));
             altEight.actionPerformed(null);
             assertEquals("Alt+8 brings a hidden Live meter forward (explicit navigation)", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
             assertFalse(page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.LIVE_METER.id()));
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
 
-            shell.select(7);
+            shell.select("dps-logger");
             tomato.gui.dps.DpsMovedPanel pointer = find(shell, tomato.gui.dps.DpsMovedPanel.class);
             named(pointer, "dps-moved-open", AbstractButton.class).doClick();
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Open Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals("Back returns to the pointer", 7, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("Back returns to the pointer", "dps-logger", shell.selectedPage());
             named(pointer, "dps-moved-recordings", AbstractButton.class).doClick();
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Open Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals(7, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("dps-logger", shell.selectedPage());
 
             // The meter's library button opens the Recordings tab, no longer a modal dialog; Back returns to the Live meter.
-            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
+            shell.select("runs"); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
             AbstractButton library = named(find(shell, tomato.gui.dps.DpsGUI.class), "dps-open-library", AbstractButton.class);
             assertTrue(library.isEnabled());
             library.doClick();
             assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
         });
         assertEquals("No dialog opened", windows, Window.getWindows().length);
@@ -864,18 +864,18 @@ public class ShellHookIntegrationTest {
             assertEquals(1, registry.search("combat.settings").size());
             assertEquals("combat.settings", registry.search("full detail retention").get(0).id);
 
-            shell.select(0);
+            shell.select("chat");
             assertTrue(meter.open());
-            assertEquals(10, shell.getSelectedPage()); assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage()); assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
             assertTrue(recordings.open());
-            assertEquals(10, shell.getSelectedPage()); assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage()); assertEquals(tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
             assertTrue(statistics.open());
-            assertEquals("Statistics stays page 4", 4, shell.getSelectedPage());
-            assertFalse("…without a sidebar row", named(shell, "nav-4", AbstractButton.class).isVisible());
+            assertEquals("Statistics stays page 4", "statistics", shell.selectedPage());
+            assertFalse("…without a sidebar row", named(shell, "nav-statistics", AbstractButton.class).isVisible());
             assertTrue("Search opens Statistics through the navigator, so Back returns", navigator.back());
-            assertEquals(0, shell.getSelectedPage());
+            assertEquals("chat", shell.selectedPage());
         });
     }
 
@@ -883,16 +883,16 @@ public class ShellHookIntegrationTest {
     @Test public void browseSavedHistoryBringsTheFeedForward() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.runs.RunsDpsPage page = runsDps();
-            shell.select(10); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
+            shell.select("runs"); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
             TomatoGUI.browseSavedHistory();
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Browse saved history shows the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
             assertTrue("…on its Table view", page.feed().feed().tableShown());
             page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
             assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.FEED.id()));
-            shell.select(0);
+            shell.select("chat");
             TomatoGUI.browseSavedHistory();
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals(tomato.gui.runs.RunsTab.FEED, page.selectedTab());
             assertFalse("A hidden Feed is shown again", page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.FEED.id()));
         });
@@ -938,13 +938,13 @@ public class ShellHookIntegrationTest {
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
             tomato.gui.route.Route route = tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
                 .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS));
-            shell.select(0);
+            shell.select("chat");
             assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.DUNGEONS.id()));
             assertTrue(navigator.open(route));
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("The Dungeons route brings the tab forward", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
             assertFalse("…a hidden one too (explicit navigation)", page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.DUNGEONS.id()));
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
             assertTrue(navigator.open(route));
             view.refresh();   // the tab reads when it shows; this shell has no window
             return view;
@@ -957,14 +957,14 @@ public class ShellHookIntegrationTest {
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
             cards.setSelectedIndex(cards.items().indexOf(card(cards, tomato.gui.runs.RunFixtures.CRONUS)));
             cards.getActionMap().get(tomato.gui.kit.TileList.OPEN).actionPerformed(null);   // Enter: Show runs
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Show runs opens the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
             assertFalse("…its feed, not a recap", page.feed().recapShown());
             assertFalse("…on the cards", page.feed().feed().tableShown());
             assertEquals("…filtered to that canonical dungeon only", new tomato.gui.runs.RunFeedQuery("", Collections.emptySet(),
                 tomato.gui.runs.RunFixtures.CRONUS), page.feed().feed().query());
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
 
             tomato.gui.runs.DungeonCardModel halls = card(cards, "Lost Halls");
@@ -974,7 +974,7 @@ public class ShellHookIntegrationTest {
             assertTrue("Open best run opens the recap", page.feed().recapShown());
             assertEquals("…of that exact run", tomato.gui.runs.RunFixtures.C1, ((tomato.gui.runs.RunRecapView) page.feed().recap()).ref());
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
         });
     }
@@ -1019,7 +1019,7 @@ public class ShellHookIntegrationTest {
         try {
             edt(() -> {
                 tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
-                shell.select(0);
+                shell.select("chat");
                 assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
                     .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS))));
                 tomato.gui.runs.DungeonsView view = named(runsDps(), "dungeons-view", tomato.gui.runs.DungeonsView.class);
@@ -1028,9 +1028,9 @@ public class ShellHookIntegrationTest {
                 AbstractButton link = named(view, "dungeons-open-statistics", AbstractButton.class);
                 assertTrue("The shell wires the link", link.isVisible());
                 link.doClick();
-                assertEquals("Statistics", 4, shell.getSelectedPage());
+                assertEquals("Statistics", "statistics", shell.selectedPage());
                 assertTrue("Back is recorded", navigator.back());
-                assertEquals(10, shell.getSelectedPage());
+                assertEquals("runs", shell.selectedPage());
                 assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, runsDps().selectedTab());
                 return null;
             });
@@ -1094,15 +1094,15 @@ public class ShellHookIntegrationTest {
             dps.showEncounter(dps.encounters().find(unique).id);
 
             // The live row (listed before any read): the meter follows the live fight, in the Live meter tab.
-            shell.select(0);
+            shell.select("chat");
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
                 .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
             open(recordings, table, rowOf(table, 2, "Live"));
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("The live row opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
             assertNull("…following the live fight", dps.currentEncounterId());
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
             named(recordings, "encounter-scope-1", AbstractButton.class).doClick();   // All sessions: reads now
             return recordings;
@@ -1130,12 +1130,12 @@ public class ShellHookIntegrationTest {
 
             page.tabs().select(tomato.gui.runs.RunsTab.RECORDINGS.id());
             open(library, table, rowOf(table, 7, "Saved history"));
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("A linked summary opens its run's recap", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
             assertTrue(page.feed().recapShown());
             assertEquals("…of that exact run", run, ((tomato.gui.runs.RunRecapView) page.feed().recap()).ref());
             assertTrue(navigator.back());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
         });
     }
@@ -1164,13 +1164,13 @@ public class ShellHookIntegrationTest {
             assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
             assertEquals(1, registry.search("statistics.open").size());
 
-            shell.select(0);
+            shell.select("chat");
             assertTrue(dungeons.open());
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals(tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
 
-            shell.select(4);
+            shell.select("statistics");
             tomato.gui.kit.Banner banner = named(shell, "statistics-dungeons-banner", tomato.gui.kit.Banner.class);
             assertNotNull("Statistics points to Dungeons", banner);
             assertEquals("Dungeon stats, session comparison and cohorts are in Runs & DPS › Dungeons.", banner.text());
@@ -1178,15 +1178,15 @@ public class ShellHookIntegrationTest {
             assertTrue(link.isVisible());
             assertEquals("Open Dungeons", link.getText());
             link.doClick();
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("The banner opens Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals("Back returns to Statistics", 4, shell.getSelectedPage());
+            assertTrue(navigator.back()); assertEquals("Back returns to Statistics", "statistics", shell.selectedPage());
 
-            shell.select(10);
+            shell.select("runs");
             AbstractButton statistics = named(named(page, "dungeons-view", JComponent.class), "dungeons-open-statistics", AbstractButton.class);
             assertTrue("Dungeons' Analysis link to Statistics is wired", statistics.isVisible());
             statistics.doClick();
-            assertEquals(4, shell.getSelectedPage());
+            assertEquals("statistics", shell.selectedPage());
         });
     }
 
@@ -1266,7 +1266,7 @@ public class ShellHookIntegrationTest {
             assertNotNull(find(shell, tomato.gui.security.SecurityGUI.class));
             assertNotNull(find(shell, tomato.gui.stats.StatisticsGUI.class));
             assertNotNull(find(shell, tomato.gui.stats.LootDashboard.class));
-            TomatoGUI.browseSavedHistory(); assertEquals(10, shell.getSelectedPage());
+            TomatoGUI.browseSavedHistory(); assertEquals("runs", shell.selectedPage());
         });
     }
 

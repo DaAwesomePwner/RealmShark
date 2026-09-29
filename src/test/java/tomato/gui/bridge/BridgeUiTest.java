@@ -22,10 +22,10 @@ public class BridgeUiTest {
             service.configure(new BridgeConfig(p),false,false);
             service.receive(Arrays.asList(drop("Test Sword (Shiny)","Damage Boost(1)\nLoot Bonus(2)"),drop("Unlisted ST","")));service.awaitIdle(3000);
             SwingUtilities.invokeAndWait(()->{
-                VioletTheme.install();BridgeReviewGUI panel=new BridgeReviewGUI(service);JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length];
+                VioletTheme.install();BridgeReviewGUI panel=new BridgeReviewGUI(service);Map<String,JComponent> pages=TestPages.placeholders();
                 // Each CardLayout page owns a different component. Bridge Review is page 12; page 13 is Settings.
-                Arrays.setAll(pages,i->new JPanel());int bridgePage=WorkspaceShell.pageOf(tomato.gui.route.Destination.BRIDGE_REVIEW);pages[bridgePage]=panel;
-                assertEquals("Bridge Review",WorkspaceShell.TITLES[bridgePage]);
+                String bridgePage=WorkspaceShell.pageOf(tomato.gui.route.Destination.BRIDGE_REVIEW);pages.put(bridgePage,panel);
+                assertEquals("Bridge Review",TestPages.title(bridgePage));
                 WorkspaceShell shell=new WorkspaceShell(pages,()->{},true);JFrame frame=new JFrame("Bridge preview");frame.setContentPane(shell);
                 try {
                     frame.setSize(1240,800);frame.setVisible(true);shell.select(bridgePage);frame.validate();

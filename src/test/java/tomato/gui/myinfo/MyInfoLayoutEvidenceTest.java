@@ -1,6 +1,6 @@
 package tomato.gui.myinfo;
 
-import java.util.Arrays;
+import java.util.Map;
 import javax.swing.*;
 import org.junit.Rule;
 import org.junit.Test;
@@ -9,6 +9,7 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
@@ -29,10 +30,10 @@ public class MyInfoLayoutEvidenceTest {
         WorkspaceShell[] shell = new WorkspaceShell[1];
         SwingUtilities.invokeAndWait(() -> {
             view[0] = new MyInfoGUI(data); MyInfoGUI.updatePlayer(player); MyInfoGuiTest.equipPet(data, 408);
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel()); pages[6] = view[0];
+            Map<String, JComponent> pages = TestPages.placeholders(); pages.put("my-info", view[0]);
             shell[0] = new WorkspaceShell(pages, () -> fail("Preview must not capture"), true,
-                () -> fail("Preview must not choose real assets"), () -> fail("Preview must not retry real assets"), () -> shell[0].select(10));
-            shell[0].select(6);
+                () -> fail("Preview must not choose real assets"), () -> fail("Preview must not retry real assets"), () -> shell[0].select("runs"));
+            shell[0].select("my-info");
         });
         for (int font : new int[]{13, 24}) for (int width : new int[]{1240, 680}) {
             SwingUtilities.invokeAndWait(() -> evidence.show(shell[0], "Populated My Info", width, width == 680 ? 520 : 800, font));

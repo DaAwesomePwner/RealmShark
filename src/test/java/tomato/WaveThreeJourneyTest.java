@@ -112,28 +112,28 @@ public class WaveThreeJourneyTest {
         assertTrue(open(Route.to(Destination.RUNS).withVisit(second)));
         await(() -> settled(runs) && runs.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(runs, row -> field(row, "visitId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(ActivityRoutes.timelineAround(second, 175_000, ActivityRoutes.AROUND_MILLIS)));
-        assertEquals(WorkspaceShell.pageOf(Destination.TIMELINE), (int) edt(shell::getSelectedPage));
+        assertEquals(WorkspaceShell.pageOf(Destination.TIMELINE), edt(shell::selectedPage));
         await(() -> settled(timeline) && timeline.state().query.bounds().from != null);
         assertEquals("Only the second visit's events inside [145 s, 205 s)", Arrays.asList("t2-a", "t2-b"),
             visitIds(timeline, row -> field(row, "recordId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.INSPECT).withVisit(second)));
         await(() -> settled(inspect) && inspect.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(inspect, row -> field(row, "visitId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.LOOT).withVisit(second)));
         await(() -> settled(loot) && loot.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(loot, row -> field(row, "visitId")));
         assertEquals(Collections.singletonList("Second visit sword"), visitIds(loot, row -> field(row, "name")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.RESOURCES).withVisit(second)));
-        assertEquals(WorkspaceShell.pageOf(Destination.RESOURCES), (int) edt(shell::getSelectedPage));
+        assertEquals(WorkspaceShell.pageOf(Destination.RESOURCES), edt(shell::selectedPage));
         // Resources & buffs is nested in the Live meter tab of Runs & DPS, the origin's own page (P5b): the route brings that tab
         // forward, and Back (below) brings the Feed forward before restoring the Runs table.
         assertEquals("RESOURCES brings the Live meter tab forward", RunsTab.LIVE_METER, edt(() -> runsDps().selectedTab()));
@@ -144,7 +144,7 @@ public class WaveThreeJourneyTest {
         ArchiveWorkspace<?, ?, ?> resources = workspace("combat");
         await(() -> settled(resources) && resources.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(resources, row -> field(row, "visitId")));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
         assertFalse(edt(() -> Navigator.current().canGoBack()));
     }
 
@@ -156,12 +156,12 @@ public class WaveThreeJourneyTest {
         await(() -> settled(runs) && runs.displayedPage().matches == 0);
         String detail = edt(() -> named(runs, JTextArea.class, "activity-archive-detail").getText());
         assertTrue(detail, detail.contains("Linked visit unavailable") && detail.contains("same dungeon name"));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(ActivityRoutes.timelineAround(foreign, 175_000, ActivityRoutes.AROUND_MILLIS)));
         await(() -> settled(timeline) && timeline.state().query.bounds().from != null);
         assertEquals(0, (long) edt(() -> timeline.displayedPage().matches));
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.LOOT).withVisit(foreign)));
         await(() -> settled(loot));
@@ -170,7 +170,7 @@ public class WaveThreeJourneyTest {
             assertTrue(named(loot, JTextArea.class, "loot-drill-summary").getText().contains("Linked run unavailable here"));
             return null;
         });
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
     }
 
     @Test public void everyRouteShapeTheLanesEmitIsAcceptedByTheProductionNavigator() throws Exception {
@@ -215,7 +215,7 @@ public class WaveThreeJourneyTest {
             edt(() -> {
                 assertEquals(destination + ": restored state survives the stale completion", origin.toJson(), runs.state().toJson());
                 assertEquals(originMatches, runs.displayedPage().matches);
-                assertEquals(10, shell.getSelectedPage());
+                assertEquals("runs", shell.selectedPage());
                 return null;
             });
         }
@@ -225,31 +225,31 @@ public class WaveThreeJourneyTest {
         VisitRef second = new VisitRef(store.currentId(), V2);
         tomato.gui.notifications.NotificationsGUI notifications = edt(() -> find(shell, tomato.gui.notifications.NotificationsGUI.class));
         JTextField search = edt(() -> named(notifications, JTextField.class, "sound-dungeon-search"));
-        edt(() -> { search.setText("Shat"); shell.select(1); return null; });
+        edt(() -> { search.setText("Shat"); shell.select("key-pops"); return null; });
         assertTrue(open(Route.to(Destination.NOTIFICATIONS).withPayload(tomato.gui.notifications.NotificationFocus.dungeon("Lost Halls"))));
         edt(() -> {
-            assertEquals(13, shell.getSelectedPage());
+            assertEquals("settings", shell.selectedPage());
             assertEquals("Lost Halls", search.getText());
             assertTrue(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
             assertTrue(Navigator.current().back()); // The user leaves with the shell Back, not the banner.
-            assertEquals(1, shell.getSelectedPage());
+            assertEquals("key-pops", shell.selectedPage());
             return null;
         });
         ArchiveWorkspace<?, ?, ?> runs = workspace("runs");
         ViewState<?, ?> origin = reviewQueue(runs);
         assertTrue(open(Route.to(Destination.LOOT).withVisit(second)));
         edt(() -> {
-            assertEquals(8, shell.getSelectedPage());
-            shell.select(13); // Revisit Notifications from the sidebar; the old banner may still be up.
+            assertEquals("loot", shell.selectedPage());
+            shell.select("settings"); // Revisit Notifications from the sidebar; the old banner may still be up.
             JButton stale = named(notifications, JButton.class, "sound-dungeon-focus-back");
             assertTrue("The stale banner is still showing", named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible()); stale.doClick();
-            assertEquals("The stale banner Back did not navigate", 13, shell.getSelectedPage());
+            assertEquals("The stale banner Back did not navigate", "settings", shell.selectedPage());
             assertTrue("The Runs -> Loot origin is still available", Navigator.current().canGoBack());
             assertFalse(named(notifications, JPanel.class, "sound-dungeon-focus-banner").isVisible());
             assertEquals("Pre-focus filter restored", "Shat", search.getText());
             return null;
         });
-        backTo(runs, origin, 10);
+        backTo(runs, origin, "runs");
     }
 
     @Test public void leavingTheNotificationsPageEndsTheHandoffFocusAndRestoresFilters() throws Exception {
@@ -285,7 +285,7 @@ public class WaveThreeJourneyTest {
 
     /** Origin review queue: saved Runs in the current session with the third row selected. */
     private ViewState<?, ?> reviewQueue(ArchiveWorkspace<?, ?, ?> runs) throws Exception {
-        edt(() -> { shell.select(10); runs.showSaved(); return null; });
+        edt(() -> { shell.select("runs"); runs.showSaved(); return null; });
         await(() -> settled(runs) && runs.displayedPage().matches == 8);
         edt(() -> { select(runs, 2); return null; });
         ViewState<?, ?> origin = edt(runs::state);
@@ -298,13 +298,13 @@ public class WaveThreeJourneyTest {
         ViewState state = runs.state();
         runs.restore(state.withPosition(state.tab, Collections.singletonList(ref), ref, 0));
     }
-    private void backTo(ArchiveWorkspace<?, ?, ?> runs, ViewState<?, ?> origin, int page) throws Exception {
+    private void backTo(ArchiveWorkspace<?, ?, ?> runs, ViewState<?, ?> origin, String page) throws Exception {
         assertTrue(edt(() -> Navigator.current().back()));
         await(() -> settled(runs) && runs.state().query.equals(origin.query));
         edt(() -> {
-            assertEquals(page, shell.getSelectedPage());
+            assertEquals(page, shell.selectedPage());
             // Every origin here is the Runs table in the Feed tab of Runs & DPS: Back brings that tab forward first.
-            if (page == 10) assertEquals("Back returns to the Feed tab", RunsTab.FEED, runsDps().selectedTab());
+            if (page.equals("runs")) assertEquals("Back returns to the Feed tab", RunsTab.FEED, runsDps().selectedTab());
             assertEquals("Back restores query, page, selection and scroll anchor", origin.toJson(), runs.state().toJson());
             JTable table = named(runs, JTable.class, "saved-activity-table");
             assertEquals(origin.selected.get(0), runs.displayedPage().rows.get(table.convertRowIndexToModel(table.getSelectedRow())).ref);
