@@ -17,7 +17,7 @@ Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-
 ### Wave 1 evidence and recovery
 
 - The shell and saved history open before asset setup finishes. **Choose assets…** and **Retry assets** provide recovery in place; the saved capture preference is applied only after successful initial readiness. See [setup guidance](../README.md#troubleshooting).
-- **My Info** has **Captured**, **Estimated** and **Unavailable** filters. Each of its four summary cards has a Details action for inputs, assumptions and missing data, independent of table filters. **Estimate scenario: out of combat** changes the local calculation, not the captured combat state.
+- The character sheet's **Build** tab (formerly the My Info page) has **Captured**, **Estimated** and **Unavailable** filters. Each of its four summary cards has a Details action for inputs, assumptions and missing data, independent of table filters. **Estimate scenario: out of combat** changes the local calculation, not the captured combat state.
 - **Inspect** keeps absent mode, stats and equipment fields unknown. Missing seasonal metadata does not mean Non-seasonal; missing inputs do not become exact maxed counts or fabricated potion deficits. Equipment details distinguish retained build/change time from last seen, and do not assign a capture time to an untimed DPS snapshot.
 - **Gameplay & diagnostics collection** is shared across Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. **Pause this view** holds displayed data while collection status stays current; saved views identify themselves as **Saved history**. See [Logging](LOGGING.md).
 - Alert editors open silently, offer explicit **Test sound**, and distinguish changes active in memory from confirmed disk saves. See [Notifications](NOTIFICATIONS.md#editing-match-rules).
@@ -76,7 +76,7 @@ Text keeps at least 4.5:1 contrast on every new surface, and the capture button 
 
 The integration combines the redesign on `main` (`e0349cc`, including `4ad75b1`) with the gameplay-fix branch (`4e188ad`) and its preceding Phase 4 cleanup/build work. The shared violet theme, rounded workspace card, navigation rail, hover states and accent controls come from the redesigned UI. The only shell text changes are the Inspect title and description; the shared style helper also retains Phase 4's nested-scroll reveal support.
 
-All requested gameplay changes are present in that design: Inspect's sortable Current Area and saved Runs rosters, Class column, differentiated seasonal/non-seasonal Crucible colors, last-captured equipment and stats, Damage/DPS ranking, shared evidence-based completion status, minutes/seconds controls, and equipment-only UT filtering. See [Activity modules](ACTIVITY.md) and [Statistics](STATISTICS.md) for the capture semantics.
+All requested gameplay changes are present in that design: Inspect's sortable Current Area and saved Runs rosters, Class column, differentiated seasonal/non-seasonal Crucible colors, last-captured equipment and stats, Damage/DPS ranking, shared evidence-based completion status, minutes/seconds controls, and equipment-only UT filtering. See [Activity modules](ACTIVITY.md) and [Loot](LOOT.md) for the capture semantics.
 
 The combined Inspect regression now checks that hover paints both character-mode and DPS cells with the redesigned hover surface, preserves Crucible foreground colors, and yields to selection under both Violet and a light look-and-feel. Validation passed **485 tests**, plus **71 UI tests at 150%** and **71 at 200%** display scaling, with zero failures or ignored tests. Main-shell and populated Inspect, Runs and UT screenshots were reviewed. The Windows ZIP was rebuilt, its package checks passed, and its native launcher successfully started the bundled Java runtime.
 
@@ -91,8 +91,8 @@ The integrated release evidence is under `build/share/20260920-124328-eb106be97d
 - Fame saves use detached, ordered background requests with coalescing and visible completion/failure status. Save/delete ordering and stale-completion guards preserve session state.
 - DPS import/export and Key-pop CSV writes use background workers. DPS player filtering reuses encounter aggregates, and meter maxima are computed outside individual cell painting.
 - Inspect roster updates use detached data, a renderer-based table and coalesced visible refreshes.
-- The legacy Loot log retains at most 1,000 rendered entries. Shared Loot dashboards batch model updates and refresh hidden views when shown.
-- My Info batches detached player/pet updates. Chat and Key-pop hidden views avoid recurring presentation work. Logging/Activity update relevant visible views and avoid unchanged table replacement.
+- The legacy Loot log (removed in P6a with the Statistics page) retained at most 1,000 rendered entries. Shared Loot dashboards batch model updates and refresh hidden views when shown.
+- Build (formerly My Info) batches detached player/pet updates. Chat and Key-pop hidden views avoid recurring presentation work. Logging/Activity update relevant visible views and avoid unchanged table replacement.
 
 These changes preserve existing capture, account and saved-file behavior, with regression checks for the affected paths. They do not constitute a measured prolonged-gameplay performance benchmark.
 
