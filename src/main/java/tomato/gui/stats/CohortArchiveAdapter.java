@@ -12,7 +12,7 @@ import tomato.history.archive.*;
  * STAT-3 controlled A/B comparison. Baseline and candidate share the same dungeon, outcome, query-bounds and
  * loot-coverage predicates; they differ only by their explicit session choice and visit-entry bounds. Eligibility,
  * exclusions, unassigned drops and rates reuse {@link StatisticsArchiveAdapter}'s cohort semantics
- * ({@link HistoricalStatistics.Profile}): run-only imports and sessions without saved loot evidence are excluded,
+ * ({@link LootProfile}): run-only imports and sessions without saved loot evidence are excluded,
  * zero-loot runs stay in the denominator, and any unassigned bag makes rates unavailable. A zero or unavailable
  * baseline never produces a percentage change.
  */
@@ -43,7 +43,7 @@ public final class CohortArchiveAdapter implements ArchiveAdapter<Row,Facets,Sor
     /** One side of the comparison; the Profile carries the shared denominator semantics. */
     static final class Side {
         final String label; final Cohort cohort;
-        final HistoricalStatistics.Profile profile = new HistoricalStatistics.Profile();
+        final LootProfile profile = new LootProfile();
         final Map<String,Long> perRun = new HashMap<>();
         Side(String label, Cohort cohort) { this.label = label; this.cohort = cohort; }
         boolean rated() { return profile.lootEvidence && profile.unassignedBags == 0 && profile.runs > 0; }
@@ -76,7 +76,7 @@ public final class CohortArchiveAdapter implements ArchiveAdapter<Row,Facets,Sor
             if (memberships == 2) overlap[0]++;
             boolean imported = "Imported".equals(pin.session(session).version);
             for (int i = 0; i < 2; i++) if (member[i]) {
-                HistoricalStatistics.Profile p = sides[i].profile;
+                LootProfile p = sides[i].profile;
                 if (imported) p.excludedRuns++;
                 else if (!evidence.contains(session)) { p.unknownRuns++; p.unknownMillis += visit.observedMillis(); }
                 else { p.lootEvidence = true; StatisticsArchiveAdapter.addVisit(p, visit); sides[i].perRun.put(session + "/" + visit.id, 0L); }
