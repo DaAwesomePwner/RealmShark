@@ -8,6 +8,7 @@ import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -147,6 +148,51 @@ public class ChatSectionTest {
         SwingUtilities.invokeAndWait(() -> {
             assertEquals("Shown again, the editor offers the current rules", "ElsewhereVendor",
                 named(page[0], "chat-ignored-players", JTextArea.class).getText());
+        });
+    }
+
+    /**
+     * Polish B2 (P6a evidence finding 9): the editor fills the section under Saving and scrolls its own lists, so its footer (Save
+     * filters, Cancel and the save status) is whole in view as the section opens, with nothing scrolled, at the Settings page's
+     * size in the real shell at 1240×800 font 13 (1016×690) and at 680×520 font 18 (592×328). The Save in view applies through the
+     * live chat's rules, as before.
+     */
+    @Test public void theEditorsSaveAndCancelAreInViewWithoutScrollingAtBothReferenceSizes() throws Exception {
+        SettingsPage[] page = new SettingsPage[1];
+        JPanel padded = new JPanel(new BorderLayout());
+        SwingUtilities.invokeAndWait(() -> {
+            ChatGUI chat = new ChatGUI(null, filters, false);
+            page[0] = new SettingsPage(new JPanel(), () -> {}, new JPanel(), new JPanel(), new JPanel(), new ChatSection(chat::filtersEditor), new JPanel());
+            page[0].showSection(SettingsPage.CHAT);
+            padded.setBorder(new EmptyBorder(24, 6, 6, 6));   // clear of the harness's painted title band, as LootEvidenceTest
+            padded.add(page[0], BorderLayout.CENTER);
+        });
+        for (int[] size : new int[][] {{1016, 690, 13}, {592, 328, 18}}) {
+            String at = size[0] + "x" + size[1] + " font " + size[2];
+            SwingUtilities.invokeAndWait(() -> evidence.show(padded, "Settings chat " + at, size[0] + 12, size[1] + 30, size[2]));
+            evidence.settle();
+            SwingUtilities.invokeAndWait(() -> {
+                evidence.capture("settings-chat-footer-" + size[0] + "x" + size[1] + "-font" + size[2]);
+                assertEquals(at + ": the Settings page's size in the real shell", new Dimension(size[0], size[1]), page[0].getSize());
+                for (String name : new String[] {"chat-save-filters", "chat-cancel-filters", "chat-filter-save-status"}) {
+                    JComponent part = named(page[0], name, JComponent.class);
+                    assertTrue(at + ": " + name + " is showing", part.isShowing() && part.getWidth() > 0 && part.getHeight() > 0);
+                    assertEquals(at + ": " + name + " is whole in view without scrolling", new Rectangle(part.getSize()), part.getVisibleRect());
+                }
+                JViewport top = named(page[0], "settings-chat-top", JScrollPane.class).getViewport();
+                System.out.println(at + ": the top " + top.getHeight() + " px of " + top.getView().getHeight() + ", the editor "
+                    + named(page[0], "chat-filters-editor", JComponent.class).getHeight() + " px");
+                if (size[2] == 13) assertEquals(at + ": the top is whole (it does not scroll)", top.getView().getHeight(), top.getHeight());
+                VisualEvidence.completeButton(named(page[0], "chat-save-filters", AbstractButton.class));
+                VisualEvidence.completeButton(named(page[0], "chat-cancel-filters", AbstractButton.class));
+                VisualEvidence.completeButton(named(page[0], "settings-chat-save", JCheckBox.class));   // the top scrolls to it if short
+            });
+        }
+        SwingUtilities.invokeAndWait(() -> {
+            named(page[0], "chat-ignored-players", JTextArea.class).setText("ExampleVendor");
+            named(page[0], "chat-save-filters", AbstractButton.class).doClick();
+            assertTrue("The Save in view applies to the live chat's own rules", filters.ignoresPlayer("ExampleVendor"));
+            assertEquals("Persisted once, like the dialog", 1, persisted.size());
         });
     }
 

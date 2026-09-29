@@ -434,6 +434,122 @@ public class LootHighlightsTest {
         });
     }
 
+    /**
+     * Polish B2 (P6a evidence finding 1): the potions and white-bag sub-lines of the evidence day ("2 Life · 1 Mana · 1 Att · 1 Def
+     * · +2 more", "of 9 bags · 1 without a bag name") no longer widen their tiles. At the real shell's content width at 1240×800
+     * font 13 (about 1,010 px) the four tiles share one row and one height; at its 680×520 font 18 width (about 590 px) they wrap
+     * (two by two). At both sizes every tile lies inside the page and each sub-line is whole: painted (wrapped between its parts)
+     * or, only if a word cannot wrap, in the tile's tooltip.
+     */
+    @Test public void longSubLinesKeepFourTilesInOneRowAtTheShellsDesktopWidth() throws Exception {
+        LootHighlights view = view(new Fake(LootHighlightsTest::longLines));
+        // The page as wide as the real shell's content (the sidebar's width is padded at the left).
+        JPanel workspace = edt(() -> {
+            JPanel panel = new JPanel(new BorderLayout());
+            panel.setBorder(new javax.swing.border.EmptyBorder(34, 1240 - 1010 - 12, 10, 12));
+            panel.add(view, BorderLayout.CENTER);
+            return panel;
+        });
+        SwingUtilities.invokeAndWait(() -> evidence.show(workspace, "Loot highlights long sub-lines 1240x800 font 13", 1240, 800, 13));
+        loaded(view);
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            evidence.capture("loot-highlights-long-sublines-1240x800-font13-dark");
+            errors.checkSucceeds(() -> {
+                assertEquals("The shell's content width", 1010, view.getWidth());
+                assertEquals("2 Life · 1 Mana · 1 Att · 1 Def · +2 more", subline(named(view, "loot-tile-potions", StatTile.class)));
+                assertEquals("of 9 bags · 1 without a bag name", subline(named(view, "loot-tile-whites", StatTile.class)));
+                List<StatTile> tiles = tiles(view);
+                assertEquals("Four tiles in one row at 1,010 px: " + bounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
+                assertEquals("One height for the row: " + bounds(tiles), 1, tiles.stream().map(Component::getHeight).distinct().count());
+                assertTilesInside(view, tiles);
+                for (String name : new String[] {"loot-tile-potions", "loot-tile-whites"}) assertSubLineWhole(named(view, name, StatTile.class));
+                return null;
+            });
+            evidence.show(workspace, "Loot highlights long sub-lines 680x520 font 18", 680, 520, 18);
+            workspace.setBorder(new javax.swing.border.EmptyBorder(34, 680 - 590 - 12, 10, 12));
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            evidence.capture("loot-highlights-long-sublines-680x520-font18-dark");
+            errors.checkSucceeds(() -> {
+                assertEquals("The shell's compact content width", 590, view.getWidth());
+                List<StatTile> tiles = tiles(view);
+                long rows = tiles.stream().map(Component::getY).distinct().count();
+                assertTrue("The tiles wrap at 590 px font 18 (two by two, or one per row): " + bounds(tiles), rows > 1);
+                assertTilesInside(view, tiles);
+                for (String name : new String[] {"loot-tile-potions", "loot-tile-whites"}) assertSubLineWhole(named(view, name, StatTile.class));
+                return null;
+            });
+        });
+    }
+
+    /** A sub-line wider than its tile breaks between its parts, then at spaces; every part stays whole where it fits. */
+    @Test public void subLinesBreakBetweenPartsBeforeInsideAPart() throws Exception {
+        edt(() -> {
+            FontMetrics metrics = new JLabel().getFontMetrics(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+            int ch = metrics.charWidth('x');
+            String text = "2 Life · 1 Mana · 1 Att · 1 Def · +2 more";
+            assertEquals("Wide enough: one line", List.of(text), LootHighlights.SubLine.lines(text, metrics, ch * text.length()));
+            assertEquals("Between parts, the separator dropped at the break", List.of("2 Life · 1 Mana · 1 Att", "1 Def · +2 more"),
+                LootHighlights.SubLine.lines(text, metrics, ch * 24));
+            assertEquals("One part a line when two do not fit", List.of("of 9 bags", "1 without a bag name"),
+                LootHighlights.SubLine.lines("of 9 bags · 1 without a bag name", metrics, ch * 20));
+            assertEquals("A part wider than the line breaks at its spaces", List.of("of 9 bags", "1 without a", "bag name"),
+                LootHighlights.SubLine.lines("of 9 bags · 1 without a bag name", metrics, ch * 12));
+            assertEquals(List.of(), LootHighlights.SubLine.lines("", metrics, 100));
+            return null;
+        });
+    }
+
+    /**
+     * The tile's wrapping sub-line (its child 2, under the value) is whole: it has the height of its lines inside the tile, and its
+     * last paint drew every word of the text (the lines rejoin to it, none cut with "…"), or, if a word was cut, its tooltip is the
+     * whole text. The line count is printed.
+     */
+    private static void assertSubLineWhole(StatTile tile) {
+        LootHighlights.SubLine sub = (LootHighlights.SubLine) tile.getComponent(2);
+        String text = sub.getText();
+        List<String> painted = sub.painted();
+        System.out.println(tile.getName() + " sub-line in " + painted.size() + " line(s) at " + sub.getWidth() + " px: " + painted);
+        assertTrue(tile.getName() + " shows its sub-line", sub.isVisible() && sub.getWidth() > 0);
+        assertTrue(tile.getName() + ": the sub-line lies inside the tile: " + sub.getBounds() + " in " + tile.getSize(), new Rectangle(tile.getSize()).contains(sub.getBounds()));
+        assertTrue(tile.getName() + ": the sub-line has the height of its lines", sub.getHeight() >= painted.size() * sub.getFontMetrics(sub.getFont()).getHeight());
+        boolean whole = painted.stream().noneMatch(line -> line.endsWith("…")) && words(String.join(" ", painted)).equals(words(text));
+        assertTrue(tile.getName() + ": painted " + painted + " for '" + text + "', tooltip " + sub.getToolTipText(), whole || text.equals(sub.getToolTipText()));
+    }
+
+    private static List<String> words(String text) { return Arrays.asList(text.replace("·", " ").trim().split("\\s+")); }
+
+    /** Today in the evidence's shape: seven potions over six stats and nine bags, two of them white and one without a name. */
+    static HighlightsModel longLines(HighlightsModel.Window window) {
+        int attack = 2591, wisdom = 2613;
+        List<LootFacts.Bag> bags = List.of(
+            bag("White", "Lost Halls", at(0, 9, 5), RUN, item(1001, true, false, false, 2), item(LIFE, false, false, true, null)),
+            bag("Orange", "Lost Halls", at(0, 9, 20), RUN, item(1002, false, true, false, 0), item(1003, false, false, false, 3)),
+            bag("Cyan", "Ice Citadel", at(0, 9, 40), OTHER_RUN, item(1004, false, false, false, 2), item(DEFENSE, false, false, true, null), item(GREATER_LIFE, false, false, true, null)),
+            bag("B.White", "Pirate Cave", at(0, 10, 0), OTHER_RUN, item(1005, true, false, false, 1)),
+            bag("Purple", "Snake Pit", at(0, 10, 20), null, item(1006, false, false, false, null), item(MANA, false, false, true, null)),
+            bag("Brown", HighlightsModel.UNRECOGNIZED, at(0, 10, 40), null, item(OTHER_POTION, false, false, true, null)),
+            bag("Blue", "Lost Halls", at(0, 11, 0), RUN, item(attack, false, false, true, null), item(wisdom, false, false, true, null)),
+            bag(null, "Lost Halls", at(0, 11, 10), RUN, item(1007, false, false, false, 0)),
+            bag("Orange", "Ice Citadel", at(0, 11, 30), OTHER_RUN, item(1008, false, true, false, 1)));
+        return HighlightsModel.of(window, SAVED, bags, true, 0, false, NOON);
+    }
+
+    private static void assertTilesInside(LootHighlights view, List<StatTile> tiles) {
+        JComponent page = (JComponent) named(view, "loot-highlights-scroll", JScrollPane.class).getViewport().getView();
+        for (StatTile tile : tiles) {
+            Rectangle bounds = SwingUtilities.convertRectangle(tile.getParent(), tile.getBounds(), page);
+            assertTrue(tile.getName() + " lies inside the page: " + bounds, bounds.x >= 0 && bounds.x + bounds.width <= page.getWidth());
+        }
+    }
+
+    private static String bounds(List<StatTile> tiles) {
+        return tiles.stream().map(tile -> tile.getName() + "@" + tile.getX() + "," + tile.getY() + " " + tile.getWidth() + "x" + tile.getHeight())
+            .collect(Collectors.joining("; "));
+    }
+
     private static void assertAreasWhole(LootHighlights view, int columns, String size) {
         TileList<HighlightsModel.Notable> grid = view.notableList();
         assertEquals(size + ": cards a row", columns, grid.getWidth() / grid.getFixedCellWidth());
