@@ -14,9 +14,10 @@ import tomato.gui.kit.DisplayModeModel;
 public final class HistoricalStatistics {
     private HistoricalStatistics(){}
     /**
-     * Loot › Explore (coordinator shell hook): {@code live} and saved history with one view selector each over the same views
-     * ({@link LootExploreModel}: nine Simple item views, six Analyst saved-only views), sharing the chosen view. Independent
-     * persisted state keys: {@code loot-live} (the live index under {@code loot-views}) and {@code loot} ({@code facets.view}).
+     * Loot › Explore (coordinator shell hook): {@code live} and saved history behind one view selector, the live dashboard's
+     * ({@link LootExploreModel}: nine Simple item views, six Analyst saved-only views), which leads the filter row the page shows;
+     * {@code live}'s row hosts the Scope chip while live. Independent persisted state keys: {@code loot-live} (the live index under
+     * {@code loot-views}) and {@code loot} ({@code facets.view}).
      */
     public static ArchiveWorkspace<LootQuery.Row,LootQuery.Facets,LootQuery.Sort> lootWorkspace(
             SessionStore store,LootDashboard live,java.nio.file.Path scratch,ViewStateStore states){

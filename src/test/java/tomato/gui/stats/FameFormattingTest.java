@@ -148,7 +148,8 @@ public class FameFormattingTest {
                         assertTrue(field(panel, "results", JLabel.class).getText().startsWith("3 rows shown"));
                         String totals = named(panel, "loot-enchant-totals", JTextArea.class).getText();
                         assertTrue(totals.startsWith(german ? "2.469 drops shown" : "2,469 drops shown"));
-                        assertTrue(totals.contains(german ? "Unknown: 1.234" : "Unknown: 1,234"));
+                        // P6b Task 14 (Polish B1): stat potions have no enchant slots, so they are counted apart, not as Unknown.
+                        assertTrue(totals, totals.contains(german ? "Unknown: 0 · 1.234 stat potions (no enchant slots)" : "Unknown: 0 · 1,234 stat potions (no enchant slots)"));
                         assertTrue(totals.contains(german ? "Unenchanted (0 slots): 1.235" : "Unenchanted (0 slots): 1,235"));
                         String scope = field(panel, "scopeNote", JTextArea.class).getText();
                         assertTrue(scope.contains(german ? "globally newest 1.000 bags by timestamp" : "globally newest 1,000 bags by timestamp"));

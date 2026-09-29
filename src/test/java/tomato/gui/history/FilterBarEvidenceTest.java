@@ -28,6 +28,7 @@ import tomato.gui.dps.Filter;
 import tomato.gui.keypop.KeyPopArchiveClient;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.FilterBarAssert;
 import tomato.gui.quest.QuestGUI;
 import tomato.gui.runs.DungeonsView;
 import tomato.gui.security.ParsePanelGUI;
@@ -46,7 +47,8 @@ import static tomato.gui.chat.SocialArchiveTestSupport.edt;
  * {@code dungeons}. P6a adds Loot's live row ({@code loot-live}: the live dashboard alone, as Loot › Explore shows it without saved
  * history) and Loot › Explore live beside saved history ({@code loot-explore-live}: the same dashboard inside the Loot workspace, in
  * live mode), and checks Loot's view selector, live and saved. The retired Statistics page and its sub-pages, exempt until P6, are
- * gone (P6a): every page with a filter row is in this matrix.
+ * gone (P6a): every page with a filter row is in this matrix. P6b Task 14: Loot › Explore has one view selector, leading the row it
+ * shows, and live its dashboard's row hosts the Scope chip (the workspace's row is hidden).
  */
 public class FilterBarEvidenceTest {
     @Rule public final TableViewRule tableView = new TableViewRule();
@@ -155,7 +157,7 @@ public class FilterBarEvidenceTest {
                 VisualEvidence.named(lootLive, "loot-apply-facets", AbstractButton.class).doClick();
                 built.add(new Page("loot-live", lootLive, VisualEvidence.named(lootLive, "loot-live-filter-bar", FilterBar.class), () -> true));
                 // P6a: Loot › Explore live beside saved history, as the Loot page builds it (the live dashboard inside the Loot
-                // workspace, live mode): the same row, with the workspace's session row above it; a UT facet through the drawer.
+                // workspace, live mode): the same row, hosting the Scope chip since P6b; a UT facet through the drawer.
                 LootDashboard exploreLive = new LootDashboard();
                 ArchiveWorkspace<LootQuery.Row, LootQuery.Facets, LootQuery.Sort> explore = HistoricalStatistics.lootWorkspace(store, exploreLive, exploreScratch, exploreStates.states);
                 VisualEvidence.named(exploreLive, "loot-kind", JComboBox.class).setSelectedItem(LootQuery.Kind.UT_EQUIPMENT);
@@ -271,30 +273,31 @@ public class FilterBarEvidenceTest {
     }
 
     /**
-     * P6a: Loot's one view selector. Live, it sits in the filter row's search slot; saved, it leads the saved view right under the
-     * workspace's filter row (the row's search slot belongs to the shared archive workspace until P6b merges the scope row). Live
-     * inside the Loot workspace, the workspace's row above keeps only the scope controls (Browse saved, the session, Refresh, ⋯):
-     * its saved search and Filters toggle are hidden, so the filters are in one row (P6b merges the scope row into it).
+     * Loot's one view selector (P6a; one control since P6b Task 14): it leads the search slot of the row the page shows. Live, that
+     * is the dashboard's row, which inside the Loot workspace also hosts the Scope chip while the workspace's row (saved search,
+     * Filters) is hidden; saved, it is the workspace's row, and the saved view builds no selector of its own.
      */
     private static void assertLootViewSelector(Page page) {
         AbstractButton filters = VisualEvidence.named(page.bar, page.bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class);
         Component slot = filters.getParent().getComponent(0);
+        JComboBox<?> selector = VisualEvidence.named(page.root, "loot-views", JComboBox.class);
+        assertTrue(page.name + ": the view selector sits in the search slot", selector.isShowing() && SwingUtilities.isDescendingFrom(selector, slot));
+        if (!(page.root instanceof ArchiveWorkspace)) return;
+        ArchiveWorkspace<?, ?, ?> workspace = (ArchiveWorkspace<?, ?, ?>) page.root;
+        assertEquals(page.name + ": live or saved history", !page.name.endsWith("-live"), workspace.state().archive);
+        FilterBarAssert.assertChipInVisibleBar(workspace);
         if (page.name.endsWith("-live")) {
-            assertTrue(page.name + ": the view selector sits in the search slot",
-                SwingUtilities.isDescendingFrom(VisualEvidence.named(page.bar, "loot-views", JComboBox.class), slot));
-            if (page.root instanceof ArchiveWorkspace) {
-                ArchiveWorkspace<?, ?, ?> workspace = (ArchiveWorkspace<?, ?, ?>) page.root;
-                assertFalse(page.name + ": live, not saved history", workspace.state().archive);
-                assertFalse(page.name + ": the saved search is hidden while live", VisualEvidence.named(workspace, "loot-history-search", JComponent.class).isShowing());
-                assertFalse(page.name + ": the saved Filters toggle is hidden while live",
-                    VisualEvidence.named(workspace.filterBar(), "loot-filters", AbstractButton.class).isShowing());
-            }
-            return;
+            assertFalse(page.name + ": the saved search is hidden while live", VisualEvidence.named(workspace, "loot-history-search", JComponent.class).isShowing());
+            assertFalse(page.name + ": the saved Filters toggle is hidden while live",
+                VisualEvidence.named(workspace.filterBar(), "loot-filters", AbstractButton.class).isShowing());
+        } else assertNull("loot: the saved view builds no selector of its own", search(workspace, "loot-archive-view"));
+    }
+    private static Component search(Container root, String name) {
+        for (Component child : root.getComponents()) {
+            if (name.equals(child.getName())) return child;
+            if (child instanceof Container) { Component found = search((Container) child, name); if (found != null) return found; }
         }
-        JComboBox<?> selector = VisualEvidence.named(page.root, "loot-archive-view", JComboBox.class);
-        assertTrue("loot: the saved view selector is shown", selector.isShowing());
-        int barBottom = SwingUtilities.convertPoint(page.bar, 0, page.bar.getHeight(), page.root).y, top = SwingUtilities.convertPoint(selector, 0, 0, page.root).y;
-        assertTrue("loot: the saved view selector leads the saved view, right under the filter row", top >= barBottom && top - barBottom < 3 * selector.getHeight());
+        return null;
     }
 
     /** S6 at desktop width: with the drawer closed, the search slot and the Filters toggle share one row. */

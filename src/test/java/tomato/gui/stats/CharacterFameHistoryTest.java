@@ -149,6 +149,81 @@ public class CharacterFameHistoryTest {
             return null;
         });
     }
+    /**
+     * B7: fame is filtered by Character ID only (dungeon selection and loot facets do not filter fame), so the drawer has no dungeon
+     * field and the row no loot chips; and while the columns fit, Name takes the table's spare width, which no layout records.
+     */
+    @Test public void fameFiltersAreCharacterIdOnlyAndNameTakesTheSpareWidth() throws Exception {
+        SessionStore store = history();
+        ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store, temp.newFolder("scratch").toPath(), new ArchiveNativeSupport.Memory());
+        JComponent view = edt(() -> CharacterFameHistory.view(() -> workspace, () -> { }));
+        JFrame frame = edt(() -> {
+            JFrame shown = new JFrame("Character fame filters fixture");
+            windows.add(shown);
+            shown.setContentPane(view);
+            shown.setSize(1240, 800);
+            shown.setVisible(true);
+            return shown;
+        });
+        await(() -> ready(workspace) && workspace.displayedPage().matches == 2);
+        edt(() -> {
+            JComponent drawer = workspace.filterBar().drawerContent();
+            assertNotNull(drawer);
+            assertNull("No dungeon field for fame", label(drawer, "Dungeons (semicolon-separated)"));
+            assertNotNull("Character ID only", label(drawer, "Character ID"));
+            Facets f = workspace.state().query.facets(); f.character = "7"; f.dungeons.add("Lost Halls"); f.kind = Kind.UT_EQUIPMENT;
+            workspace.changeQuery(workspace.state().query.withFacets(f));
+            return null;
+        });
+        await(() -> ready(workspace) && workspace.displayedPage().matches == 1);
+        edt(() -> {
+            assertEquals("Loot facets do not filter fame, so they are no chips", List.of("Character ID 7"), ArchiveNativeSupport.chipLabels(workspace.filterBar()));
+            return null;
+        });
+        await(() -> {
+            JTable table = find(workspace, "loot-archive-table", JTable.class);
+            return table.isShowing() && table.getWidth() == table.getParent().getWidth();
+        });
+        edt(() -> {
+            JTable table = find(workspace, "loot-archive-table", JTable.class);
+            int others = 0; javax.swing.table.TableColumn name = null;
+            for (javax.swing.table.TableColumn column : Collections.list(table.getColumnModel().getColumns()))
+                if ("name".equals(column.getIdentifier())) name = column; else others += column.getWidth();
+            assertNotNull(name);
+            assertEquals("Name takes the spare width", table.getParent().getWidth() - others, name.getWidth());
+            assertFalse("No sideways scroll bar", ((JScrollPane) table.getParent().getParent()).getHorizontalScrollBar().isShowing());
+            assertFalse("The fitted width is not saved as a layout", workspace.state().tables.containsKey(View.FAME.name()));
+            return null;
+        });
+        // A layout saved for another reason (the user widens Fame change) records Name's own width, and Name keeps filling.
+        int fittedName = edt(() -> column(find(workspace, "loot-archive-table", JTable.class), "name").getWidth());
+        edt(() -> { javax.swing.table.TableColumn gain = column(find(workspace, "loot-archive-table", JTable.class), "gain"); gain.setWidth(gain.getWidth() + 20); return null; });
+        await(() -> workspace.state().tables.containsKey(View.FAME.name()));
+        int savedName = edt(() -> { for (ViewState.Column saved : workspace.state().tables.get(View.FAME.name()).columns) if ("name".equals(saved.id)) return saved.width; return -1; });
+        assertTrue("The saved layout keeps Name's own width, not the fitted " + fittedName + ": " + savedName, savedName > 0 && savedName < fittedName);
+        await(() -> fills(find(workspace, "loot-archive-table", JTable.class), savedName));
+        // Narrower: the fitted width goes, Name keeps at least its own width (a font change or resize never locks the fit in).
+        edt(() -> { frame.setSize(700, 800); return null; });
+        await(() -> fills(find(workspace, "loot-archive-table", JTable.class), savedName));
+        assertTrue("Narrower, Name gives the fitted width back", edt(() -> column(find(workspace, "loot-archive-table", JTable.class), "name").getWidth()) < fittedName);
+    }
+    /** Name is as wide as the spare width, or its own width when nothing is spare. */
+    private static boolean fills(JTable table, int own) {
+        int others = 0; for (javax.swing.table.TableColumn column : Collections.list(table.getColumnModel().getColumns())) if (!"name".equals(column.getIdentifier())) others += column.getWidth();
+        return table.isShowing() && column(table, "name").getWidth() == Math.max(own, table.getParent().getWidth() - others);
+    }
+    private static javax.swing.table.TableColumn column(JTable table, String id) {
+        for (javax.swing.table.TableColumn column : Collections.list(table.getColumnModel().getColumns())) if (id.equals(column.getIdentifier())) return column;
+        throw new AssertionError("No column " + id);
+    }
+    private static JLabel label(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JLabel && text.equals(((JLabel) child).getText())) return (JLabel) child;
+            if (child instanceof Container) { JLabel found = label((Container) child, text); if (found != null) return found; }
+        }
+        return null;
+    }
+
     /** Every component from {@code component} up to {@code root} is visible (the workspace is not in a window, so isShowing is false). */
     private static boolean visibleWithin(Component component, Container root) {
         for (Component c = component; c != null && c != root; c = c.getParent()) if (!c.isVisible()) return false;
