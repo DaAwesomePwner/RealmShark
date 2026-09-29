@@ -24,6 +24,7 @@ import tomato.gui.history.HistoryTables;
 import tomato.gui.kit.Chip;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.KitButton;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
@@ -36,12 +37,19 @@ import tomato.gui.modern.LineIcon;
  * (true rank, fixed-width prefix), carry their class hue and sprite, and your row keeps the accent wash; enemies are
  * cards with a Boss chip; a player's hit details open in a drawer under the table, with Explore in a footer that is
  * always visible. A refill adds the enemy list in one model event and the renderers reuse their borders, derived
- * fonts and number formats (S8: a 300-enemy refill made about 45,000 renderer calls one element at a time).
+ * fonts and number formats (S8: a 300-enemy refill made about 45,000 renderer calls one element at a time). The filter
+ * controls are package-private for the host's filter row (DpsGUI's {@code FilterBar("dps-meter")}): a standalone meter
+ * still applies them and shows no filter row of its own.
  */
 public class MeterDpsGUI extends DisplayDpsGUI {
     private static final int[] METRIC_COLUMNS = {2, 3, 5, 8, 9};
-    private final JComboBox<String> enemySort = new JComboBox<>(new String[]{"Highest enemy HP", "Latest hit", "Longest fight", "Bosses only"});
-    private final JComboBox<String> classes = new JComboBox<>(new String[]{"All classes"});
+    static final String ALL_CLASSES = "All classes", BOSSES_ONLY = "Bosses only";
+    /** The enemy order that is also a filter: only boss cards (and their players) remain. */
+    private static final int BOSSES_INDEX = 3;
+    private final JComboBox<String> enemySort = new JComboBox<>(new String[]{"Highest enemy HP", "Latest hit", "Longest fight", BOSSES_ONLY});
+    private final JComboBox<String> classes = new JComboBox<>(new String[]{ALL_CLASSES});
+    /** Runs after every filter or scope change; the host's chips follow (DpsGUI). */
+    private Runnable filtersChanged = () -> { };
     private final JComboBox<String> metric = new JComboBox<>(new String[]{"Damage", "DPS", "Hits dealt", "Damage taken", "Hits taken"});
     private final JTextField search = new JTextField(12);
     private final JCheckBox colors = new JCheckBox("Class colors", true);
@@ -110,12 +118,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         ContentStyle.font(summary, ContentStyle.emphasis(ContentStyle.body()));
         summary.putClientProperty("html.disable", true);
         ContentStyle.font(scope, ContentStyle.metadata(ContentStyle.body()));
-        JPanel filters = ContentStyle.controls();
-        filters.add(new JLabel("Rank by")); filters.add(metric); filters.add(classes);
-        filters.add(new JLabel("Player")); filters.add(search); filters.add(colors);
+        // The filter controls (player search, Rank by, class, enemy order, class colors) belong to the host's filter row
+        // (DpsGUI's FilterBar "dps-meter"); a standalone meter applies them without showing them.
         summary.setAlignmentX(LEFT_ALIGNMENT); scope.setAlignmentX(LEFT_ALIGNMENT);
-        filters.setAlignmentX(LEFT_ALIGNMENT);
-        controls.add(summary); controls.add(filters); controls.add(scope);
+        controls.add(summary); controls.add(scope);
         captureWarning.setEditable(false); captureWarning.setFocusable(false);
         captureWarning.setLineWrap(true); captureWarning.setWrapStyleWord(true);
         captureWarning.setOpaque(false); ContentStyle.font(captureWarning, ContentStyle.body());
@@ -126,7 +132,6 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         header.add(controls, BorderLayout.CENTER); header.add(notices, BorderLayout.SOUTH);
         add(header, BorderLayout.NORTH);
         JPanel left = new JPanel(new BorderLayout(4, 4));
-        left.add(enemySort, BorderLayout.NORTH);
         enemyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         ContentStyle.font(enemyList, ContentStyle.body());
         enemyList.setCellRenderer(new EnemyCardRenderer());
@@ -265,6 +270,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             public void changedUpdate(DocumentEvent e) { filterRows(); }
         });
         search.getAccessibleContext().setAccessibleName("Filter player name");
+        search.putClientProperty("JTextField.placeholderText", "Search players");
+        metric.getAccessibleContext().setAccessibleName("Rank players by");
+        classes.getAccessibleContext().setAccessibleName("Player class");
+        enemySort.getAccessibleContext().setAccessibleName("Enemy order");
         scope.setToolTipText(CombatMeterData.WINDOW_DEFINITION+" "+CombatMeterData.POPULATION);
         // Object IDs on the enemy cards follow Simple/Analyst; re-measure the cards only when the mode really changed
         // (the binding also runs whenever the meter becomes displayable).
@@ -285,6 +294,33 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     JScrollPane tableScroll() { return tableScroll; }
     JTable table() { return table; }
+    // The filter controls, for the host's filter row (package-private: DpsGUI places them; tests read them).
+    JTextField searchField() { return search; }
+    JComboBox<String> metricChoice() { return metric; }
+    JComboBox<String> classChoice() { return classes; }
+    JComboBox<String> enemyChoice() { return enemySort; }
+    JCheckBox classColors() { return colors; }
+    /** EDT: {@code listener} runs after every filter or scope change (the host's chips follow); null removes it. */
+    void onFiltersChanged(Runnable listener) { filtersChanged = listener == null ? () -> { } : listener; }
+    /**
+     * The meter's own active filters as removable chips, in row order: class, player search, then Bosses only (an enemy
+     * filter). The metric and class colors are display choices, not filters. Each removal reads the controls when clicked.
+     */
+    List<FilterBar.ActiveFilter> activeFilters() {
+        List<FilterBar.ActiveFilter> active = new ArrayList<>(3);
+        Object chosen = classes.getSelectedItem();
+        if (chosen != null && !ALL_CLASSES.equals(chosen)) active.add(new FilterBar.ActiveFilter("Class: " + chosen, () -> classes.setSelectedItem(ALL_CLASSES)));
+        String query = search.getText().trim();
+        if (!query.isEmpty()) active.add(new FilterBar.ActiveFilter("Player: " + query, () -> search.setText("")));
+        if (enemySort.getSelectedIndex() == BOSSES_INDEX) active.add(new FilterBar.ActiveFilter(BOSSES_ONLY, () -> enemySort.setSelectedIndex(0)));
+        return active;
+    }
+    /** Clears the class, player and Bosses only filters (the host's Clear); the metric, enemy order and colors stay. */
+    void clearFilters() {
+        if (enemySort.getSelectedIndex() == BOSSES_INDEX) enemySort.setSelectedIndex(0);
+        if (!ALL_CLASSES.equals(classes.getSelectedItem())) classes.setSelectedItem(ALL_CLASSES);
+        if (!search.getText().isEmpty()) search.setText("");
+    }
 
     void setContext(Object key, Entity player) {
         setContext(key, player, DpsData.LocalPlayerContext.capture(player));
@@ -330,7 +366,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         Comparator<Entity> comparator = Comparator.comparingInt(Entity::maxHp);
         if (enemySort.getSelectedIndex() == 1) comparator = Comparator.comparingLong(Entity::getLastDamageTaken);
         if (enemySort.getSelectedIndex() == 2) comparator = Comparator.comparingLong(Entity::getFightDuration);
-        if (enemySort.getSelectedIndex() == 3) sorted.removeIf(e -> !e.isBossMob());
+        if (enemySort.getSelectedIndex() == BOSSES_INDEX) sorted.removeIf(e -> !e.isBossMob());
         sorted.sort(comparator.reversed().thenComparingInt(e -> e.id));
         updating = true;
         // One model event for the whole list: adding cards one at a time made the list re-measure every card on each
@@ -350,15 +386,15 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         List<Entity> chosen = new ArrayList<>();
         if (enemy != null) chosen.add(enemy);
         else for (int i = 1; i < enemies.size(); i++) chosen.add(enemies.get(i));
-        wholeEncounter = enemy == null && enemySort.getSelectedIndex() != 3;
+        wholeEncounter = enemy == null && enemySort.getSelectedIndex() != BOSSES_INDEX;
         snapshot = new CombatMeterData(chosen, localPlayer, wholeEncounter);
         scopedEnemies = chosen.size();
         updateRanks();
         String selectedClass = (String) classes.getSelectedItem();
         TreeSet<String> available = new TreeSet<>(); snapshot.rows.forEach(r -> available.add(r.className()));
         updating = true;
-        classes.removeAllItems(); classes.addItem("All classes"); available.forEach(classes::addItem);
-        classes.setSelectedItem(available.contains(selectedClass) ? selectedClass : "All classes");
+        classes.removeAllItems(); classes.addItem(ALL_CLASSES); available.forEach(classes::addItem);
+        classes.setSelectedItem(available.contains(selectedClass) ? selectedClass : ALL_CLASSES);
         updating = false;
         filterRows();
     }
@@ -369,7 +405,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         String query = search.getText().trim().toLowerCase(Locale.ROOT);
         visible = new ArrayList<>();
         for (CombatMeterData.Row row : snapshot.rows) {
-            if (!"All classes".equals(classes.getSelectedItem()) && !row.className().equals(classes.getSelectedItem())) continue;
+            if (!ALL_CLASSES.equals(classes.getSelectedItem()) && !row.className().equals(classes.getSelectedItem())) continue;
             if (!String.valueOf(row.player.name()).toLowerCase(Locale.ROOT).contains(query)) continue;
             if (Filter.shouldFilter(playerContext) && Filter.filter(row.player, playerContext) != 1) continue;
             visible.add(row);
@@ -385,6 +421,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         scope.setText(DisplayFormat.formatNumber(snapshot.seconds, 1) + "s first-to-last hit window · Taken: "
             + (wholeEncounter ? "full dungeon" : "inclusive fight window") + " · Represented contributors only");
         showDetails();
+        filtersChanged.run();
     }
     private int metricColumn() { return METRIC_COLUMNS[metric.getSelectedIndex()]; }
     private void updateMeterMaximum() {
@@ -441,7 +478,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
      */
     boolean focusPlayer(int objectId, String notice) {
         updating = true;
-        try { search.setText(""); if (enemySort.getSelectedIndex() == 3) enemySort.setSelectedIndex(0); enemyList.setSelectedIndex(0); classes.setSelectedItem("All classes"); }
+        try { search.setText(""); if (enemySort.getSelectedIndex() == BOSSES_INDEX) enemySort.setSelectedIndex(0); enemyList.setSelectedIndex(0); classes.setSelectedItem(ALL_CLASSES); }
         finally { updating = false; }
         rebuildScope();
         routeNotice.setText(notice == null ? "" : notice); routeNotice.setVisible(notice != null && !notice.isEmpty());
