@@ -3,6 +3,7 @@ package tomato.gui.loot;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.time.ZoneId;
+import java.util.List;
 import javax.swing.JList;
 import javax.swing.SwingUtilities;
 import org.junit.Rule;
@@ -83,6 +84,64 @@ public class NotableDropRendererTest {
             DungeonStripRenderer strip = new DungeonStripRenderer();
             assertTrue(strip.getPreferredSize().width > 0 && strip.getPreferredSize().height > 0);
         });
+    }
+
+    /**
+     * Polish A: the area has a line of its own under the kind chip and the time, so "Lost Halls" (and "Unknown area") paint whole
+     * beside any chip at font 13 (the 17 em cell of 1240×800) and font 18; "Not linked to a run" keeps its own line; every card is
+     * the same size.
+     */
+    @Test public void theAreaHasItsOwnLineAndPaintsWholeBesideAnyChip() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JList<HighlightsModel.Notable> list = new JList<>();
+            for (int font : new int[] {13, 18}) {
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font));
+                NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+                Dimension cell = null;
+                for (HighlightsModel.Kind kind : HighlightsModel.Kind.values())
+                    for (String dungeon : new String[] {"Lost Halls", null})
+                        for (VisitRef visit : new VisitRef[] {RUN, null}) {
+                            HighlightsModel.Notable drop = new HighlightsModel.Notable(9065, "White", dungeon, at(0, 11, 30), visit, kind);
+                            renderer.getListCellRendererComponent(list, drop, 0, false, false);
+                            Dimension size = renderer.getPreferredSize();
+                            if (cell == null) cell = size; else assertEquals("Every card is the same size", cell, size);
+                            List<String> painted = paint(renderer, size);
+                            String area = dungeon == null ? "Unknown area" : dungeon, what = "font " + font + ", " + kind + ", " + area
+                                + (visit == null ? ", not linked" : "") + ": " + painted;
+                            assertTrue(what, painted.contains(area));
+                            assertTrue(what, painted.contains("11:30"));
+                            assertTrue(what, painted.contains(kind.label()));
+                            assertTrue(what, painted.contains(Sprites.name(9065)));
+                            assertEquals(what, visit == null, painted.contains("Not linked to a run"));
+                            for (String text : painted) assertFalse(what + ": nothing is cut", text.endsWith("…"));
+                        }
+            }
+        });
+    }
+
+    /** A name longer than the card is still cut with "…"; the tooltip says every fact in full (item, kind, area, time, bag, link). */
+    @Test public void aTooLongAreaIsCutAndTheTooltipSaysItInFull() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            String longArea = "An Extraordinarily Long Synthetic Dungeon Name";
+            NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+            HighlightsModel.Notable drop = new HighlightsModel.Notable(9065, "White", longArea, at(0, 11, 30), null, HighlightsModel.Kind.POTION);
+            renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
+            List<String> painted = paint(renderer, renderer.getPreferredSize());
+            assertTrue("The area is cut, not dropped: " + painted, painted.stream().anyMatch(text -> text.endsWith("…") && longArea.startsWith(text.substring(0, text.length() - 1))));
+            String tip = renderer.getToolTipText();
+            for (String fact : new String[] {Sprites.name(9065), "stat potion", longArea, "today at 11:30", "White bag", "not linked to a run", HighlightsModel.OBSERVED})
+                assertTrue("The tooltip says '" + fact + "': " + tip, tip.contains(fact));
+        });
+    }
+
+    /** Paints one cell off screen and returns the strings it drew (after fitting). */
+    private static List<String> paint(NotableDropRenderer renderer, Dimension size) {
+        renderer.setSize(size);
+        BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        renderer.paint(g);
+        g.dispose();
+        return renderer.painted();
     }
 
     @Test public void stripCellsSayTheBagsAndNotableCounts() {

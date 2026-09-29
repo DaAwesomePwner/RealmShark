@@ -41,7 +41,9 @@ public final class AboutSection extends JPanel {
         body.setOpaque(false);
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
         AboutPanel about = new AboutPanel();
-        about.setBorder(new EmptyBorder(Tokens.M, 0, Tokens.S, 0));
+        // In by Tokens.S, where SectionHeader's title starts (its FlowLayout gap): the logo and the text share the Diagnostics
+        // header's left edge, as every section's header and body do. The About dialog keeps its own border and no inset.
+        about.setBorder(new EmptyBorder(Tokens.M, Tokens.S, Tokens.S, 0));
         body.add(fixedHeight(about));
         JPanel diagnostics = new JPanel(new BorderLayout(0, Tokens.XS));
         diagnostics.setOpaque(false);
