@@ -1,9 +1,13 @@
 package tomato.gui.kit;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Shape;
 import java.util.Locale;
 import javax.swing.UIManager;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.Themes;
 import tomato.gui.modern.VioletTheme;
 
 /** Semantic colors and spacing for kit components. Resolve colors when painting or in updateUI; they follow the theme. */
@@ -63,6 +67,24 @@ public final class Tokens {
     public static boolean dark() {
         Color surface = color(Role.SURFACE);
         return surface.getRed() * .2126 + surface.getGreen() * .7152 + surface.getBlue() * .0722 < 128;
+    }
+
+    /**
+     * A 1 px edge for a raised tile or card with no outline of its own, in the light theme only: there RAISED sits about 1.03:1
+     * against the canvas and white cards, so the surface vanishes without it. BORDER_SUBTLE, or BORDER under Increase contrast.
+     * Does nothing in the dark theme, whose surfaces already step apart, so dark pixels never move. Draws with the caller's
+     * rendering hints (pass the shape the fill used, e.g. 0, 0, width - 1, height - 1) and leaves the caller's color and stroke.
+     */
+    public static void outline(Graphics2D g, Shape shape) {
+        if (dark()) return;
+        Graphics2D edge = (Graphics2D) g.create();
+        try {
+            edge.setColor(color(Themes.increaseContrast() ? Role.BORDER : Role.BORDER_SUBTLE));
+            edge.setStroke(new BasicStroke(1f));
+            edge.draw(shape);
+        } finally {
+            edge.dispose();
+        }
     }
 
     /** An opaque wash of the ink over the surface, for chip and badge backgrounds. */
