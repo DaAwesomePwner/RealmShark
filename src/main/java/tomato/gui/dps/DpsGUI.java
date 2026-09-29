@@ -56,7 +56,8 @@ public class DpsGUI extends JPanel {
     private final FilterBar filterBar = new FilterBar("dps-meter");
     /** The search slot; the scope controls wrap into it where they do not fit beside it ({@link #fitScope()}). */
     private final WrapRow searchRow = new WrapRow();
-    private final JPanel scopeRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+    /** The encounter controls as one unit ({@link ScopeControls}): the scope slot, or the search slot's last item. */
+    private final JPanel scopeRow = new ScopeControls();
     private boolean narrowScope;
     private final JLabel rankBy = new JLabel("Rank by");
     /** The view mode and its label: shown only in Analyst. */
@@ -337,6 +338,7 @@ public class DpsGUI extends JPanel {
         MeterDpsGUI meter = displayMeter;
         rankBy.setLabelFor(meter.metricChoice());
         scopeRow.setOpaque(false); scopeRow.setName("dps-meter-scope");
+        for (JComponent control : new JComponent[]{prev, dList, next, live, paused}) scopeRow.add(control);
         dList.getAccessibleContext().setAccessibleDescription("Encounter position; opens Runs & DPS › Recordings");
         JPanel facets = ContentStyle.controls();
         facets.setOpaque(false);
@@ -366,6 +368,47 @@ public class DpsGUI extends JPanel {
         meter.searchField().addPropertyChangeListener("font", e -> fitScope());
     }
 
+    /**
+     * The encounter controls (‹ · position · › · Go live · Pause) as one unit on one line: in the scope slot, or as the search
+     * slot's last item, which the slot moves to a line of its own as a whole, so "‹" never stays behind on the search line
+     * away from the position it steps. Only where a line of its own is too narrow for them (a large font in a compact window)
+     * do the controls wrap inside the unit, which then grows taller instead of cutting any off.
+     */
+    private static final class ScopeControls extends JPanel {
+        ScopeControls() { super(new FlowLayout(FlowLayout.LEADING, 4, 0)); }
+        @Override public Dimension getPreferredSize() {
+            Dimension line = super.getPreferredSize();
+            int width = lineWidth();
+            return width <= 0 || line.width <= width ? line : wrapped(width);
+        }
+        @Override public Dimension getMinimumSize() { return getPreferredSize(); }
+        /**
+         * The width a line of the wrapping search slot offers (WrapRow sizes itself to its host less both gaps, then its own
+         * insets and gaps), from the host's width so it never depends on this unit; 0 in the scope slot, where it keeps one line.
+         */
+        private int lineWidth() {
+            Container slot = getParent(), host = slot == null ? null : slot.getParent();
+            if (!(slot instanceof WrapRow) || host == null || host.getWidth() <= 0) return 0;
+            Insets hostInsets = host.getInsets(), slotInsets = slot.getInsets();
+            return host.getWidth() - hostInsets.left - hostInsets.right - 12 - slotInsets.left - slotInsets.right - 2 * ((FlowLayout) slot.getLayout()).getHgap();
+        }
+        /** The unit's size at {@code width}, breaking lines as FlowLayout.layoutContainer does. */
+        private Dimension wrapped(int width) {
+            FlowLayout flow = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int available = width - insets.left - insets.right - 2 * flow.getHgap(), x = 0, line = 0, height = flow.getVgap(), widest = 0;
+            for (Component child : getComponents()) {
+                if (!child.isVisible()) continue;
+                Dimension size = child.getPreferredSize();
+                if (x > 0 && x + size.width > available) { height += line + flow.getVgap(); widest = Math.max(widest, x); x = 0; line = 0; }
+                x += (x > 0 ? flow.getHgap() : 0) + size.width;
+                line = Math.max(line, size.height);
+            }
+            widest = Math.max(widest, x);
+            return new Dimension(Math.min(width, widest + insets.left + insets.right + 2 * flow.getHgap()), insets.top + height + line + flow.getVgap() + insets.bottom);
+        }
+    }
+
     /** A drawer facet: its caption and control wrap as one unit. */
     private static JPanel field(String caption, JComponent control) {
         JLabel label = KitText.caption(caption);
@@ -373,7 +416,10 @@ public class DpsGUI extends JPanel {
         return new WrapRow(label, control);
     }
 
-    /** Scope beside the search when it fits (the row's right slot); otherwise it wraps after the search, never past the edge. */
+    /**
+     * Scope beside the search when it fits (the row's right slot); otherwise it wraps after the search as one unit, never past
+     * the edge.
+     */
     private void fitScope() {
         SwingUtilities.invokeLater(() -> { if (narrowFit() != narrowScope) placeScope(!narrowScope); });
     }
@@ -393,10 +439,10 @@ public class DpsGUI extends JPanel {
     private void placeScope(boolean narrow) {
         narrowScope = narrow;
         FilterChips.keepingFocus(() -> {
-            searchRow.removeAll(); scopeRow.removeAll();
+            searchRow.removeAll();
             searchRow.add(displayMeter.searchField()); searchRow.add(rankBy); searchRow.add(displayMeter.metricChoice());
-            JPanel target = narrow ? searchRow : scopeRow;
-            for (JComponent control : new JComponent[]{prev, dList, next, live, paused}) target.add(control);
+            // The encounter controls move as their one panel: the search slot's last item (wrapping as a whole) or the scope slot.
+            if (narrow) searchRow.add(scopeRow);
             filterBar.search(searchRow).scope(narrow ? null : scopeRow);
         });
     }
