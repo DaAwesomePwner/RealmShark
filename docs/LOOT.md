@@ -53,6 +53,8 @@ Explore holds every loot view, live and saved, behind **one view selector**.
 - A fresh saved Loot opens on All Items of the current session. Routes and drill-downs from other pages open the view they ask for (a run's loot opens Item occurrences of that run).
 - View states are compatible with older saves: the live view is still written as its numeric index under `loot-views` in `ux.archive.loot-live`, and the saved view as `facets.view` in `ux.archive.loot`.
 
+**Bags without a saved name.** Older saves can hold a bag whose name was not saved. Saved views still count it as a bag, and its items count as usual. By Bag lists all such bags on one **Unknown bag (name not saved)** row, never merged into a named bag. They are never counted as white bags. The bag filter lists named bags only, so choosing a bag leaves them out; with no bag chosen they are included. Search finds them as "Unknown bag". Dungeon loot profile, Session comparison and A/B cohorts say how many such bags they saw.
+
 ### Item views
 
 Open **Multi-select loot facets…** to combine bag types, dungeons, rarity and tier choices with item category and unlocked-slot and applied-enchant ranges, then choose **Apply facets**. Each numeric range has its own policy for unknown values. Literal search covers item name and ID, bag, dungeon, dropper, tier and rarity. Filtered counts use the same item predicates, and labels distinguish matching items, variants and bags.
