@@ -349,7 +349,19 @@ contrast), and By Bag's explicit Bag and Name sorts not placing the Unknown bag 
 
 ## PR review
 
-_PR review: filled in by the coordinator._
+PR #27 opened on `87a18aa`. Codex reviewed it and left one finding.
+
+- **P2, notable drops truncated before Filter Loot** (`HighlightsModel.java:135`): with more than 200 notable drops in the period,
+  the model kept the newest 200 before `LootHighlights` applied the bag-color filters, so when many of them were a hidden color the
+  grid could be sparse, or say every drop was hidden, although older drops of visible colors existed. **Fixed:** each bag name (null:
+  none saved) keeps its own newest 200, and `HighlightsModel.shown(filter)` returns the newest 200 visible drops with the visible
+  and hidden totals; this is exact for any filter, because the newest 200 visible drops always lie within the visible bag names'
+  newest 200. The grid's "Filter Loot hides N of M" and "Showing the newest 200 of N" now count the whole period. Memory stays
+  bounded (200 per bag name). Tests first: `HighlightsModelTest.hiddenBagColorsNeverCrowdOutOlderVisibleNotableDrops` and
+  `LootHighlightsTest.filterLootShowsOlderVisibleDropsBehindNewerHiddenOnes` failed before the fix ("Every white drop shows
+  expected:<50> but was:<0>"); `HighlightsSourceTest`'s large-fixture assertion is replaced (the model keeps 200 per bag name; the
+  grid shows exactly 200). Focused run after the fix: `tomato.gui.loot.*`, `ui.LootEvidenceTest`, `tomato.gui.ShellSwitchTimingTest`
+  and `tomato.gui.glance.home.*`, 152 tests, 0 failures.
 
 ## Deferred scope
 

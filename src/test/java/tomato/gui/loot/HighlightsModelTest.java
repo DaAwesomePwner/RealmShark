@@ -167,6 +167,33 @@ public class HighlightsModelTest {
         assertEquals("250", model.ut().text());
     }
 
+    @Test public void hiddenBagColorsNeverCrowdOutOlderVisibleNotableDrops() {
+        // Codex review (PR #27): the newest 200 were kept before Filter Loot applied, so newer drops of a hidden color could leave
+        // older visible drops out. Each bag name keeps its own newest 200, so any filter shows the newest 200 visible drops.
+        List<LootFacts.Bag> bags = new ArrayList<>();
+        for (int i = 0; i < 50; i++) bags.add(bag("White", "Lost Halls", 1_000 + i, null, item(10_000 + i, true, false, false, 0)));
+        for (int i = 0; i < 250; i++) bags.add(bag("Orange", "Lost Halls", 5_000 + i, null, item(i, true, false, false, 0)));
+        HighlightsModel model = model(bags);
+        assertEquals(300, model.notableTotal());
+        assertTrue("At most the newest 200 per bag name are kept", model.notable().size() <= 2 * HighlightsModel.NOTABLE_LIMIT);
+        HighlightsModel.Shown all = model.shown(bag -> true);
+        assertEquals(HighlightsModel.NOTABLE_LIMIT, all.items().size());
+        assertEquals(300, all.total());
+        assertEquals(0, all.hidden());
+        assertEquals("Newest first", 5_249, all.items().get(0).time());
+        HighlightsModel.Shown noOrange = model.shown(bag -> !"Orange".equals(bag));
+        assertEquals("Hiding orange shows the older white drops", 50, noOrange.items().size());
+        assertEquals(50, noOrange.total());
+        assertEquals(250, noOrange.hidden());
+        assertEquals(1_049, noOrange.items().get(0).time());
+        HighlightsModel.Shown none = model.shown(bag -> false);
+        assertTrue(none.items().isEmpty());
+        assertEquals(0, none.total());
+        assertEquals(300, none.hidden());
+        HighlightsModel nameless = model(List.of(bag(null, "Lost Halls", 1_000, null, item(1, true, false, false, 0))));
+        assertEquals("A bag without a saved name is offered to the filter as null", 1, nameless.shown(bag -> bag == null).total());
+    }
+
     @Test public void theModelIsImmutable() {
         List<LootFacts.Bag> bags = new ArrayList<>(List.of(bag("White", "Lost Halls", 1_000, null, item(LIFE, false, false, true, null))));
         HighlightsModel model = model(bags);

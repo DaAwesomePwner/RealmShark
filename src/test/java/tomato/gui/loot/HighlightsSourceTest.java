@@ -256,7 +256,9 @@ public class HighlightsSourceTest {
             assertEquals(DisplayFormat.formatInteger(BIG_SESSIONS * 4), model.ut().text());
             assertEquals(DisplayFormat.formatInteger(bags), model.st().text());
             assertEquals(DisplayFormat.formatInteger(bags), model.potions().text());
-            assertEquals(HighlightsModel.NOTABLE_LIMIT, model.notable().size());
+            // Each bag name keeps its newest 200 (PR #27 review), so the grid always finds the newest 200 visible drops.
+            assertEquals(HighlightsModel.NOTABLE_LIMIT, model.shown(bag -> true).items().size());
+            assertTrue(model.notable().size() <= model.notableByBag().size() * HighlightsModel.NOTABLE_LIMIT);
             assertEquals(4, model.dungeons().size());
             assertTrue("Soft bound; the times are recorded from the line above (target: warm ≤ 250 ms)", coldMillis < 10_000 && warmMillis < 2_500);
         }

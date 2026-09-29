@@ -216,6 +216,36 @@ public class LootHighlightsTest {
         assertEquals("today", PropertiesManager.getProperty(LootHighlights.WINDOW_KEY));
     }
 
+    @Test public void filterLootShowsOlderVisibleDropsBehindNewerHiddenOnes() throws Exception {
+        // Codex review (PR #27): 250 newer orange drops must not crowd 50 older white drops out of the grid when orange is hidden.
+        List<LootFacts.Bag> bags = new ArrayList<>();
+        for (int i = 0; i < 50; i++) bags.add(bag("White", "Lost Halls", at(0, 8, 0) + i, null, item(10_000 + i, true, false, false, 0)));
+        for (int i = 0; i < 250; i++) bags.add(bag("Orange", "Lost Halls", at(0, 10, 0) + i, null, item(i, true, false, false, 0)));
+        HighlightsModel crowded = HighlightsModel.of(TODAY, SAVED, bags, true, 0, false, NOON);
+        LootHighlights view = view(new Fake(window -> crowded));
+        frame(view, 1240, 800);
+        loaded(view);
+        try {
+            edt(() -> {
+                assertEquals(HighlightsModel.NOTABLE_LIMIT, view.notableList().items().size());
+                assertEquals("Showing the newest 200 of 300 notable drops", named(view, "loot-notable-notes", JLabel.class).getText());
+                return null;
+            });
+            edt(() -> { LootFilters.get().set(LootFilters.Kind.ORANGE, false); return null; });
+            edt(() -> {
+                List<HighlightsModel.Notable> shown = view.notableList().items();
+                assertEquals("Every white drop shows", 50, shown.size());
+                assertTrue(shown.stream().allMatch(drop -> "White".equals(drop.bag())));
+                assertEquals("Filter Loot hides 250 of 300 notable drops; the tiles still count them",
+                    named(view, "loot-notable-filtered", JLabel.class).getText());
+                assertFalse("All 50 visible drops are listed", named(view, "loot-notable-notes", JLabel.class).isVisible());
+                return null;
+            });
+        } finally {
+            edt(() -> { LootFilters.get().set(LootFilters.Kind.ORANGE, true); return null; });
+        }
+    }
+
     @Test public void filterLootHidesGridDropsOnlyAndSaysHowMany() throws Exception {
         Fake reader = new Fake(LootHighlightsTest::populated);
         LootHighlights view = view(reader);

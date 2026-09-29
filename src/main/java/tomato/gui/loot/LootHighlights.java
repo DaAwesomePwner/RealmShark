@@ -418,22 +418,25 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         HighlightsModel shown = current();
         if (shown == null || closed) return;
         LootFilters filters = LootFilters.get();
-        List<HighlightsModel.Notable> visible = new ArrayList<>();
-        for (HighlightsModel.Notable drop : shown.notable()) if (filters.showsBagName(drop.bag())) visible.add(drop);
-        int held = shown.notable().size(), hidden = held - visible.size();
+        // Filter first, then the newest NOTABLE_LIMIT visible drops: newer drops of a hidden color never crowd out older visible ones.
+        HighlightsModel.Shown filteredDrops = shown.shown(filters::showsBagName);
+        List<HighlightsModel.Notable> visible = filteredDrops.items();
+        int all = shown.notableTotal(), hidden = filteredDrops.hidden();
         notableList.setItems(visible);
         notableList.setVisible(!visible.isEmpty());
-        notableHeader.setCount(shown.notableTotal() == 0 ? null : DisplayFormat.formatInteger(shown.notableTotal()));
-        filtered.setText(hidden > 0 ? "Filter Loot hides " + hidden + " of " + held + " notable drops; the tiles still count them" : "");
+        notableHeader.setCount(all == 0 ? null : DisplayFormat.formatInteger(all));
+        filtered.setText(hidden > 0 ? "Filter Loot hides " + DisplayFormat.formatInteger(hidden) + " of " + DisplayFormat.formatInteger(all)
+            + " notable drops; the tiles still count them" : "");
         filtered.setVisible(hidden > 0);
         List<String> lines = new ArrayList<>();
-        if (shown.notableTotal() > held) lines.add("Showing the newest " + held + " of " + DisplayFormat.formatInteger(shown.notableTotal()) + " notable drops");
+        if (filteredDrops.total() > visible.size())
+            lines.add("Showing the newest " + visible.size() + " of " + DisplayFormat.formatInteger(filteredDrops.total()) + " notable drops");
         if (shown.enchantUnknown() > 0) lines.add(count(shown.enchantUnknown(), "item") + " without recorded enchant slots "
             + (shown.enchantUnknown() == 1 ? "is" : "are") + " not listed as enchanted");
         notes.setText(String.join(" · ", lines));
         notes.setVisible(!lines.isEmpty());
         String title = null, text = null;
-        if (visible.isEmpty() && held == 0) {
+        if (visible.isEmpty() && all == 0) {
             title = "No notable drops yet";
             boolean nothing = shown.ut().state == DisplayValue.State.UNKNOWN;
             text = nothing ? (shown.source() == HighlightsModel.Source.LIVE_UNSAVED ? "No loot was observed in this app run yet." : HighlightsModel.NO_LOOT + ".")
@@ -441,7 +444,7 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
                 : "UT, ST, stat potion and enchanted (rare or better) drops appear here as they are observed.";
         } else if (visible.isEmpty()) {
             title = "Filter Loot hides every notable drop";
-            text = count(held, "notable drop") + " hidden by Filter Loot (Edit › Filter Loot); the tiles still count them.";
+            text = count(hidden, "notable drop") + " hidden by Filter Loot (Edit › Filter Loot); the tiles still count them.";
         }
         if (title == null) { notableEmptyHolder.setVisible(false); emptyKey = null; }
         else {
