@@ -165,10 +165,13 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         }
         /**
          * The view row: the selector and, on Loot › Explore, the "Saved history only" caption for a view the live dashboard lacks.
-         * The Simple/Analyst mode relists the selector and never changes the query.
+         * The Simple/Analyst mode relists the selector and never changes the query. A workspace that offers one view (Characters ›
+         * Fame history) has nothing to choose, so the row is hidden while that view is shown; a routed or restored view outside it
+         * keeps the row, whose selector leads back to the offered view.
          */
         private JComponent head(View view){
             JPanel row=ContentStyle.controls();row.setName("loot-archive-view-row");row.add(selector.component());
+            row.setVisible(views.size()>1||!views.contains(view));
             caption.setName("loot-archive-view-caption");caption.setFont(ContentStyle.metadata(ContentStyle.body()));caption.putClientProperty("html.disable",true);
             caption.setToolTipText("This view reads saved history; the live view has no equivalent.");caption.setVisible(explore!=null&&!LootExploreModel.live(view));row.add(caption);
             relist(view);

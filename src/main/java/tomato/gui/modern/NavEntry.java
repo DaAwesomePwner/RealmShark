@@ -28,7 +28,7 @@ public record NavEntry(String id, String title, String description, int icon, Gr
         new NavEntry("characters", "Characters", "Keep a character roster, track maxing and equipment, and follow exalts.", 3, Group.CORE, KeyEvent.VK_4),
         // Runs & DPS (P5b): the run feed, Dungeons, the live meter and the recordings, as tabs of one page.
         new NavEntry("runs", "Runs & DPS", "Review runs, dungeons, live damage and recordings.", LineIcon.SWORDS, Group.CORE, KeyEvent.VK_R),
-        new NavEntry("loot", "Loot", "Explore live loot by item, stat potion and bag type.", 9, Group.CORE, KeyEvent.VK_9),
+        new NavEntry("loot", "Loot", "Notable drops at a glance, and every loot view live or saved.", 9, Group.CORE, KeyEvent.VK_9),
         new NavEntry("quests", "Quests", "Review quests collected from the Daily Quest Room.", 5, Group.CORE, KeyEvent.VK_6),
         new NavEntry("chat", "Chat", "Your conversations across the Realm, in one place.", 0, Group.CORE, KeyEvent.VK_1),
         new NavEntry("party", "Party", "Inspect current players, saved run loadouts and ability activity.", 2, Group.ADVANCED, KeyEvent.VK_3),
@@ -36,7 +36,7 @@ public record NavEntry(String id, String title, String description, int icon, Gr
         new NavEntry("timeline", "Timeline", "Follow party, equipment and progression events across your sessions.", 12, Group.ADVANCED, KeyEvent.VK_T),
         new NavEntry("logging", "Logging", "Discover available fields, inspect stat changes and diagnose capture gaps.", 10, Group.ADVANCED, KeyEvent.VK_0),
         new NavEntry("bridge-review", "Bridge Review", "Review detected loot, configure guild exports and troubleshoot delivery.", 13, Group.ADVANCED, KeyEvent.VK_B),
-        new NavEntry("settings", "Settings", "Notifications, sounds and appearance.", LineIcon.GEAR, Group.SETTINGS, KeyEvent.VK_N));
+        new NavEntry("settings", "Settings", "Notifications, general, appearance, loot filters, chat and about.", LineIcon.GEAR, Group.SETTINGS, KeyEvent.VK_N));
 
     public NavEntry {
         if (id == null || !ID.matcher(id).matches())
