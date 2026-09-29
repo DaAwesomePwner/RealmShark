@@ -2,6 +2,8 @@ package tomato.gui.history;
 
 import java.awt.*;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -11,6 +13,8 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import packets.packetcapture.logger.DiscoveryLog;
+import tomato.backend.data.DpsData;
+import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.gui.activity.ActivityPanel;
 import tomato.gui.activity.ActivityQueries;
@@ -18,20 +22,29 @@ import tomato.gui.character.CharacterJournalGUI;
 import tomato.gui.character.TableViewRule;
 import tomato.gui.chat.ChatArchiveClient;
 import tomato.gui.chat.ChatGUI;
+import tomato.gui.dps.DpsGUI;
+import tomato.gui.dps.DungeonListGUI;
+import tomato.gui.dps.Filter;
 import tomato.gui.keypop.KeyPopArchiveClient;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.quest.QuestGUI;
+import tomato.gui.runs.DungeonsView;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.stats.HistoricalStatistics;
 import tomato.gui.stats.LootDashboard;
 import tomato.gui.stats.LootQuery;
 import tomato.history.SessionStore;
+import tomato.history.encounter.CombatFixtures;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
 import static tomato.gui.chat.SocialArchiveTestSupport.edt;
 
-/** S6 evidence: adopted pages with filters collapsed and open, 1240×800 and 680×520, fonts 13 and 18. Synthetic data only; no capture. */
+/**
+ * S6 evidence: adopted pages with filters collapsed and open, 1240×800 and 680×520, fonts 13 and 18. Synthetic data only; no capture.
+ * P5b adds Runs &amp; DPS's three filter rows: {@code dps-meter} (the Live meter), {@code encounter-library} (Recordings) and
+ * {@code dungeons}.
+ */
 public class FilterBarEvidenceTest {
     @Rule public final TableViewRule tableView = new TableViewRule();
     @Rule public TemporaryFolder temp = new TemporaryFolder();
@@ -44,7 +57,9 @@ public class FilterBarEvidenceTest {
                     "ui.filters.runs.open", "ui.filters.loot.open", "ui.filters.chat.open", "ui.filters.keypops.open",
                     "ui.filters.characters.open", "ui.filters.quests.open",
                     // Timeline, Resources and Party: their drawer keys, and the tab layouts the Resources page reads.
-                    "ui.filters.timeline.open", "ui.filters.combat.open", "ui.filters.inspect-roster.open", "ui.tabs.activity-combat", "ui.tabs.saved-resources"}) {
+                    "ui.filters.timeline.open", "ui.filters.combat.open", "ui.filters.inspect-roster.open", "ui.tabs.activity-combat", "ui.tabs.saved-resources",
+                    // P5b: the Live meter, Recordings and Dungeons drawers, the meter's nested tabs and the Dungeons view.
+                    "ui.filters.dps-meter.open", "ui.filters.encounter-library.open", "ui.filters.dungeons.open", "ui.tabs.dps", "ui.dungeons.view"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -60,6 +75,26 @@ public class FilterBarEvidenceTest {
 
     /** The Party roster is not the live owner, but clear any roster a live owner left so no capture state outlives the test. */
     @After public void clearInspectRoster() { ParsePanelGUI.clear(); }
+
+    /** The Live meter page replaces the DPS page instance and reads the static DPS preset: both are put back after the test. */
+    private final Map<Field, Object> dpsStatics = new LinkedHashMap<>();
+    private final List<Set<String>> presetSets = new ArrayList<>();
+    private final Set<Integer> presetClasses = new HashSet<>();
+    @Before public void isolateDpsStatics() throws Exception {
+        for (Class<?> type : new Class<?>[]{DpsGUI.class, Filter.class})
+            for (Field field : type.getDeclaredFields())
+                if (Modifier.isStatic(field.getModifiers()) && !Modifier.isFinal(field.getModifiers())) { field.setAccessible(true); dpsStatics.put(field, field.get(null)); }
+        presetSets.add(new HashSet<>(Filter.filterNames)); presetSets.add(new HashSet<>(Filter.filterGuilds)); presetClasses.addAll(Filter.filterClasses);
+        edt(() -> { Filter.selectFilter(null); Filter.disable(); return null; });   // no preset hides a player of the synthetic fight
+    }
+    @After public void restoreDpsStatics() throws Exception {
+        edt(() -> {
+            for (Map.Entry<Field, Object> entry : dpsStatics.entrySet()) entry.getKey().set(null, entry.getValue());
+            Filter.filterNames.clear(); Filter.filterGuilds.clear(); Filter.filterClasses.clear();
+            Filter.filterNames.addAll(presetSets.get(0)); Filter.filterGuilds.addAll(presetSets.get(1)); Filter.filterClasses.addAll(presetClasses);
+            return null;
+        });
+    }
 
     private static final class Page {
         final String name; final JComponent root; final FilterBar bar; final BooleanSupplier ready;
@@ -119,6 +154,23 @@ public class FilterBarEvidenceTest {
                 resources.changeQuery(resources.state().query.withFacets(outcome)); built.add(archive("resources", resources));
                 ParsePanelGUI party = inspectRoster(); VisualEvidence.named(party, "inspect-facet-2", JComboBox.class).setSelectedIndex(1);
                 built.add(new Page("party", party, VisualEvidence.named(party, "inspect-roster-filter-bar", FilterBar.class), () -> true));
+                // P5b: Runs & DPS › Live meter over a synthetic encounter with a player search ("Player: alp"), Recordings over this
+                // app run's recording and the saved runs with a source facet, and Dungeons over the saved runs with a search.
+                TomatoData fight = new TomatoData(); fight.dpsData.add(meterEncounter());
+                DpsGUI meter = new DpsGUI(fight, log);
+                assertTrue(meter.showEncounter(meter.encounters().entries().get(0).id));
+                FilterBar meterBar = VisualEvidence.named(meter, "dps-meter-filter-bar", FilterBar.class);
+                VisualEvidence.find(meterBar, JTextField.class, field -> "Search players".equals(field.getClientProperty("JTextField.placeholderText"))).setText("alp");
+                built.add(new Page("dps-meter", meter, meterBar, () -> true));
+                DungeonListGUI recordings = recordings(meter, fight, store, memory);
+                VisualEvidence.named(recordings, "encounter-source", JComboBox.class).setSelectedIndex(1);   // This app run
+                JTextArea read = VisualEvidence.named(recordings, "encounter-summary", JTextArea.class);
+                built.add(new Page("encounter-library", recordings, VisualEvidence.named(recordings, "encounter-library-filter-bar", FilterBar.class),
+                    () -> read.getText().matches("\\d+ of \\d+ recordings shown · .*") && !read.getText().contains("reading…")));
+                DungeonsView dungeons = new DungeonsView(() -> store, java.time.ZoneId.systemDefault(), System::currentTimeMillis, JPanel::new);
+                VisualEvidence.named(dungeons, "dungeons-search", JTextField.class).setText("Lost");
+                JList<?> cards = VisualEvidence.named(dungeons, "dungeons-cards", JList.class);
+                built.add(new Page("dungeons", dungeons, VisualEvidence.named(dungeons, "dungeons-filter-bar", FilterBar.class), () -> cards.getModel().getSize() == 1));
                 return built;
             });
             try {
@@ -137,6 +189,10 @@ public class FilterBarEvidenceTest {
             } finally {
                 edt(() -> {
                     for (Page page : pages) { ArchiveNativeSupport.drawer(page.bar, false); if (page.root instanceof ArchiveWorkspace) ((ArchiveWorkspace<?, ?, ?>) page.root).close(); }
+                    for (Page page : pages) {
+                        if (page.root instanceof DungeonListGUI) ((DungeonListGUI) page.root).close();
+                        if (page.root instanceof DungeonsView) ((DungeonsView) page.root).close();
+                    }
                     evidence.closeWindow(); return null;
                 });
             }
@@ -145,6 +201,30 @@ public class FilterBarEvidenceTest {
 
     private static Page archive(String name, ArchiveWorkspace<?, ?, ?> workspace) {
         return new Page(name, workspace, workspace.filterBar(), () -> ArchiveNativeSupport.ready(workspace) && workspace.state().archive);
+    }
+
+    /**
+     * Runs &amp; DPS › Recordings over {@code meter}'s recordings and {@code store}'s saved history, with the test's view states
+     * (its package-private constructor; the app's reads the application's states and history).
+     */
+    private static DungeonListGUI recordings(DpsGUI meter, TomatoData data, SessionStore store, ArchiveNativeSupport.Memory memory) throws ReflectiveOperationException {
+        Constructor<DungeonListGUI> library = DungeonListGUI.class.getDeclaredConstructor(DpsGUI.class, TomatoData.class, ViewStateStore.class,
+            java.util.function.Supplier.class, java.util.function.LongSupplier.class);
+        library.setAccessible(true);
+        java.util.function.Supplier<SessionStore> history = () -> store;
+        java.util.function.LongSupplier clock = System::currentTimeMillis;
+        return library.newInstance(meter, data, memory.states, history, clock);
+    }
+
+    /** A closed synthetic encounter: four players on a boss and a minion (synthetic names; no capture). */
+    private static DpsData meterEncounter() {
+        CombatFixtures.Fight fight = CombatFixtures.fight("Synthetic Halls");
+        String[] names = {"Alpha", "Bravo", "Charlie", "Delta"};
+        List<Entity> party = new ArrayList<>();
+        for (int p = 0; p < names.length; p++) party.add(fight.player(p + 1, CombatFixtures.CLASSES[p], names[p]));
+        Entity boss = fight.enemy(50, 6100, "Synthetic boss", 900_000, true), minion = fight.enemy(51, 6000, "Synthetic minion", 1_000, false);
+        for (int s = 0; s < 20; s++) for (int p = 0; p < party.size(); p++) fight.hit(s % 4 == 0 ? minion : boss, party.get(p), 100 + 25 * p, 1_000 + s * 500L + p * 20L);
+        return fight.ticks(1_000, 10_000).build();
     }
 
     /** Party's player table: the non-owner Inspect roster (as a saved run shows it). Its constructor is package-private. */
