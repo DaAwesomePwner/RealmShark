@@ -123,6 +123,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private final JTextArea details=ContentStyle.wrappingText("Select a row for complete values and evidence.");
         private final JTable table;
         private final JScrollPane scroll;
+        private final HistoryTables.ColumnTools tools;
         private boolean restoring=true;
         private final JTextArea linkStatus=ContentStyle.wrappingText(" "),rateStatus=ContentStyle.wrappingText(" ");
         private JTextArea countText;
@@ -154,7 +155,9 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             };
             detailScroll.setPreferredSize(new Dimension(300,130));JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,detailScroll);split.setResizeWeight(.75);body.add(split);
             JPanel actions=new JPanel(new BorderLayout());Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("Compact",visible(compact));presets.put("All analytical columns",visible(defaults));
-            actions.add(HistoryTables.controls(table,defaults,presets,layout->{current=current.withTable(view.name(),layout);savePosition();}),BorderLayout.CENTER);
+            // The column tools go to the workspace ⋯ (filters()); moves and resizes are still remembered with the view state.
+            java.util.function.Consumer<ViewState.Table> saveLayout=layout->{current=current.withTable(view.name(),layout);savePosition();};
+            HistoryTables.rememberLayout(table,saveLayout);tools=HistoryTables.columnTools(table,defaults,presets,saveLayout);
             if(view.loot()||view==View.RATES)actions.add(drillActions(view),BorderLayout.NORTH);
             if(view==View.SESSIONS||view==View.FAME){JButton graph=new JButton("Open selected session's full fame graph");graph.setName("archive-open-fame");graph.addActionListener(e->openFame(graph));actions.add(graph,BorderLayout.SOUTH);}
             body.add(actions,BorderLayout.SOUTH);
@@ -239,7 +242,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             drawer.add(dateControls(),BorderLayout.CENTER);
             List<FilterBar.ActiveFilter> chips=LootFacetChips.chips(current.query::facets,f->query(current.query.withFacets(f)));
             ArchiveFilters.dates(chips,current.query,this::query);
-            return new ArchiveFilters(drawer,chips);
+            return new ArchiveFilters(drawer,chips,tools);
         }
 
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}

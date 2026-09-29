@@ -80,6 +80,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private final Binding<Filters,Sort> binding;
         private final JTable table;
         private final JScrollPane scroll;
+        private final HistoryTables.ColumnTools tools;
         private final JPanel details=new JPanel(new BorderLayout()) {
             @Override public Dimension getMinimumSize() {
                 Dimension size=super.getMinimumSize();
@@ -125,7 +126,9 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                     :Arrays.asList("map","time","duration","outcome","coverage"));
             List<String> all=new ArrayList<>();for(HistoryTables.Column<Row,?> column:columns)all.add(column.id);presets.put("Evidence",all);
             JPanel top=new JPanel();top.setLayout(new BoxLayout(top,BoxLayout.Y_AXIS));
-            top.add(HistoryTables.controls(table,defaults,presets,layout->{this.state=this.state.withTable("activity",layout);remember();}));
+            // The column tools go to the workspace ⋯ (filters()); moves and resizes are still remembered with the view state.
+            java.util.function.Consumer<ViewState.Table> saveLayout=layout->{this.state=this.state.withTable("activity",layout);remember();};
+            HistoryTables.rememberLayout(table,saveLayout);tools=HistoryTables.columnTools(table,defaults,presets,saveLayout);
             JTextArea counts=ContentStyle.wrappingText(counts(page)+(mode==ActivityPanel.Mode.TIMELINE?"":
                     "\nVisit summary rows · Export selected visit + Timeline below includes full linked evidence."));counts.setName("activity-archive-counts");top.add(counts);
             if(mode==ActivityPanel.Mode.TIMELINE&&(exact||state.query.bounds().from!=null||state.query.bounds().until!=null)) {
@@ -267,7 +270,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             }
             if(!f.visitId.isEmpty())chips.add(chip("Exact visit",next->next.visitId=next.visitSession=""));
             ArchiveFilters.dates(chips,state.query,binding::queryChanged);
-            return new ArchiveFilters(queryControls(),chips);
+            return new ArchiveFilters(queryControls(),chips,tools);
         }
         private FilterBar.ActiveFilter chip(String label,Consumer<Filters> reset) {
             return new FilterBar.ActiveFilter(label,()->{Filters next=state.query.facets();reset.accept(next);change(next);});

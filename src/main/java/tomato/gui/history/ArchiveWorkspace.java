@@ -40,6 +40,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     private final FilterBar filterBar;private final WrapRow searchRow=new WrapRow();
     private final JMenuItem refreshItem,exportAll,exportPage,exportSelected,openFolder;private final JMenu views;
     private final JPopupMenu.Separator refreshSeparator=new JPopupMenu.Separator();
+    /** The ⋯ section holding the displayed table's column tools (last in the menu), and those tools; none while live. */
+    private final OverflowMenu.Section toolsSection;private HistoryTables.ColumnTools tools;
     private final ComponentListener fit=new ComponentAdapter(){public void componentResized(ComponentEvent e){fitScope();}};
     /** The readable saved sessions the Scope menu lists, in the catalog's order. */
     private List<ScopeChip.SessionChoice> recent=Collections.emptyList();
@@ -104,6 +106,8 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
             if(exportFolder==null||!Desktop.isDesktopSupported())return;
             try{Desktop.getDesktop().open(exportFolder.toFile());}catch(Exception failure){status.setText("Could not open the export folder: "+failure.getMessage());}
         });openFolder.setEnabled(false);
+        // Each render's column tools replace the previous render's here (apply), instead of a button row under the table.
+        toolsSection=more.section(HistoryTables.ColumnTools.SECTION);
         searchRow.add(search);filterBar.search(searchRow);
         JPanel paging=ContentStyle.controls();paging.add(previous);paging.add(next);paging.add(stop);paging.add(cancelExport);stop.setVisible(false);cancelExport.setVisible(false);
         JPanel texts=new JPanel();texts.setLayout(new BoxLayout(texts,BoxLayout.Y_AXIS));texts.add(status);texts.add(saveStatus);
@@ -270,6 +274,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         chip.show(state.archive,state.query.scope(),store.currentId(),recent);place();
         if(!state.archive){
             FilterChips.keepingFocus(()->{filterBar.drawer(null);FilterChips.update(filterBar,Collections.<FilterBar.ActiveFilter>emptyList(),null,true);});
+            toolsSection.clear();tools=null;   // the live page's table has its own tools
             loading=false;updateActions();
         }else read(fresh);
         announce();
@@ -322,6 +327,9 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
             FilterChips.update(filterBar,active,()->changeQuery(client.initialQuery().withScope(state.query.scope())),true);
             filterBar.setDrawerEnabled(true);
         });
+        // Swap the previous render's column tools for this render's (or none) in one ⋯ section.
+        tools=filters==null?null:filters.tools;
+        if(tools==null)toolsSection.clear();else{tools.setEnabled(true);tools.addTo(filterBar.overflow());}
         List<String> ordering=new ArrayList<>();for(ArchiveQuery.Order<S> item:query.order())ordering.add(sortLabel(item));
         String empty=displayed.matches==0?(result.scanned==0?"No rows available in this saved query. ":"No matches; use Clear to reset filters. "):"";
         status.setText(empty+displayed.description()+" · sorted by "+String.join(", ",ordering)+" · missing recording metadata means coverage unknown");
@@ -340,7 +348,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         }));
     }
     private boolean canExport(){return !closed&&!loading&&!exporting&&state.archive&&result!=null&&state.query.equals(resultQuery);}
-    private void invalidateView(){viewGeneration++;activeView=null;disable(saved);filterBar.setDrawerEnabled(false);}
+    private void invalidateView(){viewGeneration++;activeView=null;disable(saved);filterBar.setDrawerEnabled(false);if(tools!=null)tools.setEnabled(false);}
     private void disable(Component component){
         if(!disabledStates.containsKey(component)){
             disabledStates.put(component,component.isEnabled());component.addHierarchyListener(reuseListener);

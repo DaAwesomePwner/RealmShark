@@ -9,16 +9,24 @@ import javax.swing.JComponent;
 import tomato.gui.kit.FilterBar;
 import tomato.history.archive.ArchiveQuery;
 
-/** A module's facet controls for the workspace Filters drawer, plus chips describing the facets that narrow the query. */
+/**
+ * A module's facet controls for the workspace Filters drawer, plus chips describing the facets that narrow the query, and
+ * optionally the rendered table's column tools for the workspace ⋯.
+ */
 public final class ArchiveFilters {
     private static final DateTimeFormatter CHIP_TIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm");
     /** The module's existing facet controls; null keeps the Filters toggle hidden. */
     public final JComponent drawer;
     public final List<FilterBar.ActiveFilter> active;
+    /** The rendered table's column tools for the workspace ⋯ (Columns ▸, Column preset ▸, Reset columns, Copy, Row details); null for none. */
+    public final HistoryTables.ColumnTools tools;
 
-    public ArchiveFilters(JComponent drawer, List<FilterBar.ActiveFilter> active) {
+    public ArchiveFilters(JComponent drawer, List<FilterBar.ActiveFilter> active) { this(drawer, active, null); }
+
+    public ArchiveFilters(JComponent drawer, List<FilterBar.ActiveFilter> active, HistoryTables.ColumnTools tools) {
         this.drawer = drawer;
         this.active = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(active, "active")));
+        this.tools = tools;
     }
 
     /** Adds a chip for bounded dates; removing it keeps the zone, time mode and unknown-time choice. */

@@ -197,7 +197,8 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         editPolicy.setEnabled(live != null); editPolicy.addActionListener(e -> { JDialog dialog = live.createFiltersDialog(); dialog.setLocationRelativeTo(view); dialog.setVisible(true); });
         actions.add(star); actions.add(ignore); actions.add(thisPlayer); actions.add(copySelected); actions.add(copy); actions.add(editPolicy);
         Map<String,List<String>> presets = new LinkedHashMap<>(); presets.put("Conversation", Arrays.asList("star", "time", "player", "message")); presets.put("All columns", new ArrayList<>(sorts.keySet()));
-        JPanel body = new JPanel(new BorderLayout(0, 4)); body.add(scroll); body.add(state.tableControls(table, scroll, page, "messages", presets), BorderLayout.SOUTH);
+        // The column tools go to the workspace ⋯ through filters().
+        JPanel body = new JPanel(new BorderLayout(0, 4)); body.add(scroll); state.tableTools(table, scroll, page, "messages", presets);
         JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(actions, BorderLayout.NORTH); footer.add(detail);
         footer.add(ContentStyle.wrappingText(page.description() + " · use workspace Export selected / page / all matches (CSV or JSON).\n" + (page.rows.isEmpty() ? "No saved messages match this query; adjust filters or Refresh." : "")), BorderLayout.SOUTH);
         JPanel lower = new JPanel(new BorderLayout()); lower.add(footer); lower.add(saveStatus, BorderLayout.SOUTH);
@@ -224,7 +225,7 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         if (f.starredOnly) chips.add(chip(state, "Starred only", next -> next.starredOnly = false));
         if (f.showIgnoredPlayers != ignoredDefault) chips.add(chip(state, f.showIgnoredPlayers ? "Ignored players shown" : "Ignored players hidden", next -> next.showIgnoredPlayers = ignoredDefault));
         ArchiveFilters.dates(chips, initial.query, state::query);
-        return new ArchiveFilters(drawer, chips);
+        return new ArchiveFilters(drawer, chips, state.tools());
     }
     private static FilterBar.ActiveFilter chip(SocialQueryControls.State<Row,Facets,Sort> state, String label, java.util.function.Consumer<Facets> reset) {
         return new FilterBar.ActiveFilter(label, () -> { Facets next = state.value.query.facets(); reset.accept(next); state.query(state.value.query.withFacets(next)); });
