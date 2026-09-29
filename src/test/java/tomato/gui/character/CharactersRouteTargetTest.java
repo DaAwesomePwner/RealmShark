@@ -293,6 +293,52 @@ public class CharactersRouteTargetTest {
     }
 
     /**
+     * P6a Task 9: the Analyst tab "Fame history" exists only when the app hosts saved character fame (a history store), after Pets;
+     * Roster, Exalts and Pets keep their order either way. Back returns to it like Exalts and Pets, and it is built once.
+     */
+    @Test public void fameHistoryFollowsPetsOnlyWhenHostedAndBackReturnsToIt() throws Exception {
+        TomatoData data = new TomatoData() { @Override public synchronized CharacterJournal characterJournal() { return journal; } };
+        String savedMode = PropertiesManager.getProperty(DisplayModeModel.KEY);
+        DisplayModeModel.Mode[] mode = new DisplayModeModel.Mode[1];
+        SwingUtilities.invokeAndWait(() -> mode[0] = DisplayModeModel.application().mode());
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+                SheetContext context = new SheetContext(data, journal, RosterDefinitions::empty, DisplayModeModel.application(), () -> 5000, PlanningStore.shared());
+                JTabbedPane plain = RosterFixtures.named(new CharacterPanelGUI(data, context), "characters-tabs", JTabbedPane.class);
+                assertEquals("Without a history store: the existing tabs, unchanged", Arrays.asList("Roster", "Exalts", "Pets"), titles(plain));
+                CharacterPanelGUI panel = new CharacterPanelGUI(data, context);
+                int[] built = {0};
+                panel.hostFame(() -> { built[0]++; return new JPanel(); });
+                CharacterRosterView roster = panel.roster();
+                ShellNavigator navigator = navigator(roster, panel.routeTargets());
+                panel.bindNavigator(navigator);
+                JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
+                assertEquals("Fame history follows Pets", Arrays.asList("Roster", "Exalts", "Pets", "Fame history"), titles(tabs));
+                assertEquals("Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+                assertEquals("Not built until chosen", 0, built[0]);
+                page[0] = "characters";
+                tabs.setSelectedIndex(tabs.indexOfTab("Fame history"));
+                assertEquals(1, built[0]);
+                assertTrue(navigator.open(sheet(key(2), "notes")));
+                assertEquals("A route brings the Roster tab forward", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
+                assertTrue(navigator.back());
+                assertEquals("Back returns to Fame history", "Fame history", tabs.getTitleAt(tabs.getSelectedIndex()));
+                assertEquals("Built once", 1, built[0]);
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> DisplayModeModel.application().set(mode[0]));
+            PropertiesManager.setProperties(DisplayModeModel.KEY, savedMode == null ? "" : savedMode);
+        }
+    }
+
+    private static List<String> titles(JTabbedPane tabs) {
+        List<String> titles = new ArrayList<>();
+        for (int i = 0; i < tabs.getTabCount(); i++) titles.add(tabs.getTitleAt(i));
+        return titles;
+    }
+
+    /**
      * The sheet's "‹ Characters" link leads to the list (spec §6.2) also when its route was opened from another Characters tab:
      * it pops the open's Back entry only when that entry returns to the list on the Roster tab, so the entry that returns to
      * Exalts is kept for shell Back.
