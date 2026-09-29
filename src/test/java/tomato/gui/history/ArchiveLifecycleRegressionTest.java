@@ -38,7 +38,7 @@ public class ArchiveLifecycleRegressionTest {
     @Test public void oldRendererCallbacksAreInertAfterLiveSwitchAndRemoval()throws Exception {
         try(Fixture f=new Fixture()) {
             ArchiveClient.Binding<Facets,Sort> old=edt(()->f.client.binding);
-            edt(()->{button(f.workspace,"Current live view").doClick();old.queryChanged(query(f.id).withText("stale live"));return null;});
+            edt(()->{ArchiveNativeSupport.scopeItem(f.workspace,"live").doClick();old.queryChanged(query(f.id).withText("stale live"));return null;});
             assertFalse(edt(()->f.workspace.state().archive));
             edt(()->{f.workspace.showSaved();return null;});await(()->!f.workspace.loading());
             ArchiveClient.Binding<Facets,Sort> removed=edt(()->f.client.binding);String before=edt(()->f.workspace.state().query.text());
@@ -113,5 +113,4 @@ public class ArchiveLifecycleRegressionTest {
     private static <T> T edt(Checked<T> read)throws Exception{AtomicReference<T> value=new AtomicReference<>();AtomicReference<Throwable> error=new AtomicReference<>();SwingUtilities.invokeAndWait(()->{try{value.set(read.get());}catch(Throwable e){error.set(e);}});if(error.get()!=null)throw new AssertionError(error.get());return value.get();}
     private static void await(BooleanSupplier condition)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(15);while(System.nanoTime()<end){if(edt(condition::getAsBoolean))return;Thread.sleep(20);}fail("EDT state did not settle");}
     private static void awaitOffEdt(BooleanSupplier condition)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);while(System.nanoTime()<end){if(condition.getAsBoolean())return;Thread.sleep(20);}fail("Worker did not settle");}
-    private static JButton button(Container parent,String label){for(Component child:parent.getComponents()){if(child instanceof JButton&&label.equals(((JButton)child).getText()))return (JButton)child;if(child instanceof Container){JButton found=button((Container)child,label);if(found!=null)return found;}}return null;}
 }

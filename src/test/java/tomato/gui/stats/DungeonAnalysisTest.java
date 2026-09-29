@@ -118,13 +118,13 @@ public class DungeonAnalysisTest {
             assertEquals(List.of("Dungeon loot profile", "Session comparison", "Dungeon statistics", "Enemy hit events", "Loot by source", "A/B cohorts"),
                 tabs(workspace));
             assertTrue("Several views: the selector row is shown (Polish B1 hides it only for one view)", find(workspace, "loot-archive-view-row", JComponent.class).isVisible());
-            assertNull("No Browse saved / Current live view toggle", button(workspace, "Browse saved"));
-            assertNull(button(workspace, "Current live view"));
+            assertNull("No Live item in a saved-only Scope menu", ArchiveNativeSupport.scope(workspace).item("live"));
+            assertEquals("Scope: Saved · all sessions", ArchiveNativeSupport.scope(workspace).getText());
             assertEquals("Its own filter row, apart from the cards' dungeons bar", "dungeon-analysis-filter-bar", workspace.filterBar().getName());
             workspace.selectSession(store.currentId());
             assertTrue("The current session is read from its saved files", workspace.state().archive);
             assertFalse("Existing workspaces keep their live view", loot.savedOnly());
-            assertNotNull(button(loot, "Browse saved"));
+            assertNotNull(ArchiveNativeSupport.scope(loot).item("live"));
             return null;
         });
         await(() -> ready(workspace));
@@ -230,14 +230,6 @@ public class DungeonAnalysisTest {
         long until = System.nanoTime() + 20_000_000_000L;
         while (tomato.history.archive.ArchiveFixtures.children(scratch) > 0 && System.nanoTime() < until) Thread.sleep(20);
         assertEquals("Its pinned results are released", 0, tomato.history.archive.ArchiveFixtures.children(scratch));
-    }
-
-    private static AbstractButton button(Container root, String text) {
-        for (Component child : root.getComponents()) {
-            if (child instanceof AbstractButton && text.equals(((AbstractButton) child).getText())) return (AbstractButton) child;
-            if (child instanceof Container) { AbstractButton found = button((Container) child, text); if (found != null) return found; }
-        }
-        return null;
     }
 
     private static <T extends Component> T find(Container root, String name, Class<T> type) {

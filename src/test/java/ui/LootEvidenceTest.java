@@ -418,7 +418,7 @@ public class LootEvidenceTest {
         // Back to live, Analyst: a saved-only view chosen from the live selector opens saved history with it.
         SwingUtilities.invokeAndWait(() -> {
             DisplayModeModel.application().set(ANALYST);
-            VisualEvidence.button(workspace(), "Current live view").doClick();
+            ArchiveNativeSupport.scopeItem(workspace(), "live").doClick();
         });
         pause();
         SwingUtilities.invokeAndWait(() -> {

@@ -55,7 +55,7 @@ public class ChatBookmarkIntentTest {
                     ChatBookmarkIntents.Intent old = edt(() -> { named(ws,"chat-archive-messages",JTable.class).setRowSelectionInterval(0,0);button(ws,"Toggle star").doClick();return intents.latest(message.id); });
                     assertTrue(oldFlushed.await(5,TimeUnit.SECONDS));assertTrue(writes.get(0).starred);
                     edt(() -> {
-                        button(ws,"Current live view").doClick();assertFalse(ws.state().archive);
+                        tomato.gui.history.ArchiveNativeSupport.scopeItem(ws,"live").doClick();assertFalse(ws.state().archive);
                         JTable table=named(live,"chat-messages",JTable.class);table.setRowSelectionInterval(0,0);assertEquals("★",table.getValueAt(0,0));
                         // All four intents use the same wall-clock millisecond. Live controls
                         // change unstar -> star -> unstar while the first archive flush is held.
@@ -75,7 +75,7 @@ public class ChatBookmarkIntentTest {
                     edt(() -> null);edt(() -> null);
                     assertEquals("",edt(() -> named(live,"chat-messages",JTable.class).getValueAt(0,0)));
                     assertEquals(revision,edt(live::bookmarkRevision).longValue());
-                    edt(() -> {button(ws,"Browse saved").doClick();return null;});
+                    edt(() -> {tomato.gui.history.ArchiveNativeSupport.scopeItem(ws,"current").doClick();return null;});
                     await(() -> !ws.loading() && ws.displayedPage().rows.get(0).value.bookmarkChanged==104);
                     assertFalse(edt(() -> ws.displayedPage().rows.get(0).value.starred));
                     List<ChatArchiveClient.Row> frozen=new ArrayList<>();original.stream(ExportSelection.all(),r->frozen.add(r.value),new Cancellation());assertFalse(frozen.get(0).starred);
