@@ -7,7 +7,6 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import assets.IdToAsset;
-import assets.ImageBuffer;
 import com.formdev.flatlaf.FlatLightLaf;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.TestPages;
@@ -293,8 +292,8 @@ public class ParsePanelRefreshTest {
                 assertEquals("Later [20]", roster.getValueAt(0, 0));
                 assertEquals("Observed minutes", runs.getColumnName(6));
                 runs.moveColumn(6, 0);
-                JComboBox<?> units = named(inspect, "inspect-run-duration-unit", JComboBox.class);
-                units.setSelectedItem(tomato.gui.activity.RunDurationUnit.SECONDS);
+                // P6b: the unit is a "Duration unit ▸" radio item in the Runs bar's ⋯.
+                PartyRestyleTest.item(named(inspect, "inspect-runs-filter-bar", tomato.gui.kit.FilterBar.class), "inspect-run-duration-unit-seconds").doClick(0);
                 assertEquals("Observed seconds", runs.getColumnName(0));
                 runs.moveColumn(0, 6);
                 runs.getRowSorter().toggleSortOrder(1);
@@ -583,7 +582,8 @@ public class ParsePanelRefreshTest {
             JTable table = find(panel, JTable.class);
             Icon lightIcon = equipmentIcon(table);
             assertNotSame(darkIcon.get(), lightIcon);
-            assertSame(ImageBuffer.getOutlinedIconWithGlow(-1, 20, ContentStyle.color("mint"), 3), lightIcon);
+            // P6b: the well paints the one-enchant glow (the light theme's mint) inside the kit's not-captured well.
+            PartyRestyleTest.assertGlowInside(lightIcon, tomato.gui.kit.ItemSlot.icon(null, "", tomato.gui.kit.ItemSlot.State.UNKNOWN, 20), ContentStyle.color("mint"), table);
             assertEquals(0, table.getSelectedRow());
             assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
             assertFocusDistinctFromSelection(table, 0, 3);
@@ -592,7 +592,10 @@ public class ParsePanelRefreshTest {
             SwingUtilities.updateComponentTreeUI(frame);
             assertSame("Hidden tables wait for refresh-on-show", lightIcon, equipmentIcon(table));
             frame.setVisible(true);
-            assertSame(darkIcon.get(), equipmentIcon(table));
+            // P6b: showing again regenerates the well for the dark theme (a new stamp) that paints exactly as the first dark one.
+            Icon again = equipmentIcon(table);
+            assertNotSame(lightIcon, again);
+            assertArrayEquals(PartyRestyleTest.paint(darkIcon.get(), table), PartyRestyleTest.paint(again, table));
             assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
         });
     }
