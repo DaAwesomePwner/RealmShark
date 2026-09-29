@@ -31,10 +31,11 @@ import util.PropertiesManager;
 
 /**
  * The Runs page's feed (spec §6.3 Feed): saved runs of every session as painted cards grouped by the local day they were
- * entered, newest first, with the Runs archive workspace, unchanged (its own filter bar, scope row, ⋯ menu, saved views and
+ * entered, newest first, with the Runs archive workspace, unchanged (its own filter bar, Scope chip, ⋯ menu, saved views and
  * exports), as the Table view.
  * - Views: Cards (default) and Table, remembered in {@link #VIEW_KEY}; restoring the preference only selects. Simple offers the
- *   other view in each view's ⋯ menu ({@code run-feed-view-item} "Table view", {@code run-feed-cards-item} "Cards view"); Analyst
+ *   other view in each view's ⋯ menu ({@code run-feed-view-item} "Table view", {@code run-feed-cards-item} "Cards view" in the
+ *   saved row's ⋯ and {@code run-feed-live-cards-item} in the live runs row's, which hosts the Scope chip while live); Analyst
  *   a Cards/Table toggle ({@code run-feed-view}) above both views.
  * - Cards view: a {@code run-feed} FilterBar (search {@code run-feed-search}; a drawer with one checkbox per outcome
  *   {@code run-feed-outcome-<name>} and the dungeon {@code run-feed-map}, whose choices are canonical dungeons, the Dungeons
@@ -103,8 +104,8 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     private final KitButton more = KitButton.secondary("Load more");
     private final JScrollPane cardsPage;
     private final JMenuItem viewItem;
-    private JMenuItem cardsItem;
-    private JPopupMenu.Separator cardsSeparator;
+    private JMenuItem cardsItem, liveCardsItem;
+    private JPopupMenu.Separator cardsSeparator, liveCardsSeparator;
     private final javax.swing.Timer poll = new javax.swing.Timer(POLL_MILLIS, e -> check());
     private final javax.swing.Timer typing = new javax.swing.Timer(TYPING_MILLIS, e -> applyControls());
     private final Map<LocalDate, Section> sections = new HashMap<>();
@@ -218,6 +219,19 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
             if (menu.getComponentCount() > 1) menu.insert(cardsSeparator, 1);
             tableBar.overflow().setVisible(true);
         }
+        // While live the workspace's row (and its ⋯) hides and the live runs row hosts the Scope chip: its own ⋯ offers the cards
+        // first too. The live runs panel keeps one row, so this is placed once.
+        FilterBar liveBar = table instanceof ArchiveWorkspace ? ((ArchiveWorkspace<?, ?, ?>) table).liveFilterBar() : null;
+        if (liveBar != null) {
+            liveCardsItem = new JMenuItem("Cards view");
+            liveCardsItem.setName("run-feed-live-cards-item");
+            liveCardsItem.addActionListener(e -> show(false, true));
+            liveCardsSeparator = new JPopupMenu.Separator();
+            JPopupMenu menu = liveBar.overflow().menu();
+            menu.insert(liveCardsItem, 0);
+            if (menu.getComponentCount() > 1) menu.insert(liveCardsSeparator, 1);
+            liveBar.overflow().setVisible(true);
+        }
         add(viewRow, BorderLayout.NORTH);
         add(views, BorderLayout.CENTER);
         show(TABLE.equals(read.apply(VIEW_KEY)), false);
@@ -288,6 +302,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         viewRow.setVisible(analyst);
         viewItem.setVisible(!analyst);
         if (cardsItem != null) { cardsItem.setVisible(!analyst); cardsSeparator.setVisible(!analyst); }
+        if (liveCardsItem != null) { liveCardsItem.setVisible(!analyst); liveCardsSeparator.setVisible(!analyst); }
         revalidate();
         repaint();
     }

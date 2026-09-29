@@ -4,7 +4,9 @@ import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitTables;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.archive.*;
 import javax.swing.*;
@@ -25,10 +27,17 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
     private final ActivityPanel.Mode mode;
     private final Path scratch;
     private final VisitRenderer visitRenderer;
+    /** Simple or Analyst: the saved {@code time} column reads relatively in Simple (display only). */
+    private final DisplayModeModel display;
     private View currentView;
     public ActivityArchiveClient(ActivityPanel.Mode mode,Path scratch) { this(mode,scratch,null); }
     public ActivityArchiveClient(ActivityPanel.Mode mode,Path scratch,VisitRenderer visitRenderer) {
+        this(mode,scratch,visitRenderer,DisplayModeModel.application());
+    }
+    /** As above with the display mode (tests). */
+    ActivityArchiveClient(ActivityPanel.Mode mode,Path scratch,VisitRenderer visitRenderer,DisplayModeModel display) {
         this.mode=Objects.requireNonNull(mode);this.scratch=Objects.requireNonNull(scratch);this.visitRenderer=visitRenderer;
+        this.display=Objects.requireNonNull(display);
     }
     public ArchiveQuery<Filters,Sort> initialQuery() { return ActivityQueries.initial(); }
     public Path scratchDirectory() { return scratch; }
@@ -118,6 +127,9 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             table.setDefaultRenderer(Instant.class,new ContentStyle.Cell(){
                 protected void setValue(Object value){setText(value==null?"Unknown time":java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss").format(((Instant)value).atZone(zone)));setToolTipText(zone.getId());}
             });
+            // Simple reads "12 min ago" with the absolute time and zone in the tooltip ("Unknown time" stays, dimmed); Analyst keeps this
+            // renderer and its zone tooltip. Display only: the model, the global sort, Copy and every export keep the instant.
+            KitTables.relativeTime(table,"time",display,KitTables::epoch,zone.getId());
             scroll=ContentStyle.tableScroll(table,4);
             ViewState.Table defaults=defaults(columns,table);
             HistoryTables.applyColumns(table,state.tables.getOrDefault("activity",defaults));

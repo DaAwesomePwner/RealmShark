@@ -10,7 +10,7 @@ import tomato.gui.kit.FilterBar;
 import static org.junit.Assert.*;
 
 public class ActivityLiveFilterBarTest {
-    @Test public void liveRunFacetsLiveInTheDrawerAndTimelineKeepsVisitBesideSearch() throws Exception {
+    @Test public void liveRunFacetsLiveInTheDrawerAndTimelineKeepsVisitAndTypeInItsDrawer() throws Exception {
         try (DiscoveryLog log = new DiscoveryLog(null)) {
             SwingUtilities.invokeAndWait(() -> {
                 ActivityPanel runs = new ActivityPanel(log, ActivityPanel.Mode.RUNS);
@@ -28,9 +28,12 @@ public class ActivityLiveFilterBarTest {
                 assertTrue(runs.runFilters().outcomes.isEmpty()); assertEquals(0, bar.activeCount());
                 ActivityPanel timeline = new ActivityPanel(log, ActivityPanel.Mode.TIMELINE);
                 FilterBar timelineBar = find(timeline, FilterBar.class, "activity-timeline-filter-bar");
-                assertNull("Timeline keeps visit and type beside search", timelineBar.drawerContent());
+                // P6b: Timeline's visit and type moved from beside search into its Filters drawer (spec §6.7, R2 decision 8).
+                assertNotNull("Timeline keeps visit and type in its Filters drawer", timelineBar.drawerContent());
                 assertTrue(SwingUtilities.isDescendingFrom(find(timeline, JComboBox.class, "activity-visit"), timelineBar));
                 assertTrue(SwingUtilities.isDescendingFrom(find(timeline, JComboBox.class, "activity-kind"), timelineBar));
+                assertTrue(SwingUtilities.isDescendingFrom(find(timeline, JComboBox.class, "activity-visit"), timelineBar.drawerContent()));
+                assertTrue(SwingUtilities.isDescendingFrom(find(timeline, JComboBox.class, "activity-kind"), timelineBar.drawerContent()));
             });
         }
     }
