@@ -26,7 +26,8 @@ public class LootArchiveStateTest {
             ArchiveWorkspace<Row,Facets,Sort> workspace=edt(()->HistoricalStatistics.lootWorkspace(store,new LootDashboard(),scratch,states));
             ArchiveWorkspace<Row,Facets,Sort> other=edt(()->SessionPanel.queried(store,"statistics",new JLabel("Live stats"),new LootArchiveClient(scratch,true),states));
             try{
-                edt(()->{workspace.showSaved();return null;});await(()->workspace.displayedPage()!=null&&!workspace.loading());
+                // A fresh saved Loot opens on All Items: ask for every occurrence (the paged rows this test selects and saves).
+                edt(()->{Facets f=workspace.state().query.facets();f.view=View.OCCURRENCES;workspace.changeQuery(workspace.state().query.withFacets(f));return null;});await(()->workspace.displayedPage()!=null&&!workspace.loading());
                 assertEquals(1103,edt(()->workspace.displayedPage().matches).longValue());
                 edt(()->{JTable table=named(workspace,"loot-archive-table",JTable.class);assertNull(table.getRowSorter());table.setColumnSelectionInterval(0,0);table.getActionMap().get("archive-sort-ascending").actionPerformed(null);return null;});
                 await(()->!workspace.loading()&&workspace.displayedPage().rows.get(0).value.time==1000L);

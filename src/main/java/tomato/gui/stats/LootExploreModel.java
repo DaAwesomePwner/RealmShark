@@ -43,8 +43,11 @@ final class LootExploreModel {
 
     /** The views Loot's saved archive offers: the Simple and the Analyst ones. */
     static Set<View> views() { Set<View> views = EnumSet.copyOf(SIMPLE); views.addAll(ANALYST); return Collections.unmodifiableSet(views); }
-    /** Saved Loot's first query: every occurrence of the current session, newest first (as before the selector). */
-    static ArchiveQuery<Facets, Sort> initialQuery() { return LootQuery.initial(View.OCCURRENCES, ArchiveQuery.CURRENT); }
+    /**
+     * Saved Loot's first query: All Items of the current session, newest first. It is the first Simple view (and the live
+     * dashboard's first), so a fresh Browse saved never opens on an Analyst view; routes and drills still ask for Item occurrences.
+     */
+    static ArchiveQuery<Facets, Sort> initialQuery() { return LootQuery.initial(View.ITEMS, ArchiveQuery.CURRENT); }
     static boolean live(View view) { return LIVE.contains(view); }
     /** The view at a persisted live index; All Items for an index out of range. */
     static View liveView(int index) { return index >= 0 && index < LIVE.size() ? LIVE.get(index) : View.ITEMS; }

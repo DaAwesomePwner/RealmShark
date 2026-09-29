@@ -41,7 +41,7 @@ public class LootArchiveFiltersTest {
                     ArchiveNativeSupport.removeChip(workspace.filterBar(), "Bags: White"); return null; });
                 await(() -> ArchiveNativeSupport.ready(workspace) && workspace.displayedPage().matches == 4);
                 edt(() -> { LootQuery.Facets f = workspace.state().query.facets(); assertTrue(f.bags.isEmpty()); assertEquals(LootQuery.Kind.UT_EQUIPMENT, f.kind);
-                    assertEquals(LootQuery.View.OCCURRENCES, f.view); return null; });
+                    assertEquals("A fresh saved Loot opens on All Items; removing a chip keeps it", LootQuery.View.ITEMS, f.view); return null; });
             } finally { edt(() -> { workspace.close(); return null; }); }
         }
     }

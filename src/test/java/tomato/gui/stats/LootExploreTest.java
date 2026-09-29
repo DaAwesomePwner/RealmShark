@@ -126,6 +126,23 @@ public class LootExploreTest {
         });
     }
 
+    @Test public void aFreshSavedLootOpensOnAllItemsTheFirstSimpleView() throws Exception {
+        ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store());
+        edt(() -> {
+            assertEquals("A fresh saved Loot asks for All Items", View.ITEMS, workspace.state().query.facets().view);
+            assertEquals(ArchiveQuery.CURRENT, workspace.state().query.scope());
+            workspace.showSaved(); return null;
+        });
+        await(() -> ready(workspace));
+        edt(() -> {
+            assertEquals(View.ITEMS, saved(workspace).getSelectedItem());
+            assertEquals("Simple: the nine views, no \"Current view\" row", SIMPLE, rows(saved(workspace)));
+            assertFalse(named(workspace, "loot-archive-view-caption").isVisible());
+            assertEquals("Live and saved agree from the start", View.ITEMS, live(workspace).getSelectedItem());
+            return null;
+        });
+    }
+
     @Test public void aSavedOnlyViewChosenWhileLiveOpensSavedHistoryWithThatView() throws Exception {
         ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store());
         edt(() -> {
