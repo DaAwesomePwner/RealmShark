@@ -726,7 +726,51 @@ the Loot, shell, workspace and Runs evidence tests): 1,326 tests, 4 failures, ex
 
 ### Wave B outcomes (coordinator review)
 
-_To be filled in after the merges._
+Merged: Task 10 `926cec4` (`920c761`), Task 9 `7e106c6` (`ebbbba5`), Task 8 `d4e5291` + `84c71df` (`f31a638`), Task 7 `425eb3d`
+(`4dc83a3`) and Task 6 `0f91a11` (`86436b9`).
+
+Combined focused run on `86436b9`: Wave A's set plus bridge, roster, myinfo, the archive pipeline and `ContentStyleTest`. It ran
+1,479 tests with 3 failures: `QuestConsistencyTest.nameTypesDialog…`, `ChatFiltersTest.editorSavesRules…` and
+`ChatConsistencyTest.nativeFilterDialog…`. `StatisticsArchiveNativeTest.actualLootFactory…` now passes: with the column tools in
+⋯, the loot details pane is reachable again.
+
+- **Task 6:**
+  - Column tools are a replaceable ⋯ section on every archive page.
+  - Mode-hidden columns keep the user's own visibility and width in HistoryTables layouts and roster view states.
+  - Null Integer cells read "—".
+  - `SocialQueryControls.tableTools` replaces `tableControls`, and `liveViewItems` is ready for Wave C.
+  - Deviations accepted: the existing `ViewState.Table` and preset types stand in for the plan's `TableLayout`; a public
+    `HistoryTables.RESTORING_COLUMNS` flag lets roster listeners ignore HistoryTables' own changes.
+  - Notes for Task 11:
+    - A table's Analyst-only columns must reach its layout saver before `analystOnly` first hides them.
+    - `columnTools`' save callback must save the view state.
+  - `ActivityArchiveUiTest.savedResourceTabs…ModeListener` failed in Task 6's class runs on the base too, and passed alone and in
+    this wave run. It is a GC-timing check, and Task 11 watches it.
+- **Task 7:**
+  - Party's three tabs host the chip in one filter row each: the roster, a new `inspect-runs` bar and a new `ability` bar.
+  - The class sprite moves to Class; gear shows tier wells; requirements are tone badges; the view-state rows are ⋯ items.
+  - Runs times read relatively in Simple.
+  - Accepted:
+    - the enchant glow is drawn as a ring inside the well;
+    - one Save/Reset pair on Current Area;
+    - "Reset evidence window…" confirms;
+    - lookup-only edits in `InspectContainerStateTest` and `InspectRosterOwnershipTest`, which no other task owned.
+- **Task 8:** sent back once, because search now also matches the local time Analyst shows. Accepted:
+  - Analyst shows local `yyyy-MM-dd HH:mm:ss`, with UTC and local time in the tooltip;
+  - the columns fit the page;
+  - Clear keeps the search text while Reset filters clears everything.
+- **Task 9:** accepted.
+  - A shared notable/strip edge keeps the dark border and uses `Tokens.outline` in light.
+  - Rate search also matches "Unknown area".
+  - A `LootFocus` window requires the Highlights tab.
+  - Task 14 applies `areaLabel` to `LootDashboard` and `LootArchiveClient`.
+- **Task 10:** accepted.
+  - Build shows four tiles over Ghost "Details…" links.
+  - The run feed uses `SessionStamps`.
+  - `ContentStyleTest` settles X11 echoes: 10 of 10 alone. The failure did not reproduce here beforehand, so this is not a proof.
+  - The `hasArchiveScratch` helper tolerates folders deleted mid-walk: a probe failed 181 of 400 walks before the change and 0 of 400
+    after.
+  - Task 15 removes the now-dead `ContentStyle.detailsButton` and a stale `SessionStamps` Javadoc line.
 
 ---
 
