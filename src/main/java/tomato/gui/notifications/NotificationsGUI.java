@@ -2,6 +2,7 @@ package tomato.gui.notifications;
 
 import tomato.gui.TomatoGUI;
 import tomato.gui.keypop.KeypopGUI;
+import tomato.gui.kit.CustomizableTabs;
 import tomato.realmshark.RealmEventAlerts;
 import tomato.realmshark.Sound;
 import tomato.gui.modern.ContentStyle;
@@ -27,8 +28,14 @@ public final class NotificationsGUI extends JPanel {
     public static final String KEY_POPS = "Key-pops";
     /** The key-pop {@link Sound#group}; an internal key, not shown. */
     static final String SOUND_GROUP_KEY_POPS = "Key pops";
+    /** Section tab IDs in the default order, which is the order the sections always had (spec §4.4, {@code ui.tabs.notifications}). */
+    static final List<String> SECTION_IDS = List.of("messages", "bags", "key-pops", "realm-events", "other-alerts", "decisions");
+    /** Section titles, parallel to {@link #SECTION_IDS}. */
+    private static final List<String> SECTION_TITLES = List.of("Messages", "Bags", KEY_POPS, "Realm events", "Other alerts", DECISIONS);
     private static volatile NotificationsGUI displayed;
-    final JTabbedPane tabs = new JTabbedPane();
+    /** The sections as customizable tabs: users may reorder and hide them; routes and Back bring a section forward by ID. */
+    final CustomizableTabs group = new CustomizableTabs("notifications");
+    final JTabbedPane tabs = group.component();
     final JSlider master = new JSlider(0, 100);
     final JCheckBox mute = new JCheckBox("Mute all");
     final JTextField dungeonSearch = new JTextField();
@@ -68,17 +75,17 @@ public final class NotificationsGUI extends JPanel {
         controlsNote.setName("sound-controls-note"); top.add(controlsNote, BorderLayout.SOUTH);
         master.addChangeListener(e -> { if (!syncing && !master.getValueIsAdjusting()) Sound.setVolume(master.getValue()); masterValue.setText(master.getValue() + "%"); });
         mute.addActionListener(e -> Sound.setMuted(mute.isSelected()));
-        for (String group : new String[]{"Messages", "Bags", SOUND_GROUP_KEY_POPS, "Realm events", "Other alerts"}) {
+        for (String soundGroup : new String[]{"Messages", "Bags", SOUND_GROUP_KEY_POPS, "Realm events", "Other alerts"}) {
             JPanel content = stack();
-            if (group.equals("Bags")) content.add(note("Bag alerts include boosted bags. Loot visibility filters do not mute sounds."));
-            for (Sound sound : Sound.ALERTS) if (sound.group.equals(group)) content.add(row(sound));
-            if (group.equals(SOUND_GROUP_KEY_POPS)) content.add(dungeons());
-            if (group.equals("Realm events")) {
+            if (soundGroup.equals("Bags")) content.add(note("Bag alerts include boosted bags. Loot visibility filters do not mute sounds."));
+            for (Sound sound : Sound.ALERTS) if (sound.group.equals(soundGroup)) content.add(row(sound));
+            if (soundGroup.equals(SOUND_GROUP_KEY_POPS)) content.add(dungeons());
+            if (soundGroup.equals("Realm events")) {
                 content.add(note("Alerts match public Oryx/system announcements while in a Realm. Presets match event names; edit a phrase to narrow it to the spawn announcement. Common defeat messages are skipped; repeat alerts pause for 30 seconds."));
                 JButton add = new JButton("Add realm event..."); add.setName("realm-add"); add.addActionListener(e -> addRealmRule());
                 content.add(left(add)); content.add(realmList); content.add(left(realmStatus)); rebuildRealmRules();
             }
-            if (group.equals("Other alerts")) {
+            if (soundGroup.equals("Other alerts")) {
                 content.add(note("Choose which chat phrases, items, entities and enchantments should trigger these sounds."));
                 JPanel actions = ContentStyle.responsiveGrid(2, 220, 8);
                 action(actions, "Chat message rules...", TomatoGUI::openChatPingMessage);
@@ -90,10 +97,11 @@ public final class NotificationsGUI extends JPanel {
             JPanel wrapper = new WidthTrackingPanel(); wrapper.add(content, BorderLayout.NORTH);
             JScrollPane scroll = new JScrollPane(wrapper); scroll.setBorder(BorderFactory.createEmptyBorder(6, 2, 0, 2));
             scroll.getVerticalScrollBar().setUnitIncrement(24);
-            tabs.addTab(group.equals(SOUND_GROUP_KEY_POPS) ? KEY_POPS : group, scroll);
+            String id = sectionId(soundGroup);
+            group.add(id, SECTION_TITLES.get(SECTION_IDS.indexOf(id)), scroll);
         }
         // Recent decisions scrolls within its own page so its table can take the spare height and reveal rows itself.
-        decisions.setBorder(BorderFactory.createEmptyBorder(6, 2, 0, 2)); tabs.addTab(DECISIONS, decisions);
+        decisions.setBorder(BorderFactory.createEmptyBorder(6, 2, 0, 2)); group.add("decisions", DECISIONS, decisions);
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         // The controls note explains editing; Recent decisions is read-only, so it gives that height to the rows.
         tabs.addChangeListener(e -> { boolean editing = tabs.getSelectedComponent() != decisions;
@@ -174,24 +182,34 @@ public final class NotificationsGUI extends JPanel {
         }
         focusedDungeon = null; focusReturn = null; focusBanner.setVisible(false); focusBanner.revalidate();
     }
-    /** Detached view state for Back navigation: tab, dungeon search/filter and focus. */
-    Object viewState() { return new Object[]{tabs.getSelectedIndex(), dungeonSearch.getText(), dungeonSelectedOnly.isSelected()}; }
+    /** Detached view state for Back navigation: the section's ID (a reorder cannot change it), dungeon search/filter and focus. */
+    Object viewState() { return new Object[]{group.selectedId(), dungeonSearch.getText(), dungeonSelectedOnly.isSelected()}; }
+    /** Back is explicit navigation: the saved section comes forward even if it was hidden since. */
     void restoreViewState(Object state) {
         if (!(state instanceof Object[])) return;
         Object[] values = (Object[])state;
         focusedDungeon = null; focusReturn = null; focusBanner.setVisible(false);
-        int tab = (Integer)values[0]; if (tab >= 0 && tab < tabs.getTabCount()) tabs.setSelectedIndex(tab);
+        if (values[0] instanceof String) bring((String)values[0]);
         dungeonSelectedOnly.setSelected((Boolean)values[2]); dungeonSearch.setText((String)values[1]); filterDungeons();
     }
     private final class TimerHolder {
         final javax.swing.Timer value = new javax.swing.Timer(1000, e -> { if (isShowing()) realmStatus.setText(RealmEventAlerts.INSTANCE.getLastMatchLabel()); });
         void start() { value.start(); } void stop() { value.stop(); }
     }
+    /**
+     * Brings a section forward: a section ID ({@link #SECTION_IDS}) or its title, as routes and older callers name it. A route is
+     * explicit navigation, so a section the user hid is shown again. Null or an unknown name keeps the current section.
+     */
     public void selectSection(String section) {
         refreshDungeons(); refresh();
-        // Sound groups and older callers name the key-pop tab "Key pops"; the tab shows the navigation term.
-        String title = SOUND_GROUP_KEY_POPS.equals(section) ? KEY_POPS : section;
-        if (title != null) for (int i = 0; i < tabs.getTabCount(); i++) if (title.equals(tabs.getTitleAt(i))) tabs.setSelectedIndex(i);
+        bring(sectionId(section));
+    }
+    private void bring(String id) { if (id == null || !SECTION_IDS.contains(id)) return; group.show(id); group.select(id); }
+    /** The section ID for an ID, a title or a {@link Sound#group} (which names the key-pop tab "Key pops"); null when none matches. */
+    static String sectionId(String section) {
+        if (section == null || SECTION_IDS.contains(section)) return section;
+        int index = SECTION_TITLES.indexOf(SOUND_GROUP_KEY_POPS.equals(section) ? KEY_POPS : section);
+        return index < 0 ? null : SECTION_IDS.get(index);
     }
     private AlertRow row(Sound sound) { AlertRow row = new AlertRow(sound); rows.add(row); return row; }
     private void refresh() {

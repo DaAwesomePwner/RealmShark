@@ -1,6 +1,7 @@
 package tomato.gui.kit;
 
 import java.awt.*;
+import java.awt.dnd.DragSource;
 import java.awt.event.*;
 import java.util.*;
 import java.util.List;
@@ -15,6 +16,8 @@ import util.PropertiesManager;
 /**
  * A JTabbedPane whose tabs have stable IDs and can be reordered (drag, menu or Ctrl+Shift+Left/Right)
  * and hidden. Analyst-only tabs are skipped in Simple mode, and conditional tabs while their condition is false, without changing the saved order.
+ * A left-button drag past the system threshold swaps tabs live once the pointer crosses a neighbour's midpoint, saves once on
+ * release, and Escape puts the order back without saving.
  */
 public class CustomizableTabs {
     public static final String PREFIX = "ui.tabs.";
@@ -43,6 +46,19 @@ public class CustomizableTabs {
     private final List<Consumer<String>> selectionListeners = new ArrayList<>();
     private boolean rebuilding;
     private String dragging, lastSelected;
+    /** Where the left button went down on {@link #dragging}'s tab; a drag starts only past {@link DragSource#getDragThreshold()}. */
+    private Point pressedAt;
+    /** Non-null while a drag is under way: the saved order at its start, for Escape and for "did the order change". */
+    private List<String> dragStart;
+    /** Set by a move onto another tab run (WRAP layout); cleared once the pointer is back on the dragged tab's own run. */
+    private boolean crossedRun;
+    /** Escape during a drag, wherever the keyboard focus is; installed only while a drag is under way. */
+    private final KeyEventDispatcher dragEscape = e -> {
+        if (dragStart == null || e.getKeyCode() != KeyEvent.VK_ESCAPE) return false;
+        if (e.getID() == KeyEvent.KEY_PRESSED) cancelDrag();
+        e.consume();
+        return true;
+    };
 
     public CustomizableTabs(String group) {
         this(group, DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
@@ -98,9 +114,11 @@ public class CustomizableTabs {
     }
 
     /** Every known tab in the user's order, including hidden and Analyst-only tabs; new tabs append. */
-    public List<String> order() {
+    public List<String> order() { return orderOf(savedOrder); }
+
+    private List<String> orderOf(List<String> saved) {
         List<String> result = new ArrayList<>();
-        for (String id : savedOrder) if (entries.containsKey(id) && !result.contains(id)) result.add(id);
+        for (String id : saved) if (entries.containsKey(id) && !result.contains(id)) result.add(id);
         for (String id : entries.keySet()) if (!result.contains(id)) result.add(id);
         return result;
     }
@@ -137,22 +155,38 @@ public class CustomizableTabs {
         List<String> visible = visibleIds();
         int from = visible.indexOf(id), to = from + delta;
         if (from < 0 || delta == 0 || to < 0 || to >= visible.size()) return;
-        List<String> all = order();
-        String neighbor = visible.get(to);
-        all.remove(id);
-        int at = all.indexOf(neighbor);
-        all.add(delta > 0 ? at + 1 : at, id);
-        savedOrder.clear();
-        savedOrder.addAll(all);
+        place(id, visible.get(to), delta > 0);
         save();
         rebuild();
         select(id);
     }
 
-    public boolean hide(String id) {
+    /** A drag's live move: the strip and selection follow at once, and the order is saved once, when the drag ends. */
+    private void moveLive(String id, String neighbor, boolean after) {
+        place(id, neighbor, after);
+        rebuild();
+        select(id);
+    }
+
+    /** Puts {@code id} just after (or before) {@code neighbor} in the saved order; hidden and skipped tabs keep their places. */
+    private void place(String id, String neighbor, boolean after) {
+        List<String> all = order();
+        all.remove(id);
+        int at = all.indexOf(neighbor);
+        all.add(after ? at + 1 : at, id);
+        savedOrder.clear();
+        savedOrder.addAll(all);
+    }
+
+    /** Whether {@link #hide} would hide {@code id}: a visible tab that is neither the view's last tab nor its last steady tab. */
+    public boolean canHide(String id) {
         List<String> visible = visibleIds();
         if (!visible.contains(id) || visible.size() <= 1) return false;
-        if (entries.get(id).steady() && visible.stream().filter(key -> entries.get(key).steady()).count() <= 1) return false;
+        return !(entries.get(id).steady() && visible.stream().filter(key -> entries.get(key).steady()).count() <= 1);
+    }
+
+    public boolean hide(String id) {
+        if (!canHide(id)) return false;
         hidden.add(id);
         save();
         rebuild();
@@ -245,21 +279,24 @@ public class CustomizableTabs {
     private void installGestures() {
         tabs.addMouseListener(new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) { menu(e.getPoint()); return; }
+                if (e.isPopupTrigger()) { if (dragStart == null) showMenu(e.getPoint()); return; }
+                // Only the left button drags: a middle or (on Windows, whose popup trigger comes on release) right press never reorders.
+                if (e.getButton() != MouseEvent.BUTTON1 || dragStart != null) return;
                 int index = tabs.indexAtLocation(e.getX(), e.getY());
                 dragging = index < 0 ? null : idAt(index);
+                pressedAt = dragging == null ? null : e.getPoint();
             }
             @Override public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) menu(e.getPoint());
-                dragging = null;
+                if (e.getButton() == MouseEvent.BUTTON1) { finishDrag(); return; }
+                if (e.isPopupTrigger() && dragStart == null) showMenu(e.getPoint());
             }
         });
         tabs.addMouseMotionListener(new MouseMotionAdapter() {
-            @Override public void mouseDragged(MouseEvent e) {
-                if (dragging == null) return;
-                int target = tabs.indexAtLocation(e.getX(), e.getY()), from = visibleIds().indexOf(dragging);
-                if (target >= 0 && from >= 0 && target != from) move(dragging, target - from);
-            }
+            @Override public void mouseDragged(MouseEvent e) { dragTo(e); }
+        });
+        // A strip that stops showing mid-drag (a page switch) keeps the moves made so far, saved once, as a release would.
+        tabs.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && !tabs.isShowing()) finishDrag();
         });
         InputMap keys = tabs.getInputMap(JComponent.WHEN_FOCUSED);
         keys.put(KeyStroke.getKeyStroke("ctrl shift LEFT"), "tab-move-left");
@@ -271,38 +308,114 @@ public class CustomizableTabs {
         tabs.getActionMap().put("tab-menu", action(() -> {
             int index = tabs.getSelectedIndex();
             Rectangle bounds = index < 0 ? new Rectangle() : tabs.getBoundsAt(index);
-            menu(new Point(bounds.x, bounds.y + bounds.height));
+            showMenu(new Point(bounds.x, bounds.y + bounds.height));
         }));
+    }
+
+    /**
+     * One drag event. Tabs swap live, and only once the pointer crosses the target tab's midpoint in the direction of travel: after
+     * a swap the pointer is over the dragged tab or on its side of the neighbour's new midpoint, so unequal widths cannot flip the
+     * order back and forth. A tab on another run (WRAP layout with several rows) takes the tab's place without the midpoint rule;
+     * as runs re-flow and rotate after such a move, the next cross-run move waits until the pointer is back on the dragged tab's run.
+     */
+    private void dragTo(MouseEvent e) {
+        if (dragging == null || (e.getModifiersEx() & InputEvent.BUTTON1_DOWN_MASK) == 0) return;
+        if (dragStart == null) {
+            int threshold = DragSource.getDragThreshold();
+            if (Math.abs(e.getX() - pressedAt.x) <= threshold && Math.abs(e.getY() - pressedAt.y) <= threshold) return;
+            dragStart = new ArrayList<>(savedOrder);
+            crossedRun = false;
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dragEscape);
+        }
+        List<String> strip = currentIds();
+        int from = strip.indexOf(dragging), target = tabs.indexAtLocation(e.getX(), e.getY());
+        if (from < 0 || target < 0) return; // the dragged tab left the strip (a mode change), or the pointer is off the tabs
+        if (target == from) { crossedRun = false; return; }
+        Rectangle source = tabs.getBoundsAt(from), over = tabs.getBoundsAt(target);
+        boolean horizontal = tabs.getTabPlacement() == JTabbedPane.TOP || tabs.getTabPlacement() == JTabbedPane.BOTTOM;
+        int delta = target - from;
+        if (horizontal ? source.y == over.y : source.x == over.x) {
+            crossedRun = false;
+            double pointer = horizontal ? e.getX() : e.getY(), middle = horizontal ? over.getCenterX() : over.getCenterY(),
+                own = horizontal ? source.getCenterX() : source.getCenterY();
+            // Crossed: the pointer is past the target's midpoint on the side away from the dragged tab (right-to-left works too).
+            // Otherwise the tabs before the target were passed in full, so the dragged tab goes just before it.
+            if ((middle - own) * (pointer - middle) <= 0) delta -= Integer.signum(delta);
+        } else if (crossedRun) {
+            return;
+        } else {
+            crossedRun = true;
+        }
+        if (delta != 0) moveLive(dragging, strip.get(from + delta), delta > 0);
+    }
+
+    /** Ends the drag; the order is saved once, and only if it changed. */
+    private void finishDrag() {
+        List<String> start = dragStart;
+        endDrag();
+        if (start == null) return;
+        if (!order().equals(orderOf(start))) save();
+        else { savedOrder.clear(); savedOrder.addAll(start); } // dragged back to where it began: nothing to save
+    }
+
+    /** Escape: every tab goes back where the drag found it, and nothing is written. */
+    private void cancelDrag() {
+        List<String> start = dragStart;
+        String id = dragging;
+        endDrag();
+        if (start == null) return;
+        savedOrder.clear(); savedOrder.addAll(start);
+        rebuild();
+        select(id);
+    }
+
+    /** Forgets the press and the drag; later drag events are ignored until the next left press. */
+    private void endDrag() {
+        if (dragStart != null) KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dragEscape);
+        dragStart = null;
+        dragging = null;
+        pressedAt = null;
+        crossedRun = false;
     }
 
     private static Action action(Runnable run) {
         return new AbstractAction() { @Override public void actionPerformed(ActionEvent e) { run.run(); } };
     }
 
-    private void menu(Point at) {
+    private void showMenu(Point at) { if (tabs.isShowing()) menu(at).show(tabs, at.x, at.y); }
+
+    /**
+     * The menu for the tab at {@code at} (the selected tab when none is there), in spec §4.4's words: Move left, Move right,
+     * Hide tab, Show hidden ▸ and Reset order. An item is enabled exactly when its action would change something, and each is
+     * named {@code <group>-tab-<action>} ({@code <group>-tab-show-<id>} for a hidden tab).
+     */
+    JPopupMenu menu(Point at) {
         int index = tabs.indexAtLocation(at.x, Math.max(0, at.y - 1));
         if (index < 0) index = tabs.getSelectedIndex();
         String id = index < 0 ? null : idAt(index);
         List<String> visible = visibleIds();
+        int place = visible.indexOf(id);
         JPopupMenu menu = new JPopupMenu();
         menu.setName(group + "-tab-menu");
-        JMenuItem left = new JMenuItem("Move left"), right = new JMenuItem("Move right"), hide = new JMenuItem("Hide tab"),
-            reset = new JMenuItem("Reset tabs");
-        left.setEnabled(id != null && visible.indexOf(id) > 0);
-        right.setEnabled(id != null && visible.indexOf(id) < visible.size() - 1);
-        hide.setEnabled(id != null && visible.size() > 1);
-        left.addActionListener(e -> move(id, -1));
-        right.addActionListener(e -> move(id, 1));
-        hide.addActionListener(e -> hide(id));
-        reset.addActionListener(e -> reset());
-        JMenu restore = new JMenu("Show hidden tab");
-        for (String hiddenId : hiddenIds()) {
-            JMenuItem item = new JMenuItem(entries.get(hiddenId).title);
-            item.addActionListener(e -> show(hiddenId));
-            restore.add(item);
-        }
+        menu.add(menuItem("move-left", "Move left", place > 0, () -> move(id, -1)));
+        menu.add(menuItem("move-right", "Move right", place >= 0 && place < visible.size() - 1, () -> move(id, 1)));
+        menu.add(menuItem("hide", "Hide tab", id != null && canHide(id), () -> hide(id)));
+        menu.addSeparator();
+        JMenu restore = new JMenu("Show hidden"); // the submenu paints its own ▸, as the sidebar's does
+        restore.setName(group + "-tab-show-hidden");
+        for (String hiddenId : hiddenIds()) restore.add(menuItem("show-" + hiddenId, entries.get(hiddenId).title, true, () -> show(hiddenId)));
         restore.setEnabled(restore.getItemCount() > 0);
-        menu.add(left); menu.add(right); menu.add(hide); menu.addSeparator(); menu.add(restore); menu.add(reset);
-        menu.show(tabs, at.x, at.y);
+        menu.add(restore);
+        boolean customized = !hiddenIds().isEmpty() || !order().equals(new ArrayList<>(entries.keySet()));
+        menu.add(menuItem("reset", "Reset order", customized, this::reset));
+        return menu;
+    }
+
+    private JMenuItem menuItem(String action, String label, boolean enabled, Runnable run) {
+        JMenuItem item = new JMenuItem(label);
+        item.setName(group + "-tab-" + action);
+        item.setEnabled(enabled);
+        item.addActionListener(e -> run.run());
+        return item;
     }
 }
