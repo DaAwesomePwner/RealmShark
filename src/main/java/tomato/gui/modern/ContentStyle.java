@@ -498,14 +498,6 @@ public final class ContentStyle {
         return new RoundedPanel(layout);
     }
 
-    /** A real button keeps summary explanations available to keyboard and assistive technology. */
-    public static JButton detailsButton(String subject, Runnable open) {
-        JButton button = new JButton("Details…");
-        button.getAccessibleContext().setAccessibleName(subject + " details");
-        button.addActionListener(e -> open.run());
-        return button;
-    }
-
     /** The caller supplies detached text, so an open explanation never follows a different record. */
     public static void showDetails(Component owner, String title, String text) {
         Window window = owner instanceof Window ? (Window) owner : SwingUtilities.getWindowAncestor(owner);

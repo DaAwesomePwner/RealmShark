@@ -379,17 +379,5 @@ public final class HistoryTables {
             return new ViewState.Table(layout.preset,next);
         }
         private void apply(ViewState.Table layout){applyColumns(table,layout);save.accept(layout);refresh();}
-        /** The same preset as a Column preset ▸ radio, for the legacy {@link #controls} combo. */
-        void choose(String label){preset(label);}
-    }
-    /** The retired button row (Copy selected, Details…, Column preset, Columns…, Reset columns), a thin wrapper over {@link ColumnTools} until the last live caller moves to ⋯. */
-    public static JComponent controls(JTable table,ViewState.Table defaults,Map<String,List<String>> presets,Consumer<ViewState.Table> save){
-        ColumnTools tools=columnTools(table,defaults,presets,save);rememberLayout(table,save);
-        JPanel controls=ContentStyle.controls();JButton copy=new JButton("Copy selected"),details=new JButton("Details…"),reset=new JButton("Reset columns"),columns=new JButton("Columns…");
-        copy.addActionListener(e->copy(table));details.addActionListener(e->tools.details().doClick());reset.addActionListener(e->tools.reset().doClick());
-        columns.addActionListener(e->{tools.refresh();JPopupMenu menu=new JPopupMenu();for(Component item:tools.columns().getMenuComponents())menu.add(item);menu.show(columns,0,columns.getHeight());});
-        JComboBox<String> preset=new JComboBox<>();preset.addItem("Column preset…");for(String name:presets.keySet())preset.addItem(name);
-        preset.getAccessibleContext().setAccessibleName("Column preset");preset.addActionListener(e->{Object chosen=preset.getSelectedItem();if(chosen!=null&&presets.containsKey(chosen))tools.choose(chosen.toString());});
-        controls.add(copy);controls.add(details);controls.add(preset);controls.add(columns);controls.add(reset);return controls;
     }
 }
