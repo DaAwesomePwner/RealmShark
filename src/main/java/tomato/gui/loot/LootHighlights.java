@@ -31,7 +31,8 @@ import util.PropertiesManager;
  *   page's {@link #addOverflowAction} entries).
  * - Four StatTiles: UT drops, ST drops, potions (the sub-line lists stats, "2 Life · 1 Mana · 3 Def") and white bags (the
  *   sub-line says of how many bags, and how many had no saved bag name). Unknown is "—" with its reason, never 0; a partial
- *   read (◐) and a stale one are labeled on the tiles and in a warn line above them.
+ *   read (◐) and a stale one are labeled on the tiles and in a warn line above them. One row whenever each tile can be
+ *   {@value #TILE_MIN} px wide (a long sub-line wraps inside its tile, {@link SubLine}); else two by two or one per row.
  * - Notable drops ({@code loot-notable-grid}): a painted TileList ({@link NotableDropRenderer}). Filter Loot ({@link LootFilters})
  *   decides which bag colors are listed, re-filtered on change without a read, and a line says how many drops it hides; the
  *   tiles and the strip still count every observed drop. Enter, Space, a double-click or the context menu's "Open run recap"
@@ -52,6 +53,8 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
     /** The nudge check while showing, the settle delay before a nudged read, and the checks between reads without a nudge (30 s). */
     static final int CHECK_MILLIS = 2_000, SETTLE_MILLIS = 750, PERIODIC_TICKS = 15;
     static final String LOADING = "loading", UNAVAILABLE = "unavailable", CONTENT = "content";
+    /** A tile's narrowest width in px: four tiles share a row whenever each can have this much (Home's tiles use the same). */
+    static final int TILE_MIN = 180;
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
 
     /** How the view reads: a {@link HighlightsSource} in production. {@code read} runs off the EDT. */
@@ -131,12 +134,13 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         more.add("Refresh", this::refresh).setName("loot-highlights-refresh");
         add(KitLayouts.spread(Tokens.S, sourceCaption, windowControl, more), BorderLayout.NORTH);
 
-        // Tiles: four across when they fit, fewer (wrapping) when narrow or at large fonts.
+        // Tiles: four across whenever each gets TILE_MIN px (1240×800 font 13 in the shell), else two by two or one per row. A long
+        // sub-line wraps inside its tile (HighlightTile) rather than widening it, and the grid gives a row one height.
         stale.setTone(Tokens.Tone.WARN);
         partial.setTone(Tokens.Tone.WARN);
         stale.setVisible(false);
         partial.setVisible(false);
-        JPanel tiles = ContentStyle.responsiveGrid(4, 150, Tokens.S, true);
+        JPanel tiles = ContentStyle.responsiveGrid(4, TILE_MIN, Tokens.S, true);
         tiles.setName("loot-highlights-tiles");
         tiles.setOpaque(false);
         for (StatTile tile : new StatTile[] {ut, st, potions, whites}) tiles.add(tile);
@@ -480,9 +484,156 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
     private static String count(int value, String noun) { return DisplayFormat.formatInteger(value) + " " + noun + (value == 1 ? "" : "s"); }
 
     private static StatTile tile(String label, String name) {
-        StatTile tile = new StatTile(label);
+        StatTile tile = new HighlightTile(label);
         tile.setName(name);
         return tile;
+    }
+
+    /**
+     * A StatTile whose sub-line wraps ({@link SubLine}) instead of widening the tile (Polish B2): StatTile's own one-line sub-line
+     * made "2 Life · 1 Mana · 1 Att · 1 Def · +2 more" the tile's preferred width, so the four tiles went two by two at desktop
+     * width. The wrapping sub-line takes StatTile's place under the value (child 2); StatTile's own stays hidden. The accessible
+     * name is StatTile's ("Potions: 7, 2 Life · …").
+     */
+    static final class HighlightTile extends StatTile {
+        /** Null while StatTile's constructor sets the first value. */
+        private final SubLine sub;
+
+        HighlightTile(String label) {
+            super(label);
+            sub = new SubLine();
+            sub.setVisible(false);
+            add(sub, 2);
+        }
+
+        @Override public void setValue(DisplayValue shown, String subline) {
+            super.setValue(shown, null);
+            if (sub == null) return;
+            boolean has = subline != null && !subline.isEmpty();
+            sub.setText(has ? subline : "");
+            sub.setVisible(has);
+            if (has) getAccessibleContext().setAccessibleName(getAccessibleContext().getAccessibleName() + ", " + subline);
+        }
+    }
+
+    /**
+     * A tile's sub-line that wraps at the tile's width, between its " · " parts ("2 Life · 1 Mana · 1 Att" / "1 Def · +2 more"),
+     * inside a part at its spaces only when the part alone is wider than the tile. Its preferred width is its widest part, so a tile
+     * row keeps every part whole; its height follows the width it is given, and a change in the line count lays the row out again
+     * once the current layout has finished. The text stays the plain sub-line (screen readers read it whole). A word wider than the
+     * tile, the one thing that cannot wrap, ends in "…" and the whole sub-line is the tooltip.
+     */
+    static final class SubLine extends JLabel {
+        static final String SEPARATOR = " · ";
+        /** The line count the last preferred size was measured with (-1: never measured). */
+        private int measured = -1;
+        private List<String> painted = List.of();
+
+        SubLine() {
+            putClientProperty("html.disable", Boolean.TRUE);
+            setAlignmentX(LEFT_ALIGNMENT);
+            ContentStyle.font(this, Type.caption());
+            ToolTipManager.sharedInstance().registerComponent(this);   // a tooltip only when a word is cut (getToolTipText)
+        }
+
+        /** {@code text}'s lines at {@code width} px: parts joined by " · " while they fit; a part wider than a line breaks at spaces. */
+        static List<String> lines(String text, FontMetrics metrics, int width) {
+            List<String> lines = new ArrayList<>();
+            if (text == null || text.isEmpty()) return lines;
+            String line = null;
+            for (String part : text.split(java.util.regex.Pattern.quote(SEPARATOR), -1)) {
+                String joined = line == null ? part : line + SEPARATOR + part;
+                if (line != null && metrics.stringWidth(joined) <= width) { line = joined; continue; }
+                if (line != null) lines.add(line);
+                line = null;
+                if (metrics.stringWidth(part) <= width) { line = part; continue; }
+                for (String word : part.split(" ", -1)) {   // a part alone is too wide: its words, as many a line as fit
+                    String words = line == null ? word : line + " " + word;
+                    if (line == null || metrics.stringWidth(words) <= width) line = words;
+                    else { lines.add(line); line = word; }
+                }
+            }
+            if (line != null) lines.add(line);
+            return lines;
+        }
+
+        private String text() { return getText() == null ? "" : getText(); }
+
+        /** The width the text wraps at: this label's, or before its first layout its parent's (the tile's inner width). */
+        private int wrapWidth() {
+            Insets insets = getInsets();
+            int width = getWidth();
+            if (width <= 0 && getParent() != null) {
+                Insets parent = getParent().getInsets();
+                width = getParent().getWidth() - parent.left - parent.right;
+            }
+            return width - insets.left - insets.right;
+        }
+
+        private int lineCount() {
+            int width = wrapWidth();
+            return width <= 0 ? 1 : Math.max(1, lines(text(), getFontMetrics(getFont()), width).size());
+        }
+
+        @Override public Dimension getPreferredSize() {
+            if (isPreferredSizeSet()) return super.getPreferredSize();
+            FontMetrics metrics = getFontMetrics(getFont());
+            Insets insets = getInsets();
+            int widest = 0;
+            for (String part : text().split(java.util.regex.Pattern.quote(SEPARATOR), -1)) widest = Math.max(widest, metrics.stringWidth(part));
+            measured = lineCount();
+            return new Dimension(widest + insets.left + insets.right, measured * metrics.getHeight() + insets.top + insets.bottom);
+        }
+        @Override public Dimension getMinimumSize() { return getPreferredSize(); }
+        /** As wide as the tile (BoxLayout stretches it to the tile's inner width), never taller than its lines. */
+        @Override public Dimension getMaximumSize() { return new Dimension(Integer.MAX_VALUE, getPreferredSize().height); }
+
+        @Override public void setBounds(int x, int y, int width, int height) {
+            boolean resized = width != getWidth();
+            super.setBounds(x, y, width, height);
+            // The row measured this label at another width; if that changes the line count, lay the row out again after this pass.
+            if (resized && measured >= 0 && lineCount() != measured) SwingUtilities.invokeLater(this::revalidate);
+        }
+
+        /** The whole sub-line, only when a word wider than the tile is cut. */
+        @Override public String getToolTipText() {
+            int width = wrapWidth();
+            if (width <= 0) return null;
+            FontMetrics metrics = getFontMetrics(getFont());
+            for (String line : lines(text(), metrics, width)) if (metrics.stringWidth(line) > width) return text();
+            return null;
+        }
+
+        @Override public void updateUI() {
+            super.updateUI();
+            setForeground(Tokens.color(Tokens.Role.TEXT_MUTED));   // follows a theme switch, as StatTile's own sub-line
+        }
+
+        /** The lines the last paint drew (tests). */
+        List<String> painted() { return painted; }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                Object hints = Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints");
+                if (hints instanceof java.util.Map) g.addRenderingHints((java.util.Map<?, ?>) hints);
+                g.setFont(getFont());
+                g.setColor(getForeground());
+                FontMetrics metrics = g.getFontMetrics();
+                Insets insets = getInsets();
+                int width = getWidth() - insets.left - insets.right, baseline = insets.top + metrics.getAscent();
+                List<String> drawn = new ArrayList<>();
+                for (String line : lines(text(), metrics, width)) {
+                    String fitted = NotableDropRenderer.fit(line, metrics, width);
+                    g.drawString(fitted, insets.left, baseline);
+                    drawn.add(fitted);
+                    baseline += metrics.getHeight();
+                }
+                painted = List.copyOf(drawn);
+            } finally {
+                g.dispose();
+            }
+        }
     }
 
     /** Tab into a list selects its first item, so Enter opens something and a reader announces an item. */

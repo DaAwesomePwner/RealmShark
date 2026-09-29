@@ -244,10 +244,11 @@ public class LootEvidenceTest {
             assertTrue("The potions sub-line lists stats: " + potions, potions.startsWith("2 Life · 1 Mana · 1 Att · 1 Def"));
             assertEquals("of 9 bags · 1 without a bag name", subline("loot-tile-whites"));
             assertTilesWhole("p6a-highlights-1240-13-simple");
+            assertTilesInOneRow();
             assertTrue("The capture shows the notable drops", inView(list("loot-notable-grid")));
         });
         show("Loot highlights compact", 680, 520, 18, ANALYST, () -> { });
-        capture("highlights", 680, 18, ANALYST, "", facts);
+        capture("highlights", 680, 18, ANALYST, "", () -> { facts.run(); assertTilesWrapped("p6a-highlights-680-18-analyst"); });
         SwingUtilities.invokeAndWait(() -> scrollTo(list("loot-notable-grid"), 3 * ContentStyle.body().getSize()));
         pause();
         capture("highlights-notable", 680, 18, ANALYST, "", () -> {
@@ -312,9 +313,9 @@ public class LootEvidenceTest {
             JComponent explore = exploreContent();
             assertTrue("Without saved history Explore is the live dashboard alone: " + explore.getClass().getSimpleName(), explore instanceof LootDashboard);
         };
-        capture("highlights-live", 1240, 13, SIMPLE, "", () -> { facts.run(); assertSidebar(); });
+        capture("highlights-live", 1240, 13, SIMPLE, "", () -> { facts.run(); assertSidebar(); assertTilesInOneRow(); });
         show("Loot highlights live compact", 680, 520, 18, ANALYST, () -> { });
-        capture("highlights-live", 680, 18, ANALYST, "", facts);
+        capture("highlights-live", 680, 18, ANALYST, "", () -> { facts.run(); assertTilesWrapped("p6a-highlights-live-680-18-analyst"); });
         light(1240, 800, 13);
         capture("highlights-live", 1240, 13, SIMPLE, "-light", facts);
     }
@@ -344,9 +345,9 @@ public class LootEvidenceTest {
             assertEquals("The readable sessions still list their drops", 12, list("loot-notable-grid").getModel().getSize());
             assertTrue("The capture shows the warn line", inView(partial));
         };
-        capture("highlights-partial", 1240, 13, SIMPLE, "", () -> { facts.run(); assertSidebar(); });
+        capture("highlights-partial", 1240, 13, SIMPLE, "", () -> { facts.run(); assertSidebar(); assertTilesInOneRow(); });
         show("Loot highlights partial compact", 680, 520, 18, ANALYST, () -> { });
-        capture("highlights-partial", 680, 18, ANALYST, "", facts);
+        capture("highlights-partial", 680, 18, ANALYST, "", () -> { facts.run(); assertTilesWrapped("p6a-highlights-partial-680-18-analyst"); });
         light(1240, 800, 13);
         capture("highlights-partial", 1240, 13, SIMPLE, "-light", facts);
     }
@@ -467,6 +468,9 @@ public class LootEvidenceTest {
             show("Settings chat", size[0], size[1], size[2], mode, () -> TomatoGUI.openSettings(SettingsPage.CHAT));
             capture("settings-chat", size[0], size[2], mode, "", () -> {
                 assertSettings(SettingsPage.CHAT, "settings-chat");
+                // Polish B2 (finding 9): the editor fills the section under Saving and scrolls its own lists, so its footer (Save
+                // filters, Cancel and the save status) is in view as the section opens, before anything is scrolled.
+                assertInViewWithoutScrolling("chat-save-filters", "chat-cancel-filters", "chat-filter-save-status");
                 AbstractButton save = VisualEvidence.named(shell, "settings-chat-save", AbstractButton.class);
                 assertFalse("Save chat is off (key cleared)", save.isSelected());
                 VisualEvidence.completeButton(save);
@@ -767,9 +771,9 @@ public class LootEvidenceTest {
     }
 
     /**
-     * The four tiles are whole (inside the page, never clipped) in at most two rows; the row count is printed. With today's long
-     * potion and white-bag sub-lines they wrap to two rows of two at 1240×800 font 13 in the real shell (finding 1); with short
-     * sub-lines (the empty capture) they share one row.
+     * The four tiles are whole (inside the page, never clipped) in at most two rows; the row count is printed. Since Polish B2 a
+     * long potion or white-bag sub-line wraps inside its tile instead of widening it, so at 1240×800 font 13 in the real shell the
+     * tiles share one row ({@link #assertTilesInOneRow}; finding 1).
      */
     private void assertTilesWhole(String capture) {
         Set<Integer> rows = new HashSet<>();
@@ -782,6 +786,73 @@ public class LootEvidenceTest {
         }
         System.out.println(capture + ": Loot highlights tiles in " + rows.size() + " row(s)");
         assertTrue("At most two rows of tiles: " + rows.size(), rows.size() <= 2);
+    }
+
+    /**
+     * Polish B2 (finding 1): at 1240×800 font 13 in the real shell the four tiles share one row and one height, even with the long
+     * potion and white-bag sub-lines ("2 Life · 1 Mana · 1 Att · 1 Def · +2 more", "of 9 bags · 1 without a bag name").
+     */
+    private void assertTilesInOneRow() {
+        List<StatTile> tiles = tiles();
+        assertEquals("Four tiles in one row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
+        assertEquals("One height for the row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getHeight).distinct().count());
+        for (StatTile tile : tiles) assertSubLineWhole(tile);
+    }
+
+    /** At 680×520 font 18 the tiles wrap (two by two, or one per row), each whole inside the page; the row count is printed. */
+    private void assertTilesWrapped(String capture) {
+        assertTilesWhole(capture);
+        List<StatTile> tiles = tiles();
+        assertTrue("The tiles wrap at 680×520 font 18: " + tileBounds(tiles), tiles.stream().map(Component::getY).distinct().count() > 1);
+        for (StatTile tile : tiles) assertSubLineWhole(tile);
+    }
+
+    /**
+     * A tile's sub-line (its child 2, under the value; hidden when the tile has none) is whole: inside the tile, and the capture
+     * painted every word of it (its lines rejoin to the text, none cut with "…"), or, only if a word was cut, its tooltip is the
+     * whole text. The line count is printed.
+     */
+    private static void assertSubLineWhole(StatTile tile) {
+        JLabel sub = (JLabel) tile.getComponent(2);
+        if (!sub.isVisible()) return;
+        @SuppressWarnings("unchecked") List<String> painted = (List<String>) call(sub, "painted");
+        String text = sub.getText();
+        System.out.println(tile.getName() + " sub-line in " + painted.size() + " line(s) at " + sub.getWidth() + " px: " + painted);
+        assertTrue(tile.getName() + ": the sub-line lies inside the tile: " + sub.getBounds() + " in " + tile.getSize(), new Rectangle(tile.getSize()).contains(sub.getBounds()));
+        boolean whole = painted.stream().noneMatch(line -> line.endsWith("…")) && words(String.join(" ", painted)).equals(words(text));
+        assertTrue(tile.getName() + ": painted " + painted + " for '" + text + "', tooltip " + sub.getToolTipText(), whole || text.equals(sub.getToolTipText()));
+    }
+
+    private static List<String> words(String text) { return Arrays.asList(text.replace("·", " ").trim().split("\\s+")); }
+
+    private List<StatTile> tiles() {
+        List<StatTile> tiles = new ArrayList<>();
+        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) tiles.add(VisualEvidence.named(shell, name, StatTile.class));
+        return tiles;
+    }
+
+    private static String tileBounds(List<StatTile> tiles) {
+        StringBuilder text = new StringBuilder();
+        for (StatTile tile : tiles) text.append(tile.getName()).append('@').append(tile.getX()).append(',').append(tile.getY())
+            .append(' ').append(tile.getWidth()).append('x').append(tile.getHeight()).append("; ");
+        return text.toString();
+    }
+
+    /**
+     * Each named component is whole in view as the page opened (nothing scrolled first): its visible rectangle is its whole bounds,
+     * through every enclosing scroll pane and the shell, and it lies inside the Settings page.
+     */
+    private void assertInViewWithoutScrolling(String... names) {
+        SettingsPage page = VisualEvidence.named(shell, "settings-page", SettingsPage.class);
+        for (String name : names) {
+            JComponent part = VisualEvidence.named(shell, name, JComponent.class);
+            Rectangle visible = part.getVisibleRect(), inPage = SwingUtilities.convertRectangle(part.getParent(), part.getBounds(), page);
+            System.out.println("Settings chat: " + name + " at " + inPage + " in a " + page.getSize() + " settings page, visible " + visible);
+            assertTrue(name + " is showing", part.isShowing() && part.getWidth() > 0 && part.getHeight() > 0);
+            assertEquals(name + " is whole in view without scrolling (the visible part of " + part.getSize() + ")",
+                new Rectangle(0, 0, part.getWidth(), part.getHeight()), visible);
+            assertTrue(name + " lies inside the Settings page: " + inPage, new Rectangle(page.getSize()).contains(inPage));
+        }
     }
 
     /** The sub-line of the StatTile named {@code name} (its second text line). */
