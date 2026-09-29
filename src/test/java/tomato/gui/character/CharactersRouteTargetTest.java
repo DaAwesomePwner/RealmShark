@@ -28,7 +28,7 @@ public class CharactersRouteTargetTest {
     private static final String ACCOUNT = CharacterJournal.accountKey("route-fixture");
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private final Map<String, String> saved = new LinkedHashMap<>();
-    private final int[] page = {0};
+    private final String[] page = {"chat"};
     private CharacterJournal journal;
 
     @Before public void isolate() {
@@ -66,9 +66,9 @@ public class CharactersRouteTargetTest {
             ShellNavigator navigator = navigator(view);
             view.showSheet(key(1), null, view::showList);
             assertTrue(navigator.open(Route.to(Destination.CHARACTERS)));
-            assertEquals(3, page[0]); assertFalse("A plain route shows the list", view.showingSheet());
+            assertEquals("characters", page[0]); assertFalse("A plain route shows the list", view.showingSheet());
             assertTrue(navigator.open(sheet(key(2), "notes")));
-            assertEquals(3, page[0]); assertTrue(view.showingSheet());
+            assertEquals("characters", page[0]); assertTrue(view.showingSheet());
             assertEquals(key(2), view.sheet().key()); assertEquals("notes", view.sheet().selectedTab());
             assertFalse("The list takes no payload", navigator.canOpen(Route.to(Destination.CHARACTERS).withPayload(new SheetFocus(key(2), null))));
             assertFalse("A sheet needs a character", navigator.canOpen(Route.to(Destination.CHARACTER_SHEET)));
@@ -76,8 +76,8 @@ public class CharactersRouteTargetTest {
             for (String[] bad : new String[][]{{"not-a-key", null}, {key(1).toUpperCase(Locale.ROOT), null}, {key(1), "Not A Tab"}}) {
                 try { new SheetFocus(bad[0], bad[1]); fail("Rejected: " + Arrays.toString(bad)); } catch (IllegalArgumentException expected) { }
             }
-            assertTrue(navigator.back()); assertFalse("Back restores the list", view.showingSheet()); assertEquals(3, page[0]);
-            assertTrue(navigator.back()); assertEquals(0, page[0]);
+            assertTrue(navigator.back()); assertFalse("Back restores the list", view.showingSheet()); assertEquals("characters", page[0]);
+            assertTrue(navigator.back()); assertEquals("chat", page[0]);
         });
     }
 
@@ -85,7 +85,7 @@ public class CharactersRouteTargetTest {
         SwingUtilities.invokeAndWait(() -> {
             CharacterRosterView view = RosterFixtures.view(journal, () -> 5000, RosterDefinitions::empty);
             ShellNavigator navigator = navigator(view);
-            page[0] = 3;
+            page[0] = "characters";
             JTable roster = RosterFixtures.named(view.listPanel(), "character-roster", JTable.class);
             JViewport viewport = (JViewport) roster.getParent();
             roster.setRowSelectionInterval(2, 2); String selected = keyAt(roster, 2);
@@ -97,14 +97,14 @@ public class CharactersRouteTargetTest {
             assertFalse("The link returned through the Back entry its open pushed", navigator.canGoBack());
             assertEquals(selected, keyAt(roster, roster.getSelectedRow()));
             assertEquals(new Point(0, 20), viewport.getViewPosition());
-            page[0] = 14;
+            page[0] = "home";
             assertTrue(navigator.open(sheet(key(1), null)));
-            assertEquals(3, page[0]);
+            assertEquals("characters", page[0]);
             RosterFixtures.named(view.sheet(), "character-sheet-back", AbstractButton.class).doClick();
             assertFalse("Opened from elsewhere, the link still goes to the list", view.showingSheet());
-            assertEquals(3, page[0]);
+            assertEquals("characters", page[0]);
             assertTrue("Shell Back still returns to the page the sheet was opened from", navigator.back());
-            assertEquals(14, page[0]);
+            assertEquals("home", page[0]);
         });
     }
 
@@ -199,7 +199,7 @@ public class CharactersRouteTargetTest {
             ShellNavigator navigator = navigator(roster, panel.routeTargets());
             panel.bindNavigator(navigator);
             JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
-            page[0] = 3;
+            page[0] = "characters";
             assertTrue(navigator.open(sheet(key(1), "notes"))); // its Back entry returns to the list
             tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
             assertTrue(navigator.back());
@@ -236,14 +236,14 @@ public class CharactersRouteTargetTest {
             ShellNavigator navigator = navigator(roster, targets);
             panel.bindNavigator(navigator);
             JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
-            page[0] = 3;
+            page[0] = "characters";
             assertTrue(navigator.open(sheet(key(1), "notes")));
             tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
             assertTrue("A route leaves the Characters page from the Exalts tab", navigator.open(Route.to(Destination.HOME)));
-            assertNotEquals(3, page[0]);
+            assertNotEquals("characters", page[0]);
             roster.showList(); // behind the Exalts tab the roster changes while the user is away
             assertTrue(navigator.back());
-            assertEquals(3, page[0]);
+            assertEquals("characters", page[0]);
             assertEquals("Back returns to the tab that was in front", "Exalts", tabs.getTitleAt(tabs.getSelectedIndex()));
             assertTrue("…with the roster's sheet restored behind it", roster.showingSheet());
             assertEquals(key(1), roster.sheet().key());
@@ -267,12 +267,12 @@ public class CharactersRouteTargetTest {
             ShellNavigator navigator = navigator(roster, panel.routeTargets());
             panel.bindNavigator(navigator);
             JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
-            page[0] = 3;
+            page[0] = "characters";
             tabs.setSelectedIndex(tabs.indexOfTab(title)); // the list behind it
             assertTrue(navigator.open(sheet(key(2), "notes")));
             assertEquals("A route brings the Roster tab forward", "Roster", tabs.getTitleAt(tabs.getSelectedIndex()));
             assertTrue(navigator.back());
-            assertEquals(3, page[0]);
+            assertEquals("characters", page[0]);
             assertEquals("Back returns to the tab the route was opened from", title, tabs.getTitleAt(tabs.getSelectedIndex()));
             assertFalse("…with the list it left restored behind it", roster.showingSheet());
             tabs.setSelectedIndex(tabs.indexOfTab("Roster"));
@@ -306,7 +306,7 @@ public class CharactersRouteTargetTest {
             ShellNavigator navigator = navigator(roster, panel.routeTargets());
             panel.bindNavigator(navigator);
             JTabbedPane tabs = RosterFixtures.named(panel, "characters-tabs", JTabbedPane.class);
-            page[0] = 3;
+            page[0] = "characters";
             tabs.setSelectedIndex(tabs.indexOfTab("Exalts"));
             assertTrue(navigator.open(sheet(key(2), "notes")));
             RosterFixtures.named(roster.sheet(), "character-sheet-back", AbstractButton.class).doClick();
@@ -341,11 +341,11 @@ public class CharactersRouteTargetTest {
             panel.bindNavigator(navigator);
             JTable table = RosterFixtures.named(roster.listPanel(), "character-roster", JTable.class);
             table.setRowSelectionInterval(1, 1); String selected = keyAt(table, 1);
-            page[0] = 5;
+            page[0] = "quests";
             panel.openGoals();
-            assertEquals(3, page[0]); assertTrue(roster.showingSheet());
+            assertEquals("characters", page[0]); assertTrue(roster.showingSheet());
             assertEquals(selected, roster.sheet().key()); assertEquals("goals", roster.sheet().selectedTab());
-            assertTrue(navigator.back()); assertEquals(5, page[0]);
+            assertTrue(navigator.back()); assertEquals("quests", page[0]);
             roster.showList(); table.clearSelection();
             panel.openGoals();
             assertEquals("Without a selection, the journal's most recent character", journal.mostRecentCharacter().key, roster.sheet().key());

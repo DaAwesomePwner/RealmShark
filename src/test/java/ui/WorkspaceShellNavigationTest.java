@@ -19,6 +19,7 @@ import tomato.gui.modern.VioletTheme;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.modern.NavLayout;
 import tomato.gui.modern.NavEntry;
+import tomato.gui.modern.TestPages;
 import java.util.HashMap;
 import java.util.Map;
 import static org.junit.Assert.*;
@@ -32,7 +33,7 @@ public class WorkspaceShellNavigationTest {
     }
     private JFrame frame;
     private WorkspaceShell shell;
-    private JComponent[] pages;
+    private java.util.Map<String, JComponent> pages;
     private AbstractButton compactNavigation;
     private Font previousFont;
     private LookAndFeel previousLaf;
@@ -44,8 +45,7 @@ public class WorkspaceShellNavigationTest {
             previousFont = ContentStyle.body(); previousLaf = UIManager.getLookAndFeel();
             ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, ContentStyle.FONT_SIZE));
             setLaf(new VioletTheme());
-            pages = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
+            pages = TestPages.placeholders();
             shell = new WorkspaceShell(pages, () -> {}, true, null, null, null, expandedLayout());
             compactNavigation = button("compact-navigation");
             frame = new JFrame(); frame.setContentPane(shell);
@@ -66,21 +66,21 @@ public class WorkspaceShellNavigationTest {
 
     @Test public void selectedRowScrollsAfterNativeWindowResize() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals(15, WorkspaceShell.TITLES.length);
-            for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
-                AbstractButton button = button("nav-" + i);
-                assertEquals(WorkspaceShell.TITLES[i], button.getAccessibleContext().getAccessibleName());
-                if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", button.isVisible()); continue; }
+            assertEquals(15, NavEntry.defaults().size());
+            for (NavEntry entry : NavEntry.defaults()) {
+                AbstractButton button = button("nav-" + entry.id());
+                assertEquals(entry.title(), button.getAccessibleContext().getAccessibleName());
+                if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", button.isVisible()); continue; }
                 assertTrue(button.getHeight() >= 32);
                 assertTrue("Default navigation should stay compact", button.getHeight() <= 36);
             }
             System.out.println("Native navigation initial client size=" + shell.getSize());
-            shell.select(13); resize(680, 520);
+            shell.select("settings"); resize(680, 520);
         });
         // Let the resize-triggered scroll run after Swing has laid out the shorter viewport.
         SwingUtilities.invokeAndWait(() -> {
-            AbstractButton selected = button("nav-13");
-            assertTrue(shell.isCompact()); assertEquals(13, shell.getSelectedPage());
+            AbstractButton selected = button("nav-settings");
+            assertTrue(shell.isCompact()); assertEquals("settings", shell.selectedPage());
             assertEquals(selected.getHeight(), selected.getVisibleRect().height);
             assertTrue(button("compact-navigation").isShowing());
             JComponent content = (JComponent) find(shell, "workspace-content");
@@ -90,7 +90,7 @@ public class WorkspaceShellNavigationTest {
 
     @Test public void compactPopupSupportsKeyboardSelectionEscapeAndExistingShortcuts() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            resize(760, 620); shell.select(3); assertSelectedPage(3);
+            resize(760, 620); shell.select("characters"); assertSelectedPage("characters");
         });
         parkMouseAwayFromPopup();
         awaitFocus(compactNavigation, () -> compactNavigation.requestFocus());
@@ -99,21 +99,22 @@ public class WorkspaceShellNavigationTest {
         awaitFocus(frame.getRootPane(), () ->
             invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK)));
         // Enter first restores the invoker, then the destination listener focuses its row.
-        awaitFocus(button("nav-10"), () -> {
+        awaitFocus(button("nav-runs"), () -> {
             JPopupMenu popup = compactNavigation.getComponentPopupMenu();
             assertEquals("compact-navigation-popup", popup.getName()); assertTrue(popup.isShowing());
             // Sidebar order and groups: core, Advanced, Settings.
-            assertEquals(java.util.Arrays.asList(14, 3, 10, 8, 5, 0, 2, 1, 11, 9, 12, 13), popupPages(popup));
-            for (int page : popupPages(popup)) {
+            assertEquals(java.util.Arrays.asList("home", "characters", "runs", "loot", "quests", "chat", "party", "key-pops", "timeline",
+                "logging", "bridge-review", "settings"), TestPages.menuPages(popup));
+            for (String page : TestPages.menuPages(popup)) {
                 JMenuItem item = popupItem(popup, page);
-                assertEquals(WorkspaceShell.TITLES[page], item.getText());
+                assertEquals(TestPages.title(page), item.getText());
                 assertNotNull(item.getIcon()); assertNotNull(item.getAccelerator());
             }
-            assertSame(popupItem(popup, 3), selectedMenuElement());
-            menuKey(KeyEvent.VK_DOWN); assertSame(popupItem(popup, 10), selectedMenuElement());
-            assertSelectedPage(3);
+            assertSame(popupItem(popup, "characters"), selectedMenuElement());
+            menuKey(KeyEvent.VK_DOWN); assertSame(popupItem(popup, "runs"), selectedMenuElement());
+            assertSelectedPage("characters");
             menuKey(KeyEvent.VK_ENTER);
-            assertSelectedPage(10); assertFalse(popup.isVisible());
+            assertSelectedPage("runs"); assertFalse(popup.isVisible());
             assertEquals(0, MenuSelectionManager.defaultManager().getSelectedPath().length);
         });
         awaitFocus(compactNavigation, () -> compactNavigation.requestFocus());
@@ -121,18 +122,18 @@ public class WorkspaceShellNavigationTest {
             invokeKey(compactNavigation, JComponent.WHEN_FOCUSED, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0)));
         awaitFocus(compactNavigation, () -> {
             JPopupMenu popup = compactNavigation.getComponentPopupMenu();
-            assertTrue(popup.isShowing()); assertSame(popupItem(popup, 10), selectedMenuElement());
-            menuKey(KeyEvent.VK_DOWN); assertSame(popupItem(popup, 8), selectedMenuElement());
-            assertSelectedPage(10);
+            assertTrue(popup.isShowing()); assertSame(popupItem(popup, "runs"), selectedMenuElement());
+            menuKey(KeyEvent.VK_DOWN); assertSame(popupItem(popup, "loot"), selectedMenuElement());
+            assertSelectedPage("runs");
             menuKey(KeyEvent.VK_ESCAPE);
-            assertFalse(popup.isVisible()); assertEquals("Escape must not navigate", 10, shell.getSelectedPage());
-            assertSelectedPage(10);
+            assertFalse(popup.isVisible()); assertEquals("Escape must not navigate", "runs", shell.selectedPage());
+            assertSelectedPage("runs");
             assertEquals(0, MenuSelectionManager.defaultManager().getSelectedPath().length);
         });
         SwingUtilities.invokeAndWait(() -> {
             invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.ALT_DOWN_MASK));
-            assertSelectedPage(13);
-            assertEquals("Settings", button("nav-13").getAccessibleContext().getAccessibleName());
+            assertSelectedPage("settings");
+            assertEquals("Settings", button("nav-settings").getAccessibleContext().getAccessibleName());
         });
     }
 
@@ -140,14 +141,14 @@ public class WorkspaceShellNavigationTest {
         SwingUtilities.invokeAndWait(() -> {
             ContentStyle.refreshFonts(shell);
             ContentStyle.setBodyFont(new Font(Font.SERIF, Font.PLAIN, 18));
-            shell.select(12);
+            shell.select("bridge-review");
             setLaf(new FlatLightLaf()); ContentStyle.applyFontDefaults();
             SwingUtilities.updateComponentTreeUI(frame); ContentStyle.refreshFonts(frame);
             assertEquals(UIManager.getColor("Panel.background"), shell.getBackground());
-            assertEquals(UIManager.getColor("MenuBar.background"), button("nav-0").getBackground());
-            assertEquals(UIManager.getColor("Table.selectionBackground"), button("nav-12").getBackground());
-            assertEquals(UIManager.getColor("Table.selectionForeground"), button("nav-12").getForeground());
-            assertEquals(18, button("nav-0").getFont().getSize()); assertEquals(12, shell.getSelectedPage());
+            assertEquals(UIManager.getColor("MenuBar.background"), button("nav-chat").getBackground());
+            assertEquals(UIManager.getColor("Table.selectionBackground"), button("nav-bridge-review").getBackground());
+            assertEquals(UIManager.getColor("Table.selectionForeground"), button("nav-bridge-review").getForeground());
+            assertEquals(18, button("nav-chat").getFont().getSize()); assertEquals("bridge-review", shell.selectedPage());
             assertEquals(VioletTheme.CAPTURE_BACKGROUND, button("capture-toggle").getBackground());
         });
     }
@@ -173,11 +174,11 @@ public class WorkspaceShellNavigationTest {
                 assertTrue("The menu remains a usable desktop target", menu.getHeight() >= 32);
                 invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK));
                 JPopupMenu popup = menu.getComponentPopupMenu();
-                assertTrue(popup.isVisible()); assertEquals("Every destination is listed", 12, popupPages(popup).size());
+                assertTrue(popup.isVisible()); assertEquals("Every destination is listed", 12, TestPages.menuPages(popup).size());
                 invokeKey(frame.getRootPane(), JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0));
-                for (int page : popupPages(popup)) {
+                for (String page : TestPages.menuPages(popup)) {
                     JMenuItem destination = popupItem(popup, page);
-                    assertEquals(WorkspaceShell.TITLES[page], destination.getText());
+                    assertEquals(TestPages.title(page), destination.getText());
                     invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, destination.getAccelerator());
                     assertSelectedPage(page);
                 }
@@ -192,15 +193,15 @@ public class WorkspaceShellNavigationTest {
                 SwingUtilities.invokeAndWait(() -> {
                     setLaf(laf); ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, font));
                     ContentStyle.applyFontDefaults(); SwingUtilities.updateComponentTreeUI(frame); ContentStyle.refreshFonts(frame);
-                    resize(760, 620); shell.select(0);
+                    resize(760, 620); shell.select("chat");
                 });
-                for (int index : new int[] {0, 1}) {
+                for (String index : new String[] {"chat", "key-pops"}) {
                     AbstractButton target = button("nav-" + index);
                     awaitFocus(target, () -> System.out.println("Focus request: theme=" + laf.getName() + ", font=" + font
                         + ", target=" + target.getName() + ", accepted=" + target.requestFocusInWindow()
                         + ", active=" + frame.isActive() + ", focused=" + frame.isFocused()));
                     SwingUtilities.invokeAndWait(() -> {
-                        assertEquals(index == 0, target.isSelected());
+                        assertEquals(index.equals("chat"), target.isSelected());
                         assertTrue(FlatUIUtils.isPermanentFocusOwner(target));
                         java.util.Map<?, ?> style = (java.util.Map<?, ?>) target.getClientProperty("FlatLaf.style");
                         assertTrue("Every navigation style key is supported by the pinned FlatLaf",
@@ -212,7 +213,7 @@ public class WorkspaceShellNavigationTest {
                             int changed = changedPixels(unfocused, focused);
                             assertTrue(laf.getName() + ", " + font + "pt, selected=" + target.isSelected() + ": focus outline pixels=" + changed,
                                 changed >= target.getWidth());
-                            assertEquals(ContentStyle.color(index == 0 ? "selection" : "navigation"), target.getBackground());
+                            assertEquals(ContentStyle.color(index.equals("chat") ? "selection" : "navigation"), target.getBackground());
                             if (laf instanceof VioletTheme) {
                                 target.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
                                 assertEquals("The original EmptyBorder must reproduce invisible focus", 0,
@@ -240,10 +241,10 @@ public class WorkspaceShellNavigationTest {
             SwingUtilities.invokeAndWait(() -> {
                 assertFalse(frame.isFocused());
                 assertFalse("requestFocusInWindow cannot activate an inactive native window",
-                    button("nav-1").requestFocusInWindow());
+                    button("nav-key-pops").requestFocusInWindow());
             });
             activateWindow(frame);
-            awaitFocus(button("nav-1"), () -> assertTrue(button("nav-1").requestFocusInWindow()));
+            awaitFocus(button("nav-key-pops"), () -> assertTrue(button("nav-key-pops").requestFocusInWindow()));
         } finally {
             SwingUtilities.invokeAndWait(() -> other[0].dispose());
         }
@@ -252,9 +253,7 @@ public class WorkspaceShellNavigationTest {
     @Test public void exactOffscreenShellGeometryKeepsNavigationLabelsIconsAndBordersInsideTheSidebar() throws Exception {
         WorkspaceShell[] fixture = new WorkspaceShell[1];
         SwingUtilities.invokeAndWait(() -> {
-            JComponent[] content = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < content.length; i++) content[i] = new JPanel();
-            fixture[0] = new WorkspaceShell(content, () -> {}, true, null, null, null, expandedLayout());
+            fixture[0] = new WorkspaceShell(TestPages.placeholders(), () -> {}, true, null, null, null, expandedLayout());
         });
         for (LookAndFeel laf : new LookAndFeel[] {new VioletTheme(), new FlatLightLaf(), new FlatDarkLaf()}) {
             for (int font : new int[] {13, 16, 24, 13}) for (Dimension geometry : new Dimension[] {new Dimension(1240, 800), new Dimension(680, 520)}) {
@@ -266,9 +265,9 @@ public class WorkspaceShellNavigationTest {
                 for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> layoutTree(fixture[0]));
                 SwingUtilities.invokeAndWait(() -> {
                     assertEquals("Exact offscreen client geometry", geometry, fixture[0].getSize());
-                    for (int i = 0; i < WorkspaceShell.TITLES.length; i++) {
-                        AbstractButton target = (AbstractButton) find(fixture[0], "nav-" + i);
-                        if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", target.isVisible()); continue; }
+                    for (NavEntry entry : NavEntry.defaults()) {
+                        AbstractButton target = (AbstractButton) find(fixture[0], "nav-" + entry.id());
+                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", target.isVisible()); continue; }
                         Insets insets = target.getInsets();
                         Rectangle available = new Rectangle(insets.left, insets.top,
                             target.getWidth() - insets.left - insets.right, target.getHeight() - insets.top - insets.bottom);
@@ -294,9 +293,7 @@ public class WorkspaceShellNavigationTest {
     @Test public void theSidebarWashReachesTheBaseColorBeforeTheDestinationListBegins() throws Exception {
         WorkspaceShell[] fixture = new WorkspaceShell[1];
         SwingUtilities.invokeAndWait(() -> {
-            JComponent[] content = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < content.length; i++) content[i] = new JPanel();
-            fixture[0] = new WorkspaceShell(content, () -> {}, true);
+            fixture[0] = new WorkspaceShell(TestPages.placeholders(), () -> {}, true);
         });
         // A taller window lengthens a height-proportional fade, so the seam would widen with height.
         for (Dimension geometry : new Dimension[] {new Dimension(1240, 560), new Dimension(1240, 1100)}) {
@@ -310,7 +307,7 @@ public class WorkspaceShellNavigationTest {
                 Graphics2D graphics = image.createGraphics();
                 fixture[0].printAll(graphics);
                 graphics.dispose();
-                Component destination = find(fixture[0], "nav-14"); // Home is the first row in the default order.
+                Component destination = find(fixture[0], "nav-home"); // Home is the first row in the default order.
                 Point origin = SwingUtilities.convertPoint(destination, 0, 0, fixture[0]);
                 int base = image.getRGB(2, geometry.height - 4);
                 // Sample the sidebar's leading edge, clear of the destinations and their scroll bar.
@@ -402,22 +399,23 @@ public class WorkspaceShellNavigationTest {
             SwingUtilities.invokeAndWait(() -> window.removeWindowFocusListener(listener));
         }
     }
-    private void assertSelectedPage(int selected) {
-        assertEquals(selected, shell.getSelectedPage());
+    private void assertSelectedPage(String selected) {
+        assertEquals(selected, shell.selectedPage());
         JPopupMenu popup = compactNavigation.getComponentPopupMenu();
-        for (int i = 0; i < pages.length; i++) {
-            assertEquals("Visible content page " + i, i == selected, pages[i].isShowing());
-            assertEquals("Selected navigation row " + i, i == selected, button("nav-" + i).isSelected());
+        for (NavEntry entry : NavEntry.defaults()) {
+            String i = entry.id();
+            assertEquals("Visible content page " + i, i.equals(selected), pages.get(i).isShowing());
+            assertEquals("Selected navigation row " + i, i.equals(selected), button("nav-" + i).isSelected());
             JMenuItem item = popupItem(popup, i);
-            if (NavEntry.forPage(i).group() == NavEntry.Group.UNLISTED) assertNull("Build, Statistics and DPS Logger are never in the compact menu", item);
-            else assertEquals("Selected popup destination " + i, i == selected, item.isSelected());
+            if (entry.group() == NavEntry.Group.UNLISTED) assertNull("Build, Statistics and DPS Logger are never in the compact menu", item);
+            else assertEquals("Selected popup destination " + i, i.equals(selected), item.isSelected());
         }
     }
 
     @Test public void keyboardReorderingKeepsTheFocusedRowVisibleWhenAnotherPageIsSelected() throws Exception {
-        SwingUtilities.invokeAndWait(() -> { resize(680, 240); shell.select(14); });
+        SwingUtilities.invokeAndWait(() -> { resize(680, 240); shell.select("home"); });
         activateWindow(frame);
-        AbstractButton target = button("nav-0");
+        AbstractButton target = button("nav-chat");
         awaitFocus(target, () -> {
             target.scrollRectToVisible(new Rectangle(0, 0, target.getWidth(), target.getHeight()));
             target.requestFocusInWindow();
@@ -429,7 +427,7 @@ public class WorkspaceShellNavigationTest {
         });
         for (int pass = 0; pass < 3; pass++) SwingUtilities.invokeAndWait(() -> frame.validate());
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals("Reordering must not navigate", 14, shell.getSelectedPage());
+            assertEquals("Reordering must not navigate", "home", shell.selectedPage());
             assertTrue(target.isFocusOwner());
             assertEquals("The focused row stays wholly inside the viewport after layout",
                     target.getHeight(), target.getVisibleRect().height);
@@ -439,46 +437,37 @@ public class WorkspaceShellNavigationTest {
     @Test public void theMenuOpensOnTheFirstListedDestinationWhileBuildIsCurrent() throws Exception {
         for (int width : new int[] {1240, 760}) {
             SwingUtilities.invokeAndWait(() -> {
-                resize(width, 620); shell.select(6);
+                resize(width, 620); shell.select("my-info");
                 invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK));
                 JPopupMenu popup = compactNavigation.getComponentPopupMenu();
                 assertTrue(width + " px: the menu opens", popup.isVisible());
-                assertNull("Build is never listed", popupItem(popup, 6));
-                assertSame("The keyboard starts on the first listed destination", popupItem(popup, 14), selectedMenuElement());
+                assertNull("Build is never listed", popupItem(popup, "my-info"));
+                assertSame("The keyboard starts on the first listed destination", popupItem(popup, "home"), selectedMenuElement());
                 popup.setVisible(false); MenuSelectionManager.defaultManager().clearSelectedPath();
-                assertEquals("Opening the menu does not navigate", 6, shell.getSelectedPage());
-                assertFalse(button("nav-6").isVisible());
+                assertEquals("Opening the menu does not navigate", "my-info", shell.selectedPage());
+                assertFalse(button("nav-my-info").isVisible());
             });
         }
     }
 
     @Test public void openingBuildMovesKeyboardFocusIntoThePageBecauseItHasNoRow() throws Exception {
         JButton first = new JButton("Estimate");
-        SwingUtilities.invokeAndWait(() -> { first.setName("build-first"); pages[6].add(first); pages[6].revalidate(); });
+        SwingUtilities.invokeAndWait(() -> { first.setName("build-first"); pages.get("my-info").add(first); pages.get("my-info").revalidate(); });
         activateWindow(frame);
-        awaitFocus(button("nav-1"), () -> button("nav-1").requestFocusInWindow());
+        awaitFocus(button("nav-key-pops"), () -> button("nav-key-pops").requestFocusInWindow());
         awaitFocus(first, () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals(6, shell.getSelectedPage());
-            assertFalse(button("nav-6").isVisible());
+            assertEquals("my-info", shell.selectedPage());
+            assertFalse(button("nav-my-info").isVisible());
             assertTrue("Alt+7: focus is inside the Build page", SwingUtilities.isDescendingFrom(
-                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(), pages[6]));
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(), pages.get("my-info")));
         });
-        awaitFocus(button("nav-1"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.ALT_DOWN_MASK)));
-        SwingUtilities.invokeAndWait(() -> pages[6].remove(first));
+        awaitFocus(button("nav-key-pops"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.ALT_DOWN_MASK)));
+        SwingUtilities.invokeAndWait(() -> pages.get("my-info").remove(first));
         awaitFocus(find(shell, "workspace-cards"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
     }
 
-
-    /** Pages of the destinations the compact menu lists, in menu order. */
-    private static java.util.List<Integer> popupPages(JPopupMenu popup) {
-        java.util.List<Integer> listed = new java.util.ArrayList<>();
-        for (Component item : popup.getComponents())
-            if (item instanceof JMenuItem && item.isVisible()) listed.add(Integer.parseInt(item.getName().substring("compact-nav-".length())));
-        return listed;
-    }
-
-    private static JMenuItem popupItem(JPopupMenu popup, int page) { return (JMenuItem) find(popup, "compact-nav-" + page); }
+    private static JMenuItem popupItem(JPopupMenu popup, String page) { return (JMenuItem) find(popup, "compact-nav-" + page); }
     private AbstractButton button(String name) { return (AbstractButton) find(shell, name); }
     private static Component find(Container root, String name) {
         for (Component child : root.getComponents()) {

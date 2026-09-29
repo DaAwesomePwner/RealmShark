@@ -53,7 +53,9 @@ import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.SegmentedControl;
 import tomato.gui.kit.TileList;
 import tomato.gui.kit.Tokens;
+import tomato.gui.modern.NavEntry;
 import tomato.gui.modern.NavLayout;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.Destination;
 import tomato.gui.route.Navigator;
@@ -215,24 +217,24 @@ public class RunsDpsEvidenceTest {
         build(temp.newFolder("history").toPath(), false);
         show("Sidebar", 1240, 800, 13, SIMPLE, () -> { });
         capture("sidebar", 1240, 13, SIMPLE, () -> {
-            assertEquals("The app opens on Home", 14, shell.getSelectedPage());
-            assertEquals("Six core rows: Home, Characters, Runs & DPS, Loot, Quests, Chat", List.of(14, 3, 10, 8, 5, 0), listed());
-            assertEquals("Runs & DPS", navRow(10).getText());
+            assertEquals("The app opens on Home", "home", shell.selectedPage());
+            assertEquals("Six core rows: Home, Characters, Runs & DPS, Loot, Quests, Chat", List.of("home", "characters", "runs", "loot", "quests", "chat"), listed());
+            assertEquals("Runs & DPS", navRow("runs").getText());
             AbstractButton advanced = VisualEvidence.named(shell, "nav-advanced", AbstractButton.class);
             assertEquals("Advanced (5)", advanced.getText());
             assertEquals("Collapsed", advanced.getAccessibleContext().getAccessibleDescription());
-            for (int page : new int[] {4, 7}) assertFalse(WorkspaceShell.TITLES[page] + " is out of the sidebar", navRow(page).isVisible());
-            assertTrue("Settings stays below the list", navRow(13).isShowing());
+            for (String page : new String[] {"statistics", "dps-logger"}) assertFalse(TestPages.title(page) + " is out of the sidebar", navRow(page).isVisible());
+            assertTrue("Settings stays below the list", navRow("settings").isShowing());
         });
         SwingUtilities.invokeAndWait(() -> VisualEvidence.named(shell, "nav-advanced", AbstractButton.class).doClick());
         pause();
         capture("sidebar-advanced", 1240, 13, SIMPLE, () -> {
-            assertEquals("Advanced (5): Party, Key-pops, Timeline, Logging, Bridge Review", List.of(14, 3, 10, 8, 5, 0, 2, 1, 11, 9, 12), listed());
+            assertEquals("Advanced (5): Party, Key-pops, Timeline, Logging, Bridge Review", List.of("home", "characters", "runs", "loot", "quests", "chat", "party", "key-pops", "timeline", "logging", "bridge-review"), listed());
             assertEquals("Expanded", VisualEvidence.named(shell, "nav-advanced", AbstractButton.class).getAccessibleContext().getAccessibleDescription());
-            for (int page : new int[] {4, 7}) assertFalse(WorkspaceShell.TITLES[page] + " is not an Advanced row either", navRow(page).isVisible());
+            for (String page : new String[] {"statistics", "dps-logger"}) assertFalse(TestPages.title(page) + " is not an Advanced row either", navRow(page).isVisible());
         });
 
-        show("DPS Logger pointer", 1240, 800, 13, SIMPLE, () -> shell.select(7));
+        show("DPS Logger pointer", 1240, 800, 13, SIMPLE, () -> shell.select("dps-logger"));
         capture("dps-logger-pointer", 1240, 13, SIMPLE, () -> {
             JComponent pointer = VisualEvidence.named(shell, "dps-moved", JComponent.class);
             assertTrue("Page 7 is the pointer", pointer.isShowing());
@@ -244,13 +246,13 @@ public class RunsDpsEvidenceTest {
         });
         SwingUtilities.invokeAndWait(() -> {
             VisualEvidence.named(shell, "dps-moved-open", AbstractButton.class).doClick();
-            assertEquals("Open Live meter opens Runs & DPS", 10, shell.getSelectedPage());
+            assertEquals("Open Live meter opens Runs & DPS", "runs", shell.selectedPage());
             assertEquals("…on the Live meter tab", RunsTab.LIVE_METER, page().selectedTab());
             assertTrue("Back returns to the pointer", Navigator.current().back());
-            assertEquals(7, shell.getSelectedPage());
+            assertEquals("dps-logger", shell.selectedPage());
         });
 
-        show("Statistics banner", 1240, 800, 13, SIMPLE, () -> shell.select(4));
+        show("Statistics banner", 1240, 800, 13, SIMPLE, () -> shell.select("statistics"));
         capture("statistics-banner", 1240, 13, SIMPLE, () -> {
             Banner banner = VisualEvidence.named(shell, "statistics-dungeons-banner", Banner.class);
             assertTrue("The Statistics page shows its banner", banner.isShowing());
@@ -258,11 +260,11 @@ public class RunsDpsEvidenceTest {
             AbstractButton open = VisualEvidence.named(shell, "statistics-open-dungeons", AbstractButton.class);
             assertTrue("…with Open Dungeons", open.isShowing() && "Open Dungeons".equals(open.getText()));
             assertTrue("The Statistics tabs stay below it", VisualEvidence.named(shell, "statistics-tabs", JTabbedPane.class).isShowing());
-            assertFalse("Statistics stays out of the sidebar while it shows", navRow(4).isVisible());
+            assertFalse("Statistics stays out of the sidebar while it shows", navRow("statistics").isVisible());
         });
         SwingUtilities.invokeAndWait(() -> {
             VisualEvidence.named(shell, "statistics-open-dungeons", AbstractButton.class).doClick();
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Open Dungeons opens the Dungeons tab", RunsTab.DUNGEONS, page().selectedTab());
         });
     }
@@ -281,7 +283,7 @@ public class RunsDpsEvidenceTest {
             && shown(shell, "run-feed-day-" + today) != null);
         pause();
         capture("feed", 1240, 13, SIMPLE, () -> {
-            assertEquals(10, shell.getSelectedPage());
+            assertEquals("runs", shell.selectedPage());
             assertEquals("Runs & DPS opens on its first tab", RunsTab.FEED, page().selectedTab());
             JTabbedPane tabs = VisualEvidence.named(shell, "runs-tabs", JTabbedPane.class);
             assertEquals("The tab strip", List.of("Feed", "Dungeons", "Live meter", "Recordings"), titles(tabs));
@@ -741,7 +743,7 @@ public class RunsDpsEvidenceTest {
      * for the chip opens its facts with "Boss · " instead, so the name keeps its width.
      */
     private void liveMeter(boolean desktop) {
-        assertEquals(10, shell.getSelectedPage());
+        assertEquals("runs", shell.selectedPage());
         assertEquals("The live meter is a tab of Runs & DPS", RunsTab.LIVE_METER, page().selectedTab());
         String summary = meterSummary();
         assertTrue(summary, summary.startsWith("Lost Halls") && summary.contains("LIVE") && summary.contains("13 enemies") && summary.contains("6/6 players"));
@@ -806,7 +808,7 @@ public class RunsDpsEvidenceTest {
     private String recordingsSummary() { return String.valueOf(VisualEvidence.named(shell, "encounter-summary", JTextComponent.class).getText()); }
     @SuppressWarnings("unchecked") private TileList<DungeonCardModel> cards() { return VisualEvidence.named(shell, "dungeons-cards", TileList.class); }
     @SuppressWarnings("unchecked") private TileList<Object> day(LocalDate date) { return (TileList<Object>) shown(shell, "run-feed-day-" + date); }
-    private AbstractButton navRow(int page) { return VisualEvidence.named(shell, "nav-" + page, AbstractButton.class); }
+    private AbstractButton navRow(String page) { return VisualEvidence.named(shell, "nav-" + page, AbstractButton.class); }
 
     /** The built Dungeons analysis workspace, or null. */
     private ArchiveWorkspace<?, ?, ?> analysis() {
@@ -814,11 +816,12 @@ public class RunsDpsEvidenceTest {
     }
 
     /** The visible sidebar rows (Settings aside), top to bottom. */
-    private List<Integer> listed() {
-        TreeMap<Integer, Integer> byY = new TreeMap<>();
-        for (int page = 0; page < WorkspaceShell.TITLES.length; page++) {
+    private List<String> listed() {
+        TreeMap<Integer, String> byY = new TreeMap<>();
+        for (NavEntry entry : NavEntry.defaults()) {
+            String page = entry.id();
             AbstractButton row = navRow(page);
-            if (page == 13 || !row.isVisible() || !row.getParent().isVisible()) continue;
+            if (page.equals("settings") || !row.isVisible() || !row.getParent().isVisible()) continue;
             byY.put(SwingUtilities.convertPoint(row, 0, 0, shell).y, page);
         }
         return new ArrayList<>(byY.values());

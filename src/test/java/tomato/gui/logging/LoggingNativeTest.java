@@ -6,6 +6,7 @@ import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.*;
 import packets.packetcapture.logger.DiscoveryLog;
+import tomato.gui.modern.TestPages;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
 import static ui.VisualEvidence.*;
@@ -20,7 +21,7 @@ public class LoggingNativeTest {
     @Test public void retainedSamplesLinkToExactFieldAndExportFrozenPopulationWithDisplayContext() throws Exception {
         try (DiscoveryLog log = LoggingQueryTest.fixture()) {
             LoggingGUI view = edt(() -> { LoggingGUI v = new LoggingGUI(log, LoggingStateTestSupport.memoryStore()); v.refresh(); return v; });
-            JComponent root = edt(() -> shell(view, 9));
+            JComponent root = edt(() -> TestPages.shell("logging", view));
             try {
                 edt(() -> { evidence.show(root, "Logging samples", 1240, 800, 13); find(view, JTabbedPane.class, c -> true).setSelectedIndex(4); return null; });
                 await(() -> named(view, "logging-table-2", JTable.class).getRowCount() == 2);

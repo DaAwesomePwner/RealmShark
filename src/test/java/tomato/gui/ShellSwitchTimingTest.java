@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
-import java.util.function.ToIntFunction;
+import java.util.function.Function;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
@@ -79,13 +79,13 @@ public class ShellSwitchTimingTest {
     private static final int WARMUP = 3, ROUNDS = Integer.getInteger("s8.rounds", 20);
     private static final long SETTLE_CAP = TimeUnit.SECONDS.toNanos(3);
     private static final int FIGHT_SECONDS = 1_200, FIGHT_PLAYERS = 8, FIGHT_ENEMIES = 300, FIGHT_RATE = 10;
-    private static final int RUNS_PAGE = NavEntry.forId("runs").page();
+    private static final String RUNS_PAGE = NavEntry.forId("runs").id();
     /** Preference prefixes cleared, so the shell opens on its defaults; every key the test changes is restored afterwards. */
     private static final String[] CLEARED = {"ux.archive.", CustomizableTabs.PREFIX, "ui.nav.", "ui.quests.", Collapsible.PREFIX,
         "ui.filters.", "ui.order.", DungeonsView.VIEW_KEY};
 
     /** One switch target: a core destination (its sidebar ID and page) and, on Runs & DPS, the tab in front (null elsewhere). */
-    private record Target(String id, String name, int page, RunsTab tab) {}
+    private record Target(String id, String name, String page, RunsTab tab) {}
 
     private final Map<Field, Object> original = new LinkedHashMap<>();
     private final Map<String, String> savedPrefs = new LinkedHashMap<>();
@@ -103,7 +103,7 @@ public class ShellSwitchTimingTest {
     private DpsGUI dps;
     private MeterDpsGUI meter;
     private TimingQueue queue;
-    private int currentPage = -1;
+    private String currentPage;
     private RunsTab currentTab;
     private long setupNanos;
 
@@ -152,7 +152,7 @@ public class ShellSwitchTimingTest {
             runs = named(shell, "runs-dps-page", RunsDpsPage.class);
             dps = find(shell, DpsGUI.class);
             meter = dps == null ? null : (MeterDpsGUI) field(DpsGUI.class, "displayMeter", dps);
-            currentPage = shell.getSelectedPage();
+            currentPage = shell.selectedPage();
             currentTab = runs == null ? null : runs.selectedTab();
         });
         assertNotNull("Runs & DPS is page " + RUNS_PAGE, runs);
@@ -171,7 +171,7 @@ public class ShellSwitchTimingTest {
         SwingUtilities.invokeAndWait(() -> named(runs, "encounter-scope-1", AbstractButton.class).doClick());
         settle("saved views", TimeUnit.SECONDS.toNanos(30));
         String recordings = edt(() -> named(runs, "encounter-summary", javax.swing.text.JTextComponent.class).getText());
-        int landing = currentPage;
+        String landing = currentPage;
         SwingUtilities.invokeAndWait(() -> { runs.bring(RunsTab.FEED); shell.select(landing); });
         currentTab = RunsTab.FEED;
         settle("saved views", TimeUnit.SECONDS.toNanos(30));
@@ -249,9 +249,9 @@ public class ShellSwitchTimingTest {
     private static List<Target> destinations() {
         List<Target> result = new ArrayList<>();
         for (NavEntry entry : new NavLayout(k -> null, (k, v) -> {}).core()) {
-            if (entry.page() != RUNS_PAGE) { result.add(new Target(entry.id(), entry.title(), entry.page(), null)); continue; }
+            if (!entry.id().equals(RUNS_PAGE)) { result.add(new Target(entry.id(), entry.title(), entry.id(), null)); continue; }
             for (RunsTab tab : new RunsTab[] {RunsTab.FEED, RunsTab.LIVE_METER})
-                result.add(new Target(entry.id(), entry.title() + " > " + tab.title(), entry.page(), tab));
+                result.add(new Target(entry.id(), entry.title() + " > " + tab.title(), entry.id(), tab));
         }
         return result;
     }
@@ -265,7 +265,7 @@ public class ShellSwitchTimingTest {
     // ---- measuring ----
 
     /** Warm-up rounds, then measured rounds; each round visits every target once in a seeded order ({@link #order}). */
-    private Pass pass(List<Target> targets, int warmup, int rounds, ToIntFunction<Target> key, Sampler sampler) throws Exception {
+    private Pass pass(List<Target> targets, int warmup, int rounds, Function<Target, Object> key, Sampler sampler) throws Exception {
         Pass pass = new Pass();
         for (int round = 0; round < warmup + rounds; round++)
             for (Target target : order(targets, key)) {
@@ -276,14 +276,14 @@ public class ShellSwitchTimingTest {
     }
 
     /** A seeded shuffle in which no target has the key of the one before it (the page, or the tab), starting from what is shown. */
-    private List<Target> order(List<Target> targets, ToIntFunction<Target> key) {
+    private List<Target> order(List<Target> targets, Function<Target, Object> key) {
         List<Target> order = new ArrayList<>(targets);
-        int shown = key.applyAsInt(new Target("", "", currentPage, currentTab));
+        Object shown = key.apply(new Target("", "", currentPage, currentTab));
         while (true) {
             Collections.shuffle(order, random);
-            int previous = shown;
+            Object previous = shown;
             boolean alternates = true;
-            for (Target target : order) { int next = key.applyAsInt(target); if (next == previous) { alternates = false; break; } previous = next; }
+            for (Target target : order) { Object next = key.apply(target); if (Objects.equals(next, previous)) { alternates = false; break; } previous = next; }
             if (alternates) return order;
         }
     }
@@ -304,7 +304,7 @@ public class ShellSwitchTimingTest {
             if (published == null || published == before) pass.canary(target, "no new live snapshot was published before the switch");
         }
         Runnable action;
-        if (target.page != currentPage) {
+        if (!target.page.equals(currentPage)) {
             if (target.tab != null) SwingUtilities.invokeAndWait(() -> runs.tabs().select(target.tab.id()));
             action = () -> shell.select(target.page);
         } else action = () -> runs.tabs().select(target.tab.id());
@@ -358,7 +358,7 @@ public class ShellSwitchTimingTest {
      */
     private String canary(Target target, DpsSnapshot published) throws Exception {
         return edt(() -> {
-            if (shell.getSelectedPage() != target.page) return "page " + shell.getSelectedPage() + " is shown";
+            if (!shell.selectedPage().equals(target.page)) return "page " + shell.selectedPage() + " is shown";
             if (target.tab != null && runs.selectedTab() != target.tab) return "the " + runs.selectedTab() + " tab is in front";
             if (target.tab == RunsTab.LIVE_METER) {
                 if (!meter.isShowing()) return "the meter is not showing";
@@ -473,7 +473,7 @@ public class ShellSwitchTimingTest {
     }
 
     /** After a second miss: one sampled pass (5 rounds) to name the handlers that dominate the EDT; the report only. */
-    private void diagnose(List<Target> targets, ToIntFunction<Target> key) throws Exception {
+    private void diagnose(List<Target> targets, Function<Target, Object> key) throws Exception {
         Sampler sampler = new Sampler(edtThread());
         try { pass(targets, 0, 5, key, sampler); }
         finally { sampler.close(); }

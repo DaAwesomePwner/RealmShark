@@ -105,7 +105,7 @@ public class ResourceWindowTest {
             ViewStateStore states = ViewStateStore.preferences(preferences);
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> resources = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.COMBAT, scratch, states));
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.TIMELINE, scratch, states));
-            int[] page = {7};
+            String[] page = {"dps-logger"};
             try {
                 edt(() -> {
                     ShellNavigator navigator = new ShellNavigator(() -> page[0], value -> page[0] = value, WorkspaceShell::pageOf, 20);
@@ -123,7 +123,7 @@ public class ResourceWindowTest {
                     assertTrue(around.getToolTipText(), around.isEnabled());
                     around.doClick(); return null;
                 });
-                assertEquals(11, page[0]);
+                assertEquals("timeline", page[0]);
                 ActivityQueries.Filters f = edt(() -> timeline.state().query.facets());
                 assertEquals("journal:window", f.visitId);
                 assertEquals(Long.valueOf(S + 100 - 30_000), edt(() -> timeline.state().query.bounds().from));

@@ -12,6 +12,7 @@ import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.TomatoData;
 import tomato.gui.history.*;
 import tomato.gui.keypop.*;
+import tomato.gui.modern.TestPages;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import tomato.realmshark.AlertRules;
@@ -40,7 +41,7 @@ public class SocialArchiveNativeTest {
                 new AlertRules(key -> null,(key,value) -> { throw new AssertionError("No alert-rule write"); }), sound -> fail("Archive browsing must be silent")));
             ArchiveWorkspace<ChatArchiveClient.Row,ChatArchiveClient.Facets,ChatArchiveClient.Sort> workspace = edt(() ->
                 (ArchiveWorkspace<ChatArchiveClient.Row,ChatArchiveClient.Facets,ChatArchiveClient.Sort>)live.workspace(store,scratch,memory.states));
-            JComponent shell = edt(() -> shell(workspace,0));
+            JComponent shell = edt(() -> TestPages.shell("chat",workspace));
             try {
                 edt(() -> { evidence.show(shell,"Chat live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
                 evidence.settle(); edt(() -> { evidence.capture("chat-live-default"); workspace.selectSession(SessionStore.ALL); return null; });
@@ -102,7 +103,7 @@ public class SocialArchiveNativeTest {
         try (SessionStore store = new SessionStore(root,true,"native-reader")) {
             ArchiveWorkspace<KeyPopArchiveClient.Row,KeyPopArchiveClient.Facets,KeyPopArchiveClient.Sort> workspace = edt(() ->
                 (ArchiveWorkspace<KeyPopArchiveClient.Row,KeyPopArchiveClient.Facets,KeyPopArchiveClient.Sort>)new KeypopGUI().workspace(store,scratch,memory.states));
-            JComponent shell = edt(() -> shell(workspace,1));
+            JComponent shell = edt(() -> TestPages.shell("key-pops",workspace));
             try {
                 edt(() -> { evidence.show(shell,"Key-pops live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
                 evidence.settle(); edt(() -> { evidence.capture("keypops-live-default"); workspace.selectSession(SessionStore.ALL); return null; });

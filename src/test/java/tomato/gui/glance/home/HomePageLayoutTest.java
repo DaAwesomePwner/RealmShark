@@ -8,6 +8,7 @@ import org.junit.*;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.NavLayout;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import ui.UiTestLayout;
 import ui.VisualEvidence;
@@ -92,11 +93,10 @@ public class HomePageLayoutTest {
         HomePage[] page = new HomePage[1];
         SwingUtilities.invokeAndWait(() -> {
             assertEquals(DisplayModeModel.Mode.SIMPLE, mode.mode());
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-            for (int i = 0; i < pages.length; i++) pages[i] = new JPanel();
+            Map<String, JComponent> pages = TestPages.placeholders();
             page[0] = new HomePage(null, HomeModels.NO_ACTIONS, mode, prefs::get, prefs::put, () -> now);
             page[0].apply(HomeModels.populated(now));
-            pages[WorkspaceShell.pageOf(tomato.gui.route.Destination.HOME)] = page[0];
+            pages.put(WorkspaceShell.pageOf(tomato.gui.route.Destination.HOME), page[0]);
             WorkspaceShell shell = new WorkspaceShell(pages, () -> {}, false, null, null, null, new NavLayout(prefs::get, prefs::put), mode);
             frame[0] = new JFrame("Home in the shell - synthetic validation");
             JMenuBar menu = new JMenuBar();

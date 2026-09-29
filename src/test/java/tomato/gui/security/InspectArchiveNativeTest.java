@@ -16,6 +16,7 @@ import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.DiscoveryLog;
 import tomato.gui.activity.*;
 import tomato.gui.history.*;
+import tomato.gui.modern.TestPages;
 import tomato.history.SessionStore;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
@@ -34,7 +35,7 @@ public class InspectArchiveNativeTest {
             log.setSaving(false);
             SecurityGUI live = edt(() -> new SecurityGUI(log));
             ArchiveWorkspace<ActivityQueries.Row,ActivityQueries.Filters,ActivityQueries.Sort> workspace = edt(() -> SecurityGUI.workspace(store,live,scratch,memory.states));
-            JComponent shell = edt(() -> shell(workspace,2));
+            JComponent shell = edt(() -> TestPages.shell("party",workspace));
             try {
                 edt(() -> { evidence.show(shell,"Inspect live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
                 evidence.settle(); edt(() -> { evidence.capture("inspect-live-default"); workspace.selectSession(SessionStore.ALL); return null; });

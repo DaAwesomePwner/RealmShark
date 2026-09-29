@@ -2,12 +2,14 @@ package ui;
 
 import java.awt.*;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.ErrorCollector;
 import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.modern.NavEntry;
 import tomato.gui.modern.NavLayout;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.WorkspaceShell;
@@ -46,7 +48,7 @@ public class ShellRedesignEvidenceTest {
                     SwingUtilities.invokeAndWait(() -> {
                         evidence.capture("shell-" + suffix);
                         errors.checkSucceeds(() -> { assertShellIsWhole(shell[0], size[0] >= 1000); return null; });
-                        shell[0].select(13);
+                        shell[0].select("settings");
                     });
                     evidence.settle();
                     SwingUtilities.invokeAndWait(() -> {
@@ -86,13 +88,13 @@ public class ShellRedesignEvidenceTest {
         store.put(NavLayout.ADVANCED_KEY, "true");
         store.put(NavLayout.PINNED_KEY, "timeline");
         store.put(NavLayout.HIDDEN_KEY, "chat");
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length];
-        for (int i = 0; i < pages.length; i++) {
+        Map<String, JComponent> pages = new LinkedHashMap<>();
+        for (NavEntry entry : NavEntry.defaults()) {
             JPanel page = new JPanel(new BorderLayout());
-            page.add(new JLabel("Synthetic " + WorkspaceShell.TITLES[i] + " page"), BorderLayout.NORTH);
-            pages[i] = page;
+            page.add(new JLabel("Synthetic " + entry.title() + " page"), BorderLayout.NORTH);
+            pages.put(entry.id(), page);
         }
-        pages[13] = settings;
+        pages.put("settings", settings);
         WorkspaceShell shell = new WorkspaceShell(pages, () -> fail("Evidence must not start capture"), false,
             () -> {}, () -> {}, () -> {}, new NavLayout(store::get, store::put), new DisplayModeModel(store::get, store::put));
         shell.selectLanding();
@@ -102,18 +104,19 @@ public class ShellRedesignEvidenceTest {
 
     private static void assertShellIsWhole(WorkspaceShell shell, boolean wide) {
         if (wide) {
-            for (int page = 0; page < WorkspaceShell.TITLES.length; page++) {
-                AbstractButton row = named(shell, "nav-" + page, AbstractButton.class);
+            for (NavEntry entry : NavEntry.defaults()) {
+                AbstractButton row = named(shell, "nav-" + entry.id(), AbstractButton.class);
                 if (row.isVisible()) completeButton(row);
             }
             completeButton(named(shell, "nav-advanced", AbstractButton.class));
             // Statistics and DPS Logger left the sidebar (P5b). With Timeline pinned and Chat hidden the rows are Home, Characters,
             // Runs & DPS, Loot, Quests and Timeline, then Advanced (4): Party, Key-pops, Logging and Bridge Review; Settings below.
-            java.util.List<Integer> listed = java.util.Arrays.asList(14, 3, 10, 8, 5, 11, 2, 1, 9, 12, 13);
-            for (int page = 0; page < WorkspaceShell.TITLES.length; page++)
-                assertEquals("Sidebar row " + page, listed.contains(page), named(shell, "nav-" + page, AbstractButton.class).isVisible());
+            java.util.List<String> listed = java.util.Arrays.asList("home", "characters", "runs", "loot", "quests", "timeline", "party",
+                "key-pops", "logging", "bridge-review", "settings");
+            for (NavEntry entry : NavEntry.defaults())
+                assertEquals("Sidebar row " + entry.id(), listed.contains(entry.id()), named(shell, "nav-" + entry.id(), AbstractButton.class).isVisible());
             assertEquals("Advanced (4)", named(shell, "nav-advanced", AbstractButton.class).getText());
-            assertEquals("Runs & DPS", named(shell, "nav-10", AbstractButton.class).getText());
+            assertEquals("Runs & DPS", named(shell, "nav-runs", AbstractButton.class).getText());
         }
         for (String name : new String[] {"browse-history", "display-mode-0", "display-mode-1", "capture-toggle", "choose-assets", "retry-assets"})
             completeButton(named(shell, name, AbstractButton.class));

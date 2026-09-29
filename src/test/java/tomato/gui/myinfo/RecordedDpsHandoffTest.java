@@ -44,7 +44,7 @@ public class RecordedDpsHandoffTest {
         DpsData unverified = encounter(data, "Lost Halls", new EncounterContext(new VisitRef(SESSION, "journal:2"), null, 2));
         DpsData legacy = encounter(data, "Lost Halls", null);
         data.dpsData.addAll(Arrays.asList(linked, unverified, legacy));
-        int[] page = {6};
+        String[] page = {"my-info"};
         DpsGUI dps = edt(() -> new DpsGUI(data, DiscoveryLog.historyView(new ActivityJournal.State())));
         ShellNavigator navigator = edt(() -> {
             ShellNavigator created = new ShellNavigator(() -> page[0], value -> page[0] = value, WorkspaceShell::pageOf, 20);
@@ -70,7 +70,7 @@ public class RecordedDpsHandoffTest {
             String notice = named(dps, JTextArea.class, "dps-route-notice").getText();
             assertTrue(notice, notice.contains("Historical recorded DPS") && notice.contains("not your current-build estimate") && notice.contains("object #7"));
             assertTrue(navigator.back());
-            assertEquals(6, page[0]);
+            assertEquals("my-info", page[0]);
 
             select(panel, unverified.getRecordingId());
             assertFalse(panel.openButton().isEnabled());

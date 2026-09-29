@@ -26,8 +26,8 @@ public class LoggingGuiTest {
             log.observe(255,9,null,"decode-error",0);
             ForReconnectPacket reconnect=new ForReconnectPacket(); reconnect.reconnectInfo=":USSouth:EUWest"; emit(log,reconnect);
             LoggingGUI panel=new LoggingGUI(log,LoggingStateTestSupport.memoryStore());
-            JComponent[] pages=new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages,i->new JPanel()); pages[9]=panel;
-            WorkspaceShell shell=new WorkspaceShell(pages,()->{},true); shell.select(9);
+            Map<String,JComponent> pages=TestPages.placeholders(); pages.put("logging",panel);
+            WorkspaceShell shell=new WorkspaceShell(pages,()->{},true); shell.select("logging");
             JFrame frame=new JFrame("Logging · synthetic validation sample"); frame.setContentPane(shell); frame.setSize(1240,800); frame.setVisible(true);
             try {
                 JTabbedPane tabs=find(panel,JTabbedPane.class); assertEquals(6,tabs.getTabCount());

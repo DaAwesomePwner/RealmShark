@@ -46,7 +46,7 @@ public class SetupWorkspaceTest {
                 assertFalse(named(shell[0], "capture-toggle", JButton.class).isEnabled());
                 assertFalse(named(shell[0], "choose-assets", JButton.class).isEnabled());
                 named(shell[0], "browse-history", JButton.class).doClick();
-                assertEquals(10, shell[0].getSelectedPage());
+                assertEquals("runs", shell[0].selectedPage());
                 assertTrue("Browsing saved history shows the archive table, the Runs page's Table view",
                     named(shell[0], "runs-page", tomato.gui.runs.RunsPage.class).feed().tableShown());
             });

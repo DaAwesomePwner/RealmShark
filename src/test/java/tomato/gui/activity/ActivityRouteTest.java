@@ -24,7 +24,7 @@ import static tomato.gui.activity.ActivityQueries.*;
 public class ActivityRouteTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private PreferencesStore preferences;
-    private int[] page = {0};
+    private String[] page = {"chat"};
 
     @After public void uninstall() throws Exception {
         edt(() -> { Navigator.install(null); return null; });
@@ -69,7 +69,7 @@ public class ActivityRouteTest {
                     navigator.register(ActivityRouteTarget.of(Destination.RUNS, runs));
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
                     assertNull("A live-only component cannot resolve saved visits", ActivityRouteTarget.of(Destination.RUNS, new JPanel()));
-                    page[0] = 10;
+                    page[0] = "runs";
                     Filters queue = new Filters(); queue.outcomes.add(Outcome.LEFT);
                     runs.changeQuery(runs.state().query.withFacets(queue)); return null;
                 });
@@ -97,12 +97,12 @@ public class ActivityRouteTest {
                     assertTrue(named(runs, JTextArea.class, "run-workbench-unavailable").getText().contains("Open Loot unavailable"));
                     named(runs, JButton.class, "run-open-timeline").doClick(); return null;
                 });
-                assertEquals(11, page[0]);
+                assertEquals("timeline", page[0]);
                 await(() -> !timeline.loading() && timeline.displayedPage() != null && timeline.displayedPage().matches == 1);
                 assertEquals("event-second", edt(() -> timeline.displayedPage().rows.get(0).value.recordId));
 
                 assertTrue(edt(navigator::back));
-                assertEquals(10, page[0]);
+                assertEquals("runs", page[0]);
                 await(() -> !runs.loading() && runs.displayedPage().matches == 1);
                 // Unresolved references (another/deleted session) show an explicit unavailable state.
                 VisitRef deleted = new VisitRef(UUID.randomUUID().toString(), second.id);
@@ -140,7 +140,7 @@ public class ActivityRouteTest {
             ArchiveWorkspace<Row, Filters, Sort> timeline = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.TIMELINE, scratch, states));
             try {
                 ShellNavigator navigator = navigator();
-                edt(() -> { navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline)); page[0] = 10; return null; });
+                edt(() -> { navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline)); page[0] = "runs"; return null; });
                 Route route = ActivityRoutes.timelineAround(ref, moment, ActivityRoutes.AROUND_MILLIS);
                 assertEquals(Long.valueOf(moment - 30_000), route.from); assertEquals(Long.valueOf(moment + 30_000), route.until);
                 assertTrue(edt(() -> navigator.open(route)));

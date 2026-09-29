@@ -1,6 +1,7 @@
 package tomato.gui.myinfo;
 
 import java.util.Arrays;
+import java.util.Map;
 import javax.swing.*;
 import org.junit.After;
 import org.junit.Rule;
@@ -14,6 +15,7 @@ import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.gui.dps.DpsGUI;
 import tomato.gui.dps.RecordedEncounter;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.history.link.EncounterContext;
@@ -52,12 +54,12 @@ public class WaveThreeEvidenceTest {
         WorkspaceShell shell = edt(() -> {
             DpsGUI dps = new DpsGUI(library, DiscoveryLog.historyView(new ActivityJournal.State()));
             view[0] = new MyInfoGUI(data); MyInfoGUI.updatePlayer(player); MyInfoGuiTest.equipPet(data, 408);
-            JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-            pages[6] = view[0]; pages[7] = dps;
+            Map<String, JComponent> pages = TestPages.placeholders();
+            pages.put("my-info", view[0]); pages.put("dps-logger", dps);
             WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Preview must not capture"), true);
             ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
             navigator.register(dps.encounterRouteTarget());
-            created.select(6); return created;
+            created.select("my-info"); return created;
         });
         try {
             RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));

@@ -10,6 +10,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.maingui.AlertRuleEditor;
+import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.realmshark.AlertDecisions;
 import tomato.realmshark.AlertDecisions.Entry;
@@ -45,10 +46,10 @@ public class WaveThreeEvidenceTest {
     }
 
     private static WorkspaceShell shell(NotificationsGUI page) {
-        JComponent[] pages = new JComponent[WorkspaceShell.TITLES.length]; Arrays.setAll(pages, i -> new JPanel());
-        pages[13] = page;
+        Map<String, JComponent> pages = TestPages.placeholders();
+        pages.put("settings", page);
         WorkspaceShell shell = new WorkspaceShell(pages, () -> fail("Synthetic page must not capture"), true);
-        shell.select(13); return shell;
+        shell.select("settings"); return shell;
     }
 
     @Test public void notificationsRecentDecisionsMixedOutcomesAndEmpty() throws Exception {
