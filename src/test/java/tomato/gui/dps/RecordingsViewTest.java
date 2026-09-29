@@ -13,7 +13,11 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.backend.data.*;
 import tomato.gui.glance.home.HomeHistoryFixture;
+import tomato.gui.kit.Banner;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.OverflowMenu;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.roster.RosterStateTestSupport;
 import tomato.history.SessionStore;
@@ -137,7 +141,7 @@ public class RecordingsViewTest {
             Action enter = table.getActionMap().get(table.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).get(KeyStroke.getKeyStroke("ENTER")));
             enter.actionPerformed(new java.awt.event.ActionEvent(table, 0, "ENTER"));
             int twice = row(table, "Sprite World", "copy.dps");
-            Rectangle cell = table.getCellRect(twice, DUNGEON, true);
+            Rectangle cell = table.getCellRect(twice, view(table, DUNGEON), true);
             table.dispatchEvent(new MouseEvent(table, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, cell.x + 2, cell.y + 2, 2, false, MouseEvent.BUTTON1));
             assertEquals("Enter and a double-click open too", List.of("encounter " + unsaved.getRecordingId(), "entry " + copy.id), calls.subList(6, 8));
             return null;
@@ -323,6 +327,203 @@ public class RecordingsViewTest {
         assertTrue(states.values.get("ux.archive.encounter-library-live").contains("Sprite"));
     }
 
+    /**
+     * P5b Task 15b (evidence finding 2): the view shows Run and Saved right after Dungeon and Recorded start. Simple hides Entry (a
+     * library hash), Elapsed, Contributors, Source file and Local context, so its columns fit the Runs &amp; DPS table at 1240×800
+     * font 13 (a 1,012 px viewport in the shell) with room for a vertical scroll bar; Analyst shows every column. The model keeps
+     * its eleven columns and indices; a mode change re-applies the view and writes nothing; every column's width, shown or hidden,
+     * restores through the view state, while widths saved by the older column layout are not applied to this one.
+     */
+    @Test public void runAndSavedFollowTheDungeonAndSimpleFitsTheDesktopTable() throws Exception {
+        history(); memory();
+        DisplayModeModel mode = mode(DisplayModeModel.Mode.SIMPLE);
+        RosterStateTestSupport.Memory states = new RosterStateTestSupport.Memory();
+        DungeonListGUI library = library(states, mode);
+        first(library);
+        edt(() -> {
+            JTable table = table(library);
+            assertEquals(List.of("Export", "Dungeon", "Recorded start", "Run", "Saved", "Damage"), headers(table));
+            int width = 0;
+            for (int column = 0; column < table.getColumnCount(); column++) width += table.getColumnModel().getColumn(column).getWidth();
+            assertTrue("Simple's columns fit the desktop table with room for a vertical scroll bar: " + width + " px", width <= 980);
+            assertEquals("The model keeps its eleven columns and indices", 11, table.getModel().getColumnCount());
+            assertEquals("Run", table.getModel().getColumnName(RUN));
+            assertEquals("Saved", table.getModel().getColumnName(SAVED));
+            assertEquals("Sprite World", value(table, row(table, "Sprite World", "Captured"), DUNGEON));
+
+            mode.set(DisplayModeModel.Mode.ANALYST);
+            assertEquals("Analyst shows every column", List.of("Export", "Dungeon", "Recorded start", "Run", "Saved", "Elapsed (s)", "Damage",
+                "Contributors", "Source file", "Local context", "Entry"), headers(table));
+            table.getColumnModel().getColumn(view(table, ENTRY)).setWidth(133);   // hidden in Simple
+            table.getColumnModel().getColumn(view(table, RUN)).setWidth(311);
+            mode.set(DisplayModeModel.Mode.SIMPLE);
+            assertEquals("A mode change re-applies the view", List.of("Export", "Dungeon", "Recorded start", "Run", "Saved", "Damage"), headers(table));
+            library.saveViewState();
+            return null;
+        });
+        int written = edt(() -> states.writes);
+        edt(() -> { mode.set(DisplayModeModel.Mode.ANALYST); mode.set(DisplayModeModel.Mode.SIMPLE); return null; });
+        edt(() -> null);   // a queued view-state change would run here
+        assertEquals("Switching modes writes no view state", written, (int) edt(() -> states.writes));
+
+        DungeonListGUI reopened = library(states, mode(DisplayModeModel.Mode.ANALYST));
+        edt(() -> {
+            JTable table = table(reopened);
+            assertEquals("A column hidden in Simple keeps its width", 133, table.getColumnModel().getColumn(view(table, ENTRY)).getWidth());
+            assertEquals(311, table.getColumnModel().getColumn(view(table, RUN)).getWidth());
+            return null;
+        });
+
+        // A view state saved by the older layout (no "columns" marker): its filters restore, its widths do not.
+        String saved = states.values.get("ux.archive.encounter-library-live");
+        String older = saved.replaceAll(",?\"columns\":\"2\"", "").replace("\"text\":\"\"", "\"text\":\"Snake\"");
+        assertTrue("The fixture changed the saved text: " + older, older.contains("Snake") && !older.contains("columns") && older.contains("\"width.1\":\"133\""));
+        states.values.put("ux.archive.encounter-library-live", older);
+        DungeonListGUI legacy = library(states, mode(DisplayModeModel.Mode.ANALYST));
+        edt(() -> {
+            JTable table = table(legacy);
+            assertEquals("Snake", named(legacy, "encounter-search", JTextField.class).getText());
+            assertNotEquals("An older layout's widths are not applied", 133, table.getColumnModel().getColumn(view(table, ENTRY)).getWidth());
+            return null;
+        });
+    }
+
+    /**
+     * P5b Task 15b (evidence finding 4): the live row is the first row under every sort and is selected until a recording is
+     * chosen, so the tab's primary action reads "Open live meter"; a chosen recording hidden by a filter leaves the live row
+     * selected meanwhile and is selected again once it is listed.
+     */
+    @Test public void theLiveRowIsFirstUnderEverySortAndSelectedUntilARecordingIsChosen() throws Exception {
+        history(); memory();
+        DungeonListGUI library = library(null);
+        first(library);
+        edt(() -> {
+            JTable table = table(library);
+            JButton open = named(library, "encounter-open", JButton.class);
+            assertEquals("Under the default Recorded start ↓ order the live row is first", "Live", value(table, 0, DUNGEON));
+            assertEquals("…and selected", 0, table.getSelectedRow());
+            assertEquals("Open live meter", open.getText());
+            for (int column = 0; column < table.getModel().getColumnCount(); column++)
+                for (SortOrder order : new SortOrder[]{SortOrder.ASCENDING, SortOrder.DESCENDING}) {
+                    table.getRowSorter().setSortKeys(List.of(new RowSorter.SortKey(column, order)));
+                    assertEquals("Sorted by column " + column + " " + order + ": the live row stays first", "Live", value(table, 0, DUNGEON));
+                }
+            table.getRowSorter().setSortKeys(List.of(new RowSorter.SortKey(DUNGEON, SortOrder.ASCENDING)));
+            List<String> names = new ArrayList<>();
+            for (int row = 1; row < table.getRowCount(); row++) names.add(value(table, row, DUNGEON));
+            List<String> sorted = new ArrayList<>(names);
+            sorted.sort(java.text.Collator.getInstance());
+            assertEquals("The recordings keep their order below it", sorted, names);
+
+            table.getRowSorter().setSortKeys(List.of(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
+            int mine = row(table, "Sprite World", "Captured");
+            table.setRowSelectionInterval(mine, mine);
+            assertEquals("Open in Live meter", open.getText());
+            named(library, "encounter-search", JTextField.class).setText("Snake");
+            assertEquals("The chosen recording is filtered out: the live row is selected meanwhile", 0, table.getSelectedRow());
+            assertEquals("Open live meter", open.getText());
+            named(library, "encounter-search", JTextField.class).setText("");
+            assertEquals("…and the chosen recording is selected again once listed", "Sprite World", value(table, table.getSelectedRow(), DUNGEON));
+            assertEquals("Open in Live meter", open.getText());
+            return null;
+        });
+    }
+
+    /**
+     * P5b Task 15b (evidence finding 5): with nothing recorded, saved or imported, an empty state says what fills the tab (and,
+     * without saved history, why saved recordings are missing); with filters hiding every recording it says so and offers Clear
+     * filters. Either way the live row stays selected, so Open live meter stays one click away.
+     */
+    @Test public void anEmptyTabSaysWhyAndStillOpensTheLiveMeter() throws Exception {
+        root = temp.newFolder("empty-history").toPath();
+        edt(() -> { data = new TomatoData(); dps = new DpsGUI(data); return null; });
+        DungeonListGUI library = library(null);
+        first(library);
+        edt(() -> {
+            EmptyState empty = library.emptyState();
+            assertNotNull("Only the live row: an empty state says what fills the tab", empty);
+            assertEquals("No recordings yet", empty.getAccessibleContext().getAccessibleName());
+            String body = empty.getAccessibleContext().getAccessibleDescription();
+            assertTrue(body, body.contains("when a fight closes") && body.contains("All sessions") && body.contains("Load"));
+            assertFalse("The lone live row gives way to it", scroll(table(library)).isVisible());
+            JButton open = named(library, "encounter-open", JButton.class);
+            assertEquals("Open live meter", open.getText());
+            assertTrue(open.isEnabled());
+            open.doClick();
+            assertEquals(List.of("live"), calls);
+            assertTrue(summary(library), summary(library).startsWith("0 of 0 recordings shown · last 30 days · 0 checked for export"));
+            return null;
+        });
+
+        DungeonListGUI memoryOnly = edt(() -> {
+            DungeonListGUI made = new DungeonListGUI(dps, data, null, () -> null, () -> NOW, mode(DisplayModeModel.Mode.SIMPLE));
+            libraries.add(made);
+            return made;
+        });
+        first(memoryOnly);
+        edt(() -> {
+            String body = memoryOnly.emptyState().getAccessibleContext().getAccessibleDescription();
+            assertTrue("Without saved history the reason says so: " + body, body.contains("Saved history is not open in this app run"));
+            return null;
+        });
+
+        history(); memory();
+        DungeonListGUI full = library(null);
+        first(full);
+        edt(() -> {
+            assertNull("Recordings listed: no empty state", full.emptyState());
+            assertTrue(scroll(table(full)).isVisible());
+            named(full, "encounter-search", JTextField.class).setText("no such recording");
+            EmptyState empty = full.emptyState();
+            assertNotNull(empty);
+            assertEquals("No recordings match", empty.getAccessibleContext().getAccessibleName());
+            assertEquals("Open live meter", named(full, "encounter-open", JButton.class).getText());
+            AbstractButton clear = named(empty, "encounter-empty-action", AbstractButton.class);
+            assertEquals("Clear filters", clear.getText());
+            clear.doClick();
+            assertEquals("", named(full, "encounter-search", JTextField.class).getText());
+            assertNull(full.emptyState());
+            assertTrue(scroll(table(full)).isVisible());
+            assertEquals(9, table(full).getRowCount());
+            return null;
+        });
+    }
+
+    /**
+     * P5b Task 15b (evidence finding 6): at 680×520 font 18 at least three table rows show before the page scrolls. Save view
+     * state and Reset saved view state live in the filter bar's ⋯ menu (their status shows only when it is a failure), and Load
+     * and Save checked stay visible buttons.
+     */
+    @Test public void compactShowsThreeRowsAndTheViewStateActionsLiveInTheMoreMenu() throws Exception {
+        history(); memory();
+        RosterStateTestSupport.Memory states = new RosterStateTestSupport.Memory();
+        DungeonListGUI library = library(states);
+        edt(() -> { evidence.show(library, "recordings-compact", 680, 520, 18); return null; });
+        read(library, 1);
+        evidence.settle();
+        edt(() -> {
+            evidence.capture("recordings-680-18");
+            JTable table = table(library);
+            int rows = table.getVisibleRect().height / table.getRowHeight();
+            assertTrue("At 680 × 520, font 18, at least three rows show before the page scrolls: " + rows, rows >= 3);
+            OverflowMenu more = named(library, "encounter-library-more", OverflowMenu.class);
+            assertNotNull(more.item("Save view state"));
+            assertNotNull(more.item("Reset saved view state"));
+            for (String label : new String[]{"Save view state", "Reset saved view state"})
+                assertNull("Not a button on the page: " + label, button(library, label));
+            for (String label : new String[]{"Load", "Save checked"}) assertTrue(label, VisualEvidence.button(library, label).isShowing());
+            assertFalse("The view state's status shows only when it is a failure", named(library, "encounter-view-state", Banner.class).isVisible());
+            states.fail = true;
+            more.item("Save view state").doClick();
+            return null;
+        });
+        await(() -> named(library, "encounter-view-state", Banner.class).isVisible());
+        edt(() -> {
+            assertTrue(named(library, "encounter-view-state", Banner.class).text().startsWith("View state save failed"));
+            return null;
+        });
+    }
+
     // ---- fixtures ----
 
     /** Saved history: S1 (recent) with linked, unlinked, full-detail, pruned and this app run's records; OLD (40 days ago). */
@@ -354,11 +555,14 @@ public class RecordingsViewTest {
         edt(() -> { copy = dps.encounters().add(copied).entry; legacy = dps.encounters().add(old).entry; return null; });
     }
 
-    private DungeonListGUI library(RosterStateTestSupport.Memory states) throws Exception {
+    /** A library in Analyst mode (every column in view, so a cell of any column can be rendered). */
+    private DungeonListGUI library(RosterStateTestSupport.Memory states) throws Exception { return library(states, mode(DisplayModeModel.Mode.ANALYST)); }
+
+    private DungeonListGUI library(RosterStateTestSupport.Memory states, DisplayModeModel mode) throws Exception {
         SessionStore store = new SessionStore(root, false, "test");
         stores.add(store);
         return edt(() -> {
-            DungeonListGUI made = new DungeonListGUI(dps, data, states == null ? null : states.store, () -> store, () -> NOW);
+            DungeonListGUI made = new DungeonListGUI(dps, data, states == null ? null : states.store, () -> store, () -> NOW, mode);
             made.onOpenEncounter(id -> calls.add("encounter " + id));
             made.onShowEntry(id -> calls.add("entry " + id));
             made.onOpenRecap((ref, id) -> calls.add("recap " + ref.sessionId + "/" + ref.visitId + " " + id));
@@ -407,23 +611,53 @@ public class RecordingsViewTest {
     }
 
     private static JTable table(DungeonListGUI library) { return named(library, "saved-encounters", JTable.class); }
+    private static JScrollPane scroll(JTable table) { return (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table); }
+
+    /** The button reading {@code text} under {@code root}, or null. */
+    private static AbstractButton button(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof AbstractButton && text.equals(((AbstractButton) child).getText())) return (AbstractButton) child;
+            if (child instanceof Container) { AbstractButton found = button((Container) child, text); if (found != null) return found; }
+        }
+        return null;
+    }
     private static String summary(DungeonListGUI library) { return named(library, "encounter-summary", JTextArea.class).getText(); }
-    private static String value(JTable table, int row, int column) { return String.valueOf(table.getValueAt(row, column)); }
+    /** A display mode of the test's own (no preference is read or written). */
+    private static DisplayModeModel mode(DisplayModeModel.Mode mode) {
+        return new DisplayModeModel(key -> mode == DisplayModeModel.Mode.ANALYST ? "analyst" : "simple", (key, value) -> { });
+    }
+
+    /** The model's value at view row {@code row}, model column {@code column} (the view orders the columns and Simple hides some). */
+    private static String value(JTable table, int row, int column) { return String.valueOf(table.getModel().getValueAt(table.convertRowIndexToModel(row), column)); }
+
+    /** The view column showing model column {@code column}. */
+    private static int view(JTable table, int column) {
+        int view = table.convertColumnIndexToView(column);
+        if (view < 0) throw new AssertionError("Model column " + column + " is not in view");
+        return view;
+    }
 
     private static String rendered(JTable table, int row, int column) {
-        Component cell = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
-        return cell instanceof JLabel ? ((JLabel) cell).getText() : String.valueOf(table.getValueAt(row, column));
+        Component cell = table.prepareRenderer(table.getCellRenderer(row, view(table, column)), row, view(table, column));
+        return cell instanceof JLabel ? ((JLabel) cell).getText() : value(table, row, column);
     }
 
     private static String tip(JTable table, int row, int column) {
-        Component cell = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
+        Component cell = table.prepareRenderer(table.getCellRenderer(row, view(table, column)), row, view(table, column));
         return cell instanceof JComponent ? String.valueOf(((JComponent) cell).getToolTipText()) : "";
+    }
+
+    /** The view's column headers, left to right. */
+    private static List<String> headers(JTable table) {
+        List<String> headers = new ArrayList<>();
+        for (int column = 0; column < table.getColumnCount(); column++) headers.add(table.getColumnName(column));
+        return headers;
     }
 
     /** The view row whose Dungeon and Source file columns match (null matches any), or -1. */
     private static int find(JTable table, String dungeon, String source) {
         for (int row = 0; row < table.getRowCount(); row++)
-            if ((dungeon == null || dungeon.equals(table.getValueAt(row, DUNGEON))) && (source == null || source.equals(table.getValueAt(row, SOURCE)))) return row;
+            if ((dungeon == null || dungeon.equals(value(table, row, DUNGEON))) && (source == null || source.equals(value(table, row, SOURCE)))) return row;
         return -1;
     }
 
@@ -438,9 +672,9 @@ public class RecordingsViewTest {
         List<String> texts = new ArrayList<>();
         collect(library, texts);
         JTable table = table(library);
-        for (int row = 0; row < table.getRowCount(); row++) for (int column = 0; column < table.getColumnCount(); column++) {
-            texts.add(String.valueOf(table.getValueAt(row, column)));
-            texts.add(rendered(table, row, column)); texts.add(tip(table, row, column));
+        for (int row = 0; row < table.getRowCount(); row++) for (int column = 0; column < table.getModel().getColumnCount(); column++) {
+            texts.add(value(table, row, column));
+            if (table.convertColumnIndexToView(column) >= 0) { texts.add(rendered(table, row, column)); texts.add(tip(table, row, column)); }
         }
         for (String text : texts) {
             assertFalse("No path: " + text, text.contains(temp.getRoot().getAbsolutePath()));

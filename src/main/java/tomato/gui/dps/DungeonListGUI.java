@@ -42,11 +42,23 @@ import java.util.function.Supplier;
  * - Table {@code saved-encounters}: the library's columns (Export check, Entry, Dungeon, Recorded start, Elapsed, Contributors,
  *   Damage, Source file, Local context) plus Run (the recording's own link: "Linked · dungeon · entry time", "Unlinked",
  *   "Legacy · unlinked") and Saved (Summary saved, No saved summary (yet), Full detail · size, Full detail pruned (kept N days),
- *   Imported file). The first row is the live meter. Unknown values are "—" or a word with a reason, never 0.
+ *   Imported file). The model's column indices never change; the view orders them Export, Dungeon, Recorded start, Run, Saved,
+ *   Elapsed, Damage, Contributors, Source file, Local context, Entry ({@link #VIEW_ORDER}), and Simple hides Entry (a library
+ *   hash), Elapsed, Contributors, Source file and Local context ({@link #SIMPLE_HIDDEN}) so its six columns fit the Runs &amp; DPS
+ *   table at 1240×800 font 13 without sideways scroll; Analyst shows every column and scrolls them sideways when narrow. A mode
+ *   change re-applies the view. The live meter's row is the first row under every sort ({@link PinnedSorter}) and is selected
+ *   whenever no listed recording is chosen, so Open reads "Open live meter". Unknown values are "—" or a word with a reason,
+ *   never 0.
  * - One filter row, FilterBar {@code encounter-library}: search ({@code encounter-search}), a drawer with source
  *   ({@code encounter-source}: All, This app run, Saved summary, Full detail, Imported), run link ({@code encounter-link}) and
  *   local context ({@code encounter-context}), the scope Last 30 days | All sessions ({@code encounter-scope}), Clear (the old
- *   "Reset filters") and ⋯ Refresh. Filters apply at once to the rows read; the scope reads again.
+ *   "Reset filters") and ⋯ Refresh, Save view state and Reset saved view state (their status shows, as a warning line, only when
+ *   it is a failure). Filters apply at once to the rows read; the scope reads again. Below it, Open beside the count line; below
+ *   the table, the details and the status line with the file actions beside it (Load, Save checked, and View imported encounter
+ *   after an import), so at 680×520 font 18 at least three rows show before the page scrolls.
+ * - An empty state ({@code encounter-empty}) replaces the table while there is nothing to list: reading for the first time,
+ *   the first read failed (Try again), nothing recorded, saved or imported ("No recordings yet" and why), or no recording matches
+ *   the filters (Clear filters). The live row stays selected meanwhile, so Open live meter stays one click away.
  * - Opening is explicit: Open ({@code encounter-open}, named for what it does), Enter or a double-click. Selecting a row only
  *   shows its details. A recording in memory with a unique recording ID opens through {@link #onOpenEncounter} (the shell's
  *   ENCOUNTER route), one without an ID or with a duplicated ID through {@link #onShowEntry}; the live row through
@@ -69,11 +81,22 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     /** How often the showing tab compares the catalog's revision (a fight closed, an import, Clear). */
     static final int REVISION_MILLIS = 500;
     static final String LIVE = "Live", NOT_LOADED = "Not loaded", SAVED_HISTORY = "Saved history";
+    /** The live row's Run cell. */
+    static final String LIVE_HINT = "The fight in progress · Open live meter";
     static final String NO_SUMMARY = "No saved summary (yet)";
     static final String NO_SUMMARY_TIP = "No saved summary of this recording was read: nothing is saved in preview mode or outside a logged dungeon,"
         + " a save may still be in progress (saved history is read again when it changes), and a failed save is logged.";
     static final String PRUNED_SINCE = "Full detail was pruned or removed since this list was read, so it cannot be loaded.";
     private static final String[] LINKS = {"ANY", "LINKED", "UNLINKED", "LEGACY"};
+    /**
+     * The view's columns left to right, as model indices: Export, Dungeon, Recorded start, Run, Saved, Elapsed, Damage,
+     * Contributors, Source file, Local context, Entry.
+     */
+    static final int[] VIEW_ORDER = {0, 2, 3, 9, 10, 4, 6, 5, 7, 8, 1};
+    /** The model columns Simple hides (spec §3.2, provenance and diagnostics): Entry, Elapsed, Contributors, Source file, Local context. */
+    static final Set<Integer> SIMPLE_HIDDEN = Set.of(1, 4, 5, 7, 8);
+    /** The column layout the view state's widths belong to ({@code columns}); widths saved by the older layout are not applied. */
+    private static final String LAYOUT = "2";
     /** Files of a session folder the list depends on: its metadata, its records and its full-detail files. */
     private static final Set<String> STAMPED = Set.of("session.json", CombatFacts.RECORDS, CombatFacts.RECORDS + ".jsonl", CombatRetention.FULL_DETAIL);
 
@@ -84,10 +107,20 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     private final ThreadPoolExecutor worker;
     private final EncounterModel model = new EncounterModel();
     private final JTable table = new JTable(model);
-    private final TableRowSorter<EncounterModel> sorter = new TableRowSorter<>(model);
+    private final TableRowSorter<EncounterModel> sorter = new PinnedSorter(model);
+    /** Every column by model index, shown or hidden (the view shows them in {@link #VIEW_ORDER}). */
+    private final TableColumn[] columns;
+    private final DisplayModeModel mode;
+    private final JScrollPane tableScroll;
     private final FilterBar filterBar = new FilterBar("encounter-library");
     private final KitButton open = KitButton.primary("Open");
     private final JButton load = new JButton("Load"), save = new JButton("Save checked"), viewImported = new JButton("View imported encounter");
+    /** The empty state's slot above the (then hidden) table, its key (title and body) and its failure before any read. */
+    private final JPanel emptyHolder = new JPanel(new BorderLayout());
+    private EmptyState empty;
+    private String emptyKey, readFailure;
+    /** The saved view state's status, shown only while it is a failure (its actions are in the ⋯ menu). */
+    private final Banner stateBanner = new Banner("encounter-view-state");
     private final JTextField search = new JTextField(18);
     private final JComboBox<String> source = new JComboBox<>(new String[]{"All sources", "This app run", "Saved summary", "Full detail", "Imported"});
     private final JComboBox<String> link = new JComboBox<>(new String[]{"Any run link", "Linked", "Unlinked", "Legacy"});
@@ -98,7 +131,6 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     private final Banner issues = new Banner("encounter-issues");
     private final RecordingSummaryPanel summaryPanel;
     private final javax.swing.Timer revisionTimer, poll;
-    private final JPanel stateHost = new JPanel(new BorderLayout());
     private final Set<String> rememberedChecks = new LinkedHashSet<>();
     /** The shell's open actions ({@link #onOpenEncounter} and the others); until it sets them they switch {@link #dps}. */
     private Consumer<String> openEncounter, showEntry;
@@ -133,6 +165,10 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     }
     /** {@code store} is read on each request (null: no saved history); {@code clock} dates the 30-day scope. */
     DungeonListGUI(DpsGUI dps, TomatoData data, ViewStateStore states, Supplier<SessionStore> store, LongSupplier clock) {
+        this(dps, data, states, store, clock, DisplayModeModel.application());
+    }
+    /** As above; {@code mode} chooses Simple's or Analyst's columns (tests pass their own). */
+    DungeonListGUI(DpsGUI dps, TomatoData data, ViewStateStore states, Supplier<SessionStore> store, LongSupplier clock, DisplayModeModel mode) {
         super(new BorderLayout(0, 8)); this.dps = dps; catalog = dps.encounters();
         this.stores = Objects.requireNonNull(store, "store"); this.clock = Objects.requireNonNull(clock, "clock");
         openEncounter = id -> { EncounterCatalog.Entry entry = unique(id); if (entry != null) dps.showEncounter(entry.id); };
@@ -143,7 +179,8 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
             Thread thread = new Thread(task, "RealmShark recordings"); thread.setDaemon(true); return thread;
         });
         worker.allowCoreThreadTimeOut(true);
-        summaryPanel = new RecordingSummaryPanel(DisplayModeModel.application(), () -> { details.setVisible(true); status.setText("Closed the summary."); });
+        this.mode = Objects.requireNonNull(mode, "mode");
+        summaryPanel = new RecordingSummaryPanel(mode, () -> { details.setVisible(true); status.setText("Closed the summary."); });
 
         // The filter row: search, the drawer's facets, the scope, Clear and ⋯ Refresh.
         search.setName("encounter-search"); search.getAccessibleContext().setAccessibleName("Search recordings");
@@ -163,7 +200,6 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         filterBar.search(new WrapRow(search)).drawer(drawer).scope(scope);
         filterBar.overflow().add("Refresh", this::refreshEncounters).setName("encounter-library-refresh");
         open.setName("encounter-open");
-        JPanel buttons = ContentStyle.controls(); buttons.add(open); buttons.add(load); buttons.add(save); buttons.add(viewImported);
         open.addActionListener(e -> open()); load.addActionListener(e -> loadButton()); save.addActionListener(e -> saveButton());
         viewImported.addActionListener(e -> {
             EncounterCatalog.Entry entry = catalog.find(importedId); if (entry == null) return;
@@ -172,20 +208,28 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         });
         count.setName("encounter-summary"); count.setFocusable(false);
         issues.setVisible(false);
-        JPanel header = KitLayouts.stack(Tokens.S, filterBar, buttons, count, issues);
+        stateBanner.setTone(Tokens.Tone.WARN); stateBanner.setVisible(false);
+        // Open beside the count line: one row at desktop width, the count wrapping beside it when compact (P5b finding 6).
+        JPanel actions = new JPanel(new BorderLayout(Tokens.M, 0)); actions.setOpaque(false);
+        actions.add(open, BorderLayout.WEST); actions.add(count, BorderLayout.CENTER);
+        JPanel header = KitLayouts.stack(Tokens.S, filterBar, actions, issues, stateBanner);
 
         ContentStyle.table(table); table.setName("saved-encounters"); table.getAccessibleContext().setAccessibleName("Recordings and export checks");
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF); table.setRowSorter(sorter);
         table.addPropertyChangeListener("font", e -> ContentStyle.tableDensity(table, ContentStyle.Density.COMFORTABLE));
         table.getTableHeader().setReorderingAllowed(false);
-        // Widths are set, not only preferred, so laying the table out changes nothing (and writes no view state).
-        int[] widths = {70, 100, 190, 160, 100, 100, 120, 170, 120, 300, 220};
-        for (int i = 0; i < widths.length; i++) { TableColumn column = table.getColumnModel().getColumn(i); column.setPreferredWidth(widths[i]); column.setWidth(widths[i]); }
+        table.setAutoCreateColumnsFromModel(false);   // the columns below are the view's for good; Simple and Analyst re-arrange them
+        columns = new TableColumn[model.getColumnCount()];
+        for (int i = 0; i < columns.length; i++) columns[i] = table.getColumnModel().getColumn(i);
+        // Widths are set, not only preferred, so laying the table out changes nothing (and writes no view state). Simple's six
+        // columns sum to 980 px: inside the 1,012 px table of Runs & DPS at 1240×800 font 13, with room for a vertical scroll bar.
+        int[] widths = {56, 100, 140, 154, 90, 100, 90, 170, 120, 294, 246};
+        for (int i = 0; i < widths.length; i++) { columns[i].setPreferredWidth(widths[i]); columns[i].setWidth(widths[i]); }
         RecordingCell cell = new RecordingCell();
-        for (int i = 1; i < widths.length; i++) table.getColumnModel().getColumn(i).setCellRenderer(cell);
+        for (int i = 1; i < widths.length; i++) columns[i].setCellRenderer(cell);
         TableCellRenderer checkRenderer = table.getDefaultRenderer(Boolean.class);
         ContentStyle.Cell blank = new ContentStyle.Cell();
-        table.getColumnModel().getColumn(0).setCellRenderer((t, value, selected, focus, row, column) -> {
+        columns[0].setCellRenderer((t, value, selected, focus, row, column) -> {
             if (value != null) return checkRenderer.getTableCellRendererComponent(t, value, selected, focus, row, column);
             Component none = blank.getTableCellRendererComponent(t, "", selected, focus, row, column);
             blank.setToolTipText(model.rows.get(t.convertRowIndexToModel(row)).item == null ? null : "Only recordings in memory can be saved as .dps files");
@@ -221,10 +265,18 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
             }
         });
 
+        // Below the table: the details, then the status line with the file actions beside it (below it when they would squeeze it).
+        JPanel files = new JPanel(new FlowLayout(FlowLayout.TRAILING, 6, 0)); files.setOpaque(false);
+        files.add(load); files.add(save); files.add(viewImported);
         JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(KitLayouts.stack(Tokens.S, summaryPanel, details), BorderLayout.NORTH);
-        JPanel bottom = new JPanel(new BorderLayout(0, 4)); bottom.add(status, BorderLayout.NORTH); bottom.add(stateHost, BorderLayout.SOUTH); stateHost.setVisible(false); footer.add(bottom, BorderLayout.SOUTH);
+        footer.add(new StatusRow(status, files), BorderLayout.SOUTH);
         details.setName("encounter-details"); status.setName("encounter-status");
-        add(ContentStyle.page(header, ContentStyle.tableScroll(table, 3), footer), BorderLayout.CENTER);
+        // The table, or an empty state in its place while there is nothing to list.
+        tableScroll = ContentStyle.tableScroll(table, 3);
+        emptyHolder.setOpaque(false); emptyHolder.setVisible(false); emptyHolder.setBorder(BorderFactory.createEmptyBorder(Tokens.XL, 0, Tokens.XL, 0));
+        JPanel body = new JPanel(new BorderLayout()); body.setOpaque(false);
+        body.add(emptyHolder, BorderLayout.NORTH); body.add(tableScroll, BorderLayout.CENTER);
+        add(ContentStyle.page(header, body, footer), BorderLayout.CENTER);
         for (JComponent control : new JComponent[]{open, load, save, viewImported, search, source, link, context})
             control.addFocusListener(new FocusAdapter() { public void focusGained(FocusEvent e) { ContentStyle.reveal(control, new Rectangle(0, 0, control.getWidth(), control.getHeight())); } });
         table.addFocusListener(new FocusAdapter() { public void focusGained(FocusEvent e) { ContentStyle.reveal(table, table.getCellRect(Math.max(0, table.getSelectedRow()), Math.max(0, table.getSelectedColumn()), true)); } });
@@ -241,6 +293,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0) return;
             if (isShowing()) { revisionTimer.start(); poll.start(); check(); } else { revisionTimer.stop(); poll.stop(); }
         });
+        mode.bind(this, value -> applyColumns(value == DisplayModeModel.Mode.ANALYST));
         if (states != null) bindViewState(states);
         filter(); updateButtons();
     }
@@ -268,6 +321,8 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     int checks() { return checks; }
     /** A request is in flight. */
     boolean loading() { return loading; }
+    /** The shown empty state, or null (tests). */
+    EmptyState emptyState() { return emptyHolder.isVisible() ? empty : null; }
 
     /** Shown, or the poll ticked: reads only when nothing was read yet or the store's stamp changed. */
     private void check() { if (!closed && !loading) request(false); }
@@ -285,7 +340,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         RecordingsSource reader = source(store);
         int days = CombatSettings.current().fullDetailDays();
         loading = true;
-        updateCount();
+        updateCount(); showEmpty();
         try {
             worker.execute(() -> {
                 Loaded done;
@@ -295,7 +350,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
                 Loaded result = done;
                 SwingUtilities.invokeLater(() -> apply(ticket, result));
             });
-        } catch (RejectedExecutionException shutDown) { loading = false; }
+        } catch (RejectedExecutionException shutDown) { loading = false; showEmpty(); }
     }
 
     /** On the worker: the stamp, then (unless it is {@code known}) the recordings and their rows. */
@@ -315,16 +370,18 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         loading = false; checks++;
         if (done.failure() != null) {
             loadedRevision = done.revision(); loadedScope = done.scope(); loadedStore = done.store(); loadedStamp = null;
-            status.setText("Could not read recordings: " + safe(done.failure())); updateCount(); return;
+            readFailure = safe(done.failure());
+            status.setText("Could not read recordings: " + readFailure); updateCount(); showEmpty(); return;
         }
-        if (done.unchanged()) { updateCount(); return; }
+        readFailure = null;
+        if (done.unchanged()) { updateCount(); showEmpty(); return; }
         reads++;
         loadedOnce = true; loadedStamp = done.stamp(); loadedRevision = done.revision(); loadedScope = done.scope(); loadedStore = done.store();
         applyRememberedReferences();
         rebuilding = true;
         try { model.rows = done.rows(); model.fireTableDataChanged(); restoreSelection(); }
         finally { rebuilding = false; }
-        issues(done.result()); updateButtons(); showDetails();
+        issues(done.result()); updateButtons(); showDetails(); showEmpty();
     }
 
     /** One {@link RecordingsSource} per store (its cache of closed sessions lives as long as the store). EDT. */
@@ -467,6 +524,22 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         return entry.imported() || entry.data.getRecordingId() == null ? EncounterCatalog.reference(entry) : "native:" + entry.data.getRecordingId();
     }
 
+    // ---- columns ----
+
+    /**
+     * Shows the columns in {@link #VIEW_ORDER}, without {@link #SIMPLE_HIDDEN} in Simple; the model, its indices, the widths and the
+     * sort are untouched, so nothing saved changes. Runs when the mode is bound and on every mode change. EDT.
+     */
+    private void applyColumns(boolean analyst) {
+        List<TableColumn> wanted = new ArrayList<>();
+        for (int index : VIEW_ORDER) if (analyst || !SIMPLE_HIDDEN.contains(index)) wanted.add(columns[index]);
+        TableColumnModel shown = table.getColumnModel();
+        List<TableColumn> current = Collections.list(shown.getColumns());
+        if (current.equals(wanted)) return;
+        for (TableColumn column : current) shown.removeColumn(column);
+        for (TableColumn column : wanted) shown.addColumn(column);
+    }
+
     // ---- filters ----
 
     private EncounterQuery query() {
@@ -488,7 +561,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
             });
             restoreSelection();
         } finally { rebuilding = false; }
-        chips(); updateButtons(); showDetails();
+        chips(); updateButtons(); showDetails(); showEmpty();
         rememberViewState();
     }
 
@@ -510,17 +583,74 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     }
 
     private Row selected() { int row = table.getSelectedRow(); return row < 0 ? null : model.rows.get(table.convertRowIndexToModel(row)); }
+    /**
+     * Selects the chosen row ({@link #selectedKey}) when it is listed, else the live row (model row 0, never filtered out) without
+     * forgetting the choice: the chosen recording is selected again once a filter or read lists it (P5b finding 4).
+     */
     private void restoreSelection() {
         table.clearSelection();
-        for (int i = 0; i < model.rows.size(); i++) if (model.rows.get(i).reference.equals(selectedKey)) {
-            int view = table.convertRowIndexToView(i); if (view >= 0) table.setRowSelectionInterval(view, view); break;
-        }
+        int view = -1;
+        for (int i = 0; i < model.rows.size(); i++) if (model.rows.get(i).reference.equals(selectedKey)) { view = table.convertRowIndexToView(i); break; }
+        if (view < 0) view = table.convertRowIndexToView(0);
+        if (view >= 0) table.setRowSelectionInterval(view, view);
     }
 
     private void showDetails() {
         Row row = selected();
         details.setText(row == null ? "Selected encounter is not loaded or is outside these display filters."
-            : row.item == null ? "Live capture: Open shows the live meter. It is not an exportable saved encounter." : details(row));
+            : row.item == null ? "Live capture: Open shows the live meter. It is not an exportable saved encounter."
+                + (selectedKey.isEmpty() ? "" : "\nThe recording you chose is not listed with these filters or this scope; it is selected again once it is.")
+            : details(row));
+    }
+
+    /**
+     * One empty state in the table's place, or none (the table): reading for the first time, the first read failed, nothing
+     * recorded, saved or imported, or no recording matching the filters. Its title names the situation, its body says why or what
+     * to do, and its action is the next step; Open live meter stays in the header meanwhile (the live row stays selected). EDT.
+     */
+    private void showEmpty() {
+        String title = null, body = null;
+        KitButton action = null;
+        int recordings = model.rows.size() - 1, listed = table.getRowCount() - 1;
+        if (!loadedOnce && loading) {
+            title = "Reading recordings";
+            body = "This app run's recordings, your imports and saved history are being read.";
+        } else if (!loadedOnce && readFailure != null) {
+            title = "Recordings could not be read";
+            body = (readFailure.endsWith(".") ? readFailure.substring(0, readFailure.length() - 1) : readFailure) + "; try again.";
+            action = emptyAction("Try again", this::refreshEncounters);
+        } else if (loadedOnce && recordings == 0) {
+            title = "No recordings yet";
+            String opens = "A recording appears here when a fight closes during capture or Load opens a .dps file";
+            body = loadedStore == null ? opens + ". Saved history is not open in this app run, so saved recordings are not listed."
+                : loadedScope == RecordingsQuery.Scope.ALL ? opens + "; no saved session holds one."
+                : opens + "; older saved recordings are under All sessions.";
+        } else if (loadedOnce && listed == 0) {
+            title = "No recordings match";
+            body = "Change the search or clear the filters to see every recording of this scope.";
+            action = emptyAction("Clear filters", this::clearFilters);
+        }
+        boolean shown = title != null;
+        if (shown) {
+            String key = title + "\n" + body;
+            if (!key.equals(emptyKey)) {
+                emptyHolder.removeAll();
+                empty = new EmptyState(title, body, action);
+                empty.setName("encounter-empty");
+                emptyHolder.add(empty, BorderLayout.CENTER);
+                emptyKey = key;
+            }
+        } else emptyKey = null;
+        if (emptyHolder.isVisible() == shown && tableScroll.isVisible() == !shown) return;
+        emptyHolder.setVisible(shown); tableScroll.setVisible(!shown);
+        revalidate(); repaint();
+    }
+
+    private static KitButton emptyAction(String text, Runnable action) {
+        KitButton button = KitButton.secondary(text);
+        button.setName("encounter-empty-action");
+        button.addActionListener(e -> action.run());
+        return button;
     }
 
     private String details(Row row) {
@@ -745,7 +875,10 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     private void failed(Throwable error) { setBusy(false, "File operation failed: " + safe(error)); }
 
     private void updateButtons() {
-        load.setEnabled(!busy); save.setEnabled(!busy && !catalog.checkedEntries().isEmpty()); viewImported.setEnabled(catalog.find(importedId) != null);
+        load.setEnabled(!busy); save.setEnabled(!busy && !catalog.checkedEntries().isEmpty());
+        boolean imported = catalog.find(importedId) != null;   // shown only once Load imported a file in this app run
+        viewImported.setEnabled(imported);
+        if (viewImported.isVisible() != imported) { viewImported.setVisible(imported); viewImported.revalidate(); }
         Row row = selected(); Action action = row == null ? Action.NONE : action(row);
         open.setText(row == null ? "Open" : openLabel(row, action));
         open.setEnabled(!busy && action != Action.NONE);
@@ -765,7 +898,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         String shown = !loadedOnce ? loading ? "Reading recordings…" : "Recordings are read when this tab first shows"
             : visible + " of " + (model.rows.size() - 1) + " recordings shown";
         count.setText(shown + " · " + (scopeValue() == RecordingsQuery.Scope.ALL ? "all sessions" : "last 30 days") + " · " + checked.size()
-            + " checked for export · " + hiddenChecks + " checked outside filters" + (loading && loadedOnce ? " · reading…" : ""));
+            + " checked for export" + (hiddenChecks > 0 ? " · " + hiddenChecks + " checked outside filters" : "") + (loading && loadedOnce ? " · reading…" : ""));
     }
 
     /** Why the list may be partial; saved history being unavailable is information, anything else a warning. */
@@ -785,8 +918,18 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     public void bindViewState(ViewStateStore states) {
         if (viewState != null) return;
         viewState = new RosterViewState(states, "encounter-library-live", () -> { Map<String, String> values = captureViewState(); lastSaved = values; return values; }, this::prepareViewState);
-        stateHost.add(viewState.controls()); stateHost.setVisible(true); RosterViewState.listenTable(table, this::rememberViewState);
+        // Saved view state lives in the ⋯ menu (spec §3.2, as on Characters); the tab shows its status only when it is a failure.
+        filterBar.overflow().add("Save view state", () -> viewState.save()).setName("encounter-library-save-view");
+        filterBar.overflow().add("Reset saved view state", viewState::resetSaved).setName("encounter-library-reset-view");
+        viewState.onStatus(this::viewStateChanged); viewStateChanged();
+        RosterViewState.listenTable(table, this::rememberViewState);
         lastSaved = captureViewState();   // what it loaded: only a change is written
+    }
+    /** The saved view's status as a warning line while it is a failure (a save failed, or the saved state could not be read). */
+    private void viewStateChanged() {
+        boolean problem = viewState.statusProblem();
+        stateBanner.setText(problem ? viewState.statusText() : "");
+        if (stateBanner.isVisible() != problem) { stateBanner.setVisible(problem); revalidate(); }
     }
     public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
         if (viewState == null) throw new IllegalStateException("View state is not bound"); return viewState.save();
@@ -806,7 +949,11 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         values.put("selected", valid(selectedKey) ? selectedKey : "");
         Set<String> checks = new LinkedHashSet<>(rememberedChecks); for (EncounterCatalog.Entry entry : catalog.checkedEntries()) checks.add(EncounterCatalog.reference(entry));
         values.put("checked", String.join("\n", checks)); values.put("catalog", catalog.lifetimeId()); values.put("generation", Long.toString(catalog.generation()));
-        RosterViewState.captureTable(values, table); return values;
+        RosterViewState.captureTable(values, table);
+        // Every column's width, shown or hidden, so switching modes changes nothing that is saved; widths of this layout only.
+        for (int i = 0; i < columns.length; i++) values.put("width." + i, Integer.toString(Math.min(10000, Math.max(16, columns[i].getWidth()))));
+        values.put("columns", LAYOUT);
+        return values;
     }
     private Runnable prepareViewState(Map<String, String> values) {
         int selectedSource = RosterViewState.option(values, "source", source.getSelectedIndex(), "ANY", "CAPTURED", "SAVED", "FULL_DETAIL", "IMPORTED");
@@ -821,7 +968,20 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         long generation = values.containsKey("generation") ? Long.parseLong(values.get("generation")) : catalog.generation();
         if (generation < 0) throw new IllegalArgumentException("Invalid catalog generation");
         boolean cleared = catalog.lifetimeId().equals(values.get("catalog")) && generation != catalog.generation();
-        Runnable columns = RosterViewState.prepareTable(values, table);
+        // The sort through the table helper; the widths here, for hidden columns too, and only when saved by this column layout
+        // (the older layout's widths summed past the desktop table, P5b finding 2).
+        Map<String, String> sortOnly = new LinkedHashMap<>(values);
+        sortOnly.keySet().removeIf(key -> key.startsWith("width."));
+        Runnable sort = RosterViewState.prepareTable(sortOnly, table);
+        Map<Integer, Integer> widths = new HashMap<>();
+        if (LAYOUT.equals(values.get("columns"))) for (int i = 0; i < this.columns.length; i++)
+            if (values.containsKey("width." + i)) widths.put(i, RosterViewState.number(values, "width." + i, 75, 16, 10000));
+        Runnable columns = () -> {
+            sort.run();
+            for (Map.Entry<Integer, Integer> width : widths.entrySet()) {
+                TableColumn column = this.columns[width.getKey()]; column.setPreferredWidth(width.getValue()); column.setWidth(width.getValue());
+            }
+        };
         return () -> {
             restoringState = true;
             try {
@@ -876,6 +1036,112 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
         String localContext() { return summary == null ? null : summary.localContext; }
     }
 
+    /**
+     * The table's sorter: the live row stays the first row under every sort, in either direction (P5b finding 4). The sorter reads the
+     * live row as {@link #PINNED}, which each column's order puts first whichever way that column is sorted, and a recording's
+     * missing value as {@link #NONE}, which sorts as the sorter sorts a null (before any value, ascending). Everything else is the
+     * column's own order.
+     */
+    private static final class PinnedSorter extends TableRowSorter<EncounterModel> {
+        private static final Object PINNED = new Object(), NONE = new Object();
+
+        PinnedSorter(EncounterModel model) {
+            super(model);
+            ModelWrapper<EncounterModel, Integer> plain = getModelWrapper();
+            setModelWrapper(new ModelWrapper<EncounterModel, Integer>() {
+                @Override public EncounterModel getModel() { return plain.getModel(); }
+                @Override public int getColumnCount() { return plain.getColumnCount(); }
+                @Override public int getRowCount() { return plain.getRowCount(); }
+                @Override public Object getValueAt(int row, int column) {
+                    if (model.rows.get(row).item == null) return PINNED;
+                    Object value = plain.getValueAt(row, column);
+                    return value == null ? NONE : value;
+                }
+                @Override public String getStringValueAt(int row, int column) { return plain.getStringValueAt(row, column); }
+                @Override public Integer getIdentifier(int row) { return plain.getIdentifier(row); }
+            });
+            for (int column = 0; column < model.getColumnCount(); column++) {
+                @SuppressWarnings("unchecked") Comparator<Object> order = (Comparator<Object>) getComparator(column);
+                int index = column;
+                setComparator(column, (a, b) -> {
+                    if (a == PINNED || b == PINNED) return a == b ? 0 : (a == PINNED ? -1 : 1) * (descending(index) ? -1 : 1);
+                    if (a == NONE || b == NONE) return a == b ? 0 : a == NONE ? -1 : 1;
+                    return order.compare(a, b);
+                });
+            }
+        }
+
+        /** The sorter negates a descending key's order; the live row's comparison is negated first, so it stays first. */
+        private boolean descending(int column) {
+            for (SortKey key : getSortKeys()) if (key.getColumn() == column) return key.getSortOrder() == SortOrder.DESCENDING;
+            return false;
+        }
+    }
+
+    /**
+     * The status line with the file actions at its end, on one line while the status keeps at least half of it; otherwise (a narrow
+     * page, a large font, or View imported encounter shown) the actions go on their own line below the status, at its end.
+     */
+    private static final class StatusRow extends JPanel {
+        private static final int GAP = Tokens.S;
+        private final JComponent text;
+        private final JPanel actions;
+        private int laidOutWidth = -1;
+
+        StatusRow(JComponent text, JPanel actions) {
+            super(null);
+            this.text = text; this.actions = actions;
+            setOpaque(false);
+            add(text); add(actions);
+        }
+
+        private boolean beside(int width) { return width <= 0 || actions.getPreferredSize().width <= width / 2; }
+        private int width() { return getWidth() > 0 ? getWidth() : getParent() == null ? 0 : getParent().getWidth(); }
+
+        /** The wrapping status's height at {@code width}: sized first, as a wrapping text area measures at its own width. */
+        private int textHeight(int width) {
+            if (width > 0 && text.getWidth() != width) text.setSize(width, Math.max(1, text.getHeight()));
+            return text.getPreferredSize().height;
+        }
+
+        @Override public Dimension getPreferredSize() {
+            Insets insets = getInsets();
+            int width = width() - insets.left - insets.right;
+            Dimension buttons = actions.getPreferredSize();
+            if (beside(width)) {
+                int textWidth = width <= 0 ? text.getPreferredSize().width : width - buttons.width - GAP;
+                return new Dimension(textWidth + GAP + buttons.width + insets.left + insets.right,
+                    Math.max(textHeight(textWidth), buttons.height) + insets.top + insets.bottom);
+            }
+            return new Dimension(width + insets.left + insets.right, textHeight(width) + GAP + buttons.height + insets.top + insets.bottom);
+        }
+        @Override public Dimension getMinimumSize() { return new Dimension(0, getPreferredSize().height); }
+
+        @Override public void doLayout() {
+            Insets insets = getInsets();
+            int width = getWidth() - insets.left - insets.right, x = insets.left, y = insets.top;
+            Dimension buttons = actions.getPreferredSize();
+            if (beside(width)) {
+                int textWidth = Math.max(0, width - buttons.width - GAP), height = Math.max(textHeight(textWidth), buttons.height);
+                text.setBounds(x, y + (height - textHeight(textWidth)) / 2, textWidth, textHeight(textWidth));
+                actions.setBounds(x + width - buttons.width, y + (height - buttons.height) / 2, buttons.width, buttons.height);
+            } else {
+                int textHeight = textHeight(width);
+                text.setBounds(x, y, width, textHeight);
+                actions.setBounds(x + Math.max(0, width - buttons.width), y + textHeight + GAP, Math.min(width, buttons.width), buttons.height);
+            }
+        }
+
+        /** A new width can move the actions beside or below the status: lay the page out again once it is known. */
+        @Override public void setBounds(int x, int y, int width, int height) {
+            super.setBounds(x, y, width, height);
+            if (width != laidOutWidth) {
+                laidOutWidth = width;
+                if (getPreferredSize().height != height) SwingUtilities.invokeLater(this::revalidate);
+            }
+        }
+    }
+
     /** Renders the recordings' columns: words for unknowns, blank cells on the live row, reasons as tooltips. */
     private final class RecordingCell extends ContentStyle.Cell {
         @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int row, int column) {
@@ -883,15 +1149,18 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
             Row data = model.rows.get(table.convertRowIndexToModel(row));
             int index = table.convertColumnIndexToModel(column);
             String text = getText(), tip = null;
-            if (data.item == null) { text = index == 2 ? LIVE : ""; tip = index == 2 ? "The live meter; Open shows it" : null; }
+            if (data.item == null) {   // the live row: what it is, not blank cells
+                text = index == 2 ? LIVE : index == 9 ? LIVE_HINT : "";
+                tip = index == 2 || index == 9 ? "The live meter; Open shows it" : null;
+            }
             else switch (index) {
                 case 1: tip = data.entry == null ? "Not in memory; Open loads its full detail or shows its summary when it has one" : "Library entry " + data.entry.id; break;
                 case 3: text = value == null ? "Not captured" : DisplayFormat.formatTimestamp((Long) value); break;
                 case 4: text = value == null ? "Unavailable" : DisplayFormat.formatNumber(((Long) value) / 1000d, 0, 1); break;
                 case 6: text = value == null ? "—" : DisplayFormat.formatInteger((Long) value); break;
                 case 8: if (value == null) { text = "—"; tip = "Local context is read from the full recording; it is known once the recording is in memory"; } break;
-                case 9: tip = data.runTip; break;
-                case 10: tip = data.savedTip; break;
+                case 9: tip = data.run + ". " + data.runTip; break;   // the whole label too, should the column be narrower than it
+                case 10: tip = data.saved + ". " + data.savedTip; break;
                 default: break;
             }
             setText(text); setToolTipText(tip);

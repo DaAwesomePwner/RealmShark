@@ -3,12 +3,15 @@ package tomato.gui.runs;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.JList;
 import javax.swing.SwingUtilities;
 import org.junit.Test;
+import tomato.gui.kit.Type;
+import tomato.gui.modern.ContentStyle;
 import tomato.history.link.VisitRef;
 import static org.junit.Assert.*;
 
@@ -212,6 +215,90 @@ public class DungeonCardRendererTest {
             assertEquals("The painted line", "Best DPS 12.3k · 14 Jan 14:32", renderer.shown().best().value());
             contains(renderer.getAccessibleContext().getAccessibleName(), "entered 14 Jan 14:32");
         });
+    }
+
+    /**
+     * P5b Task 15b (evidence finding 8): no painted caption is cut. A reason too long for its line paints a shorter form that still
+     * says why (a short form of the model's fixed reasons, its first sentence or the words before its first clause), never "—" or
+     * "…"; the whole reason stays in the line's tooltip and in the accessible name. Checked at the body fonts of 1240×800 font 13
+     * and 680×520 font 18 (the cell is fixed and follows the font) for every state and the longest reasons the model writes.
+     */
+    @Test public void noPaintedCaptionIsCutAtEitherFont() throws Exception {
+        List<DungeonCardModel> cards = new ArrayList<>(List.of(full(), partialLoot(), noFinishedRun(), noVerifiedDps(), allUnknown()));
+        cards.addAll(longestReasons());
+        SwingUtilities.invokeAndWait(() -> {
+            Font previous = ContentStyle.body();
+            try {
+                for (int size : new int[]{13, 18}) {
+                    ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, size));
+                    DungeonCardRenderer renderer = new DungeonCardRenderer(() -> true);
+                    Dimension cell = renderer.cellSize();
+                    FontMetrics caption = renderer.getFontMetrics(Type.caption());
+                    int shortened = 0;
+                    for (DungeonCardModel card : cards) {
+                        renderer.getListCellRendererComponent(new JList<>(), card, 0, false, false);
+                        renderer.setSize(cell);
+                        DungeonCardRenderer.Lines lines = renderer.shown();
+                        String name = renderer.getAccessibleContext().getAccessibleName();
+                        for (int i = 0; i < 4; i++) {
+                            DungeonCardRenderer.Fact fact = lines.facts().get(i);
+                            String painted = renderer.paintedCaption(i, cell.width, cell.height);
+                            int width = renderer.factBounds(i, cell.width, cell.height).width;
+                            String where = size + " pt, " + card.canonical() + ", fact " + i + ": '" + painted + "' for '" + fact.note() + "'";
+                            assertTrue("Fits its line: " + where, caption.stringWidth(painted) <= width);
+                            assertFalse("Never cut with an ellipsis: " + where, painted.endsWith("…"));
+                            assertTrue("The whole caption or a shorter form of it: " + where,
+                                painted.equals(fact.note()) || DungeonCardRenderer.shorter(fact.note()).contains(painted));
+                            if (!painted.equals(fact.note())) shortened++;
+                            if (fact.value().endsWith("—")) {
+                                assertFalse("An unknown always says why in words: " + where, painted.isBlank() || painted.equals("—"));
+                                assertTrue("The whole reason stays in the tooltip: " + where, fact.tip().contains(fact.note()));
+                                assertTrue("…and in the accessible name: " + where, name.contains(lower(fact.note())));
+                            }
+                        }
+                    }
+                    assertTrue("The longest reasons are shortened at " + size + " pt", shortened > 0);
+                }
+            } finally {
+                ContentStyle.setBodyFont(previous);
+            }
+        });
+        assertEquals("A fixed reason's short form still says why", List.of("Your row was not verified in the recordings"),
+            DungeonCardRenderer.shorter(DungeonCardModel.UNVERIFIED_LOCAL));
+        assertEquals(List.of("No finished run yet · not counted: 1 unknown", "No finished run yet (Completed, Left or App ended)", "No finished run yet"),
+            DungeonCardRenderer.shorter(allUnknown().completionReason()));
+        assertEquals(List.of("Best of 2 of 5 completed runs"), DungeonCardRenderer.shorter(LONG_BEST));
+    }
+
+    private static final String LONG_BEST = "Best of 2 of 5 completed runs; the others: 1 without a linked recording, 1 whose session's combat"
+        + " records could not be read, 1 without your verified row.";
+
+    /** Cards carrying the longest reasons {@link DungeonCardModel} writes, fixed and composed, on every line. */
+    static List<DungeonCardModel> longestReasons() {
+        List<DungeonCardModel> cards = new ArrayList<>();
+        String completion = DungeonCardModel.NO_FINISHED_RUN + " Not counted: 12 in progress, 3 unknown.";
+        String[] durations = {DungeonCardModel.NO_OBSERVED_SPAN, DungeonCardModel.NO_COMPLETED_RUN};
+        String[] loot = {DungeonCardModel.LOOT_NOT_SAVED, DungeonCardModel.LOOT_UNREADABLE,
+            "Loot is unknown for every completed run: 3 in sessions that saved no loot bag, 2 whose sessions' loot could not be read."};
+        String[] dps = {DungeonCardModel.NO_RECORDING, DungeonCardModel.COMBAT_UNREADABLE, DungeonCardModel.UNVERIFIED_LOCAL,
+            DungeonCardModel.NO_WINDOW, DungeonCardModel.NO_DAMAGE, "No completed run has your verified DPS: 12 without a linked recording,"
+            + " 3 whose sessions' combat records could not be read, 2 without your verified row, 1 whose recording has no timed window,"
+            + " 4 where your verified row recorded no damage."};
+        for (int i = 0; i < dps.length; i++)
+            cards.add(new DungeonCardModel("Unknown " + i, "Unknown " + i, 0, 20, 0, 0, 0, 12, 3, null, null, 0, null, 0, 0, null, null, null,
+                completion, durations[i % durations.length], loot[i % loot.length], dps[i], 0));
+        // Known values with partial reasons: the composed forms.
+        cards.add(new DungeonCardModel("Partial", "Partial", 0, 20, 5, 0, 0, 12, 3, 1.0, 600_000L, 3, 2.0, 2, 3, 1_234.0, BEST, "r-partial",
+            "Not counted: 12 in progress, 3 unknown.", "2 of 5 completed runs left out (no observed span).",
+            "3 of 5 completed runs left out (loot unknown): 2 in sessions that saved no loot bag, 1 whose session's loot could not be read.",
+            LONG_BEST, 0));
+        return cards;
+    }
+
+    /** The renderer's clause rule: first letter lower case, no final period. */
+    private static String lower(String sentence) {
+        String text = sentence.endsWith(".") ? sentence.substring(0, sentence.length() - 1) : sentence;
+        return text.isEmpty() ? text : Character.toLowerCase(text.charAt(0)) + text.substring(1);
     }
 
     /** No painted value reads as a zero count or rate. */

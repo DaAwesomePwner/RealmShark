@@ -21,23 +21,25 @@ public class EncounterViewStateTest {
         SwingUtilities.invokeAndWait(() -> {
             TomatoData source = new TomatoData(); DpsGUI dps = new DpsGUI(source); dps.encounters().add(a); EncounterCatalog.Entry chosen = dps.encounters().add(b).entry;
             DungeonListGUI view = new DungeonListGUI(dps, source, memory.store); JTable table = named(view, "saved-encounters", JTable.class); view.refreshEncounters(); await(() -> table.getRowCount() == 3);
-            for (int row = 0; row < table.getRowCount(); row++) if ("variant.dps".equals(table.getValueAt(row, 7))) { table.setRowSelectionInterval(row, row); table.setValueAt(true, row, 0); }
+            for (int row = 0; row < table.getRowCount(); row++) if ("variant.dps".equals(cell(table, row, 7))) { table.setRowSelectionInterval(row, row); table.setValueAt(true, row, 0); }
             named(view, "encounter-search", JTextField.class).setText("Run");
-            table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING))); table.getColumnModel().getColumn(2).setWidth(307); view.saveViewState();
+            table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(4, SortOrder.DESCENDING))); table.getColumnModel().getColumn(table.convertColumnIndexToView(2)).setWidth(307); view.saveViewState();
             TomatoData secondSource = new TomatoData(); DpsGUI secondDps = new DpsGUI(secondSource); EncounterCatalog.Entry restoredEntry = secondDps.encounters().add(alias).entry; secondDps.encounters().add(a);
             assertNotEquals(chosen.id, restoredEntry.id);
             DungeonListGUI reopened = new DungeonListGUI(secondDps, secondSource, memory.store); JTable restored = named(reopened, "saved-encounters", JTable.class); reopened.refreshEncounters(); await(() -> restored.getRowCount() == 3);
             assertEquals("Run", named(reopened, "encounter-search", JTextField.class).getText());
-            assertEquals("renamed.dps", restored.getValueAt(restored.getSelectedRow(), 7)); assertEquals(Boolean.TRUE, restored.getValueAt(restored.getSelectedRow(), 0));
+            assertEquals("renamed.dps", cell(restored, restored.getSelectedRow(), 7)); assertEquals(Boolean.TRUE, restored.getValueAt(restored.getSelectedRow(), 0));
             assertTrue(secondDps.encounters().checked(restoredEntry.id)); assertEquals(1, secondDps.encounters().checkedEntries().size());
-            assertEquals(307, restored.getColumnModel().getColumn(2).getWidth());
+            assertEquals(307, restored.getColumnModel().getColumn(restored.convertColumnIndexToView(2)).getWidth());
             secondDps.setIndex(-1); // Explicit meter navigation wins over an older dialog selection.
             DungeonListGUI live = new DungeonListGUI(secondDps, secondSource, memory.store); JTable liveTable = named(live, "saved-encounters", JTable.class); live.refreshEncounters();
-            await(() -> liveTable.getRowCount() == 3); assertEquals("Live", liveTable.getValueAt(liveTable.getSelectedRow(), 2));
+            await(() -> liveTable.getRowCount() == 3); assertEquals("Live", cell(liveTable, liveTable.getSelectedRow(), 2));
             assertTrue(secondDps.encounters().checked(restoredEntry.id));
             DpsGUI.clearDpsLogs(); reopened.saveViewState(); secondDps.encounters().add(alias);
             DungeonListGUI cleared = new DungeonListGUI(secondDps, secondSource, memory.store); cleared.refreshEncounters(); await(() -> named(cleared, "saved-encounters", JTable.class).getRowCount() == 2);
             assertTrue(secondDps.encounters().checkedEntries().isEmpty());
         });
     }
+    /** The model's value at view row {@code row}, model column {@code column}: the view orders the columns and Simple hides some. */
+    private static Object cell(JTable table, int row, int column) { return table.getModel().getValueAt(table.convertRowIndexToModel(row), column); }
 }
