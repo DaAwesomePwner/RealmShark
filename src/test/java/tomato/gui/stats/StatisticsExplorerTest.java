@@ -125,17 +125,17 @@ public class StatisticsExplorerTest {
                 assertEquals(2, named(panel, "loot-view-0", JTable.class).getValueAt(0, 2));
                 assertEquals(3, named(mirror, "loot-view-0", JTable.class).getValueAt(0, 2));
                 named(panel, "loot-bag-filter", JComboBox.class).setSelectedItem("Blue");
-                find(panel, JTabbedPane.class).setSelectedIndex(3);
+                view(panel, 3);
                 assertEquals(0, named(panel, "loot-view-3", JTable.class).getRowCount());
-                find(mirror, JTabbedPane.class).setSelectedIndex(4);
+                view(mirror, 4);
                 named(mirror, "loot-recent-range", JComboBox.class).setSelectedIndex(1);
                 assertEquals(1, named(mirror, "loot-view-4", JTable.class).getRowCount());
-                find(mirror, JTabbedPane.class).setSelectedIndex(0);
+                view(mirror, 0);
                 assertEquals(3, named(mirror, "loot-view-0", JTable.class).getValueAt(0, 2));
 
                 mirror.setVisible(false); frame[0].validate(); assertFalse(mirror.isShowing());
                 named(mirror, "loot-view-0", JTable.class).getModel().addTableModelListener(e -> mirrorChanges[0]++);
-                find(panel, JTabbedPane.class).setSelectedIndex(0);
+                view(panel, 0);
                 panel.accept(new LootDashboard.Drop("Blue", "Lost Halls", "Boss", 700000, Arrays.asList(item)));
                 assertArrayEquals(new int[]{3, 4}, mirror.sessionTotals());
             });
@@ -156,7 +156,7 @@ public class StatisticsExplorerTest {
                 assertEquals("All dungeons", named(mirror, "loot-dungeon-filter", JComboBox.class).getSelectedItem());
                 assertEquals("All bags", named(mirror, "loot-bag-filter", JComboBox.class).getSelectedItem());
                 assertEquals(1, named(mirror, "loot-recent-range", JComboBox.class).getSelectedIndex());
-                find(mirror, JTabbedPane.class).setSelectedIndex(4);
+                view(mirror, 4);
                 JTable recent = named(mirror, "loot-view-4", JTable.class);
                 assertEquals(2, recent.getRowCount());
                 recent.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
@@ -252,6 +252,10 @@ public class StatisticsExplorerTest {
             if (c instanceof Container) { T result = named((Container)c, name, type); if (result != null) return result; }
         }
         return null;
+    }
+    /** The tabs became a view selector: chooses the live view at {@code index} (its persisted index) as a user does. */
+    private static void view(LootDashboard panel, int index) {
+        named(panel, "loot-views", JComboBox.class).setSelectedItem(LootExploreModel.liveView(index));
     }
     private static <T> T find(Container root, Class<T> type) {
         for (Component c : root.getComponents()) {

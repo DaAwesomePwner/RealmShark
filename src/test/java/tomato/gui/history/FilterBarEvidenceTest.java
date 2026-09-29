@@ -43,7 +43,7 @@ import static tomato.gui.chat.SocialArchiveTestSupport.edt;
 /**
  * S6 evidence: adopted pages with filters collapsed and open, 1240×800 and 680×520, fonts 13 and 18. Synthetic data only; no capture.
  * P5b adds Runs &amp; DPS's three filter rows: {@code dps-meter} (the Live meter), {@code encounter-library} (Recordings) and
- * {@code dungeons}.
+ * {@code dungeons}. P6a adds Loot's live row ({@code loot-live}) and checks Loot's view selector, live and saved.
  */
 public class FilterBarEvidenceTest {
     @Rule public final TableViewRule tableView = new TableViewRule();
@@ -59,7 +59,9 @@ public class FilterBarEvidenceTest {
                     // Timeline, Resources and Party: their drawer keys, and the tab layouts the Resources page reads.
                     "ui.filters.timeline.open", "ui.filters.combat.open", "ui.filters.inspect-roster.open", "ui.tabs.activity-combat", "ui.tabs.saved-resources",
                     // P5b: the Live meter, Recordings and Dungeons drawers, the meter's nested tabs and the Dungeons view.
-                    "ui.filters.dps-meter.open", "ui.filters.encounter-library.open", "ui.filters.dungeons.open", "ui.tabs.dps", "ui.dungeons.view"}) {
+                    "ui.filters.dps-meter.open", "ui.filters.encounter-library.open", "ui.filters.dungeons.open", "ui.tabs.dps", "ui.dungeons.view",
+                    // P6a: Loot's live filter row.
+                    "ui.filters.loot-live.open"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -127,6 +129,11 @@ public class FilterBarEvidenceTest {
                 ArchiveWorkspace<LootQuery.Row, LootQuery.Facets, LootQuery.Sort> loot = HistoricalStatistics.lootWorkspace(store, new LootDashboard(), lootScratch, memory.states);
                 LootQuery.Facets items = loot.state().query.facets(); items.bags.add("White"); items.kind = LootQuery.Kind.UT_EQUIPMENT;
                 loot.changeQuery(loot.state().query.withFacets(items)); built.add(archive("loot", loot));
+                // P6a: Loot's live bar, its view selector in the search slot, a UT facet applied through the drawer's controls.
+                LootDashboard lootLive = new LootDashboard();
+                VisualEvidence.named(lootLive, "loot-kind", JComboBox.class).setSelectedItem(LootQuery.Kind.UT_EQUIPMENT);
+                VisualEvidence.named(lootLive, "loot-apply-facets", AbstractButton.class).doClick();
+                built.add(new Page("loot-live", lootLive, VisualEvidence.named(lootLive, "loot-live-filter-bar", FilterBar.class), () -> true));
                 ArchiveWorkspace<ChatArchiveClient.Row, ChatArchiveClient.Facets, ChatArchiveClient.Sort> chat =
                     (ArchiveWorkspace<ChatArchiveClient.Row, ChatArchiveClient.Facets, ChatArchiveClient.Sort>) new ChatGUI(new TomatoData()).workspace(store, chatScratch, memory.states);
                 ChatArchiveClient.Facets channel = chat.state().query.facets(); channel.channel = "GUILD"; channel.starredOnly = true;
@@ -183,6 +190,7 @@ public class FilterBarEvidenceTest {
                         assertEquals(page.name + " drawer visibility", open, page.bar.drawerContent().isShowing());
                         assertTrue(page.name + " shows its active filters as chips", page.bar.activeCount() > 0);
                         if (!open && size[0] == 1240 && font == 13) assertOneFilterRow(page.name, page.bar);
+                        if (!open && size[0] == 1240 && font == 13 && page.name.startsWith("loot")) assertLootViewSelector(page);
                         return null;
                     });
                 }
@@ -231,6 +239,24 @@ public class FilterBarEvidenceTest {
     private static ParsePanelGUI inspectRoster() throws ReflectiveOperationException {
         Constructor<ParsePanelGUI> roster = ParsePanelGUI.class.getDeclaredConstructor(boolean.class); roster.setAccessible(true);
         return roster.newInstance(false);
+    }
+
+    /**
+     * P6a: Loot's one view selector. Live, it sits in the filter row's search slot; saved, it leads the saved view right under the
+     * workspace's filter row (the row's search slot belongs to the shared archive workspace until P6b merges the scope row).
+     */
+    private static void assertLootViewSelector(Page page) {
+        AbstractButton filters = VisualEvidence.named(page.bar, page.bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class);
+        Component slot = filters.getParent().getComponent(0);
+        if (page.name.equals("loot-live")) {
+            assertTrue("loot-live: the view selector sits in the search slot",
+                SwingUtilities.isDescendingFrom(VisualEvidence.named(page.bar, "loot-views", JComboBox.class), slot));
+            return;
+        }
+        JComboBox<?> selector = VisualEvidence.named(page.root, "loot-archive-view", JComboBox.class);
+        assertTrue("loot: the saved view selector is shown", selector.isShowing());
+        int barBottom = SwingUtilities.convertPoint(page.bar, 0, page.bar.getHeight(), page.root).y, top = SwingUtilities.convertPoint(selector, 0, 0, page.root).y;
+        assertTrue("loot: the saved view selector leads the saved view, right under the filter row", top >= barBottom && top - barBottom < 3 * selector.getHeight());
     }
 
     /** S6 at desktop width: with the drawer closed, the search slot and the Filters toggle share one row. */

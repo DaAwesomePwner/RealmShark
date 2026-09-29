@@ -48,7 +48,9 @@ public class StatisticsArchiveNativeTest {
             JComponent shell = edt(() -> TestPages.shell("loot",workspace));
             try {
                 edt(() -> { evidence.show(shell,"Loot live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
-                evidence.settle(); edt(() -> { evidence.capture("loot-live-default"); workspace.selectSession(SessionStore.ALL); return null; });
+                // A fresh saved Loot opens on All Items: ask for every occurrence of every session (the rows this test filters, pages and saves).
+                evidence.settle(); edt(() -> { evidence.capture("loot-live-default"); Facets f = workspace.state().query.facets(); f.view = View.OCCURRENCES;
+                    workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withFacets(f)); return null; });
                 await(() -> ready(workspace) && workspace.displayedPage().matches == 140);
                 edt(() -> { named(workspace,"loot-history-search",JTextField.class).setText("Needle"); named(workspace,"loot-history-search",JTextField.class).postActionEvent(); return null; });
                 await(() -> ready(workspace) && workspace.displayedPage().matches == 130);
@@ -68,7 +70,7 @@ public class StatisticsArchiveNativeTest {
                     assertEquals(130,workspace.displayedPage().matches); assertTrue(named(workspace,"loot-archive-details",JTextArea.class).getText().contains("Origin:"));
                     archiveControls(workspace,"loot","loot-archive-table","loot-archive-details");
                 });
-                edt(() -> { JTabbedPane tabs = named(workspace,"loot-archive-tabs",JTabbedPane.class); tabs.setSelectedIndex(tabs.indexOfTab("By Bag")); return null; });
+                edt(() -> { named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.BAGS); return null; });
                 await(() -> ready(workspace) && workspace.state().query.facets().view == View.BAGS);
                 assertEquals(1,edt(() -> workspace.displayedPage().matches).longValue());
                 edt(() -> { workspace.loadNamed("Needle occurrences"); return null; });
@@ -102,7 +104,7 @@ public class StatisticsArchiveNativeTest {
                     completeButton(named(workspace,"archive-open-fame",JButton.class));
                 });
                 edt(() -> { workspace.changeQuery(workspace.state().query.withText("")); return null; }); await(() -> ready(workspace));
-                edt(() -> { JTabbedPane tabs = named(workspace,"loot-archive-tabs",JTabbedPane.class); tabs.setSelectedIndex(tabs.indexOfTab("Character fame")); return null; });
+                edt(() -> { named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.FAME); return null; });
                 await(() -> ready(workspace) && workspace.state().query.facets().view == View.FAME && workspace.displayedPage().matches == 2);
                 edt(() -> { for (ArchiveRow<Row> row : workspace.displayedPage().rows) assertEquals(Double.valueOf(25),row.value.gain);
                     named(workspace,"loot-archive-table",JTable.class).setRowSelectionInterval(0,0); return null; });

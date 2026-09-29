@@ -75,9 +75,9 @@ public class WaveFourEvidenceTest {
                 // ArchiveWorkspace supplies this scroll fallback in production.
                 JComponent host=edt(()->tomato.gui.modern.ContentStyle.page(null,panel,null));
                 screens(host,"loot-initial-top",()->{
-                    JTabbedPane tabs=named(panel,"loot-archive-tabs",JTabbedPane.class);
-                    assertTrue("Initial tab header remains reachable",tabs.getVisibleRect().height>0);
-                    assertEquals("Initial archive view starts at its header",0,tabs.getVisibleRect().y);
+                    JComboBox<?> views=named(panel,"loot-archive-view",JComboBox.class);
+                    assertTrue("Initial view selector remains reachable",views.getVisibleRect().height>0);
+                    assertEquals("Initial archive view starts at its header",0,views.getVisibleRect().y);
                 });
                 screens(host,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("Exact enchantment evidence"));reveal(details);});
                 screens(host,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("LEGACY_NOT_RECORDED"));reveal(details);});

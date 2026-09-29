@@ -220,14 +220,14 @@ public class FameFormattingTest {
                     Locale.setDefault(Locale.Category.FORMAT, locale);
                     boolean german = locale.equals(Locale.GERMANY);
                     for (LootDashboard panel : Arrays.asList(first, mirror)) {
-                        JTabbedPane views = named(panel, "loot-views", JTabbedPane.class); views.setSelectedIndex(3);
-                        JLabel[] metrics = field(panel, "metrics", JLabel[].class);
-                        assertEquals(german ? "1.234" : "1,234", metrics[0].getText());
-                        assertEquals(german ? "2.469" : "2,469", metrics[1].getText());
-                        assertEquals(german ? "1.234" : "1,234", metrics[2].getText()); assertEquals(metrics[0].getText(), metrics[3].getText());
+                        JComboBox<?> views = named(panel, "loot-views", JComboBox.class); views.setSelectedItem(LootExploreModel.liveView(3));
+                        tomato.gui.kit.StatTile[] metrics = field(panel, "metrics", tomato.gui.kit.StatTile[].class);
+                        assertEquals(german ? "1.234" : "1,234", metrics[0].valueText());
+                        assertEquals(german ? "2.469" : "2,469", metrics[1].valueText());
+                        assertEquals(german ? "1.234" : "1,234", metrics[2].valueText()); assertEquals(metrics[0].valueText(), metrics[3].valueText());
                         JTable bags = named(panel, "loot-view-3", JTable.class);
-                        assertEquals(metrics[0].getText(), cell(bags, 0, 1)); assertEquals(metrics[1].getText(), cell(bags, 0, 2));
-                        views.setSelectedIndex(0); JTable items = named(panel, "loot-view-0", JTable.class);
+                        assertEquals(metrics[0].valueText(), cell(bags, 0, 1)); assertEquals(metrics[1].valueText(), cell(bags, 0, 2));
+                        views.setSelectedItem(LootExploreModel.liveView(0)); JTable items = named(panel, "loot-view-0", JTable.class);
                         int potionRow = row(items, 1, "Potion of Test"), itemRow = row(items, 1, "Item #900000");
                         assertEquals(german ? "1.234" : "1,234", cell(items, potionRow, 2));
                         assertNull(items.getValueAt(potionRow, 6)); assertEquals("—", cell(items, potionRow, 6));
@@ -245,7 +245,7 @@ public class FameFormattingTest {
                         assertTrue(scope.contains("item summaries retain the full app session"));
                         items.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.ASCENDING)));
                         assertEquals(1, items.getValueAt(0, 2)); assertEquals(1234, items.getValueAt(items.getRowCount() - 1, 2));
-                        views.setSelectedIndex(5);
+                        views.setSelectedItem(LootExploreModel.liveView(5));
                         assertTrue(field(panel, "results", JLabel.class).getText().startsWith(german ? "1.234 rows shown" : "1,234 rows shown"));
                         assertArrayEquals(new int[]{1234, 2469}, panel.sessionTotals());
                         assertEquals(recentBefore, json.toJson(panel.recentDrops()));

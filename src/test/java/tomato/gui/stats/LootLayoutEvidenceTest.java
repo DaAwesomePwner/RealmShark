@@ -43,7 +43,7 @@ public class LootLayoutEvidenceTest {
                     Collections.singletonList(new LootDashboard.Item(910001, "Synthetic blade", "EQUIPMENT,WEAPON,UT", ParseEnchants.summarize("")))),
                 new LootDashboard.Drop("Orange", "The Shatters", "Synthetic boss", 2000,
                     Collections.singletonList(new LootDashboard.Item(910002, "Synthetic ring", "EQUIPMENT,RING,UT", ParseEnchants.summarize(null))))));
-            named(panel[0], "loot-views", JTabbedPane.class).setSelectedIndex(6);
+            named(panel[0], "loot-views", JComboBox.class).setSelectedItem(LootExploreModel.liveView(6));
             // The live Loot workspace supplies this scrolling route; a bare dashboard omits its minimum-height contract.
             // The route stays on its live card, so its saved-history loader is never asked for a page.
             route = new SessionPanel(store, "loot", panel[0], (history, scope, page, query) -> {

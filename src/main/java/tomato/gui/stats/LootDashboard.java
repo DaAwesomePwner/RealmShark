@@ -19,16 +19,25 @@ import tomato.realmshark.enums.LootBags;
 import tomato.gui.history.ViewStateStore;
 import tomato.gui.history.FilterChips;
 import tomato.gui.history.WrapRow;
+import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.StatTile;
+import tomato.gui.kit.Tokens;
+import tomato.gui.kit.ViewSelector;
 
-/** Session summaries shared by Statistics and the Loot workspace; the live state is a headless {@link Feed}; filters are view-local. */
+/**
+ * Session summaries shared by Statistics and the Loot workspace; the live state is a headless {@link Feed}; filters are view-local.
+ * One view selector ({@code loot-views}, in the filter row's search slot) picks the table shown; with saved history it is Loot ›
+ * Explore's live half ({@link LootExploreModel}).
+ */
 public final class LootDashboard extends JPanel {
     static final int RECENT_LIMIT = 1000;
     private final Feed feed;
     private final State state;
     private final List<LootDashboard> siblings = new ArrayList<>();   // guarded by state
     private final boolean historical;
-    private final JLabel[] metrics = new JLabel[4];
+    private final StatTile[] metrics = {new StatTile("Matching bags"), new StatTile("Matching items"), new StatTile("Matching stat potions"),
+        new StatTile("Matching white bags")};
     private final JLabel results = new JLabel();
     private final JTextArea enchantTotals = StatsUi.note("");
     private final JTextArea scopeNote = StatsUi.note(scopeDescription());
@@ -36,19 +45,24 @@ public final class LootDashboard extends JPanel {
     private final JComboBox<String> bagFilter = new JComboBox<>(new String[]{"All bags"});
     private final JComboBox<String> dungeonFilter = new JComboBox<>(new String[]{"All dungeons"});
     private final JComboBox<String> recentRange = new JComboBox<>(new String[]{"All retained drops", "Last 5 minutes", "Last 15 minutes", "Last hour"});
-    private final JTabbedPane views = new JTabbedPane();
-    private static final String[] VIEW_NAMES = {"All Items", "Stat Potions", "Whites", "By Bag", "Recent Drops", "By Dungeon", "UTs", "STs", "Tiered"};
-    private final BulkModel[] models = new BulkModel[VIEW_NAMES.length];
+    /** The live views by their persisted index ({@link LootExploreModel#LIVE}); the selector shows one card at a time. */
+    private static final int VIEWS = LootExploreModel.LIVE.size();
+    private final ViewSelector<LootQuery.View> views = new ViewSelector<>("loot-views", LootExploreModel::title, LootExploreModel::tooltip);
+    private final JPanel cards = new JPanel(new CardLayout()), recentRow = StatsUi.controls();
+    /** The index of the live view shown: the {@code loot-views} value and the {@code loot-view-<index>} table. */
+    private int shown;
+    private LootExploreModel explore;
+    private final BulkModel[] models = new BulkModel[VIEWS];
     private final List<TableRowSorter<DefaultTableModel>> sorters = new ArrayList<>();
     private boolean rebuilding;
     private long renderedVersion = -1;
-    private final boolean[] dirty = new boolean[VIEW_NAMES.length];
+    private final boolean[] dirty = new boolean[VIEWS];
     private Summary summary;
     private List<Drop> recent = Collections.emptyList();
     private LootQuery.Facets facets=new LootQuery.Facets();
     private final JPanel facetControls=new JPanel(new BorderLayout());
-    private final JTable[] tables=new JTable[VIEW_NAMES.length];
-    private final JScrollPane[] scrolls=new JScrollPane[VIEW_NAMES.length];
+    private final JTable[] tables=new JTable[VIEWS];
+    private final JScrollPane[] scrolls=new JScrollPane[VIEWS];
     private final List<List<String>> rowKeys=new ArrayList<>();
     private final Map<Drop,String> recentKeys=new IdentityHashMap<>();
     private StatisticsLiveState viewState;
@@ -71,15 +85,19 @@ public final class LootDashboard extends JPanel {
         synchronized (state) { state.views.add(this); }
         bagFilter.setName("loot-bag-filter"); dungeonFilter.setName("loot-dungeon-filter"); recentRange.setName("loot-recent-range");
         dungeonFilter.setPrototypeDisplayValue("All dungeons / Lost Halls");
-        // One filter row (search + reset); bag/dungeon choices and the multi-select facets live in the drawer.
+        // One filter row (the view selector, search and reset); bag/dungeon choices, Recent Drops' range and the multi-select
+        // facets live in the drawer.
         JButton reset = new JButton("Reset filters");
         JPanel locations = StatsUi.controls(); locations.add(bagFilter); locations.add(dungeonFilter);
-        JPanel drawer = new JPanel(new BorderLayout(0, 4)); drawer.add(locations, BorderLayout.NORTH); drawer.add(facetControls, BorderLayout.CENTER);
-        filterBar.search(new WrapRow(search, reset)).drawer(drawer); clearFilters = reset::doClick;
-        add(StatsUi.stack(StatsUi.heading("Loot explorer", (historical ? "Saved drops in the selected session scope. " : "Observed drops this app session. ") + "Facets/search filter full aggregates; tab categories narrow the displayed rows."),
-            StatsUi.metrics(metrics, "Matching bags", "Matching items", "Matching stat potions", "Matching white bags"), filterBar), BorderLayout.NORTH);
+        JLabel range = new JLabel("Recent Drops:"); range.setLabelFor(recentRange); recentRange.getAccessibleContext().setAccessibleName("Recent Drops range");
+        recentRow.setName("loot-recent-row"); recentRow.add(range); recentRow.add(recentRange); recentRow.add(new JLabel("relative to the latest captured drop"));
+        JPanel choices = new JPanel(new BorderLayout(0, 4)); choices.add(locations, BorderLayout.NORTH); choices.add(recentRow, BorderLayout.SOUTH);
+        JPanel drawer = new JPanel(new BorderLayout(0, 4)); drawer.add(choices, BorderLayout.NORTH); drawer.add(facetControls, BorderLayout.CENTER);
+        filterBar.search(new WrapRow(views.component(), search, reset)).drawer(drawer); clearFilters = reset::doClick;
+        add(StatsUi.stack(StatsUi.heading("Loot explorer", (historical ? "Saved drops in the selected session scope. " : "Observed drops this app session. ") + "Facets/search filter full aggregates; the view narrows the displayed rows."),
+            tiles(metrics), filterBar), BorderLayout.NORTH);
         enchantTotals.setName("loot-enchant-totals");
-        views.setName("loot-views");
+        cards.setName("loot-view-cards");
         for (int i = 0; i < models.length; i++) {
             rowKeys.add(new ArrayList<>());
             String[] columns = i == 3 ? new String[]{"Bag type", "Bags", "Items"}
@@ -108,44 +126,78 @@ public final class LootDashboard extends JPanel {
             if (i == 4) {
                 table.getColumnModel().getColumn(0).setPreferredWidth(170);
                 StatsUi.timestampColumn(table, 0);
-                JPanel recent = new JPanel(new BorderLayout(0, 6));
-                JPanel filter = StatsUi.controls(); filter.add(recentRange); filter.add(new JLabel("Relative to latest captured drop"));
-                recent.add(filter, BorderLayout.NORTH); recent.add(scrolls[i], BorderLayout.CENTER); views.addTab(VIEW_NAMES[i], recent);
-            } else views.addTab(VIEW_NAMES[i], scrolls[i]);
+            }
+            cards.add(scrolls[i], Integer.toString(i));
         }
-        views.setToolTipTextAt(6, "UT weapons, abilities, armor and rings; excludes potions, runes and other consumables");
-        views.setToolTipTextAt(7, "Only items labeled ST, regardless of bag color");
-        views.setToolTipTextAt(8, "Tiered weapons and armor T13+; abilities T6+");
-        views.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); add(views, BorderLayout.CENTER);
+        relist();
+        add(cards, BorderLayout.CENTER);
         results.setFont(ContentStyle.metadata(ContentStyle.body()));
         add(StatsUi.stack(results, enchantTotals, scopeNote), BorderLayout.SOUTH);
         StatsUi.onSearch(search, this::invalidateScope);
         bagFilter.addActionListener(e -> { if (!rebuilding){facets.bags.clear();if(bagFilter.getSelectedIndex()>0)facets.bags.add((String)bagFilter.getSelectedItem());rememberFacets();invalidateScope();rebuildFacetControls();} });
         dungeonFilter.addActionListener(e -> { if (!rebuilding){facets.dungeons.clear();if(dungeonFilter.getSelectedIndex()>0)facets.dungeons.add((String)dungeonFilter.getSelectedItem());rememberFacets();invalidateScope();rebuildFacetControls();} });
         recentRange.addActionListener(e -> { dirty[4] = true; refresh(); });
-        views.addChangeListener(e -> {facets.view=liveView(views.getSelectedIndex());rememberFacets();invalidateScope();});
+        views.onChange(view -> {
+            if (LootExploreModel.live(view)) show(LootExploreModel.LIVE.indexOf(view));
+            // A saved-only view opens saved history with it; the live dashboard keeps the view it shows.
+            if (explore != null) explore.chosenLive(view);
+            if (!LootExploreModel.live(view)) views.select(liveView(shown));
+        });
+        show(0);
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refresh();
         });
         reset.addActionListener(e -> { search.setText(""); bagFilter.setSelectedIndex(0); dungeonFilter.setSelectedIndex(0); recentRange.setSelectedIndex(0); });
-        reset.addActionListener(e -> {facets=new LootQuery.Facets();facets.view=liveView(views.getSelectedIndex());rememberFacets();invalidateScope();rebuildFacetControls();});
+        reset.addActionListener(e -> {facets=new LootQuery.Facets();facets.view=liveView(shown);rememberFacets();invalidateScope();rebuildFacetControls();});
         rebuildFacetControls();
         refresh();
     }
     public void bindViewState(ViewStateStore store,String key){
         viewState=new StatisticsLiveState(store,key).attach(this);String saved=viewState.value("facets","");
         if(!saved.isEmpty())try{LootQuery.Facets restored=tomato.history.SessionStore.JSON.fromJson(saved,LootQuery.Facets.class);restored.validate();facets=restored;}catch(RuntimeException failure){viewState.reject("Invalid live loot facets");viewState.put("facets",tomato.history.SessionStore.JSON.toJson(facets));}
-        viewState.text(search);viewState.tabs(views);viewState.combo(recentRange);
-        facets.view=liveView(views.getSelectedIndex());
+        viewState.text(search);restoreView();viewState.combo(recentRange);
+        facets.view=liveView(shown);
         for(int i=0;i<tables.length;i++){final int view=i;viewState.table(tables[i],scrolls[i],row->row<rowKeys.get(view).size()?rowKeys.get(view).get(row):"");}
         rebuildFacetControls();invalidateScope();
     }
     /** Binds the views made from this one ({@link #LootDashboard(LootDashboard)}), never other views that share the app's feed. */
     void bindSiblingViewState(ViewStateStore store,String key){List<LootDashboard> bound;synchronized(state){bound=new ArrayList<>(siblings);}for(LootDashboard sibling:bound)sibling.bindViewState(store,key);}
     private void rememberFacets(){if(viewState!=null)viewState.put("facets",tomato.history.SessionStore.JSON.toJson(facets));}
-    private static LootQuery.View liveView(int index){LootQuery.View[] live={LootQuery.View.ITEMS,LootQuery.View.POTIONS,LootQuery.View.WHITES,LootQuery.View.BAGS,LootQuery.View.RECENT,LootQuery.View.DUNGEONS,LootQuery.View.UTS,LootQuery.View.STS,LootQuery.View.TIERED};return index<0?LootQuery.View.ITEMS:live[index];}
+    private static LootQuery.View liveView(int index){return LootExploreModel.liveView(index);}
+    /**
+     * The saved live view: the numeric index under {@code loot-views}, as the tabs wrote it. An index out of range keeps the view
+     * shown; an unreadable one shows the first view.
+     */
+    private void restoreView(){
+        int index;try{index=Integer.parseInt(viewState.value("loot-views","0"));}catch(NumberFormatException unreadable){index=0;}
+        if(index>=0&&index<VIEWS){views.select(liveView(index));if(index!=shown)show(index);}
+    }
+    /** Shows the live view at {@code index}: its card, Recent Drops' range with Recent Drops only, and its view state (index, facets.view). */
+    private void show(int index){
+        shown=index;((CardLayout)cards.getLayout()).show(cards,Integer.toString(index));recentRow.setVisible(liveView(index)==LootQuery.View.RECENT);
+        if(viewState!=null)viewState.put("loot-views",Integer.toString(index));
+        facets.view=liveView(index);rememberFacets();invalidateScope();
+    }
+    /** Shows {@code view} (a live one) as if chosen, without telling the Explore model: saved history's choice carried to live. */
+    void showView(LootQuery.View view){
+        int index=LootExploreModel.LIVE.indexOf(view);if(index<0)return;
+        views.select(view);if(index!=shown)show(index);
+    }
+    /** Loot › Explore: with saved history, Analyst also lists the saved-only views, which open saved history. */
+    void explore(LootExploreModel model){explore=model;model.mode().bind(this,mode->relist());}
+    /** Simple lists the live views in the spec's order; Analyst adds the saved-only ones when this is Explore's live half. */
+    private void relist(){
+        views.setItems(LootExploreModel.SIMPLE,explore!=null&&explore.mode().analyst()?LootExploreModel.ANALYST:Collections.<LootQuery.View>emptyList(),null);
+        views.select(liveView(shown));
+    }
+    /** Two responsive pairs keep the four tiles balanced at 4, 2 or 1 columns (as the labels they replace). */
+    private static JPanel tiles(StatTile[] tiles){
+        JPanel row=ContentStyle.responsiveGrid(2,358,Tokens.S);row.setOpaque(false);row.setName("loot-metrics");
+        for(int i=0;i<tiles.length;i+=2){JPanel pair=ContentStyle.responsiveGrid(2,175,Tokens.S);pair.setOpaque(false);pair.add(tiles[i]);pair.add(tiles[i+1]);row.add(pair);}
+        return row;
+    }
     void applyFacets(LootQuery.Facets next){
-        next.validate();facets=tomato.history.SessionStore.JSON.fromJson(tomato.history.SessionStore.JSON.toJson(next),LootQuery.Facets.class);facets.view=liveView(views.getSelectedIndex());
+        next.validate();facets=tomato.history.SessionStore.JSON.fromJson(tomato.history.SessionStore.JSON.toJson(next),LootQuery.Facets.class);facets.view=liveView(shown);
         rebuilding=true;try{bagFilter.setSelectedIndex(0);dungeonFilter.setSelectedIndex(0);}finally{rebuilding=false;}
         rememberFacets();invalidateScope();rebuildFacetControls();
     }
@@ -307,10 +359,15 @@ public final class LootDashboard extends JPanel {
             if(facetEditor!=null)facetEditor.updateChoices(bags,dungeons);
         }
         if (summary != null) {
-            metrics[0].setText(summary.bagsKnown?DisplayFormat.formatInteger(summary.bags):DisplayFormat.UNAVAILABLE); metrics[1].setText(DisplayFormat.formatInteger(summary.items));
-            metrics[2].setText(DisplayFormat.formatInteger(summary.potions)); metrics[3].setText(summary.bagsKnown?DisplayFormat.formatInteger(summary.whites):DisplayFormat.UNAVAILABLE);
+            // Unknown is never 0: past the bag-composition bound an item query cannot count bags (item totals stay exact).
+            String source = historical ? "Saved drops in the selected session scope" : "Observed drops this app session, not pickups";
+            DisplayValue unknownBags = DisplayValue.unknown("Bag counts unavailable: more than 25,000 bag compositions; item totals remain complete");
+            metrics[0].setValue(summary.bagsKnown ? DisplayValue.count((long) summary.bags, source, null) : unknownBags, null);
+            metrics[1].setValue(DisplayValue.count((long) summary.items, source, null), null);
+            metrics[2].setValue(DisplayValue.count((long) summary.potions, source, null), null);
+            metrics[3].setValue(summary.bagsKnown ? DisplayValue.count((long) summary.whites, source, null) : unknownBags, null);
         }
-        int view = views.getSelectedIndex();
+        int view = shown;
         if (view >= 0 && dirty[view]) {
             models[view].replaceRows(rows(view));
             dirty[view] = false;
@@ -399,12 +456,12 @@ public final class LootDashboard extends JPanel {
     }
     private void filter() {
         if (!isShowing()) return;
-        int view = views.getSelectedIndex();
+        int view = shown;
         if (view >= 0) sorters.get(view).setRowFilter(null);
         updateResults();
     }
     private void updateResults() {
-        int view = views.getSelectedIndex(); if (view < 0 || view >= sorters.size()) return;
+        int view = shown; if (view < 0 || view >= sorters.size()) return;
         enchantTotals.setVisible(itemView(view));
         if (itemView(view)) {
             int[] counts = new int[6]; int total = 0;
@@ -421,7 +478,7 @@ public final class LootDashboard extends JPanel {
         }
         results.setText(summary!=null&&!summary.bagsKnown?"Live filtered bag counts unavailable: more than 25,000 bag compositions. Item totals remain complete; query saved occurrences for exact bag counts."
             :summary == null || summary.bags == 0 ? (historical ? "No saved loot in this scope; recording coverage may be unknown. Adjust the filters or inspect Session comparison." : "No matching live loot. Adjust filters; capture records future observations.")
-            : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + views.getTitleAt(view) + " · Tab/facets/search cover full live aggregates. Recent Drops rows/range use 1,000 retained bags; cards remain full-session facet totals.");
+            : DisplayFormat.formatInteger(sorters.get(view).getViewRowCount()) + " rows shown · " + liveView(view) + " · View/facets/search cover full live aggregates. Recent Drops rows/range use 1,000 retained bags; tiles remain full-session facet totals.");
     }
     static final class Item {
         final int id; final String name, tier; final boolean potion, ut, st, highTier;
