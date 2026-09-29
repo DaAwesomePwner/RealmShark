@@ -129,7 +129,7 @@ public class CohortComparisonTest {
                 edt(() -> { Facets f = workspace.state().query.facets(); f.view = View.COHORTS; workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withFacets(f)); return null; });
                 await(() -> !workspace.loading() && workspace.displayedPage() != null && workspace.state().query.facets().view == View.COHORTS);
                 edt(() -> {
-                    JTabbedPane tabs = named(workspace, "loot-archive-tabs", JTabbedPane.class); assertTrue(tabs.indexOfTab("A/B cohorts") >= 0);
+                    JComboBox<?> views = named(workspace, "loot-archive-view", JComboBox.class); assertTrue(((DefaultComboBoxModel<?>) views.getModel()).getIndexOf(View.COHORTS) >= 0);
                     JList<?> baseline = named(workspace, "cohort-baseline-sessions", JList.class), candidate = named(workspace, "cohort-candidate-sessions", JList.class);
                     assertEquals(2, baseline.getModel().getSize());
                     for (int i = 0; i < 2; i++) { String label = baseline.getModel().getElementAt(i).toString(); if (label.endsWith(first)) baseline.setSelectedIndex(i); else candidate.setSelectedIndex(i); }

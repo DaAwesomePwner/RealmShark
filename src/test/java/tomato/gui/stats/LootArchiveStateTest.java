@@ -36,7 +36,7 @@ public class LootArchiveStateTest {
                 ArchiveRow.Ref selected=edt(()->workspace.displayedPage().rows.get(7).ref);assertEquals(Collections.singletonList(selected),edt(()->workspace.state().selected));
                 edt(()->workspace.saveNamed("Exact saved occurrence")).toCompletableFuture().get(5,TimeUnit.SECONDS);prefs.flush().toCompletableFuture().get();
                 assertFalse(edt(()->other.state().archive));assertEquals(View.SESSIONS,edt(()->other.state().query.facets().view));
-                edt(()->{JTabbedPane tabs=named(workspace,"loot-archive-tabs",JTabbedPane.class);tabs.setSelectedIndex(tabs.indexOfTab("By Bag"));return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.BAGS);
+                edt(()->{named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.BAGS);return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.BAGS);
                 assertEquals("bag-type summaries",edt(()->workspace.displayedPage().unit));
                 edt(()->{workspace.loadNamed("Exact saved occurrence");return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.OCCURRENCES);
                 assertEquals(1,edt(()->workspace.state().page).longValue());assertEquals(Collections.singletonList(selected),edt(()->workspace.state().selected));assertEquals(7,edt(()->named(workspace,"loot-archive-table",JTable.class).getSelectedRow()).intValue());

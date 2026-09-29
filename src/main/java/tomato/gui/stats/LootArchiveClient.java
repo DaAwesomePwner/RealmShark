@@ -11,6 +11,7 @@ import javax.swing.*;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.ViewSelector;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.route.*;
@@ -22,30 +23,42 @@ import tomato.history.archive.*;
 /** One independently persisted workspace; every inner archive filter sends query intent upstream. */
 public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
     private final Path scratch;
-    /** The views the tabs offer (a routed view outside them is still shown, as its own tab); null initial: {@link LootQuery#initial(boolean)}. */
+    /**
+     * The views the view selector offers (a routed or restored view outside them is still shown, as its "Current view"); null
+     * initial: {@link LootQuery#initial(boolean)}.
+     */
     private final Set<View> views;private final boolean statistics;private final ArchiveQuery<Facets,Sort> initial;
+    /** Loot › Explore's shared view (its selector lists Simple and Analyst views and carries choices to live); null elsewhere. */
+    private final LootExploreModel explore;
     /** The Loot (statistics false: the loot views, rates and sessions) or Statistics (every view) workspace's client. */
     public LootArchiveClient(Path scratch,boolean statistics){
-        this.scratch=scratch;this.statistics=statistics;this.initial=null;
+        this.scratch=scratch;this.statistics=statistics;this.initial=null;this.explore=null;
         Set<View> offered=EnumSet.noneOf(View.class);
         for(View candidate:View.values())if(statistics||candidate!=View.FAME&&!candidate.counters()&&candidate!=View.COHORTS)offered.add(candidate);
         views=Collections.unmodifiableSet(offered);
     }
     /**
-     * A client whose tabs offer only {@code views} (in the views' usual order), opening on {@code initial} (the Dungeons
+     * A client whose view selector offers only {@code views} (in the views' usual order), opening on {@code initial} (the Dungeons
      * analysis: rates, sessions, counters, enemies, sources and cohorts). Queries, rows, drill-downs and exports are the
      * Statistics workspace's, unchanged.
      *
      * @throws IllegalArgumentException when {@code views} is empty or does not offer {@code initial}'s view
      */
-    public LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial){
-        this.scratch=scratch;this.statistics=true;this.initial=Objects.requireNonNull(initial,"initial");
+    public LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial){this(scratch,views,initial,null);}
+    /**
+     * Loot › Explore's saved half: {@code views} with {@code explore}'s Simple and Analyst lists, and each view chosen here carried
+     * to the live dashboard. Null {@code explore}: the view-subset client above.
+     */
+    LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial,LootExploreModel explore){
+        this.scratch=scratch;this.statistics=true;this.initial=Objects.requireNonNull(initial,"initial");this.explore=explore;
         if(views==null||views.isEmpty())throw new IllegalArgumentException("A workspace offers at least one view");
         if(!views.contains(initial.facets().view))throw new IllegalArgumentException("The initial view "+initial.facets().view.name()+" is not offered");
         this.views=Collections.unmodifiableSet(EnumSet.copyOf(views));
     }
-    /** The views the tabs offer. */
+    /** The views the view selector offers. */
     public Set<View> views(){return views;}
+    /** A view's tooltip in the selector: the item views' definitions, and on Loot › Explore "Saved history only" for the others. */
+    private String tooltip(View view){return LootExploreModel.live(view)?LootExploreModel.tooltip(view):explore!=null?LootExploreModel.SAVED_ONLY:null;}
     public ArchiveQuery<Facets,Sort> initialQuery(){return initial!=null?initial:LootQuery.initial(statistics);}
     public Path scratchDirectory(){return scratch;}
     public int pageSize(){return 100;}
@@ -125,12 +138,15 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private JTextArea countText;
         private final JButton showOccurrences=new JButton("Occurrences of selected variant"),showVisit=new JButton("Loot from selected run"),
             openRun=new JButton("Open recorded run"),rateDetails=new JButton("Dungeon rate calculation");
+        private final ViewSelector<View> selector=new ViewSelector<>("loot-archive-view",View::toString,LootArchiveClient.this::tooltip);
+        private final JLabel caption=new JLabel(LootExploreModel.SAVED_ONLY){
+            @Override public void updateUI(){super.updateUI();setForeground(ContentStyle.color("muted"));}
+        };
         Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
             super(new BorderLayout(0,5));this.page=page;this.current=state;this.binding=binding;View view=state.query.facets().view;
-            JTabbedPane tabs=new JTabbedPane();tabs.setName("loot-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-            List<View> views=new ArrayList<>();for(View candidate:View.values())if(LootArchiveClient.this.views.contains(candidate))views.add(candidate);
-            if(!views.contains(view))views.add(view);for(View v:views)tabs.addTab(v.toString(),new JPanel());tabs.setSelectedIndex(views.indexOf(view));
-            JPanel body=new JPanel(new BorderLayout(0,4));tabs.setComponentAt(tabs.getSelectedIndex(),body);add(tabs);
+            // One view selector replaces the tabs (P6a): the offered views, and a routed or restored view outside them as its "Current view".
+            add(head(view),BorderLayout.NORTH);
+            JPanel body=new JPanel(new BorderLayout(0,4));add(body,BorderLayout.CENTER);
             JPanel top=new JPanel(new BorderLayout(0,4));
             // Cohort inputs define the comparison itself, so they stay in the view; every other facet lives in the Filters drawer.
             if(view==View.COHORTS)top.add(analyticalFilters(view),BorderLayout.NORTH);
@@ -154,9 +170,34 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             body.add(actions,BorderLayout.SOUTH);
             table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!restoring){savePosition();int r=table.getSelectedRow();if(r>=0)detail(page.rows.get(r));updateDrill(selected());}});
             scroll.getViewport().addChangeListener(e->{if(!restoring)savePosition();});HistoryTables.restorePosition(table,scroll,page,current);
-            tabs.addChangeListener(e->{if(restoring)return;View selected=views.get(tabs.getSelectedIndex());Facets f=current.query.facets();f.view=selected;current=current.withPosition(selected.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(f));});
             restoring=false;
             ArchiveRow<Row> restored=selected();if(restored!=null)detail(restored);updateDrill(restored);
+        }
+        /**
+         * The view row: the selector and, on Loot › Explore, the "Saved history only" caption for a view the live dashboard lacks.
+         * The Simple/Analyst mode relists the selector and never changes the query.
+         */
+        private JComponent head(View view){
+            JPanel row=ContentStyle.controls();row.setName("loot-archive-view-row");row.add(selector.component());
+            caption.setName("loot-archive-view-caption");caption.setFont(ContentStyle.metadata(ContentStyle.body()));caption.putClientProperty("html.disable",true);
+            caption.setToolTipText("This view reads saved history; the live view has no equivalent.");caption.setVisible(explore!=null&&!LootExploreModel.live(view));row.add(caption);
+            relist(view);
+            if(explore!=null)explore.mode().bind(this,mode->relist(current.query.facets().view));
+            selector.onChange(this::choose);
+            return row;
+        }
+        /** Explore: the Simple views, then the Analyst ones in Analyst; elsewhere every offered view in the views' usual order. */
+        private void relist(View view){
+            List<View> simple=new ArrayList<>(),analyst=new ArrayList<>();
+            if(explore==null){for(View candidate:View.values())if(views.contains(candidate))simple.add(candidate);}
+            else{for(View candidate:LootExploreModel.SIMPLE)if(views.contains(candidate))simple.add(candidate);
+                if(explore.mode().analyst())for(View candidate:LootExploreModel.ANALYST)if(views.contains(candidate))analyst.add(candidate);}
+            selector.setItems(simple,analyst,view);selector.select(view);
+        }
+        /** A user's choice: the tabs' logic (the view, its own position, the query), then Explore carries it to the live dashboard. */
+        private void choose(View selected){
+            if(restoring)return;Facets f=current.query.facets();f.view=selected;current=current.withPosition(selected.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(f));
+            if(explore!=null)explore.chosenSaved(selected);
         }
         /** After a cohort input error the shown comparison no longer matches the inputs: clear it until a valid Compare runs. */
         private void cohortInputInvalid(){

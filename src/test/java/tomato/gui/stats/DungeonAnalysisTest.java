@@ -70,10 +70,11 @@ public class DungeonAnalysisTest {
         return workspace;
     }
     private static boolean ready(ArchiveWorkspace<?, ?, ?> workspace) { return !workspace.loading() && workspace.displayedPage() != null; }
+    /** The tabs became a view selector: its rows in order, a view by its title (a header row, which is not a view, as "[header]"). */
     private static List<String> tabs(Container root) {
-        JTabbedPane tabs = find(root, "loot-archive-tabs", JTabbedPane.class);
+        JComboBox<?> views = find(root, "loot-archive-view", JComboBox.class);
         List<String> titles = new ArrayList<>();
-        for (int i = 0; i < tabs.getTabCount(); i++) titles.add(tabs.getTitleAt(i));
+        for (int i = 0; i < views.getItemCount(); i++) titles.add(views.getItemAt(i) instanceof View ? views.getItemAt(i).toString() : "[header]");
         return titles;
     }
 
@@ -86,8 +87,10 @@ public class DungeonAnalysisTest {
         assertEquals(EnumSet.of(View.RATES, View.SESSIONS, View.COHORTS, View.COUNTERS, View.ENEMIES, View.SOURCES), DungeonAnalysis.VIEWS);
         assertEquals(EnumSet.of(View.RATES, View.SESSIONS, View.COHORTS, View.COUNTERS, View.ENEMIES, View.SOURCES),
             new LootArchiveClient(temp.getRoot().toPath(), DungeonAnalysis.VIEWS, initial).views());
-        assertEquals("The Loot workspace keeps its views", EnumSet.complementOf(EnumSet.of(View.FAME, View.COUNTERS, View.ENEMIES, View.SOURCES, View.COHORTS)),
+        assertEquals("The boolean Loot client keeps its views", EnumSet.complementOf(EnumSet.of(View.FAME, View.COUNTERS, View.ENEMIES, View.SOURCES, View.COHORTS)),
             new LootArchiveClient(temp.getRoot().toPath(), false).views());
+        assertEquals("The Loot workspace (Explore) offers the item views and the Analyst views, never counters or fame",
+            EnumSet.complementOf(EnumSet.of(View.FAME, View.COUNTERS)), LootExploreModel.views());
         assertEquals("The Statistics workspace keeps every view", EnumSet.allOf(View.class), new LootArchiveClient(temp.getRoot().toPath(), true).views());
         try { new LootArchiveClient(temp.getRoot().toPath(), EnumSet.of(View.RATES), initial); fail("The initial view must be offered"); }
         catch (IllegalArgumentException expected) { }

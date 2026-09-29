@@ -33,7 +33,7 @@ public class LootArchiveFiltersTest {
                     FilterBar bar = workspace.filterBar(); JComponent drawer = bar.drawerContent();
                     assertNotNull(drawer); assertNotNull(named(drawer, "loot-date-from", JTextField.class));
                     assertTrue(SwingUtilities.isDescendingFrom(named(workspace, "loot-apply-facets", JButton.class), drawer));
-                    assertNull("Dates are no longer repeated in the view", named(named(workspace, "loot-archive-tabs", JTabbedPane.class), "loot-date-from", JTextField.class));
+                    assertEquals("Dates are no longer repeated in the view", 1, count(workspace, "loot-date-from"));
                     LootQuery.Facets f = workspace.state().query.facets(); f.bags.add("White"); f.kind = LootQuery.Kind.UT_EQUIPMENT;
                     workspace.changeQuery(workspace.state().query.withFacets(f)); return null; });
                 await(() -> ArchiveNativeSupport.ready(workspace) && workspace.displayedPage().matches == 3);
@@ -44,5 +44,15 @@ public class LootArchiveFiltersTest {
                     assertEquals(LootQuery.View.OCCURRENCES, f.view); return null; });
             } finally { edt(() -> { workspace.close(); return null; }); }
         }
+    }
+
+    /** Components named {@code name} anywhere under {@code root} (the drawer's and any the saved view repeats). */
+    private static int count(Container root, String name) {
+        int count = 0;
+        for (Component child : root.getComponents()) {
+            if (name.equals(child.getName())) count++;
+            if (child instanceof Container) count += count((Container) child, name);
+        }
+        return count;
     }
 }
