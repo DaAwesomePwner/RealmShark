@@ -3,9 +3,13 @@ package tomato.gui.runs;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
@@ -25,7 +29,8 @@ import tomato.gui.modern.ContentStyle;
  * - "Avg 12 m 30 s observed" (the mean observed span of the completed runs);
  * - "Loot 3.2 per completed run", with "◐ N excluded" when completed runs whose loot is unknown were left out, captioned
  *   "bags linked to the exact run";
- * - "Best DPS 12.3k" from your verified row in your best completed run.
+ * - "Best DPS 12.3k · 14 Jan 14:32" from your verified row in your best completed run, dated with that run's entry time as
+ *   the run cards date theirs ("14:32" today, "Yesterday 22:10"); no date when the entry time is unknown.
  * Every unknown is "—" with its reason as the caption (never 0); a caption that does not fit ends with "…" and is whole in its
  * line's tooltip and in the accessible name, which states every fact and every reason in words. The action strip paints
  * Show runs (primary), Open best run (only when a best run is known) and Analyze (Analyst only); the view maps a click on one
@@ -59,18 +64,31 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
     }
 
     private final BooleanSupplier analyst;
+    private final ZoneId zone;
+    private final LongSupplier now;
     private DungeonCardModel card;
     private Lines lines;
     private boolean selected, focused;
 
-    /** {@code analyst}: whether the Analyst-only Analyze action shows (read at each paint). */
-    public DungeonCardRenderer(BooleanSupplier analyst) {
+    /**
+     * {@code analyst}: whether the Analyst-only Analyze action shows (read at each paint). The best run is dated in the system
+     * zone against the wall clock, as the app's run cards are.
+     */
+    public DungeonCardRenderer(BooleanSupplier analyst) { this(analyst, ZoneId.systemDefault(), System::currentTimeMillis); }
+
+    /** As above, with the best run's date written in {@code zone} against {@code now}'s day there (read at each paint). */
+    public DungeonCardRenderer(BooleanSupplier analyst, ZoneId zone, LongSupplier now) {
         this.analyst = Objects.requireNonNull(analyst, "analyst");
+        this.zone = Objects.requireNonNull(zone, "zone");
+        this.now = Objects.requireNonNull(now, "now");
         setOpaque(false);
     }
 
-    /** The card's painted text; {@code analyst} adds Analyze. */
-    static Lines lines(DungeonCardModel card, boolean analyst) {
+    /** The card's painted text in the system zone and clock; {@code analyst} adds Analyze. */
+    static Lines lines(DungeonCardModel card, boolean analyst) { return lines(card, analyst, ZoneId.systemDefault(), System.currentTimeMillis()); }
+
+    /** The card's painted text, the best run dated in {@code zone} on {@code now}'s day; {@code analyst} adds Analyze. */
+    static Lines lines(DungeonCardModel card, boolean analyst, ZoneId zone, long now) {
         String reason = card.completionReason();
         String counts = "Completed " + card.completed() + " · Left " + card.left() + " · App ended " + card.appEnded() + " of "
             + runs(card.finished(), "finished run");
@@ -97,11 +115,14 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
                     + " whose loot is known (a known none counts)." + (lootReason == null ? "" : " " + lootReason));
 
         String dpsReason = card.dpsReason();
+        String entered = entered(card, zone, now);
         Fact best = card.bestLocalDps() == null
             ? new Fact("Best DPS —", orElse(dpsReason, DungeonCardModel.NO_RECORDING), orElse(dpsReason, DungeonCardModel.NO_RECORDING))
-            : new Fact("Best DPS " + KitFormat.compact(card.bestLocalDps()), orElse(dpsReason, BEST_NOTE),
+            : new Fact("Best DPS " + KitFormat.compact(card.bestLocalDps()) + (entered == null ? "" : " · " + entered),
+                orElse(dpsReason, BEST_NOTE),
                 "Your highest verified DPS in a completed run (its linked recording's verified local row, never another player's)."
-                    + " Open best run opens that run's recap." + (dpsReason == null ? "" : " " + dpsReason));
+                    + (entered == null ? "" : " That run was entered " + entered + ".") + " Open best run opens that run's recap."
+                    + (dpsReason == null ? "" : " " + dpsReason));
 
         List<Action> actions = new ArrayList<>();
         actions.add(Action.RUNS);
@@ -117,6 +138,11 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
      * every fact the card shows, and each unknown or partial one's reason in words.
      */
     static String accessibleName(DungeonCardModel card, boolean analyst) {
+        return accessibleName(card, analyst, ZoneId.systemDefault(), System.currentTimeMillis());
+    }
+
+    /** As above, the best run's entry said in {@code zone} on {@code now}'s day ("entered today at 14:32", "entered 14 Jan 14:32"). */
+    static String accessibleName(DungeonCardModel card, boolean analyst, ZoneId zone, long now) {
         List<String> parts = new ArrayList<>();
         parts.add(card.displayName());
         parts.add(visits(card.visits()));
@@ -137,8 +163,23 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
             + (loot == null ? "" : (card.lootPartial() ? ", partial, " : ", ") + lower(loot)));
         String dps = card.dpsReason();
         if (card.bestLocalDps() == null) parts.add("best DPS unknown: " + lower(orElse(dps, DungeonCardModel.NO_RECORDING)));
-        else parts.add("best DPS " + KitFormat.compact(card.bestLocalDps()) + " from your best completed run" + (dps == null ? "" : ", " + lower(dps)));
+        else parts.add("best DPS " + KitFormat.compact(card.bestLocalDps()) + " from your best completed run"
+            + (card.bestEntered() == null ? "" : ", entered " + spoken(card.bestEntered(), zone, now)) + (dps == null ? "" : ", " + lower(dps)));
         return String.join("; ", parts);
+    }
+
+    /** The best run's entry as the run cards write it ({@link RunCardRenderer#time}), or null without a best run or entry time. */
+    private static String entered(DungeonCardModel card, ZoneId zone, long now) {
+        return card.bestLocalDps() == null || card.bestEntered() == null ? null : RunCardRenderer.time(card.bestEntered(), zone, now);
+    }
+
+    /** "today at 14:32", "yesterday at 22:10", else "14 Jan 14:32": the run cards' time in words. */
+    private static String spoken(long entered, ZoneId zone, long now) {
+        String time = RunCardRenderer.time(entered, zone, now);
+        LocalDate day = Instant.ofEpochMilli(entered).atZone(zone).toLocalDate(), today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate();
+        if (day.equals(today)) return "today at " + time;
+        if (day.equals(today.minusDays(1))) return "yesterday at " + time.substring(time.indexOf(' ') + 1);
+        return time;
     }
 
     /** The keyboard's and a reader's description of what the card offers. */
@@ -231,8 +272,9 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
         selected = isSelected;
         focused = cellHasFocus;
         boolean analystMode = analyst.getAsBoolean();
-        lines = value == null ? null : lines(value, analystMode);
-        String name = value == null ? null : accessibleName(value, analystMode);
+        long at = now.getAsLong();
+        lines = value == null ? null : lines(value, analystMode, zone, at);
+        String name = value == null ? null : accessibleName(value, analystMode, zone, at);
         getAccessibleContext().setAccessibleName(name);
         getAccessibleContext().setAccessibleDescription(value == null ? null : accessibleDescription(value, analystMode));
         setToolTipText(name);

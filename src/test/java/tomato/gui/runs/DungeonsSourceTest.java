@@ -102,6 +102,18 @@ public class DungeonsSourceTest {
         }
     }
 
+    /** P5b Task 12: a card dates its best run (the Best DPS line) with that run's saved entry time; no best run, no time. */
+    @Test public void aCardKeepsItsBestRunsEntryTime() throws Exception {
+        try (SessionStore store = new SessionStore(mixed(), false, "fixture")) {
+            DungeonsModel model = all(source(store));
+            DungeonCardModel halls = card(model, "Lost Halls");
+            assertEquals(RunFixtures.C1, halls.bestRun());
+            assertEquals("c1 was entered at 05:05", Long.valueOf(at(0, 5, 5)), halls.bestEntered());
+            assertNull("No best run, no entry time", card(model, "Pirate Cave").bestEntered());
+            assertNull(card(model, "Snake Pit").bestEntered());
+        }
+    }
+
     @Test public void cardsAgreeWithTheRunFeedsCardsForTheSameRuns() throws Exception {
         try (SessionStore store = new SessionStore(mixed(), false, "fixture")) {
             DungeonsModel model = all(source(store));

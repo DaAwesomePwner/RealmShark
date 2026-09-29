@@ -1,6 +1,7 @@
 package tomato.gui.runs;
 
 import java.util.*;
+import tomato.backend.data.DungeonStatData;
 import tomato.gui.activity.ActivityQueries;
 import tomato.history.SessionStore;
 import tomato.history.archive.ArchiveQuery;
@@ -11,9 +12,13 @@ import tomato.history.archive.ArchiveQuery;
  * ({@link RunOutcome}, whose App ended the archive does not have) and the dungeon are applied to each projected run
  * ({@link #matches}).
  *
+ * <p>The dungeon is a canonical dungeon ({@link #dungeon}: {@code DungeonStatData.Snapshot.canonicalName} of a run's saved
+ * area name, the Dungeons cards' key), so a raw alias and its canonical name are one dungeon: a Dungeons card's "Show runs"
+ * lists every run the card counted under one filter. The saved area names are never rewritten.
+ *
  * @param text     the archive's search text ("" = everything)
  * @param outcomes the outcomes shown; empty = all
- * @param map      the exact dungeon name shown; null = all
+ * @param map      the canonical dungeon shown; null = all
  */
 public record RunFeedQuery(String text, Set<RunOutcome> outcomes, String map) {
     public RunFeedQuery {
@@ -50,8 +55,16 @@ public record RunFeedQuery(String text, Set<RunOutcome> outcomes, String map) {
             List.of(new ArchiveQuery.Order<>(ActivityQueries.Sort.TIME, ArchiveQuery.Direction.DESCENDING)));
     }
 
-    /** Whether a run with this outcome (the shared rule) and saved area name is shown. */
+    /** Whether a run with this outcome (the shared rule) and saved area name is shown: its canonical dungeon is {@link #map}. */
     public boolean matches(RunOutcome outcome, String area) {
-        return (outcomes.isEmpty() || outcomes.contains(outcome)) && (map == null || map.equals(area));
+        return (outcomes.isEmpty() || outcomes.contains(outcome)) && (map == null || map.equals(dungeon(area)));
+    }
+
+    /**
+     * The canonical dungeon of a saved area name ({@code DungeonStatData.Snapshot.canonicalName}, as the Dungeons cards group
+     * runs), or null for a missing or blank name (no dungeon's).
+     */
+    public static String dungeon(String area) {
+        return area == null || area.isBlank() ? null : DungeonStatData.Snapshot.canonicalName(area);
     }
 }

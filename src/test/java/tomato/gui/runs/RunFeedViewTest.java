@@ -204,6 +204,51 @@ public class RunFeedViewTest {
         await("typing applies the search after a pause", () -> view.query().text().equals("Snake") && !view.loading());
     }
 
+    /**
+     * P5b: the dungeon choices are canonical dungeons (the Dungeons cards' names), so a raw alias is no separate choice, and
+     * {@link RunFeedView#showDungeon} (the Dungeons tab's "Show runs") brings the cards forward with only that dungeon's filter:
+     * every run of the card, alias and canonical, under one chip.
+     */
+    @Test public void dungeonChoicesAreCanonicalAndShowDungeonShowsEveryRunOfThatDungeonOnTheCards() throws Exception {
+        Path root = temp.newFolder("history").toPath();
+        RunFixtures.writeMixed(root);
+        RunFeedView view = view(feed(store(root), RunFixtures.NOW));
+        load(view);
+        edt(() -> {
+            @SuppressWarnings("unchecked") JComboBox<String> map = named(view, "run-feed-map", JComboBox.class);
+            List<String> dungeons = new ArrayList<>();
+            for (int i = 0; i < map.getItemCount(); i++) dungeons.add(map.getItemAt(i));
+            assertEquals("One choice per canonical dungeon; the raw alias is not one", List.of(RunFeedView.ALL_DUNGEONS, "Ice Citadel", "Lost Halls",
+                "Pirate Cave", "Snake Pit", RunFixtures.CRONUS), dungeons);
+            named(view, "run-feed-search", JTextField.class).setText("Lost");
+            named(view, "run-feed-search", JTextField.class).postActionEvent();
+            named(view, "run-feed-outcome-completed", JCheckBox.class).doClick();
+            view.showTable();
+            writes.clear();
+            view.showDungeon(RunFixtures.CRONUS);
+            assertFalse("Show runs brings the cards forward", view.tableShown());
+            assertEquals("…and remembers them, as explicit navigation does", List.of(RunFeedView.VIEW_KEY + "=" + RunFeedView.CARDS), writes);
+            assertEquals("Only the dungeon filter: every run of that dungeon", new RunFeedQuery("", Set.of(), RunFixtures.CRONUS), view.query());
+            assertEquals(RunFixtures.CRONUS, map.getSelectedItem());
+            assertEquals("", named(view, "run-feed-search", JTextField.class).getText());
+            assertFalse(named(view, "run-feed-outcome-completed", JCheckBox.class).isSelected());
+            assertEquals("One chip, the dungeon's", 1, view.filterBar().activeCount());
+            return null;
+        });
+        await("the dungeon's runs", () -> !view.loading());
+        edt(() -> {
+            List<VisitRef> refs = new ArrayList<>();
+            for (RunCardModel card : view.model().cards()) refs.add(card.ref());
+            assertEquals("c5 (saved under the raw alias) and d3", List.of(RunFixtures.C5, RunFixtures.D3), refs);
+            @SuppressWarnings("unchecked") JComboBox<String> map = named(view, "run-feed-map", JComboBox.class);
+            assertEquals("Filtered reads keep the choices", 6, map.getItemCount());
+            view.showDungeon(null);
+            assertEquals("No dungeon: every saved run", RunFeedQuery.all(), view.query());
+            return null;
+        });
+        await("every run", () -> !view.loading());
+    }
+
     @Test public void fiftyRunsLoadAtATimeAndARereadKeepsAsManyLoaded() throws Exception {
         Path root = temp.newFolder("history").toPath();
         HomeHistoryFixture.writeLarge(root, HomeHistoryFixture.LARGE_SESSIONS, HomeHistoryFixture.LARGE_RUNS);

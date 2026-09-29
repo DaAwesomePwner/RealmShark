@@ -86,8 +86,12 @@ public class ShellHookIntegrationTest {
     /** The Quests page's saved tabs and Board choices: cleared so each shell opens on the Board's default Cards view, then restored. */
     private static final String[] QUEST_PREFERENCES = {"ui.tabs.quests", "ui.quests.view", "ui.quests.group", "ui.quests.pinned-first"};
     private final Map<String,String> questPreferences = new LinkedHashMap<>();
-    /** The Runs & DPS tabs and the Live meter's nested tabs: cleared so each shell opens on the Feed with every tab shown, then restored. */
-    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps"};
+    /**
+     * The Runs & DPS tabs and the Live meter's nested tabs: cleared so each shell opens on the Feed with every tab shown, then
+     * restored; also the Dungeons tab's view and the Dungeons, analysis, feed and Recordings filter drawers (P5b Task 12).
+     */
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ui.dungeons.view", "ui.filters.dungeons.open",
+        "ui.filters.dungeon-analysis.open", "ui.filters.run-feed.open", "ui.filters.encounter-library.open"};
     private final Map<String,String> tabPreferences = new LinkedHashMap<>();
     /** The run recap's section choices (ui.collapse.run-recap-*): cleared so each recap opens with its defaults, then restored. */
     private static final String[] RECAP_PREFERENCES = {"damage", "loot", "players", "resources", "timeline", "evidence"};
@@ -916,6 +920,275 @@ public class ShellHookIntegrationTest {
             try (ArchiveResult.Lease<?> unexpected = page.lease()) { fail("A hidden tab's workspace kept its result owner"); }
             catch (java.io.IOException expected) { /* Owner closed. */ }
         }
+    }
+
+    /**
+     * P5b Task 12: the Dungeons tab hosts the per-dungeon cards over saved history, and its route brings it forward (a hidden tab
+     * too). "Show runs" (Enter on a card) shows the Feed's cards filtered to that canonical dungeon, "Open best run" (the card's
+     * menu) opens that exact run's recap on its recording, and Back from either returns to Dungeons.
+     */
+    @Test public void dungeonsShowRunsAndOpenBestRunLeaveTheTabAndBackReturnsToDungeons() throws Exception {
+        tomato.gui.runs.RunFixtures.writeMixed(store.directory());   // synthetic saved sessions beside this app run's
+        tomato.gui.runs.DungeonsView dungeons = edt(() -> {
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.runs.DungeonsView view = named(named(page, "runs-dungeons-slot", JPanel.class), "dungeons-view", tomato.gui.runs.DungeonsView.class);
+            assertNotNull("The Dungeons tab hosts the cards", view);
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            tomato.gui.route.Route route = tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
+                .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS));
+            shell.select(0);
+            assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.DUNGEONS.id()));
+            assertTrue(navigator.open(route));
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("The Dungeons route brings the tab forward", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+            assertFalse("…a hidden one too (explicit navigation)", page.tabs().hiddenIds().contains(tomato.gui.runs.RunsTab.DUNGEONS.id()));
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+            assertTrue(navigator.open(route));
+            view.refresh();   // the tab reads when it shows; this shell has no window
+            return view;
+        });
+        @SuppressWarnings("unchecked") tomato.gui.kit.TileList<tomato.gui.runs.DungeonCardModel> cards =
+            edt(() -> (tomato.gui.kit.TileList<tomato.gui.runs.DungeonCardModel>) named(dungeons, "dungeons-cards", tomato.gui.kit.TileList.class));
+        await(() -> cards.getModel().getSize() == 5);
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            cards.setSelectedIndex(cards.items().indexOf(card(cards, tomato.gui.runs.RunFixtures.CRONUS)));
+            cards.getActionMap().get(tomato.gui.kit.TileList.OPEN).actionPerformed(null);   // Enter: Show runs
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Show runs opens the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+            assertFalse("…its feed, not a recap", page.feed().recapShown());
+            assertFalse("…on the cards", page.feed().feed().tableShown());
+            assertEquals("…filtered to that canonical dungeon only", new tomato.gui.runs.RunFeedQuery("", Collections.emptySet(),
+                tomato.gui.runs.RunFixtures.CRONUS), page.feed().feed().query());
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+
+            tomato.gui.runs.DungeonCardModel halls = card(cards, "Lost Halls");
+            assertEquals(tomato.gui.runs.RunFixtures.C1, halls.bestRun());
+            named(cardMenu(dungeons, halls), "dungeons-card-best", JMenuItem.class).doClick();   // Open best run
+            assertEquals(tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+            assertTrue("Open best run opens the recap", page.feed().recapShown());
+            assertEquals("…of that exact run", tomato.gui.runs.RunFixtures.C1, ((tomato.gui.runs.RunRecapView) page.feed().recap()).ref());
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+        });
+    }
+
+    /**
+     * The Analyst Analysis view of Dungeons is the saved-only Dungeons analysis workspace over the shell's history store, built
+     * only when it first shows, and closing the shell releases it with the page.
+     */
+    @Test public void theDungeonsAnalysisIsBuiltOnFirstUseOverSavedHistoryAndClosedWithThePage() throws Exception {
+        tomato.gui.kit.DisplayModeModel mode = tomato.gui.kit.DisplayModeModel.application();
+        tomato.gui.kit.DisplayModeModel.Mode before = mode.mode();
+        String saved = PropertiesManager.getProperty(tomato.gui.kit.DisplayModeModel.KEY);
+        try {
+            ArchiveWorkspace<?,?,?> analysis = edt(() -> {
+                tomato.gui.runs.DungeonsView view = named(runsDps(), "dungeons-view", tomato.gui.runs.DungeonsView.class);
+                assertNull("Nothing is built before the Analysis view is used", find(view, ArchiveWorkspace.class));
+                mode.set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST);
+                view.analyze("Lost Halls");
+                ArchiveWorkspace<?,?,?> built = find(view, ArchiveWorkspace.class);
+                assertNotNull("Analyze builds the Dungeons analysis", built);
+                assertTrue("…a saved-only workspace", built.savedOnly());
+                assertEquals(tomato.gui.stats.DungeonAnalysis.NAME + "-session-view", built.getName());
+                return built;
+            });
+            await(() -> !analysis.loading() && analysis.displayedPage() != null);
+            ArchivePage<?> page = edt(analysis::displayedPage);
+            try (ArchiveResult.Lease<?> open = page.lease()) { assertNotNull(open); }
+            gui.closeWorkspace();
+            try (ArchiveResult.Lease<?> unexpected = page.lease()) { fail("The Dungeons analysis kept its result owner"); }
+            catch (java.io.IOException expected) { /* Owner closed. */ }
+        } finally {
+            SwingUtilities.invokeAndWait(() -> mode.set(before));
+            PropertiesManager.setProperties(tomato.gui.kit.DisplayModeModel.KEY, saved == null ? "" : saved);
+        }
+    }
+
+    /** Without saved history the Dungeons tab says so, and its Analysis view is a note: the analysis workspace is never built. */
+    @Test public void withoutSavedHistoryTheDungeonsTabSaysSoAndNeverBuildsItsAnalysis() throws Exception {
+        gui.closeWorkspace(); SwingUtilities.invokeAndWait(() -> shell.removeNotify());
+        Field field = AppHistory.class.getDeclaredField("store"); field.setAccessible(true); field.set(null, null);
+        tomato.gui.kit.DisplayModeModel mode = tomato.gui.kit.DisplayModeModel.application();
+        tomato.gui.kit.DisplayModeModel.Mode before = mode.mode();
+        String saved = PropertiesManager.getProperty(tomato.gui.kit.DisplayModeModel.KEY);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                buildShell();
+                tomato.gui.runs.DungeonsView view = named(runsDps(), "dungeons-view", tomato.gui.runs.DungeonsView.class);
+                assertNotNull(view);
+                view.refresh();
+                tomato.gui.kit.EmptyState empty = named(view, "dungeons-empty", tomato.gui.kit.EmptyState.class);
+                assertNotNull(empty);
+                assertTrue(empty.getParent().isVisible());
+                assertEquals("Saved history is unavailable", empty.getAccessibleContext().getAccessibleName());
+                mode.set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST);
+                view.analyze("Lost Halls");
+                assertTrue(view.analysisShown());
+                assertNull("No analysis workspace without saved history", find(view, ArchiveWorkspace.class));
+                assertNotNull("…a note says why", named(view, "dungeon-analysis-unavailable", tomato.gui.kit.EmptyState.class));
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> mode.set(before));
+            PropertiesManager.setProperties(tomato.gui.kit.DisplayModeModel.KEY, saved == null ? "" : saved);
+        }
+    }
+
+    /**
+     * Each Recordings open lands where the recording lives: the live row and a recording in memory with a unique ID open the Live
+     * meter through the navigator (Back returns to Recordings), a recording whose ID another entry shares shows its entry in the
+     * Live meter, and a saved summary linked to its run opens that run's recap on the recording (Back returns to Recordings).
+     */
+    @Test public void eachRecordingsOpenLandsOnItsTabAndBackReturnsToRecordings() throws Exception {
+        String session = tomato.gui.glance.home.HomeHistoryFixture.id("shell-recordings");
+        tomato.history.link.VisitRef run = new tomato.history.link.VisitRef(session, "v1");
+        long now = System.currentTimeMillis();
+        tomato.gui.runs.RunFixtures.session(store.directory(), session, now - 3_600_000, now - 1_800_000);
+        tomato.history.encounter.CombatFixtures.writeRecord(store.directory(), session, tomato.gui.runs.RunFixtures.record("r-saved-summary", run, 1, 60, 5_000, 3_000));
+        tomato.history.link.VisitRef live = new tomato.history.link.VisitRef(store.currentId(), "journal:1");
+        tomato.backend.data.DpsData unique = tomato.history.encounter.CombatFixtures.typical(live, now - 600_000, 10, 2, 3);
+        tomato.backend.data.DpsData twin = tomato.history.encounter.CombatFixtures.typical(live, now - 300_000, 10, 2, 3);
+        tomato.backend.data.DpsData twinCopy = twin.getSaveFile(false);   // an in-memory copy: the same recording ID, another entry
+        tomato.gui.dps.DungeonListGUI library = edt(() -> {
+            tomato.gui.dps.DpsGUI dps = find(shell, tomato.gui.dps.DpsGUI.class);
+            dps.encounters().captured(new tomato.backend.data.DpsData[]{unique, twin, twinCopy});
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            tomato.gui.dps.DungeonListGUI recordings = find(named(page, "runs-recordings-slot", JPanel.class), tomato.gui.dps.DungeonListGUI.class);
+            JTable table = named(recordings, "saved-encounters", JTable.class);
+            dps.showEncounter(dps.encounters().find(unique).id);
+
+            // The live row (listed before any read): the meter follows the live fight, in the Live meter tab.
+            shell.select(0);
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
+                .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
+            open(recordings, table, rowOf(table, 2, "Live"));
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("The live row opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertNull("…following the live fight", dps.currentEncounterId());
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Back returns to Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+            named(recordings, "encounter-scope-1", AbstractButton.class).doClick();   // All sessions: reads now
+            return recordings;
+        });
+        JTable table = edt(() -> named(library, "saved-encounters", JTable.class));
+        await(() -> rowOf(table, 7, "Saved history") >= 0 && rowOf(table, 1, entry(unique)) >= 0);
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.dps.DpsGUI dps = find(shell, tomato.gui.dps.DpsGUI.class);
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+
+            open(library, table, rowOf(table, 1, entry(unique)));
+            assertEquals("A recording in memory with a unique ID opens in the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertEquals("…that recording", dps.encounters().find(unique).id, dps.currentEncounterId());
+            assertTrue(navigator.back());
+            assertEquals("Back returns to Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+
+            int shared = rowOf(table, 1, entry(twin));
+            if (shared < 0) shared = rowOf(table, 1, entry(twinCopy));
+            assertTrue("The shared recording is listed", shared >= 0);
+            open(library, table, shared);
+            assertEquals("A shared recording ID shows its entry in the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertTrue(dps.currentEncounterId(), Arrays.asList(dps.encounters().find(twin).id, dps.encounters().find(twinCopy).id)
+                .contains(dps.currentEncounterId()));
+
+            page.tabs().select(tomato.gui.runs.RunsTab.RECORDINGS.id());
+            open(library, table, rowOf(table, 7, "Saved history"));
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("A linked summary opens its run's recap", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
+            assertTrue(page.feed().recapShown());
+            assertEquals("…of that exact run", run, ((tomato.gui.runs.RunRecapView) page.feed().recap()).ref());
+            assertTrue(navigator.back());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("Back returns to Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
+        });
+    }
+
+    /**
+     * Search finds the Dungeons tab by its contents ({@code dungeons.open}) without making the other entries ambiguous, and the
+     * Statistics page's banner opens it; Back returns to where each came from. Dungeons' own Analysis link opens Statistics.
+     */
+    @Test public void searchAndTheStatisticsBannerOpenDungeonsAndBackReturns() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+            tomato.gui.runs.RunsDpsPage page = runsDps();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            assertEquals(1, registry.search("dungeons.open").size());
+            tomato.gui.search.ActionDescriptor dungeons = registry.search("dungeons.open").get(0);
+            assertEquals("Dungeons (per-dungeon cards, session comparison, cohorts)", dungeons.label);
+            assertEquals("Runs & DPS › Dungeons", dungeons.location);
+            assertEquals("Found by what it holds", Collections.singletonList("dungeons.open"), ids(registry.search("cohorts")));
+            assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("session comparison")));
+            // The entries other tests search for stay unambiguous.
+            assertEquals(1, registry.search("build.open").size());
+            assertEquals(1, registry.search("combat.settings").size());
+            assertEquals("combat.settings", registry.search("full detail retention").get(0).id);
+            assertEquals(Collections.singletonList("dps.meter"), ids(registry.search("dps logger")));
+            assertEquals(Collections.singletonList("dps.meter"), ids(registry.search("alt+8")));
+            assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
+            assertEquals(1, registry.search("statistics.open").size());
+
+            shell.select(0);
+            assertTrue(dungeons.open());
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals(tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals(0, shell.getSelectedPage());
+
+            shell.select(4);
+            tomato.gui.kit.Banner banner = named(shell, "statistics-dungeons-banner", tomato.gui.kit.Banner.class);
+            assertNotNull("Statistics points to Dungeons", banner);
+            assertEquals("Dungeon stats, session comparison and cohorts are in Runs & DPS › Dungeons.", banner.text());
+            AbstractButton link = named(shell, "statistics-open-dungeons", AbstractButton.class);
+            assertTrue(link.isVisible());
+            assertEquals("Open Dungeons", link.getText());
+            link.doClick();
+            assertEquals(10, shell.getSelectedPage());
+            assertEquals("The banner opens Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, page.selectedTab());
+            assertTrue(navigator.back()); assertEquals("Back returns to Statistics", 4, shell.getSelectedPage());
+
+            shell.select(10);
+            AbstractButton statistics = named(named(page, "dungeons-view", JComponent.class), "dungeons-open-statistics", AbstractButton.class);
+            assertTrue("Dungeons' Analysis link to Statistics is wired", statistics.isVisible());
+            statistics.doClick();
+            assertEquals(4, shell.getSelectedPage());
+        });
+    }
+
+    /** The card named {@code canonical} among the loaded Dungeons cards. */
+    private static tomato.gui.runs.DungeonCardModel card(tomato.gui.kit.TileList<tomato.gui.runs.DungeonCardModel> cards, String canonical) {
+        for (tomato.gui.runs.DungeonCardModel card : cards.items()) if (card.canonical().equals(canonical)) return card;
+        throw new AssertionError("No card " + canonical);
+    }
+    /** The card's menu (Show runs, Open best run, Analyze), as Shift+F10 or a right click opens it; this shell has no window. */
+    private static JPopupMenu cardMenu(tomato.gui.runs.DungeonsView view, tomato.gui.runs.DungeonCardModel card) {
+        try {
+            Method menu = tomato.gui.runs.DungeonsView.class.getDeclaredMethod("cardMenu", tomato.gui.runs.DungeonCardModel.class);
+            menu.setAccessible(true);
+            return (JPopupMenu) menu.invoke(view, card);
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+    /** The first view row whose model {@code column} reads {@code value}, or -1. */
+    private static int rowOf(JTable table, int column, String value) {
+        for (int row = 0; row < table.getRowCount(); row++)
+            if (value.equals(table.getModel().getValueAt(table.convertRowIndexToModel(row), column))) return row;
+        return -1;
+    }
+    /** A recording's Entry column: its library entry's ID prefix. EDT. */
+    private String entry(tomato.backend.data.DpsData recording) {
+        return find(shell, tomato.gui.dps.DpsGUI.class).encounters().find(recording).id.substring(0, 8);
+    }
+    /** Selects {@code row} and presses Open (explicit opening; selection alone never switches the meter). */
+    private static void open(tomato.gui.dps.DungeonListGUI library, JTable table, int row) {
+        assertTrue("Row listed", row >= 0);
+        table.setRowSelectionInterval(row, row);
+        AbstractButton open = named(library, "encounter-open", AbstractButton.class);
+        assertTrue(open.getText(), open.isEnabled());
+        open.doClick();
     }
 
     /** Page 10, Runs & DPS. */

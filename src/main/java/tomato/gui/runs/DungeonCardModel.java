@@ -22,9 +22,9 @@ import tomato.history.link.VisitRef;
  * their number ({@code lootRuns}). Completed runs whose loot is unknown (a session that saved no bag, or whose loot could not
  * be read) are left out and counted in {@code lootExcluded}: the value is then partial (◐, {@link #lootPartial()}).</li>
  * <li><b>Best personal DPS</b> is the highest verified local DPS ({@link RunCardModel.Combat#localDps}, the representative
- * recording's verified local row) of a <b>completed</b> run, with that run and recording. A verified player's real zero
- * never wins: a best needs DPS above 0. Equal DPS: the latest entry, then the greater run reference, so partials merge to the
- * same card in any order.</li>
+ * recording's verified local row) of a <b>completed</b> run, with that run, its entry time and recording. A verified player's
+ * real zero never wins: a best needs DPS above 0. Equal DPS: the latest entry, then the greater run reference, so partials
+ * merge to the same card in any order.</li>
  * </ul>
  * Every unknown value is null with a one-line reason in its {@code …Reason} field (never 0); a known value whose inputs left
  * some completed runs out carries a reason too (partial). A reason is null only when the value covers every run it could.
@@ -38,13 +38,15 @@ import tomato.history.link.VisitRef;
  * @param lootPerCompletedRun null when no completed run's loot is known
  * @param bestLocalDps  null when no completed run has a verified local DPS above 0; {@code bestRun} and {@code bestRecordingId}
  *                      name its run and recording (both null with it)
+ * @param bestEntered   that run's entry time (epoch ms, the Best DPS line's date); null without a best run or when the run has
+ *                      no entry time (never 0)
  * @param lastVisit     the latest known entry time (epoch ms), a sort key; 0 when no run has one (never shown)
  */
 public record DungeonCardModel(String canonical, String displayName, int portalId, int visits, int completed, int left, int appEnded,
                                int inProgress, int unknown, Double completionRate, Long averageDurationMs, int durationRuns,
                                Double lootPerCompletedRun, int lootRuns, int lootExcluded, Double bestLocalDps, VisitRef bestRun,
-                               String bestRecordingId, String completionReason, String durationReason, String lootReason, String dpsReason,
-                               long lastVisit) {
+                               String bestRecordingId, Long bestEntered, String completionReason, String durationReason, String lootReason,
+                               String dpsReason, long lastVisit) {
     /** The completion rate's caveat (its tooltip): the rate is a lower bound. */
     public static final String OBSERVED = "Observed: Left and App ended runs may include clears the app did not see.";
     /** The loot line's caption: unlinked bags are not guessed into a run. */
@@ -70,6 +72,17 @@ public record DungeonCardModel(String canonical, String displayName, int portalI
     public DungeonCardModel {
         Objects.requireNonNull(canonical, "canonical");
         displayName = displayName == null || displayName.isBlank() ? RunCardModel.UNKNOWN_AREA : displayName;
+    }
+
+    /** A card whose best run's entry time is not known ({@code bestEntered} null): the values as named above. */
+    public DungeonCardModel(String canonical, String displayName, int portalId, int visits, int completed, int left, int appEnded,
+                            int inProgress, int unknown, Double completionRate, Long averageDurationMs, int durationRuns,
+                            Double lootPerCompletedRun, int lootRuns, int lootExcluded, Double bestLocalDps, VisitRef bestRun,
+                            String bestRecordingId, String completionReason, String durationReason, String lootReason, String dpsReason,
+                            long lastVisit) {
+        this(canonical, displayName, portalId, visits, completed, left, appEnded, inProgress, unknown, completionRate, averageDurationMs,
+            durationRuns, lootPerCompletedRun, lootRuns, lootExcluded, bestLocalDps, bestRun, bestRecordingId, null, completionReason,
+            durationReason, lootReason, dpsReason, lastVisit);
     }
 
     /** Completed + Left + App ended: the completion rate's denominator. */
@@ -132,7 +145,8 @@ public record DungeonCardModel(String canonical, String displayName, int portalI
         int portal = Portals.spriteId(t.canonical);
         return new DungeonCardModel(t.canonical, t.canonical, portal != 0 ? portal : t.portalId, t.visits, t.completed, t.left, t.appEnded,
             t.inProgress, t.unknown, completion, duration, t.durationRuns, loot, t.lootRuns, lootExcluded, t.bestDps,
-            t.bestDps == null ? null : t.bestRun, t.bestDps == null ? null : t.bestRecordingId, completionReason, durationReason,
+            t.bestDps == null ? null : t.bestRun, t.bestDps == null ? null : t.bestRecordingId,
+            t.bestDps == null || t.bestEntered <= 0 ? null : t.bestEntered, completionReason, durationReason,
             lootReason, dpsReason, t.lastVisit);
     }
 

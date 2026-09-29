@@ -175,6 +175,45 @@ public class DungeonCardRendererTest {
         });
     }
 
+    /** {@link #full()} with its best run entered at {@code entered}. */
+    private static DungeonCardModel dated(Long entered) {
+        DungeonCardModel f = full();
+        return new DungeonCardModel(f.canonical(), f.displayName(), 0, f.visits(), f.completed(), f.left(), f.appEnded(), f.inProgress(),
+            f.unknown(), f.completionRate(), f.averageDurationMs(), f.durationRuns(), f.lootPerCompletedRun(), f.lootRuns(), f.lootExcluded(),
+            f.bestLocalDps(), f.bestRun(), f.bestRecordingId(), entered, f.completionReason(), f.durationReason(), f.lootReason(), f.dpsReason(),
+            f.lastVisit());
+    }
+
+    /**
+     * P5b Task 12: the Best DPS line dates the run it names as the run cards date theirs ("14:32" today, "Yesterday 22:10", else
+     * "14 Jan 14:32"), and the accessible name says when it was entered; an unknown entry time adds nothing (never a made-up date).
+     */
+    @Test public void theBestDpsLineDatesItsRunAsTheRunCardsDo() throws Exception {
+        java.time.ZoneId zone = java.time.ZoneId.of("UTC");
+        long entered = java.time.ZonedDateTime.of(2026, 1, 14, 14, 32, 0, 0, zone).toInstant().toEpochMilli();
+        long later = java.time.ZonedDateTime.of(2026, 3, 1, 12, 0, 0, 0, zone).toInstant().toEpochMilli();
+        long sameDay = java.time.ZonedDateTime.of(2026, 1, 14, 18, 0, 0, 0, zone).toInstant().toEpochMilli();
+        DungeonCardModel card = dated(entered);
+        assertEquals(Long.valueOf(entered), card.bestEntered());
+        assertEquals("Best DPS 12.3k · 14 Jan 14:32", DungeonCardRenderer.lines(card, false, zone, later).best().value());
+        assertEquals("Best DPS 12.3k · 14:32", DungeonCardRenderer.lines(card, false, zone, sameDay).best().value());
+        assertEquals("The caption is unchanged", DungeonCardRenderer.BEST_NOTE, DungeonCardRenderer.lines(card, false, zone, later).best().note());
+        contains(DungeonCardRenderer.lines(card, false, zone, later).best().tip(), "That run was entered 14 Jan 14:32.");
+        contains(DungeonCardRenderer.accessibleName(card, false, zone, later), "best DPS 12.3k from your best completed run, entered 14 Jan 14:32");
+        contains(DungeonCardRenderer.accessibleName(card, false, zone, sameDay), "entered today at 14:32");
+
+        DungeonCardModel unknown = dated(null);
+        assertEquals("An unknown entry time adds no date", "Best DPS 12.3k", DungeonCardRenderer.lines(unknown, false, zone, later).best().value());
+        assertFalse(DungeonCardRenderer.accessibleName(unknown, false, zone, later).contains("entered"));
+
+        SwingUtilities.invokeAndWait(() -> {
+            DungeonCardRenderer renderer = new DungeonCardRenderer(() -> false, zone, () -> later);
+            renderer.getListCellRendererComponent(new JList<>(), card, 0, false, false);
+            assertEquals("The painted line", "Best DPS 12.3k · 14 Jan 14:32", renderer.shown().best().value());
+            contains(renderer.getAccessibleContext().getAccessibleName(), "entered 14 Jan 14:32");
+        });
+    }
+
     /** No painted value reads as a zero count or rate. */
     private static void noZero(DungeonCardRenderer.Lines lines) {
         for (DungeonCardRenderer.Fact fact : List.of(lines.completion(), lines.duration(), lines.loot(), lines.best()))
