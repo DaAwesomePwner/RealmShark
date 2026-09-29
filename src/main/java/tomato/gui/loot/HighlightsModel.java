@@ -1,0 +1,229 @@
+package tomato.gui.loot;
+
+import java.util.*;
+import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.Portals;
+import tomato.gui.modern.DisplayFormat;
+import tomato.gui.stats.LootFacts;
+import tomato.history.link.VisitRef;
+
+/**
+ * What Loot › Highlights shows for one window (spec §6.4; P6a decisions), built off the EDT by {@link HighlightsSource} and
+ * applied on the EDT as is (immutable).
+ * - Tiles use Home's rules so the two agree to the number for the same window: UT and ST by the saved item classification,
+ *   potions by the item's potion flag, white bags by the saved bag name. When no bag was saved in the window's sessions the four
+ *   tiles are unknown ({@link #NO_LOOT}), never 0; a window whose sessions saved loot but none in the period is a real zero.
+ *   Sessions that could not be read make the counts partial (◐), as does a live list capped at its latest 1,000 bags.
+ * - {@code potionsByStat}: stat → potions (small, greater and soulbound together) in stat order, {@link #OTHER_POTIONS} last;
+ *   it sums to the potions tile.
+ * - {@code notable}: the window's notable drops, newest bag first and each bag's items in notability order (UT, ST, stat potion,
+ *   enchanted), each item once under its first kind; at most {@value #NOTABLE_LIMIT}, {@code notableTotal} says how many there
+ *   were. "Enchanted" is rare or better (2 or more recorded enchant slots); {@code enchantUnknown} counts the other items without
+ *   recorded slots, which are never listed as enchanted nor counted as not enchanted.
+ * - {@code dungeons}: one cell per area, most bags first (then by name), "Unknown area" (dungeon null: no map recorded, or an area
+ *   the catalog does not know) last and never dropped.
+ * - {@code bags} and {@code unnamedBags}: the window's bags and those without a saved bag name (legacy saves; not counted as white).
+ * - {@code unavailable}: why saved history could not be read at all (then everything is unknown), else null.
+ * Counts are observed drops, not pickups ({@link #OBSERVED}, in every tile's tooltip).
+ */
+public record HighlightsModel(Window window, Source source, DisplayValue ut, DisplayValue st, DisplayValue potions, DisplayValue whites,
+                              Map<String, Integer> potionsByStat, List<Notable> notable, List<DungeonCell> dungeons, int sessionsSkipped,
+                              boolean capped, long capturedAt, String unavailable, int bags, int unnamedBags, int notableTotal,
+                              int enchantUnknown) {
+    public static final String NO_LOOT = "No loot was saved for this period", NO_LIVE_LOOT = "No loot was observed in this app run yet",
+        OBSERVED = "Observed drops, not pickups", LIVE = "This app run · not saved", CAPPED = "latest 1,000 bags",
+        UNKNOWN_AREA = "Unknown area", OTHER_POTIONS = "Other potions";
+    /**
+     * What capture saves for an area the dungeon catalog does not know ({@code DungeonCatalog.UNRECOGNIZED}, package-private in
+     * {@code tomato.realmshark}; {@code ParseDungeon.canonicalName} returns it for any unknown name). Highlights reads it as
+     * Unknown area.
+     */
+    static final String UNRECOGNIZED = "Unrecognized area";
+    public static final int NOTABLE_LIMIT = 200;
+    /** The stat potions' stats in {@code StatPotion} order, with the sub-line's short labels. */
+    private static final String[] STATS = {"Life", "Mana", "Attack", "Defense", "Speed", "Dexterity", "Vitality", "Wisdom"},
+        SHORT = {"Life", "Mana", "Att", "Def", "Spd", "Dex", "Vit", "Wis"};
+    /** The potions sub-line lists at most this many stats; the tooltip lists them all. */
+    private static final int SUBLINE_STATS = 4;
+
+    /** Today = the local calendar day; This session = since RealmShark started (Home's windows). */
+    public enum Window {
+        TODAY("today", "Today"), SESSION("session", "This session");
+        private final String key, label;
+        Window(String key, String label) { this.key = key; this.label = label; }
+        /** The value kept in {@code ui.loot.highlights}. */
+        public String key() { return key; }
+        public String label() { return label; }
+        /** A saved value; anything else (none, unknown) is Today. */
+        public static Window of(String key) { return SESSION.key.equals(key) ? SESSION : TODAY; }
+    }
+
+    /** Saved history, or (no history store open) this app run's live capture, which is not saved. */
+    public enum Source { SAVED, LIVE_UNSAVED }
+
+    /** Notability order: an item that is several kinds is listed once, under the first. */
+    public enum Kind {
+        UT("UT"), ST("ST"), POTION("Potion"), ENCHANTED("Enchanted");
+        private final String label;
+        Kind(String label) { this.label = label; }
+        /** The chip's text. */
+        public String label() { return label; }
+    }
+
+    /**
+     * One notable drop: {@code bag} as saved (null = no bag name saved), {@code dungeon} null = Unknown area, {@code visit} the exact
+     * run recorded at drop time (null = not linked to a run: none is inferred).
+     */
+    public record Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind) {
+        /** A stable identity for the painted list (equal drops of one bag share it, which only affects the kept selection). */
+        public String key() { return time + "/" + itemId + "/" + bag + "/" + visit + "/" + kind; }
+    }
+
+    /** One area's bags in the window: {@code dungeon} null = Unknown area; {@code portalId} 0 = the kit's placeholder glyph. */
+    public record DungeonCell(String dungeon, int portalId, int bags, int ut, int st, int potions) {
+        /** The area's name, or {@link #UNKNOWN_AREA}. */
+        public String name() { return dungeon == null ? UNKNOWN_AREA : dungeon; }
+    }
+
+    public HighlightsModel {
+        Objects.requireNonNull(window, "window"); Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(ut, "ut"); Objects.requireNonNull(st, "st"); Objects.requireNonNull(potions, "potions"); Objects.requireNonNull(whites, "whites");
+        potionsByStat = Collections.unmodifiableMap(new LinkedHashMap<>(potionsByStat == null ? Map.of() : potionsByStat));   // keeps the order
+        notable = notable == null ? List.of() : List.copyOf(notable);
+        dungeons = dungeons == null ? List.of() : List.copyOf(dungeons);
+        if (sessionsSkipped < 0 || bags < 0 || unnamedBags < 0 || notableTotal < 0 || enchantUnknown < 0)
+            throw new IllegalArgumentException("Counts must not be negative");
+    }
+
+    /**
+     * The model of {@code bags}, the window's bags (already kept to its period). {@code lootRecorded}: a bag was saved in the
+     * window's sessions (Home's rule; false makes the tiles unknown); {@code sessionsSkipped}: sessions of the window that could
+     * not be read; {@code capped}: the live list holds only the latest 1,000 bags.
+     */
+    static HighlightsModel of(Window window, Source source, List<LootFacts.Bag> bags, boolean lootRecorded, int sessionsSkipped,
+                              boolean capped, long capturedAt) {
+        List<LootFacts.Bag> newest = new ArrayList<>(bags);
+        // Newest bag first; equal times keep the later-listed (later-saved) bag first.
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < newest.size(); i++) order.add(i);
+        order.sort(Comparator.comparingLong((Integer i) -> newest.get(i).time()).reversed().thenComparing(Comparator.reverseOrder()));
+        int ut = 0, st = 0, potions = 0, whites = 0, unnamed = 0, enchantUnknown = 0;
+        int[] stats = new int[STATS.length + 1];   // the last slot: other potions
+        List<Notable> notable = new ArrayList<>();
+        Map<String, int[]> cells = new HashMap<>();   // known area → bags, UT, ST, potions
+        int[] unknown = null;                          // Unknown area's, once a bag has none
+        for (int index : order) {
+            LootFacts.Bag bag = newest.get(index);
+            if (bag.bag() == null) unnamed++;
+            if (bag.white()) whites++;
+            String area = area(bag.dungeon());
+            int[] cell = area != null ? cells.computeIfAbsent(area, key -> new int[4]) : unknown != null ? unknown : (unknown = new int[4]);
+            cell[0]++;
+            List<Notable> listed = new ArrayList<>();
+            for (LootFacts.Item item : bag.items()) {
+                if (item.untiered()) { ut++; cell[1]++; }
+                if (item.setTiered()) { st++; cell[2]++; }
+                if (item.potion()) { potions++; cell[3]++; stats[stat(item.id())]++; }
+                Kind kind = kind(item);
+                if (kind != null) listed.add(new Notable(item.id(), bag.bag(), area, bag.time(), bag.visit(), kind));
+                else if (!item.potion() && !item.enchantKnown()) enchantUnknown++;   // could be enchanted: never counted either way
+            }
+            listed.sort(Comparator.comparing(Notable::kind));   // stable: drop order within a kind
+            notable.addAll(listed);
+        }
+        int total = notable.size();
+        if (total > NOTABLE_LIMIT) notable = notable.subList(0, NOTABLE_LIMIT);
+        Map<String, Integer> byStat = new LinkedHashMap<>();
+        for (int i = 0; i < STATS.length; i++) if (stats[i] > 0) byStat.put(STATS[i], stats[i]);
+        if (stats[STATS.length] > 0) byStat.put(OTHER_POTIONS, stats[STATS.length]);
+        List<DungeonCell> dungeons = new ArrayList<>();
+        for (Map.Entry<String, int[]> entry : cells.entrySet()) {
+            int[] c = entry.getValue();
+            dungeons.add(new DungeonCell(entry.getKey(), Portals.spriteId(entry.getKey()), c[0], c[1], c[2], c[3]));
+        }
+        dungeons.sort(Comparator.comparing(DungeonCell::bags, Comparator.reverseOrder()).thenComparing(c -> c.name().toLowerCase(Locale.ROOT)));
+        if (unknown != null) dungeons.add(new DungeonCell(null, 0, unknown[0], unknown[1], unknown[2], unknown[3]));   // last, never dropped
+
+        String scope = source == Source.LIVE_UNSAVED ? "this app run (not saved)" : window.label() + " from saved history";
+        String missing = sessionsSkipped > 0 ? unreadable(sessionsSkipped)
+            : capped ? "Counts cover only the latest 1,000 bags of this app run (" + CAPPED + ")" : null;
+        String none = source == Source.LIVE_UNSAVED ? NO_LIVE_LOOT : NO_LOOT;
+        String whiteNote = unnamed == 0 ? "" : "; " + unnamed + (unnamed == 1 ? " bag without a saved bag name is not counted" : " bags without a saved bag name are not counted");
+        return new HighlightsModel(window, source,
+            tile(ut, "UT drops, " + scope, lootRecorded, none, missing),
+            tile(st, "ST drops, " + scope, lootRecorded, none, missing),
+            tile(potions, "Potion drops" + (byStat.isEmpty() ? "" : " (" + potionWords(byStat) + ")") + ", " + scope, lootRecorded, none, missing),
+            tile(whites, "White bags by their saved bag name, " + scope + whiteNote, lootRecorded, none, missing),
+            byStat, notable, dungeons, sessionsSkipped, capped, capturedAt, null, newest.size(), unnamed, total, enchantUnknown);
+    }
+
+    /** Saved history could not be read at all: every value unknown with {@code reason}. */
+    static HighlightsModel unavailable(Window window, Source source, String reason, long capturedAt) {
+        DisplayValue unknown = DisplayValue.unknown(reason);
+        return new HighlightsModel(window, source, unknown, unknown, unknown, unknown, Map.of(), List.of(), List.of(), 0, false, capturedAt,
+            Objects.requireNonNull(reason, "reason"), 0, 0, 0, 0);
+    }
+
+    /** The item's notable kind, or null: UT, ST, a stat potion (by id), or enchanted (2+ recorded slots; unknown is never). */
+    static Kind kind(LootFacts.Item item) {
+        if (item.untiered()) return Kind.UT;
+        if (item.setTiered()) return Kind.ST;
+        if (LootFacts.potionStat(item.id()) != null) return Kind.POTION;
+        if (item.enchanted()) return Kind.ENCHANTED;
+        return null;
+    }
+
+    /** The bag's area for Highlights: null (Unknown area) when no map was recorded or the catalog did not know it. */
+    static String area(String dungeon) { return dungeon == null || dungeon.isBlank() || UNRECOGNIZED.equals(dungeon) ? null : dungeon; }
+
+    /** "2 Life · 1 Mana · 3 Def · 1 other" (at most four stats, then "+N more"); empty without potions. */
+    static String potionLine(Map<String, Integer> byStat) {
+        List<String> parts = new ArrayList<>();
+        int shown = 0, more = 0;
+        for (Map.Entry<String, Integer> entry : byStat.entrySet()) {
+            if (shown == SUBLINE_STATS) { more++; continue; }
+            parts.add(entry.getValue() + " " + shortLabel(entry.getKey()));
+            shown++;
+        }
+        if (more > 0) parts.add("+" + more + " more");
+        return String.join(" · ", parts);
+    }
+
+    /** "Saved history · Today", "This app run · not saved", "This app run · not saved · latest 1,000 bags". */
+    public String sourceLabel() {
+        if (source == Source.LIVE_UNSAVED) return capped ? LIVE + " · " + CAPPED : LIVE;
+        return "Saved history · " + window.label();
+    }
+
+    /** "1 saved session could not be read", "3 saved sessions could not be read" (Home's words). */
+    static String unreadable(int sessions) { return sessions + (sessions == 1 ? " saved session" : " saved sessions") + " could not be read"; }
+
+    /** Unknown when nothing was saved; partial (◐) when part of the window could not be read; else the count (0 is a real zero). */
+    private static DisplayValue tile(int count, String detail, boolean recorded, String none, String missing) {
+        if (!recorded) return DisplayValue.unknown(none);
+        String described = detail + " · " + OBSERVED;
+        if (missing != null) return DisplayValue.partial(DisplayFormat.formatInteger(count), missing + " · " + described);
+        return DisplayValue.count((long) count, described, null);
+    }
+
+    /** "2 Life, 1 Mana, 3 Defense, 1 other potion": the tooltip's full names. */
+    private static String potionWords(Map<String, Integer> byStat) {
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : byStat.entrySet())
+            parts.add(entry.getValue() + " " + (OTHER_POTIONS.equals(entry.getKey()) ? (entry.getValue() == 1 ? "other potion" : "other potions") : entry.getKey()));
+        return String.join(", ", parts);
+    }
+
+    private static String shortLabel(String stat) {
+        if (OTHER_POTIONS.equals(stat)) return "other";
+        for (int i = 0; i < STATS.length; i++) if (STATS[i].equals(stat)) return SHORT[i];
+        return stat;
+    }
+
+    /** The stat slot of a potion id; STATS.length for other potions. */
+    private static int stat(int id) {
+        String stat = LootFacts.potionStat(id);
+        for (int i = 0; stat != null && i < STATS.length; i++) if (STATS[i].equals(stat)) return i;
+        return STATS.length;
+    }
+}

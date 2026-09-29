@@ -1,0 +1,206 @@
+package tomato.gui.loot;
+
+import java.awt.*;
+import java.awt.geom.RoundRectangle2D;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.LongSupplier;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
+import javax.swing.*;
+import tomato.gui.kit.Sprites;
+import tomato.gui.kit.Tokens;
+import tomato.gui.kit.Type;
+import tomato.gui.modern.ContentStyle;
+
+/**
+ * Paints one notable drop of Loot › Highlights (spec §6.4, §9, §10): one component reused for every cell of the grid's TileList,
+ * no per-drop component tree. The item's sprite sits in a well tinted and outlined in its bag's color ({@link Sprites#paintWell},
+ * shared with the run cards; muted when no bag name was saved); beside it the item's name (cut with "…" when long), then the kind
+ * chip (UT, ST, Potion, Enchanted) with the time ("14:32" today, "Yesterday 22:10", else the date) and the area ("Unknown area"
+ * when none was recorded; the time comes first so a long area name is what gets cut), and "Not linked to a run" when the drop
+ * recorded no exact run. Every fact is in the accessible name in words. The cell is fixed at 17 em of the body font (two columns
+ * at 680 px and font 18); colors come from Tokens at paint time, so both themes and every font work.
+ */
+public final class NotableDropRenderer extends JComponent implements ListCellRenderer<HighlightsModel.Notable>, Accessible {
+    /** The well, its sprite, the space between cells and the card's inner padding. */
+    static final int WELL_SIDE = 40, SPRITE = WELL_SIDE - Sprites.WELL - 2, GAP = 8, PAD = Tokens.S;
+    static final String NOT_LINKED = "Not linked to a run";
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH),
+        DATE = DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.ENGLISH), DATE_YEAR = DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", Locale.ENGLISH);
+
+    /** The text one cell paints (painted text is not in the component tree, so tests read it here). */
+    record Lines(String name, String chip, Tokens.Tone tone, String when, String where, String link) {}
+
+    private final ZoneId zone;
+    private final LongSupplier now;
+    private HighlightsModel.Notable drop;
+    private Lines lines;
+    private boolean selected, focused;
+
+    /** Times are written in {@code zone} against {@code now}'s day there (the view passes its model's read time). */
+    public NotableDropRenderer(ZoneId zone, LongSupplier now) {
+        this.zone = Objects.requireNonNull(zone, "zone");
+        this.now = Objects.requireNonNull(now, "now");
+        setOpaque(false);
+    }
+
+    static Lines lines(HighlightsModel.Notable drop, ZoneId zone, long now) {
+        String area = drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon();
+        return new Lines(Sprites.name(drop.itemId()), drop.kind().label(), tone(drop.kind()), time(drop.time(), zone, now), area,
+            drop.visit() == null ? NOT_LINKED : "");
+    }
+
+    /** The kind's chip tone: UT and ST as the kit's tier borders ({@link Tokens#tier}), potions INFO, enchanted ACCENT. */
+    static Tokens.Tone tone(HighlightsModel.Kind kind) {
+        switch (kind) {
+            case UT: return Tokens.Tone.WARN;
+            case ST: return Tokens.Tone.BAD;
+            case POTION: return Tokens.Tone.INFO;
+            default: return Tokens.Tone.ACCENT;
+        }
+    }
+
+    /**
+     * "Potion of Life, stat potion; Lost Halls, today at 09:05; Orange bag; Enter opens the run recap": the item, its kind, where
+     * and when it dropped, its bag and whether it links to a run, in words.
+     */
+    static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) {
+        String kind = switch (drop.kind()) {
+            case UT -> "UT";
+            case ST -> "ST";
+            case POTION -> "stat potion";
+            case ENCHANTED -> "enchanted, rare or better";
+        };
+        return Sprites.name(drop.itemId()) + ", " + kind + "; " + (drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon())
+            + ", " + spokenTime(drop.time(), zone, now) + "; " + (drop.bag() == null ? "bag not saved" : drop.bag() + " bag") + "; "
+            + (drop.visit() == null ? "not linked to a run" : "Enter opens the run recap");
+    }
+
+    /** "14:32" on {@code now}'s day, "Yesterday 22:10", else "13 Jan 14:32" (with the year when it is not this year's). */
+    static String time(long at, ZoneId zone, long now) {
+        ZonedDateTime when = Instant.ofEpochMilli(at).atZone(zone);
+        LocalDate today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate(), day = when.toLocalDate();
+        if (day.equals(today)) return TIME.format(when);
+        if (day.equals(today.minusDays(1))) return "Yesterday " + TIME.format(when);
+        return (day.getYear() == today.getYear() ? DATE : DATE_YEAR).format(when);
+    }
+
+    private static String spokenTime(long at, ZoneId zone, long now) {
+        String time = time(at, zone, now);
+        if (Instant.ofEpochMilli(at).atZone(zone).toLocalDate().equals(Instant.ofEpochMilli(now).atZone(zone).toLocalDate())) return "today at " + time;
+        if (time.startsWith("Yesterday ")) return "yesterday at " + time.substring("Yesterday ".length());
+        return time;
+    }
+
+    Lines shown() { return lines; }
+
+    /** Where the well paints in a cell {@code width} × {@code height}: at the card's left, vertically centered. */
+    Rectangle well(int width, int height) {
+        int top = GAP / 2 + PAD, inner = height - GAP - 2 * PAD;
+        return new Rectangle(GAP / 2 + PAD, top + Math.max(0, (inner - WELL_SIDE) / 2), WELL_SIDE, WELL_SIDE);
+    }
+
+    /** The list cell: the card plus half the gap between cells on each side, at the current body font. */
+    Dimension cellSize() {
+        FontMetrics title = getFontMetrics(Type.emphasis()), caption = getFontMetrics(Type.caption());
+        int text = title.getHeight() + Tokens.XS + caption.getHeight() + 2 + Tokens.XS + caption.getHeight();
+        int height = 2 * PAD + Math.max(WELL_SIDE, text);
+        int width = Math.max(Math.round(ContentStyle.body().getSize2D() * 17f), WELL_SIDE + 2 * PAD + 120);
+        return new Dimension(width + GAP, height + GAP);
+    }
+
+    /** The kit TileList sizes its fixed cells from the renderer's preferred size: the cell. */
+    @Override public Dimension getPreferredSize() { return cellSize(); }
+
+    @Override public Component getListCellRendererComponent(JList<? extends HighlightsModel.Notable> list, HighlightsModel.Notable value,
+                                                            int index, boolean isSelected, boolean cellHasFocus) {
+        drop = value;
+        selected = isSelected;
+        focused = cellHasFocus;
+        long at = now.getAsLong();
+        lines = value == null ? null : lines(value, zone, at);
+        String name = value == null ? null : accessibleName(value, zone, at);
+        getAccessibleContext().setAccessibleName(name);
+        getAccessibleContext().setAccessibleDescription(value == null ? null
+            : value.visit() == null ? NOT_LINKED : "Enter, double-click or the context menu opens the run recap");
+        setToolTipText(name == null ? null : name + " · " + HighlightsModel.OBSERVED);
+        return this;
+    }
+
+    @Override protected void paintComponent(Graphics graphics) {
+        if (drop == null || lines == null) return;
+        Graphics2D g = (Graphics2D) graphics.create();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Object hints = Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints");
+            if (hints instanceof Map) g.addRenderingHints((Map<?, ?>) hints);
+            int x = GAP / 2, y = GAP / 2, w = getWidth() - GAP, h = getHeight() - GAP;
+            RoundRectangle2D shape = new RoundRectangle2D.Float(x + .5f, y + .5f, w - 1, h - 1, Tokens.ARC_CARD, Tokens.ARC_CARD);
+            g.setColor(Tokens.color(selected ? Tokens.Role.ACCENT_WASH : Tokens.Role.RAISED));
+            g.fill(shape);
+            g.setColor(Tokens.color(selected || focused ? Tokens.Role.ACCENT : Tokens.Role.BORDER_SUBTLE));
+            g.setStroke(new BasicStroke(focused ? 2f : 1f));
+            g.draw(shape);
+            g.setStroke(new BasicStroke(1f));
+            Rectangle well = well(getWidth(), getHeight());
+            Sprites.paintWell(this, g, Sprites.sprite(drop.itemId(), SPRITE), drop.bag(), well.x, well.y, well.width);
+            Font titleFont = Type.emphasis(), captionFont = Type.caption();
+            FontMetrics title = g.getFontMetrics(titleFont), caption = g.getFontMetrics(captionFont);
+            int left = well.x + well.width + Tokens.S, right = x + w - PAD;
+            int text = title.getHeight() + Tokens.XS + caption.getHeight() + 2 + Tokens.XS + caption.getHeight();
+            int top = y + PAD + Math.max(0, (h - 2 * PAD - text) / 2);
+            Color ink = Tokens.color(Tokens.Role.TEXT), muted = Tokens.color(Tokens.Role.TEXT_MUTED);
+            text(g, lines.name(), titleFont, title, ink, left, top + title.getAscent(), right - left);
+            // The kind chip, then when and where on the same line.
+            int row = top + title.getHeight() + Tokens.XS, chipHeight = caption.getHeight() + 2;
+            int chipWidth = chip(g, lines.chip(), lines.tone(), left, row, caption, right - left);
+            int after = left + chipWidth + (chipWidth > 0 ? Tokens.S : 0);
+            text(g, lines.when() + " · " + lines.where(), captionFont, caption, muted, after, row + 1 + caption.getAscent(), right - after);
+            text(g, lines.link(), captionFont, caption, muted, left, row + chipHeight + Tokens.XS + caption.getAscent(), right - left);
+        } finally {
+            g.dispose();
+        }
+    }
+
+    private static void text(Graphics2D g, String value, Font font, FontMetrics metrics, Color color, int x, int baseline, int width) {
+        if (value == null || value.isEmpty() || width <= 0) return;
+        g.setFont(font);
+        g.setColor(color);
+        g.drawString(fit(value, metrics, width), x, baseline);
+    }
+
+    /** The text, or its longest prefix plus "…" that fits the width. */
+    static String fit(String value, FontMetrics metrics, int width) {
+        if (metrics.stringWidth(value) <= width) return value;
+        int end = value.length();
+        while (end > 0 && metrics.stringWidth(value.substring(0, end) + "…") > width) end--;
+        return end == 0 ? "" : value.substring(0, end) + "…";
+    }
+
+    /** A tinted chip from {@code left}, at most {@code max} wide (its label cut with "…"); returns its width (0 when it does not fit). */
+    private static int chip(Graphics2D g, String label, Tokens.Tone tone, int left, int top, FontMetrics metrics, int max) {
+        int width = Math.min(metrics.stringWidth(label), Math.max(0, max - 14)) + 14;
+        if (width <= 14) return 0;
+        g.setColor(Tokens.tint(Tokens.tone(tone)));
+        g.fillRoundRect(left, top, width, metrics.getHeight() + 2, Tokens.ARC_CHIP, Tokens.ARC_CHIP);
+        g.setFont(metrics.getFont());
+        g.setColor(Tokens.tone(tone));
+        g.drawString(fit(label, metrics, width - 14), left + 7, top + 1 + metrics.getAscent());
+        return width;
+    }
+
+    @Override public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
+            @Override public AccessibleRole getAccessibleRole() { return AccessibleRole.LIST_ITEM; }
+        };
+        return accessibleContext;
+    }
+}
