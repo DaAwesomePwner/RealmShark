@@ -125,8 +125,8 @@ public class CharacterFameHistoryTest {
             assertEquals(SessionStore.ALL, workspace.state().query.scope());
             assertEquals(View.FAME, workspace.state().query.facets().view);
             assertEquals("Only Character fame is offered", List.of("Character fame"), offeredViews(workspace));
-            assertNull("No Browse saved / Current live view toggle", button(workspace, "Browse saved"));
-            assertNull(button(workspace, "Current live view"));
+            assertNull("No Live item in a saved-only Scope menu", ArchiveNativeSupport.scope(workspace).item("live"));
+            assertEquals("Scope: Saved · all sessions", ArchiveNativeSupport.scope(workspace).getText());
             assertEquals("Its own filter row", "character-fame-filter-bar", workspace.filterBar().getName());
             Map<Integer, Double> gains = new TreeMap<>();
             for (ArchiveRow<Row> row : workspace.displayedPage().rows) gains.put(row.value.character, row.value.gain);
@@ -291,14 +291,6 @@ public class CharacterFameHistoryTest {
         JComboBox<?> selector = find(root, "loot-archive-view", JComboBox.class);
         for (int i = 0; i < selector.getItemCount(); i++) if (selector.getItemAt(i) instanceof View) titles.add(selector.getItemAt(i).toString());
         return titles;
-    }
-
-    private static AbstractButton button(Container root, String text) {
-        for (Component child : root.getComponents()) {
-            if (child instanceof AbstractButton && text.equals(((AbstractButton) child).getText())) return (AbstractButton) child;
-            if (child instanceof Container) { AbstractButton found = button((Container) child, text); if (found != null) return found; }
-        }
-        return null;
     }
 
     private static <T extends Component> T find(Container root, String name, Class<T> type) {

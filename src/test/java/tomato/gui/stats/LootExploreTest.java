@@ -222,7 +222,7 @@ public class LootExploreTest {
             assertFalse("and reads nothing", workspace.loading());
             assertEquals("Live → saved keeps the view", View.UTS, workspace.state().query.facets().view);
             assertTrue(card(workspace, 6).isShowing());
-            button(workspace, "Browse saved").doClick(); return null;
+            pickScope(workspace, "current"); return null;
         });
         await(() -> ready(workspace));
         edt(() -> {
@@ -231,19 +231,19 @@ public class LootExploreTest {
         });
         await(() -> ready(workspace) && workspace.state().query.facets().view == View.BAGS);
         edt(() -> {
-            button(workspace, "Current live view").doClick();
+            pickScope(workspace, "live");
             assertEquals("Saved → live keeps a view the live dashboard has", View.BAGS, live(workspace).getSelectedItem());
             assertTrue(card(workspace, 3).isShowing());
             assertTrue("The numeric live index is kept", values.get("ux.archive.loot-live").contains("\"loot-views\":\"3\""));
             DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
-            button(workspace, "Browse saved").doClick(); return null;
+            pickScope(workspace, "current"); return null;
         });
         await(() -> ready(workspace));
         edt(() -> { saved(workspace).setSelectedItem(View.OCCURRENCES); return null; });
         await(() -> ready(workspace) && workspace.state().query.facets().view == View.OCCURRENCES);
         edt(() -> {
             assertEquals("A saved-only view shows All Items live", View.ITEMS, live(workspace).getSelectedItem());
-            button(workspace, "Current live view").doClick();
+            pickScope(workspace, "live");
             assertTrue(card(workspace, 0).isShowing());
             return null;
         });
@@ -435,12 +435,10 @@ public class LootExploreTest {
         Field field = LootDashboard.class.getDeclaredField("facets"); field.setAccessible(true); return (Facets) field.get(live);
     }
 
-    static AbstractButton button(Container root, String text) {
-        for (Component child : root.getComponents()) {
-            if (child instanceof AbstractButton && text.equals(((AbstractButton) child).getText()) && child.isShowing()) return (AbstractButton) child;
-            if (child instanceof Container) { AbstractButton found = button((Container) child, text); if (found != null) return found; }
-        }
-        return null;
+    /** Picks a Scope ▾ item ("current" was Browse saved, "live" Current live view); the chip must show, as those buttons had to. */
+    static void pickScope(ArchiveWorkspace<?, ?, ?> workspace, String suffix) {
+        assertTrue("The Scope chip shows", ArchiveNativeSupport.scope(workspace).isShowing());
+        ArchiveNativeSupport.scopeItem(workspace, suffix).doClick();
     }
 
     @SuppressWarnings("unchecked")

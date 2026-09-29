@@ -77,7 +77,7 @@ public class InspectArchiveClientTest {
                 edt(()->{assertRosterEnabled(cached,preDisabled);return null;});
 
                 JTable beforeLive=edt(()->table(workspace));
-                edt(()->{button(workspace,"Current live view").doClick();assertFalse(workspace.state().archive);assertFalse(named(cached,JTable.class,null).isEnabled());workspace.showSaved();return null;});
+                edt(()->{tomato.gui.history.ArchiveNativeSupport.scopeItem(workspace,"live").doClick();assertFalse(workspace.state().archive);assertFalse(named(cached,JTable.class,null).isEnabled());workspace.showSaved();return null;});
                 await(()->!workspace.loading()&&table(workspace)!=beforeLive&&named(workspace,ParsePanelGUI.class,null)==cached);
                 edt(()->{assertRosterEnabled(cached,preDisabled);return null;});
 

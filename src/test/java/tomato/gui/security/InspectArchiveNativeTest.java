@@ -63,7 +63,7 @@ public class InspectArchiveNativeTest {
                 await(() -> ready(workspace) && savedRoster(workspace) == cached && named(workspace,"saved-activity-table",JTable.class) != retired);
                 edt(() -> { assertFalse(retired.isEnabled()); assertFalse(disabled.isEnabled());
                     for (Component child : disabled.getComponents()) if (child instanceof AbstractButton) assertFalse(child.isEnabled());
-                    disabled.setEnabled(true); button(workspace,"Current live view").doClick(); workspace.showSaved(); return null; });
+                    disabled.setEnabled(true); tomato.gui.history.ArchiveNativeSupport.scopeItem(workspace,"live").doClick(); workspace.showSaved(); return null; });
                 await(() -> ready(workspace) && savedRoster(workspace) == cached);
                 matrix(evidence,layouts,shell,"inspect-exact-cached",() -> ready(workspace) && savedRoster(workspace) != null,() -> {
                     ParsePanelGUI roster = savedRoster(workspace);
