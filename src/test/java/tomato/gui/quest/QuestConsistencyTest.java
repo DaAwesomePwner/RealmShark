@@ -469,7 +469,12 @@ public class QuestConsistencyTest {
     }
 
     private void requestClient(Dimension requested) {
-        frame.pack(); Insets insets = frame.getInsets();
+        // Realize the peer once, for its insets, without resizing it. On a realized frame pack() then setSize() are two
+        // native resizes whose window-system echoes (X11 ConfigureNotify) arrive asynchronously; a late echo of the packed
+        // size re-sized the frame after settle(), under the geometry, focus-reveal and scroll assertions. A single resize
+        // only ever echoes the requested size.
+        if (!frame.isDisplayable()) frame.addNotify();
+        Insets insets = frame.getInsets();
         frame.setSize(requested.width + insets.left + insets.right, requested.height + insets.top + insets.bottom);
         shell.dispatchEvent(new ComponentEvent(shell, ComponentEvent.COMPONENT_RESIZED));
     }
