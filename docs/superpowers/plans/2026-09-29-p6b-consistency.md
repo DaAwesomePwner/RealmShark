@@ -524,7 +524,35 @@ Paths are under `src/main/java/tomato/` and `src/test/java/tomato/` (package `ui
 
 ### Wave A outcomes (coordinator review)
 
-_To be filled in after the merges._
+Merged: Task 3 `63c4de7` + `2f5fdd5` (`57bc14d`), Task 4 `d4d465c` (`ad3f45b`), Task 2 `20a64c4` (`45acf52`), Task 5 `8572452` +
+`294ac99` (`0562e43`) and Task 1 `436ead8` (`f8acc19`). Combined focused run on `f8acc19` (history, kit, stats, security, chat,
+activity, modern, notifications, logging, glance, runs, loot, character, quest, keypop, the shell timing, route and journey tests and
+the Loot, shell, workspace and Runs evidence tests): 1,326 tests, 4 failures, exactly the four known Linux/Xvfb ones.
+
+- **Task 1:**
+  - The chip, `LiveFilterHost`, `showSaved(scope)`, `lead`, `liveFilterBar` and `ARCHIVE` are as planned. `FilterBarAssert` exists
+    for later tasks.
+  - Deviations accepted: the chip opens its menu from a key listener, because an InputMap entry for Enter would shadow the open
+    menu's own Enter. Sessions without a custom label show "MM-dd HH:mm". ⋯ Refresh reloads results only; "Refresh session list"
+    is in the Scope menu.
+  - Once a page hosts the chip, the workspace ⋯ hides while live, so Task 11 must add Runs' live Cards item.
+- **Task 2:** accepted as planned, with two differences.
+  - `ItemSlot.State.UNKNOWN` keeps its name and means "not captured".
+  - `PlanCardRenderer`, `ExaltTileRenderer`, `RunCardRenderer` and `NowCard` already draw an outline, so only `StatTile` calls
+    `Tokens.outline`.
+  - Note for Task 6: `MODE_CHANGING` is set only while the change runs, so layout listeners must test it in the listener callback,
+    not in a deferred save.
+- **Task 3:** sent back once. The row's accessible description had replaced the tooltip fallback and lost the Alt key; it now reads
+  the shortcut and then the move or menu hint. Tooltips are unchanged, because tests pin them.
+- **Task 4:** accepted. The submenu label is "Show hidden", because a `JMenu` paints its own ▸. A cross-run guard beyond the plan
+  stops WRAP strips from bouncing. Notifications' `selectSection` accepts IDs and the old titles.
+- **Task 5:** sent back once.
+  - The real-shell row with one chip wrapped by about 11 px. The search field is now 10 columns ("Search this tab…"), and the
+    one-row test measures at the shell's bar width.
+  - Clear is explicitly absent at the defaults.
+  - Cut chip labels keep their full text in the tooltip and accessible description.
+- **Found in passing:** `ShellHookIntegrationTest.shellDisposalReleasesAllReaders…` failed once in Task 5's run: its
+  `hasArchiveScratch` helper walks the temp folder while the archive deletes `archive-pin-*`. Task 10 hardens the helper.
 
 ---
 
