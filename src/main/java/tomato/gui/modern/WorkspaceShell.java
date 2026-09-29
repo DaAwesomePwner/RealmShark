@@ -37,7 +37,13 @@ public final class WorkspaceShell extends JPanel {
     private final JPanel workspace = new JPanel(new BorderLayout(0, 8));
     private final JPanel branding = new JPanel(new CardLayout());
     private final JPanel nav = new JPanel(new GridBagLayout());
-    private final JScrollPane navScroll = new JScrollPane(nav);
+    /**
+     * The destination list (and the compact rail) has no box. The look and feel reinstalls a scroll pane border on every UI update, and a
+     * live theme switch updates this child after the shell's own {@link #refreshTheme}, so the list clears it again after each update.
+     */
+    private final JScrollPane navScroll = new JScrollPane(nav) {
+        @Override public void updateUI() { super.updateUI(); setBorder(null); }
+    };
     private final Component navGlue = Box.createVerticalGlue();
     private final JButton advancedToggle = new JButton();
     private final JPanel settingsRow = new JPanel(new BorderLayout());
@@ -242,6 +248,8 @@ public final class WorkspaceShell extends JPanel {
         setupMessage.setName("capture-setup-message");
         setupMessage.getAccessibleContext().setAccessibleName("Capture readiness and asset setup");
         JScrollPane setupScroll = new JScrollPane(setupMessage) {
+            // Borderless after a live theme switch too, as the destination list.
+            @Override public void updateUI() { super.updateUI(); setBorder(null); }
             @Override public Dimension getPreferredSize() {
                 Dimension size = super.getPreferredSize();
                 size.height = Math.min(size.height, setupMessage.getFontMetrics(setupMessage.getFont()).getHeight() * 3 + 8);

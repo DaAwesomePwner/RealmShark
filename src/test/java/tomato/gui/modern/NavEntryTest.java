@@ -44,6 +44,15 @@ public class NavEntryTest {
         assertNull("The DPS Logger pointer page was removed", NavEntry.forId("dps-logger"));
     }
 
+    /**
+     * Polish B1: the descriptions are the page title's tooltip and accessible description. Loot's names Highlights beside the loot
+     * views; Settings' names the six sections it now has.
+     */
+    @Test public void lootAndSettingsDescribeTheirCurrentContent() {
+        assertEquals("Notable drops at a glance, and every loot view live or saved.", NavEntry.forId("loot").description());
+        assertEquals("Notifications, general, appearance, loot filters, chat and about.", NavEntry.forId("settings").description());
+    }
+
     @Test public void theShellsOwnNamesAreReservedAndBadEntriesAreRejected() {
         for (String reserved : new String[] {"advanced", "menu"}) {
             try {

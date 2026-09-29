@@ -96,7 +96,7 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
             row.perRun=row.perHour=row.utPerHour=row.whitesPerRun=row.utPerRun=row.stPerRun=row.potionsPerRun=null;
             LootProfile p=entry.getValue();
             row.evidence="Session text searches session label/build/ID. Visits follow dungeon and visit bounds; loot is whole-visit evidence. Item/bag/enchant facets do not filter analytical cohorts.\n"
-                +"Observed visits (including unknown-coverage visits): "+p.runs+"; observed milliseconds: "+p.millis+". Loot: "+p.coverage()+". Unassigned bags: "+p.unassignedBags+".\nRates are available only in Dungeon loot profile, with its explicit eligible cohort. Fame change uses dated endpoints inside date bounds; dungeon filters do not filter fame (map association not captured).\n"
+                +"Observed visits (including unknown-coverage visits): "+p.runs+"; observed milliseconds: "+p.millis+". Loot: "+p.coverage()+". Unassigned bags: "+p.unassignedBags+"."+p.unnamedNote()+"\nRates are available only in Dungeon loot profile, with its explicit eligible cohort. Fame change uses dated endpoints inside date bounds; dungeon filters do not filter fame (map association not captured).\n"
                 +undated+" undated fame observations. "+(incompleteFame.contains(id)?"Combined fame change unavailable: at least one included character has incomplete chronology.":"Single-timestamp characters contribute a same-sample zero delta, not measured session growth.");
             out.accept(summary(q,id,row));
         }}else for(Map.Entry<String,LootProfile> entry:dungeons.entrySet()){

@@ -98,6 +98,27 @@ public class CohortComparisonTest {
         }
     }
 
+    /**
+     * Polish B1: a legacy saved bag without a name made the comparison fail ("drop.bag" is null). It is a bag of its run (items and
+     * UT counted, rates kept), never a white bag, and each side's explanation says how many such bags it holds.
+     */
+    @Test public void aSavedBagWithoutANameComparesAndIsNeverAWhiteBag() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
+            runs(store, "r", 2, 1, 1000);   // two runs, each with one named White bag of one UT item
+            store.append("loot", drop(2500, "Ice Citadel", null, "r0", item(2, "B", "WEAPON,UT", "")));
+            store.flush();
+            Map<String,Row> rows = compare(store, cohort(), cohort(store.currentId()), Collections.<String>emptySet(), null);
+            for (String side : Arrays.asList("Baseline", "Candidate")) {
+                Row row = rows.get(side);
+                assertEquals(side, 3L, row.bags.longValue()); assertEquals(3L, row.items.longValue()); assertEquals(3L, row.uts.longValue());
+                assertEquals("Only the two named white bags are white bags", 2L, row.whites.longValue());
+                assertEquals(2L, row.runs.longValue()); assertEquals(1.5, row.perRun, 0); assertEquals(1.0, row.whitesPerRun, 0);
+                assertTrue(row.evidence, row.evidence.contains("1 bag without a saved bag name is not counted as a white bag."));
+            }
+            assertEquals(1L, rows.get("Baseline · 2 items per run").runs.longValue()); assertEquals(1L, rows.get("Baseline · 1 items per run").runs.longValue());
+        }
+    }
+
     @Test public void unchosenCohortsProduceNoRowsAndSavedStateRoundTrips() throws Exception {
         try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
             runs(store, "r", 1, 1, 1000); store.flush();

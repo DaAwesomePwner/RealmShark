@@ -117,6 +117,7 @@ public class DungeonAnalysisTest {
             assertEquals(SessionStore.ALL, workspace.state().query.scope());
             assertEquals(List.of("Dungeon loot profile", "Session comparison", "Dungeon statistics", "Enemy hit events", "Loot by source", "A/B cohorts"),
                 tabs(workspace));
+            assertTrue("Several views: the selector row is shown (Polish B1 hides it only for one view)", find(workspace, "loot-archive-view-row", JComponent.class).isVisible());
             assertNull("No Browse saved / Current live view toggle", button(workspace, "Browse saved"));
             assertNull(button(workspace, "Current live view"));
             assertEquals("Its own filter row, apart from the cards' dungeons bar", "dungeon-analysis-filter-bar", workspace.filterBar().getName());

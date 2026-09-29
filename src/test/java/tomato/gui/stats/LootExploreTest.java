@@ -165,6 +165,54 @@ public class LootExploreTest {
         edt(() -> { assertFalse("A view the live dashboard has is not saved-only", named(workspace, "loot-archive-view-caption").isVisible()); return null; });
     }
 
+    /**
+     * Polish B1: a legacy saved bag without a name made Dungeon loot profile and Session comparison fail ("History read failed: …
+     * "drop.bag" is null"). Both now read it: the bag counts, is never a white bag, and the explanation says so.
+     */
+    @Test public void aSavedBagWithoutANameReadsInTheSavedOnlyViews() throws Exception {
+        SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "explore");
+        closing.add(store);
+        store.append("loot", new LootDashboard.Drop(null, "Lost Halls", "Synthetic boss", 1000,
+            Collections.singletonList(new LootDashboard.Item(910001, "Synthetic blade", "EQUIPMENT,WEAPON,UT", ParseEnchants.summarize(""))), "visit-1"));
+        store.flush();
+        ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store);
+        edt(() -> { DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST); live(workspace).setSelectedItem(View.RATES); return null; });
+        await(() -> workspace.displayedPage() != null || footer(workspace).contains("History read failed"));
+        edt(() -> {
+            assertFalse(footer(workspace), footer(workspace).contains("History read failed"));
+            assertEquals(View.RATES, workspace.state().query.facets().view);
+            assertTrue("Explore keeps its view selector", named(workspace, "loot-archive-view-row").isVisible());
+            assertEquals(1, workspace.displayedPage().rows.size());
+            Row lostHalls = workspace.displayedPage().rows.get(0).value;
+            assertEquals("Lost Halls", lostHalls.dungeon);
+            assertEquals((Long) 1L, lostHalls.bags); assertEquals((Long) 1L, lostHalls.items); assertEquals((Long) 1L, lostHalls.uts);
+            assertEquals("A bag without a name is never a white bag", (Long) 0L, lostHalls.whites);
+            assertTrue(lostHalls.evidence, lostHalls.evidence.contains("1 bag without a saved bag name is not counted as a white bag."));
+            saved(workspace).setSelectedItem(View.SESSIONS); return null;
+        });
+        await(() -> !workspace.loading() && workspace.state().query.facets().view == View.SESSIONS
+            && ("session".equals(workspace.displayedPage().rows.isEmpty() ? null : workspace.displayedPage().rows.get(0).value.type) || footer(workspace).contains("History read failed")));
+        edt(() -> {
+            assertFalse(footer(workspace), footer(workspace).contains("History read failed"));
+            Row session = workspace.displayedPage().rows.get(0).value;
+            assertEquals((Long) 1L, session.bags); assertEquals((Long) 0L, session.whites);
+            assertTrue(session.evidence, session.evidence.contains("1 bag without a saved bag name is not counted as a white bag."));
+            return null;
+        });
+    }
+
+    /** The saved view's status lines (the footer's text areas), where a read failure is reported. */
+    private static String footer(Container root) {
+        StringBuilder text = new StringBuilder();
+        Deque<Component> pending = new ArrayDeque<>(); pending.add(named(root, "loot-archive-footer"));
+        while (!pending.isEmpty()) {
+            Component next = pending.pop();
+            if (next instanceof JTextArea) text.append(((JTextArea) next).getText()).append('\n');
+            if (next instanceof Container) pending.addAll(Arrays.asList(((Container) next).getComponents()));
+        }
+        return text.toString();
+    }
+
     @Test public void switchingBetweenLiveAndSavedKeepsTheChosenView() throws Exception {
         ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store());
         edt(() -> {

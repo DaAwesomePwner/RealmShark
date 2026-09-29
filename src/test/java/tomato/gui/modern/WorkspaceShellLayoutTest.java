@@ -361,6 +361,41 @@ public class WorkspaceShellLayoutTest {
     }
 
 
+    /**
+     * Polish B1: a live theme switch (Settings › Appearance: {@link Themes#install} and the component tree update) boxed the sidebar's
+     * destination list, and the compact rail, because the look and feel reinstalled the scroll pane border the shell cleared once.
+     * After each switch the list keeps its startup border and no insets, wide and compact.
+     */
+    @Test public void aLiveThemeSwitchKeepsTheSidebarListUnboxed() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            LookAndFeel previous = UIManager.getLookAndFeel(); boolean contrast = Themes.increaseContrast();
+            try {
+                assertTrue(Themes.install(new Themes.Choice(Themes.Variant.DARK, false)));
+                WorkspaceShell shell = shell();
+                JScrollPane list = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, named(shell, "nav-loot", AbstractButton.class));
+                assertNotNull("The destinations scroll", list);
+                javax.swing.border.Border startup = list.getBorder();
+                assertEquals("No box at startup", new Insets(0, 0, 0, 0), list.getInsets());
+                assertTrue(Themes.install(new Themes.Choice(Themes.Variant.LIGHT, false)));
+                SwingUtilities.updateComponentTreeUI(shell);
+                assertSame("Dark → light keeps the startup border", startup, list.getBorder());
+                assertEquals("…and no box", new Insets(0, 0, 0, 0), list.getInsets());
+                JScrollPane setup = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, named(shell, "capture-setup-message", JComponent.class));
+                assertEquals("The capture setup message stays borderless too", new Insets(0, 0, 0, 0), setup.getInsets());
+                resize(shell, 800, 600);
+                assertEquals("The compact rail: rows show icons only", "", named(shell, "nav-loot", AbstractButton.class).getText());
+                assertTrue(Themes.install(new Themes.Choice(Themes.Variant.DARK, false)));
+                SwingUtilities.updateComponentTreeUI(shell);
+                assertSame("Light → dark on the compact rail keeps the startup border", startup, list.getBorder());
+                assertEquals(new Insets(0, 0, 0, 0), list.getInsets());
+            } finally {
+                Themes.install(new Themes.Choice(previous instanceof VioletLightTheme ? Themes.Variant.LIGHT : Themes.Variant.DARK, contrast));
+                if (!(previous instanceof VioletTheme || previous instanceof VioletLightTheme))
+                    try { UIManager.setLookAndFeel(previous); } catch (UnsupportedLookAndFeelException e) { throw new AssertionError(e); }
+            }
+        });
+    }
+
     static void resize(WorkspaceShell shell, int width, int height) {
         shell.setSize(width, height);
         shell.dispatchEvent(new ComponentEvent(shell, ComponentEvent.COMPONENT_RESIZED));

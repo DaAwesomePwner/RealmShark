@@ -136,6 +136,25 @@ public class CharacterFameHistoryTest {
         });
     }
 
+    /** Polish B1: with one view there is nothing to choose, so the saved view's selector row is not shown (it listed "Character fame" alone). */
+    @Test public void theOneViewWorkspaceShowsNoViewSelector() throws Exception {
+        SessionStore store = history();
+        ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store, temp.newFolder("scratch").toPath(), new ArchiveNativeSupport.Memory());
+        await(() -> ready(workspace) && workspace.displayedPage().matches == 2);
+        edt(() -> {
+            JComponent row = find(workspace, "loot-archive-view-row", JComponent.class);
+            assertFalse("The one-view selector row is hidden", row.isVisible());
+            assertFalse("…so its selector is not shown within the workspace", visibleWithin(find(workspace, "loot-archive-view", JComboBox.class), workspace));
+            assertTrue("The table is shown", visibleWithin(find(workspace, "loot-archive-table", JTable.class), workspace));
+            return null;
+        });
+    }
+    /** Every component from {@code component} up to {@code root} is visible (the workspace is not in a window, so isShowing is false). */
+    private static boolean visibleWithin(Component component, Container root) {
+        for (Component c = component; c != null && c != root; c = c.getParent()) if (!c.isVisible()) return false;
+        return true;
+    }
+
     @Test public void openFameOpensTheSelectedSessionsFullGraph() throws Exception {
         SessionStore store = history();
         ArchiveWorkspace<Row, Facets, Sort> workspace = workspace(store, temp.newFolder("scratch").toPath(), new ArchiveNativeSupport.Memory());

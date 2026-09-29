@@ -238,6 +238,41 @@ public class ReportingStatisticsTest {
             now.delete(oldId);assertTrue(now.read(oldId,"loot",LootDashboard.Drop.class).isEmpty());
         }
     }
+    // Polish B1: a legacy saved bag without a name (no "bag" field) made every profile read fail ("drop.bag" is null). It is still a
+    // bag and its items count as before, but it is never a white bag, and the explanation says how many such bags there were.
+    @Test public void aSavedBagWithoutANameReadsInRatesAndSessionsAndIsNeverAWhiteBag() throws Exception {
+        Path root=temp.newFolder().toPath();
+        try(SessionStore store=new SessionStore(root,true,"synthetic")){
+            store.put("runs","run",visit("run","Ice Citadel",60000));
+            store.append("loot",new LootDashboard.Drop(null,"Ice Citadel","Boss",2000,Arrays.asList(
+                new LootDashboard.Item(1,"UT blade","EQUIPMENT,WEAPON,UT",ParseEnchants.summarize("")),
+                new LootDashboard.Item(2,"ST robe","EQUIPMENT,ARMOR,ST",ParseEnchants.summarize("")),
+                new LootDashboard.Item(3,"Potion","EQUIPMENT,CONSUMABLE,STATPOTION",ParseEnchants.summarize(""))),"run"));
+            store.append("loot",drop(3000,"Boss"));   // a named white bag in the same visit
+            store.flush();
+            List<String> saved=Files.readAllLines(root.resolve(store.currentId()).resolve("loot.jsonl"));
+            assertEquals(2,saved.size());assertFalse("The first saved bag has no bag field, as a legacy save",saved.get(0).contains("\"bag\""));
+            Row rate=rate(store,store.currentId());
+            assertEquals((Long)2L,rate.bags);assertEquals((Long)4L,rate.items);
+            assertEquals("Only the named white bag is a white bag",(Long)1L,rate.whites);
+            assertEquals((Long)1L,rate.uts);assertEquals((Long)1L,rate.sts);assertEquals((Long)1L,rate.potions);
+            assertEquals((Double)4.0,rate.perRun);assertEquals((Double)1.0,rate.whitesPerRun);
+            assertTrue(rate.evidence,rate.evidence.contains("4 items, 1 white bags, 1 UT gear, 1 ST gear, 1 stat potions (observed, not owned). 1 bag without a saved bag name is not counted as a white bag."));
+            Row session=session(store,store.currentId());
+            assertEquals((Long)2L,session.bags);assertEquals((Long)4L,session.items);assertEquals((Long)1L,session.whites);assertEquals((Long)1L,session.runs);
+            assertTrue(session.evidence,session.evidence.contains("Unassigned bags: 0. 1 bag without a saved bag name is not counted as a white bag."));
+        }
+    }
+    @Test public void theProfileCountsBagsWithoutASavedNameAndNamesThemInItsExplanation() {
+        LootProfile profile=new LootProfile();profile.runs=1;profile.millis=60000;
+        profile.add(new LootDashboard.Drop(null,"Ice Citadel","Boss",2000,Collections.emptyList(),"run"),true);
+        profile.add(new LootDashboard.Drop(" ","Ice Citadel","Boss",2000,Collections.emptyList(),"run"),true);   // blank: no name either (as Highlights)
+        profile.add(new LootDashboard.Drop("B.White","Ice Citadel","Boss",2000,Collections.emptyList(),"run"),true);
+        assertEquals(3,profile.bags);assertEquals(2,profile.unnamedBags);assertEquals(1,profile.whites);
+        assertTrue(profile.explanation(),profile.explanation().contains("0 items, 1 white bags, 0 UT gear, 0 ST gear, 0 stat potions (observed, not owned). 2 bags without a saved bag name are not counted as white bags."));
+        LootProfile named=new LootProfile();named.add(drop(2000,"Boss"),true);
+        assertFalse("No note when every bag has a name",named.explanation().contains("without a saved bag name"));
+    }
     @Test public void unassignedBagMakesRateUnavailableEvenWithAnEligibleVisit() {
         LootProfile profile=new LootProfile();profile.runs=2;profile.millis=120000;
         profile.add(drop(2000,"test"),false);
