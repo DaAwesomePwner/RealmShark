@@ -737,8 +737,8 @@ public class RunsDpsEvidenceTest {
     /**
      * The Live meter's facts in either mode: the live fight in the Live meter tab, the true rank by damage (Alpha #1, Bravo #2),
      * your row washed and named "(you)", the enemy cards (All enemies first, the boss card with its chip, "HP —" for an enemy
-     * without max HP) and, at the desktop size, the whole Boss chip inside the visible list (known finding 1 is printed: at
-     * 680×520 font 18 the names shrink to "…" beside the chip).
+     * without max HP) and, at the desktop size, the whole Boss chip inside the visible list; at 680×520 font 18 a card too narrow
+     * for the chip opens its facts with "Boss · " instead, so the name keeps its width.
      */
     private void liveMeter(boolean desktop) {
         assertEquals(10, shell.getSelectedPage());
@@ -759,19 +759,31 @@ public class RunsDpsEvidenceTest {
         JPanel boss = card(enemies, 1);
         assertEquals("Highest max HP first: the boss", "Synthetic Colossus", slot(boss, BorderLayout.NORTH).getText());
         Chip chip = (Chip) ((BorderLayout) boss.getLayout()).getLayoutComponent(BorderLayout.EAST);
-        assertTrue("The boss card's chip", chip.isVisible() && "Boss".equals(chip.getText()));
         String hp = slot(boss, BorderLayout.SOUTH).getText();
-        assertTrue(hp, hp.startsWith("400,000 HP · "));
+        // A card too narrow for ten characters of the name beside the chip folds the Boss marker into its facts (Task 15a).
+        boolean folded = !chip.isVisible();
+        assertTrue("The desktop boss card keeps its chip", !desktop || !folded);
+        if (folded) assertTrue("A narrow boss card opens its facts with Boss: " + hp, hp.startsWith("Boss · 400,000 HP · "));
+        else {
+            assertEquals("The boss card's chip", "Boss", chip.getText());
+            assertTrue(hp, hp.startsWith("400,000 HP · "));
+        }
         boolean unknownHp = false;
-        for (int i = 1; i < enemies.getModel().getSize(); i++) unknownHp |= slot(card(enemies, i), BorderLayout.SOUTH).getText().startsWith("HP — · ");
+        for (int i = 1; i < enemies.getModel().getSize(); i++) {
+            String facts = slot(card(enemies, i), BorderLayout.SOUTH).getText();
+            unknownHp |= facts.startsWith("HP — · ") || facts.startsWith("Boss · HP — · ");
+        }
         assertTrue("An enemy without max HP reads \"HP —\", never 0", unknownHp);
         Rectangle cell = enemies.getCellBounds(1, 1);
         boss.setBounds(cell); boss.doLayout();
-        Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
         JLabel title = slot(boss, BorderLayout.NORTH);
-        System.out.println("p5b live meter " + (desktop ? "1240/13" : "680/18") + ": enemy list " + enemies.getVisibleRect().width + " px, boss title "
-            + title.getWidth() + " of " + title.getPreferredSize().width + " px, chip " + chipInList);
-        assertTrue("The Boss chip lies inside the visible list", enemies.getVisibleRect().contains(chipInList));
+        if (!folded) {
+            Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
+            System.out.println("p5b live meter " + (desktop ? "1240/13" : "680/18") + ": enemy list " + enemies.getVisibleRect().width + " px, boss title "
+                + title.getWidth() + " of " + title.getPreferredSize().width + " px, chip " + chipInList);
+            assertTrue("The Boss chip lies inside the visible list", enemies.getVisibleRect().contains(chipInList));
+        } else System.out.println("p5b live meter 680/18: enemy list " + enemies.getVisibleRect().width + " px, boss title "
+            + title.getWidth() + " of " + title.getPreferredSize().width + " px, Boss folded into the facts");
         assertTrue("The capture shows the enemy cards", inView(enemies));
     }
 
