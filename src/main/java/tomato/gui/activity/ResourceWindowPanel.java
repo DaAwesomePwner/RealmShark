@@ -155,8 +155,8 @@ final class ResourceWindowPanel extends JPanel implements Scrollable {
     }
     private void updateHandoffs() {
         List<String> reasons = new ArrayList<>();
-        enable(around, aroundRoute(), reference.get() == null ? "Timeline around a sample needs a saved visit (Browse saved)" : "Inspect a sample first (Left / Right in the chart)", reasons);
-        enable(window, windowRoute(), reference.get() == null ? "Timeline for a window needs a saved visit (Browse saved)" : "Select a window first", reasons);
+        enable(around, aroundRoute(), reference.get() == null ? "Timeline around a sample needs a saved visit (Scope ▾ › Saved history)" : "Inspect a sample first (Left / Right in the chart)", reasons);
+        enable(window, windowRoute(), reference.get() == null ? "Timeline for a window needs a saved visit (Scope ▾ › Saved history)" : "Select a window first", reasons);
         handoff.setText(String.join("; ", reasons));
         handoff.setVisible(!reasons.isEmpty());
     }

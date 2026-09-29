@@ -22,15 +22,33 @@ import tomato.gui.history.ViewState;
 import tomato.gui.history.ViewStateStore;
 import tomato.gui.history.ArchiveFilters;
 import tomato.gui.history.FilterChips;
+import tomato.gui.history.LiveFilterHost;
 import tomato.gui.history.WrapRow;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitTables;
+import tomato.gui.kit.OverflowMenu;
+import tomato.gui.kit.Tokens;
 import tomato.gui.roster.RosterViewState;
 import tomato.history.SessionStore;
 
-/** Product-facing history modules sharing the capture journal, independent of diagnostic tables. */
-public final class ActivityPanel extends JPanel {
+/**
+ * Product-facing history modules sharing the capture journal, independent of diagnostic tables.
+ * <ul>
+ *   <li>One filter row ({@code activity-<mode>}): search, and a Filters drawer with Runs' run facets or Timeline's and Resources'
+ *       recorded visit (and Timeline's activity type), shown as chips while they narrow. Its ⋯ holds the unfiltered export
+ *       ({@code activity-export}) and, once bound, the saved view state ({@code activity-live-<mode>-save-state} and
+ *       {@code -reset-state}). In a workspace this row hosts the Scope chip while live ({@link LiveFilterHost}).</li>
+ *   <li>Under it one status line ({@code activity-status-line}): collection and "Pause this view" (Runs adds the duration unit).</li>
+ *   <li>Simple reads Runs' and Timeline's times relatively (the absolute time in the tooltip) and hides Timeline's Meaning, which the
+ *       detail pane keeps; Analyst shows both as before. Only the renderers follow the mode: models, sorting, search and exports
+ *       stay absolute, and no width is refitted.</li>
+ * </ul>
+ */
+public final class ActivityPanel extends JPanel implements LiveFilterHost {
     /** EDT factory used by the shell; each mode has an independent saved workspace. */
     public static JComponent workspace(DiscoveryLog log,Mode mode) {
         ActivityPanel live=new ActivityPanel(log,mode);
@@ -74,6 +92,7 @@ public final class ActivityPanel extends JPanel {
     public enum Mode { RUNS, TIMELINE, COMBAT }
     private final DiscoveryLog log;
     private final Mode mode;
+    private final DisplayModeModel display;
     private final JTextField search=new JTextField(18);
     private final JComboBox<VisitChoice> visitPicker=new JComboBox<>();
     private final JComboBox<String> kind=new JComboBox<>(new String[]{"All activities","Party","Exalt","Item / ability","Inventory","Equipment","Resources","Capture","Ownership"});
@@ -106,14 +125,20 @@ public final class ActivityPanel extends JPanel {
     private final JComboBox<ActivityQueries.Presence> issuesFilter=new JComboBox<>(ActivityQueries.Presence.values()), gapsFilter=new JComboBox<>(ActivityQueries.Presence.values());
     private final JTextField minimumDuration=new JTextField(6), maximumDuration=new JTextField(6);
     private final FilterBar filterBar;
+    /** Collection and Pause under the filter row (Runs adds its duration unit). */
+    private final JPanel statusLine=ContentStyle.controls();
     private final JPanel stateHost=new JPanel(new BorderLayout());
+    /** The saved view state's status while it is a failure; its actions are ⋯ items. */
+    private final Banner stateBanner;
     private RosterViewState liveState;
     private boolean restoringState, restorePending, selectionRequired;
     private String restoredVisit="", restoredRow="";
     private static final int RUN_DPS=11;
 
-    public ActivityPanel(DiscoveryLog log, Mode mode) {
-        super(new BorderLayout(0,8)); this.log=log; this.mode=mode; setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
+    public ActivityPanel(DiscoveryLog log, Mode mode) { this(log,mode,DisplayModeModel.application()); }
+    /** As above with the display mode (tests): Simple reads times relatively and hides Timeline's Meaning. */
+    ActivityPanel(DiscoveryLog log, Mode mode, DisplayModeModel display) {
+        super(new BorderLayout(0,8)); this.log=log; this.mode=mode; this.display=Objects.requireNonNull(display); setName("activity-"+mode.name().toLowerCase(Locale.ROOT));
         combatTabs=mode==Mode.COMBAT?new CustomizableTabs("activity-combat"):null;combatViews=combatTabs==null?new JTabbedPane():combatTabs.component();
         record=new CollectionControl(log,this::refresh);
         String[] columns=mode==Mode.RUNS ? new String[]{"Dungeon","Entered","Observed minutes","Outcome","Coverage","Progress increase","Use requests","Capture issues","Timing gaps","Evidence source","Damage","DPS"}
@@ -163,18 +188,23 @@ public final class ActivityPanel extends JPanel {
         Map<String,ColumnKind> byId=new HashMap<>();
         for(int c=0;c<columns.length;c++){table.getColumnModel().getColumn(c).setIdentifier("column-"+c);byId.put("column-"+c,kinds[c]);}
         HistoryTables.kinds(table,byId);
+        // Mode-aware columns (spec §3.2). Both layout savers (the view state's widths and HistoryTables' layout) see the table before
+        // the mode first hides Meaning, so a Simple save keeps it, with its width, instead of losing column-4 (P6b Task 6's rule).
+        HistoryTables.columnState(table,"Live");RosterViewState.listenTable(table,this::rememberLiveState);
+        relativeTimes();
+        if(mode==Mode.TIMELINE)KitTables.analystOnly(table,display,"column-4");
+        stateBanner=new Banner("activity-live-"+mode.name().toLowerCase(Locale.ROOT)+"-view-state");
         JPanel top=new JPanel(); top.setLayout(new BoxLayout(top,BoxLayout.Y_AXIS));
-        JPanel controls=ContentStyle.controls();controls.setAlignmentX(LEFT_ALIGNMENT);
         search.setName("activity-search");search.getAccessibleContext().setAccessibleName("Search "+mode.name().toLowerCase(Locale.ROOT));
         search.putClientProperty("JTextField.placeholderText","Search this view");
         search.setToolTipText("Search this module; text is matched literally");
         displayedEnabled=record.isSelected();
-        JButton export=new JButton("Export displayed history (unfiltered)"); export.addActionListener(e->export());
-        export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
-        controls.add(record); controls.add(freeze); controls.add(export);
+        // Collection and Pause are one status line under the filter row (R2 decision 8); saved views hide the collection toggle.
+        statusLine.setName("activity-status-line");statusLine.setAlignmentX(LEFT_ALIGNMENT);
+        statusLine.add(record); statusLine.add(freeze);
         if(mode==Mode.RUNS){
             durationUnit.setName("run-duration-unit");durationUnit.getAccessibleContext().setAccessibleName("Run duration units");
-            controls.add(labeled("Time",durationUnit));
+            statusLine.add(labeled("Time",durationUnit));
             durationUnit.addActionListener(e->{int view=table.convertColumnIndexToView(2);if(view>=0)table.getColumnModel().getColumn(view).setHeaderValue(unit().column());table.getTableHeader().repaint();if(!restoringState)fill(false);rememberLiveState();});
         }
         freeze.addItemListener(e->{
@@ -185,17 +215,14 @@ public final class ActivityPanel extends JPanel {
             }
             refresh();
         });
-        // One filter row: search (and the visit/type selectors for Timeline and Resources); Runs keeps its facets in the drawer.
+        // One filter row: search, then the drawer (Runs' run facets; Timeline's and Resources' visit and type, as chips while they narrow).
+        // In a workspace the row also hosts the Scope chip while live (LiveFilterHost), so the page has one filter row.
         filterBar=new FilterBar("activity-"+mode.name().toLowerCase(Locale.ROOT));filterBar.setAlignmentX(LEFT_ALIGNMENT);
-        // Not "scope": the constructor already declares a JTextArea scope further down.
-        WrapRow searchRow=new WrapRow(labeled("Search",search));
-        if(mode!=Mode.RUNS){
-            visitPicker.setName("activity-visit"); visitPicker.setPrototypeDisplayValue(new VisitChoice("","09-09 22:00 · Recorded visit"));
-            visitPicker.getAccessibleContext().setAccessibleName("Recorded visit");kind.setName("activity-kind");kind.getAccessibleContext().setAccessibleName("Activity type");
-            searchRow.add(labeled("Visit",visitPicker)); if(mode==Mode.TIMELINE)searchRow.add(kind);
-        }
-        filterBar.search(searchRow);if(mode==Mode.RUNS)filterBar.drawer(runFilterControls());
-        top.add(filterBar);top.add(controls);
+        filterBar.search(new WrapRow(labeled("Search",search))).drawer(mode==Mode.RUNS?runFilterControls():visitControls());
+        // ⋯: the unfiltered export first; bindViewState adds the saved view state below it.
+        JMenuItem export=filterBar.overflow().add("Export displayed history…",this::export);export.setName("activity-export");
+        export.setToolTipText("Export the displayed history revision (including while frozen); filters do not limit the export"+(mode==Mode.RUNS ? ". Dungeon runs and their events only." : "."));
+        top.add(filterBar);top.add(statusLine);
         summary.setName("activity-summary");summary.setFont(ContentStyle.metadata(ContentStyle.body()));saved.setFont(ContentStyle.metadata(ContentStyle.body()));
         summary.setBorder(BorderFactory.createEmptyBorder(4,8,4,0));summary.setAlignmentX(LEFT_ALIGNMENT); top.add(summary); add(top,BorderLayout.NORTH);
         detail.setEditable(false); detail.setLineWrap(true); detail.setWrapStyleWord(true); detail.setMargin(new Insets(6,8,6,8));
@@ -225,13 +252,14 @@ public final class ActivityPanel extends JPanel {
             : "Party, progression and equipment history. Requests do not prove successful actions; progress between visits remains unassigned.");
         scope.setLineWrap(true); scope.setWrapStyleWord(true); scope.setOpaque(false); scope.setEditable(false); scope.setRows(2);
         scope.setFont(ContentStyle.metadata(ContentStyle.body()));
+        stateBanner.setTone(Tokens.Tone.WARN);stateBanner.setVisible(false);stateHost.add(stateBanner);stateHost.setVisible(false);
         JPanel bottom=new JPanel();bottom.setLayout(new BoxLayout(bottom,BoxLayout.Y_AXIS));bottom.add(scope);bottom.add(saved);bottom.add(stateHost);add(bottom,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();} public void removeUpdate(DocumentEvent e){filter();} public void changedUpdate(DocumentEvent e){filter();}});
         kind.addActionListener(e->{if(!refreshing&&!restoringState){fill();rememberLiveState();}}); visitPicker.addActionListener(e->{if(!refreshing&&!restoringState){
             selectionRequired=false;restorePending=false;restoredVisit=restoredRow="";
             if(mode==Mode.COMBAT)table.clearSelection();
             if(mode==Mode.COMBAT){if(freeze.isSelected())refreshFrozenVisit();else refresh();}else fill();
-            rememberLiveState();
+            updateVisitChips();rememberLiveState();
         }});
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!refreshing&&!restoringState){showDetail();rememberLiveState();}});
         timer=new javax.swing.Timer(1000,e->{if(isShowing())refresh();}); fill(false);
@@ -256,6 +284,29 @@ public final class ActivityPanel extends JPanel {
         controls.add(outcomeFilter);controls.add(evidenceFilter);controls.add(labeled("Capture issues",issuesFilter));controls.add(labeled("Timing gaps",gapsFilter));
         controls.add(labeled("Duration seconds ≥",minimumDuration));controls.add(labeled("≤",maximumDuration));controls.add(duration);controls.add(reset);syncRunControls();return controls;
     }
+    /** Timeline's and Resources' drawer: the recorded visit, and Timeline's activity type. */
+    private JComponent visitControls(){
+        visitPicker.setName("activity-visit"); visitPicker.setPrototypeDisplayValue(new VisitChoice("","09-09 22:00 · Recorded visit"));
+        visitPicker.getAccessibleContext().setAccessibleName("Recorded visit");kind.setName("activity-kind");kind.getAccessibleContext().setAccessibleName("Activity type");
+        JPanel controls=ContentStyle.controls();controls.setOpaque(false);controls.add(labeled("Visit",visitPicker));
+        if(mode==Mode.TIMELINE)controls.add(labeled("Activity",kind));
+        return controls;
+    }
+    /**
+     * Timeline and Resources: one chip per drawer control that narrows the view. Timeline's visit (other than "All visits") and
+     * activity type (other than "All activities"); Resources' visit while it is not the newest, which a fresh view follows (or while
+     * none is selected). Removing a chip, or Clear, returns its control to that default. The labels are compared, so repeated
+     * refreshes rebuild nothing; the remove actions read the controls when clicked.
+     */
+    private void updateVisitChips(){
+        if(filterBar==null||mode==Mode.RUNS)return;List<FilterBar.ActiveFilter> chips=new ArrayList<>();int index=visitPicker.getSelectedIndex();
+        if(index>0)chips.add(new FilterBar.ActiveFilter("Visit: "+visitPicker.getItemAt(index).label,()->firstVisit()));
+        else if(index<0&&visitPicker.getItemCount()>0)chips.add(new FilterBar.ActiveFilter("Visit: none selected",()->firstVisit()));
+        if(mode==Mode.TIMELINE&&kind.getSelectedIndex()>0)chips.add(new FilterBar.ActiveFilter("Activity: "+kind.getSelectedItem(),()->kind.setSelectedIndex(0)));
+        FilterChips.update(filterBar,chips,()->{firstVisit();if(mode==Mode.TIMELINE&&kind.getSelectedIndex()!=0)kind.setSelectedIndex(0);},false);
+    }
+    /** Timeline's "All visits", or Resources' newest visit. */
+    private void firstVisit(){if(visitPicker.getItemCount()>0&&visitPicker.getSelectedIndex()!=0)visitPicker.setSelectedIndex(0);}
     private static <T> void chooseFacets(JButton button,T[] available,Set<T> selected,java.util.function.Consumer<Set<T>> changed){
         JPopupMenu menu=new JPopupMenu();Set<T> draft=new LinkedHashSet<>(selected);
         for(T value:available){JCheckBoxMenuItem item=new JCheckBoxMenuItem(value.toString(),draft.contains(value));item.addActionListener(e->{if(item.isSelected())draft.add(value);else draft.remove(value);changed.accept(new LinkedHashSet<>(draft));});menu.add(item);}
@@ -292,10 +343,23 @@ public final class ActivityPanel extends JPanel {
     private static Long durationMillis(String text){return text.trim().isEmpty()?null:new java.math.BigDecimal(text.trim()).movePointRight(3).longValueExact();}
     private static String durationSeconds(Long value){return value==null?"":java.math.BigDecimal.valueOf(value,3).stripTrailingZeros().toPlainString();}
 
+    /** The live filter row: it hosts the workspace's Scope chip while live, so the page keeps one filter row. */
+    @Override public FilterBar liveFilterBar(){return filterBar;}
     public void bindViewState(ViewStateStore store){
         if(liveState!=null||log.isHistorical())return;
-        liveState=new RosterViewState(store,"activity-live-"+mode.name().toLowerCase(Locale.ROOT),this::captureLiveState,this::prepareLiveState);
-        stateHost.add(liveState.controls());RosterViewState.listenTable(table,this::rememberLiveState);
+        String key="activity-live-"+mode.name().toLowerCase(Locale.ROOT);
+        liveState=new RosterViewState(store,key,this::captureLiveState,this::prepareLiveState);
+        // Saved view state lives in the row's ⋯ (spec §3.2, as on Party); the line below shows its status only while it is a failure.
+        // The table already reports its sorts, moves and resizes (the constructor's listenTable).
+        OverflowMenu more=filterBar.overflow();more.addSeparator();
+        more.add("Save view state",()->liveState.save()).setName(key+"-save-state");
+        more.add("Reset saved view state",liveState::resetSaved).setName(key+"-reset-state");
+        liveState.onStatus(this::viewStateChanged);viewStateChanged();
+    }
+    /** The saved view's status as a warning line while it is a failure (a save failed, or the saved state could not be read). */
+    private void viewStateChanged(){
+        boolean problem=liveState.statusProblem();stateBanner.setText(problem?liveState.statusText():"");stateBanner.setVisible(problem);
+        if(stateHost.isVisible()!=problem){stateHost.setVisible(problem);revalidate();}
     }
     public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState(){
         if(liveState==null)throw new IllegalStateException("Live state is not bound");return liveState.save();
@@ -329,7 +393,7 @@ public final class ActivityPanel extends JPanel {
             // Startup restore never un-hides a tab: the user's hide wins over the last selection.
             if(mode==Mode.COMBAT&&values.containsKey("tab"))combatTabs.select(tab==1?"uptime":"timeline");columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
             restoredVisit=visit;restoredRow=row;restorePending=!visit.isEmpty()||!row.isEmpty();selectionRequired=required==1;
-        }finally{restoringState=false;}filter();};
+        }finally{restoringState=false;}filter();updateVisitChips();};
     }
     private static JPanel labeled(String text,JComponent component){JPanel group=new JPanel(new BorderLayout(6,0));JLabel label=new JLabel(text);label.setLabelFor(component);group.add(label,BorderLayout.WEST);group.add(component);return group;}
     private static JSplitPane split(JComponent top,JComponent bottom,double ratio){
@@ -400,6 +464,7 @@ public final class ActivityPanel extends JPanel {
         for(int i=0;same&&i<choices.size();i++)same=choices.get(i).id.equals(visitPicker.getItemAt(i).id)&&choices.get(i).label.equals(visitPicker.getItemAt(i).label);
         if(!same){visitPicker.removeAllItems();for(VisitChoice item:choices)visitPicker.addItem(item);}
         for(int i=0;i<visitPicker.getItemCount();i++)if(visitPicker.getItemAt(i).id.equals(selected)){visitPicker.setSelectedIndex(i);break;}
+        updateVisitChips();
     }
     private void rememberPresentation(){
         presentationLocale=Locale.getDefault(Locale.Category.FORMAT);presentationZone=ZoneId.systemDefault();
@@ -420,6 +485,7 @@ public final class ActivityPanel extends JPanel {
             if(changed)model.fireTableDataChanged();
             filter();restoreSelection(selected);
             if(mode==Mode.COMBAT)chart.refreshPresentation();
+            relativeTimes();   // Simple's tooltips name the new zone
             rememberPresentation();table.repaint();
         }finally{refreshing=false;}
         // During an in-flight combat selection the chart still owns the previously displayed visit.
@@ -459,7 +525,7 @@ public final class ActivityPanel extends JPanel {
                 if(!selected.isEmpty())for(int i=0;i<items.size();i++)if(key(items.get(i)).equals(selected)){int row=table.convertRowIndexToView(i);if(row>=0)table.setRowSelectionInterval(row,row);break;}}
         }
         refreshing=false;
-        updateSummary();
+        updateSummary();updateVisitChips();
         showDetail();
     }
     private void uptimes(List<Object[]> target,List<Object> objects,Map<String,Long> values,long coverage,String suffix){values.forEach((name,ms)->add(target,objects,name+suffix,name+suffix,ms/1000.0,coverage/1000.0,coverage==0?null:Math.round(ms*1000.0/coverage)/10.0));}
@@ -482,7 +548,15 @@ public final class ActivityPanel extends JPanel {
     private void updateSummary(){
         String counts=mode==Mode.RUNS ? number(table.getRowCount())+" of "+number(rows.size())+" dungeon runs · "+number(visitCount-rows.size())+" other area visits in Timeline"
             : number(visitCount)+" visits · "+number(eventCount)+" retained events";
-        summary.setText("<html>"+CollectionControl.status(log,freeze.isSelected())+"<br>"+counts+(mode==Mode.RUNS?"<br>Filters and sorting cover the entire retained displayed snapshot; Browse saved for persisted history.":"")+"</html>");
+        summary.setText("<html>"+CollectionControl.status(log,freeze.isSelected())+"<br>"+counts+(mode==Mode.RUNS?"<br>Filters and sorting cover the entire retained displayed snapshot; Scope ▾ › Saved history shows persisted history.":"")+"</html>");
+    }
+    /**
+     * Runs' Entered and Timeline's Time read "12 min ago" in Simple, with the absolute time and zone in the tooltip; Analyst keeps the
+     * column's renderer. Installed again when the presentation zone changes, so the tooltip names the zone shown. Resources' live
+     * table has no time column.
+     */
+    private void relativeTimes(){
+        if(mode!=Mode.COMBAT)KitTables.relativeTime(table,mode==Mode.RUNS?"column-1":"column-0",display,KitTables::epoch,DisplayFormat.timestampZoneLabel());
     }
     private String selectedKey(){int row=table.getSelectedRow();return row<0?"":key(items.get(table.convertRowIndexToModel(row)));}
     private void restoreSelection(String selected){
