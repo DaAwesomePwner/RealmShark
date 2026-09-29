@@ -874,6 +874,8 @@ public class ShellHookIntegrationTest {
             assertTrue(statistics.open());
             assertEquals("Statistics stays page 4", 4, shell.getSelectedPage());
             assertFalse("…without a sidebar row", named(shell, "nav-4", AbstractButton.class).isVisible());
+            assertTrue("Search opens Statistics through the navigator, so Back returns", navigator.back());
+            assertEquals(0, shell.getSelectedPage());
         });
     }
 
@@ -1003,6 +1005,35 @@ public class ShellHookIntegrationTest {
             gui.closeWorkspace();
             try (ArchiveResult.Lease<?> unexpected = page.lease()) { fail("The Dungeons analysis kept its result owner"); }
             catch (java.io.IOException expected) { /* Owner closed. */ }
+        } finally {
+            SwingUtilities.invokeAndWait(() -> mode.set(before));
+            PropertiesManager.setProperties(tomato.gui.kit.DisplayModeModel.KEY, saved == null ? "" : saved);
+        }
+    }
+
+    /** Codex review: the Analysis banner's Open Statistics goes through the navigator, so Back returns to the Dungeons analysis. */
+    @Test public void theAnalysisStatisticsLinkLeavesDungeonsWithABackEntry() throws Exception {
+        tomato.gui.kit.DisplayModeModel mode = tomato.gui.kit.DisplayModeModel.application();
+        tomato.gui.kit.DisplayModeModel.Mode before = mode.mode();
+        String saved = PropertiesManager.getProperty(tomato.gui.kit.DisplayModeModel.KEY);
+        try {
+            edt(() -> {
+                tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+                shell.select(0);
+                assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RUNS)
+                    .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS))));
+                tomato.gui.runs.DungeonsView view = named(runsDps(), "dungeons-view", tomato.gui.runs.DungeonsView.class);
+                mode.set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST);
+                view.analyze("Lost Halls");
+                AbstractButton link = named(view, "dungeons-open-statistics", AbstractButton.class);
+                assertTrue("The shell wires the link", link.isVisible());
+                link.doClick();
+                assertEquals("Statistics", 4, shell.getSelectedPage());
+                assertTrue("Back is recorded", navigator.back());
+                assertEquals(10, shell.getSelectedPage());
+                assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, runsDps().selectedTab());
+                return null;
+            });
         } finally {
             SwingUtilities.invokeAndWait(() -> mode.set(before));
             PropertiesManager.setProperties(tomato.gui.kit.DisplayModeModel.KEY, saved == null ? "" : saved);

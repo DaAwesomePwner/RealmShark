@@ -214,6 +214,25 @@ public class RecordingsViewTest {
         assertEquals(1, readers.size());
     }
 
+    /** Codex review: a full-detail file whose recording ID is not the row's (damaged, stale or replaced) is never admitted or opened. */
+    @Test public void aFullDetailFileHoldingAnotherRecordingIsNotLoaded() throws Exception {
+        history(); memory();
+        writeDps(CombatAutosave.fullDetailFile(root.resolve(S1), full.getRecordingId()), unsaved.getSaveFile(false));
+        DungeonListGUI library = library(null);
+        first(library);
+        confirmAnswer = true;
+        edt(() -> {
+            int row = row(table(library), "Snake Pit", "Saved history");
+            table(library).setRowSelectionInterval(row, row);
+            library.open(); return null;
+        });
+        // The status says why once the reader thread returned the other recording.
+        await(() -> DungeonListGUI.NOT_THIS_RECORDING.equals(named(library, "encounter-status", JTextArea.class).getText()));
+        assertEquals("Asked first, as for any load", 1, confirms.size());
+        assertEquals("Nothing is opened", List.of(), calls);
+        assertTrue("Nothing is admitted", edt(() -> dps.encounters().entries().stream().noneMatch(e -> e.kind() == EncounterCatalog.Kind.SAVED)));
+    }
+
     @Test public void loadingNeverEvictsTheRecordingOnScreenNorLoadsASecondCopy() throws Exception {
         root = temp.newFolder("history").toPath();
         HomeHistoryFixture.session(root, S1, NOW - 6 * HOUR, NOW - HOUR / 2);

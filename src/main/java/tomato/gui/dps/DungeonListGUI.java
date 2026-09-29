@@ -87,6 +87,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     static final String NO_SUMMARY_TIP = "No saved summary of this recording was read: nothing is saved in preview mode or outside a logged dungeon,"
         + " a save may still be in progress (saved history is read again when it changes), and a failed save is logged.";
     static final String PRUNED_SINCE = "Full detail was pruned or removed since this list was read, so it cannot be loaded.";
+    static final String NOT_THIS_RECORDING = "This full-detail file holds a different recording (damaged or replaced), so it was not loaded.";
     private static final String[] LINKS = {"ANY", "LINKED", "UNLINKED", "LEGACY"};
     /**
      * The view's columns left to right, as model indices: Export, Dungeon, Recorded start, Run, Saved, Elapsed, Damage,
@@ -761,6 +762,8 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
             protected void done() {
                 try {
                     EncounterImport loaded = get();
+                    // A damaged, stale or replaced file may hold another recording: never admit or open it as this row's.
+                    if (!Objects.equals(item.recordingId(), loaded.data.getRecordingId())) { setBusy(false, NOT_THIS_RECORDING); return; }
                     EncounterCatalog.Entry entry = catalog.addSaved(loaded, shown -> shown.id.equals(dps.currentEncounterId()), expected);
                     if (entry == null) { setBusy(false, "The library was cleared while loading; open the recording again."); return; }
                     setBusy(false, "Loaded the full detail of " + row.dungeon + ".");

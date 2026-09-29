@@ -399,14 +399,23 @@ public final class DungeonsView extends JPanel implements AutoCloseable {
         if (closed || ticket != generation) return;
         loading = false;
         if (result.failure() != null) {
-            Throwable cause = result.failure();
-            while (cause.getCause() != null) cause = cause.getCause();
-            failure = cause.getMessage() == null || cause.getMessage().isBlank() ? cause.getClass().getSimpleName() : cause.getMessage();
+            failure = safe(result.failure());
         } else if (!result.unchanged()) {
             model = result.model();
             loadedStamp = result.stamp();
         }
         render();
+    }
+
+    /**
+     * A read failure in words without a path: the root cause's message unless it names a file path (NIO failures such as
+     * {@code AccessDeniedException} carry the absolute history path), else its kind, as the Recordings view words them.
+     */
+    static String safe(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null) cause = cause.getCause();
+        String message = cause.getMessage();
+        return message == null || message.isBlank() || message.contains("/") || message.contains("\\") ? cause.getClass().getSimpleName() : message;
     }
 
     /** EDT: the cards, summary, warn line and empty state for the current state. */

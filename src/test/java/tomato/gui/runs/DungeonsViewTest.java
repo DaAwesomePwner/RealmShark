@@ -226,6 +226,17 @@ public class DungeonsViewTest {
                 .contains("synthetic unreadable history. The cards below are from the last successful read."));
             return null;
         });
+        Counting denied = new Counting(three());
+        denied.fail = new java.nio.file.AccessDeniedException("/home/synthetic-user/history/abc/runs");
+        DungeonsView deniedView = view(denied);
+        load(deniedView);
+        edt(() -> {
+            // A failure naming a path shows its kind instead (Codex review): no user-data path reaches the page.
+            String body = deniedView.emptyState().getAccessibleContext().getAccessibleDescription();
+            assertFalse(body, body.contains("/home") || body.contains("synthetic-user"));
+            assertTrue(body, body.contains("AccessDeniedException"));
+            return null;
+        });
         Counting failing = new Counting(three());
         failing.fail = new IOException("synthetic unreadable history");
         DungeonsView failed = view(failing);

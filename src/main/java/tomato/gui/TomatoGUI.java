@@ -256,7 +256,7 @@ public class TomatoGUI {
         dungeons.onOpenRuns(canonical -> navigator.open(tomato.gui.route.Route.to(Destination.RUNS)
             .withPayload(new tomato.gui.runs.RunsFocus(tomato.gui.runs.RunsTab.FEED, canonical))));
         dungeons.onOpenRecap(TomatoGUI::openRecap);
-        dungeons.onOpenStatistics(() -> shell.select(4));
+        dungeons.onOpenStatistics(TomatoGUI::openStatistics);
         runsDps.onFeedDungeon(runsPage.feed()::showDungeon);
         statistics.onOpenDungeons(TomatoGUI::openDungeons);
     }
@@ -591,7 +591,7 @@ public class TomatoGUI {
             "Runs & DPS › Recordings", "Saved combat history in the history folder; imported and exported .dps files are the files you choose",
             TomatoGUI::openRecordings);
         registerSearch("statistics.open", "Statistics (fame table, live loot log)", "statistics fame table graph loot log dungeon stats alt+5",
-            "Statistics (not in the sidebar)", "Fame and loot history in the history folder", () -> shell.select(4));
+            "Statistics (not in the sidebar)", "Fame and loot history in the history folder", TomatoGUI::openStatistics);
         registerSearch("dungeons.open", "Dungeons (per-dungeon cards, session comparison, cohorts)",
             "dungeons dungeon cards completion clears average duration loot best a/b cohort analysis dungeon stats", "Runs & DPS › Dungeons",
             "Built from saved runs, loot and combat in the history folder; the Cards or Analysis choice is in the app-folder realmShark.properties",
@@ -632,6 +632,15 @@ public class TomatoGUI {
     private static void openRecordings() {
         if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.RUNS)
             .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS)));
+    }
+
+    /**
+     * Settings search and the Dungeons Analysis link: the Statistics page (out of the sidebar), through the navigator so Back
+     * returns to where the link was used. Without saved history no Statistics route target exists, so page 4 is selected as it is.
+     */
+    private static void openStatistics() {
+        if (navigator != null && navigator.open(tomato.gui.route.Route.to(Destination.STATISTICS))) return;
+        if (shell != null) shell.select(4);
     }
 
     /** Settings search and the Statistics banner: the Dungeons tab of Runs & DPS, through the navigator (Back returns). */
