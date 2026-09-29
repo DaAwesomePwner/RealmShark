@@ -1,6 +1,7 @@
 package tomato.gui.history;
 
 import java.awt.*;
+import java.lang.reflect.Constructor;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -21,6 +22,7 @@ import tomato.gui.keypop.KeyPopArchiveClient;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.quest.QuestGUI;
+import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.stats.HistoricalStatistics;
 import tomato.gui.stats.LootDashboard;
 import tomato.gui.stats.LootQuery;
@@ -40,7 +42,9 @@ public class FilterBarEvidenceTest {
         edt(() -> {
             for (String key : new String[]{"ux.archive.characters-live-roster", "ui.tabs.character", "ui.tabs.quests",
                     "ui.filters.runs.open", "ui.filters.loot.open", "ui.filters.chat.open", "ui.filters.keypops.open",
-                    "ui.filters.characters.open", "ui.filters.quests.open"}) {
+                    "ui.filters.characters.open", "ui.filters.quests.open",
+                    // Timeline, Resources and Party: their drawer keys, and the tab layouts the Resources page reads.
+                    "ui.filters.timeline.open", "ui.filters.combat.open", "ui.filters.inspect-roster.open", "ui.tabs.activity-combat", "ui.tabs.saved-resources"}) {
                 savedPreferences.put(key, util.PropertiesManager.getProperty(key));
                 util.PropertiesManager.setProperties(key, "");
             }
@@ -54,6 +58,9 @@ public class FilterBarEvidenceTest {
         edt(() -> { savedPreferences.forEach((key, value) -> util.PropertiesManager.setProperties(key, value == null ? "" : value)); return null; });
     }
 
+    /** The Party roster is not the live owner, but clear any roster a live owner left so no capture state outlives the test. */
+    @After public void clearInspectRoster() { ParsePanelGUI.clear(); }
+
     private static final class Page {
         final String name; final JComponent root; final FilterBar bar; final BooleanSupplier ready;
         Page(String name, JComponent root, FilterBar bar, BooleanSupplier ready) { this.name = name; this.root = root; this.bar = bar; this.ready = ready; }
@@ -62,10 +69,18 @@ public class FilterBarEvidenceTest {
     @Test @SuppressWarnings("unchecked") public void adoptedPagesShowOneFilterRowUntilTheDrawerOpens() throws Exception {
         Path root = temp.newFolder().toPath(); ArchiveNativeSupport.Memory memory = new ArchiveNativeSupport.Memory();
         Path runsScratch = temp.newFolder().toPath(), lootScratch = temp.newFolder().toPath(), chatScratch = temp.newFolder().toPath(), popsScratch = temp.newFolder().toPath();
+        Path timelineScratch = temp.newFolder().toPath(), resourcesScratch = temp.newFolder().toPath();
         try (SessionStore store = new SessionStore(root, true, "p1c-evidence"); DiscoveryLog log = new DiscoveryLog(null)) {
             for (int i = 0; i < 6; i++) {
                 ActivityJournal.Visit visit = new ActivityJournal.Visit(); visit.id = "visit-" + i; visit.map = i % 2 == 0 ? "Lost Halls" : "Ice Citadel";
                 visit.started = 1_790_000_000_000L + i * 600_000L; visit.lastSeen = visit.ended = visit.started + 420_000L; store.put("runs", visit.id, visit);
+                // Timeline events linked to each saved run: an entry and an equipment change, so a Types facet narrows the list.
+                for (String kind : new String[]{"Area entered", "Equipment changed"}) {
+                    ActivityJournal.Entry event = new ActivityJournal.Entry(); event.id = visit.id + "-" + kind.charAt(0); event.visitId = visit.id; event.map = visit.map;
+                    event.kind = kind; event.time = visit.started + (kind.startsWith("Area") ? 1_000L : 60_000L); event.detail = "Synthetic observation";
+                    event.values = new LinkedHashMap<>(); if (!kind.startsWith("Area")) { event.values.put("slot", 0); event.values.put("before", -1); event.values.put("after", 123); }
+                    store.append("timeline", event);
+                }
             }
             store.flush();
             List<Page> pages = edt(() -> {
@@ -93,6 +108,17 @@ public class FilterBarEvidenceTest {
                 VisualEvidence.named(quests, "quest-repeat-mode", JComboBox.class).setSelectedIndex(1);
                 VisualEvidence.named(quests, "quest-pinned-only", AbstractButton.class).doClick();
                 built.add(new Page("quests", quests, VisualEvidence.named(quests, "quests-filter-bar", FilterBar.class), () -> true));
+                // P1c pages without S6 captures until P5b: saved Timeline and Resources archives, and Party's Inspect roster.
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline =
+                    ActivityPanel.workspace(store, new ActivityPanel(log, ActivityPanel.Mode.TIMELINE), ActivityPanel.Mode.TIMELINE, timelineScratch, memory.states);
+                ActivityQueries.Filters types = timeline.state().query.facets(); types.kinds.add("Area entered");
+                timeline.changeQuery(timeline.state().query.withFacets(types)); built.add(archive("timeline", timeline));
+                ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> resources =
+                    ActivityPanel.workspace(store, new ActivityPanel(log, ActivityPanel.Mode.COMBAT), ActivityPanel.Mode.COMBAT, resourcesScratch, memory.states);
+                ActivityQueries.Filters outcome = resources.state().query.facets(); outcome.outcomes.add(ActivityQueries.Outcome.LEFT);
+                resources.changeQuery(resources.state().query.withFacets(outcome)); built.add(archive("resources", resources));
+                ParsePanelGUI party = inspectRoster(); VisualEvidence.named(party, "inspect-facet-2", JComboBox.class).setSelectedIndex(1);
+                built.add(new Page("party", party, VisualEvidence.named(party, "inspect-roster-filter-bar", FilterBar.class), () -> true));
                 return built;
             });
             try {
@@ -119,6 +145,12 @@ public class FilterBarEvidenceTest {
 
     private static Page archive(String name, ArchiveWorkspace<?, ?, ?> workspace) {
         return new Page(name, workspace, workspace.filterBar(), () -> ArchiveNativeSupport.ready(workspace) && workspace.state().archive);
+    }
+
+    /** Party's player table: the non-owner Inspect roster (as a saved run shows it). Its constructor is package-private. */
+    private static ParsePanelGUI inspectRoster() throws ReflectiveOperationException {
+        Constructor<ParsePanelGUI> roster = ParsePanelGUI.class.getDeclaredConstructor(boolean.class); roster.setAccessible(true);
+        return roster.newInstance(false);
     }
 
     /** S6 at desktop width: with the drawer closed, the search slot and the Filters toggle share one row. */
