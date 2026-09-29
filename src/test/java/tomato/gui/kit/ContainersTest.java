@@ -94,6 +94,21 @@ public class ContainersTest {
         });
     }
 
+    @Test public void statTileValueTextIsExactlyWhatTheTileShows() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            StatTile tile = new StatTile("UT drops");
+            assertEquals("A new tile is unknown, never zero", "—", tile.valueText());
+            tile.setValue(DisplayValue.known("3", "Observed drops"), "This session");
+            assertEquals("The sub-line is not part of the value", "3", tile.valueText());
+            tile.setValue(DisplayValue.unknown("No saved bags in this window"), null);
+            assertEquals("—", tile.valueText());
+            tile.setValue(DisplayValue.zero("Observed drops"), null);
+            assertEquals("A real zero", "0", tile.valueText());
+            tile.setValue(DisplayValue.partial("12", "2 sessions unreadable"), null);
+            assertEquals("12 (partial)", tile.valueText());
+        });
+    }
+
     @Test public void collapsibleRemembersItsState() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Map<String, String> store = new HashMap<>();
