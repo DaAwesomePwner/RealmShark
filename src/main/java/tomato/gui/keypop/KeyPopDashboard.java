@@ -24,12 +24,23 @@ import tomato.gui.chat.SocialQueryControls;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitTables;
+import tomato.gui.kit.OverflowMenu;
+import tomato.gui.kit.StatTile;
 import tomato.history.archive.*;
 
-/** All three views and their metrics are derived from the same filtered history. */
-final class KeyPopDashboard extends JPanel {
+/**
+ * All three views and their metrics are derived from the same filtered history. The live row leads the page and lends its workspace
+ * the Scope chip ({@link LiveFilterHost}); named live views, the shown table's column tools and the page's own actions are its ⋯ items.
+ */
+final class KeyPopDashboard extends JPanel implements LiveFilterHost {
+    /** The row's ⋯ section for the page's own actions (exports, Log to file, Notification settings, Clear history), which KeypopGUI fills. */
+    static final String PAGE_ACTIONS = "page-actions";
     private static final String ALL_ITEMS = "All dungeons / items";
+    private static final String[] CAPTIONS = {"Observed pops", "Keys", "Players", "Dungeons/items"};
     /** Header → column kind for the three live tables (widths only; the Player emphasis and Type badge renderers stay). */
     private static final Map<String, ColumnKind> COLUMN_KINDS = new HashMap<>();
     static {
@@ -44,8 +55,7 @@ final class KeyPopDashboard extends JPanel {
     final JComboBox<String> type = new JComboBox<>(new String[] {"All types", "Key", "Rune", "Vial", "Inc", "Other"});
     final JComboBox<String> period = new JComboBox<>(new String[] {"All retained", "Last 15 minutes", "Last hour", "Today"});
     final JComboBox<String> item = new JComboBox<>(new String[] {ALL_ITEMS});
-    final JLabel[] metrics = new JLabel[4];
-    private final JLabel[] metricCaptions = new JLabel[4];
+    final StatTile[] metrics = new StatTile[4];
     final JLabel status = new JLabel();
     private final JTextArea resolvedPeriod = ContentStyle.wrappingText("");
     final JLabel empty = new JLabel("Waiting for key-pops", SwingConstants.CENTER);
@@ -69,8 +79,11 @@ final class KeyPopDashboard extends JPanel {
     private final boolean historical;
     private ArchiveQuery.Bounds bounds = ArchiveQuery.Bounds.all();
     private final Set<String> extraKinds = new LinkedHashSet<>(), extraItems = new LinkedHashSet<>();
-    private final JPanel advanced = new JPanel(new BorderLayout(0, 6)), datePanel = new JPanel(new BorderLayout());
+    private final JPanel datePanel = new JPanel(new BorderLayout());
     private final JTextArea kindsInput = new JTextArea(2, 18), itemsInput = new JTextArea(2, 18), stateStatus = ContentStyle.wrappingText("");
+    private final DisplayModeModel displayMode;
+    /** Each live table's column tools; the shown tab's are in the row's ⋯. */
+    private final Map<JTable, HistoryTables.ColumnTools> columnTools = new LinkedHashMap<>();
     private final javax.swing.Timer remember = new javax.swing.Timer(300, e -> persistLiveState());
     private ViewStateStore stateStore;
     private boolean rebuilding;
@@ -84,8 +97,10 @@ final class KeyPopDashboard extends JPanel {
     KeyPopDashboard(KeyPopHistory history) {
         this(history,false);
     }
-    KeyPopDashboard(KeyPopHistory history, boolean historical) {
-        super(new BorderLayout(0, 8)); this.history = history;this.historical=historical;
+    KeyPopDashboard(KeyPopHistory history, boolean historical) { this(history, historical, DisplayModeModel.application()); }
+    /** {@code mode} decides how the time columns read: relative in Simple, absolute in Analyst (display only). */
+    KeyPopDashboard(KeyPopHistory history, boolean historical, DisplayModeModel mode) {
+        super(new BorderLayout(0, 8)); this.history = history;this.historical=historical;this.displayMode=Objects.requireNonNull(mode, "mode");
         remember.setRepeats(false);
         refreshTimer = new javax.swing.Timer(1000, e -> {
             if (isShowing() && history.revision() != seenRevision) refresh();
@@ -103,23 +118,15 @@ final class KeyPopDashboard extends JPanel {
         ContentStyle.font(note, ContentStyle.metadata(ContentStyle.body()));
         note.setToolTipText(note.getText());
         note.setForeground(UIManager.getColor("Label.disabledForeground"));
-        constraints.gridy = 0; top.add(note, constraints);
+        // The live row leads the page (the Scope chip joins it while live), then the note and the tiles it describes.
+        constraints.gridy = 0; top.add(filterBar, constraints);
+        constraints.gridy++; top.add(note, constraints);
         JPanel cards = ContentStyle.responsiveGrid(4, 118, 8);
-        String[] captions = {"Observed pops", "Keys", "Players", "Dungeons/items"};
-        for (int i = 0; i < captions.length; i++) {
-            JPanel card = new JPanel(new BorderLayout(0, 3));
-            card.setBackground(UIManager.getColor("Table.background"));
-            card.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(UIManager.getColor("Separator.foreground")), BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-            metrics[i] = new JLabel("0"); metrics[i].setName("keypop-metric-" + i);
-            ContentStyle.font(metrics[i], ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 18f / ContentStyle.FONT_SIZE));
-            metrics[i].setForeground(ContentStyle.color(new String[]{"violet", "amber", "mint", "blue"}[i]));
-            card.add(metrics[i], BorderLayout.CENTER);
-            JLabel caption = new JLabel(captions[i]); ContentStyle.font(caption, ContentStyle.metadata(ContentStyle.body()));
-            metricCaptions[i] = caption;
-            caption.setForeground(ContentStyle.color("muted"));
-            card.add(caption, BorderLayout.SOUTH); cards.add(card);
+        for (int i = 0; i < CAPTIONS.length; i++) {
+            metrics[i] = new StatTile(CAPTIONS[i]); metrics[i].setName("keypop-metric-" + i);
+            cards.add(metrics[i]);
         }
-        constraints.gridy++; top.add(cards, constraints);
+        constraints.gridy++; constraints.insets = new Insets(0, 0, 0, 0); top.add(cards, constraints);
         search.setName("keypop-search"); search.putClientProperty("JTextField.placeholderText", "Search player, dungeon or item…");
         search.getAccessibleContext().setAccessibleName("Search key-pops"); search.setColumns(22);
         search.setToolTipText("Case-insensitive search; every word must match the event.");
@@ -128,14 +135,6 @@ final class KeyPopDashboard extends JPanel {
         JPanel filters = ContentStyle.responsiveGrid(3, 140, 8);
         filters.add(labeled("Event type", type, "keypop-type")); filters.add(labeled("Time range", period, "keypop-period"));
         item.setPrototypeDisplayValue(ALL_ITEMS); filters.add(labeled("Dungeon / item", item, "keypop-item"));
-        JButton more = new JButton("Multi-select / absolute dates / view state");
-        more.addActionListener(e -> { advanced.setVisible(!advanced.isVisible()); revalidate(); });
-        // One filter row (search + reset); the exact player, type/period/item and multi-select/date/view controls live in the drawer.
-        JPanel drawer = new JPanel(new GridBagLayout()); GridBagConstraints row = new GridBagConstraints(); row.gridx = 0; row.weightx = 1;
-        row.fill = GridBagConstraints.HORIZONTAL; row.insets = new Insets(0, 0, 6, 0);
-        for (JComponent part : new JComponent[]{playerChip, filters, more, advanced}) { row.gridy++; drawer.add(part, row); } advanced.setVisible(false);
-        filterBar.search(new WrapRow(search, button("Reset filters", this::resetFilters))).drawer(drawer);
-        constraints.gridy++; constraints.insets = new Insets(0, 0, 0, 0); top.add(filterBar, constraints);
         JPanel multis = ContentStyle.responsiveGrid(2, 200, 8);
         multis.add(SocialQueryControls.labeled("Additional types: KEY, RUNE, VIAL, INC, OTHER, UNKNOWN (one per line)", new JScrollPane(kindsInput), "keypop-live-kinds"));
         multis.add(SocialQueryControls.labeled("Additional exact dungeons/items (one per line)", new JScrollPane(itemsInput), "keypop-live-items"));
@@ -144,10 +143,19 @@ final class KeyPopDashboard extends JPanel {
         applyMulti.addActionListener(e -> {
             Set<String> selected = SocialQueryControls.lines(kindsInput.getText().toUpperCase(Locale.ROOT));
             try { for (String kind : selected) if (!kind.equals("UNKNOWN")) KeyPopEvent.Kind.valueOf(kind); }
-            catch (IllegalArgumentException invalid) { stateStatus.setText("Types not applied: use the listed type names."); return; }
+            catch (IllegalArgumentException invalid) { stateMessage("Types not applied: use the listed type names."); return; }
             extraKinds.clear(); extraKinds.addAll(selected); extraItems.clear(); extraItems.addAll(SocialQueryControls.lines(itemsInput.getText())); refresh();
         });
-        advanced.add(multiPanel, BorderLayout.NORTH); advanced.add(datePanel); advanced.add(stateStatus, BorderLayout.SOUTH); rebuildDates();
+        // One filter row (search + reset). The drawer holds the exact player, type/period/item, then multi-select and dates as plain
+        // sections, and the live view's status line once it has one; named live views and column tools are ⋯ items.
+        JPanel drawer = new JPanel(new GridBagLayout()); GridBagConstraints row = new GridBagConstraints(); row.gridx = 0; row.weightx = 1;
+        row.fill = GridBagConstraints.HORIZONTAL; row.insets = new Insets(0, 0, 6, 0);
+        for (JComponent part : new JComponent[]{playerChip, filters, multiPanel, datePanel, stateStatus}) { row.gridy++; drawer.add(part, row); }
+        stateStatus.setName("keypop-live-state-status"); stateStatus.setVisible(false); rebuildDates();
+        filterBar.search(new WrapRow(search, button("Reset filters", this::resetFilters))).drawer(drawer);
+        OverflowMenu more = filterBar.overflow();
+        // ⋯ in order: Saved views ▸, the page's own actions, then the shown table's column tools (as the saved workspace's ⋯ ends).
+        more.section(SocialQueryControls.LIVE_VIEWS); more.section(PAGE_ACTIONS); more.section(HistoryTables.ColumnTools.SECTION);
         events.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
         players.getRowSorter().setSortKeys(Arrays.asList(new RowSorter.SortKey(1, SortOrder.DESCENDING), new RowSorter.SortKey(0, SortOrder.ASCENDING)));
         items.getRowSorter().setSortKeys(Arrays.asList(new RowSorter.SortKey(1, SortOrder.DESCENDING), new RowSorter.SortKey(0, SortOrder.ASCENDING)));
@@ -174,18 +182,30 @@ final class KeyPopDashboard extends JPanel {
             table.getSelectionModel().addListSelectionListener(e -> rememberState());
             table.getRowSorter().addRowSorterListener(e -> rememberState());
             scroll(table).getViewport().addChangeListener(e -> rememberState());
+            // Column tools are ⋯ items: moves, resizes and tool changes join the live view state (saved once a store is enabled).
+            ViewState.Table defaults = HistoryTables.columnState(table, "Default");
+            HistoryTables.rememberLayout(table, layout -> rememberState());
+            HistoryTables.ColumnTools tools = HistoryTables.columnTools(table, defaults, Collections.emptyMap(), layout -> rememberState());
+            // Live tables have no presets, and Enter drills into the events instead of a details view.
+            tools.presets().setVisible(false); tools.details().setVisible(false);
+            columnTools.put(table, tools);
         }
+        // Time and Last pop read "12 min ago" in Simple (the absolute time in the tooltip) and stay absolute in Analyst. Display only.
+        String zone = DisplayFormat.timestampZoneLabel();
+        KitTables.relativeTime(events, "column-0", displayMode, KitTables::epoch, zone);
+        KitTables.relativeTime(players, "column-7", displayMode, KitTables::epoch, zone);
+        KitTables.relativeTime(items, "column-4", displayMode, KitTables::epoch, zone);
+        views.onSelect(id -> showTools()); showTools();
     }
+
+    @Override public FilterBar liveFilterBar() { return filterBar; }
+
+    /** The shown tab's column tools in the row's ⋯, replacing the previous tab's. */
+    private void showTools() { columnTools.get(activeTable()).addTo(filterBar.overflow()); }
 
     @Override public void updateUI() {
         super.updateUI();
-        if (metrics == null) return;
-        String[] colors = {"violet", "amber", "mint", "blue"};
-        for (int i = 0; i < metrics.length; i++) {
-            if (metrics[i] != null) metrics[i].setForeground(ContentStyle.color(colors[i]));
-            if (metricCaptions[i] != null) metricCaptions[i].setForeground(ContentStyle.color("muted"));
-        }
-        status.setForeground(ContentStyle.color("muted"));
+        if (status != null) status.setForeground(ContentStyle.color("muted"));   // null while JPanel's constructor installs the UI
     }
 
     @Override public void addNotify() { super.addNotify(); refreshTimer.start(); }
@@ -202,7 +222,7 @@ final class KeyPopDashboard extends JPanel {
         if (updating) return;
         rebuilding = true;
         KeyPopHistory.Snapshot snapshot = history.snapshot(); seenRevision = snapshot.revision;
-        TreeSet<String> choices = new TreeSet<>(); for (KeyPopEvent event : snapshot.events) choices.add(event.item);
+        TreeSet<String> choices = new TreeSet<>(); for (KeyPopEvent event : snapshot.events) if (event.item != null) choices.add(event.item);
         String selected = (String)item.getSelectedItem();
         if (selected != null && !selected.equals(ALL_ITEMS)) choices.add(selected);
         List<String> existing = new ArrayList<>(); for (int i = 1; i < item.getItemCount(); i++) existing.add(item.getItemAt(i));
@@ -217,25 +237,31 @@ final class KeyPopDashboard extends JPanel {
                 && bounds.contains(event.time == null ? null : event.time.toEpochMilli(), null)) filtered.add(event);
         Map<String, List<KeyPopEvent>> byPlayer = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, List<KeyPopEvent>> byItem = new TreeMap<>();
-        List<Object[]> eventRows = new ArrayList<>(); int keys = 0;
+        // A saved page can hold pops whose type, player or dungeon was not recorded: they stay in Events ("Unknown" type) and in
+        // the share denominator, but not in a group they cannot be named in, and the tiles that leave them out say so.
+        List<Object[]> eventRows = new ArrayList<>(); int keys = 0, untyped = 0, unnamed = 0, placeless = 0;
         for (KeyPopEvent event : filtered) {
-            eventRows.add(new Object[] {event.time, event.player, event.kind.label, event.item});
-            byPlayer.computeIfAbsent(event.player, k -> new ArrayList<>()).add(event);
-            byItem.computeIfAbsent(event.item, k -> new ArrayList<>()).add(event);
-            if (event.kind == KeyPopEvent.Kind.KEY) keys++;
+            eventRows.add(new Object[] {event.time, event.player, event.kind == null ? "Unknown" : event.kind.label, event.item});
+            if (event.player != null) byPlayer.computeIfAbsent(event.player, k -> new ArrayList<>()).add(event); else unnamed++;
+            if (event.item != null) byItem.computeIfAbsent(event.item, k -> new ArrayList<>()).add(event); else placeless++;
+            if (event.kind == null) untyped++; else if (event.kind == KeyPopEvent.Kind.KEY) keys++;
         }
         replaceRows(events, eventRows);
-        metrics[0].setText(DisplayFormat.formatInteger(filtered.size())); metrics[1].setText(DisplayFormat.formatInteger(keys));
-        metrics[2].setText(DisplayFormat.formatInteger(byPlayer.size())); metrics[3].setText(DisplayFormat.formatInteger(byItem.size()));
+        String window = snapshot.discarded <= 0 ? null : "Only the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " pops are retained; "
+            + DisplayFormat.formatInteger(snapshot.discarded) + " older pops were dropped (saved history keeps every pop)";
+        metrics[0].setValue(tile(filtered.size(), "Matching observed pop events; portal callouts excluded", 0, null, window), null);
+        metrics[1].setValue(tile(keys, "Key pops among the matching events", untyped, "type", window), null);
+        metrics[2].setValue(tile(byPlayer.size(), "Distinct contributors among the matching events, ignoring case", unnamed, "player", window), null);
+        metrics[3].setValue(tile(byItem.size(), "Distinct dungeons or items among the matching events", placeless, "dungeon or item", window), null);
         List<Object[]> playerRows = new ArrayList<>(), itemRows = new ArrayList<>();
         byPlayer.forEach((name, pops) -> {
-            int[] counts = new int[KeyPopEvent.Kind.values().length]; Instant last = Instant.MIN;
-            for (KeyPopEvent pop : pops) { counts[pop.kind.ordinal()]++; if (pop.time.isAfter(last)) last = pop.time; }
+            int[] counts = new int[KeyPopEvent.Kind.values().length]; Instant last = null;
+            for (KeyPopEvent pop : pops) { if (pop.kind != null) counts[pop.kind.ordinal()]++; last = later(last, pop.time); }
             playerRows.add(new Object[] {name, pops.size(), counts[0], counts[1], counts[2], counts[3], pops.size() * 100.0 / filtered.size(), last});
         });
         byItem.forEach((name, pops) -> {
-            Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER); Instant last = Instant.MIN;
-            for (KeyPopEvent pop : pops) { names.add(pop.player); if (pop.time.isAfter(last)) last = pop.time; }
+            Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER); Instant last = null;
+            for (KeyPopEvent pop : pops) { if (pop.player != null) names.add(pop.player); last = later(last, pop.time); }
             itemRows.add(new Object[] {name, pops.size(), names.size(), pops.size() * 100.0 / filtered.size(), last});
         });
         replaceRows(players, playerRows); replaceRows(items, itemRows);
@@ -244,10 +270,23 @@ final class KeyPopDashboard extends JPanel {
         empty.setToolTipText(empty.getText());
         status.setText(DisplayFormat.formatInteger(filtered.size()) + " shown / " + DisplayFormat.formatInteger(snapshot.events.size()) + " retained · " + (historical ? "Legacy loaded page" : "This app session")
             + (snapshot.discarded > 0 ? " · " + DisplayFormat.formatInteger(snapshot.discarded) + " older pops dropped" : ""));
-        status.setToolTipText("Live view retains the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " events. Saved session history retains every pop; use Browse saved for older pages. CSV exports filtered events.");
+        status.setToolTipText("Live view retains the latest " + DisplayFormat.formatInteger(KeyPopHistory.CAPACITY) + " events. Saved session history keeps every pop: choose Scope ▾ › Saved history for older pops. CSV exports filtered events.");
         resolvedPeriod.setText(SocialQueryControls.boundsLabel(bounds, false) + "\nShare denominator: " + filtered.size() + " matching retained pop events; callouts excluded.");
         updateChips(); rebuilding = false; rememberState();
     }
+
+    /**
+     * A tile's count (spec §1): a known count, 0 a real zero; partial when it leaves out {@code missing} pops without the
+     * {@code field}, or when the buffer dropped older pops ({@code window}), with the reason after its {@code source} in the tooltip.
+     */
+    private static DisplayValue tile(long count, String source, long missing, String field, String window) {
+        List<String> gaps = new ArrayList<>();
+        if (missing > 0) gaps.add(DisplayFormat.formatInteger(missing) + (missing == 1 ? " matching pop has" : " matching pops have") + " no recorded " + field);
+        if (window != null) gaps.add(window);
+        if (gaps.isEmpty()) return DisplayValue.count(count, source + ".", null);
+        return DisplayValue.partial(DisplayFormat.formatInteger(count), source + ". " + String.join(". ", gaps) + ".");
+    }
+    private static Instant later(Instant last, Instant time) { return time == null || last != null && !time.isAfter(last) ? last : time; }
 
     /** Exact player, type, period or dates, dungeon/item and multi-select choices as removable chips. */
     private void updateChips() {
@@ -279,12 +318,15 @@ final class KeyPopDashboard extends JPanel {
     void enableLiveState(ViewStateStore store) {
         if (stateStore != null) return; stateStore = store;
         ViewState<LiveFacets,KeyPopArchiveClient.Sort> defaults = captureLiveState();
-        try { applyLiveState(store.load("keypops-live", defaults)); } catch (RuntimeException failure) { stateStatus.setText("Live state not applied: " + failure.getMessage()); }
-        JPanel footer = new JPanel(new BorderLayout()); footer.add(SocialQueryControls.liveViews("keypops-live", store, this::captureLiveState, this::applyLiveState, defaults, stateStatus)); footer.add(stateStatus, BorderLayout.SOUTH);
-        JPanel columnTools = new JPanel(new GridLayout(0, 1));
-        for (JTable table : new JTable[]{events,players,items}) columnTools.add(SocialQueryControls.labeled(table.getName().replace('-', ' '),
-            HistoryTables.controls(table, defaults.tables.get(table.getName()), Collections.emptyMap(), layout -> rememberState()), table.getName() + "-column-controls"));
-        footer.add(columnTools, BorderLayout.NORTH); advanced.add(footer, BorderLayout.SOUTH);
+        try { applyLiveState(store.load("keypops-live", defaults)); } catch (RuntimeException failure) { stateMessage("Live state not applied: " + failure.getMessage()); }
+        // Named live views are a Saved views ▸ submenu in the row's ⋯ (spec §3.2), no longer a row of controls in the drawer.
+        SocialQueryControls.liveViewItems(filterBar.overflow(), "keypops-live", store, this::captureLiveState, this::applyLiveState, defaults, this::stateMessage);
+    }
+    /** The live view's status line at the end of the drawer; it takes no space until there is something to say. */
+    private void stateMessage(String text) {
+        stateStatus.setText(text == null ? "" : text);
+        boolean shown = !stateStatus.getText().isEmpty();
+        if (stateStatus.isVisible() != shown) { stateStatus.setVisible(shown); revalidate(); }
     }
     ViewState<LiveFacets,KeyPopArchiveClient.Sort> captureLiveState() {
         LiveFacets f = new LiveFacets(); f.exactPlayer = exactPlayer == null ? "" : exactPlayer; f.kinds.addAll(extraKinds); f.items.addAll(extraItems);
@@ -326,10 +368,10 @@ final class KeyPopDashboard extends JPanel {
     private JScrollPane scroll(JTable table){return table==events?eventsScroll:table==players?playersScroll:itemsScroll;}
     private void showView(String id){views.show(id);views.select(id);}
     private ArchiveRow.Ref liveRef(JTable table,int view){int row=table.convertRowIndexToModel(view);String key=table==events?Objects.toString(filtered.get(row).id,"missing"):Objects.toString(table.getModel().getValueAt(row,0),"");return new ArchiveRow.Ref("@live","keypops",table.getName(),key);}
-    private void rememberState(){if(stateStore!=null&&!updating&&!rebuilding){stateSave++;if(!"Live view changes awaiting save…".equals(stateStatus.getText()))stateStatus.setText("Live view changes awaiting save…");remember.restart();}}
+    private void rememberState(){if(stateStore!=null&&!updating&&!rebuilding){stateSave++;if(!"Live view changes awaiting save…".equals(stateStatus.getText()))stateMessage("Live view changes awaiting save…");remember.restart();}}
     private void persistLiveState(){if(stateStore==null||updating||rebuilding)return;long request=++stateSave;
-        try{stateStore.save("keypops-live",captureLiveState()).whenComplete((result,failure)->SwingUtilities.invokeLater(()->{if(request==stateSave)stateStatus.setText(failure==null&&result.isSuccess()?"Live view state saved.":"Live view active; state save failed. Retry Save live view.");}));}
-        catch(RuntimeException failure){stateStatus.setText(failure.getMessage());}}
+        try{stateStore.save("keypops-live",captureLiveState()).whenComplete((result,failure)->SwingUtilities.invokeLater(()->{if(request==stateSave)stateMessage(failure==null&&result.isSuccess()?"Live view state saved.":"Live view active; its state was not saved. The next change retries.");}));}
+        catch(RuntimeException failure){stateMessage(failure.getMessage());}}
 
     private void installDrilldown(JTable table, boolean player) {
         table.setToolTipText("Double-click or press Enter to filter the event history.");
@@ -406,12 +448,7 @@ final class KeyPopDashboard extends JPanel {
 
     void exportCurrentTab() {
         if (mode() == KeyPopArchiveClient.Mode.EVENTS) { exportCsv(); return; }
-        refresh(); JTable table = activeTable();
-        List<String> headers = new ArrayList<>(); for (int c = 0; c < table.getColumnCount(); c++) headers.add(table.getColumnName(c));
-        headers.add("Matching retained pop-event denominator (callouts excluded)");
-        List<List<String>> values = new ArrayList<>();
-        for (int r = 0; r < table.getRowCount(); r++) { List<String> row = new ArrayList<>();
-            for (int c = 0; c < table.getColumnCount(); c++) row.add(Objects.toString(table.getValueAt(r,c),"")); row.add(Integer.toString(filtered.size())); values.add(row); }
+        List<List<String>> rows = summaryRows(); List<String> headers = rows.get(0); List<List<String>> values = rows.subList(1, rows.size());
         JFileChooser chooser = new JFileChooser(); chooser.setDialogTitle("Export current retained summary"); chooser.setSelectedFile(new java.io.File("keypop-summary.csv"));
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return; Path path = chooser.getSelectedFile().toPath();
         if (Files.exists(path) && JOptionPane.showConfirmDialog(this,"Replace " + path.getFileName() + "?","Export summary",JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
@@ -422,6 +459,21 @@ final class KeyPopDashboard extends JPanel {
                 catch (Exception failure) { status.setText("Summary export failed: " + failure.getMessage()); } }
         }.execute();
     }
+    /**
+     * The shown tab's refreshed rows as Export current tab writes them: a header row, then each row's visible model values (UTC
+     * instants, unrounded shares, never the display text, so the mode never changes an export) with the share denominator.
+     */
+    private List<List<String>> summaryRows() {
+        refresh(); JTable table = activeTable();
+        List<String> headers = new ArrayList<>(); for (int c = 0; c < table.getColumnCount(); c++) headers.add(table.getColumnName(c));
+        headers.add("Matching retained pop-event denominator (callouts excluded)");
+        List<List<String>> rows = new ArrayList<>(); rows.add(headers);
+        for (int r = 0; r < table.getRowCount(); r++) { List<String> row = new ArrayList<>();
+            for (int c = 0; c < table.getColumnCount(); c++) row.add(Objects.toString(table.getValueAt(r,c),"")); row.add(Integer.toString(filtered.size())); rows.add(row); }
+        return rows;
+    }
+    /** {@link #summaryRows} as the CSV text Export current tab writes. */
+    String summaryCsv() { StringBuilder csv = new StringBuilder(); for (List<String> row : summaryRows()) csv.append(csvRow(row)); return csv.toString(); }
     private static String csvRow(List<String> values) { List<String> quoted = new ArrayList<>(); for (String value : values) quoted.add(KeyPopEvent.csv(value)); return String.join(",",quoted) + "\r\n"; }
 
     static void writeCsv(Path path, List<KeyPopEvent> events) throws IOException {

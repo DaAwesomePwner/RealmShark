@@ -24,8 +24,8 @@ public class KeyPopHistoryPersistenceTest {
                 JComponent panel=loaded.createView();JTable events=named(panel,"keypop-events",JTable.class);
                 assertEquals(2,events.getRowCount());assertEquals(time.plusSeconds(1),events.getValueAt(0,0));
                 assertEquals("Rune",events.getValueAt(0,2));
-                assertEquals("2",named(panel,"keypop-metric-0",JLabel.class).getText());
-                assertEquals("1",named(panel,"keypop-metric-1",JLabel.class).getText());
+                assertEquals("2",named(panel,"keypop-metric-0",tomato.gui.kit.StatTile.class).valueText());
+                assertEquals("1",named(panel,"keypop-metric-1",tomato.gui.kit.StatTile.class).valueText());
             });
             now.flush();assertEquals(0,now.read(now.currentId(),"keypops",KeyPopEvent.class).size());
         }finally{now.close();}
