@@ -145,7 +145,7 @@ public class RunsRouteTargetTest {
             assertFalse("…an exact saved one", shell.recap.accepts(recap(new VisitRef("not-a-session", "v1"))));
             assertFalse(shell.recap.accepts(recap(RunFixtures.A1).withQuery(ActivityQueries.initial())));
             assertFalse(shell.recap.accepts(recap(RunFixtures.A1).withRecord(new ArchiveRow.Ref(RunFixtures.A, "runs", "v1", ""))));
-            assertFalse("The recording choice is the view's own state", shell.recap.accepts(recap(RunFixtures.A1).withRecording("r-v1-long", 2)));
+            assertFalse("A recording may be named (P5b Recordings), a local object may not", shell.recap.accepts(recap(RunFixtures.A1).withRecording("r-v1-long", 2)));
             assertFalse(shell.recap.accepts(recap(RunFixtures.A1).withBounds(1L, 2L)));
             assertFalse(shell.recap.accepts(recap(RunFixtures.A1).withPayload("focus")));
             assertFalse("Another destination is not the recap's", shell.recap.accepts(Route.to(Destination.RUNS).withVisit(RunFixtures.A1)));
@@ -306,6 +306,31 @@ public class RunsRouteTargetTest {
             assertEquals("…as it was left, without reading it again", 2, shell.builds.calls.size());
             return null;
         });
+    }
+
+    /** P5b Recordings: a summary-only recording linked to its run opens that run's recap on that recording. */
+    @Test public void aRecapRouteMayNameOneOfTheRunsRecordings() throws Exception {
+        Shell shell = new Shell();
+        Route chosen = recap(RunFixtures.A1).withRecording("r-v1-short", null);
+        edt(() -> {
+            assertTrue("A run with one of its recordings", shell.recap.accepts(chosen));
+            assertFalse("…still needs the run", shell.recap.accepts(Route.to(Destination.RUN_RECAP).withRecording("r-v1-short", null)));
+            assertFalse("The feed takes no recording", shell.runs.accepts(Route.to(Destination.RUNS).withRecording("r-v1-short", null)));
+            return null;
+        });
+        assertTrue(shell.open(chosen));
+        shell.settled(RunFixtures.A1);
+        edt(() -> {
+            assertEquals("Built for that recording", List.of("v1/r-v1-short"), shell.builds.calls);
+            assertEquals("r-v1-short", shell.view().model().damage().selected());
+            assertEquals("…and the Back state names it", new RunsState(true, RunFixtures.A1, "r-v1-short", false, "workspace-1"), shell.recap.captureState());
+            return null;
+        });
+        assertTrue("A plain recap route after it shows the longest again", shell.open(recap(RunFixtures.A1)));
+        await("the longest recording", () -> !shell.view().loading() && "r-v1-long".equals(shell.view().model().damage().selected()));
+        assertEquals(List.of("v1/r-v1-short", "v1/null"), edt(() -> List.copyOf(shell.builds.calls)));
+        assertTrue(edt(() -> shell.navigator.back()));
+        await("Back returns to the recap on the recording named", () -> !shell.view().loading() && "r-v1-short".equals(shell.view().model().damage().selected()));
     }
 
     @Test public void theNewestRequestWinsAndAStaleBuildNeverReplacesIt() throws Exception {
