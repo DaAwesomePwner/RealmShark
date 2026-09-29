@@ -1,7 +1,6 @@
 package tomato.gui.runs;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 import tomato.gui.stats.LootFacts;
@@ -14,9 +13,8 @@ import tomato.history.link.VisitRef;
 /**
  * One saved session's facts as the run feed ({@link RunFeedSource}) and the Dungeons cards ({@link DungeonsSource}) read them,
  * so both apply the same rules: the session state {@link RunOutcome#of} takes, loot bags and combat records each read on
- * their own (a module that cannot be read is null, its facts unknown, and named in the issues by the failure's kind), and the
- * stamp a closed session's kept facts are compared by ({@link SessionStamps#stamp}; the Dungeons cards keep theirs with
- * {@link SessionStamps} itself). Off the EDT only (the store refuses it).
+ * their own (a module that cannot be read is null, its facts unknown, and named in the issues by the failure's kind). Both
+ * keep closed sessions' facts with {@link SessionStamps}. Off the EDT only (the store refuses it).
  */
 final class SessionFacts {
     private SessionFacts() {}
@@ -25,9 +23,6 @@ final class SessionFacts {
     @FunctionalInterface interface CombatReader {
         void read(SessionStore store, List<SessionStore.SessionEntry> catalog, String scope, Consumer<CombatRecord> sink) throws IOException;
     }
-
-    /** One entry as last seen: its path inside the session folder, size and modification time (epoch ms). */
-    record Stamp(String name, long size, long modified) {}
 
     /**
      * {ended, current} for {@link RunOutcome#of}, as Home reads its sessions: a session is still open while it is this app
@@ -63,15 +58,5 @@ final class SessionFacts {
     static void unreadable(Exception failure, String session, String module, List<String> issues) {
         if (failure instanceof java.util.concurrent.CancellationException) throw (java.util.concurrent.CancellationException) failure;
         issues.add(session + ": " + module + " could not be read (" + failure.getClass().getSimpleName() + ")");
-    }
-
-    /**
-     * The session folder's entries and the files of its {@code modules} folders, by name: {@link SessionStamps#stamp} in this
-     * package's record, for the run feed's kept facts ({@link RunFeedSource}; it can move to {@link SessionStamps} whole).
-     */
-    static List<Stamp> stamp(Path folder, String... modules) throws IOException {
-        List<Stamp> stamp = new ArrayList<>();
-        for (SessionStamps.Stamp file : SessionStamps.stamp(folder, modules)) stamp.add(new Stamp(file.name(), file.size(), file.modified()));
-        return stamp;
     }
 }

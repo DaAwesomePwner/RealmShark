@@ -14,6 +14,7 @@ import tomato.gui.activity.ActivityPanel;
 import tomato.gui.activity.ActivityQueries;
 import tomato.gui.stats.LootFacts;
 import tomato.history.AppHistory;
+import tomato.history.SessionStamps;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import tomato.history.encounter.CombatFacts;
@@ -36,12 +37,13 @@ import tomato.realmshark.ParseDungeon;
  * <p>Card facts are read only for the sessions of the loaded runs and joined only by exact {@link VisitRef}: loot bags
  * ({@link LootFacts}), fame readings ({@code fame} and {@code fame-latest}, {@link FameGains} over the session's runs
  * coverage) and combat records ({@link CombatFacts}). A closed session's facts are kept while its stamp is unchanged (the
- * name, size and modification time of every entry of its folder and of its loot, fame, fame-latest and encounters folders,
- * as {@code HomeArchive.Cache} does); the current session is read again every time. Sessions whose metadata cannot be read
- * are left out of the pin, and a damaged {@code runs} file fails the read, as the archive does. One session's facts degrade
- * alone: when its loot, fame or combat records cannot be read, its runs' cards show that fact as unknown with a reason
- * ({@link RunCardModel#LOOT_UNREADABLE}, null fame, {@link RunCardModel#COMBAT_UNREADABLE}); a single damaged combat record
- * is skipped ({@link CombatFacts#read}). Both are named in {@link Page#issues()}, so the feed can say it is partial.
+ * name, size and modification time of every entry of its folder and of its loot, fame, fame-latest and encounters folders;
+ * {@link SessionStamps}, as Home's archive and the Dungeons cards keep theirs); the current session is read again every
+ * time. Sessions whose metadata cannot be read are left out of the pin, and a damaged {@code runs} file fails the read, as
+ * the archive does. One session's facts degrade alone: when its loot, fame or combat records cannot be read, its runs' cards
+ * show that fact as unknown with a reason ({@link RunCardModel#LOOT_UNREADABLE}, null fame,
+ * {@link RunCardModel#COMBAT_UNREADABLE}); a single damaged combat record is skipped ({@link CombatFacts#read}). Both are
+ * named in {@link Page#issues()}, so the feed can say it is partial.
  */
 public final class RunFeedSource {
     /** Runs per page. */
@@ -53,9 +55,8 @@ public final class RunFeedSource {
     private final ZoneId zone;
     private final LongSupplier clock;
     private final Path scratch;
-    /** Closed sessions' facts by session ID, for {@link #keptRoot}; guarded by this. */
-    private final Map<String, Facts> kept = new HashMap<>();
-    private Path keptRoot;
+    /** Closed sessions' facts, kept by their stamps. */
+    private final SessionStamps<Facts> kept = new SessionStamps<>(FOLDERS);
     /** Reads one session's combat records ({@link CombatFacts#read}); tests replace it to fail one session's read. */
     private volatile SessionFacts.CombatReader records = CombatFacts::read;
 
@@ -105,7 +106,7 @@ public final class RunFeedSource {
     }
 
     /** Closed sessions whose facts are kept (tests). */
-    synchronized int cachedSessions() { return kept.size(); }
+    int cachedSessions() { return kept.size(); }
 
     /** Replaces the combat record reader (tests: a session whose combat read fails). */
     void combatReader(SessionFacts.CombatReader reader) { records = Objects.requireNonNull(reader, "reader"); }
@@ -129,7 +130,7 @@ public final class RunFeedSource {
             continuesOn = RunFeedModel.day(peek.get(0).value.run.time, zone);
         }
         List<SessionStore.SessionEntry> catalog = store.catalog(cancel);   // listed once for every session read below
-        forgetGone(catalog);
+        kept.forgetGone(store, catalog);   // everything when the store's folder changed, and the sessions that left the catalog
         Map<String, Facts> facts = new HashMap<>();
         Set<String> issues = new LinkedHashSet<>(known);
         List<RunCardModel> cards = new ArrayList<>(loaded);
@@ -157,36 +158,21 @@ public final class RunFeedSource {
             facts.fame() == null ? null : FameGains.of(facts.fame(), ref).orElse(null));
     }
 
-    /** Forgets everything when the store's folder changed, and the sessions that left the catalog. */
-    private synchronized void forgetGone(List<SessionStore.SessionEntry> catalog) {
-        if (!store.directory().equals(keptRoot)) { kept.clear(); keptRoot = store.directory(); }
-        Set<String> listed = new HashSet<>();
-        for (SessionStore.SessionEntry entry : catalog) listed.add(entry.id);
-        kept.keySet().retainAll(listed);
-    }
-
     /** One session's facts: kept while a closed session's stamp is unchanged; the current session's are read every time. */
     private Facts facts(List<SessionStore.SessionEntry> catalog, String session) throws IOException {
         SessionStore.SessionEntry entry = null;
         for (SessionStore.SessionEntry listed : catalog) if (listed.id.equals(session)) entry = listed;
         // The pin read this session a moment ago: it was deleted or damaged since. Its runs' facts are unknown, not empty.
         if (entry == null || !entry.readable()) throw new IOException("Saved session " + session + " changed during the read; refresh to read it again");
-        if (session.equals(store.currentId())) return read(catalog, entry, null);   // still being written: never kept
-        List<SessionFacts.Stamp> stamp = SessionFacts.stamp(store.directory().resolve(session), FOLDERS);
-        synchronized (this) {
-            Facts known = kept.get(session);
-            if (known != null && known.stamp.equals(stamp)) return known;
-        }
-        Facts read = read(catalog, entry, stamp);
-        synchronized (this) { kept.put(session, read); }
-        return read;
+        SessionStore.SessionEntry listed = entry;
+        return kept.get(store, session, stamp -> read(catalog, listed, stamp));   // read() itself throws no IOException
     }
 
     /**
      * One session's loot, fame and combat facts, each read on its own: a module that cannot be read (a damaged journal line
      * or checkpoint, an unlistable folder) is null (unknown) and named in {@link Facts#issues}, and the others still show.
      */
-    private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<SessionFacts.Stamp> stamp) {
+    private Facts read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<SessionStamps.Stamp> stamp) {
         List<String> issues = new ArrayList<>();
         List<LootFacts.Bag> loot = SessionFacts.loot(store, catalog, entry.id, issues);
         Map<VisitRef, Long> fame;
@@ -258,7 +244,7 @@ public final class RunFeedSource {
      * combat records by exact visit. A module that could not be read is null (its facts unknown) and named in {@code issues};
      * kept with the stamp like the rest, since reading the same files again fails the same way.
      */
-    private record Facts(List<SessionFacts.Stamp> stamp, List<LootFacts.Bag> loot, Map<VisitRef, Long> fame,
+    private record Facts(List<SessionStamps.Stamp> stamp, List<LootFacts.Bag> loot, Map<VisitRef, Long> fame,
                          Map<VisitRef, List<CombatRecord>> combat, List<String> issues) {}
 
     /**
