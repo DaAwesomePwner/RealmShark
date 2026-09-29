@@ -48,8 +48,9 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     /** The enemy order that is also a filter: only boss cards (and their players) remain. */
     private static final int BOSSES_INDEX = 3;
     /**
-     * The enemy list's default share of the meter's width (at least its floor, never the table's minimum) until the reader
-     * moves the divider; then the split's resize weight. At 1240×800 font 13 it keeps a boss card's facts whole beside the chip.
+     * The enemy list's default share of the meter's width until the reader moves the divider; then the split's resize weight.
+     * At 1240×800 font 13 it keeps a boss card's facts whole beside the chip. At compact widths the table's first column comes
+     * first and the list takes the rest down to its floor ({@link #placeEnemies}).
      */
     static final float ENEMY_SHARE = .32f;
     /** Characters of an enemy name a boss card keeps beside its chip; a narrower card opens its facts with the marker instead. */
@@ -154,7 +155,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         add(header, BorderLayout.NORTH);
         JScrollPane enemyScroll = new JScrollPane(enemyList);
         JPanel left = new JPanel(new BorderLayout(4, 4)) {
-            // The enemy list's floor: a boss card keeps ten average letters of its name beside the chip (EnemyCardRenderer.minimumWidth).
+            // The enemy list's floor: a card keeps ten average letters of its name (EnemyCardRenderer.minimumWidth; a boss card folds its chip).
             @Override public Dimension getMinimumSize() {
                 Insets scroll = enemyScroll.getInsets();
                 return new Dimension(cards.minimumWidth(enemyList) + scroll.left + scroll.right + enemyScroll.getVerticalScrollBar().getPreferredSize().width, 80);
@@ -293,10 +294,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
                 if (placedDivider >= 0 && getDividerLocation() != placedDivider) readerDivider = true;
                 super.doLayout();
                 if (readerDivider || getWidth() <= 0) return;
-                Insets insets = getInsets();
-                int available = getWidth() - insets.left - insets.right - getDividerSize();
-                int enemies = Math.max(Math.round(available * ENEMY_SHARE), getLeftComponent().getMinimumSize().width);
-                int target = insets.left + Math.max(0, Math.min(enemies, available - getRightComponent().getMinimumSize().width));
+                int target = placeEnemies(this);
                 if (target != getDividerLocation()) { setDividerLocation(target); super.doLayout(); }
                 placedDivider = getDividerLocation();
             }
@@ -323,6 +321,29 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         // Object IDs on the enemy cards follow Simple/Analyst; re-measure the cards only when the mode really changed
         // (the binding also runs whenever the meter becomes displayable).
         DisplayModeModel.application().bind(this, mode -> { if (mode != shownMode) { shownMode = mode; enemies.refresh(); } });
+    }
+
+    /**
+     * The enemy list's default divider location. The player rows are the meter's core: at compact widths the table keeps its
+     * first column (rank, name, bar and amount) whole when the split allows it and the list takes the rest down to its floor;
+     * where even the floor leaves the column short, the floor wins (names stay readable; a boss card folds its chip into its
+     * facts). At wide widths the list takes its {@link #ENEMY_SHARE}. The table never loses its minimum width.
+     */
+    private int placeEnemies(JSplitPane pane) {
+        Insets insets = pane.getInsets();
+        int available = pane.getWidth() - insets.left - insets.right - pane.getDividerSize();
+        int tableMinimum = pane.getRightComponent().getMinimumSize().width;
+        int rest = available - Math.max(tableMinimum, firstColumnWidth());
+        int enemies = Math.max(pane.getLeftComponent().getMinimumSize().width, Math.min(Math.round(available * ENEMY_SHARE), rest));
+        return insets.left + Math.max(0, Math.min(enemies, available - tableMinimum));
+    }
+    /** The table side's width at which the first column shows whole: the column, the scroll pane's border and, when shown, its vertical scroll bar. */
+    private int firstColumnWidth() {
+        if (table.getColumnCount() == 0) return 0;
+        Insets outer = right.getInsets(), border = tableScroll.getInsets();
+        JScrollBar bar = tableScroll.getVerticalScrollBar();
+        return outer.left + outer.right + border.left + border.right + (bar.isVisible() ? bar.getPreferredSize().width : 0)
+            + table.getColumnModel().getColumn(0).getWidth();
     }
 
     /**
@@ -878,14 +899,14 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         }
         /**
          * The enemy list's floor: the narrowest card that keeps {@value #TITLE_CHARACTERS} average lowercase letters of a name
-         * and "..." beside the chip, in the list's font and cell border (a name of wider letters moves the marker instead).
+         * and "...", in the list's font and cell border. It leaves no room for the chip: a boss card that narrow folds it into
+         * its facts, so the table keeps more of its width at compact sizes.
          */
         int minimumWidth(JList<?> list) {
             fonts(list.getFont());
             Border cell = UIManager.getBorder("List.cellNoFocusBorder");
             Insets own = list.getInsets(), outer = cell == null ? new Insets(0, 0, 0, 0) : cell.getBorderInsets(this), padding = CARD.getBorderInsets(row);
-            return own.left + own.right + outer.left + outer.right + padding.left + padding.right
-                + letters + clip + ((BorderLayout) row.getLayout()).getHgap() + chip;
+            return own.left + own.right + outer.left + outer.right + padding.left + padding.right + letters + clip;
         }
     }
     /**

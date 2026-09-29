@@ -132,7 +132,8 @@ public class DpsFilterBarTest {
     /**
      * Enemy cards are exactly as wide as the visible enemy list (split at its default width, in the Live meter tab): a long
      * boss name and subtitle ellipsize (the tooltip keeps them), the list never scrolls sideways, and the Boss chip lies
-     * wholly inside the visible list at 1240×800 font 13 and 680×520 font 18.
+     * wholly inside the visible list at 1240×800 font 13; at 680×520 font 18, where the list is at its floor, the card either
+     * keeps the chip that way or folds it into its facts ("Boss · …", P5b polish) with the name across the card.
      */
     @Test public void enemyCardsFitTheListSoTheBossChipIsNeverClipped() throws Exception {
         String longName = "Synthetic Archdemon of the Endless Overflowing Enemy Card Title";
@@ -166,12 +167,19 @@ public class DpsFilterBarTest {
                     BorderLayout layout = (BorderLayout) card.getLayout();
                     Component chip = layout.getLayoutComponent(BorderLayout.EAST);
                     JLabel title = (JLabel) layout.getLayoutComponent(BorderLayout.NORTH), subtitle = (JLabel) layout.getLayoutComponent(BorderLayout.SOUTH);
-                    assertTrue(chip.isVisible());
-                    assertEquals(name + ": the whole chip is laid out", chip.getPreferredSize().width, chip.getWidth());
-                    Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
-                    assertTrue(name + ": the Boss chip " + chipInList + " lies inside the visible list " + list.getVisibleRect(), list.getVisibleRect().contains(chipInList));
-                    assertTrue(name + ": the long name ellipsizes beside the chip", title.getX() + title.getWidth() <= chip.getX() && title.getWidth() < title.getPreferredSize().width);
-                    assertTrue(name + ": the subtitle stays beside the chip", subtitle.getX() + subtitle.getWidth() <= chip.getX());
+                    assertTrue(name + ": a wide card keeps the chip", chip.isVisible() || size[0] == 680);
+                    if (chip.isVisible()) {
+                        assertEquals(name + ": the whole chip is laid out", chip.getPreferredSize().width, chip.getWidth());
+                        Rectangle chipInList = new Rectangle(cell.x + chip.getX(), cell.y + chip.getY(), chip.getWidth(), chip.getHeight());
+                        assertTrue(name + ": the Boss chip " + chipInList + " lies inside the visible list " + list.getVisibleRect(), list.getVisibleRect().contains(chipInList));
+                        assertTrue(name + ": the long name ellipsizes beside the chip", title.getX() + title.getWidth() <= chip.getX() && title.getWidth() < title.getPreferredSize().width);
+                        assertTrue(name + ": the subtitle stays beside the chip", subtitle.getX() + subtitle.getWidth() <= chip.getX());
+                    } else {
+                        assertTrue(name + ": the folded chip opens the facts: " + subtitle.getText(), subtitle.getText().startsWith("Boss · "));
+                        Insets padding = card.getInsets();
+                        assertEquals(name + ": the long name spans the card", card.getWidth() - padding.left - padding.right, title.getWidth());
+                        assertTrue(name + ": the long name keeps ten characters: " + shown(title), kept(shown(title)) >= 10 && title.getWidth() < title.getPreferredSize().width);
+                    }
                     assertTrue("The tooltip keeps the full name", card.getToolTipText().contains(longName) && card.getToolTipText().contains(subtitle.getText()));
                     evidence.capture(name);
                     return null;
@@ -181,18 +189,18 @@ public class DpsFilterBarTest {
     }
 
     /**
-     * P5b polish (evidence findings 1 and 3): the enemy list takes a generous default share of the meter in the Live meter tab,
-     * so "All enemies · 13" is whole and the boss card keeps at least ten characters of its name at 680×520 font 18 (or, where
-     * a card is narrower than that, the Boss marker opens its facts instead of the chip); at 1240×800 font 13 a wide card
-     * keeps the chip and its whole facts. The table keeps its minimum width and three rows; nothing scrolls sideways. A
-     * divider the reader moved stays where they left it.
+     * P5b polish (evidence findings 1 and 3, coordinator balance): at compact widths the meter table keeps its first column
+     * (rank, name, bar and amount) whole when the split allows it, and otherwise the enemy list sits at its floor (ten average
+     * letters, "..." and the card padding, no chip), where names keep at least ten characters (a boss card folds its chip into
+     * its facts: "Boss · …"); at 1240×800 font 13 the 0.32 share keeps a wide card's chip and whole facts. The table keeps its
+     * minimum width and three rows; nothing scrolls sideways. A divider the reader moved stays where they left it.
      */
     @Test public void enemyCardsKeepReadableNamesAndFactsBesideTheBossChip() throws Exception {
         TomatoData data = new TomatoData(); DpsData fight = colossus(data); data.dpsData.add(fight);
         DpsGUI dps = edt(() -> new DpsGUI(data, null, new JPanel()));
         WorkspaceShell shell = shell(livePage(dps), dps, fight);
         try {
-            for (int[] size : new int[][]{{1240, 800, 13}, {680, 520, 18}, {680, 520, 13}, {1240, 800, 18}}) {
+            for (int[] size : new int[][]{{1240, 800, 13}, {680, 520, 18}, {680, 520, 13}, {760, 520, 18}, {1240, 800, 18}}) {
                 String name = "dps-meter-enemy-names-" + size[0] + "-" + size[2];
                 edt(() -> { evidence.show(shell, name, size[0], size[1], size[2]); return null; });
                 evidence.settle();
@@ -209,8 +217,19 @@ public class DpsFilterBarTest {
                     Component table = split.getRightComponent();
                     assertTrue(name + ": the table keeps its minimum width (" + table.getWidth() + " of " + table.getMinimumSize().width + ")",
                         table.getWidth() >= table.getMinimumSize().width);
-                    String all = shown(slot(laidOut(list, 0), BorderLayout.NORTH));
-                    assertEquals(name + ": the first card is whole (list " + list.getWidth() + " px)", "All enemies · 13", all);
+                    JPanel first = laidOut(list, 0);
+                    String all = shown(slot(first, BorderLayout.NORTH));
+                    int floor = noChipFloor(list, first, slot(first, BorderLayout.NORTH));
+                    Component enemies = split.getLeftComponent();
+                    boolean whole = firstColumnWhole(meter);
+                    System.out.println(name + ": enemy list side " + enemies.getWidth() + " px (floor " + floor + "), table side " + table.getWidth()
+                        + " px, first column " + meter.table().getColumnModel().getColumn(0).getWidth() + " px in a " + meter.tableScroll().getViewport().getWidth()
+                        + " px viewport (" + (whole ? "whole" : "cut") + "), first card \"" + all + "\"");
+                    assertTrue(name + ": the table's first column is whole, or the enemy list is at its no-chip floor (list side " + enemies.getWidth() + ", floor " + floor + ")",
+                        whole || enemies.getWidth() <= floor);
+                    if (size[0] == 760) assertTrue(name + ": where the split allows it, the table's first column is whole", whole);
+                    assertTrue(name + ": the first card keeps ten characters: \"" + all + "\"", kept(all) >= 10);
+                    if (size[0] == 1240) assertEquals(name + ": the first card is whole (list " + list.getWidth() + " px)", "All enemies · 13", all);
                     int index = -1;
                     for (int i = 0; i < list.getModel().getSize(); i++) if (list.getModel().getElementAt(i) != null && list.getModel().getElementAt(i).isBossMob()) index = i;
                     assertEquals("Highest max HP first: the boss", 1, index);
@@ -565,6 +584,22 @@ public class DpsFilterBarTest {
         }
     }
 
+    /** Whether the damage table shows its first column (rank, name, bar and amount) whole, with no sideways scroll needed for it. */
+    private static boolean firstColumnWhole(MeterDpsGUI meter) {
+        Rectangle column = meter.table().getTableHeader().getHeaderRect(0), view = meter.tableScroll().getViewport().getViewRect();
+        return view.x <= column.x && column.x + column.width <= view.x + view.width;
+    }
+    /**
+     * The enemy list side's floor as the coordinator set it: ten average lowercase letters of the title font, "..." and the card
+     * padding (no chip), with the list's own insets, its scroll pane's border and vertical scroll bar.
+     */
+    private static int noChipFloor(JList<Entity> list, JPanel card, JLabel title) {
+        FontMetrics metrics = title.getFontMetrics(title.getFont());
+        JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, list);
+        Insets padding = card.getInsets(), own = list.getInsets(), border = scroll.getInsets();
+        return Math.round(10 * metrics.stringWidth("abcdefghijklmnopqrstuvwxyz") / 26f) + metrics.stringWidth("...") + padding.left + padding.right
+            + own.left + own.right + border.left + border.right + scroll.getVerticalScrollBar().getPreferredSize().width;
+    }
     /** The text a label paints at its current size (JLabel's own clipping, "..." included). */
     private static String shown(JLabel label) {
         Insets insets = label.getInsets();
