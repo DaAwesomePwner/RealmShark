@@ -25,8 +25,11 @@ public class ShellRouteRegistrationTest {
     /** Runs routes below may choose the Table view; the saved choice is restored after. */
     @Rule public final tomato.gui.runs.RunsViewRule runsView = tomato.gui.runs.RunsViewRule.cards();
     private static final String[] RECAP_SECTIONS = {"damage", "loot", "players", "resources", "timeline", "evidence"};
-    /** The Runs & DPS tabs, the Live meter's nested tabs and the Recordings tab's saved view (the encounter library's live state). */
-    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live"};
+    /**
+     * The Runs & DPS tabs, the Live meter's nested tabs, the Recordings tab's saved view (the encounter library's live state) and
+     * the Dungeons tab's view.
+     */
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live", "ui.dungeons.view"};
 
     @Test public void createdWorkspaceRegistersAnalyticsTargetsAndCloseUninstallsTheNavigator() throws Exception {
         java.util.Map<String, String> recapSections = new java.util.HashMap<>();
@@ -118,7 +121,7 @@ public class ShellRouteRegistrationTest {
                 assertTrue("A plain ENCOUNTER route is the Live meter's", navigator.canOpen(Route.to(Destination.ENCOUNTER)));
                 for (tomato.gui.runs.RunsTab tab : tomato.gui.runs.RunsTab.values())
                     assertTrue("Each tab has a route: " + tab, navigator.canOpen(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tab))));
-                assertFalse("The Feed's dungeon filter has no route until the Dungeons tab wires it",
+                assertTrue("The Feed's dungeon filter has a route now that the Dungeons tab wires it (P5b Task 12)",
                     navigator.canOpen(Route.to(Destination.RUNS).withPayload(new tomato.gui.runs.RunsFocus(tomato.gui.runs.RunsTab.FEED, "Lost Halls"))));
                 assertFalse("A tab route carries nothing else",
                     navigator.canOpen(Route.to(Destination.RUNS).withVisit(visit).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS))));
@@ -129,6 +132,20 @@ public class ShellRouteRegistrationTest {
                 assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, runsDps.selectedTab());
                 assertTrue(navigator.back());
                 assertEquals("Back returns to the tab left", tomato.gui.runs.RunsTab.RECORDINGS, runsDps.selectedTab());
+                assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
+
+                // P5b Task 12: the Dungeons tab holds the cards; a Feed route with a dungeon (the cards' Show runs) shows the Feed's
+                // cards filtered to that canonical dungeon, and Back returns to Dungeons.
+                assertNotNull("The Dungeons tab holds the cards", find(runsDps, tomato.gui.runs.DungeonsView.class));
+                assertTrue(navigator.open(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS))));
+                assertEquals(10, workspace.getSelectedPage());
+                assertEquals(tomato.gui.runs.RunsTab.DUNGEONS, runsDps.selectedTab());
+                assertTrue(navigator.open(Route.to(Destination.RUNS).withPayload(new tomato.gui.runs.RunsFocus(tomato.gui.runs.RunsTab.FEED, "Lost Halls"))));
+                assertEquals(tomato.gui.runs.RunsTab.FEED, runsDps.selectedTab());
+                assertFalse("The feed's cards", runs.recapShown() || runs.feed().tableShown());
+                assertEquals("Lost Halls", runs.feed().query().map());
+                assertTrue(navigator.back());
+                assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, runsDps.selectedTab());
                 assertTrue(navigator.back()); assertEquals(landing, workspace.getSelectedPage());
             });
             gui.closeWorkspace();

@@ -206,6 +206,40 @@ public class DungeonCardModelTest {
         assertEquals("The newest entry of any outcome and session", 2_000, whole.lastVisit());
     }
 
+    /**
+     * P5b Task 12: the card keeps its best run's entry time (the Best DPS line dates the run it names); it is null, never 0, when
+     * there is no best run or that run has no entry time, and session partials still merge to the same card in any order.
+     */
+    @Test public void theBestRunsEntryTimeIsKeptAndIsNullWhenUnknown() {
+        VisitRef fast = ref(), slow = ref();
+        DungeonCardModel card = DungeonCardModel.of("Lost Halls", List.of(
+            run(fast, "Lost Halls", COMPLETED, 5_000, 10 * MINUTE, loot(fast, 1), recording(fast, "r-fast", 40, true)),
+            run(slow, "Lost Halls", COMPLETED, 9_000, 20 * MINUTE, loot(slow, 1), recording(slow, "r-slow", 25, true))));
+        assertEquals(fast, card.bestRun());
+        assertEquals("The best run's entry, not the newest", Long.valueOf(5_000), card.bestEntered());
+
+        VisitRef undated = ref();
+        DungeonCardModel noEntry = DungeonCardModel.of("Lost Halls", List.of(
+            run(undated, "Lost Halls", COMPLETED, 0, MINUTE, loot(undated, 0), recording(undated, "r-undated", 30, true))));
+        assertEquals(undated, noEntry.bestRun());
+        assertNull("An unknown entry time is null, never 0", noEntry.bestEntered());
+        assertNull("No best run: no entry time", DungeonCardModel.of("Lost Halls", List.of(plain(COMPLETED), plain(LEFT))).bestEntered());
+
+        VisitRef early = ref(), late = new VisitRef(OTHER, "v9");
+        DungeonCardModel.Tally one = new DungeonCardModel.Tally("Lost Halls"), two = new DungeonCardModel.Tally("Lost Halls");
+        one.add(run(early, "Lost Halls", COMPLETED, 1_000, MINUTE, loot(early, 0), recording(early, "r-early", 30, true)));
+        two.add(run(late, "Lost Halls", COMPLETED, 7_000, MINUTE, loot(late, 0), recording(late, "r-late", 30, true)));   // equal DPS
+        DungeonCardModel.Tally forward = new DungeonCardModel.Tally("Lost Halls"), backward = new DungeonCardModel.Tally("Lost Halls");
+        forward.merge(one); forward.merge(two); backward.merge(two); backward.merge(one);
+        assertEquals("The merged cards agree, the entry time included", DungeonCardModel.of(forward), DungeonCardModel.of(backward));
+        assertEquals("Equal DPS: the later entry wins, with its time", late, DungeonCardModel.of(forward).bestRun());
+        assertEquals(Long.valueOf(7_000), DungeonCardModel.of(backward).bestEntered());
+
+        DungeonCardModel withoutTime = new DungeonCardModel("Lost Halls", "Lost Halls", 0, 1, 1, 0, 0, 0, 0, 1.0, MINUTE, 1, 0.0, 1, 0,
+            30.0, early, "r-early", null, null, null, null, 1_000);
+        assertNull("A card made without the entry time does not know it", withoutTime.bestEntered());
+    }
+
     @Test public void theCardNamesItsDungeonAndPortal() {
         DungeonCardModel card = DungeonCardModel.of("Ice Citadel", List.of(run(ref(), "Ice Citadel", LEFT, 1, MINUTE, NOT_SAVED, List.of())));
         assertEquals("Ice Citadel", card.displayName());
