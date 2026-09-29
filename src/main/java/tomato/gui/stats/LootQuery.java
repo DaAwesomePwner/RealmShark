@@ -84,11 +84,10 @@ public final class LootQuery {
     static boolean contains(String value,String query){return value.toLowerCase(Locale.ROOT).contains(query.trim().toLowerCase(Locale.ROOT));}
     static String variant(LootDashboard.Item i){return i.id+"/"+slots(i)+"/"+applied(i);}
     static Long time(long time){return time>0?time:null;}
-    /** The Loot (occurrences) or Statistics (session comparison) workspace's first query: the current session, newest first. */
-    public static ArchiveQuery<Facets,Sort> initial(boolean statistics){return initial(statistics?View.SESSIONS:View.OCCURRENCES,ArchiveQuery.CURRENT);}
     /**
-     * A view-subset workspace's first query (the Dungeons analysis: session comparison over every session): {@code view} in
-     * {@code scope} ({@link ArchiveQuery#CURRENT}, {@code SessionStore.ALL} or a session ID), no other facet, newest first.
+     * A workspace's first query (Loot › Explore: All Items in the current session; the Dungeons analysis: session comparison over
+     * every session): {@code view} in {@code scope} ({@link ArchiveQuery#CURRENT}, {@code SessionStore.ALL} or a session ID), no
+     * other facet, newest first.
      */
     public static ArchiveQuery<Facets,Sort> initial(View view,String scope){
         Facets f=new Facets();f.view=Objects.requireNonNull(view,"view");

@@ -6,7 +6,7 @@ import tomato.gui.chat.ChatGUI;
 import tomato.gui.chat.ChatPingGUI;
 import tomato.gui.dps.DpsDisplayOptions;
 import tomato.gui.dps.DpsGUI;
-import tomato.gui.stats.LootGUI;
+import tomato.gui.stats.LootCapture;
 import tomato.gui.stats.LootFilters;
 import tomato.realmshark.Sound;
 import tomato.realmshark.enums.LootBags;
@@ -506,7 +506,7 @@ public class TomatoMenuBar implements ActionListener {
         if (dataSending != null) {
             boolean b = dataSending.equals("true");
             disableDataSending.setSelected(b);
-            LootGUI.lootSharing(b);
+            LootCapture.get().lootSharing(b);
         }
     }
 
@@ -684,7 +684,7 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == disableDataSending) { // disables data sharing
             boolean b = disableDataSending.isSelected();
             PropertiesManager.setProperties("disableDataSending", b ? "true" : "false");
-            LootGUI.lootSharing(b);
+            LootCapture.get().lootSharing(b);
         } else if (e.getSource() == chatPingMessage) { // chat ping message
             TomatoGUI.openChatPingMessage();
         } else if (e.getSource() == entityIdPingMessage) { // entity id ping message

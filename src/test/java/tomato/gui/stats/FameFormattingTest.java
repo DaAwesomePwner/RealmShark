@@ -1,12 +1,10 @@
 package tomato.gui.stats;
 
 import com.google.gson.Gson;
-import java.time.Instant;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import org.junit.Test;
-import tomato.backend.data.DungeonStatData;
 import tomato.gui.stats.data.MapFameData;
 import tomato.gui.stats.session.FameSession;
 import tomato.gui.stats.session.FameSessionViewer;
@@ -15,7 +13,8 @@ import static org.junit.Assert.*;
 import static tomato.gui.modern.FormattingTestSupport.*;
 
 public class FameFormattingTest {
-    @Test public void liveAndReloadedFameRenderTheSameValuesWithoutChangingTypedSorting() throws Exception {
+    /** The saved fame viewer's formatting (P6a removed the live Fame Table it was compared with; its values are asserted directly). */
+    @Test public void reloadedFameRendersLocaleValuesWithoutChangingTypedSorting() throws Exception {
         Locale previous = Locale.getDefault(Locale.Category.FORMAT);
         TimeZone zone = TimeZone.getDefault();
         try {
@@ -23,12 +22,6 @@ public class FameFormattingTest {
             for (Locale locale : Arrays.asList(Locale.US, Locale.GERMANY)) {
                 Locale.setDefault(Locale.Category.FORMAT, locale);
                 SwingUtilities.invokeAndWait(() -> {
-                    FameTableBridge.getInstance().setFameTrackerGUI(null);
-                    FameTablePanel live = new FameTablePanel(null);
-                    live.onMapChange("Lost Halls", 1000);
-                    live.updateFame(12345, 1234567, 1000, "Wizard");
-                    live.updateFame(12345, 1233333, 61000, "Wizard");
-                    live.refreshNow();
                     FameSession source = new FameSession("Formatting");
                     source.addCharacterData(12345, "Wizard", Arrays.asList(new Fame(1234567, 1000), new Fame(1233333, 61000)));
                     source.addCharacterData(12346, "Priest", Arrays.asList(new Fame(0, 1000), new Fame(0, 61000)));
@@ -41,14 +34,11 @@ public class FameFormattingTest {
                     FameSession reloaded = json.fromJson(before, FameSession.class);
                     FameSessionViewer saved = new FameSessionViewer(reloaded);
                     try {
-                        JTable current = named(live, "fame-characters", JTable.class);
                         JTable history = named(saved, "saved-fame-characters", JTable.class);
                         boolean german = locale.equals(Locale.GERMANY);
-                        assertEquals(german ? "1.234.567" : "1,234,567", cell(current, 0, 2));
-                        assertEquals(cell(current, 0, 2), cell(history, 0, 3));
-                        assertEquals(cell(current, 0, 3), cell(history, 0, 4));
+                        assertEquals(german ? "1.234.567" : "1,234,567", cell(history, 0, 3));
+                        assertEquals(german ? "1.233.333" : "1,233,333", cell(history, 0, 4));
                         assertEquals(german ? "-1.234,0" : "-1,234.0", cell(history, 0, 5));
-                        assertEquals(cell(current, 0, 4), cell(history, 0, 5));
                         assertEquals("12345", cell(history, 0, 0));
                         assertEquals("0", cell(history, 1, 3));
                         assertEquals("—", cell(history, 2, 3));
@@ -111,85 +101,6 @@ public class FameFormattingTest {
                 assertEquals(9, table.getValueAt(0, 0)); assertEquals(12345, table.getValueAt(1, 0));
                 assertEquals(Integer.class, table.getColumnClass(0)); assertEquals(Long.class, table.getColumnClass(2));
                 assertEquals(before, new Gson().toJson(model.getDataVector()));
-            });
-        } finally { Locale.setDefault(Locale.Category.FORMAT, previous); }
-    }
-
-    @Test public void fameSummaryCardsAndVisitStatusFollowLocaleWithoutMutatingTrackingData() throws Exception {
-        Locale previous = Locale.getDefault(Locale.Category.FORMAT);
-        TimeZone zone = TimeZone.getDefault();
-        try {
-            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-            SwingUtilities.invokeAndWait(() -> {
-                FameTableBridge.getInstance().setFameTrackerGUI(null);
-                FameTablePanel fame = new FameTablePanel(null);
-                FameTrackerGUI graph = new FameTrackerGUI((session, done) -> { throw new AssertionError("Formatting must not save a session"); });
-                ArrayList<MapFameData> visits = new ArrayList<>();
-                for (int i = 0; i < 1234; i++) {
-                    fame.updateFame(12345 + i, 0, 0, "Wizard");
-                    fame.updateFame(12345 + i, 2, 2000, "Wizard");
-                    FameTrackerGUI.updateFame(12345, i * 2L, i * 2000L);
-                    MapFameData visit = new MapFameData("Lost Halls", i * 2000L, 0);
-                    visit.endTime = visit.startTime + 2000; visit.endFame = 2; visits.add(visit);
-                }
-                HashMap<Integer, ArrayList<MapFameData>> maps = new HashMap<>(); maps.put(12345, visits); fame.setMapFameData(maps);
-                Gson json = new Gson();
-                String tableBefore = json.toJson(fame.trackingSnapshot()), graphBefore = json.toJson(graph.getFameData());
-                for (Locale locale : Arrays.asList(Locale.US, Locale.GERMANY)) {
-                    Locale.setDefault(Locale.Category.FORMAT, locale);
-                    fame.refreshNow(); graph.refreshNow();
-                    boolean german = locale.equals(Locale.GERMANY);
-                    JLabel[] summaries = field(fame, "metrics", JLabel[].class), graphSummaries = field(graph, "metrics", JLabel[].class);
-                    assertEquals(german ? "1.234" : "1,234", summaries[0].getText());
-                    assertEquals(german ? "2.468" : "2,468", summaries[1].getText());
-                    assertEquals("00:41:08", summaries[2].getText());
-                    assertEquals(german ? "3.600,0" : "3,600.0", summaries[3].getText());
-                    assertTrue(field(fame, "status", JLabel.class).getText().startsWith(german ? "1.234 of 1.234" : "1,234 of 1,234"));
-                    assertTrue(field(fame, "mapStatus", JLabel.class).getText().startsWith(german ? "1.234 visits · 2.468,0 fame" : "1,234 visits · 2,468.0 fame"));
-                    assertEquals(german ? "1.234" : "1,234", graphSummaries[3].getText());
-                    assertEquals(german ? "3.600,0" : "3,600.0", graphSummaries[2].getText());
-                    assertTrue(field(graph, "sampleStatus", JLabel.class).getText().startsWith("Character #12345 ·"));
-                    JTable mapTable = named(fame, "fame-maps", JTable.class);
-                    assertEquals(german ? "1.234" : "1,234", cell(mapTable, 0, 2));
-                    assertEquals(Integer.class, mapTable.getColumnClass(2)); assertEquals(1234, mapTable.getValueAt(0, 2));
-                    assertEquals(Double.class, mapTable.getColumnClass(4)); assertEquals(2468.0, mapTable.getValueAt(0, 4));
-                    assertEquals(Long.class, mapTable.getColumnClass(3)); assertEquals(2468000L, mapTable.getValueAt(0, 3));
-                    assertEquals(tableBefore, json.toJson(fame.trackingSnapshot())); assertEquals(graphBefore, json.toJson(graph.getFameData()));
-                }
-            });
-        } finally { Locale.setDefault(Locale.Category.FORMAT, previous); TimeZone.setDefault(zone); }
-    }
-
-    @Test public void dungeonCardsAndDetailCountsAgreeWithRenderersWhileObjectIdsAndJsonStayRaw() throws Exception {
-        Locale previous = Locale.getDefault(Locale.Category.FORMAT);
-        try {
-            SwingUtilities.invokeAndWait(() -> {
-                Gson json = new Gson();
-                DungeonStatData data = json.fromJson("{\"data\":{\"Lost Halls\":{\"name\":\"Lost Halls\",\"enteredDungeon\":1234,\"totalTime\":1234000,\"entityDamaged\":{\"2147483000\":1234567},\"entityLoot\":{\"2147483000\":{\"lootList\":{\"2147483001\":1234}}}},\"Sprite World\":{\"name\":\"Sprite World\",\"enteredDungeon\":9,\"totalTime\":9000,\"entityDamaged\":{},\"entityLoot\":{}},\"Nexus\":{\"name\":\"Nexus\",\"enteredDungeon\":0,\"totalTime\":0,\"entityDamaged\":{},\"entityLoot\":{}}}}", DungeonStatData.class);
-                String before = json.toJson(data);
-                DungeonStats panel = new DungeonStats(); DungeonStats.update(data, null);
-                for (Locale locale : Arrays.asList(Locale.US, Locale.GERMANY)) {
-                    Locale.setDefault(Locale.Category.FORMAT, locale); panel.refreshData();
-                    boolean german = locale.equals(Locale.GERMANY);
-                    JLabel[] metrics = field(panel, "metrics", JLabel[].class);
-                    assertEquals("3", metrics[0].getText()); assertEquals(german ? "1.243" : "1,243", metrics[1].getText());
-                    assertEquals("00:20:43", metrics[2].getText()); assertEquals(german ? "1.234" : "1,234", metrics[3].getText());
-                    JTable dungeons = named(panel, "dungeon-table", JTable.class);
-                    int large = row(dungeons, 0, "Lost Halls"), empty = row(dungeons, 0, "Nexus");
-                    assertEquals(german ? "1.234" : "1,234", cell(dungeons, large, 1));
-                    assertEquals("0", cell(dungeons, empty, 1)); assertEquals("—", cell(dungeons, empty, 3));
-                    dungeons.setRowSelectionInterval(large, large);
-                    JTable enemies = named(panel, "dungeon-enemies", JTable.class), items = named(panel, "dungeon-items", JTable.class);
-                    assertEquals(german ? "1.234.567" : "1,234,567", cell(enemies, 0, 2));
-                    assertEquals(german ? "1.234" : "1,234", cell(items, 0, 2));
-                    assertEquals("Object #2147483001", cell(items, 0, 1));
-                    assertTrue(named(panel, "dungeon-enemy-filter", JComboBox.class).getItemAt(1).toString().endsWith("(#2147483000)"));
-                    assertEquals(Integer.class, items.getColumnClass(2)); assertEquals(1234, items.getValueAt(0, 2));
-                    assertEquals(Long.class, dungeons.getColumnClass(4)); assertEquals(1234567L, dungeons.getValueAt(large, 4));
-                    dungeons.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(1, SortOrder.ASCENDING)));
-                    assertEquals(0, dungeons.getValueAt(0, 1)); assertEquals(9, dungeons.getValueAt(1, 1)); assertEquals(1234, dungeons.getValueAt(2, 1));
-                    assertEquals(before, json.toJson(data));
-                }
             });
         } finally { Locale.setDefault(Locale.Category.FORMAT, previous); }
     }
@@ -262,44 +173,5 @@ public class FameFormattingTest {
     private static int row(JTable table, int column, Object value) {
         for (int row = 0; row < table.getRowCount(); row++) if (Objects.equals(value, table.getValueAt(row, column))) return row;
         throw new AssertionError("Missing row " + value);
-    }
-
-    @Test public void enteredTimesStayTypedAndSortChronologicallyAcrossZoneChangesAndDstFallback() throws Exception {
-        Locale previous = Locale.getDefault(Locale.Category.FORMAT);
-        TimeZone zone = TimeZone.getDefault();
-        try {
-            Locale.setDefault(Locale.Category.FORMAT, Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-            SwingUtilities.invokeAndWait(() -> {
-                FameTableBridge.getInstance().setFameTrackerGUI(null);
-                FameTablePanel panel = new FameTablePanel(null); panel.updateFame(12345, 0, 0, "Wizard");
-                long earlier = Instant.parse("2026-10-25T00:50:00Z").toEpochMilli(), later = Instant.parse("2026-10-25T01:10:00Z").toEpochMilli();
-                ArrayList<MapFameData> visits = new ArrayList<>();
-                for (long time : new long[]{later, earlier}) {
-                    MapFameData visit = new MapFameData("Lost Halls", time, 0); visit.endTime = time + 60000; visit.endFame = 1; visits.add(visit);
-                }
-                HashMap<Integer, ArrayList<MapFameData>> history = new HashMap<>(); history.put(12345, visits); panel.setMapFameData(history);
-                Gson json = new Gson(); String before = json.toJson(panel.getMapFameData());
-                field(panel, "mapView", JComboBox.class).setSelectedIndex(1); panel.refreshNow();
-                JTable table = named(panel, "fame-maps", JTable.class);
-                table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(7, SortOrder.ASCENDING)));
-                assertEquals(Long.class, table.getColumnClass(7)); assertEquals(earlier, table.getValueAt(0, 7));
-                assertEquals("2026-10-25 00:50:00", cell(table, 0, 7));
-                java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
-                table.getModel().addTableModelListener(event -> changes.incrementAndGet());
-                Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY); TimeZone.setDefault(TimeZone.getTimeZone("Europe/Berlin"));
-                // Reuse the same table/model without refreshing or copying fame data.
-                assertEquals("2026-10-25 02:50:00", cell(table, 0, 7));
-                assertEquals("2026-10-25 02:10:00", cell(table, 1, 7));
-                JLabel timestamp = (JLabel)table.prepareRenderer(table.getCellRenderer(0, 7), 0, 7);
-                assertEquals("2026-10-25 02:50:00 (Europe/Berlin)", timestamp.getToolTipText());
-                table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(7, SortOrder.DESCENDING)));
-                assertEquals(later, table.getValueAt(0, 7)); assertEquals(earlier, table.getValueAt(1, 7));
-                assertEquals(0, changes.get());
-                field(panel, "mapView", JComboBox.class).setSelectedIndex(0); panel.refreshNow();
-                assertEquals(Long.class, table.getColumnClass(7)); assertNull(table.getValueAt(0, 7)); assertEquals("—", cell(table, 0, 7));
-                assertNull(((JLabel)table.prepareRenderer(table.getCellRenderer(0, 7), 0, 7)).getToolTipText());
-                assertEquals(before, json.toJson(panel.getMapFameData()));
-            });
-        } finally { Locale.setDefault(Locale.Category.FORMAT, previous); TimeZone.setDefault(zone); }
     }
 }

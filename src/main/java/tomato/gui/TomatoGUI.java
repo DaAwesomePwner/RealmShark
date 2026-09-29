@@ -28,7 +28,6 @@ import tomato.gui.myinfo.MyInfoGUI;
 import tomato.gui.quest.QuestGUI;
 import tomato.gui.security.ParsePanelGUI;
 import tomato.gui.security.SecurityGUI;
-import tomato.gui.stats.StatisticsGUI;
 import tomato.gui.stats.HistoricalStatistics;
 import tomato.gui.stats.LootCapture;
 import tomato.gui.stats.LootDashboard;
@@ -76,7 +75,6 @@ public class TomatoGUI {
     private static CharacterPanelGUI characterPanel;
     private static QuestGUI questPanel;
     private static MyInfoGUI myDmg;
-    private static StatisticsGUI statistics;
     private JMenuBar jMenuBar;
     private JPanel mainPanel, dpsPanel;
     private TomatoMenuBar menuBar;
@@ -119,13 +117,12 @@ public class TomatoGUI {
         loadFontPreset();
         ContentStyle.applyFontDefaults();
         // The live loot pipeline reads the game data (legacy item lists, enchant pings, Moonlight flames, legacy sharing); the shell
-        // binds it, so capture works without the Statistics page's Live log.
+        // is its only binder, so capture works with no loot page built.
         if (data != null) LootCapture.get().bind(data);
         chatPanel = new ChatGUI(data);
         KeypopGUI keypopPanel = new KeypopGUI();
         securityPanel = new SecurityGUI();
         characterPanel = new CharacterPanelGUI(data, characterViewStates);
-        statistics = new StatisticsGUI(data);
         questPanel = new QuestGUI(data);
         java.util.List<String> planningAccounts = new java.util.ArrayList<>();
         for (tomato.backend.data.CharacterJournal.AccountRecord account : data.characterJournal().accounts()) planningAccounts.add(account.key);
@@ -148,10 +145,8 @@ public class TomatoGUI {
         ViewStateStore states = ViewStateStore.application();
         // Queries create private pin/result directories here, outside captured journals.
         Path scratch = Paths.get(System.getProperty("java.io.tmpdir"), "realmshark-archive");
-        JComponent statisticsWorkspace = store == null ? statistics : HistoricalStatistics.statisticsWorkspace(
-            store, statistics, scratch.resolve("statistics"), states);
-        // Loot › Explore: its own live dashboard on the app's loot capture (no longer Statistics' Live log dashboard), with saved
-        // loot behind the same view selector when history is open.
+        // Loot › Explore: its own live dashboard on the app's loot capture, with saved loot behind the same view selector when
+        // history is open.
         LootDashboard exploreLive = new LootDashboard(LootCapture.get().feed());
         JComponent lootWorkspace = store == null ? exploreLive : HistoricalStatistics.lootWorkspace(
             store, exploreLive, scratch.resolve("loot"), states);
@@ -193,7 +188,6 @@ public class TomatoGUI {
         pages.put("key-pops", keypopPanel.workspace());
         pages.put("party", inspectWorkspace);
         pages.put("characters", characterPanel);
-        pages.put("statistics", statisticsWorkspace);
         pages.put("quests", questPanel);
         pages.put("loot", lootPage);
         pages.put("logging", logging);
@@ -226,10 +220,12 @@ public class TomatoGUI {
         // through the navigator (a Back entry). The Live meter target moves focus to the tab strip once the page shows.
         shell.bindShortcut(KeyEvent.VK_7, "open-build", TomatoGUI::openBuild);
         shell.bindShortcut(KeyEvent.VK_8, "open-live-meter", TomatoGUI::openLiveMeter);
+        // Alt+5 belonged to the Statistics page (removed in P6a): it opens Runs & DPS › Dungeons, where the dungeon statistics
+        // live, through the navigator (a Back entry), bringing a hidden Dungeons tab forward.
+        shell.bindShortcut(KeyEvent.VK_5, "open-dungeons", TomatoGUI::openDungeons);
         // Runs routes to rows (a visit or a query) bring the Feed tab and its Table view forward; Back restores the view it left.
         RouteTarget runsTable = runsWorkspace instanceof ArchiveWorkspace ? archiveTarget(Destination.RUNS, (ArchiveWorkspace<?, ?, ?>) runsWorkspace) : null;
         if (runsTable != null) navigator.register(page.routes(tomato.gui.runs.RunsTab.FEED, runsPage.tableRoutes(runsTable)));
-        registerArchive(navigator, Destination.STATISTICS, statisticsWorkspace);
         // Every Loot target is a Loot page target (LootPage.routes, tabTarget): the workspace's targets bring Explore forward, and
         // each captures and restores the page's one Back state, the tab in front and that tab's owner state (Explore: the archive
         // target). Without saved history Explore is the live dashboard alone and only the tab target exists.
@@ -238,8 +234,7 @@ public class TomatoGUI {
             navigator.register(lootPage.routes(LootTab.EXPLORE, lootArchive));
             lootPage.owner(LootTab.EXPLORE, lootArchive);
         }
-        // Analytics targets resolve exact visit/variant routes; registered later, so they are tried first.
-        registerLoot(navigator, Destination.STATISTICS, statisticsWorkspace);
+        // The exact visit/variant target, registered later, so it is tried first.
         RouteTarget lootVisits = lootTarget(Destination.LOOT, lootWorkspace);
         if (lootVisits != null) navigator.register(lootPage.routes(LootTab.EXPLORE, lootVisits));
         // LOOT routes with a LootFocus payload (search, Home's Notable loot tile, Highlights' Unknown area) bring that tab forward.
@@ -291,14 +286,12 @@ public class TomatoGUI {
     }
 
     /**
-     * The open actions of the Recordings and Dungeons tabs and the Statistics banner (P5b). Routes add a Back entry, so Back
-     * returns to the tab they left.
+     * The open actions of the Recordings and Dungeons tabs (P5b). Routes add a Back entry, so Back returns to the tab they left.
      * - Recordings opens each recording where it lives: one in memory with a unique recording ID through the Live meter's exact
      *   route; one whose ID another entry shares as that entry in the Live meter (no route names an entry, so no Back entry); a
      *   summary linked to its run as that run's recap on the recording; the live row as the live fight in the Live meter.
      * - Dungeons: Show runs shows the Feed's cards filtered to the card's canonical dungeon (the page's Feed hook), Open best run
-     *   that run's recap on its recording, and the Analysis banner's link the Statistics page (out of the sidebar).
-     * - The Statistics page's banner opens Dungeons.
+     *   that run's recap on its recording.
      */
     private static void wireRunsTabs(tomato.gui.dps.DungeonListGUI recordings, tomato.gui.runs.DungeonsView dungeons, DpsGUI dps) {
         recordings.onOpenEncounter(id -> navigator.open(tomato.gui.route.Route.to(Destination.ENCOUNTER).withRecording(id, null)));
@@ -308,9 +301,7 @@ public class TomatoGUI {
         dungeons.onOpenRuns(canonical -> navigator.open(tomato.gui.route.Route.to(Destination.RUNS)
             .withPayload(new tomato.gui.runs.RunsFocus(tomato.gui.runs.RunsTab.FEED, canonical))));
         dungeons.onOpenRecap(TomatoGUI::openRecap);
-        dungeons.onOpenStatistics(TomatoGUI::openStatistics);
         runsDps.onFeedDungeon(runsPage.feed()::showDungeon);
-        statistics.onOpenDungeons(TomatoGUI::openDungeons);
     }
 
     /** One run's recap on one of its recordings (null: the longest), through the navigator. */
@@ -349,18 +340,10 @@ public class TomatoGUI {
     private static void registerIfPresent(ShellNavigator navigator, RouteTarget target) {
         if (target != null) navigator.register(target);
     }
-    /** Query-only generic target; module-specific targets registered later take precedence. */
-    private static void registerArchive(ShellNavigator navigator, Destination destination, JComponent workspace) {
-        if (workspace instanceof ArchiveWorkspace) navigator.register(archiveTarget(destination, (ArchiveWorkspace<?, ?, ?>) workspace));
-    }
-    private static void registerLoot(ShellNavigator navigator, Destination destination, JComponent workspace) {
-        RouteTarget target = lootTarget(destination, workspace);
-        if (target != null) navigator.register(target);
-    }
-    /** The exact visit and query target of a Loot or Statistics workspace; null without saved history (no workspace). */
+    /** The exact visit and query target of the Loot workspace; null without saved history (no workspace). */
     @SuppressWarnings("unchecked")
     private static RouteTarget lootTarget(Destination destination, JComponent workspace) {
-        // Both analytics workspaces are typed by LootQuery when saved history is available.
+        // The Loot workspace is typed by LootQuery when saved history is available.
         if (!(workspace instanceof ArchiveWorkspace)) return null;
         ArchiveWorkspace<LootQuery.Row, LootQuery.Facets, LootQuery.Sort> typed =
             (ArchiveWorkspace<LootQuery.Row, LootQuery.Facets, LootQuery.Sort>) workspace;
@@ -642,18 +625,17 @@ public class TomatoGUI {
             () -> navigator.open(tomato.gui.route.Route.to(Destination.QUESTS).withPayload(tomato.gui.quest.QuestsFocus.PLANNER)));
         registerSearch("build.open", "Build (weapon damage and recovery)", "build my info weapon damage dps recovery mana estimates equipment",
             "Characters › Build", "Nothing is saved; values come from the live capture", () -> navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO)));
-        // The live meter, the encounter library and the dungeon cards are tabs of Runs & DPS, and Statistics left the sidebar (P5b);
-        // search still finds all four. Their words avoid "retention" and the build.open/combat.settings IDs, and the Dungeons words
-        // avoid "logger", "alt+8" and "encounter library", which other entries are found by.
+        // The live meter, the encounter library and the dungeon cards are tabs of Runs & DPS; search finds all three. Their words
+        // avoid "retention" and the build.open/combat.settings IDs, and the Dungeons words avoid "logger", "alt+8" and "encounter
+        // library", which other entries are found by.
         registerSearch("dps.meter", "Live DPS meter", "dps logger meter damage live encounter boss alt+8", "Runs & DPS › Live meter",
             "This app run's recordings stay in memory; DPS filter presets are in the app-folder realmShark.properties", TomatoGUI::openLiveMeter);
         registerSearch("dps.recordings", "Recordings (encounter library)", "recordings encounter library import export load save .dps full detail",
             "Runs & DPS › Recordings", "Saved combat history in the history folder; imported and exported .dps files are the files you choose",
             TomatoGUI::openRecordings);
-        registerSearch("statistics.open", "Statistics (fame table, live loot log)", "statistics fame table graph loot log dungeon stats alt+5",
-            "Statistics (not in the sidebar)", "Fame and loot history in the history folder", TomatoGUI::openStatistics);
         // P6a: Loot's tabs, Characters › Fame history and the new Settings sections. Their words avoid "cohorts", "session comparison",
-        // "retention", "logger", "alt+8" and "encounter library", which other entries are found by.
+        // "retention", "logger", "alt+8" and "encounter library", which other entries are found by. The Statistics page's entry went
+        // with the page (P6a): its words "statistics", "dungeon stats" and "alt+5" find Dungeons, and "fame" finds Fame history.
         registerSearch("loot.highlights", "Loot highlights", "loot highlights notable drops ut st potions white bags enchanted today session",
             "Loot › Highlights", "Reads saved loot in the history folder; the Today or This session choice is in the app-folder realmShark.properties",
             () -> openLootTab(LootTab.HIGHLIGHTS));
@@ -675,7 +657,8 @@ public class TomatoGUI {
         registerSearch("about.open", "About RealmShark", "about version credits java", "Settings › About", "Nothing is saved",
             () -> openSettings(SettingsPage.ABOUT));
         registerSearch("dungeons.open", "Dungeons (per-dungeon cards, session comparison, cohorts)",
-            "dungeons dungeon cards completion clears average duration loot best a/b cohort analysis dungeon stats", "Runs & DPS › Dungeons",
+            "dungeons dungeon cards completion clears average duration loot best a/b cohort analysis dungeon stats statistics alt+5",
+            "Runs & DPS › Dungeons",
             "Built from saved runs, loot and combat in the history folder; the Cards or Analysis choice is in the app-folder realmShark.properties",
             TomatoGUI::openDungeons);
         shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_K,
@@ -749,17 +732,7 @@ public class TomatoGUI {
             .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS)));
     }
 
-    /**
-     * Settings search and the Dungeons Analysis link: the Statistics page (out of the sidebar), through the navigator so Back
-     * returns to where the link was used. Without saved history no Statistics route target exists, so the statistics page is
-     * selected as it is.
-     */
-    private static void openStatistics() {
-        if (navigator != null && navigator.open(tomato.gui.route.Route.to(Destination.STATISTICS))) return;
-        if (shell != null) shell.select("statistics");
-    }
-
-    /** Settings search and the Statistics banner: the Dungeons tab of Runs & DPS, through the navigator (Back returns). */
+    /** Settings search and Alt+5: the Dungeons tab of Runs & DPS, through the navigator (Back returns). */
     private static void openDungeons() {
         if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.RUNS)
             .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.DUNGEONS)));

@@ -173,7 +173,6 @@ public class Tomato {
             loadControllers(data);
             initializeAndOpen(data, () -> {
                 new TomatoGUI(data).create();
-                data.publishDungeonStats();
                 beginAssetSetup(null, false);
             });
             CheckVersion.checkVersion();

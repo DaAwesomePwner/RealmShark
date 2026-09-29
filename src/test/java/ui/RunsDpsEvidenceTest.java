@@ -55,7 +55,6 @@ import tomato.gui.kit.TileList;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.NavEntry;
 import tomato.gui.modern.NavLayout;
-import tomato.gui.modern.TestPages;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.Destination;
 import tomato.gui.route.Navigator;
@@ -69,7 +68,6 @@ import tomato.gui.runs.RunsFocus;
 import tomato.gui.runs.RunsTab;
 import tomato.gui.stats.DungeonAnalysis;
 import tomato.gui.stats.LootTestDrops;
-import tomato.gui.stats.StatisticsGUI;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
 import tomato.history.encounter.CombatFixtures;
@@ -85,8 +83,8 @@ import static tomato.gui.stats.LootTestDrops.item;
 /**
  * P5b Runs &amp; DPS evidence (spec §4.1, §6.3, §8.4, S6, S7) in the real workspace ({@code TomatoGUI.createWorkspace} in preview
  * mode; the app's history store is pointed at the test's own history folder and restored after), synthetic names only:
- * - the sidebar: six core rows (Home, Characters, Runs &amp; DPS, Loot, Quests, Chat) and Advanced (5), Statistics out of it and no
- *   DPS Logger row (P6a removed that pointer page; Alt+8 opens the Live meter); the Statistics banner, with its way to Runs &amp; DPS;
+ * - the sidebar: six core rows (Home, Characters, Runs &amp; DPS, Loot, Quests, Chat) and Advanced (5), with no Statistics or DPS
+ *   Logger row (P6a removed both pages; Alt+5 opens Runs &amp; DPS › Dungeons and Alt+8 the Live meter);
  * - Runs &amp; DPS › Feed with the tab strip (Feed · Dungeons · Live meter · Recordings);
  * - the Live meter over a live synthetic fight (six players, the capture's own character Bravo, twelve minions and the boss
  *   "Synthetic Colossus"): Simple 1240×800 font 13 and Analyst 680×520 font 18, each with the details drawer closed and open;
@@ -145,7 +143,7 @@ public class RunsDpsEvidenceTest {
         Map<String, String> keys = new LinkedHashMap<>();
         keys.put("chat.filters", "{}"); keys.put("chat.showIgnoredPlayers", "false");
         for (String key : new String[] {RunFeedView.VIEW_KEY, DungeonsView.VIEW_KEY, "ui.order.run-recap", NavLayout.ORDER_KEY, NavLayout.HIDDEN_KEY,
-                NavLayout.PINNED_KEY, NavLayout.ADVANCED_KEY, "ui.tabs.runs", "ui.tabs.dps", "ui.tabs.saved-resources", "ui.tabs.statistics",
+                NavLayout.PINNED_KEY, NavLayout.ADVANCED_KEY, "ui.tabs.runs", "ui.tabs.dps", "ui.tabs.saved-resources",
                 "ui.filters.run-feed.open", "ui.filters.dps-meter.open", "ui.filters.encounter-library.open", "ui.filters.dungeons.open",
                 "ui.filters.dungeon-analysis.open", CombatSettings.KEEP_FULL_DETAIL, CombatSettings.FULL_DETAIL_DAYS, CombatSettings.SUMMARY_RETENTION})
             keys.put(key, "");
@@ -209,9 +207,9 @@ public class RunsDpsEvidenceTest {
     @SuppressWarnings("unchecked") private static <T> void restore(Set<T> set, Set<?> copy) { set.clear(); set.addAll((Set<T>) copy); }
 
     /**
-     * 3 captures (S7): the sidebar's six core rows with Advanced (5) collapsed and expanded, Statistics out of it and no DPS Logger
-     * row; the Statistics page's banner, whose Open Dungeons opens Runs &amp; DPS › Dungeons. Alt+8 (no page since P6a removed the
-     * DPS Logger pointer) opens Runs &amp; DPS › Live meter with a Back entry.
+     * 2 captures (S7): the sidebar's six core rows with Advanced (5) collapsed and expanded, with no Statistics or DPS Logger row.
+     * Alt+8 (no page since P6a removed the DPS Logger pointer) opens Runs &amp; DPS › Live meter, and Alt+5 (no page since P6a
+     * removed Statistics) Runs &amp; DPS › Dungeons, each with a Back entry.
      */
     @Test public void theSidebarListsSixCoreRowsAndTheMovedPagesPointToRunsAndDps() throws Exception {
         build(temp.newFolder("history").toPath(), false);
@@ -223,7 +221,7 @@ public class RunsDpsEvidenceTest {
             AbstractButton advanced = VisualEvidence.named(shell, "nav-advanced", AbstractButton.class);
             assertEquals("Advanced (5)", advanced.getText());
             assertEquals("Collapsed", advanced.getAccessibleContext().getAccessibleDescription());
-            assertFalse(TestPages.title("statistics") + " is out of the sidebar", navRow("statistics").isVisible());
+            assertNull("The Statistics page has no row", search(shell, AbstractButton.class, b -> "nav-statistics".equals(b.getName())));
             assertNull("The DPS Logger pointer page has no row", search(shell, AbstractButton.class, b -> "nav-dps-logger".equals(b.getName())));
             assertTrue("Settings stays below the list", navRow("settings").isShowing());
         });
@@ -232,7 +230,6 @@ public class RunsDpsEvidenceTest {
         capture("sidebar-advanced", 1240, 13, SIMPLE, () -> {
             assertEquals("Advanced (5): Party, Key-pops, Timeline, Logging, Bridge Review", List.of("home", "characters", "runs", "loot", "quests", "chat", "party", "key-pops", "timeline", "logging", "bridge-review"), listed());
             assertEquals("Expanded", VisualEvidence.named(shell, "nav-advanced", AbstractButton.class).getAccessibleContext().getAccessibleDescription());
-            assertFalse(TestPages.title("statistics") + " is not an Advanced row either", navRow("statistics").isVisible());
         });
 
         SwingUtilities.invokeAndWait(() -> {
@@ -246,20 +243,15 @@ public class RunsDpsEvidenceTest {
             assertEquals(before, shell.selectedPage());
         });
 
-        show("Statistics banner", 1240, 800, 13, SIMPLE, () -> shell.select("statistics"));
-        capture("statistics-banner", 1240, 13, SIMPLE, () -> {
-            Banner banner = VisualEvidence.named(shell, "statistics-dungeons-banner", Banner.class);
-            assertTrue("The Statistics page shows its banner", banner.isShowing());
-            assertEquals(StatisticsGUI.DUNGEONS_MOVED, banner.text());
-            AbstractButton open = VisualEvidence.named(shell, "statistics-open-dungeons", AbstractButton.class);
-            assertTrue("…with Open Dungeons", open.isShowing() && "Open Dungeons".equals(open.getText()));
-            assertTrue("The Statistics tabs stay below it", VisualEvidence.named(shell, "statistics-tabs", JTabbedPane.class).isShowing());
-            assertFalse("Statistics stays out of the sidebar while it shows", navRow("statistics").isVisible());
-        });
         SwingUtilities.invokeAndWait(() -> {
-            VisualEvidence.named(shell, "statistics-open-dungeons", AbstractButton.class).doClick();
-            assertEquals("runs", shell.selectedPage());
-            assertEquals("Open Dungeons opens the Dungeons tab", RunsTab.DUNGEONS, page().selectedTab());
+            String before = shell.selectedPage();
+            Object altFive = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, java.awt.event.InputEvent.ALT_DOWN_MASK));
+            assertEquals("Alt+5 is bound to the Dungeons route", "open-dungeons", altFive);
+            shell.getActionMap().get(altFive).actionPerformed(null);
+            assertEquals("Alt+5 opens Runs & DPS", "runs", shell.selectedPage());
+            assertEquals("…on the Dungeons tab", RunsTab.DUNGEONS, page().selectedTab());
+            assertTrue("Back returns to the page Alt+5 left", Navigator.current().back());
+            assertEquals(before, shell.selectedPage());
         });
     }
 
@@ -526,9 +518,8 @@ public class RunsDpsEvidenceTest {
             assertTrue("A saved-only workspace", workspace.savedOnly() && workspace.isShowing());
             assertEquals(DungeonAnalysis.NAME + "-session-view", workspace.getName());
             assertTrue("Analyze set the dungeon facet", workspace.filterBar().activeCount() > 0);
-            Banner banner = VisualEvidence.named(shell, "dungeons-statistics-banner", Banner.class);
-            assertEquals("The Fame Table and the live loot log stay on the Statistics page.", banner.text());
-            assertTrue(VisualEvidence.named(shell, "dungeons-open-statistics", AbstractButton.class).isShowing());
+            assertNull("No Statistics pointer above the analysis (P6a)", search(shell, Banner.class, c -> "dungeons-statistics-banner".equals(c.getName())));
+            assertNull(search(shell, AbstractButton.class, c -> "dungeons-open-statistics".equals(c.getName())));
             assertEquals("Analysis", selectedSegment("dungeons-view-mode"));
         });
     }

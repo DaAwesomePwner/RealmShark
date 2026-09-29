@@ -4,7 +4,6 @@ import assets.IdToAsset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -20,24 +19,17 @@ import tomato.realmshark.SendLoot;
 import tomato.realmshark.Sound;
 
 /**
- * The live loot pipeline, independent of any page (P6a). Capture calls {@link #update} for each bag TomatoData attributes; once
- * exalt stats have arrived ({@link #updateExaltStats()}) an accepted drop is recorded through the primary {@link #feed()} (the only
- * writer of the saved {@code loot} module), handed to registered {@link LootSink}s, plays its bag sound, runs item and enchant
- * pings, is offered to legacy loot sharing (opt-out) and, in Moonlight Village, resets the flame counter 5 s later.
- * <p>Capture threads only hand data off: this class never constructs Swing components or waits for Swing. Views attach to
- * {@link #feed()} or register a sink and move to the EDT themselves.
+ * The live loot pipeline, independent of any page (P6a). TomatoData calls {@link #update} for each bag it attributes; once exalt
+ * stats have arrived ({@link #updateExaltStats()}) an accepted drop is recorded through the primary {@link #feed()} (the only
+ * writer of the saved {@code loot} module), plays its bag sound, runs item and enchant pings, is offered to legacy loot sharing
+ * (opt-out) and, in Moonlight Village, resets the flame counter 5 s later.
+ * <p>Capture threads only hand data off: this class never constructs Swing components or waits for Swing. Views (Loot ›
+ * Highlights and Explore) attach to {@link #feed()} and move to the EDT themselves.
  */
 public final class LootCapture {
-    /** Each drop's Moonlight flame reset runs this long after the drop (the Live log entry's former Swing timer). */
+    /** Each drop's Moonlight flame reset runs this long after the drop (the retired Live log entry's Swing timer did the same). */
     static final long FLAME_RESET_MILLIS = 5000;
     private static volatile LootCapture instance;
-
-    /** A drop the capture accepted, as capture saw it. Live entities: a sink copies what it keeps before returning. */
-    public record Observed(MapInfoPacket map, Entity bag, Entity dropper, Entity player, long time, int flames) { }
-
-    /** Called on the capture thread for each accepted drop; hand off only (never build Swing components or wait for Swing). */
-    @FunctionalInterface
-    public interface LootSink { void accept(Observed drop); }
 
     /** Playback seam: bag sounds and item/enchant ping sounds, each for a recorded decision. */
     interface Sounds {
@@ -51,7 +43,6 @@ public final class LootCapture {
     }
 
     private final LootDashboard.Feed feed = new LootDashboard.Feed();
-    private final List<LootSink> sinks = new CopyOnWriteArrayList<>();
     private final SendLoot.Session sharing;
     private final Sounds sounds;
     private final ScheduledExecutorService flames;
@@ -102,9 +93,9 @@ public final class LootCapture {
     }
 
     /**
-     * The game data capture reads: item ping lists, the Moonlight flame counter and legacy sharing's composition. Set by the app
-     * (today the Statistics page's Live log; the shell once that goes). Until then drops are still recorded, bag sounds and typed
-     * item rules still apply, while legacy item lists, enchant pings and flames are unavailable.
+     * The game data capture reads: item ping lists, the Moonlight flame counter and legacy sharing's composition. Set once by the
+     * shell ({@code TomatoGUI.createWorkspace}). Until then drops are still recorded, bag sounds and typed item rules still apply,
+     * while legacy item lists, enchant pings and flames are unavailable.
      */
     public LootCapture bind(TomatoData data) {
         this.data = Objects.requireNonNull(data, "data");
@@ -114,7 +105,7 @@ public final class LootCapture {
     /** The one live loot state: attach live views to it ({@code new LootDashboard(feed())}); readers poll its revision. */
     public LootDashboard.Feed feed() { return feed; }
 
-    /** The legacy loot sharing session (its delivery status is shown by the Live log). */
+    /** The legacy loot sharing session (its delivery status is Loot › ⋯ › Loot sharing status…). */
     public SendLoot.Session sharing() { return sharing; }
 
     /** File › Opt-out Loot Sharing: {@code optOut} disables sharing and cancels unsent bags (in-flight sends stay uncertain). */
@@ -122,10 +113,6 @@ public final class LootCapture {
 
     /** Opens the update gate once exalt stats are known (loot bonus inputs); earlier drops are ignored, as before. */
     public void updateExaltStats() { update = true; }
-
-    public void addSink(LootSink sink) { sinks.add(Objects.requireNonNull(sink, "sink")); }
-
-    public void removeSink(LootSink sink) { sinks.remove(sink); }
 
     public void update(MapInfoPacket map, Entity bag, Entity dropper, Entity player, long time) {
         update(map, bag, dropper, player, time, DropContext.capture(map, player, time, null));
@@ -136,13 +123,7 @@ public final class LootCapture {
         if (player == null || !update) return;
         TomatoData game = data;
         feed.receive(map, bag, dropper, time, context);
-        int flameCount = flames(game, map);
-        Observed drop = new Observed(map, bag, dropper, player, time, flameCount);
-        for (LootSink sink : sinks) {
-            // A view's failure must not cost the drop its sound, pings or sharing.
-            try { sink.accept(drop); } catch (RuntimeException failure) { failure.printStackTrace(); }
-        }
-        if (flameCount > 0) resetFlamesLater(game);
+        if (flames(game, map) > 0) resetFlamesLater(game);
         // play() applies the enable/mute/volume gates itself, so a matching bag whose sound is turned off is still recorded as a
         // "Matched · alert off" decision; nothing more plays.
         Sound sound = bagSound(bag.objectType);
@@ -151,13 +132,11 @@ public final class LootCapture {
     }
 
     /** The Moonlight flame count a drop in {@code map} carries now (0 elsewhere or without game data). */
-    int flames(MapInfoPacket map) { return flames(data, map); }
-
     private static int flames(TomatoData game, MapInfoPacket map) {
         return game != null && map != null && "Moonlight Village".equals(map.name) ? game.getMoonlightFlameCount() : 0;
     }
 
-    /** One reset per drop, as each Live log entry's timer did; it separates Umi's flames from other boss phases. */
+    /** One reset per drop (the retired Live log reset once per entry); it separates Umi's flames from other boss phases. */
     private void resetFlamesLater(TomatoData game) {
         try { flames.schedule(game::resetMoonlightFlames, flameResetMillis, TimeUnit.MILLISECONDS); }
         catch (RejectedExecutionException stopped) { /* shutting down: nothing is sent later */ }

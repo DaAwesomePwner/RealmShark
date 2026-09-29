@@ -6,7 +6,6 @@ import packets.outgoing.*;
 import tomato.backend.data.CrucibleBonusManager;
 import tomato.backend.data.TomatoData;
 import tomato.gui.dps.DpsGUI;
-import tomato.gui.stats.FameTablePanel;
 import tomato.realmshark.Sound;
 
 /**
@@ -98,8 +97,6 @@ public class TomatoPacketCapture implements Controller {
             data.setNewRealm(p);
             DpsGUI.updateMapPacket(data);
             data.logPacket(packet);
-            // Notify fame table panel about map change
-            FameTablePanel.handleMapChange(p.displayName);
         } else if (packet instanceof CreateSuccessPacket) {
             CreateSuccessPacket p = (CreateSuccessPacket) packet;
             data.setUserId(p.objectId, p.charId, p.str);

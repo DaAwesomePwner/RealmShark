@@ -18,7 +18,7 @@ public class LootArchiveQueryTest {
     @Rule public TemporaryFolder temp=new TemporaryFolder();
     static LootDashboard.Item item(int id,String name,String labels,String encoded){return new LootDashboard.Item(id,name,labels,ParseEnchants.summarize(encoded));}
     static LootDashboard.Drop drop(long time,String map,String bag,String visit,LootDashboard.Item...items){return new LootDashboard.Drop(bag,map,"Synthetic boss",time,Arrays.asList(items),visit);}
-    static ArchiveQuery<Facets,Sort> query(String scope,View view){Facets f=new Facets();f.view=view;return LootQuery.initial(false).withScope(scope).withFacets(f);}
+    static ArchiveQuery<Facets,Sort> query(String scope,View view){Facets f=new Facets();f.view=view;return LootQuery.initial(View.OCCURRENCES,ArchiveQuery.CURRENT).withScope(scope).withFacets(f);}
     private ArchiveResult<Row> open(SessionStore store,ArchiveQuery<Facets,Sort> q)throws Exception{return ArchiveResult.open(store,q,q.facets().view.loot()?new LootArchiveAdapter(q):new StatisticsArchiveAdapter(q),temp.newFolder().toPath(),new Cancellation());}
     private static List<ArchiveRow<Row>> rows(ArchiveResult<Row> result)throws Exception{List<ArchiveRow<Row>> rows=new ArrayList<>();result.stream(ExportSelection.all(),rows::add,new Cancellation());return rows;}
     @Test public void globalRareSearchBeyondTwoThousandBagsHasStableDuplicateOriginsAndPinnedExports()throws Exception{
@@ -38,10 +38,10 @@ public class LootArchiveQueryTest {
                 ArchivePage<Row> page=result.page(0,1,new Cancellation());assertEquals(2,page.counts.get("matching occurrences").value);assertEquals(1,page.counts.get("matching bags").value);assertEquals(1,page.counts.get("matching variants").value);assertEquals(2210,page.counts.get("scope bags").value);
                 assertEquals(1,result.pageOf(matches.get(1).ref,1,new Cancellation()));
                 current.append("loot",drop(99999,"Lost Halls","White","same",rare));current.flush();
-                Path json=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.JSON,output,"loot",new LootArchiveClient(output,false).exportColumns(),new Cancellation());
+                Path json=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.JSON,output,"loot",new LootArchiveClient(output,LootExploreModel.views(),LootExploreModel.initialQuery()).exportColumns(),new Cancellation());
                 JsonObject document=JsonParser.parseString(new String(Files.readAllBytes(json),StandardCharsets.UTF_8)).getAsJsonObject();
                 assertEquals(2,document.getAsJsonArray("rows").size());assertEquals(result.revision,document.getAsJsonObject("manifest").get("revision").getAsString());assertEquals(2,document.getAsJsonObject("manifest").get("exportCount").getAsInt());
-                Path csv=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.CSV,output,"loot",new LootArchiveClient(output,false).exportColumns(),new Cancellation());
+                Path csv=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.CSV,output,"loot",new LootArchiveClient(output,LootExploreModel.views(),LootExploreModel.initialQuery()).exportColumns(),new Cancellation());
                 List<String> lines=Files.readAllLines(csv,StandardCharsets.UTF_8);assertEquals(4,lines.size());assertTrue(lines.get(1).contains("Item ID"));assertTrue(lines.get(2).contains("Rare unused UT"));
                 try(ArchiveResult<Row> again=open(current,q)){assertEquals(matches.get(0).ref,again.page(1,1,new Cancellation()).rows.get(0).ref);assertEquals(matches.get(1).ref,again.page(2,1,new Cancellation()).rows.get(0).ref);}
             }
@@ -119,7 +119,7 @@ public class LootArchiveQueryTest {
                 assertEquals(1,fame.matches);assertEquals(50.0,rows(fame).get(0).value.gain,0);
                 store.append("fame",new AppHistory.FameSample(7,999,3000,"Wizard"));store.flush();
                 assertEquals(2,LootArchiveClient.readFame(lease,store.currentId(),new Cancellation()).getCharacterFameData().get(7).size());
-                Path json=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.JSON,output,"fame",new LootArchiveClient(output,true).exportColumns(),new Cancellation());assertTrue(new String(Files.readAllBytes(json),StandardCharsets.UTF_8).contains("Wizard"));
+                Path json=ArchiveExport.write(lease,ExportSelection.all(),ArchiveExport.Format.JSON,output,"fame",CharacterFameHistory.client(output).exportColumns(),new Cancellation());assertTrue(new String(Files.readAllBytes(json),StandardCharsets.UTF_8).contains("Wizard"));
             }
             try(ArchiveResult<Row> enemies=open(store,query(store.currentId(),View.ENEMIES).withText("42"))){assertEquals(7L,rows(enemies).get(0).value.hits.longValue());}
             try(ArchiveResult<Row> counters=open(store,query(store.currentId(),View.COUNTERS))){assertEquals(Boolean.TRUE,rows(counters).get(0).value.ongoingActivity);assertEquals(60000L,rows(counters).get(0).value.averageMillis.longValue());}

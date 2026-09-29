@@ -9,7 +9,6 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import tomato.gui.stats.Fame;
-import tomato.gui.stats.FameTablePanel;
 import tomato.gui.stats.Formatters;
 import tomato.gui.stats.GraphPanel;
 import tomato.gui.stats.data.MapFameData;
@@ -441,13 +440,8 @@ public class FameSessionViewer extends JFrame {
 
     private String getClassNameForCharacter(int charId) {
         String storedClassName = session.getCharacterClassNames().get(charId);
-        if (storedClassName != null) {
-            return storedClassName;
-        }
-        FameTablePanel instance = FameTablePanel.getInstance();
-        return instance != null
-            ? instance.getClassNameForCharacterId(charId)
-            : "Char " + charId;
+        // A session without a stored class name says only what it knows (the live fame table that once filled it in is gone).
+        return storedClassName != null ? storedClassName : "Char " + charId;
     }
 
     private long getTotalFameEntries() {

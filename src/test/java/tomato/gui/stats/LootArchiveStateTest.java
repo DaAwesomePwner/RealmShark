@@ -24,7 +24,8 @@ public class LootArchiveStateTest {
         try(SessionStore store=new SessionStore(root,true,"fixture")){
             for(int i=0;i<1103;i++)store.append("loot",drop(1000+i,"Ice Citadel","White","visit",item(42,"Item "+i,"WEAPON,UT","")));store.flush();
             ArchiveWorkspace<Row,Facets,Sort> workspace=edt(()->HistoricalStatistics.lootWorkspace(store,new LootDashboard(),scratch,states));
-            ArchiveWorkspace<Row,Facets,Sort> other=edt(()->SessionPanel.queried(store,"statistics",new JLabel("Live stats"),new LootArchiveClient(scratch,true),states));
+            // Another workspace over the same client, scratch and saved states (Dungeons › Analysis; P6a removed the Statistics one).
+            ArchiveWorkspace<Row,Facets,Sort> other=edt(()->DungeonAnalysis.workspace(store,scratch,states));
             try{
                 // A fresh saved Loot opens on All Items: ask for every occurrence (the paged rows this test selects and saves).
                 edt(()->{Facets f=workspace.state().query.facets();f.view=View.OCCURRENCES;workspace.changeQuery(workspace.state().query.withFacets(f));return null;});await(()->workspace.displayedPage()!=null&&!workspace.loading());
@@ -36,7 +37,7 @@ public class LootArchiveStateTest {
                 await(()->workspace.state().tables.containsKey(View.OCCURRENCES.name()));
                 ArchiveRow.Ref selected=edt(()->workspace.displayedPage().rows.get(7).ref);assertEquals(Collections.singletonList(selected),edt(()->workspace.state().selected));
                 edt(()->workspace.saveNamed("Exact saved occurrence")).toCompletableFuture().get(5,TimeUnit.SECONDS);prefs.flush().toCompletableFuture().get();
-                assertFalse(edt(()->other.state().archive));assertEquals(View.SESSIONS,edt(()->other.state().query.facets().view));
+                assertEquals(SessionStore.ALL,edt(()->other.state().query.scope()));assertEquals(View.SESSIONS,edt(()->other.state().query.facets().view));
                 edt(()->{named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.BAGS);return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.BAGS);
                 assertEquals("bag-type summaries",edt(()->workspace.displayedPage().unit));
                 edt(()->{workspace.loadNamed("Exact saved occurrence");return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.OCCURRENCES);
@@ -69,16 +70,6 @@ public class LootArchiveStateTest {
             f=new Facets();f.kind=Kind.UT_EQUIPMENT;limited.applyFacets(f);assertEquals(-1,limited.matchingTotals()[0]);assertEquals(LootArchiveAdapter.MAX_KEYS+1,limited.matchingTotals()[1]);
             limited.applyFacets(new Facets());assertEquals(LootArchiveAdapter.MAX_KEYS+1,limited.matchingTotals()[0]);return null;
         });
-    }
-    @Test public void liveFameRangeMeasureAndDelayedCharacterChoiceRestore()throws Exception{
-        PreferencesStore prefs=new PreferencesStore(temp.getRoot().toPath().resolve("fame-state.properties"));prefs.preload();ViewStateStore states=ViewStateStore.preferences(prefs);
-        try{
-            edt(()->{FameTrackerGUI fame=new FameTrackerGUI((session,done)->done.accept(true));fame.bindViewState(states);fame.trackCapturedFame(7,160000,1000);fame.trackCapturedFame(8,170000,2000);fame.refreshNow();
-                named(fame,"fame-graph-character",JComboBox.class).setSelectedItem("Character #7");named(fame,"fame-graph-range",JComboBox.class).setSelectedItem("5 min");named(fame,"fame-graph-measure",JComboBox.class).setSelectedItem("Gain in range");return null;});
-            prefs.flush().toCompletableFuture().get();
-            edt(()->{FameTrackerGUI restored=new FameTrackerGUI((session,done)->done.accept(true));restored.bindViewState(states);restored.trackCapturedFame(7,160000,1000);restored.trackCapturedFame(8,170000,2000);restored.refreshNow();
-                assertEquals("Character #7",named(restored,"fame-graph-character",JComboBox.class).getSelectedItem());assertEquals("5 min",named(restored,"fame-graph-range",JComboBox.class).getSelectedItem());assertEquals("Gain in range",named(restored,"fame-graph-measure",JComboBox.class).getSelectedItem());return null;});
-        }finally{prefs.shutdown(5,TimeUnit.SECONDS,message->{});}
     }
     @Test public void liveStateSaveFailureRetainsActiveFacetsAndCanRetryWithoutChangingThem()throws Exception{
         Path file=temp.getRoot().toPath().resolve("blocked.properties");PreferencesStore prefs=new PreferencesStore(file);prefs.preload();ViewStateStore states=ViewStateStore.preferences(prefs);

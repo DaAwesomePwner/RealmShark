@@ -31,26 +31,26 @@ public class WaveThreeEvidenceTest {
             ShellNavigator navigator = created.createNavigator();
             Navigator.install(navigator);
             navigator.register(new ShellNavigatorTest.Fake(Destination.RUNS, new ArrayList<>()));
-            created.select("statistics");
+            created.select("quests");   // a page with no target here (P6a removed Statistics, the old fixture)
             assertTrue(navigator.open(Route.to(Destination.RUNS)));
             return created;
         });
-        for (boolean compact : new boolean[]{false, true}) frame(evidence, shell, "shell-back-to-statistics", compact, () -> {
+        for (boolean compact : new boolean[]{false, true}) frame(evidence, shell, "shell-back-to-quests", compact, () -> {
             // The shell follows its realized width: at 200% this workstation's screen caps a "wide" frame below 1000 logical px.
             assertEquals(shell.getWidth() < 1000, shell.isCompact());
             if (compact) assertTrue(shell.isCompact());
             assertEquals("runs", shell.selectedPage());
             JButton back = named(shell, "navigate-back", JButton.class);
             assertTrue(back.isShowing() && back.isEnabled());
-            assertEquals("Back to Statistics", back.getText());
+            assertEquals("Back to Quests", back.getText());
             VisualEvidence.completeButton(back);
         });
         run(() -> {
             shell.getActionMap().get("navigate-back").actionPerformed(null);
-            assertEquals("statistics", shell.selectedPage());
+            assertEquals("quests", shell.selectedPage());
             assertFalse(named(shell, "navigate-back", JButton.class).isVisible());
         });
-        frame(evidence, shell, "shell-back-hidden-after-return", false, () -> assertEquals("statistics", shell.selectedPage()));
+        frame(evidence, shell, "shell-back-hidden-after-return", false, () -> assertEquals("quests", shell.selectedPage()));
     }
 
     /** A route that stays on the current page (Runs to a routed Runs view) must not label Back with the page already shown. */
@@ -81,7 +81,7 @@ public class WaveThreeEvidenceTest {
         });
         run(() -> {
             // Leaving the page by the sidebar names the routed origin again; the stack and token are unchanged.
-            shell.select("statistics");
+            shell.select("quests");
             assertEquals("Back to Runs & DPS", named(shell, "navigate-back", JButton.class).getText());
             assertEquals(token, navigator[0].backToken());
             shell.select("runs");

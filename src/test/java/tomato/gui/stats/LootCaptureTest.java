@@ -34,7 +34,7 @@ import tomato.realmshark.Sound;
 import tomato.realmshark.enums.LootBags;
 import static org.junit.Assert.*;
 
-/** P6a: loot capture with no LootGUI or StatisticsGUI built. {@link LootCapture} is the one live loot pipeline. */
+/** P6a: loot capture with no loot page built. {@link LootCapture} is the one live loot pipeline. */
 public class LootCaptureTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private Field storeField;
@@ -140,8 +140,6 @@ public class LootCaptureTest {
     @Test public void moonlightFlamesResetOnceAfterTheDelayForEachDrop() throws Exception {
         assertEquals("Each LootEntry's timer waited 5 s", 5000, LootCapture.FLAME_RESET_MILLIS);
         setFlames(3);
-        List<Integer> seen = new CopyOnWriteArrayList<>();
-        capture.addSink(drop -> seen.add(drop.flames()));
         capture.updateExaltStats();
         produce(() -> capture.update(map("Sprite World"), bag(LootBags.BROWN.getId()), null, player(), 1000L));
         assertEquals("Only Moonlight Village drops schedule a reset", 0, flames.getQueue().size());
@@ -149,7 +147,6 @@ public class LootCaptureTest {
             capture.update(map("Moonlight Village"), bag(LootBags.BROWN.getId()), null, player(), 2000L);
             capture.update(map("Moonlight Village"), bag(LootBags.BROWN.getId()), null, player(), 2001L);
         });
-        assertEquals("Each drop saw the counter before any reset", Arrays.asList(0, 3, 3), seen);
         assertEquals("One reset per drop", 2, flames.getQueue().size());
         assertEquals("Nothing resets before the delay", 3, data.getMoonlightFlameCount());
         for (Runnable queued : flames.getQueue()) {
@@ -181,13 +178,11 @@ public class LootCaptureTest {
     @Test public void nothingHappensBeforeExaltStatsOpenTheGate() throws Exception {
         setFlames(2);
         data.setPropList("itemPings", new ArrayList<>(Collections.singletonList("999991")));
-        List<LootCapture.Observed> seen = new CopyOnWriteArrayList<>();
-        capture.addSink(seen::add);
         capture.lootSharing(false);
         produce(() -> capture.update(map("Sprite World"), bag(LootBags.WHITE.getId(), 999991), null, player(), 1000L));
         produce(() -> capture.update(map("Moonlight Village"), bag(LootBags.WHITE.getId(), 999991), null, player(), 1001L));
         assertEquals(0, capture.feed().revision());
-        assertTrue(seen.isEmpty()); assertTrue(bagSounds.isEmpty()); assertTrue(itemAlerts.isEmpty());
+        assertTrue(bagSounds.isEmpty()); assertTrue(itemAlerts.isEmpty());
         assertEquals(0, sharing.pendingBags()); assertEquals(0, flames.getQueue().size());
         store.flush();
         assertTrue(store.read(store.currentId(), "loot", LootDashboard.Drop.class).isEmpty());
@@ -198,37 +193,34 @@ public class LootCaptureTest {
         // A mergeable bag waits in the session (Moonlight Village bags are never merged and would go to the transport).
         produce(() -> capture.update(map("Sprite World"), bag(LootBags.WHITE.getId(), 999991), null, player(), 1003L));
         assertEquals(1, capture.feed().revision());
-        assertEquals(1, seen.size());
         assertEquals(Collections.singletonList(Sound.whitebag), bagSounds);
         assertEquals("The matching item pinged once", 1, itemAlerts.size());
         assertEquals("Shared (opted in)", 1, sharing.pendingBags());
         capture.lootSharing(true);
         produce(() -> capture.update(map("Moonlight Village"), bag(LootBags.BROWN.getId()), null, player(), 1004L));
-        assertEquals(2, seen.size()); assertEquals(2, seen.get(1).flames());
-        assertEquals(1, flames.getQueue().size());
+        assertEquals(2, capture.feed().revision());
+        assertEquals("The Moonlight drop schedules its flame reset", 1, flames.getQueue().size());
         store.flush();
         assertEquals(2, store.read(store.currentId(), "loot", LootDashboard.Drop.class).size());
     }
 
-    /** TomatoData calls LootGUI's static API; it delegates to the capture and no longer throws when no LootGUI was built. */
-    @Test public void staticLootGuiApiDelegatesWithNoLootGuiBuilt() throws Exception {
-        Field view = LootGUI.class.getDeclaredField("INSTANCE"); view.setAccessible(true);
-        Object previousView = view.get(null);
-        view.set(null, null);
+    /**
+     * TomatoData and File › Opt-out Loot Sharing call the app's capture directly (P6a Task 12: the Statistics Live log and its static
+     * API are gone), with no loot page built.
+     */
+    @Test public void theAppsCaptureIsCalledDirectlyWithNoLootPageBuilt() throws Exception {
         LootCapture previous = LootCapture.install(capture);
         try {
-            LootGUI.update(map("Sprite World"), bag(LootBags.BROWN.getId(), 999991), null, player(), 1000L);
-            assertEquals("Gate closed: ignored, and no exception", 0, capture.feed().revision());
-            LootGUI.updateExaltStats();
-            LootGUI.update(map("Sprite World"), bag(LootBags.BROWN.getId(), 999991), null, player(), 2000L);
-            assertEquals(1, capture.feed().revision());
-            LootGUI.lootSharing(false); assertTrue(sharing.isEnabled());
-            LootGUI.lootSharing(true); assertFalse(sharing.isEnabled());
-            LootGUI.applyFilters();
             assertSame(capture, LootCapture.get());
+            LootCapture.get().update(map("Sprite World"), bag(LootBags.BROWN.getId(), 999991), null, player(), 1000L);
+            assertEquals("Gate closed: ignored, and no exception", 0, capture.feed().revision());
+            LootCapture.get().updateExaltStats();
+            LootCapture.get().update(map("Sprite World"), bag(LootBags.BROWN.getId(), 999991), null, player(), 2000L);
+            assertEquals(1, capture.feed().revision());
+            LootCapture.get().lootSharing(false); assertTrue(sharing.isEnabled());
+            LootCapture.get().lootSharing(true); assertFalse(sharing.isEnabled());
         } finally {
             LootCapture.install(previous);
-            view.set(null, previousView);
         }
     }
 

@@ -27,16 +27,16 @@ public class ShellBackActionTest {
             assertEquals("page-chat", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_1, InputEvent.ALT_DOWN_MASK)));
             assertEquals("navigate-back", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK)));
 
-            shell.select("statistics"); // Statistics has no target: only its page is remembered.
+            shell.select("quests"); // No Quests target here: only its page is remembered (Statistics, the old fixture, is gone).
             assertTrue(navigator.open(Route.to(Destination.RUNS)));
             assertEquals("runs", shell.selectedPage());
             assertTrue(back.isVisible()); assertTrue(back.isEnabled());
-            assertEquals("Back to Statistics", back.getText());
-            assertEquals("Back to Statistics", back.getAccessibleContext().getAccessibleName());
+            assertEquals("Back to Quests", back.getText());
+            assertEquals("Back to Quests", back.getAccessibleContext().getAccessibleName());
             assertTrue(back.getToolTipText().contains("Alt+Left"));
 
             shell.getActionMap().get("navigate-back").actionPerformed(null);
-            assertEquals("statistics", shell.selectedPage());
+            assertEquals("quests", shell.selectedPage());
             assertFalse(back.isVisible());
             assertEquals("Unrouted destinations have no shell page", ShellNavigator.NO_PAGE, WorkspaceShell.pageOf(Destination.ALERT_DRAFT));
             for (Destination destination : Destination.values()) {

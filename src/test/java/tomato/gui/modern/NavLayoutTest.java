@@ -24,7 +24,7 @@ public class NavLayoutTest {
         assertFalse(layout.advancedOpen());
         assertEquals("home", layout.landing().id());
         assertTrue("Reading never writes", store.isEmpty());
-        assertEquals("P6a removed the Build and DPS Logger pointer pages", 13, NavEntry.defaults().size());
+        assertEquals("P6a removed the Build and DPS Logger pointer pages and the Statistics page", 12, NavEntry.defaults().size());
         assertEquals("Party", TestPages.title("party"));
         assertEquals("Quests", TestPages.title("quests"));
         assertEquals("Settings", TestPages.title("settings"));
@@ -36,7 +36,7 @@ public class NavLayoutTest {
             assertTrue("Unique ID " + entry.id(), seen.add(entry.id()));
             assertSame(entry, NavEntry.forId(entry.id()));
         }
-        assertEquals(13, shortcuts.size());
+        assertEquals(12, shortcuts.size());
         NavEntry home = NavEntry.forId("home");
         assertSame("Home leads the defaults", home, NavEntry.defaults().get(0));
         assertEquals(LineIcon.HOME, home.icon());
@@ -155,22 +155,19 @@ public class NavLayoutTest {
         assertEquals("characters,home,runs,loot,quests,chat,timeline,party", store.get(NavLayout.ORDER_KEY));
     }
 
-    @Test public void statisticsLeavesTheSidebarDpsLoggerIsGoneAndRunsIsRunsAndDps() {
+    @Test public void statisticsAndDpsLoggerAreGoneAndRunsIsRunsAndDps() {
         NavLayout layout = layout();
-        NavEntry runs = NavEntry.forId("runs"), statistics = NavEntry.forId("statistics");
+        NavEntry runs = NavEntry.forId("runs");
         assertEquals(KeyEvent.VK_R, runs.shortcut());
         assertEquals("Runs & DPS", runs.title());
         assertEquals(LineIcon.SWORDS, runs.icon());
         assertEquals("Review runs, dungeons, live damage and recordings.", runs.description());
         assertEquals(NavEntry.Group.CORE, runs.group());
         assertNull("The DPS Logger pointer page was removed (Alt+8 opens the Live meter)", NavEntry.forId("dps-logger"));
-        assertEquals("Statistics keeps its ID, Alt key and title", KeyEvent.VK_5, statistics.shortcut());
-        assertEquals("Statistics", statistics.title());
-        assertEquals(NavEntry.Group.UNLISTED, statistics.group());
+        assertNull("The Statistics page was removed (Alt+5 opens Runs & DPS › Dungeons)", NavEntry.forId("statistics"));
         assertEquals("Runs & DPS", TestPages.title("runs"));
-        assertEquals("Statistics", TestPages.title("statistics"));
         List<NavEntry> defaults = NavEntry.defaults();
-        assertEquals("The unlisted page is the tail of the defaults", Collections.singletonList("statistics"),
+        assertEquals("Settings is the tail of the defaults; no unlisted page follows it", Collections.singletonList("settings"),
             ids(defaults.subList(defaults.size() - 1, defaults.size())));
         assertEquals("S7: six core destinations", 6, layout.core().size());
         assertEquals("Advanced (5)", 5, layout.advanced().size());
@@ -185,6 +182,7 @@ public class NavLayoutTest {
         assertTrue("Nothing above wrote", store.isEmpty());
     }
 
+    /** Statistics (P6a Task 12) and DPS Logger (Task 6) are unknown IDs now: saved values are still read, ignored and dropped. */
     @Test public void savedStatisticsAndDpsLoggerEntriesAreIgnoredAndDroppedOnTheNextWrite() {
         store.put(NavLayout.ORDER_KEY, "dps-logger,characters,statistics,home");
         store.put(NavLayout.HIDDEN_KEY, "statistics,dps-logger,loot");

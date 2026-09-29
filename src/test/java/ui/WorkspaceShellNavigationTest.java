@@ -66,11 +66,10 @@ public class WorkspaceShellNavigationTest {
 
     @Test public void selectedRowScrollsAfterNativeWindowResize() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals(13, NavEntry.defaults().size());
+            assertEquals("Twelve destinations (P6a removed Statistics, the last unlisted page)", 12, NavEntry.defaults().size());
             for (NavEntry entry : NavEntry.defaults()) {
                 AbstractButton button = button("nav-" + entry.id());
                 assertEquals(entry.title(), button.getAccessibleContext().getAccessibleName());
-                if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Statistics has no sidebar row", button.isVisible()); continue; }
                 assertTrue(button.getHeight() >= 32);
                 assertTrue("Default navigation should stay compact", button.getHeight() <= 36);
             }
@@ -267,7 +266,6 @@ public class WorkspaceShellNavigationTest {
                     assertEquals("Exact offscreen client geometry", geometry, fixture[0].getSize());
                     for (NavEntry entry : NavEntry.defaults()) {
                         AbstractButton target = (AbstractButton) find(fixture[0], "nav-" + entry.id());
-                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Statistics has no sidebar row", target.isVisible()); continue; }
                         Insets insets = target.getInsets();
                         Rectangle available = new Rectangle(insets.left, insets.top,
                             target.getWidth() - insets.left - insets.right, target.getHeight() - insets.top - insets.bottom);
@@ -407,8 +405,7 @@ public class WorkspaceShellNavigationTest {
             assertEquals("Visible content page " + i, i.equals(selected), pages.get(i).isShowing());
             assertEquals("Selected navigation row " + i, i.equals(selected), button("nav-" + i).isSelected());
             JMenuItem item = popupItem(popup, i);
-            if (entry.group() == NavEntry.Group.UNLISTED) assertNull("Statistics is never in the compact menu", item);
-            else assertEquals("Selected popup destination " + i, i.equals(selected), item.isSelected());
+            assertEquals("Selected popup destination " + i, i.equals(selected), item.isSelected());
         }
     }
 
@@ -432,39 +429,6 @@ public class WorkspaceShellNavigationTest {
             assertEquals("The focused row stays wholly inside the viewport after layout",
                     target.getHeight(), target.getVisibleRect().height);
         });
-    }
-
-    @Test public void theMenuOpensOnTheFirstListedDestinationWhileAnUnlistedPageIsCurrent() throws Exception {
-        for (int width : new int[] {1240, 760}) {
-            SwingUtilities.invokeAndWait(() -> {
-                resize(width, 620); shell.select("statistics");
-                invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK));
-                JPopupMenu popup = compactNavigation.getComponentPopupMenu();
-                assertTrue(width + " px: the menu opens", popup.isVisible());
-                assertNull("Statistics is never listed", popupItem(popup, "statistics"));
-                assertSame("The keyboard starts on the first listed destination", popupItem(popup, "home"), selectedMenuElement());
-                popup.setVisible(false); MenuSelectionManager.defaultManager().clearSelectedPath();
-                assertEquals("Opening the menu does not navigate", "statistics", shell.selectedPage());
-                assertFalse(button("nav-statistics").isVisible());
-            });
-        }
-    }
-
-    @Test public void openingAnUnlistedPageMovesKeyboardFocusIntoThePageBecauseItHasNoRow() throws Exception {
-        JButton first = new JButton("Estimate");
-        SwingUtilities.invokeAndWait(() -> { first.setName("statistics-first"); pages.get("statistics").add(first); pages.get("statistics").revalidate(); });
-        activateWindow(frame);
-        awaitFocus(button("nav-key-pops"), () -> button("nav-key-pops").requestFocusInWindow());
-        awaitFocus(first, () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
-        SwingUtilities.invokeAndWait(() -> {
-            assertEquals("statistics", shell.selectedPage());
-            assertFalse(button("nav-statistics").isVisible());
-            assertTrue("Alt+5: focus is inside the Statistics page", SwingUtilities.isDescendingFrom(
-                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(), pages.get("statistics")));
-        });
-        awaitFocus(button("nav-key-pops"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.ALT_DOWN_MASK)));
-        SwingUtilities.invokeAndWait(() -> pages.get("statistics").remove(first));
-        awaitFocus(find(shell, "workspace-cards"), () -> invokeKey(shell, JComponent.WHEN_IN_FOCUSED_WINDOW, KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
     }
 
     private static JMenuItem popupItem(JPopupMenu popup, String page) { return (JMenuItem) find(popup, "compact-nav-" + page); }

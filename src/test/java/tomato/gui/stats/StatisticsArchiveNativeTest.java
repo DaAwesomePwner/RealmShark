@@ -9,7 +9,6 @@ import org.junit.Test;
 import org.junit.rules.ErrorCollector;
 import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
-import tomato.backend.data.TomatoData;
 import tomato.gui.history.*;
 import tomato.gui.modern.TestPages;
 import tomato.gui.stats.LootQuery.*;
@@ -87,33 +86,41 @@ public class StatisticsArchiveNativeTest {
         }
     }
 
-    @Test public void actualStatisticsFactoryKeepsSessionAndFamePopulationsAndNamedAnalyticalTabs() throws Exception {
+    /**
+     * The session and fame populations and a named analytical view, where they live after P6a removed the Statistics workspace:
+     * Session comparison is an Analyst view of Loot › Explore's saved half (and of Dungeons › Analysis), character fame is
+     * Characters › Fame history.
+     */
+    @Test public void actualLootAndFameFactoriesKeepSessionAndFamePopulationsAndNamedAnalyticalViews() throws Exception {
         Path root = history(), scratch = temp.newFolder().toPath(), output = temp.newFolder().toPath(); Memory memory = new Memory();
         try (SessionStore store = new SessionStore(root,true,"reader")) {
-            ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> HistoricalStatistics.statisticsWorkspace(store,new StatisticsGUI(new TomatoData()),scratch,memory.states));
-            JComponent shell = edt(() -> TestPages.shell("statistics",workspace));
+            ArchiveWorkspace<Row,Facets,Sort> workspace = edt(() -> HistoricalStatistics.lootWorkspace(store,new LootDashboard(),scratch,memory.states));
+            JComponent shell = edt(() -> TestPages.shell("loot",workspace));
             try {
-                edt(() -> { evidence.show(shell,"Statistics live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
-                evidence.settle(); edt(() -> { evidence.capture("statistics-live-default"); workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withText("native-evidence")); return null; });
+                edt(() -> { evidence.show(shell,"Loot live default",1240,800,13); assertFalse(workspace.state().archive); return null; });
+                evidence.settle(); edt(() -> { Facets f = workspace.state().query.facets(); f.view = View.SESSIONS;
+                    workspace.changeQuery(workspace.state().query.withScope(SessionStore.ALL).withText("native-evidence").withFacets(f)); return null; });
                 await(() -> ready(workspace) && workspace.displayedPage().matches == 2);
                 edt(() -> { named(workspace,"loot-archive-table",JTable.class).setRowSelectionInterval(0,0); return null; });
                 edt(() -> workspace.saveNamed("Source sessions")).toCompletableFuture().get(5,TimeUnit.SECONDS);
-                matrix(evidence,layouts,shell,"statistics-sessions",() -> ready(workspace),() -> {
+                matrix(evidence,layouts,shell,"loot-sessions",() -> ready(workspace),() -> {
                     assertEquals(2,workspace.displayedPage().matches); assertEquals(View.SESSIONS,workspace.state().query.facets().view);
-                    archiveControls(workspace,"statistics","loot-archive-table","loot-archive-details");
+                    archiveControls(workspace,"loot","loot-archive-table","loot-archive-details");
                     completeButton(named(workspace,"archive-open-fame",JButton.class));
                 });
-                edt(() -> { workspace.changeQuery(workspace.state().query.withText("")); return null; }); await(() -> ready(workspace));
-                edt(() -> { named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.FAME); return null; });
-                await(() -> ready(workspace) && workspace.state().query.facets().view == View.FAME && workspace.displayedPage().matches == 2);
-                edt(() -> { for (ArchiveRow<Row> row : workspace.displayedPage().rows) assertEquals(Double.valueOf(25),row.value.gain);
-                    named(workspace,"loot-archive-table",JTable.class).setRowSelectionInterval(0,0); return null; });
-                matrix(evidence,layouts,shell,"statistics-fame",() -> ready(workspace),() -> archiveControls(workspace,"statistics","loot-archive-table","loot-archive-details"));
-                Path file = edt(() -> workspace.exportTo(output,"fame",ExportSelection.all(),ArchiveExport.Format.JSON)).get(15,TimeUnit.SECONDS);
-                assertEquals(2,json(file).getAsJsonArray("rows").size());
+                edt(() -> { Facets f = workspace.state().query.facets(); f.view = View.ITEMS; workspace.changeQuery(workspace.state().query.withText("").withFacets(f)); return null; });
+                await(() -> ready(workspace) && workspace.state().query.facets().view == View.ITEMS);
                 edt(() -> { workspace.loadNamed("Source sessions"); return null; }); await(() -> ready(workspace) && workspace.state().query.facets().view == View.SESSIONS);
                 assertEquals("native-evidence",edt(() -> workspace.state().query.text()));
             } finally { edt(() -> { workspace.close(); evidence.closeWindow(); return null; }); }
+            ArchiveWorkspace<Row,Facets,Sort> fame = edt(() -> CharacterFameHistory.workspace(store,scratch.resolve("character-fame"),memory.states));
+            try {
+                await(() -> ready(fame) && fame.displayedPage().matches == 2);
+                edt(() -> { assertEquals(View.FAME,fame.state().query.facets().view);
+                    for (ArchiveRow<Row> row : fame.displayedPage().rows) assertEquals(Double.valueOf(25),row.value.gain); return null; });
+                Path file = edt(() -> fame.exportTo(output,"fame",ExportSelection.all(),ArchiveExport.Format.JSON)).get(15,TimeUnit.SECONDS);
+                assertEquals(2,json(file).getAsJsonArray("rows").size());
+            } finally { edt(() -> { fame.close(); return null; }); }
         }
     }
 }

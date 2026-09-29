@@ -19,8 +19,8 @@ import tomato.history.SessionStore;
  * time); a reading of this character id with no recorded account (written before readings recorded it) is counted, never
  * shown, since it may be another account's character with the same id. Undated readings ({@code time <= 0}) are no readings.
  * It reads the {@code fame} module and the {@code fame-latest} checkpoints as HomeArchive does, over one catalog listing:
- * a checkpoint joins its stream only when newer than the stream's last line (HistoricalStatistics' rule), so it extends the
- * session instead of repeating a reading. Sessions whose metadata or payload cannot be read are skipped and counted.
+ * a checkpoint joins its stream only when it is newer than the stream's last line (an equal or older checkpoint repeats a
+ * reading already counted), so it extends the session instead of repeating a reading. Sessions whose metadata or payload cannot be read are skipped and counted.
  * Finished sessions are kept by session id while their fame files' stamp (name, size, modification time: HomeArchive's reuse
  * rule) is unchanged, and memory follows what sheets asked for: a kept session holds only the readings of the (account,
  * character) pairs requested so far (an empty list where it has none), plus its untagged readings counted per character id. A

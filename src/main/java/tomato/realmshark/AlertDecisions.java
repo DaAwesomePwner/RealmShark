@@ -156,7 +156,7 @@ public final class AlertDecisions {
             .subject("Entity type " + entityType).sample(null, entityType).explain(match.explanation));
     }
     /**
-     * Decision point for one dropped item (hook for LootGUI.notifyItems): item rules first, then the
+     * Decision point for one dropped item (hook for LootCapture.notifyItems): item rules first, then the
      * selected-enchantment result the caller computed. Records a no-match too. Returns the ID or 0.
      */
     public static long lootItem(Collection<String> legacyItemRules, int itemId, String itemName, String enchantText, boolean enchantMatched) {
