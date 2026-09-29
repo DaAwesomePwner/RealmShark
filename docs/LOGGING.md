@@ -1,6 +1,6 @@
 # Discovery logging
 
-Logging inspects the same passively decoded traffic used by DPS and loot tracking. It does not inject into the game, modify packets, or make game-server requests. Start capture, enable collection, and enter a fresh area to gather data.
+**Logging** is under **Advanced** in the sidebar (**Alt+0**). It inspects the same passively decoded traffic used by DPS and loot tracking. It does not inject into the game, modify packets, or make game-server requests. Start capture, enable collection, and enter a fresh area to gather data.
 
 Gameplay history now has dedicated views: **Runs & DPS** (Alt+R), **Timeline** (Alt+T), and **Runs & DPS › Live meter › Resources & buffs**. See [Activity modules](ACTIVITY.md) for their controls and interpretation.
 
@@ -13,7 +13,9 @@ Gameplay history now has dedicated views: **Runs & DPS** (Alt+R), **Timeline** (
 - **Event samples** displays bounded examples and numeric changes for inspection.
 - **Field catalog** explains existing consumers, candidate uses, and known coverage limits.
 
-**Gameplay & diagnostics collection** controls the shared collector for Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. The capture connection must also be running. Turning collection off does not stop the sniffer or independent Chat, loot and DPS processing. **Pause this view** holds displayed diagnostics while collection status remains current. Sampled mode limits routine examples; detailed mode retains more examples within the same bounds. **Clear data** resets diagnostic counters and examples while preserving gameplay history.
+The six tabs can be reordered and hidden like the app's other customizable tabs; saved views keep working after a reorder. Logging always shows absolute times, in Simple too.
+
+**Gameplay & diagnostics collection** controls the shared collector for Logging, Runs, Timeline, resource/buff history and recorded Party builds. The capture connection must also be running. Turning collection off does not stop the sniffer or independent Chat, loot and DPS processing. **Pause this view** holds displayed diagnostics while collection status remains current. Both sit at the right end of the filter row, or after **Reset filters** when the row is narrow. ⋯ › **Sampling ▸** chooses **Sampled**, which limits routine examples, or **Detailed**, which retains more examples within the same bounds. ⋯ › **Clear data…** resets diagnostic counters and examples after confirmation, preserving gameplay history.
 
 ### Find a retained example
 
@@ -21,27 +23,27 @@ Gameplay history now has dedicated views: **Runs & DPS** (Alt+R), **Timeline** (
 2. In **Event samples**, combine literal search with packet, stat ID, retained stat object ID, diagnostic area, outcome and **Changed values only**. Stat/object/change filters must match the same retained delta. An initial observation has no prior value and is not a confirmed change.
 3. Select an event to read named changes before raw JSON. When an exact decoder field path is available, choose it and use **Open field definition**. Unmapped evidence does not get a guessed definition link. **Enter** opens full details; **Copy full detail** copies them.
 
-Each tab retains its own search and applicable filters. Removable chips show active predicates; **Reset filters** resets the active tab. Packet issue filters refer to cumulative issues, while the packet outcome filter describes the latest outcome. Event and trace filters apply to individual retained examples. A missing sample does not negate an aggregate observation: sampling and retention bounds still apply.
+The filter row holds the search ("Search this tab…") and **Reset filters**; **Filters** opens the drawer with the tab's facets (packet, stat, object, area and outcome, where they apply) and the **Changed values only**, **Observed packets only** and **Packet issues only** checks. Each tab retains its own search and applicable filters. Removable chips show active predicates; **Clear** and **Reset filters** both reset the active tab. Packet issue filters refer to cumulative issues, while the packet outcome filter describes the latest outcome. Event and trace filters apply to individual retained examples. A missing sample does not negate an aggregate observation: sampling and retention bounds still apply.
 
-The **Views** controls offer named **Save / Load / Delete**, **Reset saved** and **Retry save**. They remember tab queries, sorting, columns and detail layout, not diagnostic payloads. Pause is temporary: loading a named view or recreating the workspace resumes fresh diagnostics. Saved object/area filters remain tied to their diagnostic capture, so a reused numeric ID in another capture does not silently match.
+⋯ › **Saved views ▸** offers **Save current view…**, **Load ▸** (the named views), **Delete view…**, **Reset saved state** and **Retry save**; a status line appears only when saving fails. Saved views remember tab queries, sorting, columns and detail layout, not diagnostic payloads. Pause is temporary: loading a named view or recreating the workspace resumes fresh diagnostics. Saved object/area filters remain tied to their diagnostic capture, so a reused numeric ID in another capture does not silently match.
 
 ## Export a diagnostic report
 
-Choose **Current fresh diagnostics** to acquire current diagnostics, or **Displayed diagnostic revision** to export the snapshot you are reading, including while paused. Then use **Export report** and review its source, retained interval and counts before confirmation. Both options export **all retained diagnostics in that snapshot**; display filters are recorded as context and are **not applied** to the report. Saved gameplay activity is not included.
+Choose **Current fresh diagnostics** to acquire current diagnostics, or **Displayed diagnostic revision** to export the snapshot you are reading, including while paused. Then use **Export report**, in the row below the tables, and review its source, retained interval and counts before confirmation. Both options export **all retained diagnostics in that snapshot**; display filters are recorded as context and are **not applied** to the report. Saved gameplay activity is not included.
 
 The previewed snapshot stays fixed through export even if capture advances. JSON reports include source/revision, coverage, counts and display context; existing reports are preserved. **Open report folder** is enabled after success. Snapshot acquisition and serialization run in the background. Automatic Logging refreshes request diagnostics without copying activity timelines, and hidden views catch up when shown.
 
 ## Storage and privacy
 
-**Save diagnostic samples** controls diagnostic persistence under `logs/discovery/`, with manual exports in `logs/discovery/reports/`. Packet samples use a bounded asynchronous queue and rotating JSONL files; queued writes may finish after disabling saving. Queue drops and write failures are exposed in diagnostics. App-session runs and timeline events save automatically under `%LOCALAPPDATA%\RealmShark\history`, independently of diagnostic logging. Older `activity-history.json` files are imported into that archive; live diagnostic counts still start fresh. Preview does not overwrite saved activity. See [Session history](SESSION-HISTORY.md).
+⋯ › **Save diagnostic samples** controls diagnostic persistence under `logs/discovery/`, with manual exports in `logs/discovery/reports/`. Packet samples use a bounded asynchronous queue and rotating JSONL files; queued writes may finish after disabling saving. Queue drops and write failures are exposed in diagnostics. App-session runs and timeline events save automatically under `%LOCALAPPDATA%\RealmShark\history`, independently of diagnostic logging. Older `activity-history.json` files are imported into that archive; live diagnostic counts still start fresh. Preview does not overwrite saved activity. See [Session history](SESSION-HISTORY.md).
 
 Only allowlisted decoded fields are retained. Numeric observations, canonical map names, bounded numeric party rosters, and reconnect-candidate counts are useful for analysis. Reconnect hosts/keys, chat, authentication data, raw payloads, party names/descriptions, and account identifiers are excluded from reports. Account identity is compared privately to avoid mixing progression baselines across accounts. Decode diagnostics retain structural context, such as field offsets and declared lengths, rather than arbitrary exception messages.
 
-Inspect's run history additionally retains observed player and guild names, character mode, level, base stats, and equipped items/enchant data. Those loadouts are saved with their visits in activity history and included in full history exports; diagnostic packet samples still omit player string stats.
+Party's run history additionally retains observed player and guild names, character mode, level, base stats, and equipped items/enchant data. Those loadouts are saved with their visits in activity history and included in full history exports; diagnostic packet samples still omit player string stats.
 
 ## Accuracy
 
-Choose **Details…** in the toolbar to open **Diagnostic coverage**: retained sample interval, sampling limits, decode failures, trailing bytes, sampled-out events, omitted deltas, withheld observations, observer errors and disk drops/errors. The interval is **partial** evidence, not continuous coverage; collection-off intervals are unobserved, not zero activity. **Delta-cache evictions** count lost comparison baselines, not lost retained events. Diagnostic disk drops cover the writer's lifetime and are not reset by **Clear data**.
+Choose **Diagnostic coverage**, the link beside the summary line, to read the retained sample interval, sampling limits, decode failures, trailing bytes, sampled-out events, omitted deltas, withheld observations, observer errors and disk drops/errors. The interval is **partial** evidence, not continuous coverage; collection-off intervals are unobserved, not zero activity. **Delta-cache evictions** count lost comparison baselines, not lost retained events. Diagnostic disk drops cover the writer's lifetime and are not reset by **Clear data…**.
 
 A clean decode confirms the reader consumed the expected bytes; it does not independently verify the meaning of every field. Unknown and partial packets remain diagnostic evidence. They do not automatically feed gameplay statistics. Pre-decode capture faults are also recorded in the capture-health logs.
 
