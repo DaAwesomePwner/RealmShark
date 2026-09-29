@@ -1,10 +1,13 @@
 package tomato.gui.modern;
 
 import java.awt.*;
+import java.awt.dnd.DragSource;
 import java.awt.event.*;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -31,12 +34,28 @@ public final class WorkspaceShell extends JPanel {
     private static final String SETTINGS = "settings";
     /** Shells open on Chat; the app then shows the landing page ({@link #selectLanding}). */
     private static final String INITIAL = "chat";
+    /** Row accessible descriptions follow the Alt key with the keyboard alternatives to dragging ({@link #rowDescription}). */
+    private static final String MOVE_HINT = "Ctrl+Shift+Up or Down to move; Shift+F10 for options", MENU_HINT = "Shift+F10 for options";
+    /** The sidebar drag's line thickness, and the band at the list's top and bottom edges (half a row) that autoscrolls. */
+    private static final int DROP_LINE = 2, AUTOSCROLL_EDGE = 16;
     private final NavLayout layout;
     private final DisplayModeModel mode;
     private final Sidebar sidebar = new Sidebar();
     private final JPanel workspace = new JPanel(new BorderLayout(0, 8));
     private final JPanel branding = new JPanel(new CardLayout());
-    private final JPanel nav = new JPanel(new GridBagLayout());
+    /** The destination list; while a row is dragged it paints the drop line over the rows, in the accent resolved at paint time. */
+    private final JPanel nav = new JPanel(new GridBagLayout()) {
+        @Override protected void paintChildren(Graphics graphics) {
+            super.paintChildren(graphics);
+            Rectangle line = dropLine;
+            if (line == null) return;
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(Tokens.color(Tokens.Role.ACCENT));
+            g.fillRoundRect(line.x, line.y, line.width, line.height, DROP_LINE, DROP_LINE);
+            g.dispose();
+        }
+    };
     /**
      * The destination list (and the compact rail) has no box. The look and feel reinstalls a scroll pane border on every UI update, and a
      * live theme switch updates this child after the shell's own {@link #refreshTheme}, so the list clears it again after each update.
@@ -87,6 +106,10 @@ public final class WorkspaceShell extends JPanel {
     private String selected = INITIAL;
     private JToggleButton scrollAnchor;
     private boolean scrollPending;
+    private final RowDrag drag = new RowDrag();
+    /** The drop line in {@link #nav} coordinates while a drag has somewhere to drop, else null. */
+    private Rectangle dropLine;
+    private final Timer autoscroll = new Timer(40, e -> autoscrollStep());
 
     public WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview) {
         this(panels, toggleCapture, preview, null, null, null);
@@ -176,6 +199,10 @@ public final class WorkspaceShell extends JPanel {
             button.getActionMap().put("nav-menu", action(() -> showContextMenu(id, null)));
             button.getActionMap().put("nav-move-up", action(() -> moveEntry(id, -1)));
             button.getActionMap().put("nav-move-down", action(() -> moveEntry(id, 1)));
+            // Listed core rows also drag (RowDrag); Esc cancels a drag and otherwise falls through, its action disabled.
+            button.addMouseListener(drag); button.addMouseMotionListener(drag); button.addFocusListener(drag);
+            keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "nav-drag-cancel");
+            button.getActionMap().put("nav-drag-cancel", drag.cancel);
             navigation.put(id, button); group.add(button);
             // applyLayout places the rows in the user's order; Settings stays below the scrolling list.
             if (id.equals(SETTINGS)) settingsRow.add(button); else nav.add(button);
@@ -327,6 +354,7 @@ public final class WorkspaceShell extends JPanel {
     }
 
     @Override public void removeNotify() {
+        drag.end();
         preferencesTimer.stop();
         super.removeNotify();
     }
@@ -472,6 +500,157 @@ public final class WorkspaceShell extends JPanel {
         if (row.isVisible()) { scrollAnchor = row; row.requestFocusInWindow(); }
         else { scrollAnchor = current.isVisible() ? current : null; focusPage(selected); }
         scrollSelectedLater();
+    }
+
+    /** The drop line of the drag in progress, in the destination list's coordinates, or null (tests). */
+    Rectangle dropIndicator() { return dropLine == null ? null : new Rectangle(dropLine); }
+
+    /**
+     * One autoscroll step, half a scroll unit, while a drag holds the pointer near the list's top or bottom edge; the drop then
+     * follows the same pointer over the moved rows. True when the list moved; the timer stops at either end (tests call it).
+     */
+    boolean autoscrollStep() {
+        int direction = drag.edgeDirection();
+        JViewport viewport = navScroll.getViewport();
+        Point at = viewport.getViewPosition();
+        int end = Math.max(0, viewport.getViewSize().height - viewport.getExtentSize().height);
+        int y = Math.max(0, Math.min(end, at.y + direction * Math.max(1, navScroll.getVerticalScrollBar().getUnitIncrement() / 2)));
+        if (direction == 0 || y == at.y) { autoscroll.stop(); return false; }
+        viewport.setViewPosition(new Point(at.x, y));
+        drag.update();
+        return true;
+    }
+
+    /** Moves the drop line, repainting only the old and the new line. */
+    private void showDropLine(Rectangle line) {
+        if (Objects.equals(line, dropLine)) return;
+        if (dropLine != null) nav.repaint(dropLine.x - 1, dropLine.y - 1, dropLine.width + 2, dropLine.height + 2);
+        dropLine = line;
+        if (line != null) nav.repaint(line.x - 1, line.y - 1, line.width + 2, line.height + 2);
+    }
+
+    /** The destination ID of a sidebar row, or null. */
+    private String rowId(Component row) {
+        for (Map.Entry<String, JToggleButton> entry : navigation.entrySet()) if (entry.getValue() == row) return entry.getKey();
+        return null;
+    }
+
+    /**
+     * Drags a listed core row, pinned Advanced rows included, to a new place (spec §4.1). The whole row drags once the left button
+     * moves it the system drag threshold ({@link DragSource#getDragThreshold()}, 5 px by default); a line marks the gap under the
+     * pointer, and the release drops the row there through {@link NavLayout#moveTo}: one ORDER write, the page unchanged, the
+     * moved row focused and in view. Below the core rows (over Advanced) it drops last, so a drop never pins. Esc, losing focus
+     * or a release beside the sidebar cancels and writes nothing. One instance listens on every row, the compact rail included;
+     * Ctrl+Shift+Up/Down and the row menu stay the keyboard and single-pointer alternatives (WCAG 2.2 SC 2.5.7).
+     */
+    private final class RowDrag extends MouseAdapter implements FocusListener {
+        /** Esc on a row; enabled only while dragging, so the key otherwise reaches the page. */
+        final Action cancel = action(this::end);
+        /** The pressed row that may drag, its ID and the press point in its coordinates; null without such a press. */
+        private JToggleButton row;
+        private String id;
+        private Point pressed;
+        /** The pointer in viewport coordinates, which stay put while the list scrolls under it. */
+        private Point pointer;
+        private boolean dragging, beside;
+        /** The row's final index among the visible core rows at the pointer, or -1 where a release drops nothing. */
+        private int index = -1;
+
+        RowDrag() { cancel.setEnabled(false); }
+
+        boolean active() { return dragging; }
+
+        @Override public void mousePressed(MouseEvent e) {
+            end(); // another button during a drag cancels it
+            if (!SwingUtilities.isLeftMouseButton(e) || e.isPopupTrigger()) return;
+            String page = rowId(e.getComponent());
+            // Settings, unpinned Advanced rows and a hidden current page (listed while current) keep their places.
+            if (page == null || !layout.inCore(page) || layout.isHidden(page)) return;
+            row = (JToggleButton) e.getComponent(); id = page; pressed = e.getPoint();
+        }
+
+        @Override public void mouseDragged(MouseEvent e) {
+            if (row == null || e.getComponent() != row) return;
+            if (!dragging) {
+                int threshold = DragSource.getDragThreshold();
+                if (!SwingUtilities.isLeftMouseButton(e)
+                    || Math.abs(e.getX() - pressed.x) < threshold && Math.abs(e.getY() - pressed.y) < threshold) return;
+                dragging = true;
+                // The button selects on release while armed, and a drag back over the row re-arms a pressed model: release both.
+                row.getModel().setArmed(false); row.getModel().setPressed(false);
+                row.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                cancel.setEnabled(true);
+            }
+            pointer = SwingUtilities.convertPoint(row, e.getPoint(), navScroll.getViewport());
+            update();
+        }
+
+        @Override public void mouseReleased(MouseEvent e) {
+            if (row == null || e.getComponent() != row) return;
+            if (!dragging) { end(); return; } // a click: the button selects the page
+            pointer = SwingUtilities.convertPoint(row, e.getPoint(), navScroll.getViewport());
+            update();
+            String moved = id;
+            int at = index;
+            end();
+            if (at >= 0) change(() -> layout.moveTo(moved, at), moved);
+        }
+
+        @Override public void focusGained(FocusEvent e) { }
+        @Override public void focusLost(FocusEvent e) { if (e.getComponent() == row) end(); }
+
+        /**
+         * The drop at the pointer. Gap g counts the visible core rows whose centre lies above the pointer (0…n, so any point below
+         * the core rows is n); the row's final index is g - 1 past its own place, else g, and its own place shows no line.
+         */
+        void update() {
+            List<JToggleButton> rows = new ArrayList<>();
+            int from = -1;
+            for (NavEntry entry : layout.core()) {
+                if (entry.id().equals(id)) from = rows.size();
+                rows.add(navigation.get(entry.id()));
+            }
+            if (from < 0) { end(); return; } // the row left the list mid-drag (hidden from the keyboard)
+            JViewport viewport = navScroll.getViewport();
+            Point inSidebar = SwingUtilities.convertPoint(viewport, pointer, sidebar);
+            beside = inSidebar.x < 0 || inSidebar.x >= sidebar.getWidth();
+            Rectangle line = null;
+            index = -1;
+            if (!beside) {
+                int y = SwingUtilities.convertPoint(viewport, pointer, nav).y, gap = 0;
+                for (JToggleButton each : rows) if (each.getY() + each.getHeight() / 2 < y) gap++;
+                boolean down = gap > from;
+                int at = down ? gap - 1 : gap;
+                if (at != from) {
+                    index = at;
+                    // Under row g-1 dragging down, over row g dragging up; the two differ only around a hidden current row, and
+                    // each is where move() puts the row. Listed rows sit DROP_LINE apart, so the line fills the gap between two.
+                    JToggleButton edge = rows.get(at);
+                    int lineY = down ? edge.getY() + edge.getHeight() : edge.getY() - DROP_LINE;
+                    line = new Rectangle(edge.getX() + 2, Math.max(0, lineY), Math.max(1, edge.getWidth() - 4), DROP_LINE);
+                }
+            }
+            showDropLine(line);
+            if (edgeDirection() == 0) autoscroll.stop();
+            else if (!autoscroll.isRunning()) autoscroll.start();
+        }
+
+        /** -1 or 1 while a drag holds the pointer within {@link #AUTOSCROLL_EDGE} of the list's top or bottom edge, else 0. */
+        int edgeDirection() {
+            if (!dragging || beside || pointer == null) return 0;
+            int height = navScroll.getViewport().getHeight();
+            return pointer.y < AUTOSCROLL_EDGE ? -1 : pointer.y >= height - AUTOSCROLL_EDGE ? 1 : 0;
+        }
+
+        /** Ends a press or drag without a drop: no write, no line, no autoscroll, and the release is ignored. */
+        void end() {
+            if (row != null && dragging) row.setCursor(null);
+            row = null; id = null; pressed = null; pointer = null;
+            dragging = false; beside = false; index = -1;
+            cancel.setEnabled(false);
+            autoscroll.stop();
+            showDropLine(null);
+        }
     }
 
     /** The row the sidebar keeps in view after a change, or null (tests). */
@@ -942,6 +1121,9 @@ public final class WorkspaceShell extends JPanel {
         }
         gc.gridy++; gc.weighty = 1; gc.insets = new Insets(0, 0, 0, 0);
         grid.setConstraints(navGlue, gc);
+        // Listed core rows move (drag, Ctrl+Shift+Up/Down, the menu); the others only have their menu.
+        for (NavEntry entry : NavEntry.defaults())
+            navigation.get(entry.id()).getAccessibleContext().setAccessibleDescription(rowDescription(entry));
         refreshAdvancedToggle();
         rebuildPopup();
         nav.revalidate(); nav.repaint();
@@ -991,9 +1173,24 @@ public final class WorkspaceShell extends JPanel {
 
     /** The destination's keyboard shortcuts as its tooltip shows them after the title, or nothing when it has none. */
     private static String shortcutHint(NavEntry entry) {
+        String keys = shortcutKeys(entry);
+        return keys.isEmpty() ? "" : "  (" + keys + ")";
+    }
+
+    /** The destination's keyboard shortcuts, for example "Alt+H", or "" when it has none. */
+    private static String shortcutKeys(NavEntry entry) {
         if (entry.shortcut() == 0) return "";
         String key = "Alt+" + (char) entry.shortcut(); // VK_0..VK_9 and VK_A..VK_Z are their ASCII characters.
-        return "  (" + (entry.id().equals(SETTINGS) ? "Alt+, or " + key : key) + ")";
+        return entry.id().equals(SETTINGS) ? "Alt+, or " + key : key;
+    }
+
+    /**
+     * A row's accessible description: its shortcut, which the tooltip fallback used to announce, then the keyboard alternatives to
+     * dragging (WCAG 2.2 SC 2.5.7). Only listed core rows move; the others have their menu.
+     */
+    private String rowDescription(NavEntry entry) {
+        String keys = shortcutKeys(entry), hint = layout.inCore(entry.id()) && !layout.isHidden(entry.id()) ? MOVE_HINT : MENU_HINT;
+        return keys.isEmpty() ? hint : keys + ". " + hint;
     }
 
     @Override public void doLayout() {
@@ -1014,6 +1211,8 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void scrollSelected() {
+        // A drag keeps the list where the user and autoscroll put it; its drop anchors the moved row (change()).
+        if (drag.active()) return;
         // Customizing a different row must not scroll its keyboard focus back to the selected page.
         JToggleButton button = scrollAnchor != null && scrollAnchor.isVisible() ? scrollAnchor : navigation.get(selected);
         if (!button.isVisible()) return; // a row that is not shown has nothing to reveal; the list stays where the user left it.
