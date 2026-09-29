@@ -7,17 +7,32 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.maingui.DraftSaveStatus;
 import tomato.gui.maingui.AlertRuleEditor;
 
-/** Editable local rules, with explicit scope and reversible changes. */
+/**
+ * Editable local rules, with explicit scope and reversible changes. The dialog mode (Chat filters…) is a padded panel that scrolls
+ * its options and lists itself above its footer. The embedded mode (Settings › Chat) has no border and no scroll of its own: the
+ * host puts the panel in its own page and pins {@link #footer()} (the save status, Cancel and Save filters) where it chooses.
+ */
 final class ChatFilterPanel extends JPanel {
     private final JCheckBox advertisements = new JCheckBox("Detect advertisements");
     private final JCheckBox whisperLinks = new JCheckBox("Ignore whisper links");
     private final JCheckBox gameIgnores = new JCheckBox("Use in-game ignores");
     private final JCheckBox inherited = new JCheckBox("Use existing spam rules");
     private final JTextArea players = editor("chat-ignored-players"), phrases = editor("chat-blocked-phrases"), allowed = editor("chat-allowed-players");
+    private final JPanel footer = new JPanel(new BorderLayout());
 
+    /** The dialog mode, unchanged: padded, with its own page scroll and the footer at its bottom. */
     ChatFilterPanel(ChatFilters filters, String observedStatus, Runnable saved, Runnable cancelled) {
+        this(filters, observedStatus, saved, cancelled, false);
+    }
+
+    /** The embedded mode: no border, no scroll of its own, and the footer left to the host ({@link #footer()}). */
+    static ChatFilterPanel embedded(ChatFilters filters, String observedStatus, Runnable saved, Runnable cancelled) {
+        return new ChatFilterPanel(filters, observedStatus, saved, cancelled, true);
+    }
+
+    private ChatFilterPanel(ChatFilters filters, String observedStatus, Runnable saved, Runnable cancelled, boolean embedded) {
         super(new BorderLayout(0, 8));
-        setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        if (!embedded) setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         JPanel options = new JPanel(); options.setLayout(new BoxLayout(options, BoxLayout.Y_AXIS));
         JTextArea introduction = ContentStyle.wrappingText("Matched messages go to Ignored and never trigger chat sounds.");
         introduction.setName("chat-filter-introduction"); options.add(introduction);
@@ -45,8 +60,14 @@ final class ChatFilterPanel extends JPanel {
         lists.addTab("Allowed players", list(allowed, "Skips spam and link rules; explicit player ignores still apply."));
         JTextArea help = ContentStyle.wrappingText("Applies to retained and future messages. Own and System messages stay visible. Changes affect RealmShark only.", 2);
         help.setToolTipText("In-game ignore status is recorded when each message arrives.");
-        JScrollPane page = ContentStyle.page(options, lists, help);
-        page.setName("chat-filter-page"); add(page, BorderLayout.CENTER);
+        if (embedded) {
+            // The host's page scrolls these with whatever it puts above them; the lists keep their full height (their minimum).
+            setOpaque(false);
+            add(options, BorderLayout.NORTH); add(lists, BorderLayout.CENTER); add(help, BorderLayout.SOUTH);
+        } else {
+            JScrollPane page = ContentStyle.page(options, lists, help);
+            page.setName("chat-filter-page"); add(page, BorderLayout.CENTER);
+        }
         JPanel actions = ContentStyle.controls();
         ((FlowLayout) actions.getLayout()).setAlignment(FlowLayout.TRAILING);
         JButton cancel = new JButton("Cancel"), save = new JButton("Save filters"); save.setName("chat-save-filters");
@@ -54,7 +75,8 @@ final class ChatFilterPanel extends JPanel {
         long[] expected = {filters.edits()};
         cancel.setName("chat-cancel-filters");
         actions.add(cancel); actions.add(save);
-        JPanel footer = new JPanel(new BorderLayout()); footer.add(saving.status); footer.add(actions, BorderLayout.SOUTH); add(footer, BorderLayout.SOUTH);
+        footer.add(saving.status); footer.add(actions, BorderLayout.SOUTH);
+        if (!embedded) add(footer, BorderLayout.SOUTH);
         cancel.addActionListener(e -> cancelled.run());
         cancel.setToolTipText("Discard unsubmitted edits. Changes already submitted remain active even if disk saving failed.");
         for (JTextArea area : new JTextArea[]{players, phrases, allowed}) area.getDocument().addDocumentListener(AlertRuleEditor.changes(saving::edited));
@@ -74,6 +96,9 @@ final class ChatFilterPanel extends JPanel {
             }, () -> filters.edits() == submittedEdits[0]);
         });
     }
+    /** The save status, Cancel and Save filters: this panel's bottom in the dialog mode, the host's to place in the embedded mode. */
+    JComponent footer() { return footer; }
+
     private static JTextArea editor(String name) {
         JTextArea area = new JTextArea(7, 28); area.setName(name);
         area.getAccessibleContext().setAccessibleName(name.replace("chat-", "").replace('-', ' '));

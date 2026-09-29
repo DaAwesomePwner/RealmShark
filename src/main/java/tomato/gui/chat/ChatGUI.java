@@ -20,7 +20,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.nio.charset.StandardCharsets;
 
-public class ChatGUI extends JPanel {
+/**
+ * The Chat page's live component. In its workspace it lends the live explorer's own filter row ({@code chat-live}) to the Scope
+ * chip while live ({@link tomato.gui.history.LiveFilterHost}), so the page keeps one filter row; saved Chat keeps the workspace's.
+ */
+public class ChatGUI extends JPanel implements tomato.gui.history.LiveFilterHost {
     private JComponent queriedWorkspace;
     /** Coordinator shell registration: chatPanel.workspace(). */
     public JComponent workspace() {
@@ -150,8 +154,22 @@ public class ChatGUI extends JPanel {
         }
     }
 
+    /**
+     * The Chat filters… editor embedded in a page (Settings › Chat): {@code body} (options and lists, no border and no scroll of
+     * its own) goes in the host's page and {@code footer} (the save status, Cancel and Save filters) is pinned below it. Both are
+     * holders that every rebuild of the editor (Cancel, or the rules changed elsewhere) refills.
+     */
+    public record FiltersEditor(JComponent body, JComponent footer) {
+        public FiltersEditor {
+            java.util.Objects.requireNonNull(body, "body"); java.util.Objects.requireNonNull(footer, "footer");
+        }
+    }
+
     /** Settings › Chat (P6a): the Chat filters… editor over this chat's live rules, for embedding in a page. EDT. */
-    public JComponent filtersEditor() { return explorer.filtersEditor(); }
+    public FiltersEditor filtersEditor() { return explorer.filtersEditor(); }
+
+    /** The live explorer's {@code chat-live} row, which hosts the workspace's Scope chip while Chat is live (P6b); it never changes. */
+    @Override public tomato.gui.kit.FilterBar liveFilterBar() { return explorer.liveFilterBar(); }
 
     /** Compatibility entry point for application notices. Notices appear in All and System. */
     public static void appendTextAreaChat(String text) {
