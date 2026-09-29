@@ -54,6 +54,13 @@ public class LoggingFilterBarTest {
                         evidence.capture("logging-filter-row-" + tab);
                         FilterBar bar = bar(view);
                         assertFalse(tab + ": the drawer starts closed", bar.drawerOpen());
+                        // Measured in the real shell's content area (sidebar and page padding), not the bare frame width.
+                        assertNotNull(SwingUtilities.getAncestorOfClass(tomato.gui.modern.WorkspaceShell.class, bar));
+                        System.out.println("Logging " + tab + " filter bar width=" + bar.getWidth());
+                        assertTrue(tab + ": the bar has the shell's content width (" + bar.getWidth() + ")", bar.getWidth() > 900 && bar.getWidth() < 1100);
+                        // The default state has no chips, so Clear (which would change nothing) is hidden.
+                        assertEquals(tab + ": no active filters by default", 0, bar.activeCount());
+                        assertFalse(tab + ": no Clear in the default state", VisualEvidence.named(bar, "logging-clear-filters", AbstractButton.class).isVisible());
                         JCheckBox collection = field(view, "enabled", JCheckBox.class), pause = field(view, "freeze", JCheckBox.class);
                         assertEquals("Pause this view", pause.getText());
                         assertTrue(tab + ": collection shows", collection.isShowing()); assertTrue(tab + ": Pause shows", pause.isShowing());
@@ -82,18 +89,32 @@ public class LoggingFilterBarTest {
                         return null;
                     });
                 }
-                // One short chip (and Clear) still fits beside the search slot.
-                edt(() -> { tabGroup(view).select("events"); search(view).setText("800"); return null; });
-                evidence.settle();
-                edt(() -> {
-                    evidence.capture("logging-filter-row-events-one-chip");
-                    FilterBar bar = bar(view);
-                    assertEquals(Collections.singletonList("Search: 800"), chips(bar));
-                    AbstractButton clear = VisualEvidence.named(bar, "logging-clear-filters", AbstractButton.class);
-                    int searchY = SwingUtilities.convertPoint(search(view), 0, 0, bar).y, clearY = SwingUtilities.convertPoint(clear, 0, 0, bar).y;
-                    assertTrue("a single chip and Clear stay on the search row", Math.abs(clearY - searchY) < search(view).getHeight());
-                    search(view).setText(""); return null;
-                });
+                // One short non-default chip and Clear still fit beside the search slot, in the shell.
+                String[][] cases = {{"events", "Search: 800"}, {"packets", "Observed packets"}};
+                for (String[] chip : cases) {
+                    edt(() -> {
+                        tabGroup(view).select(chip[0]);
+                        if ("events".equals(chip[0])) search(view).setText("800"); else field(view, "observedOnly", JCheckBox.class).doClick();
+                        return null;
+                    });
+                    evidence.settle();
+                    edt(() -> {
+                        evidence.capture("logging-filter-row-" + chip[0] + "-one-chip");
+                        FilterBar bar = bar(view);
+                        assertEquals(Collections.singletonList(chip[1]), chips(bar));
+                        AbstractButton clear = VisualEvidence.named(bar, "logging-clear-filters", AbstractButton.class);
+                        assertTrue(chip[1] + ": Clear shows once a filter differs from the default", clear.isShowing());
+                        int searchY = SwingUtilities.convertPoint(search(view), 0, 0, bar).y;
+                        for (Component part : new Component[]{removers(bar).get(0), clear, field(view, "enabled", JCheckBox.class)}) {
+                            int y = SwingUtilities.convertPoint(part, 0, 0, bar).y + part.getHeight() / 2;
+                            assertTrue(chip[1] + ": " + part.getName() + " stays on the search row", y > searchY && y < searchY + search(view).getHeight());
+                        }
+                        clear.doClick();
+                        assertEquals(chip[1] + ": Clear restores the defaults", new LoggingQuery().metadata(), view.captureViewState().tabs.get(chip[0]).query.metadata());
+                        assertFalse(chip[1] + ": and hides again", clear.isVisible());
+                        return null;
+                    });
+                }
                 edt(() -> {
                     KitButton coverage = coverage(view);
                     assertEquals(KitButton.Variant.GHOST, coverage.variant());
@@ -165,6 +186,34 @@ public class LoggingFilterBarTest {
                 return null;
             });
         }
+    }
+
+    @Test public void aCutChipKeepsItsFullTextAsTooltipAndDescription() throws Exception {
+        try (DiscoveryLog log = LoggingQueryTest.fixture()) {
+            LoggingGUI view = view(log, LoggingStateTestSupport.memoryStore());
+            String text = "serverLastTimeRTTMS and a deliberately long literal search for the chip";
+            String full = "Search: " + text, shown = full.substring(0, 45) + "…";
+            edt(() -> {
+                tabGroup(view).select("events"); search(view).setText(text);
+                assertCutChip(bar(view), shown, full);
+                // A bar rebuild (the drawer is swapped for Discovery and back) recreates the chips; the full text stays.
+                tabGroup(view).select("discovery"); tabGroup(view).select("events");
+                assertCutChip(bar(view), shown, full);
+                search(view).setText("short");
+                AbstractButton close = removers(bar(view)).get(0);
+                assertNotEquals("an uncut chip needs no extra description", full, close.getAccessibleContext().getAccessibleDescription());
+                return null;
+            });
+        }
+    }
+
+    private static void assertCutChip(FilterBar bar, String shown, String full) {
+        assertEquals(Collections.singletonList(shown), chips(bar));
+        AbstractButton close = removers(bar).get(0); JComponent chip = (JComponent) close.getParent();
+        assertEquals("the chip's tooltip carries the full text", full, chip.getToolTipText());
+        assertEquals("the chip's accessible description carries the full text", full, chip.getAccessibleContext().getAccessibleDescription());
+        assertEquals("Remove filter: " + full, close.getToolTipText());
+        assertEquals(full, close.getAccessibleContext().getAccessibleDescription());
     }
 
     @Test public void overflowItemsRunTheViewStateMethodsAndDiagnosticActions() throws Exception {

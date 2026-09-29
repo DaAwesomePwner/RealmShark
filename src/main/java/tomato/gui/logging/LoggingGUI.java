@@ -39,7 +39,8 @@ public final class LoggingGUI extends JPanel {
         "FOR_RECONNECT", "RECONNECT", "HELLO", "QUEUE_INFORMATION", "FAILURE", "MAPINFO", "LOAD", "CREATE_SUCCESS"));
     private final DiscoveryLog log;
     private final JLabel summary = new JLabel(), losses = new JLabel(), exportStatus = new JLabel(" ");
-    private final JTextField search = new JTextField(12); // 12 columns: one chip and Clear still fit the row at 1240×800, font 13.
+    // 10 columns: in the shell at 1240×800, font 13, one short chip and Clear still fit the row.
+    private final JTextField search = new JTextField(10);
     private final JCheckBox observedOnly = new JCheckBox("Observed packets only");
     private final JCheckBox issuesOnly = new JCheckBox("Packet issues only");
     private final JCheckBox freeze = new JCheckBox("Pause this view");
@@ -56,6 +57,7 @@ public final class LoggingGUI extends JPanel {
         }
     };
     private boolean narrowRow;
+    private final Map<String,String> cutChips = new HashMap<>(); // Shown (cut) chip label → full text.
     // ⋯ items: disk samples and the sampling rate are collector settings, not view state.
     private final JCheckBoxMenuItem save = new JCheckBoxMenuItem("Save diagnostic samples");
     private final JRadioButtonMenuItem sampled = new JRadioButtonMenuItem("Sampled"), detailed = new JRadioButtonMenuItem("Detailed");
@@ -114,7 +116,7 @@ public final class LoggingGUI extends JPanel {
         exportSource.setName("logging-export-source"); exportSource.getAccessibleContext().setAccessibleName("Diagnostic export source");
         search.setToolTipText("Literal search of displayed columns and retained nested stat names, IDs, objects and values");
         search.setName("logging-search");search.getAccessibleContext().setAccessibleName("Search logging views");
-        search.putClientProperty("JTextField.placeholderText", "Search logging views…");
+        search.putClientProperty("JTextField.placeholderText", "Search this tab…"); // Each tab keeps its own search.
         reset.setName("logging-reset"); reset.setToolTipText("Clear this tab's search and facets");
         reset.addActionListener(e -> resetFilters());
         searchRow = new WrapRow(search, reset);
@@ -432,16 +434,35 @@ public final class LoggingGUI extends JPanel {
             observedOnly.setSelected(packets.filters.observed); issuesOnly.setSelected(packets.filters.issues);
             // Discovery has no facets, so it has no drawer and no Filters toggle; the open state is kept for the other tabs.
             JComponent drawer=active==discoveries ? null : facets;
-            if (filterBar.drawerContent()!=drawer) FilterChips.keepingFocus(() -> filterBar.drawer(drawer));
+            if (filterBar.drawerContent()!=drawer) { FilterChips.keepingFocus(() -> filterBar.drawer(drawer)); describeCutChips(filterBar); }
         } finally { refreshing=before; }
     }
     /** A removable chip; its action reads the displayed tab's query when clicked, so a kept chip never clears another tab. */
     private FilterBar.ActiveFilter chip(String label, java.util.function.Consumer<LoggingQuery> clear) {
-        return new FilterBar.ActiveFilter(label.length()>48 ? label.substring(0,45) + "…" : label,
-            () -> { clear.accept(activeTable().filters); updateFacets(); filter(); });
+        String shown=label.length()>48 ? label.substring(0,45) + "…" : label;
+        if (!shown.equals(label)) cutChips.put(shown, label);
+        return new FilterBar.ActiveFilter(shown, () -> { clear.accept(activeTable().filters); updateFacets(); filter(); });
+    }
+    /**
+     * FilterBar shows a cut label; the full text goes back on the chip and its remove button as tooltip and accessible
+     * description. Runs after anything that can rebuild the bar's chips.
+     */
+    private void describeCutChips(Container root) {
+        for (Component child:root.getComponents()) {
+            if (child instanceof AbstractButton && "remove-filter".equals(child.getName())) {
+                AbstractButton close=(AbstractButton)child; String name=close.getAccessibleContext().getAccessibleName();
+                String full=name!=null && name.startsWith("Remove filter: ") ? cutChips.get(name.substring("Remove filter: ".length())) : null;
+                if (full==null || full.equals(close.getAccessibleContext().getAccessibleDescription())) continue;
+                close.setToolTipText("Remove filter: " + full); close.getAccessibleContext().setAccessibleDescription(full);
+                if (close.getParent() instanceof JComponent) {
+                    JComponent chip=(JComponent)close.getParent();
+                    chip.setToolTipText(full); chip.getAccessibleContext().setAccessibleDescription(full);
+                }
+            } else if (child instanceof Container) describeCutChips((Container)child);
+        }
     }
     private void updateChips() {
-        LoggingQuery q=activeTable().filters; List<FilterBar.ActiveFilter> active=new ArrayList<>();
+        LoggingQuery q=activeTable().filters; List<FilterBar.ActiveFilter> active=new ArrayList<>(); cutChips.clear();
         if (!q.text.isEmpty()) active.add(chip("Search: " + q.text, c -> search.setText("")));
         if (!q.packet.isEmpty()) active.add(chip("Packet: " + q.packet, c -> c.packet=""));
         if (q.stat!=null) active.add(chip("Stat: " + q.stat, c -> c.stat=null));
@@ -453,8 +474,10 @@ public final class LoggingGUI extends JPanel {
         if (q.changed) active.add(chip("Changed values", c -> c.changed=false));
         if (q.observed) active.add(chip("Observed packets", c -> c.observed=false));
         if (q.issues) active.add(chip("Packet issues", c -> c.issues=false));
-        // Unchanged labels keep the existing chips, so background refreshes leave keyboard targets intact. Clear = Reset filters.
-        FilterChips.update(filterBar, active, this::resetFilters, false);
+        // Unchanged labels keep the existing chips, so background refreshes leave keyboard targets intact. Clear runs Reset
+        // filters, and only while something differs from the tab's defaults (every chip is a non-default value).
+        FilterChips.update(filterBar, active, active.isEmpty() ? null : this::resetFilters, false);
+        describeCutChips(filterBar);
     }
     private void resetFilters() { activeTable().filters=new LoggingQuery(); search.setText(""); updateFacets(); filter(); }
     /** Collection and Pause use the row's right slot when it has room; on narrow rows they wrap after Reset filters. */
@@ -469,6 +492,7 @@ public final class LoggingGUI extends JPanel {
             filterBar.scope(narrow ? null : trailing);
             searchRow.revalidate(); trailing.revalidate();
         });
+        describeCutChips(filterBar);
     }
     private void fitRow() { SwingUtilities.invokeLater(() -> { boolean narrow=narrowFit(); if (narrow!=narrowRow) placeTrailing(narrow); }); }
     private boolean narrowFit() {
