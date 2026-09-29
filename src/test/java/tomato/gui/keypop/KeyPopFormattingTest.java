@@ -27,8 +27,9 @@ public class KeyPopFormattingTest {
             Locale.setDefault(Locale.Category.FORMAT, Locale.US);
             TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             SwingUtilities.invokeAndWait(() -> {
-                view[0] = new KeyPopDashboard(history);
-                assertEquals("2,000", view[0].metrics[0].getText());
+                // Analyst: the absolute time text and zone tooltip (Simple reads these cells relatively since P6b).
+                view[0] = new KeyPopDashboard(history, false, new tomato.gui.kit.DisplayModeModel(key -> "analyst", (key, value) -> { }));
+                assertEquals("2,000", view[0].metrics[0].valueText());
                 assertEquals("1,790", cell(view[0].players, 0, 1));
                 assertEquals("10.5%", cell(view[0].players, 1, 6));
                 assertEquals("0", cell(view[0].players, 1, 3));
@@ -40,7 +41,7 @@ public class KeyPopFormattingTest {
             TimeZone.setDefault(TimeZone.getTimeZone("Europe/Berlin"));
             SwingUtilities.invokeAndWait(() -> {
                 KeyPopDashboard ui = view[0]; ui.refresh();
-                assertEquals("2.000", ui.metrics[0].getText());
+                assertEquals("2.000", ui.metrics[0].valueText());
                 assertEquals("1.790", cell(ui.players, 0, 1));
                 assertEquals("10,5%", cell(ui.players, 1, 6));
                 assertEquals("2026-01-02 04:04:05", cell(ui.events, 0, 0));

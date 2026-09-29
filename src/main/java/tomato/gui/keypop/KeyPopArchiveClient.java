@@ -10,8 +10,12 @@ import javax.swing.*;
 import tomato.gui.chat.SocialQueryControls;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitTables;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 
@@ -41,11 +45,17 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
                 e.kind==KeyPopEvent.Kind.KEY?1:0,e.kind==KeyPopEvent.Kind.RUNE?1:0,e.kind==KeyPopEvent.Kind.VIAL?1:0,e.kind==KeyPopEvent.Kind.INC?1:0,1,denominator);
         }
     }
+    /** The saved modes' tab IDs in Mode order (the customizable tab group {@code keypops-saved}); a query stores the mode, never a tab. */
+    static final String[] MODE_TABS={"events","by-player","by-item"};
+    private static final String[] MODE_TITLES={"Events","By player","By dungeon / item"};
     private final Path scratch;
+    private final DisplayModeModel mode;
     private long generation;
-    private ArchiveWorkspace<Row,Facets,Sort> workspace;
-    public void bind(ArchiveWorkspace<Row,Facets,Sort> workspace){this.workspace=workspace;}
-    public KeyPopArchiveClient(Path scratch) { this.scratch=scratch; }
+    /** Kept for callers that bind their workspace; exports are the workspace ⋯'s since the view's duplicate export went. */
+    public void bind(ArchiveWorkspace<Row,Facets,Sort> workspace){ }
+    public KeyPopArchiveClient(Path scratch) { this(scratch,DisplayModeModel.application()); }
+    /** {@code mode} decides how the time column reads: relative in Simple, absolute in Analyst (display only). */
+    KeyPopArchiveClient(Path scratch,DisplayModeModel mode) { this.scratch=scratch;this.mode=Objects.requireNonNull(mode,"mode"); }
     public static ArchiveQuery<Facets,Sort> query() { return ArchiveQuery.of(ArchiveQuery.CURRENT,new Facets(),Facets.class,Sort.TIME)
         .withOrder(Collections.singletonList(new ArchiveQuery.Order<>(Sort.TIME,ArchiveQuery.Direction.DESCENDING))); }
     public ArchiveQuery<Facets,Sort> initialQuery(){return query();}
@@ -138,8 +148,12 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
     public JComponent render(ArchivePage<Row> page,ViewState<Facets,Sort> initial,Binding<Facets,Sort> binding){
         long ticket=++generation;SocialQueryControls.State<Row,Facets,Sort> state=new SocialQueryControls.State<>(initial,binding,()->generation==ticket);
         rendered=state;renderedBinding=binding;Facets f=initial.query.facets();
-        JTabbedPane tabs=new JTabbedPane();tabs.setName("keypop-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        for(String tab:Arrays.asList("Events","By player","By dungeon / item"))tabs.addTab(tab,new JPanel());tabs.setSelectedIndex(f.mode.ordinal());
+        // The modes are customizable tabs (spec §4.4), built per render over the shared keypops-saved order; the pane keeps its name.
+        // The query's mode is the content shown, so its tab is revealed even when hidden; choosing another tab queries that mode.
+        CustomizableTabs modes=new CustomizableTabs("keypops-saved");JTabbedPane tabs=modes.component();tabs.setName("keypop-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        Map<Mode,JPanel> holders=new EnumMap<>(Mode.class);
+        for(Mode m:Mode.values()){JPanel holder=new JPanel(new BorderLayout());holders.put(m,holder);modes.add(MODE_TABS[m.ordinal()],MODE_TITLES[m.ordinal()],holder);}
+        modes.show(MODE_TABS[f.mode.ordinal()]);modes.select(MODE_TABS[f.mode.ordinal()]);
         JTextArea detail=ContentStyle.wrappingText("Select a row for its full values.");detail.setName("keypop-archive-detail");
         List<HistoryTables.Column<Row,?>> columns=new ArrayList<>();Map<String,Sort> sorts=new LinkedHashMap<>();
         if(f.mode!=Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("player","Player",String.class,r->r.player,null,ColumnKind.PLAYER));sorts.put("player",Sort.PLAYER);}
@@ -156,31 +170,20 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
             columns.add(new HistoryTables.Column<>("share","Share %",Double.class,r->r.share,null,ColumnKind.PERCENT));sorts.put("share",Sort.SHARE);
         }
         JTable table=HistoryTables.queried("keypop-archive-rows",columns,page,sorts,initial.query,state::query,row->{Row r=row.value;detail.setText((r.mode==Mode.EVENTS?"Event":"Whole-query summary")+" · "+r.player+" "+r.item+"\n"+r.pops+" / "+r.matchingEvents+" matching observed pop events = "+r.share+"%. Callouts excluded.\n"+"Last/event timestamp: "+r.time+" · "+r.kind);});
+        KitTables.relativeTime(table,"time",mode,KitTables::epoch,DisplayFormat.timestampZoneLabel());   // "12 min ago" in Simple, absolute in Analyst
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&table.getSelectedRow()>=0)table.getActionMap().get("archive-details").actionPerformed(null);});
         JScrollPane scroll=ContentStyle.tableScroll(table,3);JPanel body=new JPanel(new BorderLayout(0,4));body.add(scroll);
         Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("All columns",new ArrayList<>(sorts.keySet()));presets.put("Compact",f.mode==Mode.EVENTS?Arrays.asList("player","item","time","kind"):f.mode==Mode.BY_PLAYER?Arrays.asList("player","pops","share"):Arrays.asList("item","pops","players","share"));
-        state.tableTools(table,scroll,page,f.mode.name(),presets);tabs.setComponentAt(f.mode.ordinal(),body);   // tools go to the workspace ⋯ via filters()
-        tabs.addChangeListener(e->{Mode mode=Mode.values()[tabs.getSelectedIndex()];if(mode==f.mode)return;state.tab(mode.name());Facets next=state.value.query.facets();next.mode=mode;
-            state.query(state.value.query.withFacets(next).withOrder(Collections.singletonList(new ArchiveQuery.Order<>(mode==Mode.EVENTS?Sort.TIME:Sort.POPS,ArchiveQuery.Direction.DESCENDING))));});
+        state.tableTools(table,scroll,page,f.mode.name(),presets);holders.get(f.mode).add(body);   // tools go to the workspace ⋯ via filters()
+        modes.onSelect(id->{int index=Arrays.asList(MODE_TABS).indexOf(id);if(index<0||index==f.mode.ordinal())return;Mode chosen=Mode.values()[index];
+            state.tab(chosen.name());Facets next=state.value.query.facets();next.mode=chosen;
+            state.query(state.value.query.withFacets(next).withOrder(Collections.singletonList(new ArchiveQuery.Order<>(chosen==Mode.EVENTS?Sort.TIME:Sort.POPS,ArchiveQuery.Direction.DESCENDING))));});
         JPanel actions=ContentStyle.controls();JButton drill=new JButton(f.mode==Mode.BY_ITEM?"Show this item's events":"Show this player's events");drill.setEnabled(f.mode!=Mode.EVENTS);
         drill.addActionListener(e->{int index=table.getSelectedRow();if(index<0)return;Row row=page.rows.get(index).value;Facets next=state.value.query.facets();
             if(f.mode==Mode.BY_PLAYER)next.exactPlayer=row.player;else next.items=new LinkedHashSet<>(Collections.singleton(row.item));next.mode=Mode.EVENTS;state.tab(Mode.EVENTS.name());state.query(state.value.query.withFacets(next));});actions.add(drill);
-        String export=f.mode==Mode.EVENTS?"Export events":"Export current summary";
-        JButton exportCurrent = new JButton(export + " (all matches)…"); exportCurrent.setEnabled(workspace != null); actions.add(exportCurrent);
-        exportCurrent.addActionListener(e -> {
-            if (!state.active() || workspace == null || workspace.loading()) return;
-            Object format = JOptionPane.showInputDialog(tabs, page.description() + "\n" + SocialQueryControls.boundsLabel(initial.query.bounds(),false)
-                + "\nRevision " + page.revision, export, JOptionPane.PLAIN_MESSAGE, null, ArchiveExport.Format.values(), ArchiveExport.Format.CSV);
-            if (!(format instanceof ArchiveExport.Format) || !state.active()) return;
-            JFileChooser chooser = new JFileChooser(); chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            if (chooser.showSaveDialog(tabs) != JFileChooser.APPROVE_OPTION || !state.active()) return;
-            try {
-                if (workspace.displayedPage() == null || !page.revision.equals(workspace.displayedPage().revision)) throw new IllegalStateException("Displayed revision changed; retry export.");
-                workspace.exportTo(chooser.getSelectedFile().toPath(), "keypops-" + f.mode.name().toLowerCase(Locale.ROOT), ExportSelection.all(), (ArchiveExport.Format)format);
-            } catch (IOException | RuntimeException failure) { detail.setText("Export not started: " + failure.getMessage()); }
-        });
+        String export=f.mode==Mode.EVENTS?"Export events":"Export this summary";
         long denominator=page.counts.containsKey("events")?page.counts.get("events").value:0;
-        JTextArea note=ContentStyle.wrappingText(page.description()+"\n"+denominator+" matching observed pop events across the whole query; callouts excluded from totals and share denominator.\n"+export+": use workspace Export selected / page / all matches, CSV or JSON. The export follows this tab's pinned rows.");note.setName("keypop-archive-population");
+        JTextArea note=ContentStyle.wrappingText(page.description()+"\n"+denominator+" matching observed pop events across the whole query; callouts excluded from totals and share denominator.\n"+export+": ⋯ Export selected / page / all matches, as CSV or JSON. The export follows this tab's pinned rows.");note.setName("keypop-archive-population");
         JPanel footer=new JPanel(new BorderLayout(0,4));footer.add(actions,BorderLayout.NORTH);footer.add(detail);footer.add(note,BorderLayout.SOUTH);
         JComponent view = ContentStyle.page(null,tabs,footer); state.owner(view); return view;
     }

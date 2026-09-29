@@ -51,7 +51,7 @@ public class ExactContributorTest {
             ui.players.setRowSelectionInterval(ann, ann);
             ui.players.getActionMap().get("show-events").actionPerformed(new ActionEvent(ui.players, 0, "Enter"));
             assertEquals(2, ui.events.getRowCount()); assertEquals("an halls", ui.search.getText());
-            assertEquals("2", ui.metrics[0].getText()); assertEquals(1, ui.players.getRowCount());
+            assertEquals("2", ui.metrics[0].valueText()); assertEquals(1, ui.players.getRowCount());
             assertTrue(ui.playerChip.getText().startsWith("Player equals Ann"));
             assertEquals(2, ui.filteredEvents().size()); for (KeyPopEvent event : ui.filteredEvents()) assertFalse(event.csvLine().contains("Anna"));
             ui.type.setSelectedItem("Vial"); assertEquals(0, ui.events.getRowCount());
