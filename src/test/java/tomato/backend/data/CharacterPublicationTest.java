@@ -23,6 +23,8 @@ import tomato.backend.TomatoPacketCapture;
 import tomato.gui.character.CharacterPetsGUI;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.stats.FameTablePanel;
+import tomato.gui.stats.LootCapture;
+import tomato.gui.stats.LootFacts;
 import tomato.gui.stats.LootGUI;
 import tomato.realmshark.LootDelivery;
 import tomato.realmshark.RealmCharacter;
@@ -44,14 +46,15 @@ public class CharacterPublicationTest {
     private String roster;
     private CharacterPetsGUI pets;
     private FameTablePanel fame;
-    private LootGUI loot;
+    private LootCapture loot;
     private SendLoot.Session sharing;
 
     @Before public void isolateModelsAndViews() throws Exception {
         onEdt(() -> {
             for (Class<?> type : new Class<?>[]{CharacterPetsGUI.class, FameTablePanel.class, LootGUI.class})
                 replaceStatic(type, "INSTANCE", null);
-            replaceStatic(LootGUI.class, "data", null);
+            // Loot capture left the UI (P6a): isolate the app's LootCapture instead of LootGUI's former static game data.
+            replaceStatic(LootCapture.class, "instance", null);
         });
         savedExalts = RealmCharacter.exalts;
         RealmCharacter.exalts = new TreeMap<>();
@@ -303,13 +306,13 @@ public class CharacterPublicationTest {
         data.charListHttpRequest(); assertTrue(data.awaitMetadataIdle(2000)); data.rememberCharacter();
     }
 
+    /** Installs a capture on a fake sharing session as the app's; TomatoData's static LootGUI calls reach it, with no page built. */
     private void openLoot() throws Exception {
         sharing = new SendLoot.Session(new LootDelivery(() -> { throw new AssertionError("Tracking tests must not connect"); }, 2, false, false));
         data.setPropList("itemPings", new ArrayList<>());
-        onEdt(() -> {
-            Constructor<LootGUI> constructor = LootGUI.class.getDeclaredConstructor(TomatoData.class, SendLoot.Session.class);
-            constructor.setAccessible(true); loot = constructor.newInstance(data, sharing);
-        });
+        Constructor<LootCapture> constructor = LootCapture.class.getDeclaredConstructor(TomatoData.class, SendLoot.Session.class);
+        constructor.setAccessible(true); loot = constructor.newInstance(data, sharing);
+        onEdt(() -> replaceStatic(LootCapture.class, "instance", loot));
     }
 
     private void observeLoot() {
@@ -318,9 +321,12 @@ public class CharacterPublicationTest {
         LootGUI.update(null, bag, null, data.player, 1000);
     }
 
-    private int[] lootTotals() throws Exception {
-        Method totals = loot.getDashboard().getClass().getDeclaredMethod("sessionTotals"); totals.setAccessible(true);
-        return (int[])totals.invoke(loot.getDashboard());
+    /** Bags and items the capture recorded, from its feed's detached snapshot. */
+    private int[] lootTotals() {
+        List<LootFacts.Bag> bags = loot.feed().snapshot("live");
+        int items = 0;
+        for (LootFacts.Bag bag : bags) items += bag.items().size();
+        return new int[]{bags.size(), items};
     }
 
     private void seasonal(boolean value) { StatData stat = new StatData(); stat.statValue = value ? 1 : 0; data.player.stat.set(StatType.SEASONAL, stat); }

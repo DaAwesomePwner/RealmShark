@@ -21,12 +21,17 @@ import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.*;
 import tomato.realmshark.enums.CharacterStatistics;
 import tomato.realmshark.enums.CharacterClass;
-import tomato.realmshark.enums.LootBags;
 
+/**
+ * Statistics › Loot: the Live log beside a sibling loot explorer. Capture no longer runs here (P6a): {@link LootCapture} records
+ * each drop, plays sounds, pings and shares; this page attaches its dashboard to the capture's feed and registers the log as a
+ * sink. The static API TomatoData and the menu call delegates to {@link LootCapture} and {@link LootFilters}.
+ */
 public class LootGUI extends JPanel {
 
     private static volatile LootGUI INSTANCE;
-    private final LootDashboard dashboard = new LootDashboard();
+    private final LootCapture capture;
+    private final LootDashboard dashboard;
     private final Deque<LootEntry> pending = new ArrayDeque<>();
     private boolean renderQueued, clearRequested;
     static final int LOG_LIMIT = LootDashboard.RECENT_LIMIT;
@@ -34,39 +39,26 @@ public class LootGUI extends JPanel {
 
     public LootDashboard getDashboard() { return dashboard; }
 
-    private static TomatoData data;
-
     private boolean cleared;
-
-    private volatile boolean update;
 
     private final JPanel lootPanel;
 
     private static Font mainFont;
 
     private int lootDrops;
-    private final SendLoot.Session sharing;
     private final JTextArea sharingStatus = new JTextArea(2, 0);
     private final JTextArea sharingDetails = new JTextArea(10, 48);
     private final Timer sharingRefresh;
-    public static boolean filterWhiteBag = false;
-    public static boolean filterOrangeBag = false;
-    public static boolean filterRedBag = false;
-    public static boolean filterGoldBag = false;
-    public static boolean filterEggBag = false;
-    public static boolean filterBlueBag = false;
-    public static boolean filterTealBag = false;
-    public static boolean filterPurpleBag = false;
-    public static boolean filterPinkBag = false;
-    public static boolean filterBrownBag = false;
 
+    /** The app's page: binds the game data to the app's capture (null keeps it unbound, as a preview page does). */
     public LootGUI(TomatoData data) {
-        this(data, SendLoot.session());
+        this(data == null ? LootCapture.get() : LootCapture.get().bind(data));
     }
 
-    LootGUI(TomatoData data, SendLoot.Session sharing) {
-        this.sharing = sharing;
-        LootGUI.data = data;
+    LootGUI(LootCapture capture) {
+        this.capture = capture;
+        // The app's primary live view: the Loot page's live card is this dashboard, so it attaches to the capture's feed.
+        dashboard = new LootDashboard(capture.feed());
         lootDrops = 0;
         INSTANCE = this;
         setLayout(new BorderLayout());
@@ -128,10 +120,14 @@ public class LootGUI extends JPanel {
                 else sharingRefresh.stop();
             }
         });
+        Link link = new Link(this, capture);
+        capture.addSink(link);
+        LootFilters.get().addListener(link);
     }
 
     /** Poll once per visible refresh, never enqueue a Swing event per delivery/counter change. */
     void refreshDeliveryStatus() {
+        SendLoot.Session sharing = capture.sharing();
         LootDelivery.Status status = sharing.snapshot();
         String text = "Legacy loot sharing: " + status.state
             + "\nQueued total: " + status.queued + " · Waiting: " + status.waiting
@@ -168,15 +164,16 @@ public class LootGUI extends JPanel {
         update(map,bag,dropper,player,time,DropContext.capture(map,player,time,null));
     }
 
+    /** TomatoData's entry point; the app's capture records the drop whether or not this page was built. */
     public static void update(MapInfoPacket map,Entity bag,Entity dropper,Entity player,long time,DropContext context){
-        INSTANCE.updateGui(map,bag,dropper,player,time,context);
+        LootCapture.get().update(map,bag,dropper,player,time,context);
     }
 
     public static void updateExaltStats() {
+        LootCapture.get().updateExaltStats();
         LootGUI view = INSTANCE;
         if (view == null) return;
         synchronized (view.pending) {
-            view.update = true;
             if (!view.cleared) {
                 view.cleared = true;
                 view.clearRequested = true;
@@ -185,35 +182,39 @@ public class LootGUI extends JPanel {
         }
     }
 
-    private void updateGui(
-        MapInfoPacket map,
-        Entity bag,
-        Entity dropper,
-        Entity player,
-        long time, DropContext context
-    ) {
-        if (player == null || !update) return;
-
-        dashboard.receive(map, bag, dropper, time,context);
-        LootEntry entry = new LootEntry(map, bag, dropper, player, time);
+    /** Capture thread (a {@link LootCapture} sink): copies the row's stats and queues one bounded EDT render. */
+    private void enqueue(LootCapture.Observed drop) {
+        LootEntry entry = new LootEntry(drop);
         synchronized (pending) {
             entry.number = ++lootDrops;
             pending.addLast(entry);
             if (pending.size() > LOG_LIMIT) pending.removeFirst();
             queueRender();
         }
+    }
 
-        // play() applies the enable/mute/volume gates itself, so a matching bag whose sound is
-        // turned off is still recorded as a "Matched · alert off" decision; nothing more plays.
-        if (isWhiteBag(bag)) Sound.whitebag.play();
-        if (isOrangeBag(bag)) Sound.orangebag.play();
-        if (isRedBag(bag)) Sound.redbag.play();
-        if (isGoldBag(bag)) Sound.goldbag.play();
-        if (isEggBag(bag)) Sound.eggbag.play();
-        if (isBlueBag(bag)) Sound.bluebag.play();
-        notifyItems(bag, Sound.custom::play,
-            () -> sharing.sendLoot(data, map, bag, dropper, player, time));
+    /**
+     * Holds the log weakly: the app's capture and the filter model outlive a page that is built and dropped (tests, rebuilt
+     * shells), and a dropped page unregisters itself on the next event.
+     */
+    private static final class Link implements LootCapture.LootSink, Runnable {
+        private final java.lang.ref.WeakReference<LootGUI> view;
+        private final LootCapture capture;
 
+        Link(LootGUI view, LootCapture capture) { this.view = new java.lang.ref.WeakReference<>(view); this.capture = capture; }
+
+        @Override public void accept(LootCapture.Observed drop) {
+            LootGUI log = view.get();
+            if (log == null) unlink(); else log.enqueue(drop);
+        }
+
+        /** Filter Loot changed (EDT). */
+        @Override public void run() {
+            LootGUI log = view.get();
+            if (log == null) unlink(); else log.applyBagFilters();
+        }
+
+        private void unlink() { capture.removeSink(this); LootFilters.get().removeListener(this); }
     }
 
     /** Called with pending locked. Capture never constructs Swing components or waits for Swing. */
@@ -244,56 +245,12 @@ public class LootGUI extends JPanel {
         }
     }
 
-    /** Local alerts precede optional sharing. Callbacks allow verification without audio or networking. */
-    void notifyItems(Entity bag, java.util.function.LongConsumer alert, Runnable share) {
-        StatData unique = bag.stat.get(StatType.UNIQUE_DATA_STRING);
-        String[] enchants = unique == null || unique.stringStatValue == null
-            ? new String[0] : unique.stringStatValue.split(",", -1);
-        for (int slot = 0; slot < 8; slot++) {
-            StatData item = bag.stat.get(StatType.INVENTORY_0_STAT.get() + slot);
-            if (item == null || item.statValue < 1) continue;
-            String name = IdToAsset.objectName(item.statValue);
-            String enchantText = notificationEnchants(slot < enchants.length ? enchants[slot] : null);
-            boolean enchantMatch = !enchantText.isEmpty() && data.isEnchantPing(enchantText);
-            // Records the item decision (match or no match); several matching rules still describe one dropped item.
-            long decision = tomato.realmshark.AlertDecisions.lootItem(data.getItemPings(), item.statValue, name, enchantText, enchantMatch);
-            if (decision != 0) alert.accept(decision);
-        }
-        if (sharing.isEnabled()) share.run();
+    /** Filter Loot (the same model the menu writes); other or unknown bags always show. */
+    private static boolean isBagVisible(Entity bag) {
+        return LootFilters.get().showsBag(bag.objectType);
     }
 
-    private static String notificationEnchants(String encoded) {
-        if (ParseEnchants.summarize(encoded).applied <= 0) return "";
-        try {
-            // Valid URL Base64 may omit padding; the legacy ID decoder requires complete groups.
-            while (encoded.length() % 4 != 0) encoded += "=";
-            StringBuilder text = new StringBuilder();
-            // Unlike the legacy display parser, include applied enchants after empty/locked slots.
-            for (short id : ParseEnchants.extractEnchantIds(encoded)) {
-                text.append(ParseEnchants.ENCHANTS.getOrDefault(id, "Unknown"))
-                    .append('(').append(id).append(")\n");
-            }
-            return text.toString();
-        } catch (RuntimeException e) {
-            // One malformed slot must not suppress other item alerts or ordinary bag processing.
-            return "";
-        }
-    }
-
-    private boolean isBagVisible(Entity bag) {
-        if (isWhiteBag(bag) && !filterWhiteBag) return false;
-        if (isOrangeBag(bag) && !filterOrangeBag) return false;
-        if (isRedBag(bag) && !filterRedBag) return false;
-        if (isGoldBag(bag) && !filterGoldBag) return false;
-        if (isEggBag(bag) && !filterEggBag) return false;
-        if (isBlueBag(bag) && !filterBlueBag) return false;
-        if (isTealBag(bag) && !filterTealBag) return false;
-        if (isPurpleBag(bag) && !filterPurpleBag) return false;
-        if (isPinkBag(bag) && !filterPinkBag) return false;
-        if (isBrownBag(bag) && !filterBrownBag) return false;
-        return true; // Show if no filter prevents it
-    }
-
+    /** Re-applies Filter Loot to the log; changes also arrive through {@link LootFilters} listeners. */
     public static void applyFilters() {
         LootGUI view = INSTANCE;
         if (view != null) onEdt(view::applyBagFilters);
@@ -312,74 +269,6 @@ public class LootGUI extends JPanel {
         }
         lootPanel.revalidate();
         lootPanel.repaint();
-    }
-
-    private boolean isBrownBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.BROWN.getId() || id == LootBags.BOOSTED_BROWN.getId()
-        );
-    }
-
-    private boolean isPinkBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.PINK.getId() || id == LootBags.BOOSTED_PINK.getId()
-        );
-    }
-
-    private boolean isPurpleBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.PURPLE.getId() ||
-            id == LootBags.BOOSTED_PURPLE.getId()
-        );
-    }
-
-    private boolean isTealBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.TEAL.getId() || id == LootBags.BOOSTED_TEAL.getId()
-        );
-    }
-
-    private boolean isBlueBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.BLUE.getId() || id == LootBags.BOOSTED_BLUE.getId()
-        );
-    }
-
-    private boolean isWhiteBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.WHITE.getId() || id == LootBags.BOOSTED_WHITE.getId()
-        );
-    }
-
-    private boolean isOrangeBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.ORANGE.getId() ||
-            id == LootBags.BOOSTED_ORANGE.getId()
-        );
-    }
-
-    private boolean isRedBag(Entity bag) {
-        int id = bag.objectType;
-        return id == LootBags.RED.getId() || id == LootBags.BOOSTED_RED.getId();
-    }
-
-    private boolean isGoldBag(Entity bag) {
-        int id = bag.objectType;
-        return (
-            id == LootBags.GOLD.getId() || id == LootBags.BOOSTED_GOLD.getId()
-        );
-    }
-
-    private boolean isEggBag(Entity bag) {
-        int id = bag.objectType;
-        return id == LootBags.EGG.getId() || id == LootBags.BOOSTED_EGG.getId();
     }
 
     private static JPanel createMainBox(LootEntry entry) {
@@ -586,7 +475,7 @@ public class LootGUI extends JPanel {
     }
 
     private static void displayDungeonIcon(MapInfoPacket map, JPanel panel) {
-        displayDungeonIcon(map, panel, map != null && "Moonlight Village".equals(map.name) && data != null ? data.getMoonlightFlameCount() : 0);
+        displayDungeonIcon(map, panel, LootCapture.get().flames(map));
     }
 
     private static void displayDungeonIcon(MapInfoPacket map, JPanel panel, int flames) {
@@ -648,10 +537,9 @@ public class LootGUI extends JPanel {
         if (view != null) onEdt(() -> view.handleFontUpdate(font));
     }
 
+    /** File › Opt-out Loot Sharing; the app's capture owns the legacy sharing session. */
     public static void lootSharing(boolean b) {
-        LootGUI view = INSTANCE;
-        if (view == null) SendLoot.session().setEnabled(!b);
-        else view.sharing.setEnabled(!b);
+        LootCapture.get().lootSharing(b);
     }
 
     private static String time() {
@@ -700,7 +588,11 @@ public class LootGUI extends JPanel {
         final String timestamp = time();
         int number;
 
-        LootEntry(MapInfoPacket source, Entity bag, Entity dropper, Entity player, long time) {
+        /** Capture thread; the flame count is the one capture observed (the capture also schedules its reset). */
+        LootEntry(LootCapture.Observed drop) {
+            MapInfoPacket source = drop.map();
+            Entity bag = drop.bag(), dropper = drop.dropper(), player = drop.player();
+            long time = drop.time();
             this.bag = copyStats(bag);
             this.player = copyStats(player);
             mob = dropper == null ? 100 : dropper.objectType;
@@ -714,14 +606,7 @@ public class LootGUI extends JPanel {
                 map.dungeonModifiers3 = source.dungeonModifiers3; map.dungeonModifiers4 = source.dungeonModifiers4;
                 map.dungeonGrade = source.dungeonGrade;
             }
-            flames = source != null && "Moonlight Village".equals(source.name) ? data.getMoonlightFlameCount() : 0;
-            if (flames > 0) {
-                TomatoData capturedData = data;
-                onEdt(() -> {
-                    Timer reset = new Timer(5000, e -> capturedData.resetMoonlightFlames());
-                    reset.setRepeats(false); reset.start();
-                });
-            }
+            flames = drop.flames();
         }
 
         private static Entity copyStats(Entity source) {

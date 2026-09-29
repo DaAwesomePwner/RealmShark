@@ -21,10 +21,12 @@ import tomato.gui.history.FilterChips;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.FilterBar;
 
-/** Session summaries shared by Statistics and the Loot workspace; filters are view-local. */
+/** Session summaries shared by Statistics and the Loot workspace; the live state is a headless {@link Feed}; filters are view-local. */
 public final class LootDashboard extends JPanel {
     static final int RECENT_LIMIT = 1000;
+    private final Feed feed;
     private final State state;
+    private final List<LootDashboard> siblings = new ArrayList<>();   // guarded by state
     private final boolean historical;
     private final JLabel[] metrics = new JLabel[4];
     private final JLabel results = new JLabel();
@@ -54,13 +56,17 @@ public final class LootDashboard extends JPanel {
     private final FilterBar filterBar = new FilterBar("loot-live");
     private Runnable clearFilters = () -> {};
 
-    public LootDashboard() { this(new State()); }
-    LootDashboard(LootDashboard shared) { this(shared.state); }
-    private LootDashboard(State state) {
-        this(state,false);
+    /** A view over a private feed (tests and fixtures); the app attaches its live views to {@code LootCapture.get().feed()}. */
+    public LootDashboard() { this(new Feed()); }
+    /** A live view attached to {@code feed}: it shows every bag the feed receives and refreshes on the EDT. */
+    public LootDashboard(Feed feed) { this(feed, false); }
+    /** A sibling view of {@code shared}'s feed; {@link #bindSiblingViewState} binds the siblings made this way. */
+    LootDashboard(LootDashboard shared) {
+        this(shared.feed, false);
+        synchronized (state) { shared.siblings.add(this); }
     }
-    private LootDashboard(State state, boolean historical) {
-        super(new BorderLayout(0, 8)); this.state = state;this.historical=historical;
+    private LootDashboard(Feed feed, boolean historical) {
+        super(new BorderLayout(0, 8)); this.feed = feed; this.state = feed.state;this.historical=historical;
         scopeNote.setText(scopeDescription());
         synchronized (state) { state.views.add(this); }
         bagFilter.setName("loot-bag-filter"); dungeonFilter.setName("loot-dungeon-filter"); recentRange.setName("loot-recent-range");
@@ -134,7 +140,8 @@ public final class LootDashboard extends JPanel {
         for(int i=0;i<tables.length;i++){final int view=i;viewState.table(tables[i],scrolls[i],row->row<rowKeys.get(view).size()?rowKeys.get(view).get(row):"");}
         rebuildFacetControls();invalidateScope();
     }
-    void bindSiblingViewState(ViewStateStore store,String key){List<LootDashboard> siblings;synchronized(state){siblings=new ArrayList<>(state.views);}for(LootDashboard sibling:siblings)if(sibling!=this)sibling.bindViewState(store,key);}
+    /** Binds the views made from this one ({@link #LootDashboard(LootDashboard)}), never other views that share the app's feed. */
+    void bindSiblingViewState(ViewStateStore store,String key){List<LootDashboard> bound;synchronized(state){bound=new ArrayList<>(siblings);}for(LootDashboard sibling:bound)sibling.bindViewState(store,key);}
     private void rememberFacets(){if(viewState!=null)viewState.put("facets",tomato.history.SessionStore.JSON.toJson(facets));}
     private static LootQuery.View liveView(int index){LootQuery.View[] live={LootQuery.View.ITEMS,LootQuery.View.POTIONS,LootQuery.View.WHITES,LootQuery.View.BAGS,LootQuery.View.RECENT,LootQuery.View.DUNGEONS,LootQuery.View.UTS,LootQuery.View.STS,LootQuery.View.TIERED};return index<0?LootQuery.View.ITEMS:live[index];}
     void applyFacets(LootQuery.Facets next){
@@ -153,23 +160,7 @@ public final class LootDashboard extends JPanel {
         receive(map,bag,dropper,time,DropContext.capture(map,time,null));
     }
     public void receive(MapInfoPacket map, Entity bag, Entity dropper, long time, DropContext context) {
-        List<Item> contents = new ArrayList<>();
-        StatData unique = bag.stat.get(StatType.UNIQUE_DATA_STRING);
-        String[] encoded = unique == null || unique.stringStatValue == null ? new String[0] : unique.stringStatValue.split(",", -1);
-        for (int slot = 0; slot < 8; slot++) {
-            StatData stat = bag.stat.get(StatType.INVENTORY_0_STAT.get() + slot);
-            if (stat != null && stat.statValue > 0) {
-                int id = stat.statValue;
-                contents.add(new Item(id, name(id), IdToAsset.getIdLabel(id),
-                    ParseEnchants.evidence(slot < encoded.length ? encoded[slot] : null)));
-            }
-        }
-        String type = LootBags.lootBagName(bag.objectType);
-        Drop drop = new Drop(type == null ? "Unknown (" + bag.objectType + ")" : type,
-            map == null ? "Unknown" : tomato.realmshark.ParseDungeon.canonicalMapName(map), dropper == null ? "Unknown" : name(dropper.objectType), time, contents,
-            packets.packetcapture.logger.DiscoveryLog.INSTANCE.currentVisitId(),context);
-        tomato.history.AppHistory.append("loot", drop);
-        accept(drop);
+        feed.receive(map, bag, dropper, time, context);
     }
     private static String name(int id) { String value = IdToAsset.objectName(id); return value == null || value.isEmpty() ? "Item #" + id : value; }
     private static boolean white(String bag) { return bag.equals("White") || bag.equals("B.White"); }
@@ -179,24 +170,78 @@ public final class LootDashboard extends JPanel {
             + DisplayFormat.formatInteger(RECENT_LIMIT) + " bags by timestamp (ties: session and record order); item summaries retain " + (historical ? "the selected session scope." : "the full app session.");
     }
 
-    void accept(Drop drop) {
-        acceptAll(Collections.singletonList(drop));
-    }
+    void accept(Drop drop) { feed.accept(drop); }
 
-    /** Records detached drops immediately; one queued EDT refresh serves a burst and every shared view. */
-    void acceptAll(Collection<Drop> drops) {
-        synchronized (state) {
-            if (drops.isEmpty()) return;
-            for (Drop drop : drops) accumulate(state, drop, "", state.sequence++);
-            state.version++;
-            if (state.refreshQueued) return;
-            state.refreshQueued = true;
+    void acceptAll(Collection<Drop> drops) { feed.acceptAll(drops); }
+
+    /**
+     * The live loot state, headless (P6a): the one place a captured bag is recorded to saved history ({@code loot}, once per bag
+     * however many views are attached) and aggregated for the live views. It never touches Swing except through one queued
+     * {@code invokeLater} that refreshes its attached views, so capture threads only hand data off.
+     */
+    public static final class Feed {
+        private final State state = new State();
+
+        public Feed() { }
+
+        /** Capture thread: detaches the bag's contents, records them to saved history and to this feed's views. */
+        public void receive(MapInfoPacket map, Entity bag, Entity dropper, long time, DropContext context) {
+            List<Item> contents = new ArrayList<>();
+            StatData unique = bag.stat.get(StatType.UNIQUE_DATA_STRING);
+            String[] encoded = unique == null || unique.stringStatValue == null ? new String[0] : unique.stringStatValue.split(",", -1);
+            for (int slot = 0; slot < 8; slot++) {
+                StatData stat = bag.stat.get(StatType.INVENTORY_0_STAT.get() + slot);
+                if (stat != null && stat.statValue > 0) {
+                    int id = stat.statValue;
+                    contents.add(new Item(id, name(id), IdToAsset.getIdLabel(id),
+                        ParseEnchants.evidence(slot < encoded.length ? encoded[slot] : null)));
+                }
+            }
+            String type = LootBags.lootBagName(bag.objectType);
+            Drop drop = new Drop(type == null ? "Unknown (" + bag.objectType + ")" : type,
+                map == null ? "Unknown" : tomato.realmshark.ParseDungeon.canonicalMapName(map), dropper == null ? "Unknown" : name(dropper.objectType), time, contents,
+                packets.packetcapture.logger.DiscoveryLog.INSTANCE.currentVisitId(),context);
+            tomato.history.AppHistory.append("loot", drop);
+            accept(drop);
         }
-        SwingUtilities.invokeLater(() -> {
-            List<LootDashboard> shared;
-            synchronized (state) { state.refreshQueued = false; shared = new ArrayList<>(state.views); }
-            for (LootDashboard view : shared) view.refresh();
-        });
+
+        void accept(Drop drop) {
+            acceptAll(Collections.singletonList(drop));
+        }
+
+        /** Records detached drops immediately; one queued EDT refresh serves a burst and every attached view. */
+        void acceptAll(Collection<Drop> drops) {
+            synchronized (state) {
+                if (drops.isEmpty()) return;
+                for (Drop drop : drops) accumulate(state, drop, "", state.sequence++);
+                state.version++;
+                if (state.refreshQueued) return;
+                state.refreshQueued = true;
+            }
+            SwingUtilities.invokeLater(() -> {
+                List<LootDashboard> shared;
+                synchronized (state) { state.refreshQueued = false; shared = new ArrayList<>(state.views); }
+                for (LootDashboard view : shared) view.refresh();
+            });
+        }
+
+        /** Bags received so far (one per bag; a nudge for readers that re-read when it changes). Any thread. */
+        public long revision() { synchronized (state) { return state.sequence; } }
+
+        /**
+         * A detached, read-only copy of the retained live bags (at most {@value LootDashboard#RECENT_LIMIT}, oldest first as a saved
+         * session reads), projected like saved loot ({@link LootFacts#bag}) under {@code session}. Any thread.
+         */
+        public List<LootFacts.Bag> snapshot(String session) {
+            synchronized (state) {
+                List<LootFacts.Bag> bags = new ArrayList<>(state.recent.size());
+                for (Recent entry : state.recent) bags.add(LootFacts.bag(session, entry.drop));
+                return Collections.unmodifiableList(bags);
+            }
+        }
+
+        /** True once more bags were received than {@link #snapshot} keeps (the live list holds only the latest bags). */
+        public boolean capped() { synchronized (state) { return state.totalBags > state.recent.size(); } }
     }
 
     List<Drop> recentDrops() { synchronized (state) { return recentDrops(state); } }
@@ -224,11 +269,12 @@ public final class LootDashboard extends JPanel {
         if(state.recent.size()>RECENT_LIMIT)state.recent.pollFirst();
     }
     static final class Archive {
-        private final State state=new State();
+        private final Feed feed=new Feed();
+        private final State state=feed.state;
         private final Map<String, Long> ordinals = new HashMap<>();
         void accept(Drop drop){accept("",drop);}
         void accept(String session, Drop drop){long ordinal=ordinals.getOrDefault(session,0L);ordinals.put(session,ordinal+1);accumulate(state,drop,session,ordinal);state.version++;}
-        LootDashboard view(){return new LootDashboard(state,true);}
+        LootDashboard view(){return new LootDashboard(feed,true);}
     }
     void searchHistory(String query){search.setText(query);}
     int[] sessionTotals() { synchronized (state) { return new int[]{state.totalBags, state.totalItems}; } }
@@ -431,7 +477,8 @@ public final class LootDashboard extends JPanel {
         final Map<Integer, Icon> icons = new HashMap<>();
         final NavigableSet<Recent> recent = new TreeSet<>(Comparator.comparingLong((Recent r) -> r.drop.time)
             .thenComparing(r -> r.session).thenComparingLong(r -> r.ordinal));
-        final List<LootDashboard> views = new ArrayList<>();
+        // Weak: the app's feed outlives views that are built and dropped (tests, rebuilt pages); a shown view is strongly reachable.
+        final Set<LootDashboard> views = Collections.newSetFromMap(new WeakHashMap<>());
         long version, sequence;
         int totalBags, totalItems,shapeKeys;
         boolean refreshQueued,bagFacetsUnavailable;
