@@ -13,6 +13,10 @@ import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import tomato.realmshark.ParseEnchants;
+import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.StatTile;
+import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.Evidence;
@@ -27,8 +31,16 @@ public class MyInfoGUI extends JPanel {
     private BuildSnapshot pending;
     private boolean refreshScheduled, dirty;
     private long latestGeneration = -1;
-    private final JLabel status = new JLabel("Enter the game during capture to see your build.");
-    private final JLabel[] summary = new JLabel[4];
+    /** The status line without a captured character, and then every metric tile's reason. */
+    private static final String NO_BUILD = "Enter the game during capture to see your build.";
+    private static final String DPS_ASSUMPTIONS = "Local estimate against 0 defense, all projectiles hitting continuously. "
+        + "Does not model ability damage, condition effects, weapon enchants or practical uptime.";
+    private static final String MANA_ASSUMPTIONS = "Wisdom + supported enchants + pet Magic Heal. Does not model pet suppression.";
+    private final JLabel status = new JLabel(NO_BUILD);
+    /** Health, Mana, Weapon DPS and MP/sec: known or partial captured pairs, "≈" estimates, "—" with the reason. */
+    private final StatTile[] summary = new StatTile[4];
+    /** The shown weapon DPS estimate as a number (null when unavailable), for the recorded-DPS comparison. */
+    private Double weaponDps;
     private RecordedDpsPanel recordedDps;
     private final JLabel[] icons = new JLabel[4];
     private final JLabel[] equipmentNames = new JLabel[4];
@@ -359,23 +371,23 @@ public class MyInfoGUI extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel header = new JPanel(new BorderLayout(0, 8));
         header.add(status, BorderLayout.NORTH);
-        JPanel cards = ContentStyle.responsiveGrid(4, 155, 8);
-        String[] labels = {"Health", "Mana", "Weapon DPS (est.)", "MP/sec (est.)"};
+        // The kit's KPI tiles (fitContent: a column drops before a partial pair is cut); the estimates' "≈" replaces "(est.)",
+        // and each metric's Details stays a Ghost button under its tile.
+        JPanel cards = ContentStyle.responsiveGrid(4, 155, 8, true);
+        String[] labels = {"Health", "Mana", "Weapon DPS", "MP/sec"};
         for (int i = 0; i < 4; i++) {
-            JPanel card = new JPanel(new BorderLayout(0, 4)) {
-                @Override public void updateUI() { super.updateUI(); setBackground(ContentStyle.color("surface")); }
-            };
-            card.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-            JLabel caption = new JLabel(labels[i]); caption.setFont(ContentStyle.metadata(ContentStyle.body()));
-            card.add(caption, BorderLayout.NORTH);
-            summary[i] = new JLabel("—");
-            summary[i].setFont(ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 18f / ContentStyle.FONT_SIZE));
-            card.add(summary[i], BorderLayout.CENTER);
+            summary[i] = new StatTile(labels[i]);
+            summary[i].setValue(DisplayValue.unknown(NO_BUILD), null);
             final int metric = i;
-            JButton details = ContentStyle.detailsButton(labels[i], () -> showMetricDetails(labels[metric], metricDetails(metric)));
+            KitButton details = KitButton.ghost("Details…");
+            details.getAccessibleContext().setAccessibleName(labels[i] + " details");
+            details.addActionListener(e -> showMetricDetails(labels[metric], metricDetails(metric)));
             details.setName("myinfo-metric-" + i);
-            card.add(details, BorderLayout.SOUTH);
-            cards.add(card);
+            JPanel action = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
+            action.setOpaque(false); action.add(details);
+            JPanel cell = new JPanel(new BorderLayout(0, Tokens.XS));
+            cell.setOpaque(false); cell.add(summary[i], BorderLayout.CENTER); cell.add(action, BorderLayout.SOUTH);
+            cards.add(cell);
         }
         header.add(cards, BorderLayout.CENTER);
         JPanel equipment = ContentStyle.responsiveGrid(4, 155, 8);
@@ -390,10 +402,9 @@ public class MyInfoGUI extends JPanel {
             equipment.add(slot);
         }
         // INFO-2: historical recorded DPS stays separate from the current-build estimate cards above.
-        recordedDps = new RecordedDpsPanel(tomato.gui.dps.DpsGUI::recordedEncounters, () -> ("—".equals(summary[2].getText()) ? "weapon DPS (est.) unavailable" : summary[2].getText() + " weapon DPS (est.)")
+        // It reads the estimate as a number (the tile shows "≈ …") and is explained again after every update (updateMe).
+        recordedDps = new RecordedDpsPanel(tomato.gui.dps.DpsGUI::recordedEncounters, () -> (weaponDps == null ? "weapon DPS (est.) unavailable" : format(weaponDps) + " weapon DPS (est.)")
             + (outOfCombatCheck.isSelected() ? " · estimate scenario: out of combat" : " · estimate scenario: in combat"));
-        summary[2].addPropertyChangeListener("text", e -> recordedDps.explain());
-        outOfCombatCheck.addActionListener(e -> recordedDps.explain());
         header.add(equipment, BorderLayout.SOUTH);
 
         JPanel toolbar = ContentStyle.controls();
@@ -584,13 +595,15 @@ public class MyInfoGUI extends JPanel {
             selected = row.group + "/" + row.name;
         }
         rows = new ArrayList<>();
-        for (JLabel label : summary) label.setText("—");
+        weaponDps = null;
+        DisplayValue[] shown = new DisplayValue[4];
+        Arrays.fill(shown, DisplayValue.unknown(NO_BUILD));
         for (int i = 0; i < 4; i++) { icons[i].setIcon(null); equipmentNames[i].setText("Awaiting capture"); }
         if (player != null) {
             StatData name = player.stat.get(StatType.NAME_STAT);
             status.setText(name == null || name.stringStatValue == null ? "Captured character" : name.stringStatValue + " • Captured build");
-            summary[0].setText(pair(StatType.HP_STAT, StatType.MAX_HP_STAT));
-            summary[1].setText(pair(StatType.MP_STAT, StatType.MAX_MP_STAT));
+            shown[0] = pair(StatType.HP_STAT, StatType.MAX_HP_STAT, "Health", "Maximum health");
+            shown[1] = pair(StatType.MP_STAT, StatType.MAX_MP_STAT, "Mana", "Maximum mana");
             StatType[] stats = {StatType.HP_STAT, StatType.MAX_HP_STAT, StatType.MP_STAT, StatType.MAX_MP_STAT,
                 StatType.ATTACK_STAT, StatType.DEFENSE_STAT, StatType.SPEED_STAT, StatType.DEXTERITY_STAT,
                 StatType.VITALITY_STAT, StatType.WISDOM_STAT, StatType.EXALTATION_BONUS_DAMAGE};
@@ -613,13 +626,14 @@ public class MyInfoGUI extends JPanel {
                 add("Equipment", SLOT_NAMES[i], id, "item ID", item + (enchant.isEmpty() ? "" : "\n" + enchant));
                 if (i == 0) weapon = BuildEstimates.weapon(player);
             }
-            damage(weapon);
-            recovery(enchants);
+            List<String> dpsMissing = damage(weapon), manaMissing = recovery(enchants);
             BuildEstimates.Estimates estimates = BuildEstimates.of(player, pet, petAvailability, outOfCombatCheck.isSelected());
-            summary[2].setText(estimates.weaponDps() == null ? "—" : format(estimates.weaponDps()));
-            summary[3].setText(estimates.mpPerSecond() == null ? "—" : format(estimates.mpPerSecond()));
+            weaponDps = estimates.weaponDps();
+            shown[2] = estimate(estimates.weaponDps(), DPS_ASSUMPTIONS, String.join(", ", dpsMissing));
+            shown[3] = estimate(estimates.mpPerSecond(), scenario() + " • " + MANA_ASSUMPTIONS, String.join("; ", manaMissing));
             dust();
-        } else status.setText("Enter the game during capture to see your build.");
+        } else status.setText(NO_BUILD);
+        for (int i = 0; i < summary.length; i++) summary[i].setValue(shown[i], null);
         model.fireTableDataChanged();
         filter();
         if (selected != null) for (int i = 0; i < rows.size(); i++) {
@@ -630,14 +644,25 @@ public class MyInfoGUI extends JPanel {
                 break;
             }
         }
+        recordedDps.explain();   // the estimate or its scenario may have changed
     }
 
-    private void damage(Weapon weapon) {
+    /** "Estimate scenario: in combat" or "… out of combat", as the recovery rows and the MP/sec tile say it. */
+    private String scenario() { return "Estimate scenario: " + (outOfCombatCheck.isSelected() ? "out of combat" : "in combat"); }
+
+    /** An estimate tile: "≈ value" with its assumptions as the tooltip, or unknown ("—") naming the missing inputs. */
+    private static DisplayValue estimate(Double value, String assumptions, String missing) {
+        if (value != null && Double.isFinite(value)) return DisplayValue.estimate(format(value), assumptions);
+        return DisplayValue.unknown((missing.isEmpty() ? "Not enough captured data for this estimate." : "Missing inputs: " + missing + ".")
+            + " Details lists what the estimate needs.");
+    }
+
+    /** The weapon rows; returns the weapon estimate's missing inputs (empty when none is missing). */
+    private List<String> damage(Weapon weapon) {
         Double atk = stat(player, StatType.ATTACK_STAT), dex = stat(player, StatType.DEXTERITY_STAT),
             exalt = stat(player, StatType.EXALTATION_BONUS_DAMAGE);
         Double total = null;
-        String assumptions = "Local estimate against 0 defense, all projectiles hitting continuously. "
-            + "Does not model ability damage, condition effects, weapon enchants or practical uptime.";
+        String assumptions = DPS_ASSUMPTIONS;
         if (weapon != null && !weapon.bullets.isEmpty() && atk != null && dex != null && exalt != null) {
             total = 0d;
             int index = 1;
@@ -675,13 +700,15 @@ public class MyInfoGUI extends JPanel {
         add("Damage", "Ability damage", null, "dmg/sec", "Not implemented; excluded from damage estimates.");
         if (pet == null) add("Pet", "Pet capture", null, "", petAvailability == TomatoData.PetAvailability.ABSENT
             ? "Metadata reports no equipped pet." : "Pet data not yet known for this account, character and capture generation.");
+        return missing;
     }
 
-    private void recovery(ParseEnchants.EquippedCapture enchants) {
+    /** The recovery rows; returns the mana estimate's missing inputs (empty when none is missing). */
+    private List<String> recovery(ParseEnchants.EquippedCapture enchants) {
         Double wis = stat(player, StatType.WISDOM_STAT), maxMp = stat(player, StatType.MAX_MP_STAT),
             maxHp = stat(player, StatType.MAX_HP_STAT);
         Double hpEnchant = null;
-        String mode = "Estimate scenario: " + (outOfCombatCheck.isSelected() ? "out of combat" : "in combat");
+        String mode = scenario();
         String[] raw = enchants.completeCodes();
         Double manaEnchant = BuildEstimates.enchantMana(raw, maxMp, outOfCombatCheck.isSelected());
         if (raw != null && maxHp != null) hpEnchant = (double) ParseEnchants.getLifeRegenPerSecondFromEnchants(raw, maxHp.intValue(), outOfCombatCheck.isSelected());
@@ -698,11 +725,12 @@ public class MyInfoGUI extends JPanel {
         if (maxMp == null) missing.add("maximum mana not captured");
         if (raw == null) missing.add("incomplete or malformed equipped enchant data");
         if (petAvailability == TomatoData.PetAvailability.UNKNOWN) missing.add("pet metadata unknown for the current character");
-        add("Recovery", "Estimated mana recovery", total, "mana/sec", mode + " • Wisdom + supported enchants + pet Magic Heal. Does not model pet suppression. "
+        add("Recovery", "Estimated mana recovery", total, "mana/sec", mode + " • " + MANA_ASSUMPTIONS + " "
             + enchants.evidence() + (missing.isEmpty() ? "" : " Missing inputs: " + String.join("; ", missing) + ".")
             + (petAvailability == TomatoData.PetAvailability.ABSENT ? " Explicitly no equipped pet: pet contribution 0."
                 : petAvailability == TomatoData.PetAvailability.PRESENT && level < 1 ? " Complete pet metadata has no active Magic Heal: pet contribution 0." : ""));
         add("Recovery", "Enchant health recovery", hpEnchant, "hp/sec", mode + " • Partial estimate only. Base Vitality recovery and pet Heal are not included. " + enchants.evidence());
+        return missing;
     }
 
     private void dust() {
@@ -722,9 +750,13 @@ public class MyInfoGUI extends JPanel {
 
     private int getPetStat(int type) { return BuildEstimates.petStat(pet, type); }
 
-    private String pair(StatType current, StatType max) {
+    /** A captured "current / maximum" pair: known; partial with "—" for the missing side; unknown when neither was captured. */
+    private DisplayValue pair(StatType current, StatType max, String name, String maxName) {
         Double a = stat(player, current), b = stat(player, max);
-        return (a == null ? "—" : format(a)) + " / " + (b == null ? "—" : format(b));
+        if (a == null && b == null) return DisplayValue.unknown(name + " and " + maxName.toLowerCase(Locale.ROOT) + " not captured yet.");
+        String text = (a == null ? "—" : format(a)) + " / " + (b == null ? "—" : format(b));
+        if (a == null || b == null) return DisplayValue.partial(text, (a == null ? name : maxName) + " not captured yet.");
+        return DisplayValue.known(text, "Captured character values.");
     }
 
     private String itemName(int id) {

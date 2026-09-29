@@ -7,6 +7,7 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.gui.kit.StatTile;
 import static org.junit.Assert.*;
 import static tomato.gui.modern.FormattingTestSupport.*;
 
@@ -34,7 +35,7 @@ public class MyInfoFormattingTest {
                 assertEquals("—", value(table, "Green dust"));
                 assertEquals("—", value(table, "Red dust"));
                 assertEquals("0", value(table, "Purple dust"));
-                assertEquals("1,234,567 / —", field(view[0], "summary", JLabel[].class)[0].getText());
+                assertEquals("1,234,567 / — (partial)", field(view[0], "summary", StatTile[].class)[0].valueText());
             });
             Locale.setDefault(Locale.Category.FORMAT, Locale.GERMANY);
             SwingUtilities.invokeAndWait(() -> MyInfoGUI.updatePlayer(player));
@@ -43,7 +44,7 @@ public class MyInfoFormattingTest {
                 assertEquals("1.234.567", value(table, "Health"));
                 assertEquals("-1.200", value(table, "Attack"));
                 assertEquals("12345", value(table, "Ring"));
-                assertEquals("1.234.567 / —", field(view[0], "summary", JLabel[].class)[0].getText());
+                assertEquals("1.234.567 / — (partial)", field(view[0], "summary", StatTile[].class)[0].valueText());
                 named(view[0], null, JComboBox.class).setSelectedItem("Character");
                 assertEquals(Double.class, table.getColumnClass(2));
                 table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(2, SortOrder.ASCENDING)));

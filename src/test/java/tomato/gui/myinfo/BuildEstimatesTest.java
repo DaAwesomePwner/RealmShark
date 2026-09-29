@@ -8,6 +8,8 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.StatTile;
 import tomato.gui.modern.DisplayFormat;
 import static org.junit.Assert.*;
 import static tomato.gui.modern.FormattingTestSupport.field;
@@ -63,12 +65,12 @@ public class BuildEstimatesTest {
             SwingUtilities.invokeAndWait(() -> view[0] = new MyInfoGUI(data));
             MyInfoGuiTest.equipPet(data, BuildEstimates.MAGIC_HEAL); // Publishes the player with a known Magic Heal pet.
             SwingUtilities.invokeAndWait(() -> {
-                JLabel[] summary = field(view[0], "summary", JLabel[].class);
+                StatTile[] summary = field(view[0], "summary", StatTile[].class);
                 for (boolean outOfCombat : new boolean[]{false, true}) {
                     BuildEstimates.Estimates expected = BuildEstimates.of(player, data.pet, PRESENT, outOfCombat);
                     assertEquals(7200d, expected.weaponDps(), 1e-9); assertEquals(54d, expected.mpPerSecond(), 1e-9);
-                    assertEquals(DisplayFormat.formatNumber(expected.weaponDps(), 0, 2), summary[2].getText());
-                    assertEquals(DisplayFormat.formatNumber(expected.mpPerSecond(), 0, 2), summary[3].getText());
+                    assertEquals(DisplayValue.estimate(DisplayFormat.formatNumber(expected.weaponDps(), 0, 2), "-").text(), summary[2].valueText());
+                    assertEquals(DisplayValue.estimate(DisplayFormat.formatNumber(expected.mpPerSecond(), 0, 2), "-").text(), summary[3].valueText());
                     assertEquals(expected.weaponDps(), detail(view[0], "Weapon total"));
                     assertEquals(expected.mpPerSecond(), detail(view[0], "Estimated mana recovery"));
                     if (!outOfCombat) find(view[0], JCheckBox.class).doClick(); // "Estimate scenario: out of combat"

@@ -212,6 +212,7 @@ public class ContentStyleTest {
             layoutFrame = new JFrame(); layoutFrame.setContentPane(root);
             layoutFrame.setSize(1080, 720); layoutFrame.setVisible(true);
         });
+        settleResize(1080, 720, layouts);
         int[] widths = {1080, 800, 680, 500, 1080};
         int[] columns = {4, 2, 2, 1, 4};
         for (int i = 0; i < widths.length; i++) {
@@ -219,6 +220,7 @@ public class ContentStyleTest {
             SwingUtilities.invokeAndWait(() -> { layoutFrame.setSize(width, 720); layoutFrame.validate(); });
             SwingUtilities.invokeAndWait(() -> layoutFrame.validate());
             SwingUtilities.invokeAndWait(() -> layoutFrame.validate());
+            settleResize(width, 720, layouts);
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals("Header must reserve its children's new height at " + width,
                     header[0].getPreferredSize().height, header[0].getHeight());
@@ -235,6 +237,7 @@ public class ContentStyleTest {
                 }
             });
         }
+        settleResize(1080, 720, layouts);
         int[] settled = {0};
         SwingUtilities.invokeAndWait(() -> settled[0] = layouts[0]);
         for (int i = 0; i < 4; i++) SwingUtilities.invokeAndWait(() -> {});
@@ -342,6 +345,7 @@ public class ContentStyleTest {
             header[0].add(text[0]); root.add(header[0], BorderLayout.NORTH); root.add(new JPanel());
             layoutFrame = new JFrame(); layoutFrame.setContentPane(root); layoutFrame.setSize(820, 600); layoutFrame.setVisible(true);
         });
+        settleResize(820, 600, layouts);
         for (int width : new int[] {820, 460, 660, 460, 820}) {
             SwingUtilities.invokeAndWait(() -> {
                 layoutFrame.setSize(width, 600);
@@ -351,12 +355,14 @@ public class ContentStyleTest {
                 layoutFrame.validate();
             });
             for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> {});
+            settleResize(width, 600, layouts);
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals(text[0].getPreferredSize().height, text[0].getHeight());
                 assertEquals(header[0].getPreferredSize().height, header[0].getHeight());
                 assertTrue(text[0].getHeight() >= textViewHeight(text[0]));
             });
         }
+        settleResize(820, 600, layouts);
         int[] settled = {0}; SwingUtilities.invokeAndWait(() -> settled[0] = layouts[0]);
         for (int turn = 0; turn < 8; turn++) SwingUtilities.invokeAndWait(() -> {});
         SwingUtilities.invokeAndWait(() -> assertEquals("No feedback loop after the width settles", settled[0], layouts[0]));
@@ -440,6 +446,30 @@ public class ContentStyleTest {
                 } catch (BadLocationException e) { throw new AssertionError(e); }
             });
         }
+    }
+
+    /**
+     * Waits (about 2 s at most) until the shown frame has the requested size and its {@code layouts} counter has been unchanged
+     * for three consecutive EDT turns. On Xvfb the X server's ConfigureNotify replies to earlier setSize calls arrive late: one
+     * resizes the frame back to an earlier size, or lays it out once more, after a fixed number of turns. Each turn flushes the
+     * X connection and validates, so the checks and the "no loop" baseline start only after the last echo. It never asserts:
+     * a frame that does not settle meets the unchanged checks below, which then fail as before.
+     */
+    private void settleResize(int width, int height, int[] layouts) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        int last = -1, quiet = 0;
+        Dimension[] size = {null};
+        while (quiet < 3 && System.nanoTime() < deadline) {
+            int[] count = {0};
+            SwingUtilities.invokeAndWait(() -> {
+                Toolkit.getDefaultToolkit().sync(); layoutFrame.validate();
+                size[0] = layoutFrame.getSize(); count[0] = layouts[0];
+            });
+            quiet = size[0].width == width && size[0].height == height && count[0] == last ? quiet + 1 : 0;
+            last = count[0];
+            if (quiet < 3) Thread.sleep(10);
+        }
+        if (quiet < 3) System.out.println("settleResize: " + width + "x" + height + " not settled in 2 s (frame " + size[0] + ")");
     }
 
     private void settleMetadataLayout() throws Exception {

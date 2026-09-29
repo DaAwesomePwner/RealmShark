@@ -1624,11 +1624,32 @@ public class ShellHookIntegrationTest {
         }
         return contents;
     }
+    /**
+     * Whether an archive pin or result folder is still under {@code root}. The archive's cleanup worker deletes them while this
+     * walks, and {@code Files.walk} throws an UncheckedIOException (NoSuchFileException) for an entry deleted between being
+     * listed and being visited; such an entry is gone, so the walk skips it. Any other I/O failure still fails the test.
+     */
     private static boolean hasArchiveScratch(Path root) throws Exception {
-        try (Stream<Path> files = Files.walk(root)) {
-            return files.anyMatch(path -> path.getFileName().toString().startsWith("archive-pin-")
-                || path.getFileName().toString().startsWith("archive-result-"));
-        }
+        boolean[] found = {false};
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            private FileVisitResult check(Path path) {
+                String name = String.valueOf(path.getFileName());
+                if (!name.startsWith("archive-pin-") && !name.startsWith("archive-result-")) return FileVisitResult.CONTINUE;
+                found[0] = true;
+                return FileVisitResult.TERMINATE;
+            }
+            @Override public FileVisitResult preVisitDirectory(Path dir, java.nio.file.attribute.BasicFileAttributes attributes) { return check(dir); }
+            @Override public FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attributes) { return check(file); }
+            @Override public FileVisitResult visitFileFailed(Path file, java.io.IOException failure) throws java.io.IOException { return gone(failure); }
+            @Override public FileVisitResult postVisitDirectory(Path dir, java.io.IOException failure) throws java.io.IOException {
+                return failure == null ? FileVisitResult.CONTINUE : gone(failure);
+            }
+            private FileVisitResult gone(java.io.IOException failure) throws java.io.IOException {
+                if (failure instanceof NoSuchFileException) return FileVisitResult.CONTINUE;   // deleted since it was listed
+                throw failure;
+            }
+        });
+        return found[0];
     }
     private static AbstractButton button(Container root, String text) {
         for (Component c : root.getComponents()) {
