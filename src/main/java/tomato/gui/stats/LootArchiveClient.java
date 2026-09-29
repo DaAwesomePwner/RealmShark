@@ -21,9 +21,32 @@ import tomato.history.archive.*;
 
 /** One independently persisted workspace; every inner archive filter sends query intent upstream. */
 public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
-    private final Path scratch;private final boolean statistics;
-    public LootArchiveClient(Path scratch,boolean statistics){this.scratch=scratch;this.statistics=statistics;}
-    public ArchiveQuery<Facets,Sort> initialQuery(){return LootQuery.initial(statistics);}
+    private final Path scratch;
+    /** The views the tabs offer (a routed view outside them is still shown, as its own tab); null initial: {@link LootQuery#initial(boolean)}. */
+    private final Set<View> views;private final boolean statistics;private final ArchiveQuery<Facets,Sort> initial;
+    /** The Loot (statistics false: the loot views, rates and sessions) or Statistics (every view) workspace's client. */
+    public LootArchiveClient(Path scratch,boolean statistics){
+        this.scratch=scratch;this.statistics=statistics;this.initial=null;
+        Set<View> offered=EnumSet.noneOf(View.class);
+        for(View candidate:View.values())if(statistics||candidate!=View.FAME&&!candidate.counters()&&candidate!=View.COHORTS)offered.add(candidate);
+        views=Collections.unmodifiableSet(offered);
+    }
+    /**
+     * A client whose tabs offer only {@code views} (in the views' usual order), opening on {@code initial} (the Dungeons
+     * analysis: rates, sessions, counters, enemies, sources and cohorts). Queries, rows, drill-downs and exports are the
+     * Statistics workspace's, unchanged.
+     *
+     * @throws IllegalArgumentException when {@code views} is empty or does not offer {@code initial}'s view
+     */
+    public LootArchiveClient(Path scratch,Set<View> views,ArchiveQuery<Facets,Sort> initial){
+        this.scratch=scratch;this.statistics=true;this.initial=Objects.requireNonNull(initial,"initial");
+        if(views==null||views.isEmpty())throw new IllegalArgumentException("A workspace offers at least one view");
+        if(!views.contains(initial.facets().view))throw new IllegalArgumentException("The initial view "+initial.facets().view.name()+" is not offered");
+        this.views=Collections.unmodifiableSet(EnumSet.copyOf(views));
+    }
+    /** The views the tabs offer. */
+    public Set<View> views(){return views;}
+    public ArchiveQuery<Facets,Sort> initialQuery(){return initial!=null?initial:LootQuery.initial(statistics);}
     public Path scratchDirectory(){return scratch;}
     public int pageSize(){return 100;}
     public ArchiveAdapter<Row,Facets,Sort> adapter(ArchiveQuery<Facets,Sort> q){View view=q.facets().view;return view.loot()?new LootArchiveAdapter(q):view==View.COHORTS?new CohortArchiveAdapter(q):new StatisticsArchiveAdapter(q);}
@@ -105,7 +128,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
             super(new BorderLayout(0,5));this.page=page;this.current=state;this.binding=binding;View view=state.query.facets().view;
             JTabbedPane tabs=new JTabbedPane();tabs.setName("loot-archive-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-            List<View> views=new ArrayList<>();for(View candidate:View.values())if(statistics||candidate!=View.FAME&&!candidate.counters()&&candidate!=View.COHORTS)views.add(candidate);
+            List<View> views=new ArrayList<>();for(View candidate:View.values())if(LootArchiveClient.this.views.contains(candidate))views.add(candidate);
             if(!views.contains(view))views.add(view);for(View v:views)tabs.addTab(v.toString(),new JPanel());tabs.setSelectedIndex(views.indexOf(view));
             JPanel body=new JPanel(new BorderLayout(0,4));tabs.setComponentAt(tabs.getSelectedIndex(),body);add(tabs);
             JPanel top=new JPanel(new BorderLayout(0,4));

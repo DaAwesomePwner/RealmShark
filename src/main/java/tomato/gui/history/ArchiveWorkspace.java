@@ -17,9 +17,14 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
 
-/** EDT-owned typed SessionPanel path. Capture/live components remain independent of saved data. */
+/**
+ * EDT-owned typed SessionPanel path. Capture/live components remain independent of saved data. A saved-only workspace
+ * ({@link #savedOnly(SessionStore,String,ArchiveClient,ViewStateStore)}, the Dungeons analysis) has no live card and no Browse
+ * saved / Current live view toggle: every state it takes, restores or loads reads saved history.
+ */
 public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implements AutoCloseable {
     private final SessionStore store;private final String name;private final ArchiveClient<R,F,S> client;private final ViewStateStore states;
+    private final boolean savedOnly;
     private final SnapshotRefresh<Update<R>> refresh=new SnapshotRefresh<>();
     private final SnapshotRefresh<List<SessionStore.SessionEntry>> catalog=new SnapshotRefresh<>();
     private final JComboBox<Choice> sessions=new JComboBox<>();private final JTextField search=new JTextField(18);
@@ -49,15 +54,25 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
             restoreAdoptedSubtree(component);
     };
 
-    ArchiveWorkspace(SessionStore store,String name,JComponent live,ArchiveClient<R,F,S> client,ViewStateStore states){
-        super(new BorderLayout(0,6));requireEdt();this.store=store;this.name=name;this.client=client;this.states=states;
+    ArchiveWorkspace(SessionStore store,String name,JComponent live,ArchiveClient<R,F,S> client,ViewStateStore states){this(store,name,live,client,states,false);}
+    /**
+     * A workspace that only reads saved history: no live card, no Browse saved / Current live view toggle. It starts a read of
+     * its (saved or initial) state at once, so build it when it is first shown. EDT.
+     */
+    public static <R,F,S extends Enum<S>> ArchiveWorkspace<R,F,S> savedOnly(SessionStore store,String name,ArchiveClient<R,F,S> client,ViewStateStore states){
+        return new ArchiveWorkspace<>(store,name,null,client,states,true);
+    }
+    private ArchiveWorkspace(SessionStore store,String name,JComponent live,ArchiveClient<R,F,S> client,ViewStateStore states,boolean savedOnly){
+        super(new BorderLayout(0,6));requireEdt();this.store=store;this.name=name;this.client=client;this.states=states;this.savedOnly=savedOnly;
         if(client.pageSize()<1||client.pageSize()>1000)throw new IllegalArgumentException("Page size must be 1–1000");
-        state=ViewState.initial(client.initialQuery());
-        try{state=states.load(name,state);}catch(RuntimeException failure){stateLoadFailed=true;saveStatus.setText(failure.getMessage());}
+        if(!savedOnly)Objects.requireNonNull(live,"live");
+        state=admit(ViewState.initial(client.initialQuery()));
+        try{state=admit(states.load(name,state));}catch(RuntimeException failure){stateLoadFailed=true;saveStatus.setText(failure.getMessage());}
         setName(name+"-session-view");sessions.setName(name+"-session-picker");sessions.getAccessibleContext().setAccessibleName(name+" session");
         sessions.setToolTipText("Session scope");sessions.setPrototypeDisplayValue(new Choice("","Session · 2026-09-20 12:00:00"));
         DefaultListCellRenderer literal=new DefaultListCellRenderer();literal.putClientProperty("html.disable",true);sessions.setRenderer(literal);
-        cards.add(live,"live");cards.add(saved,"saved");
+        if(!savedOnly)cards.add(live,"live");
+        cards.add(saved,"saved");if(savedOnly)status.setText("Saved history");
         search.setName(name+"-history-search");search.getAccessibleContext().setAccessibleName("Search all saved "+name+" records");
         search.putClientProperty("JTextField.placeholderText","Search entire scope; press Enter");
         filterBar=new FilterBar(name);scopeRow.setOpaque(false);OverflowMenu more=filterBar.overflow();
@@ -75,7 +90,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         footer.setName(name+"-archive-footer");footer.add(paging,BorderLayout.NORTH);footer.add(texts,BorderLayout.CENTER);
         add(ContentStyle.page(filterBar,cards,footer));
         sessions.addActionListener(e->{if(!restoring){Choice selected=(Choice)sessions.getSelectedItem();if(selected!=null)selectSession(selected.id);}});
-        browse.addActionListener(e->{state=state.withArchive(!state.archive);persist();request(false);});
+        browse.addActionListener(e->{if(savedOnly)return;state=state.withArchive(!state.archive);persist();request(false);});
         reload.addActionListener(e->{reloadCatalog();request(true);});
         stop.addActionListener(e->{invalidateView();cancel.cancel();refresh.invalidate();loading=false;status.setText("Read cancelled. Refresh to retry.");updateActions();});
         search.addActionListener(e->changeQuery(state.query.withText(search.getText())));
@@ -90,6 +105,10 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         reloadNames();syncControls();reloadCatalog();request(false);
     }
     private static void requireEdt(){if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("Workspace changes require the EDT");}
+    /** A saved-only workspace reads saved history in every state it takes; others take the state as it is. */
+    private ViewState<F,S> admit(ViewState<F,S> value){return savedOnly&&!value.archive?value.withArchive(true):value;}
+    /** Whether this workspace only reads saved history (no live card and no Browse saved / Current live view toggle). */
+    public boolean savedOnly(){return savedOnly;}
     public ViewState<F,S> state(){requireEdt();return state;}
     public ArchivePage<R> displayedPage(){requireEdt();return displayed;}
     public boolean loading(){requireEdt();return loading;}
@@ -97,7 +116,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
     public FilterBar filterBar(){requireEdt();return filterBar;}
     public void selectSession(String id){
         requireEdt();String scope=store.currentId().equals(id)?ArchiveQuery.CURRENT:id;
-        state=state.withQuery(state.query.withScope(scope)).withArchive(!ArchiveQuery.CURRENT.equals(scope));persist();syncControls();request(false);
+        state=admit(state.withQuery(state.query.withScope(scope)).withArchive(!ArchiveQuery.CURRENT.equals(scope)));persist();syncControls();request(false);
     }
     public void showSaved(){requireEdt();state=state.withArchive(true);persist();request(false);}
     public void changeQuery(ArchiveQuery<F,S> query){
@@ -112,26 +131,26 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         requireEdt();Objects.requireNonNull(value,"state");if(closed)return;
         ArchiveQuery<F,S> typed=client.initialQuery().restore(value.query.toJson());
         if(!typed.equals(value.query))throw new IllegalArgumentException("State belongs to a different workspace");
-        state=value;persist();syncControls();request(false);
+        state=admit(value);persist();syncControls();request(false);
     }
     public void selectPage(long page){requireEdt();if(page<0)throw new IllegalArgumentException("Negative page");state=state.withPage(page);persist();request(false);}
     public void refresh(){requireEdt();request(true);}
     public CompletionStage<PreferencesStore.SaveResult> saveNamed(String label){requireEdt();CompletionStage<PreferencesStore.SaveResult> save=states.saveNamed(name,label,state);watchSave(save);reloadNames();return save;}
     public void loadNamed(String label){
-        requireEdt();try{state=states.loadNamed(name,label,ViewState.initial(client.initialQuery()));persist();syncControls();request(false);}
+        requireEdt();try{state=admit(states.loadNamed(name,label,ViewState.initial(client.initialQuery())));persist();syncControls();request(false);}
         catch(RuntimeException failure){saveStatus.setText("Saved view was not applied: "+failure.getMessage());}
     }
     /** Scope controls use the row's right slot when it has room; on narrow rows they wrap after the search field. */
     private void fitScope(){if(!closed)SwingUtilities.invokeLater(()->{if(!closed&&narrowFit()!=narrowScope)placeScope(!narrowScope);});}
     private boolean narrowFit(){
-        int needed=search.getPreferredSize().width+browse.getPreferredSize().width+sessions.getPreferredSize().width+reload.getPreferredSize().width
+        int needed=search.getPreferredSize().width+(savedOnly?0:browse.getPreferredSize().width)+sessions.getPreferredSize().width+reload.getPreferredSize().width
             +filterBar.overflow().getPreferredSize().width+14*search.getFontMetrics(search.getFont()).charWidth('m');
         return filterBar.getWidth()>0&&filterBar.getWidth()<needed;
     }
     private void placeScope(boolean narrow){
         narrowScope=narrow;FilterChips.keepingFocus(()->{
             searchRow.removeAll();scopeRow.removeAll();searchRow.add(search);
-            JPanel target=narrow?searchRow:scopeRow;target.add(browse);target.add(sessions);target.add(reload);
+            JPanel target=narrow?searchRow:scopeRow;if(!savedOnly)target.add(browse);target.add(sessions);target.add(reload);
             filterBar.search(searchRow).scope(narrow?null:scopeRow);
         });
     }
@@ -156,7 +175,7 @@ public final class ArchiveWorkspace<R,F,S extends Enum<S>> extends JPanel implem
         Object label=JOptionPane.showInputDialog(this,"Delete which saved view?","Delete view",JOptionPane.PLAIN_MESSAGE,null,names.toArray(),names.get(0));
         if(label==null||closed)return;watchSave(states.deleteNamed(name,label.toString()));reloadNames();
     }
-    private void resetSavedState(){watchSave(states.reset(name));stateLoadFailed=false;state=ViewState.initial(client.initialQuery());reloadNames();syncControls();request(true);}
+    private void resetSavedState(){watchSave(states.reset(name));stateLoadFailed=false;state=admit(ViewState.initial(client.initialQuery()));reloadNames();syncControls();request(true);}
     private void syncControls(){
         restoring=true;try{
             if(sessions.getItemCount()==0){sessions.addItem(new Choice(ArchiveQuery.CURRENT,"Current Session"));sessions.addItem(new Choice(SessionStore.ALL,"All Sessions"));}
