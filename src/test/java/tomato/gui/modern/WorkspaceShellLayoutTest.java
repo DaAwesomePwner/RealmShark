@@ -142,17 +142,17 @@ public class WorkspaceShellLayoutTest {
     @Test public void hidingARowNeverAnchorsOnAHiddenRowAndFocusFallsToThePage() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Map<String, JComponent> pages = TestPages.placeholders();
-            JButton build = new JButton("Estimate");
-            pages.get("my-info").add(build);
+            JButton statistics = new JButton("Estimate");
+            pages.get("statistics").add(statistics);
             WorkspaceShell shell = new WorkspaceShell(pages, () -> {}, true, null, null, null, new NavLayout(store::get, store::put));
             JFrame frame = new JFrame("Hidden row focus");
             frame.setContentPane(shell); frame.setSize(1240, 800); frame.setVisible(true);   // the focus traversal policy orders only a showing window
             try {
-                shell.select("my-info");   // Build: unlisted, no row
+                shell.select("statistics");   // Statistics: unlisted, no row
                 click(shell.contextMenu("loot"), "nav-menu-hide");
                 assertFalse(named(shell, "nav-loot", AbstractButton.class).isVisible());
-                assertNull("No visible row to anchor on while Build is current", shell.scrollAnchor());
-                assertSame("Focus goes into Build, which has no row", build, shell.focusTarget("my-info"));
+                assertNull("No visible row to anchor on while Statistics is current", shell.scrollAnchor());
+                assertSame("Focus goes into Statistics, which has no row", statistics, shell.focusTarget("statistics"));
                 click(shell.contextMenu("characters"), "nav-menu-show-loot");
                 shell.select("loot");
                 click(shell.contextMenu("loot"), "nav-menu-hide");   // the current page's own row
@@ -226,18 +226,23 @@ public class WorkspaceShellLayoutTest {
             shell.select("loot");
             assertTrue("A hidden page shows while it is current", loot.isVisible());
             assertFalse(bridge.isVisible());
-            shell.select("my-info");
+            shell.select("statistics");
             assertFalse(loot.isVisible());
-            assertFalse("Build never shows in the sidebar, even while current", named(shell, "nav-my-info", AbstractButton.class).isVisible());
+            assertFalse("Statistics never shows in the sidebar, even while current", named(shell, "nav-statistics", AbstractButton.class).isVisible());
         });
     }
 
     @Test public void titlesAndRoutesKeepTheirPageIndices() throws Exception {
-        assertEquals(15, NavEntry.defaults().size());
+        assertEquals(13, NavEntry.defaults().size());
         assertEquals("home", WorkspaceShell.pageOf(Destination.HOME));
-        assertEquals("my-info", WorkspaceShell.pageOf(Destination.MY_INFO));
+        assertEquals("Build is a tab of the character sheet, on the Characters page", "characters", WorkspaceShell.pageOf(Destination.MY_INFO));
         assertEquals("Home", TestPages.title("home"));
-        assertEquals("Build", TestPages.title("my-info"));
+        assertEquals("Characters", TestPages.title(WorkspaceShell.pageOf(Destination.MY_INFO)));
+        for (Destination destination : Destination.values()) {
+            String page = WorkspaceShell.pageOf(destination);
+            if (destination == Destination.ALERT_DRAFT) assertNull("A draft opens beside the current page", page);
+            else assertNotNull("Every destination maps to a real page: " + destination, NavEntry.forId(page));
+        }
         assertEquals("Party", TestPages.title(WorkspaceShell.pageOf(Destination.INSPECT)));
         assertEquals("Quests", TestPages.title(WorkspaceShell.pageOf(Destination.QUESTS)));
         assertEquals("Settings", TestPages.title(WorkspaceShell.pageOf(Destination.NOTIFICATIONS)));
@@ -252,47 +257,42 @@ public class WorkspaceShellLayoutTest {
         });
     }
 
-    @Test public void altHOpensHomeAndBuildNeverTakesASidebarRowOrMenuEntry() throws Exception {
+    @Test public void altHOpensHomeAndBuildHasNoPageRowOrMenuEntry() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
             InputMap keys = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
             assertEquals("page-home", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_H, InputEvent.ALT_DOWN_MASK)));
-            assertEquals("Build keeps Alt+7", "page-my-info", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
+            assertNull("No page owns Alt+7: TomatoGUI binds it to the Build route", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK)));
             assertEquals("Home  (Alt+H)", named(shell, "nav-home", AbstractButton.class).getToolTipText());
             JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
             assertEquals(KeyStroke.getKeyStroke(KeyEvent.VK_H, InputEvent.ALT_DOWN_MASK), named(popup, "compact-nav-home", JMenuItem.class).getAccelerator());
             shell.getActionMap().get("page-home").actionPerformed(null);
             assertEquals("home", shell.selectedPage());
             assertEquals("Home", named(shell, "page-title", JLabel.class).getText());
-            shell.getActionMap().get("page-my-info").actionPerformed(null);
-            assertEquals("my-info", shell.selectedPage());
-            assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
-            AbstractButton build = named(shell, "nav-my-info", AbstractButton.class);
-            assertNotNull("The Build row exists for its name, selection and shortcut", build);
-            assertTrue(build.isSelected());
-            assertFalse("Build never shows in the sidebar, even while current", build.isVisible());
+            assertNull("page-my-info", shell.getActionMap().get("page-my-info"));
+            assertNull("The Build pointer page has no row", named(shell, "nav-my-info", AbstractButton.class));
             assertEquals(Arrays.asList("home", "characters", "runs", "loot", "quests", "chat"), listedRows(shell));
-            assertNull("Build is never added to the compact menu", named(popup, "compact-nav-my-info", JMenuItem.class));
+            assertNull("…and no compact menu item", named(popup, "compact-nav-my-info", JMenuItem.class));
             assertFalse(menuPages(popup).contains("my-info"));
-            JPopupMenu menu = shell.contextMenu("my-info");
-            for (String absent : new String[] {"nav-menu-move-up", "nav-menu-move-down", "nav-menu-hide", "nav-menu-show", "nav-menu-pin"})
-                assertNull("Build has no row to customize: " + absent, item(menu, absent));
+            try { shell.contextMenu("my-info"); fail("my-info is no destination"); }
+            catch (IllegalArgumentException expected) { assertEquals("Invalid page", expected.getMessage()); }
         });
     }
 
 
-    @Test public void statisticsAndDpsLoggerKeepTheirPagesAndShortcutsButNoRowOrMenuEntry() throws Exception {
+    @Test public void statisticsKeepsItsPageAndShortcutButNoRowOrMenuEntryAndDpsLoggerIsGone() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             WorkspaceShell shell = shell();
             InputMap keys = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
             assertEquals("Statistics keeps Alt+5", "page-statistics", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
-            assertEquals("DPS Logger keeps Alt+8", "page-dps-logger", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_8, InputEvent.ALT_DOWN_MASK)));
+            assertNull("No page owns Alt+8: TomatoGUI binds it to the Live meter", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_8, InputEvent.ALT_DOWN_MASK)));
+            assertNull(shell.getActionMap().get("page-dps-logger"));
             AbstractButton runs = named(shell, "nav-runs", AbstractButton.class);
             assertEquals("Runs & DPS", runs.getText());
             assertEquals("Runs & DPS", runs.getAccessibleContext().getAccessibleName());
             assertEquals("Runs & DPS  (Alt+R)", runs.getToolTipText());
             JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
-            for (String page : new String[] {"statistics", "dps-logger"}) {
+            for (String page : new String[] {"statistics"}) {
                 shell.getActionMap().get("page-" + page).actionPerformed(null);
                 assertEquals(page, shell.selectedPage());
                 assertEquals(TestPages.title(page), named(shell, "page-title", JLabel.class).getText());
@@ -307,8 +307,10 @@ public class WorkspaceShellLayoutTest {
                 for (String absent : new String[] {"nav-menu-move-up", "nav-menu-move-down", "nav-menu-hide", "nav-menu-show", "nav-menu-pin"})
                     assertNull("No row to customize: " + absent, item(menu, absent));
             }
+            assertNull("The DPS Logger pointer page has no row", named(shell, "nav-dps-logger", AbstractButton.class));
+            assertNull("…and no compact menu item", named(popup, "compact-nav-dps-logger", JMenuItem.class));
+            assertFalse(menuPages(popup).contains("dps-logger"));
             assertEquals("Statistics", TestPages.title("statistics"));
-            assertEquals("DPS Logger", TestPages.title("dps-logger"));
             assertEquals("Runs & DPS", TestPages.title("runs"));
         });
     }
@@ -318,7 +320,7 @@ public class WorkspaceShellLayoutTest {
             Map<String, JComponent> missing = TestPages.placeholders(), extra = TestPages.placeholders(), stale = TestPages.placeholders();
             missing.remove("loot");
             extra.put("build", new JPanel());
-            stale.remove("my-info"); stale.put("build", new JPanel());
+            stale.put("my-info", new JPanel()); stale.put("dps-logger", new JPanel());   // a map that still names the removed pointer pages
             for (Map<String, JComponent> pages : Arrays.asList(missing, extra, stale)) {
                 try {
                     new WorkspaceShell(pages, () -> {}, true, null, null, null, new NavLayout(store::get, store::put));
@@ -328,7 +330,7 @@ public class WorkspaceShellLayoutTest {
                 }
             }
             WorkspaceShell shell = shell();
-            for (String unknown : new String[] {"build", "advanced", "", null}) {
+            for (String unknown : new String[] {"build", "my-info", "dps-logger", "advanced", "", null}) {
                 try { shell.select(unknown); fail("Unknown page " + unknown); }
                 catch (IllegalArgumentException expected) { assertEquals("Invalid page", expected.getMessage()); }
             }
@@ -341,17 +343,24 @@ public class WorkspaceShellLayoutTest {
             WorkspaceShell shell = shell();
             InputMap keys = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
             KeyStroke altSeven = KeyStroke.getKeyStroke(KeyEvent.VK_7, InputEvent.ALT_DOWN_MASK);
-            assertEquals("page-my-info", keys.get(altSeven));
-            int[] ran = new int[2];
+            assertNull("Alt+7 is free since the Build page went", keys.get(altSeven));
+            int[] ran = new int[3];
             shell.bindShortcut(KeyEvent.VK_7, "open-build", () -> ran[0]++);
             assertEquals("The key names the new action", "open-build", keys.get(altSeven));
             shell.getActionMap().get(keys.get(altSeven)).actionPerformed(null);
             assertEquals(1, ran[0]);
-            assertEquals("The replaced page is not selected", "chat", shell.selectedPage());
+            assertEquals("No page is selected", "chat", shell.selectedPage());
             shell.bindShortcut(KeyEvent.VK_7, "open-build-again", () -> ran[1]++);
             assertEquals("A later binding replaces the earlier one", "open-build-again", keys.get(altSeven));
             shell.getActionMap().get(keys.get(altSeven)).actionPerformed(null);
-            assertArrayEquals(new int[] {1, 1}, ran);
+            assertArrayEquals(new int[] {1, 1, 0}, ran);
+            KeyStroke altNine = KeyStroke.getKeyStroke(KeyEvent.VK_9, InputEvent.ALT_DOWN_MASK);
+            assertEquals("page-loot", keys.get(altNine));
+            shell.bindShortcut(KeyEvent.VK_9, "open-loot-route", () -> ran[2]++);
+            assertEquals("A page's own key is replaced too", "open-loot-route", keys.get(altNine));
+            shell.getActionMap().get(keys.get(altNine)).actionPerformed(null);
+            assertArrayEquals(new int[] {1, 1, 1}, ran);
+            assertEquals("The replaced page is not selected", "chat", shell.selectedPage());
             assertEquals("Other pages keep their keys", "page-runs", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.ALT_DOWN_MASK)));
             assertEquals("page-statistics", keys.get(KeyStroke.getKeyStroke(KeyEvent.VK_5, InputEvent.ALT_DOWN_MASK)));
         });

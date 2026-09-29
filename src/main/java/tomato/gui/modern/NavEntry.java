@@ -22,6 +22,8 @@ public record NavEntry(String id, String title, String description, int icon, Gr
     /**
      * Every destination in the default sidebar order: core, then Advanced, then Settings, then unlisted pages. The Alt keys
      * are the digits the original pages had in their first order (Chat 1 … Loot 9, Logging 0) and letters for the later ones.
+     * Alt+7 and Alt+8 belonged to the Build and DPS Logger pointer pages, removed in P6a; TomatoGUI binds them to the Build and
+     * Live meter routes ({@link WorkspaceShell#bindShortcut}). Saved preferences may still name those IDs; NavLayout ignores them.
      */
     private static final List<NavEntry> DEFAULTS = List.of(
         new NavEntry("home", "Home", "Your character, today's progress and recent runs at a glance.", LineIcon.HOME, Group.CORE, KeyEvent.VK_H),
@@ -37,10 +39,6 @@ public record NavEntry(String id, String title, String description, int icon, Gr
         new NavEntry("logging", "Logging", "Discover available fields, inspect stat changes and diagnose capture gaps.", 10, Group.ADVANCED, KeyEvent.VK_0),
         new NavEntry("bridge-review", "Bridge Review", "Review detected loot, configure guild exports and troubleshoot delivery.", 13, Group.ADVANCED, KeyEvent.VK_B),
         new NavEntry("settings", "Settings", "Notifications, sounds and appearance.", LineIcon.GEAR, Group.SETTINGS, KeyEvent.VK_N),
-        // Build was My Info; its ID stays so saved preferences still recognise (and ignore) it.
-        new NavEntry("my-info", "Build", "Build moved to the character sheet: open a character and choose Build.", LineIcon.INFO, Group.UNLISTED, KeyEvent.VK_7),
-        // P5b: the live meter and the recordings moved into Runs & DPS; this page only points there (Alt+8 opens the Live meter tab).
-        new NavEntry("dps-logger", "DPS Logger", "The live meter and your recordings are now tabs of Runs & DPS.", 7, Group.UNLISTED, KeyEvent.VK_8),
         // P5b: Statistics left the sidebar until P6 retires it; Alt+5, Settings search and the Dungeons analysis banner reach it.
         new NavEntry("statistics", "Statistics", "Track fame, loot and dungeon progress over time.", 4, Group.UNLISTED, KeyEvent.VK_5));
 

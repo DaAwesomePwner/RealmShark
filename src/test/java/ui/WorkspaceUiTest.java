@@ -129,7 +129,7 @@ public class WorkspaceUiTest {
                     assertEquals("Native compact mode follows the realized client", shell.getWidth() < 1000, shell.isCompact());
                     for (NavEntry entry : NavEntry.defaults()) {
                         AbstractButton button = findButton(shell, "nav-" + entry.id());
-                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger are reached by route, search and shortcut, not the sidebar", button.isShowing()); continue; }
+                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Statistics is reached by route, search and shortcut, not the sidebar", button.isShowing()); continue; }
                         assertTrue(button.isShowing()); button.doClick();
                         assertEquals(entry.id(), shell.selectedPage());
                         assertTrue(button.isSelected());
@@ -157,7 +157,7 @@ public class WorkspaceUiTest {
                     assertEquals("Exact compact breakpoint", width < 1000, shell.isCompact());
                     for (NavEntry entry : NavEntry.defaults()) {
                         AbstractButton button = findButton(shell, "nav-" + entry.id());
-                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Build, Statistics and DPS Logger have no sidebar row", button.isVisible()); continue; }
+                        if (entry.group() == NavEntry.Group.UNLISTED) { assertFalse("Statistics has no sidebar row", button.isVisible()); continue; }
                         button.doClick(); layoutTree(shell);
                         assertEquals(entry.id(), shell.selectedPage());
                         assertTrue(button.isVisible()); assertTrue(button.isSelected());
@@ -260,7 +260,7 @@ public class WorkspaceUiTest {
             // Preferences persist in the test working directory; start from a known state even after a failed run.
             if (contrast.isSelected()) contrast.doClick();
             try {
-                shell.select("dps-logger");
+                shell.select("runs");   // Runs & DPS: the Feed, and the DPS meter in its Live meter tab
                 menuItem(frame.getJMenuBar(), "Violet Light").doClick();
                 assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletLightTheme);
                 contrast.doClick();
@@ -269,7 +269,7 @@ public class WorkspaceUiTest {
                 menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
                 assertTrue(UIManager.getLookAndFeel() instanceof tomato.gui.modern.VioletTheme);
                 assertFalse(tomato.gui.modern.Themes.increaseContrast());
-                assertEquals("dps-logger", shell.selectedPage());
+                assertEquals("runs", shell.selectedPage());
             } finally {
                 if (contrast.isSelected()) contrast.doClick();
                 menuItem(frame.getJMenuBar(), "Violet Dark").doClick();
@@ -352,20 +352,21 @@ public class WorkspaceUiTest {
             } else if (c instanceof Container) renderSubtabs((Container)c, prefix);
         }
     }
-    @Test public void buildIsUnlistedButOpensByRouteUnderItsNewTitle() throws Exception {
+    @Test public void aBuildRouteWithoutACharacterOpensCharacters() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             String before = shell.selectedPage();
             try {
-                // Build lands on page 6 only while no character exists: pin an empty journal, then put the app's own back.
+                // With no character a Build route opens the Characters list (P6a removed the Build pointer page): pin an empty
+                // journal, then put the app's own back.
                 tomato.backend.data.TomatoData app = appData();
                 tomato.backend.data.CharacterJournal previous = app.characterJournal();
                 tomato.gui.glance.character.SheetFixtures.inject(app, emptyJournal());
                 try {
                     assertTrue(tomato.gui.route.Navigator.current().open(tomato.gui.route.Route.to(tomato.gui.route.Destination.MY_INFO)));
-                    assertEquals("my-info", shell.selectedPage());
-                    assertEquals("Build", pageTitle(shell).getText());
+                    assertEquals("characters", shell.selectedPage());
+                    assertEquals("Characters", pageTitle(shell).getText());
                 } finally { tomato.gui.glance.character.SheetFixtures.inject(app, previous); }
-                assertFalse("Build stays out of the sidebar while it is current", findButton(shell, "nav-my-info").isVisible());
+                assertNull("Build has no sidebar row of its own", findButton(shell, "nav-my-info"));
                 assertTrue(tomato.gui.route.Navigator.current().back());
                 assertEquals(before, shell.selectedPage());
             } finally { shell.select(before); }
@@ -389,7 +390,10 @@ public class WorkspaceUiTest {
                 tomato.gui.glance.character.SheetFixtures.inject(app, journal);
                 shell.select("home"); // Home: opening the sheet from elsewhere is the main Alt+7 case
                 frame.toFront();
-                shell.getActionMap().get("page-my-info").actionPerformed(null); // Alt+7
+                Object altSeven = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                    .get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, java.awt.event.InputEvent.ALT_DOWN_MASK));
+                assertEquals("Alt+7 is bound to the Build route", "open-build", altSeven);
+                shell.getActionMap().get(altSeven).actionPerformed(null); // Alt+7
             });
             tomato.gui.activity.SnapshotTestSupport.await(() -> {
                 if (!"characters".equals(shell.selectedPage())) return false;

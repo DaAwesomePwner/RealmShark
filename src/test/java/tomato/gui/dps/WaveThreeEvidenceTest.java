@@ -57,13 +57,14 @@ public class WaveThreeEvidenceTest {
             try {
                 WorkspaceShell shell = edt(() -> {
                     Map<String, JComponent> pages = TestPages.placeholders();
-                    pages.put("dps-logger", dps); pages.put("runs", runs); pages.put("timeline", timeline);
+                    // The app nests the meter in Runs & DPS; here the runs page holds the Runs workspace, so the meter takes a free page.
+                    pages.put("party", dps); pages.put("runs", runs); pages.put("timeline", timeline);
                     WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Synthetic workspace must not capture"), true);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.RUNS, runs));
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
                     navigator.register(dps.resourcesRouteTarget()); navigator.register(dps.encounterRouteTarget());
-                    created.select("dps-logger"); return created;
+                    created.select("party"); return created;
                 });
                 String[] names = {"dps-link-linked", "dps-link-unlinked", "dps-link-legacy"};
                 DpsData[] shown = {linked, unlinked, legacy};

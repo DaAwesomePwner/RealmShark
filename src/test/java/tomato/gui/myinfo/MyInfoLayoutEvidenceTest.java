@@ -30,10 +30,10 @@ public class MyInfoLayoutEvidenceTest {
         WorkspaceShell[] shell = new WorkspaceShell[1];
         SwingUtilities.invokeAndWait(() -> {
             view[0] = new MyInfoGUI(data); MyInfoGUI.updatePlayer(player); MyInfoGuiTest.equipPet(data, 408);
-            Map<String, JComponent> pages = TestPages.placeholders(); pages.put("my-info", view[0]);
+            Map<String, JComponent> pages = TestPages.placeholders(); pages.put("characters", view[0]);   // Build is a tab of the sheet there
             shell[0] = new WorkspaceShell(pages, () -> fail("Preview must not capture"), true,
                 () -> fail("Preview must not choose real assets"), () -> fail("Preview must not retry real assets"), () -> shell[0].select("runs"));
-            shell[0].select("my-info");
+            shell[0].select("characters");
         });
         for (int font : new int[]{13, 24}) for (int width : new int[]{1240, 680}) {
             SwingUtilities.invokeAndWait(() -> evidence.show(shell[0], "Populated My Info", width, width == 680 ? 520 : 800, font));

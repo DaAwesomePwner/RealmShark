@@ -85,8 +85,8 @@ import static tomato.gui.stats.LootTestDrops.item;
 /**
  * P5b Runs &amp; DPS evidence (spec §4.1, §6.3, §8.4, S6, S7) in the real workspace ({@code TomatoGUI.createWorkspace} in preview
  * mode; the app's history store is pointed at the test's own history folder and restored after), synthetic names only:
- * - the sidebar: six core rows (Home, Characters, Runs &amp; DPS, Loot, Quests, Chat) and Advanced (5), Statistics and DPS Logger
- *   out of it; the DPS Logger pointer page (page 7) and the Statistics banner (page 4), each with its way back to Runs &amp; DPS;
+ * - the sidebar: six core rows (Home, Characters, Runs &amp; DPS, Loot, Quests, Chat) and Advanced (5), Statistics out of it and no
+ *   DPS Logger row (P6a removed that pointer page; Alt+8 opens the Live meter); the Statistics banner, with its way to Runs &amp; DPS;
  * - Runs &amp; DPS › Feed with the tab strip (Feed · Dungeons · Live meter · Recordings);
  * - the Live meter over a live synthetic fight (six players, the capture's own character Bravo, twelve minions and the boss
  *   "Synthetic Colossus"): Simple 1240×800 font 13 and Analyst 680×520 font 18, each with the details drawer closed and open;
@@ -209,9 +209,9 @@ public class RunsDpsEvidenceTest {
     @SuppressWarnings("unchecked") private static <T> void restore(Set<T> set, Set<?> copy) { set.clear(); set.addAll((Set<T>) copy); }
 
     /**
-     * 4 captures (S7): the sidebar's six core rows with Advanced (5) collapsed and expanded, Statistics and DPS Logger out of it;
-     * the DPS Logger pointer page, whose Open Live meter opens Runs &amp; DPS › Live meter; the Statistics page's banner, whose
-     * Open Dungeons opens Runs &amp; DPS › Dungeons.
+     * 3 captures (S7): the sidebar's six core rows with Advanced (5) collapsed and expanded, Statistics out of it and no DPS Logger
+     * row; the Statistics page's banner, whose Open Dungeons opens Runs &amp; DPS › Dungeons. Alt+8 (no page since P6a removed the
+     * DPS Logger pointer) opens Runs &amp; DPS › Live meter with a Back entry.
      */
     @Test public void theSidebarListsSixCoreRowsAndTheMovedPagesPointToRunsAndDps() throws Exception {
         build(temp.newFolder("history").toPath(), false);
@@ -223,7 +223,8 @@ public class RunsDpsEvidenceTest {
             AbstractButton advanced = VisualEvidence.named(shell, "nav-advanced", AbstractButton.class);
             assertEquals("Advanced (5)", advanced.getText());
             assertEquals("Collapsed", advanced.getAccessibleContext().getAccessibleDescription());
-            for (String page : new String[] {"statistics", "dps-logger"}) assertFalse(TestPages.title(page) + " is out of the sidebar", navRow(page).isVisible());
+            assertFalse(TestPages.title("statistics") + " is out of the sidebar", navRow("statistics").isVisible());
+            assertNull("The DPS Logger pointer page has no row", search(shell, AbstractButton.class, b -> "nav-dps-logger".equals(b.getName())));
             assertTrue("Settings stays below the list", navRow("settings").isShowing());
         });
         SwingUtilities.invokeAndWait(() -> VisualEvidence.named(shell, "nav-advanced", AbstractButton.class).doClick());
@@ -231,25 +232,18 @@ public class RunsDpsEvidenceTest {
         capture("sidebar-advanced", 1240, 13, SIMPLE, () -> {
             assertEquals("Advanced (5): Party, Key-pops, Timeline, Logging, Bridge Review", List.of("home", "characters", "runs", "loot", "quests", "chat", "party", "key-pops", "timeline", "logging", "bridge-review"), listed());
             assertEquals("Expanded", VisualEvidence.named(shell, "nav-advanced", AbstractButton.class).getAccessibleContext().getAccessibleDescription());
-            for (String page : new String[] {"statistics", "dps-logger"}) assertFalse(TestPages.title(page) + " is not an Advanced row either", navRow(page).isVisible());
+            assertFalse(TestPages.title("statistics") + " is not an Advanced row either", navRow("statistics").isVisible());
         });
 
-        show("DPS Logger pointer", 1240, 800, 13, SIMPLE, () -> shell.select("dps-logger"));
-        capture("dps-logger-pointer", 1240, 13, SIMPLE, () -> {
-            JComponent pointer = VisualEvidence.named(shell, "dps-moved", JComponent.class);
-            assertTrue("Page 7 is the pointer", pointer.isShowing());
-            assertTrue(showsText(pointer, "DPS Logger moved"));
-            assertTrue(showsText(pointer, "The live meter and your recordings are now tabs of Runs & DPS."));
-            AbstractButton open = VisualEvidence.named(pointer, "dps-moved-open", AbstractButton.class), recordings = VisualEvidence.named(pointer, "dps-moved-recordings", AbstractButton.class);
-            assertEquals("Open Live meter", open.getText()); assertEquals("Open Recordings", recordings.getText());
-            assertTrue(open.isShowing() && open.isEnabled() && recordings.isShowing() && recordings.isEnabled());
-        });
         SwingUtilities.invokeAndWait(() -> {
-            VisualEvidence.named(shell, "dps-moved-open", AbstractButton.class).doClick();
-            assertEquals("Open Live meter opens Runs & DPS", "runs", shell.selectedPage());
+            String before = shell.selectedPage();
+            Object altEight = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_8, java.awt.event.InputEvent.ALT_DOWN_MASK));
+            assertEquals("Alt+8 is bound to the Live meter route", "open-live-meter", altEight);
+            shell.getActionMap().get(altEight).actionPerformed(null);
+            assertEquals("Alt+8 opens Runs & DPS", "runs", shell.selectedPage());
             assertEquals("…on the Live meter tab", RunsTab.LIVE_METER, page().selectedTab());
-            assertTrue("Back returns to the pointer", Navigator.current().back());
-            assertEquals("dps-logger", shell.selectedPage());
+            assertTrue("Back returns to the page Alt+8 left", Navigator.current().back());
+            assertEquals(before, shell.selectedPage());
         });
 
         show("Statistics banner", 1240, 800, 13, SIMPLE, () -> shell.select("statistics"));
@@ -298,7 +292,7 @@ public class RunsDpsEvidenceTest {
             assertTrue("The capture shows Today's cards", inView(day(today)));
         });
 
-        // The Live meter: Home's Now card, Alt+8 and the pointer route here (a plain ENCOUNTER route).
+        // The Live meter: Home's Now card and Alt+8 route here (a plain ENCOUNTER route).
         show("Live meter", 1240, 800, 13, SIMPLE, () -> assertTrue(Navigator.current().open(Route.to(Destination.ENCOUNTER))));
         await("the live meter", () -> meterSummary().contains("LIVE") && meterSummary().contains("13 enemies"));
         pause();
@@ -1005,15 +999,6 @@ public class RunsDpsEvidenceTest {
             if (child instanceof Container) { T found = search((Container) child, type, predicate); if (found != null) return found; }
         }
         return null;
-    }
-
-    private static boolean showsText(Container root, String text) {
-        for (Component c : root.getComponents()) {
-            if (c.isShowing() && (c instanceof JLabel && String.valueOf(((JLabel) c).getText()).contains(text)
-                || c instanceof JTextComponent && ((JTextComponent) c).getText().contains(text))) return true;
-            if (c instanceof Container && showsText((Container) c, text)) return true;
-        }
-        return false;
     }
 
     /** Pages apply reads on later EDT turns and motion takes at most Motion.MAX_MILLIS: settle, wait, settle. */

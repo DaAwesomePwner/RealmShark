@@ -48,7 +48,7 @@ public class ShellRouteRegistrationTest {
         System.setProperty("java.io.tmpdir", temp.newFolder("scratch").getAbsolutePath());
         SessionStore store = new SessionStore(temp.newFolder().toPath(), false, "synthetic");
         TomatoData data = new TomatoData();
-        // An empty temporary journal: with no character the Build route stays on page 6 (with one it opens the sheet's Build tab).
+        // An empty temporary journal: with no character the Build route opens Characters (with one it opens the sheet's Build tab).
         tomato.gui.glance.character.SheetFixtures.inject(data, new tomato.backend.data.CharacterJournal(temp.newFolder().toPath().resolve("journal.json")));
         TomatoGUI gui = new TomatoGUI(data);
         AtomicReference<JComponent> shell = new AtomicReference<>();
@@ -79,11 +79,11 @@ public class ShellRouteRegistrationTest {
                     navigator.canOpen(Route.to(Destination.CHARACTERS).withPayload(new tomato.gui.glance.character.SheetFocus(character, null))));
                 tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
                 String landing = workspace.selectedPage();
-                assertTrue("Build keeps its route although the sidebar never lists it", navigator.open(Route.to(Destination.MY_INFO)));
-                assertEquals("my-info", workspace.selectedPage());
+                assertTrue("Build keeps its route although it has no page", navigator.open(Route.to(Destination.MY_INFO)));
+                assertEquals("With no character it opens Characters", "characters", workspace.selectedPage());
                 assertTrue(navigator.open(Route.to(Destination.HOME)));
                 assertEquals("home", workspace.selectedPage());
-                assertTrue(navigator.back()); assertEquals("my-info", workspace.selectedPage());
+                assertTrue(navigator.back()); assertEquals("characters", workspace.selectedPage());
                 assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
 
                 // Runs routes resolve by shape: the feed and recap targets are tried first, and routes to rows still reach the
@@ -111,13 +111,13 @@ public class ShellRouteRegistrationTest {
                 assertTrue(runs.feed().tableShown());
                 assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
 
-                // P5b: page 10 is Runs & DPS; the live meter and Resources & buffs moved there from page 7, which only points there.
+                // P5b: the runs page is Runs & DPS; the live meter and Resources & buffs moved there (P6a removed the DPS Logger page).
                 tomato.gui.runs.RunsDpsPage runsDps = find(workspace, tomato.gui.runs.RunsDpsPage.class);
                 assertNotNull("Page 10 is the Runs & DPS page", runsDps);
                 assertSame("…whose Feed is the Runs page", runs, runsDps.feed());
                 assertEquals("runs", tomato.gui.modern.WorkspaceShell.pageOf(Destination.ENCOUNTER));
                 assertEquals("runs", tomato.gui.modern.WorkspaceShell.pageOf(Destination.RESOURCES));
-                assertNotNull("Page 7 points to the Live meter", find(workspace, tomato.gui.dps.DpsMovedPanel.class));
+                assertNull("No DPS Logger page remains", tomato.gui.modern.NavEntry.forId("dps-logger"));
                 assertTrue("A plain ENCOUNTER route is the Live meter's", navigator.canOpen(Route.to(Destination.ENCOUNTER)));
                 for (tomato.gui.runs.RunsTab tab : tomato.gui.runs.RunsTab.values())
                     assertTrue("Each tab has a route: " + tab, navigator.canOpen(Route.to(Destination.RUNS).withPayload(tomato.gui.runs.RunsFocus.of(tab))));

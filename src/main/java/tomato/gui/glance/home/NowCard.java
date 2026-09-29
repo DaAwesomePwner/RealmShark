@@ -21,7 +21,7 @@ import tomato.gui.modern.DisplayFormat;
 /**
  * What is happening now (spec §6.1): portal, area and elapsed time; in a run, the top three live meter rows with your row
  * highlighted, "You're #2 of 8" and the last key pop as its own fact. Outside a run: area and capture state only. The
- * whole card opens the DPS Logger page.
+ * whole card opens the Live meter tab of the runs page (Runs & DPS).
  */
 final class NowCard extends HomeCard {
     static final int SHOWN = 3;
