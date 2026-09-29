@@ -129,6 +129,18 @@ public final class NavLayout {
         return true;
     }
 
+    /**
+     * Moves a visible core entry (pinned Advanced entries included) to {@code index}, its final place among the visible core
+     * entries ({@link #core()}): the sidebar's drop. It reuses {@link #move}, so hidden rows keep their relative spot and a change
+     * is one ORDER write. Settings, unpinned Advanced, hidden (even the current page the sidebar still shows) and unknown entries,
+     * an index out of range and a no-op return false and write nothing.
+     */
+    public boolean moveTo(String id, int index) {
+        List<NavEntry> visible = core();
+        int from = indexOf(visible, id);
+        return from >= 0 && index >= 0 && index < visible.size() && index != from && move(id, index - from);
+    }
+
     /** Only core and Advanced rows hide: Settings is always listed and the last visible core entry stays. */
     public boolean canHide(String id) {
         NavEntry.Group group = group(id);

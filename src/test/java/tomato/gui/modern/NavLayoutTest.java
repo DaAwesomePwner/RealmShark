@@ -260,6 +260,48 @@ public class NavLayoutTest {
         assertEquals("Shown again, dps-logger is dropped with it", "loot,quests", store.get(NavLayout.HIDDEN_KEY));
     }
 
+    /** P6b sidebar drag: a drop names the row's final place among the visible core rows; it reuses {@code move}, one ORDER write. */
+    @Test public void moveToPlacesACoreEntryAtAVisibleIndexPastHiddenRowsAndSavesOnce() {
+        store.put(NavLayout.HIDDEN_KEY, "loot");
+        store.put(NavLayout.PINNED_KEY, "timeline");
+        List<String> writes = new ArrayList<>();
+        NavLayout layout = new NavLayout(store::get, (key, value) -> { writes.add(key); store.put(key, value); });
+        assertEquals(Arrays.asList("home", "characters", "runs", "quests", "chat", "timeline"), ids(layout.core()));
+        assertTrue("Up past a row", layout.moveTo("chat", 1));
+        assertEquals(Collections.singletonList(NavLayout.ORDER_KEY), writes);
+        assertEquals("The hidden row keeps its place between Runs and Quests", "home,chat,characters,runs,loot,quests,timeline", store.get(NavLayout.ORDER_KEY));
+        assertTrue("A pinned Advanced row moves like a core row", layout.moveTo("timeline", 0));
+        assertEquals("timeline,home,chat,characters,runs,loot,quests", store.get(NavLayout.ORDER_KEY));
+        assertTrue("Down: the index is the final place", layout.moveTo("home", 3));
+        assertEquals(Arrays.asList("timeline", "chat", "characters", "home", "runs", "quests"), ids(layout.core()));
+        assertTrue("Down past the hidden row, to the end", layout.moveTo("runs", 5));
+        assertEquals("timeline,chat,characters,home,loot,quests,runs", store.get(NavLayout.ORDER_KEY));
+        assertEquals("One ORDER write per move", Collections.nCopies(4, NavLayout.ORDER_KEY), writes);
+        assertFalse("The same index is a no-op", layout.moveTo("runs", 5));
+        assertEquals("…with no write", 4, writes.size());
+        assertEquals("Hidden and pinned are untouched", "loot", store.get(NavLayout.HIDDEN_KEY));
+        assertEquals("timeline", store.get(NavLayout.PINNED_KEY));
+        assertEquals(Arrays.asList("timeline", "chat", "characters", "home", "quests", "runs"), ids(layout().core()));
+    }
+
+    @Test public void moveToRefusesSettingsUnpinnedAdvancedHiddenUnknownAndOutOfRange() {
+        store.put(NavLayout.HIDDEN_KEY, "loot");
+        NavLayout layout = layout();
+        store.clear();
+        int last = layout.core().size() - 1;
+        assertFalse("Settings stays below the list", layout.moveTo("settings", 0));
+        assertFalse("An unpinned Advanced row must be pinned first", layout.moveTo("party", 0));
+        assertFalse("A hidden row (even the current page the shell still shows)", layout.moveTo("loot", 0));
+        for (String unknown : new String[] {"no-such-page", "my-info", "dps-logger", "statistics", "", null})
+            assertFalse(unknown, layout.moveTo(unknown, 0));
+        assertFalse("Below the first place", layout.moveTo("chat", -1));
+        assertFalse("Past the last place", layout.moveTo("home", last + 1));
+        assertFalse("Where it already is", layout.moveTo("home", 0));
+        assertTrue("Nothing above wrote", store.isEmpty());
+        assertTrue("The last place is in range", layout.moveTo("home", last));
+        assertEquals(Arrays.asList("characters", "runs", "quests", "chat", "home"), ids(layout.core()));
+    }
+
     @Test public void runsStaysHiddenWhenDpsLoggerWasHiddenToo() {
         store.put(NavLayout.HIDDEN_KEY, "runs,dps-logger");
         NavLayout layout = layout();
