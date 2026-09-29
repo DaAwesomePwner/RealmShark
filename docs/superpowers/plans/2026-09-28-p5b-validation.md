@@ -247,7 +247,7 @@ implementer, by reading every PNG; the coordinator reviews the captures and thes
 | `dungeons-680-18-analyst` | Compact Analyst: the Cards · Analysis switch, the filter row, the summary and the Lost Halls card's top |
 | `dungeons-analysis-1240-13-analyst` | Analysis (after **Analyze** on Lost Halls): the banner "The Fame Table and the live loot log stay on the Statistics page." with Open Statistics; the saved workspace's row with the chip "Dungeons: Lost Halls" and All Sessions; Dungeon loot profile · **Session comparison** · Dungeon statistics · Enemy hit events · Loot by source · A/B cohorts; three sessions, today's with 8 items over 3 visits (00:55:00 observed) |
 
-Findings (none fixed in Task 14, which changes no main code; the coordinator's polish task decides them):
+Findings from Task 14 (which changed no main code; the coordinator's review below says which the polish fixed):
 
 1. **Enemy names collapse beside the Boss chip when compact (known, polish list).** At 680×520 font 18 the enemy list is 130 px
    wide in the real shell: the boss card's title gets 90 of its 175 px ("…"), and "All enemies · 13" reads "All ene…"
@@ -290,8 +290,32 @@ Findings (none fixed in Task 14, which changes no main code; the coordinator's p
     details; the analysis' Session comparison lists sessions with no visit of the chosen dungeon (the Statistics view's behavior,
     unchanged).
 
-**Coordinator review.** **[Coordinator]** which findings the polish task fixes (with the tests that failed first and the
-regenerated captures) and which are accepted.
+**Coordinator review.** The polish ran as two parallel tasks, reviewed on their regenerated captures:
+- **Task 15a (Live meter; `43699a7`, `568001b`, merge `8831d4c`)** fixes 1, 3 and 7. The split places its divider at a fixed 0.32
+  share until the reader moves it, never below a floor of ten average letters, "…" and card padding (149 px at font 13, 196 px at
+  font 18), and gives the table its first column (rank, name, bar and amount) whenever the split allows; a card too narrow for ten
+  characters of the name beside the chip folds the marker into its facts ("Boss · 400,000 HP · …", Boss in the warn tone), and
+  wide cards keep the chip. At 1240×800 font 13 the list is about 318 px and the boss facts are whole beside the chip. The
+  encounter controls (‹ · position · › · Go live · Pause) are one unit that wraps as a whole. Tests that failed first:
+  `DpsFilterBarTest.enemyCardsKeepReadableNamesAndFactsBesideTheBossChip`, `…encounterControlsStayTogetherWhenTheyWrap`,
+  `MeterRestyleTest.narrowBossCardMovesTheBossMarkerIntoItsFacts`, `DpsPresentationTest.narrowBossCardKeepsTheRendererShapeAndFocusBorder`.
+  **Accepted residue:** at 680×520 font 18 the floor still wins, so the meter table's first column is 21–35 px short (the amount
+  beside each bar is partly cut and the table scrolls sideways) and "All enemies · 13" reads "All enemie…"; closing it would need
+  a smaller name floor, narrower card padding or a narrower Player / meter column.
+- **Task 15b (Recordings and Dungeons; `13d46e2`, merge `2632c44`)** fixes 2, 4, 5, 6, 8 and the Save view state buttons of 11.
+  Recordings orders its view Export, Dungeon, Recorded start, Run, Saved, Damage, … (model indices unchanged); Simple shows those
+  six, which fit 1,012 px at 1240×800 font 13, Analyst all eleven. The live row stays first under every sort and is selected
+  until a recording is chosen. An empty state replaces the table ("Reading recordings", "Recordings could not be read" with Try
+  again, "No recordings yet", "No recordings match" with Clear filters), with Open live meter still in the header. Save view
+  state and Reset saved view state moved into ⋯, Load and Save checked sit beside the status line, and at 680×520 font 18 three
+  rows and part of a fourth show. Dungeon card reasons too long for their line show a shorter form that still says why; the
+  tooltip and accessible name keep the full text. Saved Recordings widths from the old layout are ignored once (they are now
+  tagged with their column layout).
+- Coordinator follow-ups: `a5b5e47` (the compact Live meter evidence accepts the folded marker), `321dac1` (docs for the polished
+  Recordings table and short reasons), `350d7e6` (`docs/LOGGING.md` points at Runs & DPS).
+- **Accepted as they are:** 9 (the meter table's sideways scroll at desktop width is pre-existing and documented), 10 (the
+  retiring Statistics page, exempt until P6), and the harness artifacts of 11. `ui.RunsDpsEvidenceTest` after the polish: 5 tests,
+  0 failures.
 
 ## Deferred scope
 
