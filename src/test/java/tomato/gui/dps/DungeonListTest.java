@@ -25,12 +25,15 @@ public class DungeonListTest {
             data.dpsData.add(encounter("First")); data.dpsData.add(encounter("Second"));
             DpsGUI dps = new DpsGUI(data); dps.setIndex(0);
             DungeonListGUI chooser = new DungeonListGUI(dps, data, null);
+            chooser.refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             JTable table = table(chooser);
             await(() -> table.getRowCount() == 3);
             assertEquals("First", table.getValueAt(table.getSelectedRow(), 2));
             table.getActionMap().get("toggle-export").actionPerformed(new ActionEvent(table, 0, "SPACE"));
             assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setRowSelectionInterval(row(table, "Second"), row(table, "Second"));
+            assertEquals("Recordings is its own tab; opening is explicit", 0, dps.getIndex());
+            chooser.open();
             assertEquals(1, dps.getIndex());
             data.dpsData.add(encounter("Third")); DpsGUI.updateMapPacket(data); chooser.refreshEncounters();
             await(() -> table.getRowCount() == 4);
@@ -38,7 +41,9 @@ public class DungeonListTest {
             assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setFont(table.getFont().deriveFont(30f));
             assertTrue(table.getRowHeight() > table.getFontMetrics(table.getFont()).getHeight());
-            int live = row(table, "Live"); table.setRowSelectionInterval(live, live); assertEquals(-1, dps.getIndex());
+            int live = row(table, "Live"); table.setRowSelectionInterval(live, live);
+            assertEquals("Recordings is its own tab; opening is explicit", 1, dps.getIndex());
+            chooser.open(); assertEquals(-1, dps.getIndex());
             assertFalse(table.isCellEditable(live, 0));
         });
     }
@@ -58,6 +63,7 @@ public class DungeonListTest {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
+                chooser[0].refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
                 await(() -> table(chooser[0]).getRowCount() == 2);
                 table(chooser[0]).setValueAt(true, row(table(chooser[0]), "Saved"), 0);
                 job[0] = chooser[0].exportFiles(folder, false);
@@ -133,6 +139,7 @@ public class DungeonListTest {
         DungeonListGUI[] chooser = new DungeonListGUI[1];
         SwingUtilities.invokeAndWait(() -> {
             chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
+            chooser[0].refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             await(() -> table(chooser[0]).getRowCount() == 3);
             for (int row = 0; row < table(chooser[0]).getRowCount(); row++) if (table(chooser[0]).isCellEditable(row, 0)) table(chooser[0]).setValueAt(true, row, 0);
         });

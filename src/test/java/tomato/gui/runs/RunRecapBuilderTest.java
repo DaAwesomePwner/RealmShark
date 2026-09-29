@@ -282,6 +282,31 @@ public class RunRecapBuilderTest {
         assertTrue(damage.rows().stream().allMatch(row -> row.sources().isEmpty()));
     }
 
+    /** P5b Recordings: a summary-only recording shows the recap's Damage section of that recording alone (RecordingSummaryPanel). */
+    @Test public void oneRecordingsDamageIsTheRecapsDamageSectionOfThatRecordingAlone() throws Exception {
+        CombatRecord record = shortRun.record();
+        RunRecapModel.Damage alone = RunRecapBuilder.damage(record, shortRun.detail());
+        RunRecapModel.Damage inRecap = builder.build(V1, record.recordingId, new Cancellation()).damage();
+        assertEquals("Only this recording: the picker stays hidden",
+            List.of(new RunRecapModel.Damage.Recording(record.recordingId, record.enteredAt, record.windowSeconds, record.contributors)), alone.recordings());
+        assertEquals(record.recordingId, alone.selected());
+        assertEquals("The rows the recap shows for it", inRecap.rows(), alone.rows());
+        assertEquals(inRecap.series().size(), alone.series().size());
+        for (int i = 0; i < alone.series().size(); i++) assertArrayEquals(inRecap.series().get(i).values(), alone.series().get(i).values());
+        assertEquals(inRecap.total(), alone.total()); assertEquals(inRecap.unattributed(), alone.unattributed());
+        assertEquals(inRecap.windowSeconds(), alone.windowSeconds()); assertEquals(inRecap.bucketSeconds(), alone.bucketSeconds());
+        assertEquals(inRecap.bucketOrigin(), alone.bucketOrigin()); assertEquals(inRecap.hitsBeforeFirstTick(), alone.hitsBeforeFirstTick());
+        assertNull(alone.reason()); assertEquals(inRecap.localReason(), alone.localReason()); assertNull(alone.detailReason());
+
+        RunRecapModel.Damage bare = RunRecapBuilder.damage(unverified.record(), null);
+        assertEquals("Without saved detail the rows stay and the chart says why", 4, bare.rows().size());
+        assertTrue(bare.series().isEmpty()); assertNotNull(bare.detailReason());
+        assertEquals("Another row is never yours", RunRecapBuilder.LOCAL_UNVERIFIED, bare.localReason()); assertNull(bare.local());
+        assertEquals("A detail that could not be read says so instead", "Damaged detail.",
+            RunRecapBuilder.damage(unverified.record(), null, "Damaged detail.").detailReason());
+        try { RunRecapBuilder.damage(null, null); fail("A summary needs its record"); } catch (NullPointerException expected) { }
+    }
+
     @Test public void aVerifiedLocalPlayerWithoutDamageIsARealZeroAndNoOtherRowIsYours() throws Exception {
         String session = id("recap-quiet");
         session(root, session, T0 - HOUR, T0 + HOUR);

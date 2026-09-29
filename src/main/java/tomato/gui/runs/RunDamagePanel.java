@@ -22,9 +22,10 @@ import tomato.gui.modern.DisplayFormat;
  * and DPS before the table scrolls its other columns) and the damage by source of one player
  * ({@code run-recap-sources}). The verified local row is washed in {@link Tokens.Role#ACCENT_WASH} and named "(you)", so color is
  * not the only cue; no row is selected at first, so the wash shows, and the sources show your row (else the top row) until
- * another row is selected. Unknown values are "—" with their reason as the tooltip, never 0. EDT only.
+ * another row is selected. Unknown values are "—" with their reason as the tooltip, never 0. Public for the Recordings tab's read-only
+ * summary of one recording ({@code RecordingSummaryPanel}). EDT only.
  */
-final class RunDamagePanel extends JPanel {
+public final class RunDamagePanel extends JPanel {
     static final String TAKEN_UNKNOWN = "Incoming damage was not observed for this player";
     static final String DEATHS_UNKNOWN = "Deaths are counted only for a unique name in this recording";
     static final String DPS_UNKNOWN = "No first-to-last hit window was recorded, so DPS is unknown.";
@@ -92,7 +93,7 @@ final class RunDamagePanel extends JPanel {
     /** The rank column's width as {@link #fitRank} last set it; 0 before the first fit. */
     private int rankWidth;
 
-    RunDamagePanel(DisplayModeModel mode) {
+    public RunDamagePanel(DisplayModeModel mode) {
         super(new BorderLayout());
         setOpaque(false);
         setName("run-recap-damage-panel");
@@ -184,7 +185,7 @@ final class RunDamagePanel extends JPanel {
     RunRecapModel.Damage.Row sourcesRow() { return sourcesRow; }
 
     /** EDT: applies one Damage section; an equal one changes nothing (the table keeps its selection and scroll). */
-    void show(RunRecapModel.Damage damage) {
+    public void show(RunRecapModel.Damage damage) {
         Objects.requireNonNull(damage, "damage");
         if (damage.equals(shown)) return;
         shown = damage;

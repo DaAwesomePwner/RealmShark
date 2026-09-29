@@ -20,9 +20,11 @@ public class EncounterLibraryStateTest {
             TomatoData data = new TomatoData(); DpsData first = EncounterCatalogTest.encounter("Same"), second = EncounterCatalogTest.encounter("Same");
             second.dungeonStartTime = 2000; data.dpsData.add(first); data.dpsData.add(second);
             DpsGUI dps = new DpsGUI(data); DungeonListGUI view = new DungeonListGUI(dps, data, null); JTable table = find(view, JTable.class, null);
+            view.refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             await(() -> table.getRowCount() == 3);
             table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
-            table.setRowSelectionInterval(0, 0); String id = dps.currentEncounterId(); assertNotNull(id);
+            table.setRowSelectionInterval(0, 0); assertNull("Recordings is its own tab; opening is explicit", dps.currentEncounterId());
+            view.open(); String id = dps.currentEncounterId(); assertNotNull(id);
             table.getActionMap().get("toggle-export").actionPerformed(new ActionEvent(table, 0, "SPACE"));
             assertTrue(dps.encounters().checked(id)); assertSame(second, dps.encounters().find(id).data);
             JTextField search = find(view, JTextField.class, "encounter-search"); search.setText("no match");
@@ -31,7 +33,7 @@ public class EncounterLibraryStateTest {
             data.dpsData.add(EncounterCatalogTest.encounter("Third")); DpsGUI.updateMapPacket(data); view.refreshEncounters();
             await(() -> table.getModel().getRowCount() == 4); search.setText("");
             assertEquals(id, dps.currentEncounterId()); assertEquals(Boolean.TRUE, table.getValueAt(table.getSelectedRow(), 0));
-            DungeonListGUI reopened = new DungeonListGUI(dps, data, null); JTable again = find(reopened, JTable.class, null); await(() -> again.getRowCount() == 4);
+            DungeonListGUI reopened = new DungeonListGUI(dps, data, null); JTable again = find(reopened, JTable.class, null); reopened.refreshEncounters(); await(() -> again.getRowCount() == 4);
             assertEquals(Boolean.TRUE, again.getValueAt(again.getSelectedRow(), 0));
         });
     }

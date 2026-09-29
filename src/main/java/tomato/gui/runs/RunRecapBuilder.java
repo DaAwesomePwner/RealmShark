@@ -115,8 +115,7 @@ public final class RunRecapBuilder {
             token.check();
             try { detail = CombatFacts.detail(store, ref.sessionId, shown.recordingId); }
             catch (IOException | JsonParseException unreadable) { detailReason = "The saved detail of this recording could not be read, so its damage over time and by source are not shown."; }
-            if (detail == null && detailReason == null)
-                detailReason = "The damage over time and by source of this recording were not saved; only its totals are.";
+            if (detail == null && detailReason == null) detailReason = DETAIL_NOT_SAVED;
         }
         token.check();
 
@@ -259,14 +258,38 @@ public final class RunRecapBuilder {
 
     // ---- sections ----
 
+    /** The Damage section's reason when a recording's detail (damage over time and by source) was not saved. */
+    static final String DETAIL_NOT_SAVED = "The damage over time and by source of this recording were not saved; only its totals are.";
+
+    /**
+     * The Damage section of one saved recording alone, as the recap shows it for that recording (its rows, totals, chart and
+     * sources; one recording, so no picker): the Recordings tab's read-only summary of a recording without a run to open.
+     * {@code detail} null means its detail was not saved ({@link #damage(CombatRecord, CombatDetail, String)} names another
+     * reason). Pure; any thread.
+     */
+    public static RunRecapModel.Damage damage(CombatRecord record, CombatDetail detail) {
+        return damage(record, detail, detail == null ? DETAIL_NOT_SAVED : null);
+    }
+
+    /** As {@link #damage(CombatRecord, CombatDetail)}, with {@code detailReason} saying why {@code detail} is missing (null when it is not). */
+    public static RunRecapModel.Damage damage(CombatRecord record, CombatDetail detail, String detailReason) {
+        Objects.requireNonNull(record, "record");
+        return damage(List.of(record), null, record, detail, detailReason);
+    }
+
     private static RunRecapModel.Damage damage(Facts facts, CombatRecord shown, CombatDetail detail, String detailReason) {
-        List<CombatRecord> ordered = new ArrayList<>(facts.records);
+        return damage(facts.records, facts.combatFailure, shown, detail, detailReason);
+    }
+
+    /** The section over {@code records} (the picker, longest first) showing {@code shown}; {@code combatFailure} when they could not be read. */
+    private static RunRecapModel.Damage damage(List<CombatRecord> records, String combatFailure, CombatRecord shown, CombatDetail detail, String detailReason) {
+        List<CombatRecord> ordered = new ArrayList<>(records);
         ordered.sort(LONGEST_FIRST);
         List<RunRecapModel.Damage.Recording> recordings = new ArrayList<>();
         for (CombatRecord record : ordered) recordings.add(new RunRecapModel.Damage.Recording(record.recordingId, record.enteredAt, window(record), record.contributors));
         if (shown == null)
             return new RunRecapModel.Damage(recordings, null, List.of(), List.of(), 1, 0, 0, 0, null, 0,
-                facts.combatFailure != null ? facts.combatFailure : NO_RECORDING, null, null);
+                combatFailure != null ? combatFailure : NO_RECORDING, null, null);
         Map<Integer, CombatDetail.PlayerSources> sources = new HashMap<>();
         Map<Integer, CombatRecord.PlayerLine> lines = new HashMap<>();
         if (detail != null) for (CombatDetail.PlayerSources player : detail.sources) if (player != null) sources.putIfAbsent(player.objectId, player);
