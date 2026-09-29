@@ -44,6 +44,7 @@ public final class LootPage extends JPanel implements AutoCloseable {
     public record PageState(LootTab tab, Object inner) {}
 
     private final CustomizableTabs tabs;
+    private final JComponent highlights;
     private final Map<LootTab, RouteTarget> owners = new EnumMap<>(LootTab.class);
     private boolean closed;
 
@@ -52,6 +53,7 @@ public final class LootPage extends JPanel implements AutoCloseable {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Build the Loot page on the EDT");
         Objects.requireNonNull(highlights, "highlights");
         Objects.requireNonNull(explore, "explore");
+        this.highlights = highlights;
         tabs = new CustomizableTabs("loot");
         setName("loot-page");
         setLayout(new BorderLayout());
@@ -107,8 +109,10 @@ public final class LootPage extends JPanel implements AutoCloseable {
 
     /**
      * {@code LOOT} routes with a {@link LootFocus} payload and no other reference (search entries, Home's Notable loot tile,
-     * Highlights' Unknown area cell): opening brings that tab forward and changes nothing inside it. Visit, query and plain Loot
-     * routes stay the workspace's targets ({@link #routes}).
+     * Highlights' Unknown area cell): opening brings that tab forward and changes nothing inside it, except that a focus with a
+     * window (Home's tile) applies it to Highlights as a click on its window choice does ({@link LootHighlights#showWindow}).
+     * Highlights' window is its own preference, so Back restores the tab only. Visit, query and plain Loot routes stay the
+     * workspace's targets ({@link #routes}).
      */
     public RouteTarget tabTarget() {
         return new PageTarget() {
@@ -118,7 +122,10 @@ public final class LootPage extends JPanel implements AutoCloseable {
             }
             @Override public void open(Route route) {
                 if (!accepts(route)) throw new IllegalArgumentException("Unsupported Loot tab route: " + route);
-                openOn(((LootFocus) route.payload).tab(), () -> { });
+                LootFocus focus = (LootFocus) route.payload;
+                openOn(focus.tab(), () -> {
+                    if (focus.window() != null && highlights instanceof LootHighlights) ((LootHighlights) highlights).showWindow(focus.window());
+                });
             }
         };
     }

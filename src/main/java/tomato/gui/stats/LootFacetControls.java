@@ -19,6 +19,8 @@ final class LootFacetControls extends JPanel {
         super(new BorderLayout(0,4));initial=facets;
         JPanel grid=ContentStyle.responsiveGrid(4,150,6);
         bags=list("loot-bags-multi",bagChoices,facets.bags);dungeons=list("loot-dungeons-multi",dungeonChoices,facets.dungeons);
+        // The saved keys stay the list's values (a bag without a map is "Unknown"); only the label reads "Unknown area".
+        dungeons.setCellRenderer(labeled(LootFacts::areaLabel));
         rarities=list("loot-rarity-multi",Arrays.asList("Common / Unenchanted","Uncommon","Rare","Legendary","Divine","Unknown"),facets.rarities);
         List<String> ts=new ArrayList<>(Arrays.asList("UT","ST","Unknown"));for(int i=0;i<=99;i++)ts.add("T"+i);
         tiers=list("loot-tier-multi",ts,facets.tiers);
@@ -44,14 +46,15 @@ final class LootFacetControls extends JPanel {
     /** Only facets that narrow the query are listed; an unfiltered query says so instead of showing empty lists. */
     static String summary(Facets f){
         StringJoiner parts=new StringJoiner(" · ");
-        values(parts,"Bags",f.bags);values(parts,"Dungeons",f.dungeons);
+        values(parts,"Bags",f.bags);
+        List<String> areas=new ArrayList<>();for(String dungeon:f.dungeons)areas.add(LootFacts.areaLabel(dungeon));values(parts,"Dungeons",areas);
         if(f.kind!=null&&f.kind!=Kind.ANY)parts.add(kind(f.kind));
         values(parts,"Rarity",f.rarities);values(parts,"Tier",f.tiers);
         range(parts,"Slots",f.slots);range(parts,"Applied enchants",f.applied);
         if(f.drilled())parts.add(LootArchiveClient.drillSummary(f));
         return parts.length()==0?"Facets: none (all saved loot)":"Facets: "+parts;
     }
-    private static void values(StringJoiner parts,String name,Set<String> values){if(values!=null&&!values.isEmpty())parts.add(name+" "+String.join(", ",values));}
+    private static void values(StringJoiner parts,String name,Collection<String> values){if(values!=null&&!values.isEmpty())parts.add(name+" "+String.join(", ",values));}
     static String kind(Kind kind){switch(kind){case UT_EQUIPMENT:return "UT equipment";case ST:return "ST items";case STAT_POTION:return "Stat potions";case HIGH_TIER:return "High tier";default:return kind.toString();}}
     private static void range(StringJoiner parts,String name,Range r){
         if(r==null||r.min==null&&r.max==null&&r.unknown==Unknown.INCLUDE)return;
@@ -60,8 +63,17 @@ final class LootFacetControls extends JPanel {
     }
     private static JList<String> list(String name,Collection<String> choices,Set<String> selected){
         Set<String> all=new TreeSet<>(choices);all.addAll(selected);JList<String> list=new JList<>(all.toArray(new String[0]));list.setName(name);list.getAccessibleContext().setAccessibleName(name.replace('-',' '));list.setVisibleRowCount(4);list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        DefaultListCellRenderer renderer=new DefaultListCellRenderer();renderer.putClientProperty("html.disable",true);list.setCellRenderer(renderer);
+        list.setCellRenderer(labeled(value->value));
         for(int i=0;i<list.getModel().getSize();i++)if(selected.contains(list.getModel().getElementAt(i)))list.addSelectionInterval(i,i);return list;
+    }
+    /** A plain-text cell showing {@code label} of the value (the value itself stays the list's). */
+    private static ListCellRenderer<Object> labeled(java.util.function.Function<String,String> label){
+        DefaultListCellRenderer renderer=new DefaultListCellRenderer(){
+            @Override public Component getListCellRendererComponent(JList<?> list,Object value,int index,boolean selected,boolean focused){
+                return super.getListCellRendererComponent(list,value==null?null:label.apply(value.toString()),index,selected,focused);
+            }
+        };
+        renderer.putClientProperty("html.disable",true);return renderer;
     }
     private static JPanel box(String label,JList<String> list){JPanel p=new JPanel(new BorderLayout());JLabel l=new JLabel(label);l.setLabelFor(list);p.add(l,BorderLayout.NORTH);p.add(new JScrollPane(list));return p;}
     private static final class RangeControl extends JPanel {

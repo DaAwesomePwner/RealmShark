@@ -6,6 +6,10 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.SwingUtilities;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -140,6 +144,63 @@ public class LootFactsTest {
             new LootDashboard.Item(21, "Potion #21", true))));
         assertNull("No map when the bag dropped: unknown area", unknown.dungeon()); assertNull(unknown.dropper());
         assertEquals(new LootFacts.Item(21, false, false, false, true, null, null), unknown.items().get(0));
+    }
+
+    /**
+     * P6b Task 9 (R3 B2): one display label for an area. Capture saves "Unknown" when no map was known and the catalog's
+     * "Unrecognized area" for a name it does not know; both, blank and none read "Unknown area". Display only: the saved keys stay.
+     */
+    @Test public void areaLabelSaysUnknownAreaForEveryUnknownFormAndKeepsNames() {
+        for (String unknown : new String[] {null, "", " ", "Unknown", "Unrecognized area"}) {
+            assertEquals("'" + unknown + "' reads as Unknown area", "Unknown area", LootFacts.areaLabel(unknown));
+            assertNull("'" + unknown + "' is no known area", LootFacts.area(unknown));
+        }
+        assertEquals(LootFacts.UNKNOWN_AREA, LootFacts.areaLabel(null));
+        for (String name : new String[] {"Lost Halls", "The Trials of Cronus", "Unknown Isle"}) {
+            assertEquals(name, LootFacts.areaLabel(name));
+            assertEquals(name, LootFacts.area(name));
+        }
+    }
+
+    /**
+     * The dungeon facet lists the saved keys ("Unknown" for bags without a map) and labels them for display: the list says "Unknown
+     * area", the selection and the facets it applies keep "Unknown", and the facet summary says "Unknown area" too.
+     */
+    @Test public void theDungeonFacetLabelsUnknownAreaAndKeepsTheSavedKey() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            LootFacetControls controls = new LootFacetControls(new LootQuery.Facets(), Set.of("White"), Set.of("Unknown", "Lost Halls"), next -> { });
+            @SuppressWarnings("unchecked") JList<String> dungeons = (JList<String>) find(controls, "loot-dungeons-multi");
+            List<String> keys = new ArrayList<>(), labels = new ArrayList<>();
+            for (int i = 0; i < dungeons.getModel().getSize(); i++) {
+                String key = dungeons.getModel().getElementAt(i);
+                keys.add(key);
+                JLabel cell = (JLabel) dungeons.getCellRenderer().getListCellRendererComponent(dungeons, key, i, false, false);
+                labels.add(cell.getText());
+                if ("Unknown".equals(key)) assertEquals("Spoken as shown", "Unknown area", cell.getAccessibleContext().getAccessibleName());
+            }
+            assertEquals("The model keeps the saved keys", List.of("Lost Halls", "Unknown"), keys);
+            assertEquals("The list says Unknown area", List.of("Lost Halls", "Unknown area"), labels);
+            dungeons.setSelectedIndex(keys.indexOf("Unknown"));
+            assertEquals("The applied facet keeps the saved key", Set.of("Unknown"), controls.value().dungeons);
+            controls.updateChoices(Set.of("White"), Set.of("Unknown", "Lost Halls", "Snake Pit"));
+            JLabel cell = (JLabel) dungeons.getCellRenderer().getListCellRendererComponent(dungeons, "Unknown", 0, false, false);
+            assertEquals("New choices keep the label", "Unknown area", cell.getText());
+            assertEquals("…and the selection its key", Set.of("Unknown"), controls.value().dungeons);
+        });
+        LootQuery.Facets f = new LootQuery.Facets();
+        f.dungeons.add("Unknown");
+        f.dungeons.add("Lost Halls");
+        String summary = LootFacetControls.summary(f);
+        assertTrue(summary, summary.contains("Dungeons Unknown area, Lost Halls"));
+        assertEquals("Summaries never change the facet", Set.of("Unknown", "Lost Halls"), f.dungeons);
+    }
+
+    private static java.awt.Component find(java.awt.Container root, String name) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (name.equals(child.getName())) return child;
+            if (child instanceof java.awt.Container) { java.awt.Component found = find((java.awt.Container) child, name); if (found != null) return found; }
+        }
+        return null;
     }
 
     @Test public void potionStatNamesTheStatOfSmallGreaterAndSoulboundPotions() {
