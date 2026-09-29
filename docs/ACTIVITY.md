@@ -81,7 +81,7 @@ In saved Runs, Inspect and Resources, select one visit and choose **Export selec
 
 The **Dungeons** tab shows one card per dungeon over every saved session's dungeon runs. Each run is read with the feed's own rules (the shared outcome, the observed span, and loot and recordings linked to exactly that run), so a card agrees with the feed's cards for the same runs; a dungeon's aliases share one card. **Search dungeons** matches the name, **Filters › Sort** orders the cards by **Most visits** (the default), **Most recent** or **Name**, and ⋯ **Refresh** reads again. The summary line counts what was read, for example "Saved runs · all sessions · 4 dungeons · 7 runs · most visits first". The cards are read off the Swing thread when the tab first shows, and again only when saved history changed (checked when the tab shows and every 30 s while it shows). An empty state says why nothing shows: saved history is not open, no dungeon run is saved yet, nothing matches the search, or saved history could not be read.
 
-Each card shows the portal, the dungeon, its number of visits and four facts. An unknown fact is "—" with a one-line reason under it, never 0:
+Each card shows the portal, the dungeon, its number of visits and four facts. An unknown fact is "—" with a one-line reason under it, never 0. When a reason is too long for its line, the card shows a shorter form that still says why ("No loot bag saved in these sessions"); the tooltip and the card's accessible name keep the full text below:
 
 | Card fact | How it is counted | Without it |
 | --- | --- | --- |
