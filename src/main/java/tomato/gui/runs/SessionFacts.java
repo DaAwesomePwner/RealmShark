@@ -1,11 +1,11 @@
 package tomato.gui.runs;
 
 import java.io.IOException;
-import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 import tomato.gui.stats.LootFacts;
+import tomato.history.SessionStamps;
 import tomato.history.SessionStore;
 import tomato.history.encounter.CombatFacts;
 import tomato.history.encounter.CombatRecord;
@@ -15,7 +15,8 @@ import tomato.history.link.VisitRef;
  * One saved session's facts as the run feed ({@link RunFeedSource}) and the Dungeons cards ({@link DungeonsSource}) read them,
  * so both apply the same rules: the session state {@link RunOutcome#of} takes, loot bags and combat records each read on
  * their own (a module that cannot be read is null, its facts unknown, and named in the issues by the failure's kind), and the
- * stamp a closed session's kept facts are compared by. Off the EDT only (the store refuses it).
+ * stamp a closed session's kept facts are compared by ({@link SessionStamps#stamp}; the Dungeons cards keep theirs with
+ * {@link SessionStamps} itself). Off the EDT only (the store refuses it).
  */
 final class SessionFacts {
     private SessionFacts() {}
@@ -64,22 +65,13 @@ final class SessionFacts {
         issues.add(session + ": " + module + " could not be read (" + failure.getClass().getSimpleName() + ")");
     }
 
-    /** The session folder's entries and the files of its {@code modules} folders, by name. */
+    /**
+     * The session folder's entries and the files of its {@code modules} folders, by name: {@link SessionStamps#stamp} in this
+     * package's record, for the run feed's kept facts ({@link RunFeedSource}; it can move to {@link SessionStamps} whole).
+     */
     static List<Stamp> stamp(Path folder, String... modules) throws IOException {
         List<Stamp> stamp = new ArrayList<>();
-        list(stamp, folder, "");
-        for (String module : modules) list(stamp, folder.resolve(module), module + "/");
-        stamp.sort(Comparator.comparing(Stamp::name));
+        for (SessionStamps.Stamp file : SessionStamps.stamp(folder, modules)) stamp.add(new Stamp(file.name(), file.size(), file.modified()));
         return stamp;
-    }
-
-    private static void list(List<Stamp> stamp, Path folder, String prefix) throws IOException {
-        if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) return;
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(folder)) {
-            for (Path file : files) {
-                BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                stamp.add(new Stamp(prefix + file.getFileName(), attributes.size(), attributes.lastModifiedTime().toMillis()));
-            }
-        }
     }
 }

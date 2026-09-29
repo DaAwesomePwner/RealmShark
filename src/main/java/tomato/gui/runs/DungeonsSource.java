@@ -1,7 +1,6 @@
 package tomato.gui.runs;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -11,6 +10,7 @@ import packets.packetcapture.logger.ActivityJournal;
 import tomato.backend.data.DungeonStatData;
 import tomato.gui.activity.ActivityQueries;
 import tomato.gui.stats.LootFacts;
+import tomato.history.SessionStamps;
 import tomato.history.SessionStore;
 import tomato.history.archive.Cancellation;
 import tomato.history.encounter.CombatFacts;
@@ -32,11 +32,11 @@ import tomato.realmshark.ParseDungeon;
  * <p>No archive pin (the cards need no paging, and the pin costs most of the feed's first read): each session's runs are read
  * from the store and folded into per-dungeon partials ({@link DungeonCardModel.Tally}), merged across sessions. A closed
  * session's partials are kept while its stamp is unchanged (the name, size and modification time of every entry of its
- * folder and of its runs, loot and encounters folders, as the feed keeps its facts); the current session is read every
- * time. One session degrades alone: when its metadata or its saved runs cannot be read it is left out whole and counted in
- * {@link DungeonsModel#sessionsSkipped()}; when its loot or combat records cannot be read, its completed runs' loot or DPS
- * is unknown with a reason ({@link DungeonCardModel#LOOT_UNREADABLE}, {@link DungeonCardModel#COMBAT_UNREADABLE}). Each is
- * named in the issues by the failure's kind, never a path.
+ * folder and of its runs, loot and encounters folders, as the feed keeps its facts; {@link SessionStamps}); the current
+ * session is read every time. One session degrades alone: when its metadata or its saved runs cannot be read it is left out
+ * whole and counted in {@link DungeonsModel#sessionsSkipped()}; when its loot or combat records cannot be read, its completed
+ * runs' loot or DPS is unknown with a reason ({@link DungeonCardModel#LOOT_UNREADABLE}, {@link DungeonCardModel#COMBAT_UNREADABLE}).
+ * Each is named in the issues by the failure's kind, never a path.
  */
 public final class DungeonsSource {
     /** The session folders whose files the kept partials come from (besides the session folder's own entries). */
@@ -45,9 +45,8 @@ public final class DungeonsSource {
     private final SessionStore store;
     private final ZoneId zone;
     private final LongSupplier clock;
-    /** Closed sessions' partials by session ID, for {@link #keptRoot}; guarded by this. */
-    private final Map<String, Partial> kept = new HashMap<>();
-    private Path keptRoot;
+    /** Closed sessions' partials, kept while their stamps are unchanged (thread-safe). */
+    private final SessionStamps<Partial> kept = new SessionStamps<>(FOLDERS);
     /** Reads one session's combat records ({@link CombatFacts#read}); tests replace it to fail one session's read. */
     private volatile SessionFacts.CombatReader records = CombatFacts::read;
     /** Sessions read from disk rather than kept (tests). */
@@ -74,7 +73,7 @@ public final class DungeonsSource {
         if (SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read saved dungeon runs off the EDT");
         Objects.requireNonNull(query, "query"); Objects.requireNonNull(cancel, "cancel");
         List<SessionStore.SessionEntry> catalog = store.catalog(cancel);   // listed once for every session read below
-        forgetGone(catalog);
+        kept.forgetGone(store, catalog);   // everything when the store's folder changed, and the sessions that left the catalog
         Map<String, DungeonCardModel.Tally> dungeons = new HashMap<>();
         Set<String> issues = new LinkedHashSet<>();
         int runs = 0, skipped = 0, unidentified = 0;
@@ -102,7 +101,7 @@ public final class DungeonsSource {
     }
 
     /** Closed sessions whose partials are kept (tests). */
-    synchronized int cachedSessions() { return kept.size(); }
+    int cachedSessions() { return kept.size(); }
 
     /** Sessions read from disk so far, the current one each time (tests: kept sessions are not read again). */
     int sessionReads() { return reads.get(); }
@@ -110,32 +109,18 @@ public final class DungeonsSource {
     /** Replaces the combat record reader (tests: a session whose combat read fails). */
     void combatReader(SessionFacts.CombatReader reader) { records = Objects.requireNonNull(reader, "reader"); }
 
-    /** Forgets everything when the store's folder changed, and the sessions that left the catalog. */
-    private synchronized void forgetGone(List<SessionStore.SessionEntry> catalog) {
-        if (!store.directory().equals(keptRoot)) { kept.clear(); keptRoot = store.directory(); }
-        Set<String> listed = new HashSet<>();
-        for (SessionStore.SessionEntry entry : catalog) listed.add(entry.id);
-        kept.keySet().retainAll(listed);
-    }
-
-    /** One session's partials: kept while a closed session's stamp is unchanged; the current session's are read every time. */
+    /**
+     * One session's partials: kept while a closed session's stamp is unchanged; the current session's are read every time.
+     * An unreadable entry, or a folder that cannot be stamped, is skipped and not kept (a cancelled read keeps nothing either).
+     */
     private Partial partial(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, Cancellation cancel) {
-        if (!entry.readable()) return Partial.skipped(null, entry.id + ": " + entry.error);   // the catalog's words, no path
-        if (entry.id.equals(store.currentId())) return read(catalog, entry, null, cancel);   // still being written: never kept
-        List<SessionFacts.Stamp> stamp;
-        try { stamp = SessionFacts.stamp(store.directory().resolve(entry.id), FOLDERS); }
-        catch (IOException failure) {   // deleted or unlistable since the catalog was listed
+        if (!entry.readable()) return Partial.skipped(entry.id + ": " + entry.error);   // the catalog's words, no path
+        try { return kept.get(store, entry.id, stamp -> read(catalog, entry, cancel)); }   // read() itself throws no IOException
+        catch (IOException failure) {   // the stamp: deleted or unlistable since the catalog was listed
             List<String> issues = new ArrayList<>();
             SessionFacts.unreadable(failure, entry.id, "session folder", issues);
-            return Partial.skipped(null, issues.get(0));
+            return Partial.skipped(issues.get(0));
         }
-        synchronized (this) {
-            Partial known = kept.get(entry.id);
-            if (known != null && known.stamp().equals(stamp)) return known;
-        }
-        Partial read = read(catalog, entry, stamp, cancel);
-        synchronized (this) { kept.put(entry.id, read); }
-        return read;
     }
 
     /**
@@ -144,8 +129,7 @@ public final class DungeonsSource {
      * (the runs' loot or combat unknown) and named in the issues. Kept with the stamp either way, since reading the same files
      * again fails the same way.
      */
-    private Partial read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, List<SessionFacts.Stamp> stamp,
-                         Cancellation cancel) {
+    private Partial read(List<SessionStore.SessionEntry> catalog, SessionStore.SessionEntry entry, Cancellation cancel) {
         reads.incrementAndGet();
         List<String> issues = new ArrayList<>();
         List<ActivityJournal.Visit> visits = new ArrayList<>();
@@ -153,9 +137,9 @@ public final class DungeonsSource {
             store.read(catalog, entry.id, "runs", ActivityJournal.Visit.class, (session, visit) -> { if (ParseDungeon.isDungeon(visit.map)) visits.add(visit); });
         } catch (IOException | RuntimeException failure) {
             SessionFacts.unreadable(failure, entry.id, "runs", issues);
-            return Partial.skipped(stamp, issues.get(0));
+            return Partial.skipped(issues.get(0));
         }
-        if (visits.isEmpty()) return new Partial(stamp, Map.of(), 0, 0, false, List.of());   // no loot or combat read needed
+        if (visits.isEmpty()) return new Partial(Map.of(), 0, 0, false, List.of());   // no loot or combat read needed
         cancel.check();
         boolean[] state = SessionFacts.state(entry.session(), entry.id.equals(store.currentId()));
         List<LootFacts.Bag> bags = SessionFacts.loot(store, catalog, entry.id, issues);
@@ -177,16 +161,15 @@ public final class DungeonsSource {
             dungeons.computeIfAbsent(DungeonStatData.Snapshot.canonicalName(visit.map), DungeonCardModel.Tally::new).add(card);
             runs++;
         }
-        return new Partial(stamp, dungeons, runs, unidentified, false, List.copyOf(issues));
+        return new Partial(dungeons, runs, unidentified, false, List.copyOf(issues));
     }
 
     /**
-     * One session's contribution as last read ({@code stamp} null for the current session or an unreadable one): its
-     * per-dungeon tallies, its counted runs, its dungeon runs without a visit ID, whether it was left out whole, and why its
-     * facts may be partial.
+     * One session's contribution as last read (a closed session's is kept with its stamp by {@link #kept}): its per-dungeon
+     * tallies, its counted runs, its dungeon runs without a visit ID, whether it was left out whole, and why its facts may be
+     * partial.
      */
-    private record Partial(List<SessionFacts.Stamp> stamp, Map<String, DungeonCardModel.Tally> dungeons, int runs, int unidentified,
-                           boolean skipped, List<String> issues) {
-        static Partial skipped(List<SessionFacts.Stamp> stamp, String issue) { return new Partial(stamp, Map.of(), 0, 0, true, List.of(issue)); }
+    private record Partial(Map<String, DungeonCardModel.Tally> dungeons, int runs, int unidentified, boolean skipped, List<String> issues) {
+        static Partial skipped(String issue) { return new Partial(Map.of(), 0, 0, true, List.of(issue)); }
     }
 }
