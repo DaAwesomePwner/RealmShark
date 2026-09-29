@@ -22,7 +22,7 @@ import tomato.gui.modern.DisplayFormat;
  * fame/hour and a sparkline, notable loot, potions. The Today / This session choice sits in the header; HomePage persists
  * it as ui.home.window and asks HomeRefresher for the matching read. A failed re-read keeps the last totals, marked stale
  * with a warn banner saying when they were read and why the new read failed. With Home's loot action the Notable loot tile opens
- * Loot › Highlights (P6a).
+ * Loot › Highlights (P6a) on the window the card shows (P6b).
  */
 final class TodayTiles extends HomeCard {
     static final String NO_RUNS = "No runs were saved for this period", NO_LOOT = "No loot was saved for this period";
@@ -50,10 +50,13 @@ final class TodayTiles extends HomeCard {
 
     TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial, DisplayModeModel mode) { this(changed, initial, mode, null); }
 
-    /** {@code openLoot}: what the Notable loot tile opens (Loot › Highlights, P6a); null leaves it a plain tile. */
-    TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial, DisplayModeModel mode, Runnable openLoot) {
+    /**
+     * {@code openLoot}: what the Notable loot tile opens (Loot › Highlights, P6a), given the window the tile shows (P6b: Highlights
+     * opens on the same period); null leaves it a plain tile.
+     */
+    TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial, DisplayModeModel mode, Consumer<HomeArchive.Window> openLoot) {
         super(mode, "home-today", "Totals appear after the first read of saved history.");
-        if (openLoot != null) loot.onOpen(OPEN_LOOT, openLoot);
+        if (openLoot != null) loot.onOpen(OPEN_LOOT, () -> openLoot.accept(selected()));
         title("Progress"); // the segmented control already says "Today"
         window.setSelected(initial == HomeArchive.Window.SESSION ? 1 : 0);
         window.setToolTipText("Today is the local calendar day; This session is since RealmShark started");

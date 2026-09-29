@@ -514,6 +514,166 @@ public class LootHighlightsTest {
         });
     }
 
+    /**
+     * P6b Task 9 (R3 B9): at 1240×800 font 13 (five cards a row) the evidence day's synthetic names ("Synthetic Crystal Mail") and
+     * the strip's summaries ("4 bags · 1 UT · 1 ST · 3 potions") paint whole: a long name takes a second line, a strip caption wraps
+     * at its " · " boundaries. Tooltips and accessible names are unchanged. Captured in the dark and the light theme (p6a folder).
+     */
+    @Test public void longNamesAndStripSummariesPaintWholeAt1240x800Font13() throws Exception {
+        Runnable restore = names(EVIDENCE_NAMES);
+        try {
+            LootHighlights view = view(new Fake(LootHighlightsTest::evidenceDay));
+            JPanel workspace = edt(() -> {
+                JPanel panel = new JPanel(new BorderLayout());
+                panel.setBorder(new javax.swing.border.EmptyBorder(34, 12, 10, 12));
+                panel.add(view, BorderLayout.CENTER);
+                return panel;
+            });
+            SwingUtilities.invokeAndWait(() -> evidence.show(workspace, "Loot highlights names 1240x800 font 13", 1240, 800, 13));
+            loaded(view);
+            evidence.settle();
+            // Each theme is captured before it is checked; the collector reports every failure at the end.
+            SwingUtilities.invokeAndWait(() -> {
+                evidence.capture("loot-highlights-names-1240x800-font13-dark");
+                errors.checkSucceeds(() -> { assertNothingCut(view, "dark"); return null; });
+                Themes.install(new Themes.Choice(Themes.Variant.LIGHT, false));
+                SwingUtilities.updateComponentTreeUI(SwingUtilities.getWindowAncestor(view));
+            });
+            evidence.settle();
+            SwingUtilities.invokeAndWait(() -> {
+                evidence.capture("loot-highlights-names-1240x800-font13-light");
+                errors.checkSucceeds(() -> { assertNothingCut(view, "light"); return null; });
+                TileList<HighlightsModel.Notable> grid = view.notableList();
+                HighlightsModel.Notable mail = find(view, 9501);
+                assertEquals("The accessible name is unchanged", "Synthetic Crystal Mail, ST; Pirate Cave, today at 10:10; Orange bag; Enter opens the run recap",
+                    NotableDropRenderer.accessibleName(mail, ZONE, NOON));
+                @SuppressWarnings("unchecked") ListCellRenderer<HighlightsModel.Notable> renderer = (ListCellRenderer<HighlightsModel.Notable>) grid.getCellRenderer();
+                JComponent card = (JComponent) renderer.getListCellRendererComponent(grid, mail, 0, false, false);
+                assertEquals("…and so is the tooltip", "Synthetic Crystal Mail, ST; Pirate Cave, today at 10:10; Orange bag; Enter opens the run recap · " + HighlightsModel.OBSERVED, card.getToolTipText());
+                HighlightsModel.DungeonCell halls = view.stripList().items().get(0);
+                assertEquals("Lost Halls; 4 bags; 1 UT · 1 ST · 3 potions", DungeonStripRenderer.accessibleName(halls));
+            });
+        } finally {
+            restore.run();
+            SwingUtilities.invokeAndWait(() -> Themes.install(new Themes.Choice(Themes.Variant.DARK, false)));
+        }
+    }
+
+    /**
+     * P6b Task 9 (R3 B10): Home's Notable loot tile passes its window, and {@code showWindow} applies it as a click on the window
+     * choice does: the segment shows it, {@value LootHighlights#WINDOW_KEY} keeps it and the window is read. The window already shown
+     * writes and reads nothing. Before the first show it is kept and the first show reads it, once.
+     */
+    @Test public void showWindowSelectsSavesAndReadsTheWindowAsAClickDoes() throws Exception {
+        Fake reader = new Fake(LootHighlightsTest::populated);
+        LootHighlights view = view(reader);
+        frame(view, 1240, 800);
+        loaded(view);
+        assertEquals(List.of(TODAY), reader.windows);
+        edt(() -> { view.showWindow(SESSION); return null; });
+        await("the This session result", () -> view.model() != null && view.model().window() == SESSION && !view.loading());
+        assertEquals(SESSION, edt(view::window));
+        assertEquals("Kept as a click keeps it", List.of("ui.loot.highlights=session"), writes);
+        assertEquals("The window choice shows it", 1, (int) edt(() -> named(view, "loot-highlights-window", SegmentedControl.class).selected()));
+        assertEquals("Read once", List.of(TODAY, SESSION), reader.windows);
+        edt(() -> { view.showWindow(SESSION); return null; });
+        Thread.sleep(150);
+        assertEquals("The window already shown writes nothing", 1, writes.size());
+        assertEquals("…and reads nothing", 2, reader.reads.get());
+        edt(() -> { view.showWindow(TODAY); return null; });
+        await("the Today result", () -> view.model() != null && view.model().window() == TODAY && !view.loading());
+        assertEquals(List.of("ui.loot.highlights=session", "ui.loot.highlights=today"), writes);
+        assertEquals(0, (int) edt(() -> named(view, "loot-highlights-window", SegmentedControl.class).selected()));
+        try { edt(() -> { view.showWindow(null); return null; }); fail(); } catch (AssertionError expected) {
+            assertTrue(String.valueOf(expected.getCause()), expected.getCause() instanceof NullPointerException);
+        }
+
+        writes.clear();
+        Fake later = new Fake(LootHighlightsTest::populated);
+        LootHighlights hidden = view(later);
+        edt(() -> { hidden.showWindow(SESSION); return null; });
+        assertEquals("Kept before the first show", List.of("ui.loot.highlights=session"), writes);
+        assertEquals(SESSION, edt(hidden::window));
+        Thread.sleep(150);
+        assertEquals("Not read while never shown", 0, later.reads.get());
+        frame(hidden, 1240, 800);
+        loaded(hidden);
+        assertEquals("The first show reads the kept window, once", List.of(SESSION), later.windows);
+    }
+
+    /** Synthetic item names of the evidence day (no game assets). */
+    static final Map<Integer, String> EVIDENCE_NAMES = Map.of(9101, "Synthetic Voidblade", 9102, "Synthetic Aegis Robe",
+        9103, "Synthetic Tier Sword", 9201, "Synthetic Frost Staff", 9301, "Synthetic Tidal Dagger", 9401, "Synthetic Viper Bow",
+        9501, "Synthetic Crystal Mail", 9601, "Synthetic Plain Ring", LIFE, "Life potion", GREATER_LIFE, "Greater life potion");
+
+    /** The evidence day: long synthetic names; Lost Halls 4 bags (1 UT, 1 ST, 3 potions), Pirate Cave, Ice Citadel, Unknown area. */
+    static HighlightsModel evidenceDay(HighlightsModel.Window window) {
+        List<LootFacts.Bag> bags = List.of(
+            bag("White", "Lost Halls", at(0, 9, 5), RUN, item(9101, true, false, false, 0), item(LIFE, false, false, true, null)),
+            bag("Orange", "Lost Halls", at(0, 9, 20), RUN, item(9102, false, true, false, 0), item(GREATER_LIFE, false, false, true, null)),
+            bag("Brown", "Lost Halls", at(0, 9, 40), RUN, item(DEFENSE, false, false, true, null)),
+            bag("Cyan", "Lost Halls", at(0, 9, 50), RUN, item(9103, false, false, false, 0)),
+            bag("Orange", "Pirate Cave", at(0, 10, 10), OTHER_RUN, item(9501, false, true, false, 2), item(9201, false, false, false, 3)),
+            bag("B.White", "Pirate Cave", at(0, 10, 30), OTHER_RUN, item(9301, true, false, false, 4), item(MANA, false, false, true, null)),
+            bag(null, HighlightsModel.UNRECOGNIZED, at(0, 11, 0), null, item(9401, false, true, false, null), item(GREATER_DEFENSE, false, false, true, null)),
+            bag("Purple", "Ice Citadel", at(0, 11, 20), null, item(9601, false, false, false, 2), item(OTHER_POTION, false, false, true, null)));
+        return HighlightsModel.of(window, SAVED, bags, true, 0, false, NOON);
+    }
+
+    /** Installs synthetic item names ({@code Sprites.name}); the returned action puts the previous names back. */
+    static Runnable names(Map<Integer, String> names) {
+        try {
+            Field field = assets.IdToAsset.class.getDeclaredField("objectID");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked") HashMap<Integer, assets.IdToAsset> previous = (HashMap<Integer, assets.IdToAsset>) field.get(null);
+            HashMap<Integer, assets.IdToAsset> next = new HashMap<>(previous);
+            for (Map.Entry<Integer, String> name : names.entrySet())
+                next.put(name.getKey(), new assets.IdToAsset("", name.getKey(), name.getValue(), name.getValue(), "", null, "", "", ""));
+            field.set(null, next);
+            return () -> { try { field.set(null, previous); } catch (IllegalAccessException e) { throw new AssertionError(e); } };
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+
+    /**
+     * Every notable card and strip cell, painted at its list's own cell size, paints every line whole (none ends in "…"); a card's
+     * name lines rejoin to the item's name. Five cards a row.
+     */
+    private static void assertNothingCut(LootHighlights view, String theme) {
+        TileList<HighlightsModel.Notable> grid = view.notableList();
+        assertEquals(theme + ": five cards a row", 5, grid.getWidth() / grid.getFixedCellWidth());
+        @SuppressWarnings("unchecked") ListCellRenderer<HighlightsModel.Notable> cards = (ListCellRenderer<HighlightsModel.Notable>) grid.getCellRenderer();
+        List<HighlightsModel.Notable> items = grid.items();
+        assertEquals(theme + ": every notable drop is listed", 12, items.size());
+        for (int i = 0; i < items.size(); i++) {
+            HighlightsModel.Notable drop = items.get(i);
+            NotableDropRenderer card = (NotableDropRenderer) cards.getListCellRendererComponent(grid, drop, i, false, false);
+            List<String> painted = painted(card, grid.getFixedCellWidth(), grid.getFixedCellHeight(), card::painted);
+            String name = Sprites.name(drop.itemId());
+            for (String line : painted) assertFalse(theme + ": '" + name + "' card cuts nothing: " + painted, line.endsWith("…"));
+            int chip = painted.indexOf(drop.kind().label());
+            assertEquals(theme + ": the name lines are the whole name: " + painted, name, String.join(" ", painted.subList(0, chip)));
+        }
+        TileList<HighlightsModel.DungeonCell> strip = view.stripList();
+        @SuppressWarnings("unchecked") ListCellRenderer<HighlightsModel.DungeonCell> cells = (ListCellRenderer<HighlightsModel.DungeonCell>) strip.getCellRenderer();
+        List<HighlightsModel.DungeonCell> areas = strip.items();
+        assertEquals(theme + ": Lost Halls, Pirate Cave, Ice Citadel and Unknown area", 4, areas.size());
+        for (int i = 0; i < areas.size(); i++) {
+            DungeonStripRenderer cell = (DungeonStripRenderer) cells.getListCellRendererComponent(strip, areas.get(i), i, false, false);
+            List<String> painted = painted(cell, strip.getFixedCellWidth(), strip.getFixedCellHeight(), cell::painted);
+            for (String line : painted) assertFalse(theme + ": the strip cuts nothing: " + painted, line.endsWith("…"));
+            assertEquals(theme + ": the caption rejoins whole: " + painted, DungeonStripRenderer.caption(areas.get(i)), String.join(" · ", painted.subList(1, painted.size())));
+        }
+    }
+
+    private static List<String> painted(JComponent cell, int width, int height, java.util.function.Supplier<List<String>> painted) {
+        cell.setSize(width, height);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        cell.paint(g);
+        g.dispose();
+        return painted.get();
+    }
+
     /** A sub-line wider than its tile breaks between its parts, then at spaces; every part stays whole where it fits. */
     @Test public void subLinesBreakBetweenPartsBeforeInsideAPart() throws Exception {
         edt(() -> {

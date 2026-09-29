@@ -45,7 +45,8 @@ public final class ArchiveResult<R> implements AutoCloseable {
         try {
             cancel.check();adapter.validate(query);pin.bindQuery(adapter,query);
             Files.createDirectories(scratch);directory=Files.createTempDirectory(scratch,"archive-result-");
-            Comparator<ArchiveRow<R>> order=(a,b)->0;
+            // Rows the adapter keeps last come after every other row in both directions: the first key, never reversed.
+            Comparator<ArchiveRow<R>> order=(a,b)->Boolean.compare(adapter.sortsLast(a.value),adapter.sortsLast(b.value));
             for(ArchiveQuery.Order<S> item:query.order()) {
                 Comparator<R> values=Objects.requireNonNull(adapter.comparator(item.field),"Unsupported sort field");
                 if(item.direction==ArchiveQuery.Direction.DESCENDING)values=values.reversed();

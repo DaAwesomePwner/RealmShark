@@ -34,13 +34,9 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
                               int enchantUnknown, Map<String, Integer> notableByBag) {
     public static final String NO_LOOT = "No loot was saved for this period", NO_LIVE_LOOT = "No loot was observed in this app run yet",
         OBSERVED = "Observed drops, not pickups", LIVE = "This app run · not saved", CAPPED = "latest 1,000 bags",
-        UNKNOWN_AREA = "Unknown area", OTHER_POTIONS = "Other potions";
-    /**
-     * What capture saves for an area the dungeon catalog does not know ({@code DungeonCatalog.UNRECOGNIZED}, package-private in
-     * {@code tomato.realmshark}; {@code ParseDungeon.canonicalName} returns it for any unknown name). Highlights reads it as
-     * Unknown area.
-     */
-    static final String UNRECOGNIZED = "Unrecognized area";
+        UNKNOWN_AREA = LootFacts.UNKNOWN_AREA, OTHER_POTIONS = "Other potions";
+    /** What capture saves for an area the dungeon catalog does not know ({@link LootFacts#UNRECOGNIZED}): Unknown area here. */
+    static final String UNRECOGNIZED = LootFacts.UNRECOGNIZED;
     public static final int NOTABLE_LIMIT = 200;
     /** The stat potions' stats in {@code StatPotion} order, with the sub-line's short labels. */
     private static final String[] STATS = {"Life", "Mana", "Attack", "Defense", "Speed", "Dexterity", "Vitality", "Wisdom"},
@@ -104,8 +100,8 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
 
     /** One area's bags in the window: {@code dungeon} null = Unknown area; {@code portalId} 0 = the kit's placeholder glyph. */
     public record DungeonCell(String dungeon, int portalId, int bags, int ut, int st, int potions) {
-        /** The area's name, or {@link #UNKNOWN_AREA}. */
-        public String name() { return dungeon == null ? UNKNOWN_AREA : dungeon; }
+        /** The area's name, or {@link #UNKNOWN_AREA} ({@link LootFacts#areaLabel}). */
+        public String name() { return LootFacts.areaLabel(dungeon); }
     }
 
     public HighlightsModel {
@@ -143,7 +139,7 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
             LootFacts.Bag bag = newest.get(index);
             if (bag.bag() == null) unnamed++;
             if (bag.white()) whites++;
-            String area = area(bag.dungeon());
+            String area = LootFacts.area(bag.dungeon());   // null: Unknown area (none recorded, or the catalog did not know it)
             int[] cell = area != null ? cells.computeIfAbsent(area, key -> new int[4]) : unknown != null ? unknown : (unknown = new int[4]);
             cell[0]++;
             List<Notable> listed = new ArrayList<>();
@@ -202,9 +198,6 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
         if (item.enchanted()) return Kind.ENCHANTED;
         return null;
     }
-
-    /** The bag's area for Highlights: null (Unknown area) when no map was recorded or the catalog did not know it. */
-    static String area(String dungeon) { return dungeon == null || dungeon.isBlank() || UNRECOGNIZED.equals(dungeon) ? null : dungeon; }
 
     /** "2 Life · 1 Mana · 3 Def · 1 other" (at most four stats, then "+N more"); empty without potions. */
     static String potionLine(Map<String, Integer> byStat) {

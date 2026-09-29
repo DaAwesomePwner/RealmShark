@@ -201,4 +201,79 @@ public class LootArchiveQueryTest {
             }
         }
     }
+    /**
+     * P6b Task 9 (R3 B3a): By Bag's Unknown bag row is last under every explicit sort. Its empty Bag cell sorted first under Bag
+     * ascending and its label alphabetically under Name, and the DESCENDING reversal flipped any comparator; ArchiveAdapter.sortsLast
+     * is the first sort key, outside the reversal. The newest and largest group here, so no other key puts it last by accident.
+     */
+    @Test public void theUnknownBagRowIsLastUnderBagAndNameInBothDirections()throws Exception{
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"unknown-last")){
+            store.append("loot",drop(1000,"Lost Halls","Orange","v1",item(1,"Staff","WEAPON,T12","")));
+            store.append("loot",drop(2000,"Lost Halls","Blue","v2",item(2,"Band","RING",""),item(3,"Charm","RING","")));
+            store.append("loot",drop(3000,"Lost Halls","White","v3",item(4,"Sword","WEAPON,T12",""),item(5,"Bow","WEAPON,T12",""),item(6,"Wand","WEAPON,T12","")));
+            store.append("loot",new LootDashboard.Drop(null,"Lost Halls",null,4000,Arrays.asList(item(7,"Blade","WEAPON,UT",""),item(8,"Robe","ARMOR,ST",""),item(9,"Ring","RING",""),item(10,"Helm","ARMOR","")),"v4"));
+            store.flush();
+            String scope=store.currentId(),unknown="Unknown bag (name not saved)";
+            Map<String,List<String>> expected=new LinkedHashMap<>();
+            expected.put("BAG ASCENDING",Arrays.asList("Blue","Orange","White",unknown));
+            expected.put("BAG DESCENDING",Arrays.asList("White","Orange","Blue",unknown));
+            expected.put("NAME ASCENDING",Arrays.asList("Blue","Orange","White",unknown));
+            expected.put("NAME DESCENDING",Arrays.asList("White","Orange","Blue",unknown));
+            expected.put("TIME DESCENDING",Arrays.asList("White","Blue","Orange",unknown));
+            expected.put("ITEMS DESCENDING",Arrays.asList("White","Blue","Orange",unknown));
+            expected.put("ITEMS ASCENDING",Arrays.asList("Orange","Blue","White",unknown));
+            for(Map.Entry<String,List<String>> order:expected.entrySet()){
+                String[] parts=order.getKey().split(" ");
+                ArchiveQuery<Facets,Sort> q=query(scope,View.BAGS).withOrder(Collections.singletonList(new ArchiveQuery.Order<>(Sort.valueOf(parts[0]),ArchiveQuery.Direction.valueOf(parts[1]))));
+                try(ArchiveResult<Row> result=open(store,q)){
+                    List<String> names=new ArrayList<>();for(ArchiveRow<Row> row:rows(result))names.add(row.value.name);
+                    assertEquals(order.getKey(),order.getValue(),names);
+                    List<String> paged=new ArrayList<>();for(ArchiveRow<Row> row:result.page(0,2,new Cancellation()).rows)paged.add(row.value.name);
+                    assertEquals(order.getKey()+": pages follow the same order",order.getValue().subList(0,2),paged);
+                }
+            }
+            try(ArchiveResult<Row> result=open(store,query(scope,View.BAGS))){
+                Row last=rows(result).get(3).value;assertEquals(unknown,last.name);assertEquals("The saved row keeps its empty Bag value","",last.bag);
+            }
+            try(ArchiveResult<Row> result=open(store,query(scope,View.OCCURRENCES).withOrder(Collections.singletonList(new ArchiveQuery.Order<>(Sort.BAG,ArchiveQuery.Direction.ASCENDING))))){
+                List<Integer> ids=new ArrayList<>();for(ArchiveRow<Row> row:rows(result))ids.add(row.value.itemId);
+                assertEquals("Only the By Bag row sorts last: other views keep the query's order (a missing bag name sorts first by value)",Arrays.asList(7,8,9,10,2,3,1,4,5,6),ids);
+            }
+        }
+    }
+    /**
+     * P6b Task 9 (R3 B2): a bag saved without a map ("Unknown", capture's word) reads "Unknown area" as the Dungeon loot profile row's
+     * name; the row's dungeon, the drill key, and the dungeon facet stay "Unknown", so saved facets and drills still select it.
+     */
+    @Test public void unknownAreaIsADisplayLabelAndKeysStayUnknown()throws Exception{
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"unknown-area")){
+            store.append("loot",drop(2000,null,"White","v1",item(1,"Blade","WEAPON,UT","")));
+            store.append("loot",drop(3000,"Ice Citadel","Orange","v2",item(2,"Staff","WEAPON,T12","")));
+            store.flush();
+            String scope=store.currentId();
+            try(ArchiveResult<Row> result=open(store,query(scope,View.RATES))){
+                Map<String,Row> byKey=new TreeMap<>();for(ArchiveRow<Row> row:rows(result))byKey.put(row.value.dungeon,row.value);
+                assertEquals("The drill keys are the saved names",new TreeSet<>(Arrays.asList("Ice Citadel","Unknown")),byKey.keySet());
+                assertEquals("Unknown area",byKey.get("Unknown").name);
+                assertEquals("A known area keeps its name","Ice Citadel",byKey.get("Ice Citadel").name);
+            }
+            try(ArchiveResult<Row> result=open(store,query(scope,View.ITEMS))){
+                Set<String> facets=new TreeSet<>();for(String key:result.page(0,10,new Cancellation()).counts.keySet())if(key.startsWith("facet.dungeon."))facets.add(key);
+                assertEquals("The facet keys stay the saved names",new TreeSet<>(Arrays.asList("facet.dungeon.Ice Citadel","facet.dungeon.Unknown")),facets);
+            }
+            ArchiveQuery<Facets,Sort> drill=query(scope,View.ITEMS);Facets f=drill.facets();f.dungeons.add("Unknown");
+            try(ArchiveResult<Row> result=open(store,drill.withFacets(f))){
+                assertEquals("A saved \"Unknown\" facet (a drill from the row) still selects the bag",1,rows(result).size());
+                assertEquals("Blade",rows(result).get(0).value.name);assertEquals("Unknown",rows(result).get(0).value.dungeon);
+            }
+            ArchiveQuery<Facets,Sort> rates=query(scope,View.RATES);Facets r=rates.facets();r.dungeons.add("Unknown");
+            try(ArchiveResult<Row> result=open(store,rates.withFacets(r))){
+                assertEquals(1,rows(result).size());assertEquals("Unknown area",rows(result).get(0).value.name);
+            }
+            try(ArchiveResult<Row> result=open(store,query(scope,View.RATES).withText("unknown area"))){
+                assertEquals("Rate search finds the row by the name it shows",1,rows(result).size());assertEquals("Unknown",rows(result).get(0).value.dungeon);
+            }
+            try(ArchiveResult<Row> result=open(store,query(scope,View.RATES).withText("Unknown"))){assertEquals("…and by its saved name",1,rows(result).size());}
+        }
+    }
 }

@@ -27,8 +27,9 @@ import util.PropertiesManager;
  * Loot › Highlights (spec §6.4; P6a decisions): what dropped Today or This session at a glance.
  * - Header: the source caption ({@code loot-highlights-source}: "Saved history · Today", or "This app run · not saved" with
  *   "latest 1,000 bags" when the live list is capped), the Today / This session choice ({@code loot-highlights-window}, kept in
- *   {@link #WINDOW_KEY}, Today by default; restoring it only selects) and ⋯ ({@code loot-highlights-more}: Refresh plus the
- *   page's {@link #addOverflowAction} entries).
+ *   {@link #WINDOW_KEY}, Today by default; restoring it only selects; Home's Notable loot tile applies its own through
+ *   {@link #showWindow}, as a click would) and ⋯ ({@code loot-highlights-more}: Refresh plus the page's {@link #addOverflowAction}
+ *   entries).
  * - Four StatTiles: UT drops, ST drops, potions (the sub-line lists stats, "2 Life · 1 Mana · 3 Def") and white bags (the
  *   sub-line says of how many bags, and how many had no saved bag name). Unknown is "—" with its reason, never 0; a partial
  *   read (◐) and a stale one are labeled on the tiles and in a warn line above them. One row whenever each tile can be
@@ -235,6 +236,18 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
     /** What opening a strip cell runs: the canonical dungeon name, or null for Unknown area. */
     public void onDungeon(Consumer<String> action) { openDungeon = Objects.requireNonNull(action, "action"); }
 
+    /**
+     * Explicit navigation to {@code next} (Home's Notable loot tile passes the window it shows, P6b): selected and kept in
+     * {@link #WINDOW_KEY} as a click on the window choice is, and read (before the first show, the first show reads it). The window
+     * already shown writes and reads nothing. EDT.
+     */
+    public void showWindow(HighlightsModel.Window next) {
+        Objects.requireNonNull(next, "window");
+        if (closed) return;
+        windowControl.setSelected(next == HighlightsModel.Window.SESSION ? 1 : 0);   // silent: choose applies it
+        choose(next);
+    }
+
     /** Reads the chosen window again now (⋯ Refresh, Try again). EDT. */
     public void refresh() { request(); }
 
@@ -314,14 +327,14 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         if (listening) { LootFilters.get().removeListener(filterChanged); listening = false; }
     }
 
-    /** A user's window choice: kept, and read. */
+    /** A user's window choice (a click, or {@link #showWindow}): kept, and read; before the first show, the first show reads it. */
     private void choose(HighlightsModel.Window next) {
         if (closed || next == window) return;
         window = next;
         write.accept(WINDOW_KEY, next.key());
         staleReason = null;
         unavailableReason = null;
-        request();
+        if (requested) request(); else render();
     }
 
     /** Starts a read of the chosen window on the worker; a newer request makes older results inert. EDT. */

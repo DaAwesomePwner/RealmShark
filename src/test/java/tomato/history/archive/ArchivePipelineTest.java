@@ -204,4 +204,44 @@ public class ArchivePipelineTest {
         ArchiveRow.Ref rootRef=new ArchiveRow.Ref("session","module","locator","");
         assertNotEquals(rootRef.child("a/b"),rootRef.child("a").child("b"));
     }
+    /**
+     * P6b Task 9: ArchiveAdapter.sortsLast is the first sort key, ahead of the query's order and outside its DESCENDING reversal, so
+     * the rows it marks (By Bag's Unknown bag row) follow every other row in both directions; among themselves they keep the query's
+     * order. Enough rows for several chunks, so the external merge applies it too. Adapters that do not override it are unchanged.
+     */
+    @Test public void sortsLastRowsFollowEveryOtherRowInBothDirectionsAcrossChunks()throws Exception{
+        Path root=temp.newFolder().toPath(),scratch=temp.newFolder().toPath();String id=session(root,3000);
+        ArchiveAdapter<Event,Facets,Sort> plain=adapter();
+        assertFalse("The default marks nothing",plain.sortsLast(new Event(0,0,"even","Message 0")));
+        ArchiveAdapter<Event,Facets,Sort> marked=new ArchiveAdapter<Event,Facets,Sort>(){
+            public Class<Event> rowType(){return plain.rowType();}
+            public String unit(){return plain.unit();}
+            public List<ReadSnapshot.Source> sources(SessionStore store,ArchiveQuery<Facets,Sort> q){return plain.sources(store,q);}
+            public void scan(ReadSnapshot pin,ArchiveQuery<Facets,Sort> q,Sink<Event> rows,Cancellation cancel)throws java.io.IOException{plain.scan(pin,q,rows,cancel);}
+            public boolean matches(ArchiveRow<Event> row,ArchiveQuery<Facets,Sort> q){return plain.matches(row,q);}
+            public Long time(ArchiveRow<Event> row){return plain.time(row);}
+            public Comparator<Event> comparator(Sort field){return plain.comparator(field);}
+            @Override public boolean sortsLast(Event row){return row.value%7==0;}
+        };
+        try(SessionStore store=new SessionStore(root,false,"test")){
+            for(ArchiveQuery.Direction direction:ArchiveQuery.Direction.values()){
+                ArchiveQuery<Facets,Sort> q=query(id).withOrder(Collections.singletonList(new ArchiveQuery.Order<>(Sort.VALUE,direction)));
+                try(ArchiveResult<Event> result=ArchiveResult.open(store,q,marked,scratch,new Cancellation())){
+                    assertEquals(3000,result.matches);
+                    List<Integer> values=new ArrayList<>();result.stream(ExportSelection.all(),row->values.add(row.value.value),new Cancellation());
+                    int first=0;while(first<values.size()&&values.get(first)%7!=0)first++;
+                    assertEquals(direction+": every marked row after the others",3000/7+1,values.size()-first);
+                    for(int i=first;i<values.size();i++)assertEquals(direction+" at "+i,0,values.get(i)%7);
+                    for(int i=1;i<values.size();i++)if(i!=first)assertTrue(direction+": the query's order within each part at "+i,
+                        direction==ArchiveQuery.Direction.ASCENDING?values.get(i-1)<values.get(i):values.get(i-1)>values.get(i));
+                    assertEquals("Pages agree",(int)values.get(first),result.page(first/100,100,new Cancellation()).rows.get(first%100).value.value);
+                }
+                try(ArchiveResult<Event> result=ArchiveResult.open(store,q,plain,scratch,new Cancellation())){
+                    Event top=result.page(0,1,new Cancellation()).rows.get(0).value;
+                    assertEquals(direction+": unmarked adapters keep the plain order",direction==ArchiveQuery.Direction.ASCENDING?0:2999,top.value);
+                }
+            }
+        }
+        assertEquals(0,children(scratch));
+    }
 }

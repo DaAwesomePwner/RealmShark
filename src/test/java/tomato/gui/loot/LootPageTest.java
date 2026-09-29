@@ -256,6 +256,51 @@ public class LootPageTest {
         });
     }
 
+    /**
+     * P6b Task 9 (R3 B10, decision 6): a focus may carry Home's window. Opening it brings Highlights forward and applies the window
+     * as a click on its choice does (selected and kept in {@code ui.loot.highlights}); a focus without one keeps the window shown.
+     * A window belongs to Highlights only. Highlights' window is its own preference, so Back restores the tab only.
+     */
+    @Test public void aFocusWithAWindowOpensHighlightsOnItAndKeepsIt() throws Exception {
+        assertNull("The tab-only focus keeps the window", new LootFocus(LootTab.HIGHLIGHTS).window());
+        assertEquals(new LootFocus(LootTab.HIGHLIGHTS, null), new LootFocus(LootTab.HIGHLIGHTS));
+        assertEquals(HighlightsModel.Window.SESSION, new LootFocus(LootTab.HIGHLIGHTS, HighlightsModel.Window.SESSION).window());
+        try { new LootFocus(LootTab.EXPLORE, HighlightsModel.Window.TODAY); fail("A window is Highlights' only"); } catch (IllegalArgumentException expected) { }
+        Map<String, String> prefs = new HashMap<>();
+        List<String> writes = new ArrayList<>();
+        LootHighlightsTest.Fake reader = new LootHighlightsTest.Fake(LootHighlightsTest::populated);
+        LootHighlights highlights = edt(() -> new LootHighlights(reader, ZoneId.of("America/New_York"), prefs::get,
+            (key, value) -> { writes.add(key + "=" + value); prefs.put(key, value); }, 0, 0));
+        LootPage page = page(highlights, new JPanel());
+        edt(() -> {
+            page.bring(LootTab.EXPLORE);
+            RouteTarget target = page.tabTarget();
+            Object before = target.captureState();
+            Route session = Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.HIGHLIGHTS, HighlightsModel.Window.SESSION));
+            assertTrue(target.accepts(session));
+            target.open(session);
+            assertEquals(LootTab.HIGHLIGHTS, page.selectedTab());
+            assertEquals("Opened on This session", HighlightsModel.Window.SESSION, highlights.window());
+            assertEquals("…and kept, as a click keeps it", List.of("ui.loot.highlights=session"), writes);
+            target.open(Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.HIGHLIGHTS)));
+            assertEquals("No window keeps the one shown", HighlightsModel.Window.SESSION, highlights.window());
+            target.open(Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.HIGHLIGHTS, HighlightsModel.Window.TODAY)));
+            assertEquals(HighlightsModel.Window.TODAY, highlights.window());
+            assertEquals(List.of("ui.loot.highlights=session", "ui.loot.highlights=today"), writes);
+            target.restoreState(before);
+            assertEquals("Back brings the tab back", LootTab.EXPLORE, page.selectedTab());
+            assertEquals("…and leaves Highlights' own choice", HighlightsModel.Window.TODAY, highlights.window());
+            return null;
+        });
+        assertEquals("Never shown: nothing was read", 0, reader.reads.get());
+        LootPage plain = page();
+        edt(() -> {
+            plain.tabTarget().open(Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.HIGHLIGHTS, HighlightsModel.Window.SESSION)));
+            assertEquals("A Highlights tab of another kind just comes forward", LootTab.HIGHLIGHTS, plain.selectedTab());
+            return null;
+        });
+    }
+
     @Test public void closeReachesEveryTabContentIncludingAHiddenTabOnce() throws Exception {
         PropertiesManager.setProperties(ORDER, "highlights,explore|highlights");
         Closing highlights = new Closing(), explore = new Closing();

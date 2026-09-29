@@ -682,7 +682,7 @@ public class TomatoGUI {
             visit -> openFromHome(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit), tomato.gui.route.Route.to(Destination.RUNS)),
             () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)),
             // The Today card's Notable loot tile: Loot › Highlights, brought forward even when another Loot tab was left in front.
-            () -> openFromHome(tomato.gui.route.Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.HIGHLIGHTS))));
+            window -> openFromHome(tomato.gui.route.Route.to(Destination.LOOT).withPayload(new LootFocus(LootTab.HIGHLIGHTS, window == tomato.gui.glance.home.HomeArchive.Window.SESSION ? HighlightsModel.Window.SESSION : HighlightsModel.Window.TODAY))));
     }
 
     /** Search: one Loot tab, through the navigator (Back returns). */

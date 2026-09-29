@@ -22,6 +22,12 @@ public interface ArchiveAdapter<R,F,S extends Enum<S>> {
     /** Reject unavailable operations, such as a custom period on counters without timestamps. */
     default void validate(ArchiveQuery<F,S> query) { }
     Comparator<R> comparator(S field);
+    /**
+     * A row that follows every other row under any order: the result sorts by this first, ahead of the query's order and outside
+     * its DESCENDING reversal, so no comparator has to keep it last in both directions (By Bag's Unknown bag row). Rows it marks
+     * keep the query's order among themselves. It sees the row as the result stores it (a decoded copy during the merge).
+     */
+    default boolean sortsLast(R row) { return false; }
     /** Freeze dependencies in the adapter instance before opening a result. */
     default Map<String,String> dependencies() { return Collections.emptyMap(); }
     /** Whole-scan counters for cards/denominators; omit unknown values instead of manufacturing zero. */

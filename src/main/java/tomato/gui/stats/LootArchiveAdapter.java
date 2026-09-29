@@ -35,6 +35,8 @@ public final class LootArchiveAdapter implements ArchiveAdapter<Row,Facets,Sort>
     public boolean inBounds(ArchiveRow<Row> row,ArchiveQuery<Facets,Sort> q){return true;}
     public Long time(ArchiveRow<Row> row){return row.value.time;}
     public Comparator<Row> comparator(Sort field){return LootQuery.comparator(field);}
+    /** By Bag's Unknown bag row follows the named bags under every sort: its empty Bag value and its label never sort it among them. */
+    @Override public boolean sortsLast(Row row){return "bag-type".equals(row.type)&&UNKNOWN_BAG.equals(row.name);}
     public Map<String,Count> counts(){return counts;}
     public Map<String,String> dependencies(){Map<String,String> values=new LinkedHashMap<>();values.put("loot-projection","v3; exact captured enchant IDs and optional map context; saved item classifications; exact variant/visit facets before paging; run links require the same session, visit ID and canonical dungeon; summaries limited to 25000 distinct keys; bags without a saved name form one Unknown bag group, are no bag facet and never white; observed, not owned");if(definitions!=null)values.put("asset-generation",definitions.description());return values;}
     static void bounded(int size,int limit,String population)throws IOException{if(size>limit)throw new IOException(population+" exceeds "+limit+" distinct keys. Narrow the session scope or date/facets; nothing was truncated.");}
@@ -85,8 +87,8 @@ public final class LootArchiveAdapter implements ArchiveAdapter<Row,Facets,Sort>
         },cancel);
         String scope=pin.sessionIds().size()==1?pin.sessionIds().iterator().next():SessionStore.ALL;
         for(Map.Entry<String,Row> group:groups.entrySet()){cancel.check();sink.accept(new ArchiveRow<>(new ArchiveRow.Ref(scope,"loot","group:"+view+":"+group.getKey(),""),group.getValue()));}
-        // "~" sorts after the ":" of every named group's locator, so the Unknown bag row follows the named bags wherever the query's
-        // order ties (it cannot collide with a bag name). The query's own order (newest first by default) still comes first.
+        // The Unknown bag row follows the named bags under every order (sortsLast, the result's first key); its own locator ("~" sorts
+        // after the ":" of every named group's) cannot collide with a bag name.
         if(unnamed[0]!=null)sink.accept(new ArchiveRow<>(new ArchiveRow.Ref(scope,"loot","group:"+view+"~unnamed-bag",""),unnamed[0]));
         counts.put("scope bags",new Count(totals[0],"bags","whole saved session scope, before query"));
         counts.put("scope items",new Count(totals[1],"item occurrences","whole saved session scope, before query"));
