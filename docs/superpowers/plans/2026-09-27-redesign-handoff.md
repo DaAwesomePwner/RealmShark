@@ -20,7 +20,7 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P4 Quests: Board and Planner | #24 | Merged (Codex: no findings) | `e541874` |
 | P5a Runs: combat auto-save, feed, recap | #25 | Merged (Codex fix `21d896e`) | `3ab077c` |
 | P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | #26 | Merged (Codex fixes `a7b873e`) | `73400af` |
-| P6a Structure: IDs, retired pages, Loot, Statistics removal | open | Implemented, in review ([plan](2026-09-29-p6a-structure.md), [validation](2026-09-29-p6a-validation.md)) | |
+| P6a Structure: IDs, retired pages, Loot, Statistics removal | #27 | Merged (Codex fix `4a22ce4`) | `82983c2` |
 | P6b Consistency: Scope ▾, Advanced restyles, sidebar drag, final screenshots | none | Outline (P6a plan's "Deferred scope") | |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
@@ -47,7 +47,9 @@ Done on 2026-09-27/28 (cloud session):
 
 - P6a implemented with subagent-driven development: 13 tasks in four waves plus three polish tasks from the screenshot reviews (A, B1, B2), each reviewed and merged by the coordinator. The container restarted once during Task 12; its uncommitted work survived and the same implementer finished it. Final suite 2,020 tests with only the four known Linux/Xvfb failures; `shadowJar` and the isolated `--help` smoke pass. Record: [2026-09-29-p6a-validation.md](2026-09-29-p6a-validation.md).
 
-1. **Drive the P6a PR to merge** (Codex review under the standing permission), then record the merge and **plan P6b** (see the P6a plan's "Deferred scope" and the validation record's deferred evidence findings).
+- PR #27 (P6a) merged as `82983c2` after fixing its one Codex finding in `4a22ce4` (Highlights kept the newest 200 notable drops before Filter Loot applied; each bag name now keeps its own newest 200 and the grid filters first); `main` verified (tree equals the reviewed head, `shadowJar` and an isolated `--help` pass).
+
+1. **Plan P6b when the user asks** (Scope ▾ merge on all seven archive pages, Advanced restyles, relative times and Analyst-only columns, sidebar drag, the final Simple/Analyst screenshot set and docs; plus the deferred evidence findings in the P6a validation record). Research R2 (Advanced pages) and R4 (scope row and docs) in the scratchpad already cover most of it; re-run them if the scratchpad is gone.
 2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
 The P5 and P5b research notes live in the session scratchpad; the plans quote their conclusions. A new session without them should re-run the research questions listed in each plan's "Sources" before implementing.
 

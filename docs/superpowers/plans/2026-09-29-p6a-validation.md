@@ -362,6 +362,8 @@ PR #27 opened on `87a18aa`. Codex reviewed it and left one finding.
   expected:<50> but was:<0>"); `HighlightsSourceTest`'s large-fixture assertion is replaced (the model keeps 200 per bag name; the
   grid shows exactly 200). Focused run after the fix: `tomato.gui.loot.*`, `ui.LootEvidenceTest`, `tomato.gui.ShellSwitchTimingTest`
   and `tomato.gui.glance.home.*`, 152 tests, 0 failures.
+- **Merged** as `82983c2` (merge commit) after the fix; `main`'s tree equals the reviewed head `4a22ce4`, `shadowJar` builds on
+  `main` and the isolated `--help` smoke exits 0 with no files left.
 
 ## Deferred scope
 
