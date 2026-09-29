@@ -1,25 +1,27 @@
 # Consistent, responsive desktop UI
 
+> **History.** This page records the typography, spacing and responsiveness work of 2026-09-18 to 2026-09-20. The current pages, tabs, navigation, keyboard shortcuts and filter row are described in [RealmShark interface](UI-REDESIGN.md). The first section's page names now carry today's names (Party for Inspect, Runs & DPS › Recordings for the encounter chooser); the dated sections keep the names of their time.
+
 ## Using the updated application
 
 Restart with `Launch-RealmShark.cmd` to load the rebuilt `build/libs/RealmShark-v1.2.3.jar` through the protected runtime launcher. `Preview-RealmShark.cmd` opens the interface without starting capture or making startup API requests.
 
 - **Edit > Font** applies the selected content font throughout the workspace. Heading, metadata and monospaced-report roles retain their hierarchy. Table rows and headers grow with their font metrics.
 - **Edit > Font > Compact default (Segoe UI, 13)** restores the compact typography. Existing larger-font choices remain available.
-- The full sidebar fits all 14 destinations at the default desktop size and standard font. Compact windows have a **menu icon** above the navigation rail: click it or press **Alt+M** for labeled destinations. Existing workspace shortcuts remain available.
+- The full sidebar fits all of its destinations at the default desktop size and standard font (then 14; today six core pages, the Advanced (5) group and Settings, see [RealmShark interface](UI-REDESIGN.md#information-architecture)). Compact windows have a **menu icon** above the navigation rail: click it or press **Alt+M** for labeled destinations. Existing workspace shortcuts remain available.
 - Small windows use wrapping controls, balanced summary grids and page scrolling where necessary. Tables retain usable row space instead of collapsing beneath filters and detail panels.
 - **Chat > Actions > Chat filters** opens player-ignore, blocked-phrase and advertisement settings. The selected-message panel continues to show full message text.
-- **Inspect > Current Area / Runs** provides sortable player rosters and saved run loadouts. **Options** exposes default guild ordering and copy restrictions. **Actions** provides explicit exports and player/guild actions, with keyboard shortcuts shown in the menu. Copy names and Copy all remain directly available.
+- **Party › Current Area / Runs** (then Inspect) provides sortable player rosters and saved run loadouts. The **Sort by guild** and **Only copy below or unknown requirements** checkboxes (then under Options) sit in Current Area's Filters drawer. **Actions…** provides explicit exports and player/guild actions, with keyboard shortcuts shown in the menu. Copy names and Copy all (JSON) remain directly available.
 - **Characters > Pets** labels the feed-power input and provides visible positive-number validation and a **Recalculate feeding costs** action.
-- The DPS encounter chooser supports keyboard selection and separate export checkboxes. Live legacy reports remain selectable and read-only. Its compact toolbar wraps as the available width changes.
+- The DPS encounter chooser (today Runs & DPS › **Recordings**) supports keyboard selection and separate export checkboxes. Live legacy reports remain selectable and read-only. Its compact toolbar wraps as the available width changes.
 - The resource chart has keyboard-accessible zoom/reset and sample inspection. Rule-editor add/remove controls have meaningful labels and keyboard focus.
 
 ### Wave 1 evidence and recovery
 
 - The shell and saved history open before asset setup finishes. **Choose assets…** and **Retry assets** provide recovery in place; the saved capture preference is applied only after successful initial readiness. See [setup guidance](../README.md#troubleshooting).
 - The character sheet's **Build** tab (formerly the My Info page) has **Captured**, **Estimated** and **Unavailable** filters. Each of its four summary cards has a Details action for inputs, assumptions and missing data, independent of table filters. **Estimate scenario: out of combat** changes the local calculation, not the captured combat state.
-- **Inspect** keeps absent mode, stats and equipment fields unknown. Missing seasonal metadata does not mean Non-seasonal; missing inputs do not become exact maxed counts or fabricated potion deficits. Equipment details distinguish retained build/change time from last seen, and do not assign a capture time to an untimed DPS snapshot.
-- **Gameplay & diagnostics collection** is shared across Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. **Pause this view** holds displayed data while collection status stays current; saved views identify themselves as **Saved history**. See [Logging](LOGGING.md).
+- **Party** (then Inspect) keeps absent mode, stats and equipment fields unknown. Missing seasonal metadata does not mean Non-seasonal; missing inputs do not become exact maxed counts or fabricated potion deficits. Equipment details distinguish retained build/change time from last seen, and do not assign a capture time to an untimed DPS snapshot.
+- **Gameplay & diagnostics collection** is shared across Logging, Runs, Timeline, resource/buff history and recorded Party builds. **Pause this view** holds displayed data while collection status stays current; saved views identify themselves as **Saved history**. See [Logging](LOGGING.md).
 - Alert editors open silently, offer explicit **Test sound**, and distinguish changes active in memory from confirmed disk saves. See [Notifications](NOTIFICATIONS.md#editing-match-rules).
 
 Wave 1 validation and pending delivery gates are tracked in the [execution ledger](UX-EXECUTION.md). The dated reports below describe their own earlier milestones.
@@ -30,7 +32,7 @@ Wave 1 validation and pending delivery gates are tracked in the [execution ledge
 - Characters uses page scrolling and font-aware minimum content space. Detail tabs wrap at narrow widths; focusing a control reveals it through nested scroll panes.
 - Chat Time/Channel widths follow their actual renderers and headers instead of fixed caps. Columns remain resizable, with horizontal scrolling for narrow tables. Chat filter descriptions wrap and its actions remain reachable in the minimum dialog.
 - Notification messages use shared text-view measurement, including caret space, rather than word counting. Background changes to read-only metadata do not scroll the page away from the user's settings.
-- **Inspect → Actions → Equipment details…**, or **Ctrl+E** with roster focus, opens full read-only equipment and base-stat details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
+- **Party › Current Area › Actions… › Equipment details…** (then Inspect → Actions), or **Ctrl+E** with roster focus, opens full read-only equipment and base-stat details from the displayed row. Equipment cells have plain accessible names and descriptions, including unknown and empty states.
 
 Detailed evidence, layout limits, and commands: [Phase 3 validation](STEP-3-UI-CONSISTENCY.md).
 

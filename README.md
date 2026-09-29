@@ -1,6 +1,6 @@
 # RealmShark
 
-A desktop companion for **Realm of the Mad God**, with read-only packet capture, chat, combat meters, loot tracking, character history and session statistics.
+A desktop companion for **Realm of the Mad God**, with read-only packet capture, chat, combat meters, loot tracking, character history and saved session history.
 
 The application, launchers and Windows package use the **RealmShark fin logo** and the same product version. See [branding and desktop integration](docs/BRANDING.md).
 
@@ -23,28 +23,28 @@ Use **Preview-RealmShark.cmd** to inspect the UI without capture, startup API re
 
 The current runnable artifact is `build/libs/RealmShark-v1.2.3.jar`. Use **JDK 17** for development and the included Gradle **7.6.4** wrapper.
 
-## Workspaces
+## Pages
 
-| Feature | Guide |
-| --- | --- |
-| Shared typography, themes, compact navigation and keyboard controls | [UI consistency](docs/UI-CONSISTENCY.md) |
-| Saved-history search, named views, library, export scopes and session storage | [Session history](docs/SESSION-HISTORY.md) |
-| Searchable chat, channels, player filters, stars and exports | [Chat](docs/CHAT.md) |
-| Key, rune, vial and inc openings | [Key-pops](docs/KEY-POPS.md) |
-| Character gallery and sheet: gear, stat maxing, exalts, pets, fame history, Build, goals, notes and death marks | [Characters](docs/CHARACTERS.md) |
-| Runs & DPS: the feed of saved runs and the run recap, per-dungeon cards with the Analyst session comparison and cohorts, with every fight saved automatically | [Runs & DPS](docs/ACTIVITY.md#runs--dps), [Dungeons](docs/ACTIVITY.md#dungeons), [saved combat history](docs/DPS-METERS.md#saved-combat-history) |
-| Runs & DPS › Live meter (the combat meter) and Recordings (every recording: this run's, saved summaries, full detail, imports) | [DPS meters](docs/DPS-METERS.md), [Recordings](docs/DPS-METERS.md#recordings) |
-| Loot: Highlights (today's or this session's tiles, notable drops and bags by dungeon) and Explore (every live and saved loot view behind one selector) | [Loot](docs/LOOT.md) |
-| Where the retired Statistics page went: loot to Loot, saved character fame to Characters › Fame history, dungeon views to Runs & DPS › Dungeons (Alt+5) | [Where Statistics went](docs/STATISTICS.md) |
-| Area visits, timelines and resource history | [Activity](docs/ACTIVITY.md) |
-| Quest Board (cards by chest tier or type label, pins, details, filters) and Planner (plan cards, manual stock) | [Daily Quests](docs/DAILY-QUESTS.md) |
-| Sound choices and alert rules | [Notifications](docs/NOTIFICATIONS.md) |
-| Guild exports, loot review and delivery diagnostics | [Bridge Review](docs/BRIDGE.md) |
-| Packet coverage, stat changes and diagnostic exports | [Logging](docs/LOGGING.md) |
+| Page | What it is for | Guide |
+| --- | --- | --- |
+| **Home** (Alt+H) | Opens first: your current or last known character (maxed stats, pet rarity, gear, labeled estimates), what is happening now, today's or this session's runs, fame and notable loot, the last five runs and your pinned quests. Each card opens its page, and Back returns to Home. | [Interface](docs/UI-REDESIGN.md) |
+| **Characters** (Alt+4) | A gallery of your characters (the roster table is its Table view), the **Exalts** grid, **Pets** with the feeding calculator and, in Analyst, **Fame history**. A card opens the character sheet: overview, gear, exalts, pet, fame, Build, goals, notes and death marks. | [Characters](docs/CHARACTERS.md) |
+| **Runs & DPS** (Alt+R) | **Feed** (saved runs by day, each opening its run recap), **Dungeons** (one card per dungeon, with the Analyst session comparison and cohorts), **Live meter** (the damage meter and Resources & buffs) and **Recordings**. Every fight is saved automatically. | [Runs & DPS](docs/ACTIVITY.md#runs--dps), [DPS meters](docs/DPS-METERS.md), [saved combat history](docs/DPS-METERS.md#saved-combat-history) |
+| **Loot** (Alt+9) | **Highlights** (today's or this session's tiles, notable drops and bags by dungeon) and **Explore** (every live and saved loot view behind one selector) | [Loot](docs/LOOT.md), [where Statistics went](docs/STATISTICS.md) |
+| **Quests** (Alt+6) | **Board** (quest cards by chest tier or your type labels, pins, details and filters) and **Planner** (plan cards and manual stock) | [Daily Quests](docs/DAILY-QUESTS.md) |
+| **Chat** (Alt+1) | Searchable chat by channel, with player filters, stars, saved sessions and exports | [Chat](docs/CHAT.md) |
+| **Party** (Advanced, Alt+3) | Players in the current area and in saved runs: builds, requirements, damage rankings and, in Analyst, ability activity | [Activity](docs/ACTIVITY.md) |
+| **Key-pops** (Advanced, Alt+2) | Key, rune, vial and inc openings, live and saved | [Key-pops](docs/KEY-POPS.md) |
+| **Timeline** (Advanced, Alt+T) | Party, equipment and progression events across your sessions | [Timeline](docs/ACTIVITY.md#timeline) |
+| **Logging** (Advanced, Alt+0) | Packet coverage, stat changes and diagnostic exports | [Logging](docs/LOGGING.md) |
+| **Bridge Review** (Advanced, Alt+B) | Guild exports, loot review and delivery diagnostics | [Bridge Review](docs/BRIDGE.md) |
+| **Settings** (Alt+, or Alt+N) | **Notifications** (sounds and alert rules), **General** (combat history), **Appearance** (theme, contrast, motion, Simple or Analyst), **Loot filters**, **Chat** (Save chat and the chat filters) and **About** | [Notifications](docs/NOTIFICATIONS.md), [Loot](docs/LOOT.md), [Chat](docs/CHAT.md) |
 
-**Party** (formerly Inspect, now under Advanced) provides current-area and saved-run player/build inspection, damage rankings and ability activity. Chat, Key-pops, Loot › Explore, Characters › Fame history, Party, Runs, Timeline and Resources & buffs offer independent historical views with whole-scope saved queries, named views and explicit selected/page/all-match exports. Their history is retained under `%LOCALAPPDATA%\RealmShark\history` across app restarts and build folders. **Home** (Alt+H) opens first: the current or last known character with maxed stats, pet rarity, gear, stat bars and labeled estimates; what is happening now (the area, and during a run the live meter's top three and the last key pop); today's or this session's runs, fame and notable loot; the last five runs; and pinned quests. Each card opens its detailed page, and Back returns to Home. **Characters** opens on a gallery of character cards, with dead characters in a collapsed Graveyard and a sort by last played, fame, class or maxed; the roster table is the Table view, and one search and filter drawer serve both. A card, a table row or the Home hero opens the full-page character sheet (Overview, Gear, Exalts, Pet, Fame, Build, Goals, Notes and Death annotation), and Back returns to where you were. Beside the roster, **Exalts** is a grid of your classes with each class's loot boost, **Pets** a gallery of your pets with the feeding calculator and, in Analyst mode, **Fame history** each character's saved fame per session. **Loot** (Alt+9) has two tabs. **Highlights** shows today's or this session's UT, ST, potion and white-bag tiles, the notable drops (UTs, STs, stat potions and enchanted items, meaning rare or better with 2 or more enchant slots) and bags by dungeon, with "—" and a reason when nothing was saved. **Explore** puts every live and saved loot view behind one view selector: nine item views in Simple, plus the saved-only analysis views in Analyst. **Quests** opens on the **Board**: quest cards grouped by chest tier (or your own type labels) with pinned quests first, what each quest rewards and what to bring, and a details drawer; the quest table is the Table view. The **Planner** shows each saved quest plan as a card with reserved, covered and missing bars under an **All plans** summary, with manual stock in a drawer. **Runs & DPS** (Alt+R) has four tabs: **Feed**, **Dungeons**, **Live meter** and **Recordings**. The Feed shows saved runs from every session grouped by day (outcome, time, party, your DPS, rank and share, loot and fame on each card; the archive table is the Table view), and a card or a Home **Recent runs** row opens the run recap with tiles, the damage meter and chart, loot, players, resources and timeline, read from the combat summary saved automatically for every closed fight (**Settings › General › Combat history**). Dungeons shows one card per dungeon (observed completion, average duration, loot per completed run and best DPS, each "—" with a reason when unknown), the Live meter is the single damage meter (**Alt+8**) with true ranks, your row highlighted and boss cards, and Recordings lists and opens every recording safely. **Build** (weapon damage and recovery, formerly My Info) is the sheet's Build tab: Alt+7, Settings search and the hero's Build action open it for the character you are playing, or the Characters list when there is no character yet. **Alt+M** opens labeled workspace navigation; **Ctrl+Shift+S** starts or stops capture.
+Other guides: [session history](docs/SESSION-HISTORY.md) (saved-history search, named views, the History library, export scopes and session storage), [where Statistics went](docs/STATISTICS.md) (the page retired in P6a) and [UI consistency](docs/UI-CONSISTENCY.md) (typography, spacing and responsiveness history, 2026-09-18 to 2026-09-20).
 
-The sidebar lists six core destinations, **Home**, **Characters**, **Runs & DPS**, **Loot**, **Quests** and **Chat**, and a collapsed **Advanced (5)** group: **Party**, **Key-pops**, **Timeline**, **Logging** and **Bridge Review**. There are no other pages: P6a removed the Statistics, DPS Logger and Build pointer pages, so **Alt+5** opens Runs & DPS › Dungeons, **Alt+7** the Build tab and **Alt+8** the Live meter ([navigation after P6a](docs/UI-REDESIGN.md#information-architecture-after-p6a-2026-09-29), [where Statistics went](docs/STATISTICS.md)). Right-click a sidebar destination (or press **Shift+F10**) to reorder, hide, pin Advanced pages, restore hidden pages or reset navigation. **Ctrl+Shift+Up/Down** moves the focused core row. The app opens on the first visible core destination in your saved order. **Settings** stays at the bottom: **Alt+,** opens Settings with its six sections, **Notifications**, **General** (Combat history), **Appearance**, **Loot filters**, **Chat** (Save chat and the chat filters) and **About**; the menu entries Edit › Filter Loot › Loot filter settings…, Edit › Chat › Chat settings… and Info › About open the matching section. The header and Appearance share the **Simple/Analyst** switch (**Ctrl+Shift+A**); pages adopt those display choices as the redesign progresses.
+## Navigation
+
+The sidebar lists the six core pages and a collapsed **Advanced (5)** group, with **Settings** at the bottom. Every page has an Alt key; **Alt+M** opens the labeled page list and **Alt+Left** goes Back. Right-click a sidebar row (or press **Shift+F10**) to move, hide, pin or restore pages or to reset navigation; **Ctrl+Shift+Up/Down** or dragging moves a core row. Tabs move by dragging, from their right-click menu or with **Ctrl+Shift+Left/Right**, and hide from the same menu. Each page that filters has one filter row: search, **Filters** with removable chips, **Scope ▾** (live or saved history, and which sessions) on the archive pages, and **⋯** for views, exports and columns. The header's **Simple | Analyst** switch (**Ctrl+Shift+A**, also in Settings › Appearance) adds provenance, IDs and diagnostic tabs in Analyst; in Simple, recent times read "12 min ago". Saved history is kept under `%LOCALAPPDATA%\RealmShark\history` across app restarts and build folders. The [interface guide](docs/UI-REDESIGN.md) has the [pages and tabs](docs/UI-REDESIGN.md#information-architecture), [keyboard shortcuts](docs/UI-REDESIGN.md#keyboard-shortcuts), [customizing](docs/UI-REDESIGN.md#customizing), [the filter row](docs/UI-REDESIGN.md#the-filter-row), [Simple and Analyst](docs/UI-REDESIGN.md#simple-and-analyst) and [where the old pages went](docs/UI-REDESIGN.md#where-the-old-pages-went).
 
 ## Build and validate
 
@@ -82,7 +82,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-WindowsBundle.
 
 The latest verified download is published to `build/share/RealmShark-Windows-x64.zip`, with a SHA-256 sidecar. A timestamped archive is also retained. The bundle includes the public loot catalog and licenses, not personal settings, capture logs or saved sessions.
 
-The four-phase review implementation, retained regression evidence, and final cleanup decisions are summarized in [review closure](docs/STEP-4-CLEANUP.md).
+The 2026-09-19 code review's four implementation phases, their regression evidence and cleanup decisions are recorded in [review closure](docs/STEP-4-CLEANUP.md). That record is history: its Java 8 compilation target predates the Java 17 platform above.
 
 ## Troubleshooting
 
@@ -97,7 +97,7 @@ The four-phase review implementation, retained regression evidence, and final cl
 
 Based on [X-com/RealmShark](https://github.com/X-com/RealmShark), with original work by Anon, [Cortex](https://github.com/MCRcortex), and upstream contributors. Inspired by [abrn/realmlib](https://github.com/abrn/realmlib) and [thomas-crane/realmlib-net](https://github.com/thomas-crane/realmlib-net).
 
-Packet capture uses [ardikars/pcap](https://github.com/ardikars/pcap) and the native pcap/Npcap interface. Historical import and compatibility details are recorded in [UI refresh history](docs/UI-REDESIGN.md).
+Packet capture uses [ardikars/pcap](https://github.com/ardikars/pcap) and the native pcap/Npcap interface. Historical import and compatibility details are recorded in the [interface guide's history](docs/UI-REDESIGN.md#history).
 
 Distributed under the [MIT License](LICENSE.md). Runtime and dependency notices, and the separate [loot-catalog license](docs/LOOT-CATALOG-LICENSE.txt), remain included.
 
