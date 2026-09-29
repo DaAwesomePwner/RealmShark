@@ -15,13 +15,22 @@ import javax.swing.text.DefaultHighlighter;
 import tomato.gui.modern.ContentStyle;
 import util.PropertiesManager;
 import tomato.gui.history.*;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.OverflowMenu;
+import tomato.gui.kit.Tokens;
 import tomato.history.archive.*;
 
-/** Session-local, bounded chat history. All model and Swing changes happen on the EDT. */
-final class ChatExplorer extends JPanel {
+/**
+ * Session-local, bounded chat history. All model and Swing changes happen on the EDT. Its {@code chat-live} row is the page's one
+ * filter row: in the Chat workspace it hosts the Scope chip while live ({@link LiveFilterHost}), its drawer holds only filters, and
+ * its ⋯ holds the named live views and the message table's column tools once live view state is enabled.
+ */
+final class ChatExplorer extends JPanel implements LiveFilterHost {
     static final int HISTORY_LIMIT = 10000;
     static final String SHOW_IGNORED_PLAYERS = "chat.showIgnoredPlayers";
+    /** The Clear session history… confirmation: saved history is reached through the Scope chip. */
+    static final String CLEAR_PROMPT = "Clear the live messages and stars in every channel?\nSaved session history remains available through Scope ▾ › Saved history.";
     private static final Icon STAR_ICON = new Icon() {
         public int getIconWidth() { return 14; }
         public int getIconHeight() { return 14; }
@@ -92,7 +101,8 @@ final class ChatExplorer extends JPanel {
     private final JComboBox<ChatArchiveClient.Sort> sort = new JComboBox<>(ChatArchiveClient.Sort.values());
     private final JCheckBox descending = new JCheckBox("Descending");
     private final JPanel extra = new JPanel(new BorderLayout(0, 6)), dates = new JPanel(new BorderLayout());
-    private final JTextArea liveStateStatus = ContentStyle.wrappingText("");
+    /** Under the row: live-state failures (warn) and the result of a ⋯ Saved views action; automatic saves that work stay quiet. */
+    private final Banner liveStateStatus = new Banner("chat-live-state-status");
     private final FilterBar filterBar = new FilterBar("chat-live");
     private ViewStateStore stateStore;
     private boolean restoringState, rebuilding;
@@ -146,8 +156,7 @@ final class ChatExplorer extends JPanel {
         exportView.addActionListener(e -> exportFiltered());
         alerts.addActionListener(e -> editAlerts.run());
         clear.addActionListener(e -> {
-            if (JOptionPane.showConfirmDialog(this, "Clear the live messages and stars in every channel?\nSaved session history remains available through Browse saved.",
-                    "Clear chat history", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) clear();
+            if (JOptionPane.showConfirmDialog(this, CLEAR_PROMPT, "Clear chat history", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) clear();
         });
         actions.setComponentPopupMenu(menu);
         actions.addActionListener(e -> {
@@ -170,7 +179,8 @@ final class ChatExplorer extends JPanel {
         filterRow.add(playerRow); filterRow.add(starredOnly); filterRow.add(showIgnoredPlayers);
         arrivals.setName("chat-new-messages"); arrivals.setVisible(false);
         arrivals.addActionListener(e -> { follow.setSelected(true); unseen.clear(); updateArrivals(); scrollToLatest(); rememberState(); });
-        // Search, reset, actions, follow and the new-message jump stay visible; player, star, ignore, sort, dates and views live in the drawer.
+        // Search, reset, actions, follow and the new-message jump stay visible; player, star, ignore, sort and dates live in the drawer.
+        // Named live views and column tools are ⋯ items (enableLiveState); the Scope chip takes the row's scope slot in the workspace.
         JPanel drawer = new JPanel(new BorderLayout(0, 6)); drawer.add(filterRow, BorderLayout.NORTH); drawer.add(extra, BorderLayout.CENTER);
         filterBar.search(new WrapRow(search, reset, actions, follow, arrivals)).drawer(drawer);
         filters.add(filterBar, BorderLayout.NORTH);
@@ -214,7 +224,8 @@ final class ChatExplorer extends JPanel {
         menu.insert(editFilters, 3);
         actions.setToolTipText("Copy, export, chat filters and alert rules");
         JPanel context = new JPanel(new BorderLayout()); context.add(filterStatus, BorderLayout.NORTH);
-        rebuildDates(); extra.add(dates); extra.add(liveStateStatus, BorderLayout.SOUTH);
+        liveStateStatus.setVisible(false); context.add(liveStateStatus, BorderLayout.CENTER);
+        rebuildDates(); extra.add(dates);
         JPanel sorting = ContentStyle.controls(); sorting.add(SocialQueryControls.labeled("Sort retained messages", sort, "chat-live-sort")); sorting.add(descending);
         extra.add(sorting, BorderLayout.NORTH); header.add(context, BorderLayout.SOUTH);
 
@@ -336,6 +347,9 @@ final class ChatExplorer extends JPanel {
         bind(player, WHEN_FOCUSED, "ESCAPE", "clear-player", () -> player.setText(""));
         bind(table, WHEN_FOCUSED, "control C", "copy-messages", () -> copyText(selectedTranscript()));
         bind(table, WHEN_FOCUSED, "SPACE", "star-message", this::toggleStar);
+        // ⋯ Copy selected rows and Row details… (the column tools) run these: the transcript Ctrl+C copies, and the full message.
+        table.getActionMap().put("archive-copy", table.getActionMap().get("copy-messages"));
+        table.getActionMap().put("archive-details", new AbstractAction() { public void actionPerformed(ActionEvent e) { focusDetail(); } });
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshShownState();
         });
@@ -513,7 +527,7 @@ final class ChatExplorer extends JPanel {
         summary.setText(visible.size() + " shown · " + history.size() + " / 10,000 retained · " + starred.size() + " starred"
                 + (evicted > 0 ? " · " + evicted + " older messages in saved history" : archive ? " · Current session" : " · Historical page")
                 + (bookmarkStatus.isEmpty() ? "" : " · " + bookmarkStatus));
-        summary.setToolTipText("Live view keeps the latest 10,000 messages. Session history retains all captured messages; use Browse saved for older pages. Actions exports the filtered view.");
+        summary.setToolTipText("Live view keeps the latest 10,000 messages. Session history retains all captured messages; choose Scope ▾ › Saved history for older pages. Actions exports the filtered view.");
         copyView.setEnabled(!visible.isEmpty()); exportView.setEnabled(!visible.isEmpty()); showDetail();
         if (arriving && follow.isSelected()) SwingUtilities.invokeLater(() -> {
             if (revision == viewRevision && follow.isSelected()) scrollToLatest();
@@ -565,6 +579,15 @@ final class ChatExplorer extends JPanel {
     }
 
     private ChatMessage selected() { int row = table.getSelectedRow(); return row >= 0 && row < visible.size() ? visible.get(row) : null; }
+
+    /** Row details…: brings the selected message's full text into view and focuses it (the detail pane follows the selection). */
+    private void focusDetail() {
+        if (selected() == null) return;
+        details.scrollRectToVisible(new Rectangle(details.getSize())); detail.requestFocusInWindow();
+    }
+
+    /** The {@code chat-live} row: it lends the Scope chip its scope slot while the Chat workspace is live. */
+    @Override public FilterBar liveFilterBar() { return filterBar; }
 
     private void showDetail() {
         ChatMessage message = selected(); boolean hasMessage = message != null;
@@ -689,16 +712,26 @@ final class ChatExplorer extends JPanel {
     void enableLiveState(ViewStateStore store) {
         if (stateStore != null) return; stateStore = store;
         ViewState<LiveFacets,ChatArchiveClient.Sort> defaults = captureLiveState();
-        try { applyLiveState(store.load("chat-live", defaults)); } catch (RuntimeException failure) { liveStateStatus.setText("Live state not applied: " + failure.getMessage()); }
-        // Keep all persistent actions in the expandable section; the archive toolbar owns archive views.
-        JPanel controls = new JPanel(new BorderLayout());
-        Component previousControls = ((BorderLayout)extra.getLayout()).getLayoutComponent(BorderLayout.NORTH);
-        if (previousControls != null) extra.remove(previousControls);
-        JPanel sortRow = ContentStyle.controls(); sortRow.add(SocialQueryControls.labeled("Sort retained messages", sort, "chat-live-sort")); sortRow.add(descending);
-        controls.add(sortRow, BorderLayout.NORTH); controls.add(SocialQueryControls.liveViews("chat-live", store, this::captureLiveState, this::applyLiveState, defaults, liveStateStatus));
-        extra.add(controls, BorderLayout.NORTH);
+        try { applyLiveState(store.load("chat-live", defaults)); } catch (RuntimeException failure) { liveStatus("Live state not applied: " + failure.getMessage(), Tokens.Tone.WARN); }
+        // P6b: the named live views and the table's column tools are row ⋯ items (the drawer keeps only filters); the workspace ⋯ owns
+        // saved Chat's views and tools. A ⋯ Saved views action reports its result under the row; a failure warns.
+        OverflowMenu more = filterBar.overflow();
+        SocialQueryControls.liveViewItems(more, "chat-live", store, this::captureLiveState, this::applyLiveState, defaults,
+            text -> liveStatus(text, "Live view saved.".equals(text) ? Tokens.Tone.INFO : Tokens.Tone.WARN));
         Map<String,List<String>> presets = new LinkedHashMap<>(); presets.put("Conversation", Arrays.asList("star", "time", "player", "message"));
-        controls.add(HistoryTables.controls(table, defaults.tables.get("messages"), presets, layout -> rememberState()), BorderLayout.SOUTH);
+        HistoryTables.rememberLayout(table, layout -> rememberState());
+        HistoryTables.ColumnTools tools = HistoryTables.columnTools(table, defaults.tables.get("messages"), presets, layout -> rememberState());
+        // The live table has no Enter or double-click binding for details (the detail pane follows the selection): say what it does.
+        tools.details().setToolTipText("Focuses the selected message's full text");
+        tools.details().getAccessibleContext().setAccessibleDescription("Brings the selected message's full text into view and focuses it");
+        tools.addTo(more);
+    }
+    /** Shows {@code text} under the row in {@code tone}; NEUTRAL (an automatic save's progress or success) keeps the line hidden. */
+    private void liveStatus(String text, Tokens.Tone tone) {
+        String value = text == null ? "" : text;
+        liveStateStatus.setText(value); liveStateStatus.setTone(tone);
+        boolean show = tone != Tokens.Tone.NEUTRAL && !value.isEmpty();
+        if (liveStateStatus.isVisible() != show) { liveStateStatus.setVisible(show); revalidate(); repaint(); }
     }
     ViewState<LiveFacets,ChatArchiveClient.Sort> captureLiveState() {
         LiveFacets f = new LiveFacets(); f.channel = channel.name(); f.player = player.getText(); f.starredOnly = starredOnly.isSelected();
@@ -729,14 +762,16 @@ final class ChatExplorer extends JPanel {
     }
     private static ArchiveRow.Ref liveRef(ChatMessage message) { return new ArchiveRow.Ref("@live", "chat", Objects.toString(message.id, "missing"), ""); }
     private void rememberState() { if (stateStore != null && !restoringState && !rebuilding) {
-        stateSave++; if (!"Live view changes awaiting save…".equals(liveStateStatus.getText())) liveStateStatus.setText("Live view changes awaiting save…"); remember.restart();
+        stateSave++; if (!"Live view changes awaiting save…".equals(liveStateStatus.text())) liveStatus("Live view changes awaiting save…", Tokens.Tone.NEUTRAL); remember.restart();
     } }
     private void persistLiveState() {
         if (stateStore == null || restoringState || rebuilding) return;
         long request = ++stateSave;
         try { stateStore.save("chat-live", captureLiveState()).whenComplete((result, failure) -> SwingUtilities.invokeLater(() -> {
-            if (request == stateSave) liveStateStatus.setText(failure == null && result.isSuccess() ? "Live view state saved." : "Live view active; state save failed. Retry through Save live view.");
-        })); } catch (RuntimeException failure) { liveStateStatus.setText(failure.getMessage()); }
+            if (request != stateSave) return;
+            if (failure == null && result.isSuccess()) liveStatus("Live view state saved.", Tokens.Tone.NEUTRAL);
+            else liveStatus("Live view active; state save failed. The next change retries it.", Tokens.Tone.WARN);
+        })); } catch (RuntimeException failure) { liveStatus(failure.getMessage(), Tokens.Tone.WARN); }
     }
 
     String filteredTranscript() { if (viewDirty) refresh(true); return transcript(visible); }
@@ -788,29 +823,33 @@ final class ChatExplorer extends JPanel {
      * dialog's does (DraftSaveStatus included); Cancel discards the draft by rebuilding the editor from the current rules. Shown again
      * after the rules changed elsewhere (the dialog, Ignore player, spam rules loaded late), it is rebuilt from the current rules, as
      * reopening the dialog would be: a draft over older rules could not be saved anyway.
+     * <p>
+     * P6b: the editor is embedded ({@link ChatFilterPanel#embedded}) as two holders, its body ({@code chat-filters-editor}, no border
+     * and no scroll of its own) for the host's page and its footer ({@code chat-filters-footer}: the save status, Cancel and Save
+     * filters) for the host to pin below it. Every rebuild refills both holders with one new editor's parts.
      */
-    JComponent filtersEditor() {
-        JPanel holder = new JPanel(new BorderLayout());
-        holder.setName("chat-filters-editor");
-        holder.setOpaque(false);
+    ChatGUI.FiltersEditor filtersEditor() {
+        JPanel body = new JPanel(new BorderLayout()), footer = new JPanel(new BorderLayout());
+        body.setName("chat-filters-editor"); footer.setName("chat-filters-footer");
+        body.setOpaque(false); footer.setOpaque(false);
         long[] built = {0};
         Runnable[] rebuild = new Runnable[1];
         rebuild[0] = () -> {
             built[0] = spamFilters.revision();
-            holder.removeAll();
-            holder.add(new ChatFilterPanel(spamFilters, ignoreStatus.get(), () -> {
+            ChatFilterPanel editor = ChatFilterPanel.embedded(spamFilters, ignoreStatus.get(), () -> {
                 built[0] = spamFilters.revision(); // this editor's own save is current
                 refreshPolicy();
-            }, rebuild[0]));
-            holder.revalidate();
-            holder.repaint();
+            }, rebuild[0]);
+            body.removeAll(); body.add(editor);
+            footer.removeAll(); footer.add(editor.footer());
+            for (JPanel holder : new JPanel[] {body, footer}) { holder.revalidate(); holder.repaint(); }
         };
         rebuild[0].run();
-        holder.addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && holder.isShowing() && spamFilters.revision() != built[0])
+        body.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && body.isShowing() && spamFilters.revision() != built[0])
                 rebuild[0].run();
         });
-        return holder;
+        return new ChatGUI.FiltersEditor(body, footer);
     }
 
     private static String plainTooltip(String value) {

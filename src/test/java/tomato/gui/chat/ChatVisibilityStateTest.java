@@ -33,7 +33,8 @@ public class ChatVisibilityStateTest {
             ChatExplorer.LiveFacets facets=initial.query.facets();facets.showIgnoredPlayers=true;
             states.saveNamed("chat-live","Ignored conversation",initial.withQuery(initial.query.withFacets(facets)));
             view[0].enableLiveState(states);assertFalse(view[0].showsIgnoredPlayers());
-            namedViews(view[0]).setSelectedItem("Ignored conversation");button(view[0],"Load live view").doClick();
+            // P6b: named live views are chat-live ⋯ › Saved views items.
+            named(view[0],"chat-live-filter-bar",tomato.gui.kit.FilterBar.class).overflow().item("Load: Ignored conversation").doClick();
             assertTrue(view[0].showsIgnoredPlayers());assertEquals(1,view[0].unseenMatchingCount());
             assertTrue(named(view[0],"chat-new-messages",JButton.class).isVisible());
             assertEquals("false",PropertiesManager.getProperty(ChatExplorer.SHOW_IGNORED_PLAYERS));
@@ -60,11 +61,5 @@ public class ChatVisibilityStateTest {
                 assertEquals("false",PropertiesManager.getProperty(ChatExplorer.SHOW_IGNORED_PLAYERS));return null;
             });
         } finally { edt(() -> { for(ChatExplorer view:views)if(view!=null)view.removeNotify();return null; });PropertiesManager.setProperties(ChatExplorer.SHOW_IGNORED_PLAYERS,previous==null?"":previous); }
-    }
-    private static JComboBox<?> namedViews(Container root) {
-        for(Component child:root.getComponents()) {
-            if(child instanceof JComboBox && "Named live views".equals(((JComboBox<?>)child).getAccessibleContext().getAccessibleName()))return (JComboBox<?>)child;
-            if(child instanceof Container){JComboBox<?> found=namedViews((Container)child);if(found!=null)return found;}
-        }return null;
     }
 }
