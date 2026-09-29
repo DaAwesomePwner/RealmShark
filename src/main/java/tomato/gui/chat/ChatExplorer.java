@@ -783,6 +783,36 @@ final class ChatExplorer extends JPanel {
         return dialog;
     }
 
+    /**
+     * Settings › Chat (P6a): the dialog's editor embedded in a page, over these same rules. Save applies and persists exactly as the
+     * dialog's does (DraftSaveStatus included); Cancel discards the draft by rebuilding the editor from the current rules. Shown again
+     * after the rules changed elsewhere (the dialog, Ignore player, spam rules loaded late), it is rebuilt from the current rules, as
+     * reopening the dialog would be: a draft over older rules could not be saved anyway.
+     */
+    JComponent filtersEditor() {
+        JPanel holder = new JPanel(new BorderLayout());
+        holder.setName("chat-filters-editor");
+        holder.setOpaque(false);
+        long[] built = {0};
+        Runnable[] rebuild = new Runnable[1];
+        rebuild[0] = () -> {
+            built[0] = spamFilters.revision();
+            holder.removeAll();
+            holder.add(new ChatFilterPanel(spamFilters, ignoreStatus.get(), () -> {
+                built[0] = spamFilters.revision(); // this editor's own save is current
+                refreshPolicy();
+            }, rebuild[0]));
+            holder.revalidate();
+            holder.repaint();
+        };
+        rebuild[0].run();
+        holder.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && holder.isShowing() && spamFilters.revision() != built[0])
+                rebuild[0].run();
+        });
+        return holder;
+    }
+
     private static String plainTooltip(String value) {
         // Prevent packet-derived rule reasons from activating Swing HTML.
         return value.startsWith("<html>") ? " " + value : value;

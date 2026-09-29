@@ -13,11 +13,15 @@ import tomato.realmshark.enums.LootBags;
 import util.PropertiesManager;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.settings.SettingsPage;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * Menu bar builder class
@@ -34,11 +38,78 @@ public class TomatoMenuBar implements ActionListener {
     private JCheckBoxMenuItem filterWhiteBag, filterOrangeBag, filterRedBag, filterGoldBag, filterEggBag, filterBlueBag, filterTealBag, filterPurpleBag, filterPinkBag, filterBrownBag;
     private JSlider soundSlider;
     private boolean syncingSound;
-    private JMenu file, edit, info;
+    private JMenu file, edit, info, filterBags;
     private JMenuBar jMenuBar;
     private JFrame frame;
     private static JMenuItem sniffer;
     private JRadioButtonMenuItem themeViolet;
+    /** P6a: while set, the menu entries that have a Settings section open it (see onOpenSettings). */
+    private Consumer<String> openSettings;
+    private final JMenuItem lootFilterSettings = new JMenuItem("Loot filter settings…"), chatSettings = new JMenuItem("Chat settings…");
+    private final JPopupMenu.Separator lootFilterSettingsGap = new JPopupMenu.Separator(), chatSettingsGap = new JPopupMenu.Separator();
+    {
+        lootFilterSettings.addActionListener(e -> openSettings(SettingsPage.LOOT_FILTERS));
+        chatSettings.addActionListener(e -> openSettings(SettingsPage.CHAT));
+    }
+
+    /** Chat › Save Chat's preference; absent means off (as the menu has always read it). Settings › Chat edits the same one. */
+    public static final String SAVE_CHAT = "saveChat";
+    private static final List<Runnable> saveChatListeners = new CopyOnWriteArrayList<>();
+
+    /** Whether chat is saved to its plain-text log (Chat › Save Chat, Settings › Chat). */
+    public static boolean saveChat() { return "true".equals(PropertiesManager.getProperty(SAVE_CHAT)); }
+
+    /**
+     * EDT. Chat › Save Chat's effect, shared with Settings › Chat: writes the preference, applies it to chat logging and then
+     * tells every Save Chat control, so the menu and the section always show the same value.
+     */
+    public static void setSaveChat(boolean save) {
+        PropertiesManager.setProperties(SAVE_CHAT, save ? "true" : "false");
+        ChatGUI.save = save;
+        for (Runnable listener : saveChatListeners) listener.run();
+    }
+
+    /** Runs on the EDT after each setSaveChat. */
+    public static void addSaveChatListener(Runnable listener) { saveChatListeners.add(listener); }
+
+    public static void removeSaveChatListener(Runnable listener) { saveChatListeners.remove(listener); }
+
+    /** Info › Java version's text, also shown by Settings › About. */
+    public static String javaVersion() {
+        return String.format("Java version: %s (%s-bit)", System.getProperty("java.version"), System.getProperty("sun.arch.data.model"));
+    }
+
+    /** Info › Java version's action, also Settings › About's Java version button. */
+    public static void showJavaVersion() {
+        JFrame frame = new JFrame("Java version");
+        realmshark.branding.AppIdentity.apply(frame);
+        JOptionPane.showMessageDialog(frame, javaVersion());
+    }
+
+    /**
+     * P6a: while {@code open} is set, Info › About opens Settings › About, Edit › Filter Loot ends with "Loot filter settings…" and
+     * Chat ends with "Chat settings…", each calling {@code open} with the SettingsPage section ID. Null restores the menus exactly as
+     * they were (About opens the dialog). May be called before or after {@link #make()}; EDT.
+     */
+    public void onOpenSettings(Consumer<String> open) {
+        openSettings = open;
+        applySettingsEntries();
+    }
+
+    private void applySettingsEntries() {
+        if (jMenuBar == null) return; // make() applies the current hook
+        JMenu[] menus = {filterBags, (JMenu) chat};
+        JComponent[][] entries = {{lootFilterSettingsGap, lootFilterSettings}, {chatSettingsGap, chatSettings}};
+        for (int i = 0; i < menus.length; i++) {
+            for (JComponent entry : entries[i]) menus[i].remove(entry);
+            if (openSettings != null) for (JComponent entry : entries[i]) menus[i].add(entry);
+        }
+    }
+
+    private void openSettings(String section) {
+        Consumer<String> open = openSettings;
+        if (open != null) open.accept(section);
+    }
 
     /** Shared by the header, keyboard shortcut and original File menu. */
     public static void togglePacketSniffer() {
@@ -74,7 +145,7 @@ public class TomatoMenuBar implements ActionListener {
         theme = new JMenu("Theme");
         fontMenu = new JMenu("Font");
         dpsOptions = new JMenu("DPS Options");
-        JMenu filterBags = new JMenu("Filter Loot");
+        filterBags = new JMenu("Filter Loot");
 
         edit = new JMenu("Edit");
         JMenuItem find = new JMenuItem("Find settings and actions…");
@@ -113,6 +184,8 @@ public class TomatoMenuBar implements ActionListener {
         chat.add(new JSeparator(SwingConstants.HORIZONTAL));
         chat.add(clearChat);
         setChatCheckbox();
+        // Settings › Chat changes Save Chat too; the checkbox follows every change.
+        addSaveChatListener(() -> saveChat.setSelected(saveChat()));
 
         soundSlider = new JSlider(0, 100, 100);
         soundSlider.addChangeListener(this::sliderChange);
@@ -301,6 +374,7 @@ public class TomatoMenuBar implements ActionListener {
         info.add(javav);
         info.add(bandwidth);
         jMenuBar.add(info);
+        applySettingsEntries();
 
         return jMenuBar;
     }
@@ -437,7 +511,7 @@ public class TomatoMenuBar implements ActionListener {
     }
 
     private void setChatCheckbox() {
-        String save = PropertiesManager.getProperty("saveChat");
+        String save = PropertiesManager.getProperty(SAVE_CHAT);
         if (save != null) {
             saveChat.setSelected(save.equals("true"));
             ChatGUI.save = save.equals("true");
@@ -620,9 +694,7 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == enchantPingMessage) { // enchant ping message
             TomatoGUI.openEnchantPing();
         } else if (e.getSource() == saveChat) { // chat save logs
-            boolean b = saveChat.isSelected();
-            PropertiesManager.setProperties("saveChat", b ? "true" : "false");
-            ChatGUI.save = b;
+            setSaveChat(saveChat.isSelected());
         } else if (e.getSource() == chatPing) { // sound chat ping pm
             boolean b = chatPing.isSelected();
             PropertiesManager.setProperties("chatPing", b ? "true" : "false");
@@ -784,15 +856,12 @@ public class TomatoMenuBar implements ActionListener {
         } else if (e.getSource() == clearDpsLogs) { // clears the dps logs
             DpsGUI.clearDpsLogs();
         } else if (e.getSource() == about) { // Opens about window
-            new TomatoPopupAbout().addPopup(frame);
+            // With the Settings hook, About is Settings › About; otherwise the dialog, as before.
+            if (openSettings != null) openSettings(SettingsPage.ABOUT); else new TomatoPopupAbout().addPopup(frame);
         } else if (e.getSource() == bandwidth) { // Opens bandwidth window
             TomatoBandwidth.make(frame);
-        } else if (e.getSource() == javav) { // Opens bandwidth window
-            String version = System.getProperty("java.version");
-            String bit = System.getProperty("sun.arch.data.model");
-            JFrame frame = new JFrame("Java version");
-            realmshark.branding.AppIdentity.apply(frame);
-            JOptionPane.showMessageDialog(frame, String.format("Java version: %s (%s-bit)", version, bit));
+        } else if (e.getSource() == javav) { // Shows the Java version
+            showJavaVersion();
         }
     }
 
