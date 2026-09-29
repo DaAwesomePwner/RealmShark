@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "repository": "DaAwesomePwner/RealmShark",
-  "recordedDate": "2026-09-28",
+  "recordedDate": "2026-09-29",
   "redesign": {
-    "phase": "P5b",
-    "status": "P5b merged in PR #26 as 73400af (Codex fixes a7b873e; quest harness fix 1498102); main verified. P6 not started",
+    "phase": "P6a",
+    "status": "P6 split into P6a and P6b (user decision 2026-09-29); P6a contract plan written, not yet implemented. P5b merged in PR #26 as 73400af",
     "p1aMerge": "7b3e0c5",
     "p1aFix": "ee8d085",
     "branch": "claude/redesign-handoff-next-steps-edrr7w",
@@ -13,7 +13,7 @@
     "localChecks": "P5b: final full suite 1895 tests (4 Linux/Xvfb baseline failures + a quest harness race since fixed: 30/30 alone after the fix), 5 skipped; Codex fixes focused 487 tests; S8 harness passes; merged main: tree equals reviewed head, shadowJar and isolated --help pass",
     "roadmap": "docs/superpowers/plans/2026-09-26-redesign-roadmap.md",
     "validation": "docs/superpowers/plans/2026-09-28-p5b-validation.md",
-    "nextAction": "Plan P6 when the user asks; standing permission: open the phase PR when its plan is done and pushed, fix Codex comments, merge once fixed or none",
+    "nextAction": "Implement P6a when the user asks (Wave A: the ID pass merges first); standing permission: open the phase PR when its plan is done and pushed, fix Codex comments, merge once fixed or none; plan P6b after P6a merges",
     "historicalFieldsBelow": "All four prior waves are complete; their pending gate text below is superseded",
     "p1bMerge": "0abafe4",
     "p1bFix": "a011bfd",
@@ -34,7 +34,7 @@
     "p5aPullRequest": 25,
     "p5aMerge": "3ab077c",
     "p5aFix": "21d896e",
-    "plan": "docs/superpowers/plans/2026-09-28-p5b-runs-dps.md",
+    "plan": "docs/superpowers/plans/2026-09-29-p6a-structure.md",
     "p5bPullRequest": 26,
     "p5bMerge": "73400af",
     "p5bFix": "a7b873e"
