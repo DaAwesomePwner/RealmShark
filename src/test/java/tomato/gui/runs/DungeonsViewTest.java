@@ -42,6 +42,7 @@ import static tomato.gui.runs.RunFeedViewTest.named;
  */
 public class DungeonsViewTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    @Rule public ui.VisualEvidence evidence = new ui.VisualEvidence("p5b");
     private static final String DRAWER = "ui.filters.dungeons.open";
     private final Map<String, String> prefs = new HashMap<>();
     private final List<String> writes = new ArrayList<>();
@@ -365,6 +366,46 @@ public class DungeonsViewTest {
             assertEquals(13, view.model().runs());
             return null;
         });
+    }
+
+    /**
+     * P5b Task 15b (evidence finding 8): in the tab itself at 1240×800 font 13 and 680×520 font 18, every card is the same fixed
+     * cell and no painted caption is cut: a long reason paints a shorter form that still says why, whole in its tooltip and in the
+     * card's accessible name.
+     */
+    @Test public void noCardCaptionIsCutAtTheDesktopOrCompactSize() throws Exception {
+        List<DungeonCardModel> cards = new ArrayList<>(List.of(HALLS, SNAKE, CAVE));
+        cards.addAll(DungeonCardRendererTest.longestReasons());
+        DungeonsView view = view(new Counting(new DungeonsModel(cards, 40, 0, List.of(), 9_000)));
+        try {
+            for (int[] size : new int[][]{{1240, 800, 13}, {680, 520, 18}}) {
+                edt(() -> { evidence.show(view, "dungeons-reasons", size[0], size[1], size[2]); return null; });
+                await("the cards", () -> view.model() != null && !view.loading());
+                evidence.settle();
+                edt(() -> {
+                    evidence.capture("dungeons-reasons-" + size[0] + "-" + size[2]);
+                    TileList<DungeonCardModel> list = view.cardList();
+                    DungeonCardRenderer renderer = (DungeonCardRenderer) list.getCellRenderer();
+                    FontMetrics caption = renderer.getFontMetrics(tomato.gui.kit.Type.caption());
+                    Dimension first = list.getCellBounds(0, 0).getSize();
+                    for (int i = 0; i < list.getModel().getSize(); i++) {
+                        Rectangle cell = list.getCellBounds(i, i);
+                        assertEquals("Every card is the same cell", first, cell.getSize());
+                        renderer.getListCellRendererComponent(list, list.getModel().getElementAt(i), i, false, false);
+                        renderer.setSize(cell.getSize());
+                        for (int fact = 0; fact < 4; fact++) {
+                            String painted = renderer.paintedCaption(fact, cell.width, cell.height);
+                            String where = size[0] + "/" + size[2] + " " + list.getModel().getElementAt(i).canonical() + " fact " + fact + ": " + painted;
+                            assertTrue("Fits: " + where, caption.stringWidth(painted) <= renderer.factBounds(fact, cell.width, cell.height).width);
+                            assertFalse("Not cut: " + where, painted.endsWith("…"));
+                        }
+                    }
+                    return null;
+                });
+            }
+        } finally {
+            edt(() -> { evidence.closeWindow(); return null; });
+        }
     }
 
     /** Posts real mouse events (press, release, click; {@code count} times) to the event queue and waits until they ran. */

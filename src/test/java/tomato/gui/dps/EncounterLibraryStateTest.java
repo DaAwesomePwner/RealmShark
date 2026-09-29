@@ -23,12 +23,13 @@ public class EncounterLibraryStateTest {
             view.refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             await(() -> table.getRowCount() == 3);
             table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
-            table.setRowSelectionInterval(0, 0); assertNull("Recordings is its own tab; opening is explicit", dps.currentEncounterId());
+            assertEquals("The live row stays first under the sort", "Live", table.getModel().getValueAt(table.convertRowIndexToModel(0), 2));
+            table.setRowSelectionInterval(1, 1); assertNull("Recordings is its own tab; opening is explicit", dps.currentEncounterId());   // the sorted first recording
             view.open(); String id = dps.currentEncounterId(); assertNotNull(id);
             table.getActionMap().get("toggle-export").actionPerformed(new ActionEvent(table, 0, "SPACE"));
             assertTrue(dps.encounters().checked(id)); assertSame(second, dps.encounters().find(id).data);
             JTextField search = find(view, JTextField.class, "encounter-search"); search.setText("no match");
-            assertEquals(1, table.getRowCount()); assertEquals("Live", table.getValueAt(0, 2)); assertEquals(id, dps.currentEncounterId());
+            assertEquals(1, table.getRowCount()); assertEquals("Live", table.getModel().getValueAt(table.convertRowIndexToModel(0), 2)); assertEquals(id, dps.currentEncounterId());
             assertEquals(1, dps.encounters().checkedEntries().size());
             data.dpsData.add(EncounterCatalogTest.encounter("Third")); DpsGUI.updateMapPacket(data); view.refreshEncounters();
             await(() -> table.getModel().getRowCount() == 4); search.setText("");

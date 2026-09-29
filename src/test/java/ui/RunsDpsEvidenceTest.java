@@ -90,7 +90,8 @@ import static tomato.gui.stats.LootTestDrops.item;
  *   "Synthetic Colossus"): Simple 1240×800 font 13 and Analyst 680×520 font 18, each with the details drawer closed and open;
  *   the true rank, your row, the boss card with its chip, "HP —", one filter row, a usable meter with its nested tabs;
  * - Recordings over this app run's memory (a captured recording and an imported copy of it), saved summaries (linked and
- *   unlinked), kept full detail and pruned full detail; a summary-only recording's summary panel; an empty Recordings tab;
+ *   unlinked), kept full detail and pruned full detail, the live row first and selected; a summary-only recording's summary
+ *   panel; an empty Recordings tab with its empty state;
  * - Dungeons: a full card (Lost Halls), a partial-loot card (Ice Citadel: one completed run in a session that saved no loot),
  *   an unverified-DPS card (Snake Pit) and an all-unknown card (Pirate Cave: a run without an entry time), and the Analyst
  *   Analysis view.
@@ -99,8 +100,8 @@ import static tomato.gui.stats.LootTestDrops.item;
  * runs. Preferences (tabs, sidebar layout, filter drawers, views, Combat history, the DPS preset name), the display mode, the
  * archive workspaces' keys, the zone, the format locale and the DPS statics are restored after each test.
  * Every capture asserts that no page scrolls sideways (a data table that scrolls its own columns, and the meter's unwrapped
- * hit report, are listed on standard output instead; the Recordings table's sideways scroll at 1240 px is the known finding 2
- * and is asserted as it is) and the content it is evidence of. The test has no game assets: the enemies' names and the boss's
+ * hit report, are listed on standard output instead; Recordings' Simple columns are asserted to fit at 1240 px, and its
+ * Analyst table to show three rows at 680 px) and the content it is evidence of. The test has no game assets: the enemies' names and the boss's
  * BOSS label are synthetic asset entries (restored after), player classes read "Unknown" and sprites are placeholders.
  * 16 screenshots in {@code redesign-p5b-runs-dps}.
  */
@@ -362,14 +363,16 @@ public class RunsDpsEvidenceTest {
             assertEquals(RunsTab.RECORDINGS, page().selectedTab());
             JTable table = recordingsTable();
             assertEquals("Live, this app run's capture, its imported copy and six saved recordings", 9, table.getRowCount());
-            System.out.println("p5b recordings: the live row is view row " + liveRow(table) + " of " + table.getRowCount() + " under the default Recorded start order");
+            assertEquals("The live row is the first row under the default Recorded start order", 0, liveRow(table));
+            assertEquals("…and selected: the primary action opens the live meter", 0, table.getSelectedRow());
+            assertEquals("Open live meter", VisualEvidence.named(shell, "encounter-open", AbstractButton.class).getText());
             int captured = rowOf(table, "Mad Lab", "Captured", null);
             assertEquals("Preview saves nothing: this app run's recording has no saved summary", "No saved summary (yet)", value(table, captured, SAVED));
             assertEquals("Unlinked", value(table, captured, RUN));
             assertEquals("An imported copy is its own row and names the row with the same recording", "Imported file · same recording as Captured · Mad Lab",
                 value(table, rowOf(table, "Mad Lab", "synthetic-copy.dps", null), SAVED));
             int halls = 0;
-            for (int row = 0; row < table.getRowCount(); row++) if ("Lost Halls".equals(table.getValueAt(row, DUNGEON))) {
+            for (int row = 0; row < table.getRowCount(); row++) if ("Lost Halls".equals(value(table, row, DUNGEON))) {
                 halls++;
                 assertEquals("A saved Lost Halls run keeps its summary", "Summary saved", value(table, row, SAVED));
                 assertTrue("…linked to its run: " + value(table, row, RUN), value(table, row, RUN).startsWith("Linked · Lost Halls · "));
@@ -380,11 +383,6 @@ public class RunsDpsEvidenceTest {
             assertTrue(rowOf(table, "Ice Citadel", "Saved history", "Summary saved") >= 0);
             assertEquals("Full detail pruned (kept 30 days)", value(table, rowOf(table, "Snake Pit", "Saved history", "Full detail pruned"), SAVED));
             assertNoPath();
-            // Known finding 2 (polish list): the eleven columns scroll sideways inside the table at desktop width. Asserted as it is,
-            // so this line changes when the columns fit; the page itself never scrolls sideways (nothingSideways).
-            JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
-            assertTrue("Finding 2: the table (" + table.getWidth() + " px) is wider than its viewport (" + scroll.getViewport().getWidth() + " px)",
-                table.getWidth() > scroll.getViewport().getWidth() && scroll.getHorizontalScrollBar().isShowing());
             assertTrue("The capture shows the table", inView(table));
         };
         capture("recordings", 1240, 13, SIMPLE, () -> {
@@ -392,9 +390,36 @@ public class RunsDpsEvidenceTest {
             FilterBar bar = VisualEvidence.named(shell, "encounter-library-filter-bar", FilterBar.class);
             assertOneFilterRow("encounter-library", bar);
             assertEquals("Last 30 days", selectedSegment("encounter-scope"));
+            // Finding 2, fixed: Simple's columns (Export, Dungeon, Recorded start, Run, Saved, Damage) fit the table at desktop width,
+            // so Run and Saved are in view and nothing scrolls sideways.
+            JTable table = recordingsTable();
+            JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
+            assertEquals(List.of("Export", "Dungeon", "Recorded start", "Run", "Saved", "Damage"), headers(table));
+            assertTrue("The table (" + table.getWidth() + " px) fits its viewport (" + scroll.getViewport().getWidth() + " px)",
+                table.getWidth() <= scroll.getViewport().getWidth() && !scroll.getHorizontalScrollBar().isShowing());
+            for (int column : new int[] {RUN, SAVED}) {
+                Rectangle cell = table.getCellRect(0, table.convertColumnIndexToView(column), true);
+                assertTrue(table.getModel().getColumnName(column) + " is in view: " + cell, table.getVisibleRect().contains(cell.x, cell.y, cell.width, 1));
+            }
+            // Their cells are whole (Saved's longest label, the imported copy's "same recording as …", is whole in its tooltip).
+            for (int column : new int[] {DUNGEON, 3, RUN, 6}) for (int row = 0; row < table.getRowCount(); row++) {
+                int view = table.convertColumnIndexToView(column);
+                JComponent cell = (JComponent) table.prepareRenderer(table.getCellRenderer(row, view), row, view);
+                int needed = cell.getPreferredSize().width, width = table.getColumnModel().getColumn(view).getWidth();
+                assertTrue(table.getColumnName(view) + " of row " + row + " is whole: " + needed + " of " + width + " px", needed <= width);
+            }
+            int imported = rowOf(table, "Mad Lab", "synthetic-copy.dps", null), savedView = table.convertColumnIndexToView(SAVED);
+            String tip = ((JComponent) table.prepareRenderer(table.getCellRenderer(imported, savedView), imported, savedView)).getToolTipText();
+            assertTrue(tip, tip.startsWith("Imported file · same recording as Captured · Mad Lab. "));
         });
         show("Recordings compact", 680, 520, 18, ANALYST, () -> { });
-        capture("recordings", 680, 18, ANALYST, rows);
+        capture("recordings", 680, 18, ANALYST, () -> {
+            rows.run();
+            JTable table = recordingsTable();
+            assertEquals("Analyst shows every column (the table scrolls them sideways)", 11, table.getColumnCount());
+            int rowsInView = table.getVisibleRect().height / table.getRowHeight();
+            assertTrue("Finding 6, fixed: at least three rows show before the page scrolls: " + rowsInView, rowsInView >= 3);
+        });
 
         show("Recording summary", 1240, 800, 13, SIMPLE, () -> {
             JTable table = recordingsTable();
@@ -422,8 +447,11 @@ public class RunsDpsEvidenceTest {
         });
     }
 
-    /** 1 capture: Recordings with nothing recorded, saved or imported: only the live row. */
-    @Test public void anEmptyRecordingsTabListsOnlyTheLiveRow() throws Exception {
+    /**
+     * 1 capture: Recordings with nothing recorded, saved or imported: an empty state says what fills the tab (finding 5, fixed),
+     * and the live row stays selected, so Open live meter is one click away.
+     */
+    @Test public void anEmptyRecordingsTabSaysWhatFillsItAndStillOpensTheLiveMeter() throws Exception {
         build(temp.newFolder("history").toPath(), false);
         show("Recordings empty", 1240, 800, 13, SIMPLE, () -> assertTrue(Navigator.current().open(Route.to(Destination.RUNS).withPayload(RunsFocus.of(RunsTab.RECORDINGS)))));
         await("the recordings", () -> recordingsSummary().startsWith("0 of 0 recordings shown · last 30 days"));
@@ -432,8 +460,16 @@ public class RunsDpsEvidenceTest {
             JTable table = recordingsTable();
             assertEquals("Only the live row", 1, table.getRowCount());
             assertEquals(0, liveRow(table));
+            assertEquals("…selected", 0, table.getSelectedRow());
             assertTrue(recordingsSummary(), recordingsSummary().startsWith("0 of 0 recordings shown · last 30 days · 0 checked for export"));
             assertEquals("Last 30 days", selectedSegment("encounter-scope"));
+            EmptyState empty = VisualEvidence.named(shell, "encounter-empty", EmptyState.class);
+            assertTrue("The empty state shows", empty.isShowing() && inView(empty));
+            assertEquals("No recordings yet", empty.getAccessibleContext().getAccessibleName());
+            assertTrue(empty.getAccessibleContext().getAccessibleDescription(), empty.getAccessibleContext().getAccessibleDescription().contains("when a fight closes"));
+            AbstractButton open = VisualEvidence.named(shell, "encounter-open", AbstractButton.class);
+            assertEquals("Open live meter", open.getText());
+            assertTrue("Open live meter is in view and enabled", open.isEnabled() && inView(open));
         });
     }
 
@@ -791,15 +827,22 @@ public class RunsDpsEvidenceTest {
     /** The first view row whose Dungeon and Source file match and whose Saved column starts with {@code saved} (null: any), or -1. */
     private static int rowOf(JTable table, String dungeon, String source, String saved) {
         for (int row = 0; row < table.getRowCount(); row++)
-            if (dungeon.equals(table.getValueAt(row, DUNGEON)) && source.equals(table.getValueAt(row, SOURCE))
-                && (saved == null || String.valueOf(table.getValueAt(row, SAVED)).startsWith(saved))) return row;
+            if (dungeon.equals(value(table, row, DUNGEON)) && source.equals(value(table, row, SOURCE))
+                && (saved == null || value(table, row, SAVED).startsWith(saved))) return row;
         throw new AssertionError("No row " + dungeon + " / " + source + " / " + saved);
     }
-    private static String value(JTable table, int row, int column) { return String.valueOf(table.getValueAt(row, column)); }
+    /** The model's value at view row {@code row}, model column {@code column} (the view orders the columns; Simple hides some). */
+    private static String value(JTable table, int row, int column) { return String.valueOf(table.getModel().getValueAt(table.convertRowIndexToModel(row), column)); }
     /** The live row's view index (its Dungeon cell reads "Live"). */
     private static int liveRow(JTable table) {
-        for (int row = 0; row < table.getRowCount(); row++) if ("Live".equals(table.getValueAt(row, DUNGEON))) return row;
+        for (int row = 0; row < table.getRowCount(); row++) if ("Live".equals(value(table, row, DUNGEON))) return row;
         throw new AssertionError("No live row");
+    }
+    /** The view's column headers, left to right. */
+    private static List<String> headers(JTable table) {
+        List<String> headers = new ArrayList<>();
+        for (int column = 0; column < table.getColumnCount(); column++) headers.add(table.getColumnName(column));
+        return headers;
     }
 
     /** No text, tooltip or table cell of the Recordings tab names a folder: file names only. */
@@ -808,10 +851,12 @@ public class RunsDpsEvidenceTest {
         List<String> texts = new ArrayList<>();
         collect(library, texts);
         JTable table = recordingsTable();
-        for (int row = 0; row < table.getRowCount(); row++) for (int column = 0; column < table.getColumnCount(); column++) {
-            texts.add(value(table, row, column));
-            Component cell = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
-            if (cell instanceof JComponent) texts.add(String.valueOf(((JComponent) cell).getToolTipText()));
+        for (int row = 0; row < table.getRowCount(); row++) {
+            for (int column = 0; column < table.getModel().getColumnCount(); column++) texts.add(value(table, row, column));
+            for (int column = 0; column < table.getColumnCount(); column++) {
+                Component cell = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
+                if (cell instanceof JComponent) texts.add(String.valueOf(((JComponent) cell).getToolTipText()));
+            }
         }
         for (String text : texts) {
             assertFalse("No path: " + text, text.contains(temp.getRoot().getAbsolutePath()));

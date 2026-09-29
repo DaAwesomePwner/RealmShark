@@ -31,9 +31,11 @@ import tomato.gui.modern.ContentStyle;
  *   "bags linked to the exact run";
  * - "Best DPS 12.3k · 14 Jan 14:32" from your verified row in your best completed run, dated with that run's entry time as
  *   the run cards date theirs ("14:32" today, "Yesterday 22:10"); no date when the entry time is unknown.
- * Every unknown is "—" with its reason as the caption (never 0); a caption that does not fit ends with "…" and is whole in its
- * line's tooltip and in the accessible name, which states every fact and every reason in words. The action strip paints
- * Show runs (primary), Open best run (only when a best run is known) and Analyze (Analyst only); the view maps a click on one
+ * Every unknown is "—" with its reason as the caption (never 0); a caption that does not fit its line paints a shorter form that
+ * still says why ({@link #caption}: "Your row was not verified in the recordings", "No finished run yet · not counted: 1
+ * unknown", "Best of 2 of 5 completed runs"), never cut, so every card keeps its one caption line and the same height; the whole
+ * text is in the line's tooltip and in the accessible name, which states every fact and every reason in words. The action strip
+ * paints Show runs (primary), Open best run (only when a best run is known) and Analyze (Analyst only); the view maps a click on one
  * ({@link #actionAt}) and offers the same actions from the keyboard. The cell is fixed; colors come from Tokens at paint time.
  */
 public final class DungeonCardRenderer extends JComponent implements ListCellRenderer<DungeonCardModel>, Accessible {
@@ -248,6 +250,66 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
         return null;
     }
 
+    /**
+     * What a fact's caption paints in {@code width}: the whole caption when it fits, else the first of its {@link #shorter} forms
+     * that fits, so a reason is never cut (P5b finding 8); the whole text stays in the line's tooltip and the accessible name.
+     * Only a caption without a fitting form (none the model writes, at the card's fixed width) ends with "…".
+     */
+    static String caption(String note, FontMetrics metrics, int width) {
+        if (note == null || note.isEmpty() || metrics.stringWidth(note) <= width) return note;
+        for (String form : shorter(note)) if (metrics.stringWidth(form) <= width) return form;
+        return RunCardRenderer.fit(note, metrics, width);
+    }
+
+    /**
+     * A caption's shorter forms, most informative first, each still saying why: for a reason that starts with one of the model's
+     * fixed reasons, its short form with the rest of the caption ("No finished run yet · not counted: 1 unknown"); the first
+     * sentence when there are more; the fixed reason's short form alone; else the words before the first clause ("Best of 2 of 5
+     * completed runs", "2 of 5 completed runs left out"), when they are at least three words.
+     */
+    static List<String> shorter(String note) {
+        Set<String> forms = new LinkedHashSet<>();
+        String brief = null, rest = "";
+        for (Map.Entry<String, String> fixed : BRIEF.entrySet()) if (note.startsWith(fixed.getKey())) {
+            brief = fixed.getValue(); rest = note.substring(fixed.getKey().length()).trim(); break;
+        }
+        if (brief != null && !rest.isEmpty()) forms.add(brief + " · " + lower(rest));
+        int sentence = note.indexOf(". ");
+        if (sentence > 0) forms.add(note.substring(0, sentence));
+        if (brief != null) forms.add(brief);
+        else {
+            int clause = note.length();
+            for (String mark : new String[] {"; ", ": ", " ("}) { int at = note.indexOf(mark); if (at > 0) clause = Math.min(clause, at); }
+            String head = note.substring(0, clause);
+            if (clause < note.length() && head.split(" ").length >= 3) forms.add(head);
+        }
+        forms.remove(note);
+        return List.copyOf(forms);
+    }
+
+    /** Short forms of the model's fixed reasons and of the best run's note: the words still say why the value is unknown. */
+    private static final Map<String, String> BRIEF = briefs();
+
+    private static Map<String, String> briefs() {
+        Map<String, String> briefs = new LinkedHashMap<>();
+        briefs.put(DungeonCardModel.NO_FINISHED_RUN, "No finished run yet");
+        briefs.put(DungeonCardModel.NO_OBSERVED_SPAN, "No observed span");
+        briefs.put(DungeonCardModel.LOOT_NOT_SAVED, "No loot bag saved in these sessions");
+        briefs.put(DungeonCardModel.LOOT_UNREADABLE, "Loot could not be read");
+        briefs.put(DungeonCardModel.NO_RECORDING, "No linked combat recording");
+        briefs.put(DungeonCardModel.COMBAT_UNREADABLE, "Combat records could not be read");
+        briefs.put(DungeonCardModel.UNVERIFIED_LOCAL, "Your row was not verified in the recordings");
+        briefs.put(DungeonCardModel.NO_WINDOW, "No timed window in the recordings");
+        briefs.put(DungeonCardModel.NO_DAMAGE, "Your verified row recorded no damage");
+        briefs.put(BEST_NOTE, "From your best completed run");
+        return Collections.unmodifiableMap(briefs);
+    }
+
+    /** The caption fact {@code index} of the current card paints in a cell width × height, at the current fonts (tests). */
+    String paintedCaption(int index, int width, int height) {
+        return caption(lines.facts().get(index).note(), getFontMetrics(Type.caption()), layout(List.of(), width, height).facts()[index].width);
+    }
+
     /** Fact {@code index}'s lines (0 completion, 1 duration, 2 loot, 3 best DPS) in a cell width × height. */
     Rectangle factBounds(int index, int width, int height) { return new Rectangle(layout(List.of(), width, height).facts()[index]); }
 
@@ -317,12 +379,13 @@ public final class DungeonCardRenderer extends JComponent implements ListCellRen
             int textLeft = left + PORTAL + Tokens.S, textTop = top + (header - title.getHeight() - Tokens.XS - caption.getHeight()) / 2;
             text(g, lines.title(), title, ink, textLeft, textTop + title.getAscent(), right - textLeft);
             text(g, lines.visits(), caption, muted, textLeft, textTop + title.getHeight() + Tokens.XS + caption.getAscent(), right - textLeft);
-            // Facts: the value in the body color (an unknown's "—" too), its caption muted and cut with "…" (whole in the tooltip).
+            // Facts: the value in the body color (an unknown's "—" too), its caption muted, whole or in a shorter form that still
+            // says why (never cut; whole in the tooltip and the accessible name).
             List<Fact> facts = lines.facts();
             for (int i = 0; i < facts.size(); i++) {
                 Rectangle row = layout.facts()[i];
                 text(g, facts.get(i).value(), body, ink, row.x, row.y + body.getAscent(), row.width);
-                text(g, facts.get(i).note(), caption, muted, row.x, row.y + body.getHeight() + caption.getAscent(), row.width);
+                text(g, caption(facts.get(i).note(), caption, row.width), caption, muted, row.x, row.y + body.getHeight() + caption.getAscent(), row.width);
             }
             // Actions: Show runs filled as the primary action, the others outlined.
             for (Map.Entry<Action, Rectangle> entry : layout.actions().entrySet()) {

@@ -28,7 +28,7 @@ public class DungeonListTest {
             chooser.refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             JTable table = table(chooser);
             await(() -> table.getRowCount() == 3);
-            assertEquals("First", table.getValueAt(table.getSelectedRow(), 2));
+            assertEquals("First", dungeon(table, table.getSelectedRow()));
             table.getActionMap().get("toggle-export").actionPerformed(new ActionEvent(table, 0, "SPACE"));
             assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setRowSelectionInterval(row(table, "Second"), row(table, "Second"));
@@ -37,7 +37,7 @@ public class DungeonListTest {
             assertEquals(1, dps.getIndex());
             data.dpsData.add(encounter("Third")); DpsGUI.updateMapPacket(data); chooser.refreshEncounters();
             await(() -> table.getRowCount() == 4);
-            assertEquals("Second", table.getValueAt(table.getSelectedRow(), 2));
+            assertEquals("Second", dungeon(table, table.getSelectedRow()));
             assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setFont(table.getFont().deriveFont(30f));
             assertTrue(table.getRowHeight() > table.getFontMetrics(table.getFont()).getHeight());
@@ -117,7 +117,7 @@ public class DungeonListTest {
                 assertEquals("Imports no longer mutate the capture-owned history list", 1, data.dpsData.size());
                 await(() -> table(chooser[0]).getRowCount() == 3);
                 assertEquals(3, table(chooser[0]).getRowCount());
-                assertEquals("Live", table(chooser[0]).getValueAt(table(chooser[0]).getSelectedRow(), 2));
+                assertEquals("Live", dungeon(table(chooser[0]), table(chooser[0]).getSelectedRow()));
             });
         } finally { BlockingMap.release.countDown(); EncounterImport.beforeRead = () -> { }; }
     }
@@ -183,8 +183,10 @@ public class DungeonListTest {
         }
         return null;
     }
+    /** The Dungeon (model column 2) of view row {@code row}: the view orders the columns and Simple hides some. */
+    private static Object dungeon(JTable table, int row) { return table.getModel().getValueAt(table.convertRowIndexToModel(row), 2); }
     private static int row(JTable table, String dungeon) {
-        for (int row = 0; row < table.getRowCount(); row++) if (dungeon.equals(table.getValueAt(row, 2))) return row;
+        for (int row = 0; row < table.getRowCount(); row++) if (dungeon.equals(dungeon(table, row))) return row;
         throw new AssertionError("Missing encounter " + dungeon);
     }
     private static final class BlockingMap extends MapInfoPacket {
