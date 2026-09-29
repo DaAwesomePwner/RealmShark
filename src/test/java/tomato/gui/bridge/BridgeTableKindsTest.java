@@ -194,7 +194,43 @@ public class BridgeTableKindsTest {
         }
     }
 
+    @Test public void searchMatchesTheShownLocalTimeAndTheRecordedTextButNeverTheRelativeText() throws Exception {
+        try (BridgeService service = service(temp)) {
+            BridgeReviewGUI panel = edt(() -> new BridgeReviewGUI(service, mode(DisplayModeModel.Mode.ANALYST)));
+            edt(() -> {
+                JTextField search = named(panel, "bridge-search", JTextField.class);
+                for (String name : new String[]{"bridge-review-table", "bridge-log-table"}) {
+                    JTable table = named(panel, name, JTable.class);
+                    int all = table.getRowCount();
+                    String iso = (String) table.getValueAt(0, 0), shown = DisplayFormat.formatTimestamp(KitTables.epoch(iso));
+                    assertEquals(name + ": the cell shows the local time", shown, render(table, 0, 0).getText());
+                    assertFalse("Europe/Berlin: the local text is not part of the recorded UTC text", iso.contains(shown));
+                    search.setText(shown);
+                    assertTrue(name + ": the shown local time finds the row", rows(table).contains(iso));
+                    for (String time : rows(table)) assertEquals(name + ": only rows shown at that time", shown, DisplayFormat.formatTimestamp(KitTables.epoch(time)));
+                    search.setText(shown.substring(11, 16));
+                    assertTrue(name + ": a local clock time finds the row", rows(table).contains(iso));
+                    search.setText(iso);
+                    assertTrue(name + ": the recorded ISO text still finds its row", rows(table).contains(iso));
+                    for (String time : rows(table)) assertEquals(name + ": …and only rows recorded at that instant", iso, time);
+                    for (String relative : new String[]{"just now", "min ago"}) {
+                        search.setText(relative);
+                        assertEquals(name + ": the relative text '" + relative + "' matches nothing", 0, table.getRowCount());
+                    }
+                    search.setText("");
+                    assertEquals(all, table.getRowCount());
+                }
+                return null;
+            });
+        }
+    }
+
     // ---- helpers ----
+    private static List<String> rows(JTable table) {
+        List<String> times = new ArrayList<>();
+        for (int row = 0; row < table.getRowCount(); row++) times.add((String) table.getValueAt(row, 0));
+        return times;
+    }
 
     /** The Simple and Analyst tooltip: the instant in UTC, then in the local zone. */
     private static String tip(String iso) {

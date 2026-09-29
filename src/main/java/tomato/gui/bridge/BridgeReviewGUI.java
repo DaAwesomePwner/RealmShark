@@ -364,13 +364,17 @@ public final class BridgeReviewGUI extends JPanel {
         rf.add(new RowFilter<Rows,Integer>(){public boolean include(Entry<? extends Rows,? extends Integer> entry){
             int index=entry.getIdentifier();if(index>=rows.size())return false;BridgeService.Review r=rows.get(index);
             int enchants=r.drop.item.enchantCount;
-            return r.matches(query)&&(status.getSelectedIndex()==0||r.status.equals(status.getSelectedItem()))
+            return (r.matches(query)||showsTime(r.time,query))&&(status.getSelectedIndex()==0||r.status.equals(status.getSelectedItem()))
                 &&(outcome.getSelectedIndex()==0||r.outcome()==outcome.getSelectedItem())
                 &&(character.getSelectedIndex()==0||characterLabel(r).equals(character.getSelectedItem()))
                 &&(dungeon.getSelectedIndex()==0||dungeonLabel(r).equals(dungeon.getSelectedItem()))
                 &&(enchantFilter.getSelectedIndex()==0||enchantFilter.getSelectedIndex()==1&&enchants>0||enchantFilter.getSelectedIndex()==2&&enchants==0||enchantFilter.getSelectedIndex()==3&&enchants<0);
         }});
-        if(!query.isEmpty())lf.add(RowFilter.regexFilter("(?iu)"+Pattern.quote(query)));
+        if(!query.isEmpty()){Pattern text=Pattern.compile(Pattern.quote(query),Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE);
+            lf.add(new RowFilter<Rows,Integer>(){public boolean include(Entry<? extends Rows,? extends Integer> entry){
+                for(int i=0;i<entry.getValueCount();i++)if(text.matcher(entry.getStringValue(i)).find())return true;
+                String shown=shownTime(entry.getValue(0));return shown!=null&&text.matcher(shown).find();
+            }});}
         if(level.getSelectedIndex()>0)lf.add(RowFilter.regexFilter("^"+Pattern.quote(String.valueOf(level.getSelectedItem()))+"$",1));
         rs.setRowFilter(rf.isEmpty()?null:RowFilter.andFilter(rf));ls.setRowFilter(lf.isEmpty()?null:RowFilter.andFilter(lf));
         updateTotals();updateChips();if(!rebuilding)showDetails();
@@ -480,6 +484,16 @@ public final class BridgeReviewGUI extends JPanel {
         TimeOrder order=new TimeOrder();table.getModel().addTableModelListener(e->order.parsed.clear());
         ((DefaultRowSorter<?,?>)table.getRowSorter()).setComparator(0,order);
     }
+    /** Analyst's absolute text for a recorded time: local "yyyy-MM-dd HH:mm:ss"; null when the text is not an instant. */
+    static String shownTime(Object value){Long at=KitTables.epoch(value);return at==null?null:DisplayFormat.formatTimestamp(at);}
+    /**
+     * Search also matches the absolute local time the Time column shows (the recorded UTC text matches through the row's own fields).
+     * Simple's relative text is never searchable.
+     */
+    private static boolean showsTime(String time,String query){
+        if(query.isEmpty())return true;String shown=shownTime(time);
+        return shown!=null&&shown.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
+    }
     /** "2026-09-29 12:04:11 UTC · 2026-09-29 14:04:11 local (Europe/Berlin)"; null when the text is not an instant. */
     static String zones(Object value){
         Long at=KitTables.epoch(value);if(at==null)return null;Instant instant=Instant.ofEpochMilli(at);ZoneId local=ZoneId.systemDefault();
@@ -513,8 +527,8 @@ public final class BridgeReviewGUI extends JPanel {
      */
     private static final class TimeCell extends ContentStyle.Cell {
         @Override public Component getTableCellRendererComponent(JTable table,Object value,boolean selected,boolean focus,int row,int column){
-            Long at=KitTables.epoch(value);
-            super.getTableCellRendererComponent(table,value==null?DisplayFormat.UNAVAILABLE:at==null?value:DisplayFormat.formatTimestamp(at),selected,focus,row,column);
+            String shown=shownTime(value);
+            super.getTableCellRendererComponent(table,value==null?DisplayFormat.UNAVAILABLE:shown==null?value:shown,selected,focus,row,column);
             setToolTipText(zones(value));return this;
         }
     }
