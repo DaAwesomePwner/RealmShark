@@ -914,7 +914,44 @@ Combined focused run on `86436b9`: Wave A's set plus bridge, roster, myinfo, the
 
 ### Wave C outcomes (coordinator review)
 
-_To be filled in after the merges._
+Merged: Task 12 `a66835f` (`811517b`), Task 13 `abcbf51` (`936c9df`), Task 11 `0ecd874` (`e207d92`) and Task 14 `8fb6ea2`
+(`33b8521`). Combined focused run on `33b8521` (Wave B's set plus settings, dps and the Runs & DPS evidence): 1,682 tests, 3
+failures, the known Quest and two Chat dialog failures. Every archive page now hosts the Scope chip in its live row.
+
+- **Task 11:**
+  - Runs' table, Timeline and Resources host the chip.
+  - Timeline's and Resources' visit and type sit in a drawer with chips.
+  - Collection and Pause form a status line; export and view state are ⋯ items in all three modes.
+  - Times read relatively; Timeline's Meaning is Analyst-only and registers with its layout saver first.
+  - Runs keeps a live Cards view item.
+  - `ActivityArchiveUiTest`'s listener check was root-caused (the other replaced views are collected one GC later) and hardened.
+  - Left for the final review: Runs keeps its duration unit as a combo on the status line, while Party's is a ⋯ submenu.
+- **Task 12:**
+  - Chat hosts the chip (`ChatGUI` passes the explorer's bar through).
+  - Its live views and column tools are ⋯ items.
+  - A live-state banner shows only failures.
+  - Settings › Chat is one scroll with a pinned footer.
+  - Accepted: the lookup edit in `ChatVisibilityStateTest`, which no other task owned.
+- **Task 13:**
+  - Key-pops' live row sits above four StatTiles; the footer actions, live views and column tools are ⋯ items; "Dungeon alert…"
+    stays.
+  - Saved modes are per-render `CustomizableTabs("keypops-saved")`.
+  - Times read relatively.
+  - Accepted: the query's mode tab is revealed on every render, including a restore, because it is the query's content.
+- **Task 14:**
+  - Explore's live row leads the page with the one selector, and the workspace carries the selector into its saved row.
+  - Simple saved Explore shows one count line, no pinned caption and an Analyst-only empty Items column, with the drill-downs as ⋯
+    items in both modes.
+  - Blank bags read "—", and unknown areas read "Unknown area" live and saved.
+  - Stat potions are counted apart in the live summary.
+  - Retry and Reset for the live view state are ⋯ items.
+  - Fame history filters by character only, and its Name column fills the table without saving the fitted width.
+  - Accepted: lookup edits in `LootDrillDownTest` and `WaveThreeEvidenceTest`, and the changed potions text in `FameFormattingTest`.
+  - Left for later: the live Rarity column still says "Unknown" for potions.
+- **Carried to Task 15:**
+  - remove the unused `ContentStyle.detailsButton` and `StatsUi.heading`;
+  - fix the stale `SessionStamps` Javadoc line and the stale `LootEvidenceTest` comment about Settings › Chat.
+- **Carried to Task 17:** `BRIDGE.md`, `KEY-POPS.md` and `CHAT.md` still describe the old buttons.
 
 ---
 
