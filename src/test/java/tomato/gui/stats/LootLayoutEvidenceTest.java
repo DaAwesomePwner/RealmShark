@@ -45,7 +45,10 @@ public class LootLayoutEvidenceTest {
                     Collections.singletonList(new LootDashboard.Item(910002, "Synthetic ring", "EQUIPMENT,RING,UT", ParseEnchants.summarize(null))))));
             named(panel[0], "loot-views", JTabbedPane.class).setSelectedIndex(6);
             // The live Loot workspace supplies this scrolling route; a bare dashboard omits its minimum-height contract.
-            route = new SessionPanel(store, "loot", panel[0], HistoricalStatistics::loot);
+            // The route stays on its live card, so its saved-history loader is never asked for a page.
+            route = new SessionPanel(store, "loot", panel[0], (history, scope, page, query) -> {
+                throw new IllegalStateException("Live-only layout evidence reads no saved history");
+            });
         });
         for (int font : new int[]{13, 24}) for (int width : new int[]{1050, 640}) {
             SwingUtilities.invokeAndWait(() -> evidence.show(route, "Loot scope evidence", width, 700, font));

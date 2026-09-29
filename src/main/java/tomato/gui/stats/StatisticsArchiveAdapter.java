@@ -57,15 +57,15 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
         Facets facets=q.facets();Set<String> evidence=new HashSet<>();
         // Evidence is read across each entire pinned session, before any period or item filtering.
         pin.read("loot",LootDashboard.Drop.class,row->{LootArchiveAdapter.checkDrop(row.value);evidence.add(row.ref.session);LootArchiveAdapter.bounded(evidence.size(),LIMIT,"Sessions with loot evidence");},cancel);
-        Map<String,HistoricalStatistics.Profile> dungeons=new TreeMap<>(),sessions=new TreeMap<>();Map<String,Visit> visits=new HashMap<>();
-        for(String id:pin.sessionIds()){SessionStore.Session meta=pin.session(id);LootArchiveAdapter.label(meta.label);LootArchiveAdapter.label(meta.version);HistoricalStatistics.Profile p=group(sessions,id,HistoricalStatistics.Profile::new);p.imported="Imported".equals(meta.version);p.lootEvidence=evidence.contains(id);}
+        Map<String,LootProfile> dungeons=new TreeMap<>(),sessions=new TreeMap<>();Map<String,Visit> visits=new HashMap<>();
+        for(String id:pin.sessionIds()){SessionStore.Session meta=pin.session(id);LootArchiveAdapter.label(meta.label);LootArchiveAdapter.label(meta.version);LootProfile p=group(sessions,id,LootProfile::new);p.imported="Imported".equals(meta.version);p.lootEvidence=evidence.contains(id);}
         pin.read("runs",ActivityJournal.Visit.class,source->{
             ActivityJournal.Visit visit=source.value;LootArchiveAdapter.label(visit.map);LootArchiveAdapter.label(visit.id);if(!definitions.dungeon(visit.map))return;
             String map=definitions.canonical(visit.map),key=source.ref.session+"/"+visit.id;
             boolean selected=facets.dungeon(map)&&q.bounds().contains(LootQuery.time(visit.started),LootQuery.time(visit.lastSeen));
             visits.put(key,new Visit(map,selected));LootArchiveAdapter.bounded(visits.size(),VISITS,"Qualified visit joins");
             if(!selected)return;
-            HistoricalStatistics.Profile session=sessions.get(source.ref.session),dungeon=group(dungeons,map,HistoricalStatistics.Profile::new);
+            LootProfile session=sessions.get(source.ref.session),dungeon=group(dungeons,map,LootProfile::new);
             addVisit(session,visit);
             if(session.imported){dungeon.excludedRuns++;return;}
             if(!evidence.contains(source.ref.session)){dungeon.unknownRuns++;dungeon.unknownMillis+=visit.observedMillis();return;}
@@ -77,7 +77,7 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
             Visit visit=drop.visitId==null||drop.visitId.isEmpty()?null:visits.get(key);
             boolean agreement=visit!=null&&map.equals(visit.map);
             if(!facets.dungeon(map)||agreement&&!visit.eligible||!agreement&&!q.bounds().contains(LootQuery.time(drop.time),LootQuery.time(drop.time)))return;
-            HistoricalStatistics.Profile session=sessions.get(source.ref.session),dungeon=group(dungeons,map,HistoricalStatistics.Profile::new);
+            LootProfile session=sessions.get(source.ref.session),dungeon=group(dungeons,map,LootProfile::new);
             boolean linked=agreement&&!session.imported;
             dungeon.add(drop,linked);session.add(drop,linked);
             if(linked){dungeon.lootRuns.add(key);LootArchiveAdapter.bounded(dungeon.lootRuns.size(),VISITS,"Linked loot visits");}
@@ -88,18 +88,18 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
             undatedFame.merge(f.session,f.chronology.undatedCount(),Long::sum);
         }
         long shownUndated=0;
-        if(view==View.SESSIONS){for(Map.Entry<String,HistoricalStatistics.Profile> entry:sessions.entrySet()){
+        if(view==View.SESSIONS){for(Map.Entry<String,LootProfile> entry:sessions.entrySet()){
             String id=entry.getKey();SessionStore.Session session=pin.session(id);if(!LootQuery.contains(session+" "+session.version+" "+id,q.text()))continue;
             Row row=profile(entry.getValue());row.type="session";row.session=id;row.name=session.toString();row.build=session.version;row.time=LootQuery.time(session.started);row.gain=incompleteFame.contains(id)?null:gains.get(id);
             long undated=undatedFame.getOrDefault(id,0L);shownUndated+=undated;
             // Session comparisons display observed visits, but do not promise dungeon loot rates.
             row.perRun=row.perHour=row.utPerHour=row.whitesPerRun=row.utPerRun=row.stPerRun=row.potionsPerRun=null;
-            HistoricalStatistics.Profile p=entry.getValue();
+            LootProfile p=entry.getValue();
             row.evidence="Session text searches session label/build/ID. Visits follow dungeon and visit bounds; loot is whole-visit evidence. Item/bag/enchant facets do not filter analytical cohorts.\n"
                 +"Observed visits (including unknown-coverage visits): "+p.runs+"; observed milliseconds: "+p.millis+". Loot: "+p.coverage()+". Unassigned bags: "+p.unassignedBags+".\nRates are available only in Dungeon loot profile, with its explicit eligible cohort. Fame change uses dated endpoints inside date bounds; dungeon filters do not filter fame (map association not captured).\n"
                 +undated+" undated fame observations. "+(incompleteFame.contains(id)?"Combined fame change unavailable: at least one included character has incomplete chronology.":"Single-timestamp characters contribute a same-sample zero delta, not measured session growth.");
             out.accept(summary(q,id,row));
-        }}else for(Map.Entry<String,HistoricalStatistics.Profile> entry:dungeons.entrySet()){
+        }}else for(Map.Entry<String,LootProfile> entry:dungeons.entrySet()){
             if(!LootQuery.contains(entry.getKey(),q.text()))continue;Row row=profile(entry.getValue());row.type="rate";row.name=row.dungeon=entry.getKey();
             row.evidence="Rate text searches dungeon names. All loot from visits selected by entry/overlap bounds; unlinked bags use their own timestamps. Item/bag/enchant facets do not filter this cohort.\n"+row.evidence;
             out.accept(summary(q,entry.getKey(),row));
@@ -110,8 +110,8 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
         counts.put("excluded unknown visits",new Count(unknown,"visits","same visit cohort; session loot availability unknown"));
         if(view==View.SESSIONS)counts.put("undated fame observations",new Count(shownUndated,"sample observations","shown session summaries and date/unknown-time policy; combined gain unavailable when chronology is incomplete"));
     }
-    static void addVisit(HistoricalStatistics.Profile p,ActivityJournal.Visit v){p.runs++;p.millis+=v.observedMillis();p.missingDuration|=v.observedMillis()<=0;p.damage+=v.totalDamage;p.damageKnown&=v.damageTracked;if(v.ended==0)p.ongoing++;if("Completed".equals(v.runStatus()))p.completed++;}
-    static Row profile(HistoricalStatistics.Profile p){
+    static void addVisit(LootProfile p,ActivityJournal.Visit v){p.runs++;p.millis+=v.observedMillis();p.missingDuration|=v.observedMillis()<=0;p.damage+=v.totalDamage;p.damageKnown&=v.damageTracked;if(v.ended==0)p.ongoing++;if("Completed".equals(v.runStatus()))p.completed++;}
+    static Row profile(LootProfile p){
         Row r=new Row();r.items=p.lootValue(p.items);r.bags=p.lootValue(p.bags);r.runs=p.runs;r.millis=p.millis;r.whites=p.lootValue(p.whites);r.uts=p.lootValue(p.uts);r.sts=p.lootValue(p.sts);r.potions=p.lootValue(p.potions);r.completed=p.completed;r.unknownRuns=p.unknownRuns;r.importedRuns=p.excludedRuns;
         r.perRun=p.perRun(p.items);r.perHour=p.perHour(p.items);r.utPerHour=p.perHour(p.uts);r.whitesPerRun=p.perRun(p.whites);r.utPerRun=p.perRun(p.uts);r.stPerRun=p.perRun(p.sts);r.potionsPerRun=p.perRun(p.potions);r.damage=p.damageKnown&&p.runs>0?p.damage:null;r.evidence=p.explanation();
         r.zeroLootRuns=p.lootEvidence?(long)(p.runs-p.lootRuns.size()):null;r.unassignedBags=p.lootEvidence?p.unassignedBags:null;return r;
