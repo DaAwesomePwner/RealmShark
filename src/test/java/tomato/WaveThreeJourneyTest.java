@@ -46,9 +46,10 @@ public class WaveThreeJourneyTest {
     private static final String[] WORKSPACES = {"runs", "timeline", "inspect", "loot", "statistics", "combat"};
     /**
      * Runs & DPS opens on its first visible tab (the Feed by default), the Live meter's nested tabs keep their saved order, and the
-     * Recordings tab saves its view (the encounter library's live state) when the shell is removed: all three cleared, then restored.
+     * Recordings tab saves its view (the encounter library's live state) when the shell is removed, and Loot opens on its first visible
+     * tab (Highlights by default, P6a): all four cleared, then restored.
      */
-    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live"};
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live", "ui.tabs.loot"};
     private static final String V1 = "journal:v1", V2 = "journal:v2";
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     /** The Runs page opens on the run cards; these journeys drive the archive table, its Table view. */
@@ -130,6 +131,9 @@ public class WaveThreeJourneyTest {
         await(() -> settled(loot) && loot.displayedPage().matches == 1);
         assertEquals(Collections.singletonList(V2), visitIds(loot, row -> field(row, "visitId")));
         assertEquals(Collections.singletonList("Second visit sword"), visitIds(loot, row -> field(row, "name")));
+        // Loot is a page with Highlights and Explore (P6a): the visit route brings Explore, which holds the Loot workspace, forward.
+        assertEquals("The LOOT route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, edt(() -> lootPage().selectedTab()));
+        assertTrue("…whose content is the Loot workspace", edt(() -> SwingUtilities.isDescendingFrom(loot, exploreTab())));
         backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.RESOURCES).withVisit(second)));
@@ -168,6 +172,10 @@ public class WaveThreeJourneyTest {
         edt(() -> {
             assertEquals("No other session's loot is substituted", 0, loot.displayedPage().matches);
             assertTrue(named(loot, JTextArea.class, "loot-drill-summary").getText().contains("Linked run unavailable here"));
+            // P6a: the drill summary sits in Loot's Explore tab, which the route brought forward.
+            assertEquals(tomato.gui.loot.LootTab.EXPLORE, lootPage().selectedTab());
+            assertTrue("loot-drill-summary sits inside Explore",
+                SwingUtilities.isDescendingFrom(named(shell, JTextArea.class, "loot-drill-summary"), exploreTab()));
             return null;
         });
         backTo(runs, origin, "runs");
@@ -310,6 +318,17 @@ public class WaveThreeJourneyTest {
             assertEquals(origin.selected.get(0), runs.displayedPage().rows.get(table.convertRowIndexToModel(table.getSelectedRow())).ref);
             return null;
         });
+    }
+    /** Loot (P6a): the Highlights and Explore tabs. EDT. */
+    private tomato.gui.loot.LootPage lootPage() {
+        tomato.gui.loot.LootPage page = named(shell, tomato.gui.loot.LootPage.class, "loot-page");
+        assertNotNull("The loot page is Loot", page);
+        return page;
+    }
+    /** Loot's Explore tab content. EDT. */
+    private Component exploreTab() {
+        tomato.gui.loot.LootPage page = lootPage();
+        return page.tabs().component().getComponentAt(page.tabs().visibleIds().indexOf(tomato.gui.loot.LootTab.EXPLORE.id()));
     }
     /** Page 10, Runs & DPS. EDT. */
     private RunsDpsPage runsDps() {

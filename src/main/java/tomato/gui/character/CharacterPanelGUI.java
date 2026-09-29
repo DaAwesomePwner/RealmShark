@@ -91,6 +91,19 @@ public class CharacterPanelGUI extends JPanel {
         if (FAME_HISTORY.equals(tabs.selectedId())) buildFame(factory);
     }
 
+    /**
+     * Search's "Character fame history" (P6a): in Analyst, shows the Fame history tab (explicit navigation, so a tab hidden from the
+     * strip comes back) and brings it forward, which builds it on first use; returns whether it is in front. In Simple the tab is
+     * not offered, and without saved history there is none: nothing changes (the saved hidden set included) and it returns false.
+     * EDT.
+     */
+    public boolean showFameHistory() {
+        if (fameHolder == null || !DisplayModeModel.application().analyst()) return false;
+        tabs.show(FAME_HISTORY);
+        tabs.select(FAME_HISTORY);
+        return FAME_HISTORY.equals(tabs.selectedId());
+    }
+
     private void buildFame(Supplier<JComponent> factory) {
         if (fame != null) return;
         fame = Objects.requireNonNull(factory.get(), "fame history view");

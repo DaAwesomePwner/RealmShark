@@ -1,7 +1,11 @@
 package tomato.gui.glance.home;
 
-import java.awt.BorderLayout;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.Objects;
 import java.util.function.Consumer;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.DisplayValue;
@@ -17,14 +21,18 @@ import tomato.gui.modern.DisplayFormat;
  * Today's (local calendar day) or this session's progress from saved history (spec §6.1): completed runs, fame gained with
  * fame/hour and a sparkline, notable loot, potions. The Today / This session choice sits in the header; HomePage persists
  * it as ui.home.window and asks HomeRefresher for the matching read. A failed re-read keeps the last totals, marked stale
- * with a warn banner saying when they were read and why the new read failed.
+ * with a warn banner saying when they were read and why the new read failed. With Home's loot action the Notable loot tile opens
+ * Loot › Highlights (P6a).
  */
 final class TodayTiles extends HomeCard {
     static final String NO_RUNS = "No runs were saved for this period", NO_LOOT = "No loot was saved for this period";
+    /** The Notable loot tile's action, the end of its spoken name. */
+    static final String OPEN_LOOT = "Open loot highlights";
     private final SegmentedControl window = new SegmentedControl("home-today-window", "Today", "This session");
     private final StatTile runs = HomeViews.named(new StatTile("Runs"), "home-tile-runs");
     private final StatTile fame = HomeViews.named(new StatTile("Fame"), "home-tile-fame");
-    private final StatTile loot = HomeViews.named(new StatTile("Notable loot"), "home-tile-loot");
+    /** Notable loot opens Loot › Highlights when Home has that action (the other tiles are plain). */
+    private final OpenTile loot = HomeViews.named(new OpenTile("Notable loot"), "home-tile-loot");
     private final StatTile potions = HomeViews.named(new StatTile("Potions"), "home-tile-potions");
     private final Sparkline trend = HomeViews.named(new Sparkline(), "home-today-fame-trend");
     private final HomeViews.Reason note = new HomeViews.Reason("home-today-note");
@@ -40,8 +48,12 @@ final class TodayTiles extends HomeCard {
 
     TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial) { this(changed, initial, DisplayModeModel.application()); }
 
-    TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial, DisplayModeModel mode) {
+    TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial, DisplayModeModel mode) { this(changed, initial, mode, null); }
+
+    /** {@code openLoot}: what the Notable loot tile opens (Loot › Highlights, P6a); null leaves it a plain tile. */
+    TodayTiles(Consumer<HomeArchive.Window> changed, HomeArchive.Window initial, DisplayModeModel mode, Runnable openLoot) {
         super(mode, "home-today", "Totals appear after the first read of saved history.");
+        if (openLoot != null) loot.onOpen(OPEN_LOOT, openLoot);
         title("Progress"); // the segmented control already says "Today"
         window.setSelected(initial == HomeArchive.Window.SESSION ? 1 : 0);
         window.setToolTipText("Today is the local calendar day; This session is since RealmShark started");
@@ -147,4 +159,83 @@ final class TodayTiles extends HomeCard {
     }
 
     private static String text(String value, String fallback) { return value == null || value.isEmpty() ? fallback : value; }
+
+    /**
+     * A tile that opens a page, as Home's cards and run rows do (P6a: Notable loot opens Loot › Highlights): click (on its labels
+     * too, which carry tooltips and so receive their own mouse events), Enter or Space; focusable, with the accent focus ring and a
+     * hover wash; spoken as a button whose name ends with the action. Until {@link #onOpen} it is a plain tile.
+     */
+    static final class OpenTile extends StatTile {
+        // No initializers: StatTile's constructor already calls setValue, before this class's field initializers would run.
+        private String action, subline;
+        private Runnable open;
+        private boolean hovered;
+
+        OpenTile(String label) { super(label); }
+
+        void onOpen(String name, Runnable action) {
+            this.action = Objects.requireNonNull(name, "name");
+            open = Objects.requireNonNull(action, "action");
+            setFocusable(true);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            listen(this, new MouseAdapter() {
+                @Override public void mouseClicked(MouseEvent e) { if (SwingUtilities.isLeftMouseButton(e)) open.run(); }
+                @Override public void mouseEntered(MouseEvent e) { hover(true); }
+                @Override public void mouseExited(MouseEvent e) { hover(contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), OpenTile.this))); }
+            });
+            for (KeyStroke key : new KeyStroke[] {KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0)})
+                getInputMap(WHEN_FOCUSED).put(key, "open-tile");
+            getActionMap().put("open-tile", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) { open.run(); }
+            });
+            addFocusListener(new FocusAdapter() {
+                @Override public void focusGained(FocusEvent e) { repaint(); }
+                @Override public void focusLost(FocusEvent e) { repaint(); }
+            });
+            setValue(value(), subline);   // the spoken name gains the action
+        }
+
+        @Override public void setValue(DisplayValue shown, String sub) {
+            subline = sub;
+            super.setValue(shown, sub);
+            if (action != null) getAccessibleContext().setAccessibleName(getAccessibleContext().getAccessibleName() + ". " + action);
+        }
+
+        @Override public AccessibleContext getAccessibleContext() {
+            if (accessibleContext == null) accessibleContext = new AccessibleJPanel() {
+                @Override public AccessibleRole getAccessibleRole() { return open != null ? AccessibleRole.PUSH_BUTTON : super.getAccessibleRole(); }
+            };
+            return accessibleContext;
+        }
+
+        private void hover(boolean value) {
+            if (hovered == value) return;
+            hovered = value;
+            repaint();
+        }
+
+        private static void listen(Component component, MouseListener mouse) {
+            component.addMouseListener(mouse);
+            if (component instanceof Container) for (Component child : ((Container) component).getComponents()) listen(child, mouse);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);   // the raised surface
+            boolean focused = open != null && isFocusOwner();
+            if (!hovered && !focused) return;
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int width = getWidth() - 1, height = getHeight() - 1;
+            if (hovered) {
+                g.setColor(Tokens.blend(Tokens.color(Tokens.Role.RAISED), Tokens.color(Tokens.Role.ACCENT_WASH), .6f));
+                g.fillRoundRect(0, 0, width, height, Tokens.ARC_CARD, Tokens.ARC_CARD);
+            }
+            if (focused) {
+                g.setColor(Tokens.color(Tokens.Role.ACCENT));
+                g.setStroke(new BasicStroke(2f));
+                g.drawRoundRect(1, 1, width - 2, height - 2, Tokens.ARC_CARD, Tokens.ARC_CARD);
+            }
+            g.dispose();
+        }
+    }
 }

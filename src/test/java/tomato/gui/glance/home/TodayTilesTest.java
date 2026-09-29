@@ -127,4 +127,68 @@ public class TodayTilesTest {
             assertTrue(tiles.evidenceShown());
         });
     }
+
+    /**
+     * P6a Task 11: with Home's loot action the Notable loot tile opens Loot › Highlights like Home's other drill-downs: click
+     * (including on its labels), Enter or Space; it is focusable, painted with a focus ring and spoken as a button. The other
+     * tiles stay plain, and without the action the tile is not activatable.
+     */
+    @Test public void theNotableLootTileOpensLootHighlightsByClickEnterOrSpace() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            int[] opened = {0};
+            TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode, () -> opened[0]++);
+            tiles.apply(HomeModels.today(TODAY, NOW));
+            StatTile loot = named(tiles, "home-tile-loot", StatTile.class);
+            assertTrue(loot.isFocusable());
+            assertEquals(java.awt.Cursor.HAND_CURSOR, loot.getCursor().getType());
+            assertEquals(javax.accessibility.AccessibleRole.PUSH_BUTTON, loot.getAccessibleContext().getAccessibleRole());
+            assertEquals("Notable loot: 3, 2 UT · 1 ST · 3 white bags. Open loot highlights", spoken(tiles, "home-tile-loot"));
+            for (int key : new int[] {java.awt.event.KeyEvent.VK_ENTER, java.awt.event.KeyEvent.VK_SPACE})
+                loot.getActionMap().get(loot.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(key, 0))).actionPerformed(null);
+            assertEquals("Enter and Space open it", 2, opened[0]);
+            JLabel label = null;
+            for (java.awt.Component child : loot.getComponents()) if (child instanceof JLabel && ((JLabel) child).getToolTipText() != null) label = (JLabel) child;
+            assertNotNull("The value label carries its own tooltip (and so its own mouse events)", label);
+            label.dispatchEvent(new java.awt.event.MouseEvent(label, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 1, 1, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            assertEquals("A click on the value opens it too", 3, opened[0]);
+            loot.dispatchEvent(new java.awt.event.MouseEvent(loot, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON3));
+            assertEquals("A right click opens nothing", 3, opened[0]);
+            for (String plain : new String[] {"home-tile-runs", "home-tile-fame", "home-tile-potions"}) {
+                StatTile tile = named(tiles, plain, StatTile.class);
+                assertNull(plain + " stays a plain tile", tile.getActionMap().get("open-tile"));
+                assertNotEquals(plain, java.awt.Cursor.HAND_CURSOR, tile.getCursor().getType());
+            }
+            // Unknown loot still opens Highlights, which says why there is nothing to show; the value stays "—".
+            tiles.apply(new HomeModel.Today(HomeModel.State.LIVE, TODAY, new HomeArchive.Totals(TODAY, NOW - 3_600_000L, NOW, 0, 0, true, null, null, null, 0, 0, 0, 0, false), null));
+            assertEquals("Notable loot: —. Open loot highlights", spoken(tiles, "home-tile-loot"));
+
+            TodayTiles plain = new TodayTiles(window -> {}, TODAY, mode);
+            plain.apply(HomeModels.today(TODAY, NOW));
+            StatTile inert = named(plain, "home-tile-loot", StatTile.class);
+            assertNull("Without Home's loot action the tile is not activatable", inert.getActionMap().get("open-tile"));
+            assertNotEquals(java.awt.Cursor.HAND_CURSOR, inert.getCursor().getType());
+            assertNotEquals(javax.accessibility.AccessibleRole.PUSH_BUTTON, inert.getAccessibleContext().getAccessibleRole());
+            assertEquals("Notable loot: 3, 2 UT · 1 ST · 3 white bags", spoken(plain, "home-tile-loot"));
+        });
+    }
+
+    /** HomeActions gained {@code loot}; the five-action form (tests, fixtures) has none, so its tile is not activatable. */
+    @Test public void homeActionsCarryTheLootActionAndHomeHandsItToTheTile() throws Exception {
+        Runnable loot = () -> {};
+        HomeActions actions = new HomeActions(key -> {}, () -> {}, () -> {}, visit -> {}, () -> {}, loot);
+        assertSame(loot, actions.loot());
+        assertNull("The five-action form has no loot action", HomeModels.NO_ACTIONS.loot());
+        SwingUtilities.invokeAndWait(() -> {
+            int[] opened = {0};
+            Map<String, String> prefs = new HashMap<>();
+            HomePage page = new HomePage(null, new HomeActions(key -> {}, () -> {}, () -> {}, visit -> {}, () -> {}, () -> opened[0]++),
+                new DisplayModeModel(prefs::get, prefs::put), prefs::get, prefs::put, () -> NOW);
+            page.apply(HomeModels.populated(NOW));
+            StatTile tile = named(page, "home-tile-loot", StatTile.class);
+            assertNotNull("Home makes the Notable loot tile activatable", tile.getActionMap().get("open-tile"));
+            tile.getActionMap().get("open-tile").actionPerformed(null);
+            assertEquals(1, opened[0]);
+            page.close();
+        });
+    }
 }

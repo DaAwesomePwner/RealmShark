@@ -55,7 +55,7 @@ public final class HomePage extends JPanel {
         hero = new HeroCard(actions.characters(), actions.build(), mode);
         now = new NowCard(actions.meter(), mode);
         elapsedTick = new Timer(1_000, event -> now.tick(clock.getAsLong()));
-        today = new TodayTiles(window -> windowChanged(window, write), initial, mode);
+        today = new TodayTiles(window -> windowChanged(window, write), initial, mode, actions.loot());
         runs = new RecentRunsCard(actions.run(), mode);
         quests = new QuestsCard(actions.quests(), mode);
         JPanel grid = new JPanel(new Grid());
