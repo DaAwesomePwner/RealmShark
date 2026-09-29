@@ -26,6 +26,8 @@ import static tomato.gui.runs.RunDamagePanelTest.*;
  */
 public class RunRecapViewTest {
     private static final String[] SECTIONS = {"damage", "loot", "players", "resources", "timeline", "evidence"};
+    /** The recap's section order (comma-separated section ids); isolated like the collapse keys. */
+    private static final String ORDER = "ui.order.run-recap";
     @Rule public final VisualEvidence evidence = new VisualEvidence("redesign-p5a-recap");
     private final Map<String, String> saved = new HashMap<>();
     private final Map<String, String> modeStore = new HashMap<>();
@@ -40,6 +42,8 @@ public class RunRecapViewTest {
             saved.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
         }
+        saved.put(ORDER, PropertiesManager.getProperty(ORDER));
+        PropertiesManager.setProperties(ORDER, "");
     }
 
     @After public void restore() {
@@ -522,6 +526,154 @@ public class RunRecapViewTest {
             nothingSideways(view[0], "recap-empty-1240-13");
             evidence.capture("recap-empty-1240-13");
         });
+    }
+
+    // ---- section order ----
+
+    /**
+     * Each section header's menu offers Move up, Move down and Reset order; the order persists as {@code ui.order.run-recap} and a
+     * new recap reads it. Moving keeps each section (and its open or closed state); Reset returns to the default order.
+     */
+    @Test public void sectionsMoveFromTheirHeaderMenuPersistAndReset() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RunRecapView view = view(full(REF, RunOutcome.COMPLETED, 1));
+            assertEquals("The default order", List.of(SECTIONS), view.sectionOrder());
+            assertEquals(List.of(SECTIONS), laidOut(view));
+            JPopupMenu first = view.sectionMenu("damage");
+            assertEquals("run-recap-section-menu", first.getName());
+            assertFalse("The first section cannot move up", item(first, "run-recap-menu-move-up").isEnabled());
+            assertTrue(item(first, "run-recap-menu-move-down").isEnabled());
+            assertFalse("Nothing to reset in the default order", item(first, "run-recap-menu-reset").isEnabled());
+            assertFalse("Evidence is hidden in Simple, so Timeline is the last section shown",
+                item(view.sectionMenu("timeline"), "run-recap-menu-move-down").isEnabled());
+
+            Collapsible loot = section(view, "loot");
+            boolean lootOpen = loot.expanded(), playersOpen = section(view, "players").expanded();
+            JMenuItem up = item(view.sectionMenu("loot"), "run-recap-menu-move-up");
+            assertEquals("Move up", up.getText());
+            up.doClick();
+            List<String> moved = List.of("loot", "damage", "players", "resources", "timeline", "evidence");
+            assertEquals(moved, view.sectionOrder());
+            assertEquals("The page follows the order", moved, laidOut(view));
+            assertEquals("The order persists", String.join(",", moved), PropertiesManager.getProperty(ORDER));
+            assertSame("Moving keeps the section itself", loot, section(view, "loot"));
+            assertEquals("Moving leaves the open state alone", lootOpen, loot.expanded());
+            assertEquals(playersOpen, section(view, "players").expanded());
+            for (String id : SECTIONS) {
+                String collapse = PropertiesManager.getProperty(Collapsible.PREFIX + "run-recap-" + id);
+                assertTrue("Moving writes no collapse state: " + id, collapse == null || collapse.isEmpty());
+            }
+
+            RunRecapView again = view(full(REF, RunOutcome.COMPLETED, 1));
+            assertEquals("A new recap reads the saved order", moved, again.sectionOrder());
+            assertEquals(moved, laidOut(again));
+
+            item(again.sectionMenu("damage"), "run-recap-menu-move-down").doClick();
+            assertEquals(List.of("loot", "players", "damage", "resources", "timeline", "evidence"), again.sectionOrder());
+            JMenuItem reset = item(again.sectionMenu("players"), "run-recap-menu-reset");
+            assertEquals("Reset order", reset.getText());
+            assertTrue(reset.isEnabled());
+            reset.doClick();
+            assertEquals(List.of(SECTIONS), again.sectionOrder());
+            assertEquals(List.of(SECTIONS), laidOut(again));
+            String cleared = PropertiesManager.getProperty(ORDER);
+            assertTrue("Reset forgets the saved order: " + cleared, cleared == null || cleared.isEmpty());
+            assertEquals(List.of(SECTIONS), view(full(REF, RunOutcome.COMPLETED, 1)).sectionOrder());
+        });
+    }
+
+    /** Ctrl+Shift+Up/Down on a focused section header moves it, as the sidebar's rows move; Shift+F10 opens the header's menu. */
+    @Test public void ctrlShiftUpAndDownOnAFocusedHeaderMoveItsSection() throws Exception {
+        KeyStroke up = KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_UP, java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK),
+            down = KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DOWN, java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        SwingUtilities.invokeAndWait(() -> {
+            RunRecapView view = view(full(REF, RunOutcome.COMPLETED, 1));
+            AbstractButton timeline = named(view, "collapsible-run-recap-timeline", AbstractButton.class);
+            press(timeline, up);
+            assertEquals(List.of("damage", "loot", "players", "timeline", "resources", "evidence"), view.sectionOrder());
+            assertEquals("damage,loot,players,timeline,resources,evidence", PropertiesManager.getProperty(ORDER));
+            press(named(view, "collapsible-run-recap-damage", AbstractButton.class), down);
+            assertEquals(List.of("loot", "damage", "players", "timeline", "resources", "evidence"), view.sectionOrder());
+            assertEquals(view.sectionOrder(), laidOut(view));
+            press(named(view, "collapsible-run-recap-loot", AbstractButton.class), up);
+            assertEquals("The first section stays first", List.of("loot", "damage", "players", "timeline", "resources", "evidence"), view.sectionOrder());
+            assertNotNull("Shift+F10 opens the header's menu", timeline.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke("shift F10")));
+            assertNotNull("The header says how to move it", timeline.getToolTipText());
+        });
+    }
+
+    /** Saved ids that are not sections are ignored, repeats count once, and sections the saved order lacks follow in the default order. */
+    @Test public void aSavedOrderIgnoresUnknownIdsAndAppendsMissingSections() throws Exception {
+        PropertiesManager.setProperties(ORDER, "timeline,bogus,Loot,,damage,timeline");
+        SwingUtilities.invokeAndWait(() -> {
+            RunRecapView view = view(full(REF, RunOutcome.COMPLETED, 1));
+            List<String> order = List.of("timeline", "damage", "loot", "players", "resources", "evidence");
+            assertEquals(order, view.sectionOrder());
+            assertEquals(order, laidOut(view));
+            assertEquals("Reading never rewrites the preference", "timeline,bogus,Loot,,damage,timeline", PropertiesManager.getProperty(ORDER));
+        });
+    }
+
+    /**
+     * Evidence stays Analyst-only wherever it is moved; in Simple the hidden Evidence is skipped by Move up and Move down and keeps
+     * its place in the saved order.
+     */
+    @Test public void evidenceStaysAnalystOnlyWhereverItIsMoved() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            mode.set(DisplayModeModel.Mode.ANALYST);
+            RunRecapView view = view(full(REF, RunOutcome.COMPLETED, 1));
+            assertTrue(item(view.sectionMenu("timeline"), "run-recap-menu-move-down").isEnabled());
+            for (int i = 0; i < 5; i++) item(view.sectionMenu("evidence"), "run-recap-menu-move-up").doClick();
+            assertEquals(List.of("evidence", "damage", "loot", "players", "resources", "timeline"), view.sectionOrder());
+            assertEquals(view.sectionOrder(), laidOut(view));
+            assertTrue(section(view, "evidence").isVisible());
+
+            mode.set(DisplayModeModel.Mode.SIMPLE);
+            assertFalse("Moved first, Evidence is still Analyst only", section(view, "evidence").isVisible());
+            assertFalse("The hidden Evidence is not a place to move to", item(view.sectionMenu("damage"), "run-recap-menu-move-up").isEnabled());
+            item(view.sectionMenu("damage"), "run-recap-menu-move-down").doClick();
+            assertEquals("The hidden Evidence keeps its place", List.of("evidence", "loot", "damage", "players", "resources", "timeline"), view.sectionOrder());
+            RunRecapView simple = view(full(REF, RunOutcome.COMPLETED, 1));
+            assertEquals(view.sectionOrder(), simple.sectionOrder());
+            assertFalse("A new Simple recap hides it too", section(simple, "evidence").isVisible());
+        });
+    }
+
+    /**
+     * The sections in the order the page holds them (the component order, which focus traversal and assistive technology follow),
+     * after checking that the sections shown are laid out top to bottom in that order.
+     */
+    private static List<String> laidOut(RunRecapView view) {
+        view.setSize(900, 3000);
+        layout(view);
+        Container page = section(view, "damage").getParent();
+        List<String> order = new ArrayList<>(List.of(SECTIONS));
+        order.sort(Comparator.comparingInt(id -> page.getComponentZOrder(section(view, id))));
+        int y = Integer.MIN_VALUE;
+        for (String id : order) {
+            Collapsible section = section(view, id);
+            if (!section.isVisible()) continue;
+            assertTrue(id + " is laid out below the section before it: " + order, section.getY() > y);
+            y = section.getY();
+        }
+        return order;
+    }
+
+    private static void layout(Container root) {
+        root.doLayout();
+        for (Component child : root.getComponents()) if (child instanceof Container) layout((Container) child);
+    }
+
+    private static JMenuItem item(JPopupMenu menu, String name) {
+        for (Component child : menu.getComponents()) if (child instanceof JMenuItem && name.equals(child.getName())) return (JMenuItem) child;
+        throw new AssertionError("No menu item " + name);
+    }
+
+    /** Runs the action {@code stroke} is bound to while {@code target} has focus. */
+    private static void press(JComponent target, KeyStroke stroke) {
+        Object key = target.getInputMap(JComponent.WHEN_FOCUSED).get(stroke);
+        assertNotNull("Bound on the focused header: " + stroke, key);
+        target.getActionMap().get(key).actionPerformed(new java.awt.event.ActionEvent(target, java.awt.event.ActionEvent.ACTION_PERFORMED, null));
     }
 
     /**

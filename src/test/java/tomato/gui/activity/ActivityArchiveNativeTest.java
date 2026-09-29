@@ -4,12 +4,15 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import javax.swing.*;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ErrorCollector;
 import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.DiscoveryLog;
 import tomato.gui.history.*;
+import tomato.gui.kit.CustomizableTabs;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import ui.VisualEvidence;
@@ -22,6 +25,11 @@ public class ActivityArchiveNativeTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public VisualEvidence evidence = new VisualEvidence("wave2");
     @Rule public ErrorCollector layouts = new ErrorCollector();
+    /** The saved Resources tabs' order and hidden set; this test selects them by index in the default order. */
+    private static final String SAVED_TABS = "ui.tabs.saved-resources";
+    private String savedTabs;
+    @Before public void isolateSavedResourceTabs() { savedTabs = util.PropertiesManager.getProperty(SAVED_TABS); util.PropertiesManager.setProperties(SAVED_TABS, ""); }
+    @After public void restoreSavedResourceTabs() { util.PropertiesManager.setProperties(SAVED_TABS, savedTabs == null ? "" : savedTabs); }
 
     @Test public void runsShowGlobalFilteredPagesAndPreviewTheExactLinkedPopulation() throws Exception { exercise(ActivityPanel.Mode.RUNS,"runs",10); }
     @Test public void timelineShowsGlobalTypeMatchesAndPreservesExactEventDetails() throws Exception { exercise(ActivityPanel.Mode.TIMELINE,"timeline",11); }
@@ -52,6 +60,11 @@ public class ActivityArchiveNativeTest {
                 await(() -> textPresent(workspace,mode == ActivityPanel.Mode.TIMELINE ? "Raw fields" : "Buff coverage"));
                 ArchiveRow.Ref selected = edt(() -> workspace.state().selected.get(0));
                 if (mode == ActivityPanel.Mode.COMBAT) edt(() -> { named(workspace,"saved-resource-tabs",JTabbedPane.class).setSelectedIndex(2); return null; });
+                if (mode == ActivityPanel.Mode.COMBAT) edt(() -> {
+                    JTabbedPane tabs = named(workspace,"saved-resource-tabs",JTabbedPane.class);
+                    assertTrue("The saved Resources tabs are customizable", tabs.getClientProperty(CustomizableTabs.class) instanceof CustomizableTabs);
+                    assertEquals("Index 2 is Coverage in the default order", "coverage", workspace.state().tab); return null;
+                });
                 matrix(evidence,layouts,shell,key + "-all-filtered",() -> ready(workspace),() -> {
                     assertEquals(count,workspace.displayedPage().matches); assertEquals(selected,workspace.state().selected.get(0));
                     assertTrue(named(workspace,"activity-archive-detail",JTextArea.class).getText().contains(selected.session));

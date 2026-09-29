@@ -1,5 +1,23 @@
 # Statistics
 
+## Where Statistics is now
+
+Since P5b the Statistics page is no longer in the sidebar; it is still built and works as described below until P6 retires it. Reach it with **Alt+5**, with Settings search ("Statistics (fame table, live loot log)"), or with **Open Statistics** on the banner of **Runs & DPS › Dungeons › Analysis**. A one-line banner at the top of the page says "Dungeon stats, session comparison and cohorts are in Runs & DPS › Dungeons." with **Open Dungeons**.
+
+What remains here until P6: the **Fame Graph**, the **Fame Table** with its Sessions menu, **Loot** (the live log, the explorer and the legacy sharing status) and **Dungeon Stats**, with the same saved-history workspace (Browse saved, session pickers, named views and exports) and the same tab and preference IDs. P6 decides the final homes of the Fame Table, the Fame Graph's interval comparison and the live loot log.
+
+Where the dungeon views went:
+
+| View | Where |
+| --- | --- |
+| Per-dungeon cards: visits, observed completion, average duration, loot per completed run and best DPS (new in P5b) | **Runs & DPS › Dungeons** ([Activity › Dungeons](ACTIVITY.md#dungeons)) |
+| The saved dungeon views: Dungeon loot profile, Session comparison, Dungeon statistics, Enemy hit events, Loot by source and A/B cohorts | **Runs & DPS › Dungeons › Analysis** (Analyst): the same views over saved history only, opening on the session comparison of every session; a card's **Analyze** filters them to its dungeon. This page's saved workspace keeps its copies until P6 |
+| The live Dungeon Stats tab, the Fame Graph, the Fame Table and Loot › Live log | Still here, unchanged, until P6 |
+
+The rest of this page describes the Statistics views as they still work, both here and in the Dungeons analysis.
+
+## Statistics tabs
+
 The four Statistics tabs use the existing dark violet theme, sortable tables, summary cards, explicit filter scopes and empty states. Short windows scroll vertically; wide tables scroll horizontally so names and numeric columns remain readable.
 
 Statistics and Loot initially use **Current Session**, defined by the app launch, and remember their independent view state. Their session pickers expose past launches and All Sessions, with session comparisons, historical fame graphs, and per-run/per-hour dungeon loot profiles. History survives new build folders through the shared Windows user profile. See [Session history](SESSION-HISTORY.md) for whole-scope queries, named views and selected/page/all-match exports.

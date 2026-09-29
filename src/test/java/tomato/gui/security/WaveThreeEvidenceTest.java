@@ -63,7 +63,7 @@ public class WaveThreeEvidenceTest {
                     VisualEvidence.reachable(named(saved, "inspect-requirement-reasons", JTextArea.class));
                     assertTrue(saved.selectedOrigin(), saved.selectedOrigin().contains("session " + store.currentId() + " · visit journal:2"));
                     assertShows(inspect, "Recorded run: session " + store.currentId());
-                    assertShows(shell, "Back to Runs");
+                    assertShows(shell, "Back to Runs & DPS");
                     // The players table keeps at least three rows of height in the run workbench (realized size), and all
                     // of it can be scrolled into view: it never collapses to a bare horizontal scroll bar.
                     JScrollPane players = named(saved, "security-roster-scroll", JScrollPane.class);

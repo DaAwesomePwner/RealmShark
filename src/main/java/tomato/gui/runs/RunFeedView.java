@@ -37,7 +37,8 @@ import util.PropertiesManager;
  *   other view in each view's ⋯ menu ({@code run-feed-view-item} "Table view", {@code run-feed-cards-item} "Cards view"); Analyst
  *   a Cards/Table toggle ({@code run-feed-view}) above both views.
  * - Cards view: a {@code run-feed} FilterBar (search {@code run-feed-search}; a drawer with one checkbox per outcome
- *   {@code run-feed-outcome-<name>} and the dungeon {@code run-feed-map}; ⋯ Refresh), the summary line {@code run-feed-summary},
+ *   {@code run-feed-outcome-<name>} and the dungeon {@code run-feed-map}, whose choices are canonical dungeons, the Dungeons
+ *   cards' names ({@link RunFeedQuery#dungeon}); ⋯ Refresh), the summary line {@code run-feed-summary},
  *   a warn line {@code run-feed-issues} when saved sessions could not be read fully, then one kit SectionHeader and TileList per
  *   day ({@code run-feed-day-<yyyy-MM-dd>}), "Load more" ({@code run-feed-load-more}) while more runs match, or one empty state (saved
  *   history unavailable, loading, unreadable, no saved runs, no matches: a title and one sentence on the page's left edge) in
@@ -71,8 +72,15 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     /** What a request does: compare the stamp first, always read, read a new query's first page, or read the next page. */
     private enum Kind { CHECK, REFRESH, QUERY, MORE }
 
-    /** A worker's answer: a page (with the stamp read before it), no change, or a failure. */
-    private record Result(Kind kind, Object stamp, RunFeedSource.Page page, boolean unchanged, Throwable failure) {}
+    /**
+     * A worker's answer: a page (with the stamp read before it and the canonical dungeons of its runs, named off the EDT), no
+     * change, or a failure.
+     */
+    private record Result(Kind kind, Object stamp, RunFeedSource.Page page, boolean unchanged, Throwable failure, List<String> dungeons) {
+        Result(Kind kind, Object stamp, RunFeedSource.Page page, boolean unchanged, Throwable failure) {
+            this(kind, stamp, page, unchanged, failure, page == null ? List.of() : dungeonsOf(page));
+        }
+    }
 
     private final JComponent table;
     private final Supplier<Feed> feeds;
@@ -225,6 +233,16 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     public void showTable() { show(true, true); }
     /** Explicit navigation to the cards: brings the Cards view forward and remembers it. EDT. */
     public void showCards() { show(false, true); }
+    /**
+     * Explicit navigation to one dungeon's runs (the Dungeons tab's "Show runs"): brings the Cards view forward and remembers
+     * it, as {@link #showCards} does, showing {@code canonical}'s filter alone (the search and outcomes cleared), so every run the
+     * dungeon's card counted is listed, alias names included. Null or blank shows every saved run. EDT.
+     */
+    public void showDungeon(String canonical) {
+        typing.stop();
+        show(false, true);
+        setQuery(new RunFeedQuery("", Set.of(), canonical));
+    }
     /** What Enter, Space or a double-click on a card runs (the run's exact reference). */
     public void onOpen(Consumer<VisitRef> action) { open = Objects.requireNonNull(action, "action"); }
     /** The query the cards show (or are loading). */
@@ -340,7 +358,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         filterBar.setActive(active, () -> setQuery(RunFeedQuery.all()));
     }
 
-    /** The dungeon choices: every dungeon among the runs read so far, and the chosen one. */
+    /** The dungeon choices: every canonical dungeon among the runs read so far, and the chosen one. */
     private void rebuildMaps() {
         boolean was = updating;
         updating = true;
@@ -434,8 +452,8 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         page = result.page();
         if (result.stamp() != null) loadedStamp = result.stamp();
         if (old != null && old != page) old.close();
-        boolean added = false;
-        if (page.query().map() == null) for (RunCardModel card : page.model().cards()) if (card.map() != null && !card.map().isBlank()) added |= maps.add(card.map());
+        boolean added = false;   // the choices grow with unfiltered reads only, so choosing a dungeon never narrows them
+        if (page.query().map() == null) for (String dungeon : result.dungeons()) added |= maps.add(dungeon);
         if (added) rebuildMaps();
         render();
     }
@@ -475,6 +493,16 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         summary.setVisible(!emptyHolder.isVisible());
         revalidate();
         repaint();
+    }
+
+    /** On the worker: the canonical dungeons of {@code page}'s runs (the dungeon choices), in the order read. */
+    private static List<String> dungeonsOf(RunFeedSource.Page page) {
+        Set<String> names = new LinkedHashSet<>();
+        for (RunCardModel card : page.model().cards()) {
+            String dungeon = RunFeedQuery.dungeon(card.map());
+            if (dungeon != null) names.add(dungeon);
+        }
+        return List.copyOf(names);
     }
 
     private String summaryText(RunFeedModel model) {

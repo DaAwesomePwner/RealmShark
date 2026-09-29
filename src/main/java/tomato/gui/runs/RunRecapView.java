@@ -1,6 +1,11 @@
 package tomato.gui.runs;
 
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.*;
@@ -17,6 +22,7 @@ import tomato.gui.route.Destination;
 import tomato.gui.route.Route;
 import tomato.gui.stats.LootFacts;
 import tomato.history.link.VisitRef;
+import util.PropertiesManager;
 
 /**
  * The run recap (spec §6.3): one exact saved run, read by {@link RunRecapBuilder} off the EDT and applied here. It replaces the
@@ -33,6 +39,9 @@ import tomato.history.link.VisitRef;
  *   Loot open, Players, Resources and Timeline closed, Evidence (the workbench's text) closed and in Analyst only. A section
  *   without content shows its one-line reason instead of hiding. Loot and Players rows give their labels the section's widest
  *   label width, so the item slots line up from row to row.
+ * - The sections can be reordered ({@link #ORDER}): each header's context menu (right-click, Shift+F10 or the context-menu key)
+ *   offers Move up, Move down and Reset order, and Ctrl+Shift+Up/Down moves a focused header, as the sidebar's rows move. A move
+ *   skips a hidden section (Evidence in Simple), which keeps its place; moving never rebuilds a section or changes its open state.
  * Each section rebuilds only when its own part of the model changed. EDT only.
  */
 public final class RunRecapView extends JPanel {
@@ -46,6 +55,15 @@ public final class RunRecapView extends JPanel {
     /** Section ids; each Collapsible is named {@code run-recap-<id>} and remembers {@code ui.collapse.run-recap-<id>}. */
     public static final String DAMAGE = "damage", LOOT = "loot", PLAYERS = "players", RESOURCES = "resources", TIMELINE = "timeline",
         EVIDENCE = "evidence";
+    /**
+     * The section order preference: section ids, comma-separated. Ids that are not sections are ignored, a repeat counts once, and
+     * sections it lacks follow in {@link #DEFAULT_ORDER}; empty (Reset order) is the default order.
+     */
+    public static final String ORDER = "ui.order.run-recap";
+    /** The sections' default order; Evidence is Analyst only wherever it stands. */
+    public static final List<String> DEFAULT_ORDER = List.of(DAMAGE, LOOT, PLAYERS, RESOURCES, TIMELINE, EVIDENCE);
+    /** The page's rows: the header (0) and the tiles (1), then the sections in the user's order. */
+    private static final int FIRST_SECTION_ROW = 2;
     private static final String LOADING_CARD = "loading", UNAVAILABLE_CARD = "unavailable", FAILED_CARD = "failed", RECAP_CARD = "recap";
     private static final String[] TILE_IDS = {RunRecapModel.Tile.DPS, RunRecapModel.Tile.SHARE, RunRecapModel.Tile.DEATHS,
         RunRecapModel.Tile.FAME, RunRecapModel.Tile.LOOT, RunRecapModel.Tile.EXALT};
@@ -73,6 +91,10 @@ public final class RunRecapView extends JPanel {
     private final Map<KitButton, Route> routesByLink = new HashMap<>();
     private final Map<String, StatTile> tiles = new LinkedHashMap<>();
     private final Map<String, Collapsible> sections = new LinkedHashMap<>();
+    /** Every section id in the user's order, hidden ones included ({@link #ORDER}). */
+    private final List<String> order = new ArrayList<>();
+    /** The scrolling page: header, tiles, then the sections as {@link #arrange} places them. */
+    private final JPanel content = new JPanel(new GridBagLayout());
     private final RunDamagePanel damage;
     // Loot
     private final KitText lootSummary = KitText.caption(" ");
@@ -190,9 +212,24 @@ public final class RunRecapView extends JPanel {
         section(TIMELINE, "Timeline", KitLayouts.stack(Tokens.S, timelineReason, timelineNote, eventScroll), false);
         section(EVIDENCE, "Evidence", KitLayouts.stack(Tokens.S, evidenceText), false);
 
+        // The page stacks its rows as KitLayouts.stack does (full width, Tokens.M apart, hidden rows take no space); the sections'
+        // rows follow the saved order and move in place (arrange), so a move keeps each section's content, state and focus.
+        content.setOpaque(false);
+        content.setName("run-recap-page");
         List<JComponent> rows = new ArrayList<>(List.of(header, tileGrid));
         rows.addAll(sections.values());
-        Column page = new Column(KitLayouts.stack(Tokens.M, rows.toArray(new JComponent[0])));
+        GridBagConstraints row = new GridBagConstraints();
+        row.gridx = 0; row.weightx = 1; row.fill = GridBagConstraints.HORIZONTAL; row.anchor = GridBagConstraints.NORTHWEST;
+        for (int i = 0; i < rows.size(); i++) {
+            row.gridy = i;
+            row.insets = new Insets(i == 0 ? 0 : Tokens.M, 0, 0, 0);
+            content.add(rows.get(i), row);
+        }
+        row.gridy = rows.size(); row.weighty = 1; row.insets = new Insets(0, 0, 0, 0);
+        content.add(Box.createVerticalGlue(), row);
+        order.addAll(savedOrder(PropertiesManager.getProperty(ORDER)));
+        arrange();
+        Column page = new Column(content);
         scroll = new JScrollPane(page);
         scroll.setName("run-recap-scroll");
         scroll.setBorder(null);
@@ -284,6 +321,127 @@ public final class RunRecapView extends JPanel {
     public boolean loading() { return loading; }
     /** Opens the Damage section (explicit navigation to the damage breakdown); the choice is remembered as a user's would be. */
     public void expandDamage() { sections.get(DAMAGE).setExpanded(true); }
+
+    // ---- section order ----
+
+    /** Every section id in the page's order, hidden ones (Evidence in Simple) included. */
+    public List<String> sectionOrder() { return List.copyOf(order); }
+
+    /**
+     * Moves a section up ({@code delta} < 0) or down past as many of the sections shown; a hidden section is not a place to move to
+     * and keeps its place in the order. The order is saved ({@link #ORDER}); nothing happens at either end. EDT.
+     */
+    public void moveSection(String id, int delta) {
+        requireEdt();
+        if (!canMove(id, delta)) return;
+        List<String> shown = shownSections();
+        String neighbor = shown.get(shown.indexOf(id) + delta);
+        order.remove(id);
+        int at = order.indexOf(neighbor);
+        order.add(delta > 0 ? at + 1 : at, id);
+        PropertiesManager.setProperties(ORDER, String.join(",", order));
+        arrange();
+        keepInView(id);
+    }
+
+    /** Back to {@link #DEFAULT_ORDER}; the saved order is forgotten (an empty {@link #ORDER}). Open states are unchanged. EDT. */
+    public void resetSectionOrder() {
+        requireEdt();
+        order.clear();
+        order.addAll(DEFAULT_ORDER);
+        PropertiesManager.setProperties(ORDER, "");
+        arrange();
+    }
+
+    /** The saved order as section ids: unknown ids ignored, a repeat counted once, missing sections appended in the default order. */
+    static List<String> savedOrder(String saved) {
+        List<String> result = new ArrayList<>();
+        if (saved != null)
+            for (String id : saved.split(",")) if (DEFAULT_ORDER.contains(id.trim()) && !result.contains(id.trim())) result.add(id.trim());
+        for (String id : DEFAULT_ORDER) if (!result.contains(id)) result.add(id);
+        return result;
+    }
+
+    private boolean canMove(String id, int delta) {
+        List<String> shown = shownSections();
+        int from = shown.indexOf(id), to = from + delta;
+        return from >= 0 && delta != 0 && to >= 0 && to < shown.size();
+    }
+
+    /** The sections shown, in order: all but Evidence in Simple (sections without content show their reason, never hide). */
+    private List<String> shownSections() {
+        List<String> shown = new ArrayList<>();
+        for (String id : order) if (sections.get(id).isVisible()) shown.add(id);
+        return shown;
+    }
+
+    /**
+     * Places the sections in {@link #order} below the header and tiles. Each keeps its component (no remove and add): its row and
+     * its place among the page's children move, so focus, open state and content stay, and focus traversal and assistive
+     * technology read the sections in the order shown.
+     */
+    private void arrange() {
+        GridBagLayout layout = (GridBagLayout) content.getLayout();
+        for (int i = 0; i < order.size(); i++) {
+            Collapsible section = sections.get(order.get(i));
+            GridBagConstraints c = layout.getConstraints(section);
+            c.gridy = FIRST_SECTION_ROW + i;
+            layout.setConstraints(section, c);
+            content.setComponentZOrder(section, FIRST_SECTION_ROW + i);
+        }
+        content.revalidate();
+        content.repaint();
+    }
+
+    /** After a move, the moved header stays in view and keeps (or takes) the focus, as a moved sidebar row does. */
+    private void keepInView(String id) {
+        KitButton header = sections.get(id).toggle();
+        SwingUtilities.invokeLater(() -> {
+            if (!header.isShowing()) return;
+            scroll.validate();
+            header.scrollRectToVisible(new Rectangle(header.getSize()));
+            header.requestFocusInWindow();
+        });
+    }
+
+    /** A section header's menu: Move up, Move down (disabled at either end) and Reset order (disabled in the default order). */
+    JPopupMenu sectionMenu(String id) {
+        String title = sections.get(id).toggle().getText();
+        JPopupMenu menu = new JPopupMenu(title);
+        menu.setName("run-recap-section-menu");
+        menu.getAccessibleContext().setAccessibleName(title + " section options");
+        menu.add(menuItem("run-recap-menu-move-up", "Move up", canMove(id, -1), () -> moveSection(id, -1)));
+        menu.add(menuItem("run-recap-menu-move-down", "Move down", canMove(id, 1), () -> moveSection(id, 1)));
+        menu.addSeparator();
+        menu.add(menuItem("run-recap-menu-reset", "Reset order", !order.equals(DEFAULT_ORDER), () -> { resetSectionOrder(); keepInView(id); }));
+        return menu;
+    }
+
+    private void showSectionMenu(String id, Point at) {
+        KitButton header = sections.get(id).toggle();
+        if (!header.isShowing()) return;
+        JPopupMenu menu = sectionMenu(id);
+        Point where = at != null ? at : new Point(0, header.getHeight());
+        menu.show(header, where.x, where.y);
+        // Keyboard users start on the first available action, as in the sidebar's menu.
+        for (Component item : menu.getComponents())
+            if (item instanceof JMenuItem && item.isEnabled()) {
+                MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {menu, (MenuElement) item});
+                break;
+            }
+    }
+
+    private static JMenuItem menuItem(String name, String text, boolean enabled, Runnable run) {
+        JMenuItem item = new JMenuItem(text);
+        item.setName(name);
+        item.setEnabled(enabled);
+        item.addActionListener(e -> run.run());
+        return item;
+    }
+
+    private static Action action(Runnable run) {
+        return new AbstractAction() { @Override public void actionPerformed(ActionEvent e) { run.run(); } };
+    }
 
     // ---- header ----
 
@@ -383,6 +541,21 @@ public final class RunRecapView extends JPanel {
         Collapsible section = new Collapsible("run-recap-" + id, title, content, open);
         section.setName("run-recap-" + id);
         sections.put(id, section);
+        // The header reorders its section: right-click, Shift+F10 or the context-menu key opens its menu; Ctrl+Shift+Up/Down moves it.
+        KitButton header = section.toggle();
+        header.setToolTipText("Ctrl+Shift+Up or Down moves this section; right-click or Shift+F10 for Move up, Move down and Reset order");
+        header.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) { if (e.isPopupTrigger()) showSectionMenu(id, e.getPoint()); }
+            @Override public void mouseReleased(MouseEvent e) { if (e.isPopupTrigger()) showSectionMenu(id, e.getPoint()); }
+        });
+        InputMap keys = header.getInputMap(WHEN_FOCUSED);
+        keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK), "run-recap-section-menu");
+        keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_CONTEXT_MENU, 0), "run-recap-section-menu");
+        keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "run-recap-move-up");
+        keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "run-recap-move-down");
+        header.getActionMap().put("run-recap-section-menu", action(() -> showSectionMenu(id, null)));
+        header.getActionMap().put("run-recap-move-up", action(() -> moveSection(id, -1)));
+        header.getActionMap().put("run-recap-move-down", action(() -> moveSection(id, 1)));
     }
 
     private void title(String id, String text) {
@@ -512,7 +685,7 @@ public final class RunRecapView extends JPanel {
         return button;
     }
 
-    private static void requireEdt() { if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Show the run recap on the EDT"); }
+    private static void requireEdt() { if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Use the run recap on the EDT"); }
 
     private JTextArea reason(String name) {
         JTextArea area = ContentStyle.wrappingText("");

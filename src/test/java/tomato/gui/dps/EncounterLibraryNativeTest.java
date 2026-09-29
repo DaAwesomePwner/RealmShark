@@ -38,7 +38,9 @@ public class EncounterLibraryNativeTest {
             matrix(evidence, layouts, library, "encounter-library", () -> button(library, "View imported encounter").isEnabled(), () -> {
                 assertEquals(selected, dps.currentEncounterId()); assertTrue(dps.encounters().checked(selected));
                 tableRows(named(library, "saved-encounters", JTable.class));
-                for (String label : new String[]{"Load", "Save checked", "View imported encounter", "Reset filters"}) completeButton(button(library, label));
+                for (String label : new String[]{"Load", "Save checked", "View imported encounter"}) completeButton(button(library, label));
+                // "Reset filters" is now the FilterBar's Clear, shown only while a filter is active (RecordingsViewTest clicks it).
+                completeButton(named(library, "encounter-library-filters", AbstractButton.class));
                 completeText(named(library, "encounter-details", JTextArea.class));
                 completeText(named(library, "encounter-status", JTextArea.class));
             });

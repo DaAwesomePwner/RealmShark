@@ -54,6 +54,8 @@ public class CustomizableTabs {
         this.mode = mode;
         this.write = write;
         tabs.setName(group + "-tabs");
+        // Hierarchy walkers that find the pane reach the tabs, and so the contents of hidden tabs (contents()).
+        tabs.putClientProperty(CustomizableTabs.class, this);
         load(read.apply(PREFIX + group));
         installGestures();
         tabs.addChangeListener(e -> { if (!rebuilding) notifySelection(); });
@@ -61,6 +63,17 @@ public class CustomizableTabs {
     }
 
     public JTabbedPane component() { return tabs; }
+
+    /**
+     * Every tab's component in the user's order, including hidden, Analyst-only and conditional tabs that are not in the strip
+     * (a hidden tab is detached, so a walk of the component tree misses it). Closing walks reach them through this, from the
+     * pane's {@code CustomizableTabs.class} client property. A read-only snapshot.
+     */
+    public List<Component> contents() {
+        List<Component> result = new ArrayList<>();
+        for (String id : order()) result.add(entries.get(id).component);
+        return Collections.unmodifiableList(result);
+    }
 
     public CustomizableTabs add(String id, String title, Component component) { return add(id, title, component, false, null); }
     public CustomizableTabs addAnalyst(String id, String title, Component component) { return add(id, title, component, true, null); }

@@ -57,6 +57,54 @@ public class EncounterCatalogTest {
         assertEquals(1, catalog.checkedEntries().size());
         long generation = catalog.generation(); catalog.clear(); assertTrue(catalog.generation() > generation); assertTrue(catalog.checkedEntries().isEmpty());
     }
+    /** A saved full-detail file as {@code CombatAutosave} places it, read with {@link EncounterImport#readSaved}. */
+    private EncounterImport saved(DpsData data) throws IOException {
+        Path file = CombatAutosave.fullDetailFile(temp.getRoot().toPath().resolve(UUID.randomUUID().toString()), data.getRecordingId());
+        Files.createDirectories(file.getParent()); write(file, data.getSaveFile(false));
+        return EncounterImport.readSaved(file);
+    }
+    @Test public void entriesSayWhetherTheyWereCapturedImportedOrLoadedFromSavedHistory() throws Exception {
+        EncounterCatalog catalog = new EncounterCatalog(); catalog.captured(new DpsData[]{encounter("Captured")});
+        Path file = temp.getRoot().toPath().resolve("import.dps"); write(file, encounter("Imported"));
+        EncounterCatalog.Entry captured = catalog.entries().get(0), imported = catalog.add(EncounterImport.read(file)).entry;
+        EncounterCatalog.Entry saved = catalog.addSaved(saved(encounter("Saved")), e -> false);
+        assertEquals(EncounterCatalog.Kind.CAPTURED, captured.kind()); assertFalse(captured.imported());
+        assertEquals(EncounterCatalog.Kind.IMPORTED, imported.kind()); assertTrue(imported.imported());
+        assertEquals(EncounterCatalog.Kind.SAVED, saved.kind()); assertFalse("Saved full detail is not a user import", saved.imported());
+        assertEquals("Captured", captured.source()); assertEquals("import.dps", imported.source()); assertEquals("Saved full detail", saved.source());
+        assertEquals(List.of(captured, imported, saved), catalog.entries());
+        assertSame(saved, catalog.find(saved.id)); assertSame(saved, catalog.resolve(EncounterCatalog.reference(saved)));
+        try { catalog.add(saved(encounter("Wrong door"))); fail("Saved full detail goes through addSaved"); } catch (IllegalArgumentException expected) { }
+        try { catalog.addSaved(EncounterImport.read(file), e -> false); fail("A user import is not saved full detail"); } catch (IllegalArgumentException expected) { }
+        catalog.clear(); assertEquals(List.of(), catalog.entries());
+    }
+    @Test public void atMostTwoSavedEntriesStayAndTheOneOnScreenIsNeverEvicted() throws Exception {
+        EncounterCatalog catalog = new EncounterCatalog();
+        EncounterCatalog.Entry first = catalog.addSaved(saved(encounter("First")), e -> false);
+        EncounterCatalog.Entry second = catalog.addSaved(saved(encounter("Second")), e -> false);
+        catalog.check(second.id, true);
+        long revision = catalog.revision();
+        EncounterCatalog.Entry third = catalog.addSaved(saved(encounter("Third")), e -> e == first);   // first is on screen
+        assertEquals("The oldest not on screen went", List.of(first, third), catalog.entries());
+        assertTrue(catalog.revision() > revision); assertNull(catalog.find(second.id)); assertTrue(catalog.checkedEntries().isEmpty());
+        EncounterCatalog.Entry fourth = catalog.addSaved(saved(encounter("Fourth")), e -> false);
+        assertEquals(List.of(third, fourth), catalog.entries());
+        EncounterCatalog.Entry fifth = catalog.addSaved(saved(encounter("Fifth")), e -> true);
+        assertEquals("Nothing on screen is evicted, even past the limit", List.of(third, fourth, fifth), catalog.entries());
+        assertEquals(EncounterCatalog.SAVED_KEPT, 2);
+    }
+    @Test public void aSavedCopyOfARecordingAlreadyInMemoryIsNotAddedAgain() throws Exception {
+        EncounterCatalog catalog = new EncounterCatalog(); DpsData live = encounter("Captured"); catalog.captured(new DpsData[]{live});
+        EncounterCatalog.Entry captured = catalog.entries().get(0);
+        assertSame("In memory wins: a second copy would make routes ambiguous", captured, catalog.addSaved(saved(live), e -> false));
+        DpsData other = encounter("Saved");
+        EncounterCatalog.Entry saved = catalog.addSaved(saved(other), e -> false);
+        assertSame(saved, catalog.addSaved(saved(other), e -> false));
+        assertEquals(List.of(captured, saved), catalog.entries());
+        long generation = catalog.generation(); EncounterImport late = saved(encounter("Late")); catalog.clear();
+        assertNull("A load finished after Clear adds nothing", catalog.addSaved(late, e -> false, generation));
+        assertEquals(List.of(), catalog.entries());
+    }
     @Test public void completedImportFromBeforeClearCannotRepopulateLibrary() throws Exception {
         Path file = temp.getRoot().toPath().resolve("old-job.dps"); write(file, encounter("Old job"));
         EncounterCatalog catalog = new EncounterCatalog(); long generation = catalog.generation();

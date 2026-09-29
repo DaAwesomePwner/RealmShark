@@ -133,6 +133,26 @@ public final class CombatFixtures {
         return fight.ticks(start, seconds * 1000L).context(visit, 1, start - 5_000).captured(party.get(0)).build();
     }
 
+    /**
+     * Makes {@code fight} the encounter in progress in {@code data}, as capture leaves it before it publishes a snapshot: the hit
+     * list (a copy of the fight's map), its first and current tick ({@link Fight#ticks}: the live elapsed time is the fight's),
+     * the map and the death notifications, set by reflection where {@code TomatoData} keeps them private (as
+     * {@code SheetFixtures.inject} does). Call it before capture starts, off the EDT; then publish with
+     * {@code DpsGUI.updateMapPacket(data)}.
+     */
+    public static void installLive(TomatoData data, DpsData fight) {
+        try {
+            java.lang.reflect.Field hits = TomatoData.class.getDeclaredField("entityHitList"); hits.setAccessible(true);
+            hits.set(data, new HashMap<>(fight.hitList));
+            java.lang.reflect.Field first = TomatoData.class.getDeclaredField("timePcFirst"); first.setAccessible(true);
+            first.setLong(data, fight.dungeonStartTime);
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+        data.timePc = fight.dungeonStartTime + fight.totalDungeonPcTime;
+        data.map = fight.map;
+        data.getDeathNotifications().clear();
+        data.getDeathNotifications().addAll(fight.deathNotifications);
+    }
+
     /** Writes a record where {@code SessionStore.put("encounters", recordingId, record)} would. */
     public static Path writeRecord(Path root, String session, CombatRecord record) throws IOException {
         return write(root, session, "encounters", record.recordingId, SessionStore.JSON.toJson(record));

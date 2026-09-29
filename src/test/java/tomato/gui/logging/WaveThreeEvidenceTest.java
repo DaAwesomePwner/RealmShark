@@ -50,7 +50,7 @@ public class WaveThreeEvidenceTest {
                 wideAndCompact(evidence, shell, "logging-packet-issues-route", () -> { try { return snapshot(logging) != null; } catch (Exception e) { throw new AssertionError(e); } }, () -> {
                     assertEquals(9, shell.getSelectedPage());
                     assertTrue(logging.captureViewState().tabs.get("packets").query.issues);
-                    assertShows(shell, "Back to Runs");
+                    assertShows(shell, "Back to Runs & DPS");
                     assertShows(logging, "Collection: paused");
                     assertFalse("one collection-state term", shows(logging, "collection: off"));
                     JLabel privacy = named(logging, "logging-privacy", JLabel.class);

@@ -7,7 +7,14 @@ import tomato.backend.data.DpsSnapshot;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
 import util.PropertiesManager;
+import tomato.gui.history.FilterChips;
+import tomato.gui.history.WrapRow;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitLayouts;
+import tomato.gui.kit.KitText;
+import tomato.gui.kit.OverflowMenu;
 import tomato.gui.modern.ContentStyle;
 
 import javax.swing.*;
@@ -33,13 +40,33 @@ public class DpsGUI extends JPanel {
 
     private TomatoData data;
     private JButton next, prev, live, dList;
+    /** What the library button opens (the Recordings tab, set by the shell); null while none is set. */
+    private Runnable openLibrary;
     private StringDpsGUI displayString;
     private IconDpsGUI displayIcon;
     private DisplayDpsGUI centerDisplay;
     private MeterDpsGUI displayMeter;
     private JComboBox<String> viewMode;
-    private JPanel dpsTopPanel;
     private JPanel center;
+    /**
+     * The one filter row over the damage views (S6): the meter's player search and Rank by; a drawer with its class and enemy
+     * order, the filter preset, class colors and the Analyst-only view mode; chips; the encounter position and Pause as scope;
+     * ⋯ for Saved resources, Edit DPS filters, Open Recordings and Load .dps.
+     */
+    private final FilterBar filterBar = new FilterBar("dps-meter");
+    /** The search slot; the scope controls wrap into it where they do not fit beside it ({@link #fitScope()}). */
+    private final WrapRow searchRow = new WrapRow();
+    /** The encounter controls as one unit ({@link ScopeControls}): the scope slot, or the search slot's last item. */
+    private final JPanel scopeRow = new ScopeControls();
+    private boolean narrowScope;
+    private final JLabel rankBy = new JLabel("Rank by");
+    /** The view mode and its label: shown only in Analyst. */
+    private JPanel viewField;
+    /** The display mode this page last applied; only an Analyst → Simple change leaves Legacy. */
+    private DisplayModeModel.Mode boundMode;
+    private JMenuItem openRecordingsItem, loadItem;
+    /** Load .dps outcome (file name only), dismissed by the next encounter change. */
+    private final JTextArea loadNotice = ContentStyle.wrappingText("", 1);
     private final JTextArea filterNotice = new JTextArea();
     private final JCheckBox paused = new JCheckBox("Pause this view");
     private final JTextArea pauseNotice = ContentStyle.wrappingText("",1);
@@ -87,6 +114,7 @@ public class DpsGUI extends JPanel {
     public boolean showEncounter(String entryId) {
         EncounterCatalog.Entry entry = encounterCatalog.find(entryId);
         if (entry == null) return false;
+        showLoadNotice("");
         paused.setSelected(false); selectedEncounter = entry; selectionChosen = true; liveUpdates = false; updateEncounterLabel(); updateGui(); return true;
     }
     private JComboBox<String> filterComboBox;
@@ -103,15 +131,26 @@ public class DpsGUI extends JPanel {
         this.resourcesWorkspace = resourcesWorkspace;
         encounterCatalog.capture(() -> data.dpsData.toArray(new DpsData[0]));
         latest = DpsSnapshot.capture(data);
+        displayString = new StringDpsGUI(data);
+        displayIcon = new IconDpsGUI(data);
+        displayMeter = new MeterDpsGUI();
 
-        next = new JButton("Next");
-        prev = new JButton("Previous");
+        // The encounter position in the filter row's scope: ‹ and › step through this app run's library, the position
+        // ("Live" or "3 of 12") opens it, Go live returns to the current encounter.
+        next = new JButton("›");
+        prev = new JButton("‹");
         live = new JButton("Go live");
         dList = new JButton("Live");
+        next.setName("dps-next-encounter"); prev.setName("dps-previous-encounter"); live.setName("dps-go-live");
         next.setToolTipText("Next saved encounter");
         prev.setToolTipText("Previous saved encounter");
         live.setToolTipText("Return to the current encounter");
-        dList.setToolTipText("Choose an encounter from the dungeon list");
+        next.getAccessibleContext().setAccessibleName("Next encounter");
+        prev.getAccessibleContext().setAccessibleName("Previous encounter");
+        for (JButton step : new JButton[]{prev, next}) step.setMargin(new Insets(2, 8, 2, 8));
+        // The encounter library is the Recordings tab of Runs & DPS: the button opens it through the shell's hook (onOpenLibrary),
+        // so it stays disabled, with the reason, in a meter built without one.
+        dList.setName("dps-open-library");
 
         next.addActionListener(event -> nextDpsLogDungeon());
         prev.addActionListener(event -> previousDpsLogDungeon());
@@ -145,22 +184,14 @@ public class DpsGUI extends JPanel {
         filterComboBox.getAccessibleContext().setAccessibleName("DPS filter preset");
         filterComboBox.addActionListener(this::comboAction);
 
-        dpsTopPanel = ContentStyle.controls();
         viewMode = new JComboBox<>(new String[]{"Meters", "Legacy"});
         viewMode.getAccessibleContext().setAccessibleName("Damage display mode");
-        viewMode.addActionListener(e -> updateGui());
-        dpsTopPanel.add(new JLabel("View"));
-        dpsTopPanel.add(viewMode);
-        dpsTopPanel.add(new JLabel("Filter"));
-        dpsTopPanel.add(filterComboBox);
-        dpsTopPanel.add(addFilter);
-        dpsTopPanel.add(prev);
-        dpsTopPanel.add(dList);
-        dpsTopPanel.add(next);
-        dpsTopPanel.add(live);
+        viewMode.setToolTipText("Legacy shows the older text and icon displays (Analyst)");
+        viewMode.addActionListener(e -> { updateGui(); applyView(); });
         paused.setName("dps-pause-view");
         paused.addActionListener(e -> updateGui());
-        dpsTopPanel.add(paused);
+        buildFilterBar(addFilter);
+        onOpenLibrary(null);
 
         setLayout(new BorderLayout());
         JPanel damagePage = new DamagePage();
@@ -169,8 +200,9 @@ public class DpsGUI extends JPanel {
         filterNotice.setName("dps-relative-filter-notice");
         ContentStyle.font(filterNotice, ContentStyle.metadata(ContentStyle.body()));
         filterNotice.setVisible(false);
-        JPanel header = new JPanel(new BorderLayout(0, 4));
-        header.add(dpsTopPanel, BorderLayout.NORTH); header.add(filterNotice, BorderLayout.CENTER);
+        loadNotice.setName("dps-load-notice"); loadNotice.setFocusable(false);
+        loadNotice.getAccessibleContext().setAccessibleName("Recording load status");
+        loadNotice.setVisible(false);
         pauseNotice.setEditable(false);pauseNotice.setOpaque(false);pauseNotice.setLineWrap(true);pauseNotice.setWrapStyleWord(true);
         pauseNotice.setName("dps-pause-notice");pauseNotice.getAccessibleContext().setAccessibleName("Damage view source and pause state");
         ContentStyle.font(pauseNotice,ContentStyle.metadata(ContentStyle.body()));
@@ -206,7 +238,8 @@ public class DpsGUI extends JPanel {
         notices.setVisible(false);
         linkDetails.addActionListener(e -> { notices.setVisible(linkDetails.isSelected()); damagePage.revalidate(); damagePage.repaint(); });
         JPanel status = new JPanel(new BorderLayout(0, 2)); status.add(statusRow, BorderLayout.NORTH); status.add(notices, BorderLayout.CENTER);
-        header.add(status,BorderLayout.SOUTH);
+        // The filter row, its notices (hidden rows take no space), then the status row; the meter's summary follows below.
+        JPanel header = KitLayouts.stack(4, filterBar, filterNotice, loadNotice, status);
         damagePage.add(header, BorderLayout.NORTH);
         damageHeader = header;
 
@@ -217,15 +250,12 @@ public class DpsGUI extends JPanel {
         damageScroll.setName("dps-damage-scroll"); damageScroll.setBorder(BorderFactory.createEmptyBorder());
         damageScroll.getVerticalScrollBar().setUnitIncrement(24);
         combatViews.add("meters", "Damage meters", damageScroll).add("resources", "Resources & buffs", resourcesWorkspace);
-        JButton savedResources = new JButton("Saved resources"); savedResources.setName("dps-open-saved-resources");
-        savedResources.setEnabled(resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel);
-        savedResources.addActionListener(e -> browseSavedResources()); dpsTopPanel.add(savedResources);
         add(combatTabs, BorderLayout.CENTER);
 
-        displayString = new StringDpsGUI(data);
-        displayIcon = new IconDpsGUI(data);
-        displayMeter = new MeterDpsGUI();
         setCenterDisplay();
+        displayMeter.onFiltersChanged(this::updateChips);
+        applyView();
+        DisplayModeModel.application().bind(this, this::applyMode);
         refreshTimer = new javax.swing.Timer(250, e -> refreshLiveView());
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshLiveView();
@@ -252,8 +282,18 @@ public class DpsGUI extends JPanel {
         if (!paused.isSelected() && liveUpdates && centerDisplay.isShowing() && latest != rendered) updateGui();
     }
 
+    /**
+     * EDT: {@code open} runs when the meter's library button ("Live" or "3/12") is pressed; the shell opens Runs & DPS › Recordings
+     * through its navigator, so Back returns to the meter. Null disables the button (no library to open).
+     */
+    public void onOpenLibrary(Runnable open) {
+        openLibrary = open;
+        String tip = open != null ? "Choose a recording in Runs & DPS › Recordings" : "Recordings are not available in this view";
+        for (AbstractButton opener : new AbstractButton[]{dList, openRecordingsItem}) { opener.setEnabled(open != null); opener.setToolTipText(tip); }
+    }
+
     private void dListButton(JButton dpsLabel) {
-        DungeonListGUI.open(this, data);
+        if (openLibrary != null) openLibrary.run();
     }
 
     private void comboAction(ActionEvent actionEvent) {
@@ -262,6 +302,7 @@ public class DpsGUI extends JPanel {
         setupFilter(selectedItem);
         PropertiesManager.setProperties("filterName", selectedItem);
         update();
+        updateChips();
     }
 
     private static void setupFilter(String selectedItem) {
@@ -287,6 +328,214 @@ public class DpsGUI extends JPanel {
 
     private void openFilter() {
         FilterGUI.open(this);
+    }
+
+    /**
+     * Builds the filter row (one row at 1240×800 font 13 with the drawer closed). The meter's controls move here, so a
+     * standalone meter shows none; Legacy disables the ones only the meter applies ({@link #applyView()}).
+     */
+    private void buildFilterBar(JButton addFilter) {
+        MeterDpsGUI meter = displayMeter;
+        rankBy.setLabelFor(meter.metricChoice());
+        scopeRow.setOpaque(false); scopeRow.setName("dps-meter-scope");
+        for (JComponent control : new JComponent[]{prev, dList, next, live, paused}) scopeRow.add(control);
+        dList.getAccessibleContext().setAccessibleDescription("Encounter position; opens Runs & DPS › Recordings");
+        JPanel facets = ContentStyle.controls();
+        facets.setOpaque(false);
+        facets.add(field("Class", meter.classChoice()));
+        facets.add(field("Enemies", meter.enemyChoice()));
+        JPanel preset = field("Preset", filterComboBox); preset.add(addFilter);
+        facets.add(preset);
+        facets.add(meter.classColors());
+        viewField = field("View", viewMode); viewField.setName("dps-view-mode-field");
+        facets.add(viewField);
+        filterBar.drawer(facets);
+        OverflowMenu more = filterBar.overflow();
+        JMenuItem savedResources = more.add("Saved resources…", this::browseSavedResources);
+        savedResources.setName("dps-open-saved-resources");
+        boolean savedHistory = resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel;
+        savedResources.setEnabled(savedHistory);
+        savedResources.setToolTipText(savedHistory ? "Resources & buffs over every saved session" : "Unavailable: no saved history is open");
+        more.add("Edit DPS filters…", this::openFilter).setName("dps-edit-filters");
+        openRecordingsItem = more.add("Open Recordings", () -> { if (openLibrary != null) openLibrary.run(); });
+        openRecordingsItem.setName("dps-open-recordings");
+        loadItem = more.add("Load .dps…", this::loadRecording);
+        loadItem.setName("dps-load-recording"); loadItem.setToolTipText("Add a .dps file to Recordings and show it here");
+        placeScope(false);
+        filterBar.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent e) { fitScope(); }
+        });
+        meter.searchField().addPropertyChangeListener("font", e -> fitScope());
+    }
+
+    /**
+     * The encounter controls (‹ · position · › · Go live · Pause) as one unit on one line: in the scope slot, or as the search
+     * slot's last item, which the slot moves to a line of its own as a whole, so "‹" never stays behind on the search line
+     * away from the position it steps. Only where a line of its own is too narrow for them (a large font in a compact window)
+     * do the controls wrap inside the unit, which then grows taller instead of cutting any off.
+     */
+    private static final class ScopeControls extends JPanel {
+        ScopeControls() { super(new FlowLayout(FlowLayout.LEADING, 4, 0)); }
+        @Override public Dimension getPreferredSize() {
+            Dimension line = super.getPreferredSize();
+            int width = lineWidth();
+            return width <= 0 || line.width <= width ? line : wrapped(width);
+        }
+        @Override public Dimension getMinimumSize() { return getPreferredSize(); }
+        /**
+         * The width a line of the wrapping search slot offers (WrapRow sizes itself to its host less both gaps, then its own
+         * insets and gaps), from the host's width so it never depends on this unit; 0 in the scope slot, where it keeps one line.
+         */
+        private int lineWidth() {
+            Container slot = getParent(), host = slot == null ? null : slot.getParent();
+            if (!(slot instanceof WrapRow) || host == null || host.getWidth() <= 0) return 0;
+            Insets hostInsets = host.getInsets(), slotInsets = slot.getInsets();
+            return host.getWidth() - hostInsets.left - hostInsets.right - 12 - slotInsets.left - slotInsets.right - 2 * ((FlowLayout) slot.getLayout()).getHgap();
+        }
+        /** The unit's size at {@code width}, breaking lines as FlowLayout.layoutContainer does. */
+        private Dimension wrapped(int width) {
+            FlowLayout flow = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int available = width - insets.left - insets.right - 2 * flow.getHgap(), x = 0, line = 0, height = flow.getVgap(), widest = 0;
+            for (Component child : getComponents()) {
+                if (!child.isVisible()) continue;
+                Dimension size = child.getPreferredSize();
+                if (x > 0 && x + size.width > available) { height += line + flow.getVgap(); widest = Math.max(widest, x); x = 0; line = 0; }
+                x += (x > 0 ? flow.getHgap() : 0) + size.width;
+                line = Math.max(line, size.height);
+            }
+            widest = Math.max(widest, x);
+            return new Dimension(Math.min(width, widest + insets.left + insets.right + 2 * flow.getHgap()), insets.top + height + line + flow.getVgap() + insets.bottom);
+        }
+    }
+
+    /** A drawer facet: its caption and control wrap as one unit. */
+    private static JPanel field(String caption, JComponent control) {
+        JLabel label = KitText.caption(caption);
+        label.setLabelFor(control);
+        return new WrapRow(label, control);
+    }
+
+    /**
+     * Scope beside the search when it fits (the row's right slot); otherwise it wraps after the search as one unit, never past
+     * the edge.
+     */
+    private void fitScope() {
+        SwingUtilities.invokeLater(() -> { if (narrowFit() != narrowScope) placeScope(!narrowScope); });
+    }
+    private boolean narrowFit() {
+        List<Component> parts = new ArrayList<>(Arrays.asList(displayMeter.searchField(), rankBy, displayMeter.metricChoice(), prev, dList, next, live, paused, filterBar.overflow()));
+        filtersToggle(filterBar, parts);
+        int needed = 0;
+        for (Component part : parts) needed += part.getPreferredSize().width + 6;
+        // The slots' own insets and the gap between the row's two sides.
+        needed += 4 * displayMeter.searchField().getFontMetrics(displayMeter.searchField().getFont()).charWidth('m');
+        return filterBar.getWidth() > 0 && filterBar.getWidth() < needed;
+    }
+    private static void filtersToggle(Component root, List<Component> into) {
+        if ("dps-meter-filters".equals(root.getName())) { into.add(root); return; }
+        if (root instanceof Container) for (Component child : ((Container) root).getComponents()) filtersToggle(child, into);
+    }
+    private void placeScope(boolean narrow) {
+        narrowScope = narrow;
+        FilterChips.keepingFocus(() -> {
+            searchRow.removeAll();
+            searchRow.add(displayMeter.searchField()); searchRow.add(rankBy); searchRow.add(displayMeter.metricChoice());
+            // The encounter controls move as their one panel: the search slot's last item (wrapping as a whole) or the scope slot.
+            if (narrow) searchRow.add(scopeRow);
+            filterBar.search(searchRow).scope(narrow ? null : scopeRow);
+        });
+    }
+
+    /**
+     * Meters or Legacy: the player search, Rank by, class, enemy order and class colors apply only to the meter, so Legacy
+     * disables them with the reason and claims none of their chips; the preset applies to both.
+     */
+    private void applyView() {
+        boolean meters = viewMode.getSelectedIndex() == 0;
+        MeterDpsGUI meter = displayMeter;
+        for (JComponent control : new JComponent[]{meter.searchField(), rankBy, meter.metricChoice(), meter.classChoice(), meter.enemyChoice(), meter.classColors()}) {
+            control.setEnabled(meters);
+            control.setToolTipText(meters ? null : "Applies to Meters only (View › Meters)");
+        }
+        updateChips();
+    }
+
+    /**
+     * Simple shows no view mode; Analyst offers Legacy. The binding also runs whenever this page becomes displayable, so
+     * only an Analyst → Simple change switches a shown Legacy view back to Meters.
+     */
+    private void applyMode(DisplayModeModel.Mode mode) {
+        boolean analyst = mode == DisplayModeModel.Mode.ANALYST;
+        viewField.setVisible(analyst);
+        if (!analyst && boundMode == DisplayModeModel.Mode.ANALYST && viewMode.getSelectedIndex() != 0) viewMode.setSelectedIndex(0);
+        boundMode = mode;
+        filterBar.revalidate(); filterBar.repaint();
+    }
+
+    /** Chips in row order: the meter's class and player filters, the preset, then Bosses only; Clear resets what they show. */
+    private void updateChips() {
+        List<FilterBar.ActiveFilter> active = new ArrayList<>();
+        if (viewMode.getSelectedIndex() == 0) active.addAll(displayMeter.activeFilters());
+        Object preset = filterComboBox.getSelectedItem();
+        if (preset != null && !DISABLE_FILTER.equals(preset)) {
+            int at = active.size();
+            if (at > 0 && MeterDpsGUI.BOSSES_ONLY.equals(active.get(at - 1).label)) at--;
+            active.add(at, new FilterBar.ActiveFilter("Preset: " + preset, () -> filterComboBox.setSelectedItem(DISABLE_FILTER)));
+        }
+        FilterChips.update(filterBar, active, this::clearFilters, false);
+    }
+    private void clearFilters() {
+        if (viewMode.getSelectedIndex() == 0) displayMeter.clearFilters();
+        if (!DISABLE_FILTER.equals(filterComboBox.getSelectedItem())) filterComboBox.setSelectedItem(DISABLE_FILTER);
+    }
+
+    private void loadRecording() {
+        JFileChooser chooser = new JFileChooser(new java.io.File(".")); chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("DPS encounters (*.dps)", "dps"));
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) importFile(chooser.getSelectedFile());
+    }
+
+    /**
+     * EDT: reads a user's {@code .dps} file off the EDT through the safe reader ({@link EncounterImport#read}: allow-list filter,
+     * deep-stack reader thread), adds it to the library (Runs & DPS › Recordings lists it) and shows it here. The notice
+     * names only the file; a Clear during the read adds nothing.
+     */
+    SwingWorker<EncounterImport, Void> importFile(java.io.File file) {
+        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Load recordings from the EDT");
+        long generation = encounterCatalog.generation();
+        String name = file.getName();
+        loadItem.setEnabled(false);
+        showLoadNotice("Loading " + name + "…");
+        SwingWorker<EncounterImport, Void> worker = new SwingWorker<EncounterImport, Void>() {
+            @Override protected EncounterImport doInBackground() throws java.io.IOException { return EncounterImport.read(file.toPath()); }
+            @Override protected void done() {
+                loadItem.setEnabled(true);
+                EncounterImport imported;
+                try { imported = get(); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); showLoadNotice("Loading " + name + " was interrupted; nothing was added."); return; }
+                catch (java.util.concurrent.ExecutionException e) { showLoadNotice("Could not load " + name + ": " + reason(e.getCause()) + " Nothing was added."); return; }
+                EncounterCatalog.Admission admission = encounterCatalog.add(imported, generation);
+                if (admission == null) { showLoadNotice("Recordings were cleared while " + name + " loaded; load it again to add it."); return; }
+                showEncounter(admission.entry.id);
+                showLoadNotice(admission.duplicate ? "Already in Recordings: " + name + " has the same bytes as a loaded file, shown here."
+                    : admission.sameRecordingId ? "Loaded " + name + " into Recordings as a separate copy of a recording already there."
+                    : "Loaded " + name + " into Recordings.");
+            }
+        };
+        worker.execute();
+        return worker;
+    }
+    private void showLoadNotice(String text) {
+        loadNotice.setText(text);
+        if (loadNotice.isVisible() != !text.isEmpty()) { loadNotice.setVisible(!text.isEmpty()); revalidate(); repaint(); }
+    }
+    /** A failure in words without a path: a message naming a folder falls back to the kind of error. */
+    private static String reason(Throwable failure) {
+        String message = failure == null ? null : failure.getMessage();
+        if (message == null || message.isBlank() || message.contains("/") || message.contains("\\"))
+            return failure == null ? "unknown error." : failure.getClass().getSimpleName() + ".";
+        return message.endsWith(".") ? message : message + ".";
     }
 
     private void setCenterDisplay() {
@@ -347,7 +596,7 @@ public class DpsGUI extends JPanel {
         entityHitList = Arrays.stream(entityHitList).filter(e -> !e.isPlayerCharacter()).toArray(Entity[]::new);
         DpsData saved = b ? null : selectedEncounter.data;
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
-        EncounterLink link=b?EncounterLink.live(rendered.context):EncounterLink.of(saved,selectedEncounter.origin!=null);
+        EncounterLink link=b?EncounterLink.live(rendered.context):EncounterLink.of(saved,selectedEncounter.imported());
         displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context,link);
         present(displayed);
     }
@@ -435,7 +684,7 @@ public class DpsGUI extends JPanel {
             if (kept != null) { next.put(entry.id, kept); result.add(kept); continue; }
             DpsData data = entry.data;
             String map = data.map == null ? null : Objects.toString(data.map.displayName, "").isEmpty() ? data.map.name : data.map.displayName;
-            EncounterLink link = EncounterLink.of(data, entry.origin != null);
+            EncounterLink link = EncounterLink.of(data, entry.imported()); // saved full detail loaded back is not an import
             Long localDamage = null; Double window = null;
             if (link.localObjectId != null) {
                 // Same projection as the meter's "All enemies" scope, without player filter presets.
@@ -457,7 +706,7 @@ public class DpsGUI extends JPanel {
         return result;
     }
 
-    /** Detached origin/destination state of the DPS Logger page for Back. */
+    /** Detached origin/destination state of the Live meter (Runs & DPS › Live meter) for Back. */
     private static final class RouteState {
         final String tab; final boolean live; final String entry; final Object resources;
         RouteState(String tab, boolean live, String entry, Object resources) { this.tab = tab; this.live = live; this.entry = entry; this.resources = resources; }
@@ -467,7 +716,7 @@ public class DpsGUI extends JPanel {
             resources == null ? null : resources.captureState());
     }
     private void restoreRouteState(Object value, RouteTarget resources) {
-        if (!(value instanceof RouteState)) throw new IllegalArgumentException("Not a DPS Logger route state");
+        if (!(value instanceof RouteState)) throw new IllegalArgumentException("Not a Live meter route state");
         RouteState state = (RouteState) value;
         if (resources != null && state.resources != null) resources.restoreState(state.resources);
         if (state.live || state.entry == null || !showEncounter(state.entry)) { if (!liveUpdates) setIndex(-1); }
@@ -584,7 +833,7 @@ public class DpsGUI extends JPanel {
     }
 
     /** What Clear DPS Logs clears (its menu tooltip and any confirmation): only this app run's list, never saved history. */
-    public static final String CLEAR_LOGS_HELP = "Clears this app run's encounter list in the DPS Logger (recordings kept in memory)."
+    public static final String CLEAR_LOGS_HELP = "Clears this app run's encounter list in the Live meter (recordings kept in memory)."
         + " Saved combat history (combat summaries and any kept full detail) is not deleted.";
 
     /**
@@ -595,6 +844,7 @@ public class DpsGUI extends JPanel {
         INSTANCE.data.dpsData.clear();
         INSTANCE.encounterCatalog.clear(); INSTANCE.selectedEncounter = null; INSTANCE.selectionChosen = true;
         INSTANCE.paused.setSelected(false);
+        INSTANCE.showLoadNotice("");
         INSTANCE.liveUpdates = true;
         INSTANCE.dList.setText("Live");
         update();
@@ -629,7 +879,8 @@ public class DpsGUI extends JPanel {
         });
     }
     private void updateEncounterLabel() {
-        dList.setText(liveUpdates ? "Live" : (getIndex() + 1) + "/" + encounterCatalog.entries().size());
+        dList.setText(liveUpdates ? "Live" : (getIndex() + 1) + " of " + encounterCatalog.entries().size());
+        fitScope(); // the position's width changes ("Live", "3 of 12")
     }
 
     /**
@@ -698,6 +949,7 @@ public class DpsGUI extends JPanel {
 
     public void setIndex(int index) {
         paused.setSelected(false);
+        showLoadNotice("");
         this.index = index;
 
         if (index == -1) {

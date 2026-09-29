@@ -184,7 +184,7 @@ public class WaveThreeEvidenceTest {
                     String banner = named(timeline, "timeline-window", JTextArea.class).getText();
                     assertTrue(banner, banner.contains(RunWorkbench.OBSERVED_LATER) && banner.contains("half-open"));
                     measureText(named(timeline, "timeline-window", JTextArea.class));
-                    assertShows(shell, "Back to Runs", "Widen window ±30 s");
+                    assertShows(shell, "Back to Runs & DPS", "Widen window ±30 s");
                 });
                 // Unavailable: the same window for a session that is not in this history opens zero events, not a namesake.
                 VisitRef absent = new VisitRef(UUID.randomUUID().toString(), visit.id);
@@ -207,11 +207,12 @@ public class WaveThreeEvidenceTest {
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.TIMELINE, scratch, memory.states));
             try {
                 WorkspaceShell shell = edt(() -> {
-                    WorkspaceShell created = shell(new int[]{7, 11}, resources, timeline);
+                    // Resources & buffs lives in Runs & DPS (page 10) since P5b; a route there selects that page.
+                    WorkspaceShell created = shell(new int[]{10, 11}, resources, timeline);
                     ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
                     navigator.register(ActivityRouteTarget.of(Destination.RESOURCES, resources));
                     navigator.register(ActivityRouteTarget.of(Destination.TIMELINE, timeline));
-                    created.select(7);
+                    created.select(10);
                     assertTrue(navigator.open(Route.to(Destination.RESOURCES).withVisit(new VisitRef(store.currentId(), "journal:window"))));
                     return created;
                 });

@@ -28,8 +28,10 @@ import tomato.history.link.VisitRef;
  * view's targets ({@link RunsPage#tableRoutes}) so they are tried first for their shapes.
  * - {@link Destination#RUNS} without any reference brings the feed forward, on Cards or Table as chosen. Routes to rows (a visit
  *   or a query) are not accepted here: the Table view's targets open the archive on that row.
- * - {@link Destination#RUN_RECAP} with one exact saved {@link VisitRef} and nothing else (no query, record, recording, object,
- *   bounds or payload; the recording picker is the view's own state) opens that run's recap: the view is made once and put in
+ * - {@link Destination#RUN_RECAP} with one exact saved {@link VisitRef}, optionally one recording ID, and nothing else (no query,
+ *   record, object, bounds or payload) opens that run's recap on that recording (the Recordings tab's summary-only rows; an ID
+ *   that is not one of the run's shows the longest, as the builder does); without a recording it shows the longest, and the
+ *   picker then is the view's own state. The view is made once and put in
  *   the page's recap slot, shows "Loading this run…" at once, opens its Damage section (explicit navigation to the damage
  *   breakdown, spec S4) and is built by {@link RunRecapBuilder} on one daemon worker ("RealmShark run recap"), never on the EDT;
  *   a newer request cancels the older one and only the newest result is applied. Without saved history the route is rejected,
@@ -75,9 +77,9 @@ public final class RunsRouteTarget implements RouteTarget {
     @Override public Destination destination() { return destination; }
 
     @Override public boolean accepts(Route route) {
-        if (route.destination != destination || route.query != null || route.record != null || route.recordingId != null
+        if (route.destination != destination || route.query != null || route.record != null
             || route.localObjectId != null || route.from != null || route.until != null || route.payload != null) return false;
-        if (destination == Destination.RUNS) return route.visit == null;
+        if (destination == Destination.RUNS) return route.visit == null && route.recordingId == null;
         return ActivityRoutes.queryable(route.visit) && runs.recaps.get() != null;
     }
 
@@ -86,7 +88,7 @@ public final class RunsRouteTarget implements RouteTarget {
     @Override public void open(Route route) {
         if (!accepts(route)) throw new IllegalArgumentException("Unsupported Runs route: " + route);
         if (destination == Destination.RUNS) runs.page.showFeed();
-        else runs.openRecap(route.visit);
+        else runs.openRecap(route.visit, route.recordingId);
     }
 
     @Override public void restoreState(Object state) {
@@ -169,7 +171,8 @@ public final class RunsRouteTarget implements RouteTarget {
             return state;
         }
 
-        void openRecap(VisitRef ref) {
+        /** Opens the recap of {@code ref} on {@code recordingId} (null = the longest; an ID that is not the run's shows the longest). */
+        void openRecap(VisitRef ref, String recordingId) {
             long entry = navigator.nextBackToken();
             boolean here = entry != 0 && capturedFor == entry && captured != null;   // this page was the origin
             RunsState before = here ? captured : state();
@@ -181,11 +184,11 @@ public final class RunsRouteTarget implements RouteTarget {
                 while (away.size() > ShellNavigator.DEFAULT_CAPACITY) away.removeFirst();
             }
             ensureView();
-            recording = null;
+            recording = recordingId;
             view.showLoading(ref);
             view.expandDamage();   // explicit navigation to the run's damage breakdown (S4); remembered as the user's choice
             page.showRecap();
-            build(ref, null);
+            build(ref, recordingId);
             // The navigator shows page 10 after this returns; move keyboard focus into the recap once it shows (as the sheet does).
             SwingUtilities.invokeLater(() -> {
                 if (closed || !page.recapShown() || !view.isShowing()) return;

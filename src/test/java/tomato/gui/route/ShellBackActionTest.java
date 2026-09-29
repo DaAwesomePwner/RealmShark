@@ -43,7 +43,7 @@ public class ShellBackActionTest {
                 int page = WorkspaceShell.pageOf(destination);
                 assertTrue(destination + " maps to a real page", page == ShellNavigator.NO_PAGE || (page >= 0 && page < WorkspaceShell.TITLES.length));
             }
-            assertEquals("Runs", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.RUNS)]);
+            assertEquals("Runs & DPS", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.RUNS)]);
             assertEquals("Timeline", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.TIMELINE)]);
             assertEquals("Loot", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.LOOT)]);
             assertEquals("Party", WorkspaceShell.TITLES[WorkspaceShell.pageOf(Destination.INSPECT)]);

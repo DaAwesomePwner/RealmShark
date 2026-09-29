@@ -179,6 +179,35 @@ public class RunFeedSourceTest {
         assertEquals(Set.of(), map.outcomes()); assertEquals("", map.text());
     }
 
+    /**
+     * P5b: the dungeon filter is a canonical dungeon (a Dungeons card's key, {@code DungeonStatData.Snapshot.canonicalName} of
+     * each run's saved area name), so a raw alias and its canonical name are one dungeon and "Show runs" lists every run the card
+     * counted.
+     */
+    @Test public void theDungeonFilterMatchesEachRunByItsCanonicalDungeonAsTheDungeonsCardsCount() throws Exception {
+        assertEquals(RunFixtures.CRONUS, tomato.backend.data.DungeonStatData.Snapshot.canonicalName(RunFixtures.CRONUS_ALIAS));
+        RunFeedQuery cronus = new RunFeedQuery("", Set.of(), RunFixtures.CRONUS);
+        assertTrue("A run saved under the raw alias is that dungeon's", cronus.matches(RunOutcome.COMPLETED, RunFixtures.CRONUS_ALIAS));
+        assertTrue(cronus.matches(RunOutcome.LEFT, RunFixtures.CRONUS));
+        assertFalse(cronus.matches(RunOutcome.LEFT, "Lost Halls"));
+        assertFalse("A run without an area name is no dungeon's", cronus.matches(RunOutcome.LEFT, null));
+        Path root = temp.newFolder("mixed").toPath();
+        RunFixtures.writeMixed(root);
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            try (RunFeedSource.Page page = source.first(cronus, new Cancellation())) {
+                assertEquals("c5 (saved under the alias) and d3 under one filter, newest first", List.of(RunFixtures.C5, RunFixtures.D3), refs(page.model()));
+            }
+            DungeonsModel cards = new DungeonsSource(store, ZONE, () -> RunFixtures.NOW).read(DungeonsQuery.all(), new Cancellation());
+            assertFalse(cards.cards().isEmpty());
+            for (DungeonCardModel card : cards.cards())
+                try (RunFeedSource.Page page = source.first(new RunFeedQuery("", Set.of(), card.canonical()), new Cancellation())) {
+                    assertEquals("The feed lists every run of the " + card.canonical() + " card", card.visits(), page.matches());
+                    assertEquals(card.visits(), page.model().cards().size());
+                }
+        }
+    }
+
     @Test public void lootFameAndCombatJoinOnlyByExactVisitRef() throws Exception {
         Path root = scenario();
         try (SessionStore store = new SessionStore(root, false, "fixture");

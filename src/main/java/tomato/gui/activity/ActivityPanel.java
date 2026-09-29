@@ -512,7 +512,7 @@ public final class ActivityPanel extends JPanel {
             : mode==Mode.RUNS ? (rows.isEmpty()?(log.isHistorical()?"No dungeon runs saved in this scope. Recording coverage is unknown.":"No dungeon runs recorded. Enable gameplay & diagnostics collection, start capture and enter a dungeon such as Ice Citadel or Ocean Trench.")
                 : table.getRowCount()==0?"No dungeon runs match your search.":"Select a dungeon run for progression, party and capture details.")+" Hub, overworld and unresolved area visits are available in Timeline."
             : log.isHistorical()?"Saved activity evidence. No selected record; search or select a row for details. An empty history does not establish complete recording coverage."
-                : "Start capture and enter a fresh area to record activity. Search or select a row for details. Saved history is shared across Runs, Timeline and DPS Logger.";
+                : "Start capture and enter a fresh area to record activity. Search or select a row for details. Saved history is shared across Runs, Timeline and the Live meter.";
         if(!text.equals(detail.getText())){detail.setText(text);detail.setCaretPosition(0);}
     }
     public static String time(long millis){return DisplayFormat.formatTimestamp(millis);}

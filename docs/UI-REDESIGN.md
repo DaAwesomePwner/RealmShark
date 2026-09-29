@@ -2,6 +2,38 @@
 
 For the current typography, layout, controls and performance improvements, see [UI consistency and responsiveness](UI-CONSISTENCY.md). The notes below retain the original refresh and subsequent capture-fix history.
 
+## Information architecture after P5 (2026-09-29)
+
+After the redesign's P5 phase the sidebar lists six core destinations and five Advanced pages; Settings stays below the list. Page indices, shortcuts and saved navigation IDs are unchanged. A saved layout that still names Statistics or DPS Logger simply no longer lists them; if it hid Runs while DPS Logger stayed visible, Runs & DPS is shown once, so the live meter never disappears from the sidebar.
+
+| Sidebar | Destinations |
+| --- | --- |
+| Core | **Home** (Alt+H), **Characters**, **Runs & DPS** (Alt+R), **Loot**, **Quests**, **Chat** |
+| Advanced (5), collapsed by default | **Party**, **Key-pops**, **Timeline** (Alt+T), **Logging**, **Bridge Review** |
+| Below the list | **Settings** (Alt+, or Alt+N): Notifications, General (Combat history), Appearance |
+
+**Runs & DPS** is one page with four customizable tabs, **Feed · Dungeons · Live meter · Recordings**, and starts on its first visible tab; the tab in front is not saved ([Activity › Runs & DPS](ACTIVITY.md#runs--dps)). Three pages are no longer in the sidebar but still exist:
+
+| Page | How to reach it | Why |
+| --- | --- | --- |
+| Build (page 6) | Alt+7, Settings search, the Home hero's Build action | Build is a tab of the character sheet; the page only points there |
+| DPS Logger (page 7) | An old shortcut or layout; **Alt+8** opens the Live meter instead | The live meter and the recordings are tabs of Runs & DPS; the page offers **Open Live meter** and **Open Recordings** |
+| Statistics (page 4) | Alt+5, Settings search, the Dungeons analysis banner | Kept, unchanged, until P6 retires it; a banner points to Runs & DPS › Dungeons ([Statistics](STATISTICS.md#where-statistics-is-now)) |
+
+Where the older pages went:
+
+| Before | After P5 |
+| --- | --- |
+| Runs (sidebar page) | Runs & DPS › **Feed** (saved-run cards, the run recap, the archive table as its Table view) |
+| DPS Logger › Damage meters | Runs & DPS › **Live meter** › Damage meters, restyled, with one filter row ([DPS meters](DPS-METERS.md)) |
+| DPS Logger › Resources & buffs | Runs & DPS › **Live meter** › Resources & buffs (final home in P6) |
+| The Encounter library dialog | Runs & DPS › **Recordings**, which also lists saved summaries and kept full detail |
+| Statistics' dungeon, session comparison and cohort views | Runs & DPS › **Dungeons** (cards) and its Analyst **Analysis** view; still also on the Statistics page until P6 |
+| My Info | The character sheet's **Build** tab |
+| Security / Inspect | **Party** (Advanced) |
+
+P6 merges the live scope row on Runs, Timeline, Resources, Loot, Chat, Key-pops and Party, settles the final home of Resources & buffs, and removes the Statistics and DPS Logger pages. Validation: [P5a](superpowers/plans/2026-09-28-p5a-validation.md), [P5b](superpowers/plans/2026-09-28-p5b-validation.md).
+
 This folder now builds a complete Swing desktop application. The supplied download contained the RealmShark library branch, without the Tomato application described in its README. The Tomato GUI and its backend/resources were imported from `X-com/RealmShark`, branch `tomato`, commit `257a1c5` (2026-02-28). The supplied library sources remain in place. The upstream MIT license and credits are preserved.
 
 The imported Tomato baseline is v1.9.2. Its checked-in version constant still said v1.9.1 because upstream generated it during builds; this combined build generates the separate RealmShark artifact version. The Tomato constant now reflects v1.9.2, avoiding a false update popup. The asset-cache revision stays v1.9.1 because this metadata correction does not change asset extraction. Future upstream release notices explain that changes must be merged and rebuilt to preserve the customizations, rather than instructing users to replace the application with the stock JAR.

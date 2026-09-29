@@ -25,20 +25,25 @@ public class DungeonListTest {
             data.dpsData.add(encounter("First")); data.dpsData.add(encounter("Second"));
             DpsGUI dps = new DpsGUI(data); dps.setIndex(0);
             DungeonListGUI chooser = new DungeonListGUI(dps, data, null);
+            chooser.refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             JTable table = table(chooser);
             await(() -> table.getRowCount() == 3);
-            assertEquals("First", table.getValueAt(table.getSelectedRow(), 2));
+            assertEquals("First", dungeon(table, table.getSelectedRow()));
             table.getActionMap().get("toggle-export").actionPerformed(new ActionEvent(table, 0, "SPACE"));
             assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setRowSelectionInterval(row(table, "Second"), row(table, "Second"));
+            assertEquals("Recordings is its own tab; opening is explicit", 0, dps.getIndex());
+            chooser.open();
             assertEquals(1, dps.getIndex());
             data.dpsData.add(encounter("Third")); DpsGUI.updateMapPacket(data); chooser.refreshEncounters();
             await(() -> table.getRowCount() == 4);
-            assertEquals("Second", table.getValueAt(table.getSelectedRow(), 2));
+            assertEquals("Second", dungeon(table, table.getSelectedRow()));
             assertEquals(Boolean.TRUE, table.getValueAt(row(table, "First"), 0));
             table.setFont(table.getFont().deriveFont(30f));
             assertTrue(table.getRowHeight() > table.getFontMetrics(table.getFont()).getHeight());
-            int live = row(table, "Live"); table.setRowSelectionInterval(live, live); assertEquals(-1, dps.getIndex());
+            int live = row(table, "Live"); table.setRowSelectionInterval(live, live);
+            assertEquals("Recordings is its own tab; opening is explicit", 1, dps.getIndex());
+            chooser.open(); assertEquals(-1, dps.getIndex());
             assertFalse(table.isCellEditable(live, 0));
         });
     }
@@ -54,10 +59,11 @@ public class DungeonListTest {
         SwingWorker<?, ?>[] job = new SwingWorker<?, ?>[1];
         CountDownLatch exported = new CountDownLatch(1), imported = new CountDownLatch(1);
         BlockingMap.started = new CountDownLatch(1); BlockingMap.release = new CountDownLatch(1);
-        BlockingMap.wroteOffEdt.set(false); BlockingMap.readOffEdt.set(false);
+        BlockingMap.wroteOffEdt.set(false); BlockingMap.readRan.set(false);
         try {
             SwingUtilities.invokeAndWait(() -> {
                 chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
+                chooser[0].refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
                 await(() -> table(chooser[0]).getRowCount() == 2);
                 table(chooser[0]).setValueAt(true, row(table(chooser[0]), "Saved"), 0);
                 job[0] = chooser[0].exportFiles(folder, false);
@@ -78,22 +84,42 @@ public class DungeonListTest {
             File[] files = folder.listFiles((dir, name) -> name.endsWith(".dps"));
             assertNotNull(files); assertEquals(1, files.length);
             assertTrue(files[0].getName().startsWith("Saved "));
+            try (ObjectInputStream exportedBytes = new ObjectInputStream(new FileInputStream(files[0]))) {   // the test's own bytes
+                DpsData written = (DpsData) exportedBytes.readObject();
+                assertEquals("Saved", written.map.name); assertNull("Exported without the debug packet log", written.debugPackets);
+            }
+            assertEquals(1, saved.debugPackets.size());
+            // The export holds this test's class: the import's filter rejects it by name before any of its code runs.
+            BlockingMap.readRan.set(false);   // the unfiltered read above ran it
+            CountDownLatch rejected = new CountDownLatch(1);
+            SwingUtilities.invokeAndWait(() -> { job[0] = chooser[0].importFile(files[0]); onDone(job[0], rejected); });
+            try { job[0].get(5, TimeUnit.SECONDS); fail("A class outside RealmShark's recording graph was read"); }
+            catch (ExecutionException expected) {
+                assertEquals("This file contains data RealmShark does not read: " + BlockingMap.class.getName(), expected.getCause().getMessage());
+            }
+            assertTrue(rejected.await(5, TimeUnit.SECONDS));
+            assertFalse(BlockingMap.readRan.get());
+            // Off-EDT probe: the same encounter with RealmShark's own map class, read on the reader thread.
+            File plain = new File(folder, "Plain.dps");
+            DpsData copy = saved.getSaveFile(false); MapInfoPacket plainMap = new MapInfoPacket(); plainMap.name = plainMap.displayName = "Saved"; copy.map = plainMap;
+            try (ObjectOutputStream output = new ObjectOutputStream(new FileOutputStream(plain))) { output.writeObject(copy); }
+            java.util.List<String> readers = new CopyOnWriteArrayList<>();
+            EncounterImport.beforeRead = () -> readers.add((SwingUtilities.isEventDispatchThread() ? "EDT " : "") + Thread.currentThread().getName());
             SwingUtilities.invokeAndWait(() -> {
-                job[0] = chooser[0].importFile(files[0]);
+                job[0] = chooser[0].importFile(plain);
                 onDone(job[0], imported);
             });
             DpsData loaded = (DpsData)job[0].get(5, TimeUnit.SECONDS);
             assertTrue(imported.await(5, TimeUnit.SECONDS));
-            assertTrue(BlockingMap.readOffEdt.get());
+            assertEquals(java.util.List.of(EncounterImport.THREAD), readers);
             assertEquals("Saved", loaded.map.name); assertNull(loaded.debugPackets);
-            assertEquals(1, saved.debugPackets.size());
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals("Imports no longer mutate the capture-owned history list", 1, data.dpsData.size());
                 await(() -> table(chooser[0]).getRowCount() == 3);
                 assertEquals(3, table(chooser[0]).getRowCount());
-                assertEquals("Live", table(chooser[0]).getValueAt(table(chooser[0]).getSelectedRow(), 2));
+                assertEquals("Live", dungeon(table(chooser[0]), table(chooser[0]).getSelectedRow()));
             });
-        } finally { BlockingMap.release.countDown(); }
+        } finally { BlockingMap.release.countDown(); EncounterImport.beforeRead = () -> { }; }
     }
 
     private static void onDone(SwingWorker<?, ?> worker, CountDownLatch done) {
@@ -113,6 +139,7 @@ public class DungeonListTest {
         DungeonListGUI[] chooser = new DungeonListGUI[1];
         SwingUtilities.invokeAndWait(() -> {
             chooser[0] = new DungeonListGUI(new DpsGUI(data), data, null);
+            chooser[0].refreshEncounters();   // the Recordings tab reads on first show; this one is never shown
             await(() -> table(chooser[0]).getRowCount() == 3);
             for (int row = 0; row < table(chooser[0]).getRowCount(); row++) if (table(chooser[0]).isCellEditable(row, 0)) table(chooser[0]).setValueAt(true, row, 0);
         });
@@ -156,13 +183,15 @@ public class DungeonListTest {
         }
         return null;
     }
+    /** The Dungeon (model column 2) of view row {@code row}: the view orders the columns and Simple hides some. */
+    private static Object dungeon(JTable table, int row) { return table.getModel().getValueAt(table.convertRowIndexToModel(row), 2); }
     private static int row(JTable table, String dungeon) {
-        for (int row = 0; row < table.getRowCount(); row++) if (dungeon.equals(table.getValueAt(row, 2))) return row;
+        for (int row = 0; row < table.getRowCount(); row++) if (dungeon.equals(dungeon(table, row))) return row;
         throw new AssertionError("Missing encounter " + dungeon);
     }
     private static final class BlockingMap extends MapInfoPacket {
         static CountDownLatch started, release;
-        static final AtomicBoolean wroteOffEdt = new AtomicBoolean(), readOffEdt = new AtomicBoolean();
+        static final AtomicBoolean wroteOffEdt = new AtomicBoolean(), readRan = new AtomicBoolean();
         private void writeObject(ObjectOutputStream output) throws IOException {
             wroteOffEdt.set(!SwingUtilities.isEventDispatchThread()); started.countDown();
             try { if (!release.await(5, TimeUnit.SECONDS)) throw new IOException("Export was not released"); }
@@ -170,7 +199,7 @@ public class DungeonListTest {
             output.defaultWriteObject();
         }
         private void readObject(ObjectInputStream input) throws IOException, ClassNotFoundException {
-            readOffEdt.set(!SwingUtilities.isEventDispatchThread()); input.defaultReadObject();
+            readRan.set(true); input.defaultReadObject();
         }
     }
 }

@@ -4,6 +4,7 @@ import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.history.*;
+import tomato.gui.kit.CustomizableTabs;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 import util.PreferencesStore;
@@ -19,7 +20,14 @@ import static tomato.gui.activity.ActivityQueries.*;
 
 /** Model/component checks only: no Window, native focus, Robot, capture or personal history. */
 public class ActivityArchiveUiTest {
+    /** The saved Resources tabs' order and hidden set (CustomizableTabs "saved-resources"); tests select them by index in the default order. */
+    private static final String SAVED_TABS="ui.tabs.saved-resources";
+    private static final java.util.List<String> TAB_IDS=Arrays.asList("resources","uptime","coverage","window"),
+            TAB_TITLES=Arrays.asList("Resources & buffs","Uptime summary","Coverage","Selected window");
     @Rule public TemporaryFolder temp=new TemporaryFolder();
+    private String savedTabs;
+    @Before public void isolateSavedResourceTabs(){savedTabs=util.PropertiesManager.getProperty(SAVED_TABS);util.PropertiesManager.setProperties(SAVED_TABS,"");}
+    @After public void restoreSavedResourceTabs(){util.PropertiesManager.setProperties(SAVED_TABS,savedTabs==null?"":savedTabs);}
     @Test public void resourcesRememberSelectedVisitPageChartTabColumnsAndNamedQueryIndependently()throws Exception {
         Path scratch=temp.newFolder().toPath();
         PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("views.properties"));preferences.preload();
@@ -119,6 +127,107 @@ public class ActivityArchiveUiTest {
             assertEquals(1,document.getAsJsonArray("visits").size());assertTrue(manifest.get("displayFrozen").getAsBoolean());assertFalse(manifest.get("filtersApplied").getAsBoolean());
             assertTrue(manifest.has("revision"));assertEquals(1,manifest.get("visitCount").getAsInt());assertTrue(manifest.get("scopeNote").getAsString().contains("visit picker"));
         }
+    }
+    /**
+     * The saved Resources tabs are customizable tabs under their existing name: in the default order an index selects the tab it
+     * always did; in the user's order the saved tab is restored by its ID, and selecting a tab records its ID, not its index.
+     */
+    @Test public void savedResourceTabsRestoreByIdInTheUsersOrderAndIndexSelectionKeepsTheDefaultOrder()throws Exception {
+        Path scratch=temp.newFolder().toPath();PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("tabs.properties"));preferences.preload();
+        ViewStateStore states=ViewStateStore.preferences(preferences);
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {
+            for(int i=1;i<=3;i++)store.put("runs","v"+i,ActivityArchiveTest.visit("v"+i,i));store.flush();
+            ArchiveWorkspace<Row,Filters,Sort> first=edt(()->ActivityPanel.workspace(store,new JPanel(),ActivityPanel.Mode.COMBAT,scratch,states));
+            try {
+                edt(()->{first.showSaved();return null;});await(()->!first.loading()&&first.displayedPage()!=null);
+                JTabbedPane pane=edt(()->named(first,JTabbedPane.class,"saved-resource-tabs"));
+                CustomizableTabs kit=(CustomizableTabs)pane.getClientProperty(CustomizableTabs.class);
+                assertNotNull("The saved Resources tabs are customizable (reorder, hide, reset)",kit);
+                assertEquals(TAB_IDS,edt(kit::order));assertEquals(TAB_TITLES,edt(()->titles(pane)));
+                for(int i=TAB_IDS.size()-1;i>=0;i--){
+                    int index=i;edt(()->{pane.setSelectedIndex(index);return null;});
+                    assertEquals("Index "+i+" selects the tab it always did",TAB_IDS.get(i),edt(()->first.state().tab));
+                }
+                edt(()->{pane.setSelectedIndex(1);return null;});assertEquals("uptime",edt(()->first.state().tab));
+            }finally{edt(()->{first.close();return null;});}
+            util.PropertiesManager.setProperties(SAVED_TABS,"window,coverage,uptime,resources|");
+            ArchiveWorkspace<Row,Filters,Sort> reordered=edt(()->ActivityPanel.workspace(store,new JPanel(),ActivityPanel.Mode.COMBAT,scratch,states));
+            try {
+                await(()->!reordered.loading()&&reordered.displayedPage()!=null&&named(reordered,JTabbedPane.class,"saved-resource-tabs")!=null);
+                JTabbedPane pane=edt(()->named(reordered,JTabbedPane.class,"saved-resource-tabs"));
+                assertEquals(Arrays.asList("Selected window","Coverage","Uptime summary","Resources & buffs"),edt(()->titles(pane)));
+                assertEquals("The remembered tab is restored by its ID, not its old index","Uptime summary",edt(()->pane.getTitleAt(pane.getSelectedIndex())));
+                assertEquals("uptime",edt(()->reordered.state().tab));
+                edt(()->{pane.setSelectedIndex(0);return null;});
+                assertEquals("Selecting a tab records its ID","window",edt(()->reordered.state().tab));
+                assertEquals("Restoring writes no tab preference","window,coverage,uptime,resources|",util.PropertiesManager.getProperty(SAVED_TABS));
+            }finally{edt(()->{reordered.close();return null;});}
+        }finally{preferences.shutdown(5,TimeUnit.SECONDS,m->{});}
+    }
+    /** A restored view whose tab the user hid shows the first visible tab; only the user's own "Show hidden tab" brings it back. */
+    @Test public void restoringASavedResourceTabNeverUnhidesIt()throws Exception {
+        Path scratch=temp.newFolder().toPath();PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("hidden.properties"));preferences.preload();
+        ViewStateStore states=ViewStateStore.preferences(preferences);
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {
+            for(int i=1;i<=3;i++)store.put("runs","v"+i,ActivityArchiveTest.visit("v"+i,i));store.flush();
+            ArchiveWorkspace<Row,Filters,Sort> first=edt(()->ActivityPanel.workspace(store,new JPanel(),ActivityPanel.Mode.COMBAT,scratch,states));
+            try {
+                edt(()->{first.showSaved();return null;});await(()->!first.loading()&&first.displayedPage()!=null);
+                edt(()->{table(first).setRowSelectionInterval(0,0);named(first,JTabbedPane.class,"saved-resource-tabs").setSelectedIndex(1);return null;});
+                await(()->named(first,JTable.class,"saved-buff-uptime")!=null);
+                assertEquals("uptime",edt(()->first.state().tab));
+            }finally{edt(()->{first.close();return null;});}
+            String hidden="resources,uptime,coverage,window|uptime";
+            util.PropertiesManager.setProperties(SAVED_TABS,hidden);
+            ArchiveWorkspace<Row,Filters,Sort> restored=edt(()->ActivityPanel.workspace(store,new JPanel(),ActivityPanel.Mode.COMBAT,scratch,states));
+            try {
+                await(()->!restored.loading()&&restored.displayedPage()!=null&&named(restored,JTextArea.class,"activity-archive-detail")!=null
+                        &&named(restored,JTextArea.class,"activity-archive-detail").getText().contains("Buff coverage"));
+                JTabbedPane pane=edt(()->named(restored,JTabbedPane.class,"saved-resource-tabs"));
+                assertEquals("The hidden Uptime tab stays hidden",Arrays.asList("Resources & buffs","Coverage","Selected window"),edt(()->titles(pane)));
+                assertEquals("The first visible tab shows",0,edt(pane::getSelectedIndex).intValue());
+                assertNull("A hidden tab's content is not in the view",edt(()->named(restored,JTable.class,"saved-buff-uptime")));
+                assertEquals("Restoring never rewrites the hidden set",hidden,util.PropertiesManager.getProperty(SAVED_TABS));
+                CustomizableTabs kit=(CustomizableTabs)pane.getClientProperty(CustomizableTabs.class);
+                edt(()->{kit.show("uptime");return null;});
+                assertEquals("Shown again by the user, it is selected and remembered","uptime",edt(()->restored.state().tab));
+                assertEquals("Uptime summary",edt(()->pane.getTitleAt(pane.getSelectedIndex())));
+                assertEquals("resources,uptime,coverage,window|",util.PropertiesManager.getProperty(SAVED_TABS));
+            }finally{edt(()->{restored.close();return null;});}
+        }finally{preferences.shutdown(5,TimeUnit.SECONDS,m->{});}
+    }
+    /**
+     * Each render makes its own tabs, and the display-mode model holds their listener weakly: after re-rendering, the replaced views'
+     * tabs are collectable and the model keeps at most the shown view's listener.
+     */
+    @Test public void savedResourceTabsMadePerRenderLeaveNoModeListenerBehind()throws Exception {
+        Path scratch=temp.newFolder().toPath();PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("leak.properties"));preferences.preload();
+        try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {
+            for(int i=1;i<=145;i++)store.put("runs","v"+i,ActivityArchiveTest.visit("v"+i,i));store.flush();
+            collect(new java.lang.ref.WeakReference<>(new Object()));   // one full collection: listeners of earlier tests' views are gone
+            int before=edt(()->tomato.gui.kit.DisplayModeModel.application().listenerCount());
+            ArchiveWorkspace<Row,Filters,Sort> workspace=edt(()->ActivityPanel.workspace(store,new JPanel(),ActivityPanel.Mode.COMBAT,scratch,ViewStateStore.preferences(preferences)));
+            try {
+                edt(()->{workspace.showSaved();return null;});await(()->!workspace.loading()&&workspace.displayedPage()!=null);
+                java.lang.ref.WeakReference<JTabbedPane> replaced=new java.lang.ref.WeakReference<>(edt(()->named(workspace,JTabbedPane.class,"saved-resource-tabs")));
+                assertNotNull(replaced.get());
+                for(long page:new long[]{1,0,1,0}){
+                    edt(()->{workspace.selectPage(page);return null;});await(()->!workspace.loading()&&workspace.displayedPage().page==page);
+                }
+                assertNotSame("Each render makes its own tabs",replaced.get(),edt(()->named(workspace,JTabbedPane.class,"saved-resource-tabs")));
+                assertTrue("A replaced view's tabs are collectable",collect(replaced));
+                assertTrue("The model keeps only the shown view's listener",edt(()->tomato.gui.kit.DisplayModeModel.application().listenerCount())<=before+1);
+            }finally{edt(()->{workspace.close();return null;});}
+        }finally{preferences.shutdown(5,TimeUnit.SECONDS,m->{});}
+    }
+    /** Collects garbage until {@code reference} is cleared (at most 10 s); true once it is. */
+    private static boolean collect(java.lang.ref.WeakReference<?> reference)throws InterruptedException {
+        long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);
+        while(reference.get()!=null&&System.nanoTime()<until){System.gc();Thread.sleep(20);}
+        return reference.get()==null;
+    }
+    private static java.util.List<String> titles(JTabbedPane pane) {
+        java.util.List<String> titles=new ArrayList<>();for(int i=0;i<pane.getTabCount();i++)titles.add(pane.getTitleAt(i));return titles;
     }
     private static java.util.List<Component> buttons(Container root) {
         java.util.List<Component> all=new ArrayList<>();for(Component c:root.getComponents()){all.add(c);if(c instanceof Container)all.addAll(buttons((Container)c));}return all;

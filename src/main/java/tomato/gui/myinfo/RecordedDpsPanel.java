@@ -103,7 +103,7 @@ final class RecordedDpsPanel extends JPanel {
         }
         Route route = selected.localRowRoute();
         String reason = selected.unavailableReason();
-        if (reason == null && !Navigator.current().canOpen(route)) reason = "DPS Logger cannot open this recording here (it is no longer in the library or navigation is unavailable).";
+        if (reason == null && !Navigator.current().canOpen(route)) reason = "The Live meter cannot open this recording here (it is no longer in the library or navigation is unavailable).";
         open.setEnabled(reason == null);
         open.setToolTipText(reason == null ? "Opens the verified local-player row of this historical recording" : reason);
         String value = selected.recordedValue();

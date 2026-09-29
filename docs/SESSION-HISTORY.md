@@ -12,7 +12,7 @@ New fame readings also record the player's hashed account key: the same pseudony
 
 ## Browsing
 
-**Chat, Key-pops, Loot, Statistics and Inspect** have independent session pickers. Runs, Timeline and DPS Logger's Resources & buffs also expose the saved visits they use. **Runs** opens on a feed of saved runs from every session, grouped by day; its Table view keeps the session picker (see [Runs](ACTIVITY.md#runs)).
+**Chat, Key-pops, Loot, Statistics and Inspect** have independent session pickers. Runs, Timeline and the Live meter's Resources & buffs also expose the saved visits they use. **Runs & DPS** opens on its Feed tab, a feed of saved runs from every session grouped by day; its Table view keeps the session picker (see [Runs & DPS](ACTIVITY.md#runs--dps)). Its **Dungeons** tab reads every session's saved runs, loot and combat records (its Analyst Analysis view is a saved-only workspace with its own session picker), and its **Recordings** tab reads saved combat records ([below](#combat-history)).
 
 - **Current Session** returns to the original live view. Capture continues while another scope is selected.
 - Pick a timestamped session to inspect that launch, or **All Sessions** to aggregate history.
@@ -51,11 +51,13 @@ The library exposes unreadable metadata separately so healthy sessions remain di
 
 Every closed fight is saved as a combat summary in the session it was recorded in ([what a summary holds](DPS-METERS.md#saved-combat-history)). Three module folders hold it, each file named by the store's stable checkpoint name for the recording's ID:
 
-- **`encounters`**: one card-sized record per recording (JSON). The Runs feed and Home read only these.
-- **`encounter-detail`**: each recording's damage over time, damage by source, enemies and deaths (JSON). Only the run recap reads one, for the run and recording it shows.
-- **`combat-full`**: the complete recording as a `.dps` file, only while **Keep full combat detail** is on. It never contains the debug packet log.
+- **`encounters`**: one card-sized record per recording (JSON). The Runs & DPS Feed, Dungeons and Recordings tabs and Home read only these.
+- **`encounter-detail`**: each recording's damage over time, damage by source, enemies and deaths (JSON). Only the run recap and a summary opened in Recordings read one, for the recording they show.
+- **`combat-full`**: the complete recording as a `.dps` file, only while **Keep full combat detail** is on. It never contains the debug packet log. Recordings checks whether each file is still there and reads one only when you open it.
 
 A dedicated background worker builds each summary and hands its record and detail to the history writer, and writes full detail files itself; capture and the window never do this work. Preview mode writes nothing.
+
+**Runs & DPS › Recordings** reads saved combat history and writes nothing to it ([DPS meters › Recordings](DPS-METERS.md#recordings)). It lists every record of the chosen scope (the last 30 days by default, or all sessions) with the presence and size of its full-detail file, reading closed sessions once and the current session again on each read, off the Swing thread. Opening kept full detail asks first, naming its size, then reads the file through the safe `.dps` reader into memory: at most two loaded files are kept, never the one the Live meter shows, and nothing is copied or re-saved. A record marked as keeping full detail whose file is gone (pruned by retention, or removed) reads "Full detail pruned (kept N days)"; only its summary opens. A summary-only recording opens its run's recap, or a read-only summary from its record and detail when it has no run link. Imported files stay in memory for the app run and are never added to history. There is no per-recording delete: the retention settings below and deleting a session remove saved combat data.
 
 **Settings › General › Combat history** chooses what is kept:
 
