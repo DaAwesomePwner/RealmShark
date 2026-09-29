@@ -9,7 +9,13 @@ import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.CollectionControl;
 import tomato.realmshark.ParseDungeon;
 import tomato.gui.history.HistoryTables;
+import tomato.gui.history.WrapRow;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitTables;
+import tomato.gui.kit.Tokens;
 import tomato.gui.history.ViewState;
 import tomato.gui.history.ViewStateStore;
 import tomato.gui.roster.RosterViewState;
@@ -49,7 +55,11 @@ final class InspectRunsPanel extends JPanel {
     private final DiscoveryLog log;
     private final ParsePanelGUI roster;
     private final JPanel rosterHost = new JPanel(new BorderLayout());
-    private final JComboBox<RunDurationUnit> durationUnit = new JComboBox<>(RunDurationUnit.values());
+    /** The Observed column's unit: a "Duration unit ▸" radio group in the row's ⋯ (display only). */
+    private RunDurationUnit unit = RunDurationUnit.values()[0];
+    private final Map<RunDurationUnit, JRadioButtonMenuItem> unitItems = new EnumMap<>(RunDurationUnit.class);
+    private final FilterBar filterBar = new FilterBar("inspect-runs");
+    private final JPanel statusLine = ContentStyle.controls();
     private final List<ActivityJournal.Visit> visits = new ArrayList<>();
     private final AbstractTableModel model = new AbstractTableModel() {
         private final String[] columns = {"Entered", "Dungeon", "Players", "Status", "Damage", "DPS", "Observed minutes"};
@@ -83,6 +93,7 @@ final class InspectRunsPanel extends JPanel {
     private boolean applying;
     private RosterViewState liveState;
     private final JPanel stateHost=new JPanel(new BorderLayout());
+    private final Banner stateBanner=new Banner("inspect-live-runs-view-state");
     private boolean restoringState, restorePending, selectionRequired;
     private boolean rosterActive;
 
@@ -120,24 +131,28 @@ final class InspectRunsPanel extends JPanel {
         Map<String, ColumnKind> byId = new HashMap<>();
         for (int i = 0; i < kinds.length; i++){table.getColumnModel().getColumn(i).setIdentifier("column-"+i);byId.put("column-"+i,kinds[i]);}
         HistoryTables.kinds(table, byId);
-        JPanel controls = ContentStyle.controls();
+        // Simple reads "12 min ago" (the absolute time in the tooltip); Analyst, the model, sorting, search and Copy stay absolute.
+        KitTables.relativeTime(table, "column-0", DisplayModeModel.application(), KitTables::epoch, java.time.ZoneId.systemDefault().getId());
+        // One filter row: the search, and the duration unit in ⋯ (P6b); Party lends this row the Scope chip on the Runs tab.
         JLabel label = new JLabel("Search runs"); label.setLabelFor(search);
         search.setName("inspect-runs-search"); search.getAccessibleContext().setAccessibleName("Search dungeon runs");
-        controls.add(label); controls.add(search);
-        controls.add(record);
-        durationUnit.setName("inspect-run-duration-unit");durationUnit.getAccessibleContext().setAccessibleName("Run duration units");
-        controls.add(durationUnit);
-        durationUnit.addActionListener(e -> {
-            int view=table.convertColumnIndexToView(6);if(view>=0)table.getColumnModel().getColumn(view).setHeaderValue(unit().column());table.getTableHeader().repaint();
-            boolean wasApplying = applying;
-            applying = true;
-            try { model.fireTableDataChanged(); restoreSelection(); }
-            finally { applying = wasApplying; }
-            showSelection();
-            rememberLiveState();
-        });
+        filterBar.search(new WrapRow(label, search));
+        JMenu units = filterBar.overflow().submenu("Duration unit");
+        units.setName("inspect-run-duration-unit"); units.getAccessibleContext().setAccessibleName("Run duration units");
+        ButtonGroup unitGroup = new ButtonGroup();
+        for (RunDurationUnit choice : RunDurationUnit.values()) {
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(choice.toString(), choice == unit);
+            item.setName("inspect-run-duration-unit-" + choice.name().toLowerCase(Locale.ROOT));
+            item.addActionListener(e -> selectUnit(choice));
+            unitGroup.add(item); units.add(item); unitItems.put(choice, item);
+        }
+        // Collection is a status line under the filter row, as on Timeline; saved (read-only) runs have none.
+        statusLine.setName("inspect-runs-status-line"); statusLine.add(record); statusLine.setVisible(record.isVisible());
+        JPanel top = new JPanel(); top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        filterBar.setAlignmentX(LEFT_ALIGNMENT); statusLine.setAlignmentX(LEFT_ALIGNMENT);
+        top.add(filterBar); top.add(statusLine);
         JPanel runs = new JPanel(new BorderLayout(0, 6));
-        runs.add(controls, BorderLayout.NORTH);
+        runs.add(top, BorderLayout.NORTH);
         JScrollPane runScroll = ContentStyle.tableScroll(table, 3);
         runScroll.setPreferredSize(new Dimension(650, 135));
         runs.add(runScroll);
@@ -148,6 +163,8 @@ final class InspectRunsPanel extends JPanel {
         split.setBorder(null); split.setResizeWeight(0);
         runs.setMinimumSize(new Dimension(0, 100)); rosterHost.setMinimumSize(new Dimension(0, 150));
         add(split);
+        // Its saved view state is in the page's ⋯ (SecurityGUI); this line shows its status only while it is a failure.
+        stateBanner.setTone(Tokens.Tone.WARN);stateBanner.setVisible(false);stateHost.add(stateBanner);stateHost.setVisible(false);
         add(stateHost,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); }
@@ -178,11 +195,20 @@ final class InspectRunsPanel extends JPanel {
         timer.stop();
         refresh.invalidate();
     }
-    void readOnly() { record.setVisible(false); }
+    void readOnly() { record.setVisible(false); statusLine.setVisible(false); }
+    /** The runs table's filter row (the Scope chip's host on Party's Runs tab). */
+    FilterBar filterBar() { return filterBar; }
     void bindViewState(ViewStateStore store){
         if(liveState!=null||log.isHistorical())return;
         liveState=new RosterViewState(store,"inspect-live-runs",this::captureLiveState,this::prepareLiveState);
-        stateHost.add(liveState.controls());RosterViewState.listenTable(table,this::rememberLiveState);
+        liveState.onStatus(this::viewStateChanged);viewStateChanged();RosterViewState.listenTable(table,this::rememberLiveState);
+    }
+    boolean viewStateBound(){return liveState!=null;}
+    void resetViewState(){if(liveState!=null)liveState.resetSaved();}
+    /** The saved view's status as a warning line while it is a failure. */
+    private void viewStateChanged(){
+        boolean problem=liveState.statusProblem();stateBanner.setText(problem?liveState.statusText():"");stateBanner.setVisible(problem);
+        if(stateHost.isVisible()!=problem){stateHost.setVisible(problem);revalidate();}
     }
     java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState(){
         if(liveState==null)throw new IllegalStateException("Inspect Runs live state is not bound");return liveState.save();
@@ -203,7 +229,7 @@ final class InspectRunsPanel extends JPanel {
             if(layout.columns.stream().noneMatch(c->c.visible))throw new IllegalArgumentException("Keep a visible column");}
         final ViewState.Table restoredLayout=layout;
         return ()->{restoringState=true;applying=true;try{
-            search.setText(text);durationUnit.setSelectedItem(unit);columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
+            search.setText(text);selectUnit(unit);columns.run();if(restoredLayout!=null)HistoryTables.applyColumns(table,restoredLayout);
             selectedId=id;restorePending=!id.isEmpty();selectionRequired=required==1;
         }finally{applying=false;restoringState=false;}};
     }
@@ -286,5 +312,19 @@ final class InspectRunsPanel extends JPanel {
             break;
         }
     }
-    private RunDurationUnit unit() { return (RunDurationUnit)durationUnit.getSelectedItem(); }
+    private RunDurationUnit unit() { return unit; }
+    RunDurationUnit durationUnit() { return unit; }
+    /** Shows the Observed column in {@code next}: the radio, the header and the values; selection and the saved state follow. */
+    private void selectUnit(RunDurationUnit next) {
+        unitItems.get(next).setSelected(true);
+        if (next == unit) return;
+        unit = next;
+        int view=table.convertColumnIndexToView(6);if(view>=0)table.getColumnModel().getColumn(view).setHeaderValue(unit.column());table.getTableHeader().repaint();
+        boolean wasApplying = applying;
+        applying = true;
+        try { model.fireTableDataChanged(); restoreSelection(); }
+        finally { applying = wasApplying; }
+        showSelection();
+        rememberLiveState();
+    }
 }

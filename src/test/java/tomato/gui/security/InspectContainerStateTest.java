@@ -25,7 +25,7 @@ public class InspectContainerStateTest {
             SecurityGUI panel=edt(()->{SecurityGUI p=new SecurityGUI(log);p.bindViewState(ViewStateStore.preferences(preferences));named(p,JTabbedPane.class,"inspect-tabs").setSelectedIndex(1);return p;});
             await(()->named(panel,JTable.class,"inspect-runs-table").getRowCount()==2);
             edt(()->{JTable runs=named(panel,JTable.class,"inspect-runs-table");runs.setRowSelectionInterval(1,1);
-                named(panel,JTextField.class,"inspect-runs-search").setText("Lost Halls");named(panel,JComboBox.class,"inspect-run-duration-unit").setSelectedItem(RunDurationUnit.SECONDS);
+                named(panel,JTextField.class,"inspect-runs-search").setText("Lost Halls");PartyRestyleTest.unitItem(panel,RunDurationUnit.SECONDS).doClick(0);
                 runs.getColumnModel().getColumn(1).setWidth(222);runs.moveColumn(3,0);return null;});
             await(()->rosterName(panel).startsWith("First"));
             edt(panel::saveViewState).toCompletableFuture().get();
@@ -37,7 +37,7 @@ public class InspectContainerStateTest {
             edt(()->{
                 assertEquals(1,named(panel,JTabbedPane.class,"inspect-tabs").getSelectedIndex());assertEquals("Lost Halls",named(panel,JTextField.class,"inspect-runs-search").getText());
                 JTable table=named(panel,JTable.class,"inspect-runs-table");assertEquals(3,table.getColumnModel().getColumn(0).getModelIndex());assertEquals(222,table.getColumnModel().getColumn(table.convertColumnIndexToView(1)).getWidth());
-                assertEquals(RunDurationUnit.SECONDS,named(panel,JComboBox.class,"inspect-run-duration-unit").getSelectedItem());
+                assertTrue(PartyRestyleTest.unitItem(panel,RunDurationUnit.SECONDS).isSelected());
                 assertEquals(first,tomato.gui.modern.FormattingTestSupport.field(named(panel,InspectRunsPanel.class,"inspect-runs"),"selectedId",String.class));return null;
             });
             edt(panel::saveViewState).toCompletableFuture().get();

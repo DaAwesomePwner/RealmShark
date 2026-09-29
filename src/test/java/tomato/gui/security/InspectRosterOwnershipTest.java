@@ -42,9 +42,8 @@ public class InspectRosterOwnershipTest {
                     panel.bindViewState(memory.store);
                     if(!populateBeforeBind)populate(roster);
                     assertCurrent(panel,roster);
-                    JComboBox<?> units=named(panel,JComboBox.class,"inspect-run-duration-unit");
-                    assertEquals(restored?RunDurationUnit.SECONDS:RunDurationUnit.MINUTES,units.getSelectedItem());
-                    units.setSelectedItem(restored?RunDurationUnit.MINUTES:RunDurationUnit.SECONDS);
+                    assertTrue(PartyRestyleTest.unitItem(panel,restored?RunDurationUnit.SECONDS:RunDurationUnit.MINUTES).isSelected());
+                    PartyRestyleTest.unitItem(panel,restored?RunDurationUnit.MINUTES:RunDurationUnit.SECONDS).doClick(0);
                     assertCurrent(panel,roster);
                     named(panel,JTextField.class,"inspect-runs-search").setText("Hidden run filter");
                     assertCurrent(panel,roster);return null;
@@ -65,7 +64,7 @@ public class InspectRosterOwnershipTest {
             await(()->rosterName(panel).startsWith("Archived1"));
             edt(()->{
                 tabs(panel).setSelectedIndex(0);assertCurrent(panel,roster);
-                named(panel,JComboBox.class,"inspect-run-duration-unit").setSelectedItem(RunDurationUnit.SECONDS);assertCurrent(panel,roster);
+                PartyRestyleTest.unitItem(panel,RunDurationUnit.SECONDS).doClick(0);assertCurrent(panel,roster);
                 named(panel,JTextField.class,"inspect-runs-search").setText("No run matches");assertCurrent(panel,roster);
                 named(panel,JTextField.class,"inspect-runs-search").setText("");runsTable(panel).setRowSelectionInterval(0,0);assertCurrent(panel,roster);
                 named(panel,InspectRunsPanel.class,"inspect-runs").refresh();assertCurrent(panel,roster);
@@ -76,7 +75,7 @@ public class InspectRosterOwnershipTest {
                 assertRecorded(roster,"Archived2");Object displayed=field(roster,"historicalPlayers",Object.class);
                 tabs(panel).setSelectedIndex(2);
                 named(panel,JTextField.class,"inspect-runs-search").setText("No run matches");
-                named(panel,JComboBox.class,"inspect-run-duration-unit").setSelectedItem(RunDurationUnit.MINUTES);
+                PartyRestyleTest.unitItem(panel,RunDurationUnit.MINUTES).doClick(0);
                 assertSame("Inactive Runs must not republish even while its roster remains attached",displayed,field(roster,"historicalPlayers",Object.class));
                 tabs(panel).setSelectedIndex(0);assertCurrent(panel,roster);return null;
             });

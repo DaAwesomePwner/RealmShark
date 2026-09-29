@@ -16,20 +16,20 @@ public class InspectViewStateTest {
         SwingUtilities.invokeAndWait(() -> {
             ParsePanelGUI view = new ParsePanelGUI(true, () -> definitions); view.bindViewState(memory.store);
             JTextField search = named(view, "inspect-roster-search", JTextField.class);
-            JButton save = named(view, "inspect-live-roster-save-state", JButton.class);
-            JButton reset = named(view, "inspect-live-roster-reset-state", JButton.class);
-            search.setText("Live L"); assertTrue(visibleIn(view, save)); save.doClick(0);
+            JMenuItem save = item(view, "inspect-live-roster-save-state");
+            JMenuItem reset = item(view, "inspect-live-roster-reset-state");
+            search.setText("Live L"); assertTrue(offered(view, save)); save.doClick(0);
             view.showRun("recorded-run", Collections.singleton(new InspectSnapshot(RequirementResultTest.player(7).playerEntity, 1234)));
             String liveDocument = memory.values.get("ux.archive.inspect-live-roster"); int writes = memory.writes;
             search.setText("Historical H");
             save.doClick(0); // Exercise the actual control action, not the guarded panel API.
             assertEquals(liveDocument, memory.values.get("ux.archive.inspect-live-roster"));
             assertEquals(writes, memory.writes);
-            assertFalse(visibleIn(view, save)); assertFalse(save.isEnabled()); assertFalse(reset.isEnabled());
+            assertFalse(offered(view, save)); assertFalse(save.isEnabled()); assertFalse(reset.isEnabled());
             // A previously queued action must still be rejected even if it bypasses disabled-button dispatch.
             invokeAction(save); reset.doClick(0); invokeAction(reset);
             assertEquals(liveDocument, memory.values.get("ux.archive.inspect-live-roster")); assertEquals(writes, memory.writes);
-            view.showCurrentArea(); assertEquals("Live L", search.getText()); assertTrue(visibleIn(view, save)); assertTrue(save.isEnabled());
+            view.showCurrentArea(); assertEquals("Live L", search.getText()); assertTrue(offered(view, save)); assertTrue(save.isEnabled());
         });
     }
     @Test public void queuedSaveAndResetFromLiveAreInertAfterRecordedBoundary() throws Exception {
@@ -39,8 +39,8 @@ public class InspectViewStateTest {
             view[0] = new ParsePanelGUI(true, () -> definitions); view[0].bindViewState(memory.store);
             JTextField search = named(view[0], "inspect-roster-search", JTextField.class);
             search.setText("Queued live L"); // Coalesced automatic save is still queued on the EDT.
-            JButton save = named(view[0], "inspect-live-roster-save-state", JButton.class);
-            JButton reset = named(view[0], "inspect-live-roster-reset-state", JButton.class);
+            JMenuItem save = item(view[0], "inspect-live-roster-save-state");
+            JMenuItem reset = item(view[0], "inspect-live-roster-reset-state");
             SwingUtilities.invokeLater(() -> invokeAction(save)); SwingUtilities.invokeLater(() -> invokeAction(reset));
             view[0].showRun("recorded-run", Collections.emptyList());
             liveDocument[0] = memory.values.get("ux.archive.inspect-live-roster"); writes[0] = memory.writes;
@@ -50,17 +50,25 @@ public class InspectViewStateTest {
             assertEquals(liveDocument[0], memory.values.get("ux.archive.inspect-live-roster")); assertEquals(writes[0], memory.writes);
             view[0].showCurrentArea(); assertEquals("Queued live L", named(view[0], "inspect-roster-search", JTextField.class).getText());
             // Reset is available again only after live ownership resumes, and invalidates earlier queued saves.
-            named(view[0], "inspect-live-roster-reset-state", JButton.class).doClick(0);
+            item(view[0], "inspect-live-roster-reset-state").doClick(0);
         });
         SwingUtilities.invokeAndWait(() -> assertEquals("", memory.values.get("ux.archive.inspect-live-roster")));
     }
-    private static void invokeAction(JButton button) {
+    private static void invokeAction(AbstractButton button) {
         for (java.awt.event.ActionListener listener : button.getActionListeners()) listener.actionPerformed(new ActionEvent(button, ActionEvent.ACTION_PERFORMED, "queued-live-action"));
     }
-    private static boolean visibleIn(Container owner, Component component) {
-        for (Component current = component; current != null; current = current.getParent()) {
+    /** The roster's ⋯ item by name (P6b: the view-state buttons became items of the inspect-roster bar's ⋯). */
+    private static JMenuItem item(ParsePanelGUI view, String name) {
+        tomato.gui.kit.FilterBar bar = named(view, "inspect-roster-filter-bar", tomato.gui.kit.FilterBar.class);
+        for (Component c : bar.overflow().menu().getComponents()) if (c instanceof JMenuItem && name.equals(c.getName())) return (JMenuItem) c;
+        throw new AssertionError("No ⋯ item " + name);
+    }
+    /** Offered to the user: the item and its ⋯ show in the view and the item is enabled (a ⋯ item's form of "visible in the view"). */
+    private static boolean offered(ParsePanelGUI view, JMenuItem item) {
+        tomato.gui.kit.FilterBar bar = named(view, "inspect-roster-filter-bar", tomato.gui.kit.FilterBar.class);
+        for (Component current = bar.overflow(); current != null; current = current.getParent()) {
             if (!current.isVisible()) return false;
-            if (current == owner) return true;
+            if (current == view) return item.isVisible() && item.isEnabled();
         }
         return false;
     }
