@@ -14,7 +14,7 @@ import tomato.gui.route.RouteTarget;
 import tomato.history.SessionStore;
 
 /**
- * Shell page 10, "Runs" (spec §6.3): a {@code feed} card holding the {@link RunFeedView} (the day-grouped run cards, with the
+ * The Feed tab of Runs & DPS (the shell's {@code runs} page, spec §6.3): a {@code feed} card holding the {@link RunFeedView} (the day-grouped run cards, with the
  * Runs archive workspace as its Table view) and a {@code recap} card, a slot the run recap fills ({@link #setRecap}). The page
  * keeps a direct reference to the workspace, so closing and "Browse saved history" reach it whichever view shows. Routes that
  * select rows of the archive ({@code RUNS} with a visit or a query) bring the Table view forward through

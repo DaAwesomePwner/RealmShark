@@ -24,7 +24,7 @@ import tomato.history.archive.Cancellation;
 import tomato.history.link.VisitRef;
 
 /**
- * Routes into the Runs page (shell page 10, spec §6.3): two targets over one page and one run recap, registered after the Table
+ * Routes into the Runs page (the Feed tab of the shell's {@code runs} page, spec §6.3): two targets over one page and one run recap, registered after the Table
  * view's targets ({@link RunsPage#tableRoutes}) so they are tried first for their shapes.
  * - {@link Destination#RUNS} without any reference brings the feed forward, on Cards or Table as chosen. Routes to rows (a visit
  *   or a query) are not accepted here: the Table view's targets open the archive on that row.
@@ -189,7 +189,7 @@ public final class RunsRouteTarget implements RouteTarget {
             view.expandDamage();   // explicit navigation to the run's damage breakdown (S4); remembered as the user's choice
             page.showRecap();
             build(ref, recordingId);
-            // The navigator shows page 10 after this returns; move keyboard focus into the recap once it shows (as the sheet does).
+            // The navigator shows the runs page after this returns; move keyboard focus into the recap once it shows (as the sheet does).
             SwingUtilities.invokeLater(() -> {
                 if (closed || !page.recapShown() || !view.isShowing()) return;
                 Component link = find(view, "run-recap-back");
