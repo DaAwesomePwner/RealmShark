@@ -3,6 +3,7 @@ package tomato.gui.activity;
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.archive.*;
@@ -86,7 +87,12 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             }
         };
         private final JTextArea message=ContentStyle.wrappingText("");
-        private final JTabbedPane tabs=new JTabbedPane();
+        /**
+         * Saved Resources only: the detail tabs (resources, uptime, coverage, window) in the user's order ({@code ui.tabs.saved-resources}),
+         * made per render under the existing pane name {@code saved-resource-tabs}. The display-mode model holds its listener weakly,
+         * so a replaced view leaves nothing behind. Null in the other modes.
+         */
+        private final CustomizableTabs tabs;
         private final CombatTimelineChart chart=new CombatTimelineChart();
         private final JPanel uptime=new JPanel(new BorderLayout());
         private final JButton linked=new JButton("Export selected visit + Timeline…");
@@ -136,14 +142,16 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                 JTextArea inspection=ContentStyle.wrappingText(chart.getInspectionSummary());inspection.setName("saved-resource-sample");
                 chart.addPropertyChangeListener("inspectionSummary",e->inspection.setText((String)e.getNewValue()));
                 plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspection,BorderLayout.SOUTH);
-                tabs.setName("saved-resource-tabs");tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
                 resourceWindow=new ResourceWindowPanel(chart,()->shownRef);
-                tabs.addTab("Resources & buffs",plot);tabs.addTab("Uptime summary",uptime);tabs.addTab("Coverage",new JScrollPane(message));
-                tabs.addTab("Selected window",ResourceWindowPanel.scroll(resourceWindow));
-                int index="uptime".equals(state.tab)?1:"coverage".equals(state.tab)?2:"window".equals(state.tab)?3:0;tabs.setSelectedIndex(index);
-                tabs.addChangeListener(e->{if(!restoring){this.state=this.state.withPosition(tab(),this.state.selected,this.state.anchor,this.state.anchorOffset);remember();}});
-                details.add(tabs);
-            } else details.add(new JScrollPane(message));
+                tabs=new CustomizableTabs("saved-resources");
+                JTabbedPane pane=tabs.component();pane.setName("saved-resource-tabs");pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+                tabs.add("resources","Resources & buffs",plot).add("uptime","Uptime summary",uptime).add("coverage","Coverage",new JScrollPane(message))
+                        .add("window","Selected window",ResourceWindowPanel.scroll(resourceWindow));
+                // Restore selects by ID only: a hidden (or unknown) saved tab keeps the first visible one and is never un-hidden.
+                tabs.select(state.tab);
+                tabs.onSelect(id->{if(!restoring&&!removed){this.state=this.state.withPosition(tab(),this.state.selected,this.state.anchor,this.state.anchorOffset);remember();}});
+                details.add(pane);
+            } else {tabs=null;details.add(new JScrollPane(message));}
             // Selected Inspect visits embed a roster with its own scrollable controls.
             // Let its minimum height propagate instead of squeezing it beneath the evidence header.
             details.setMinimumSize(null);
@@ -201,7 +209,8 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             return scope+"\nWindow ["+(b.from==null?"unbounded":RunWorkbench.time(b.from,zone))+", "+(b.until==null?"unbounded":RunWorkbench.time(b.until,zone))+") "+zone.getId()
                     +" · half-open; "+page.matches+" matching events. Displayed pages and every export use this same query and bounds.";
         }
-        private String tab() { int i=tabs.getSelectedIndex();return i==1?"uptime":i==2?"coverage":i==3?"window":"resources"; }
+        /** The selected saved Resources tab's ID ("resources" when none is selected). */
+        private String tab() { String id=tabs==null?null:tabs.selectedId();return id==null?"resources":id; }
         private void remember() { if(!restoring&&!removed)binding.viewChanged(state); }
         private void position() { state=HistoryTables.position(table,scroll,page,state);remember(); }
         private JPanel queryControls() {
