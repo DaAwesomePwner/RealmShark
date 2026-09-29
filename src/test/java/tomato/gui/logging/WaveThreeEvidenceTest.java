@@ -62,7 +62,7 @@ public class WaveThreeEvidenceTest {
                     } else { reveal(privacy, privacy.getHeight()); assertTrue(fullyVisible(privacy)); }
                 });
                 run(() -> {
-                    VisualEvidence.find(logging, AbstractButton.class, b -> "Diagnostic coverage details".equals(b.getAccessibleContext().getAccessibleName())).doClick();
+                    VisualEvidence.find(logging, AbstractButton.class, b -> "Diagnostic coverage".equals(b.getAccessibleContext().getAccessibleName())).doClick();
                     coverage[0] = (JDialog) window(JDialog.class, "Diagnostic coverage");
                     assertNotNull(coverage[0]);
                 });

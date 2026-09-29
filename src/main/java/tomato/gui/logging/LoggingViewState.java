@@ -5,7 +5,6 @@ import java.util.concurrent.*;
 import java.util.function.*;
 import javax.swing.*;
 import tomato.gui.history.*;
-import tomato.gui.modern.ContentStyle;
 import tomato.history.archive.ArchiveQuery;
 import util.PreferencesStore;
 
@@ -36,13 +35,34 @@ final class LoggingViewState {
         Selection(String run, long area, String key) { this.run=run; this.area=area; this.key=key; }
     }
 
+    /** The ⋯ items ask through this: the page installs Swing dialogs and tests answer directly. A null answer cancels. */
+    interface Prompts {
+        /** A view name: free text when choices is empty, otherwise one of choices. */
+        String ask(String title, String message, List<String> choices);
+        boolean confirm(String title, String message);
+        static Prompts dialogs(java.awt.Component parent) {
+            return new Prompts() {
+                public String ask(String title, String message, List<String> choices) {
+                    Object answer=choices.isEmpty() ? JOptionPane.showInputDialog(parent,message,title,JOptionPane.PLAIN_MESSAGE)
+                        : JOptionPane.showInputDialog(parent,message,title,JOptionPane.PLAIN_MESSAGE,null,choices.toArray(),choices.get(0));
+                    return answer==null ? null : answer.toString();
+                }
+                public boolean confirm(String title, String message) {
+                    return JOptionPane.showConfirmDialog(parent,message,title,JOptionPane.OK_CANCEL_OPTION,JOptionPane.WARNING_MESSAGE)==JOptionPane.OK_OPTION;
+                }
+            };
+        }
+    }
+
     private final ViewStateStore store;
     private final Supplier<Fields> capture;
     private final Consumer<Fields> apply, validate;
-    private final JPanel controls=new JPanel(new java.awt.BorderLayout());
-    final JComboBox<String> names=new JComboBox<>();
-    final JButton saveNamed=new JButton("Save"), loadNamed=new JButton("Load"), deleteNamed=new JButton("Delete"),
-        reset=new JButton("Reset saved"), retry=new JButton("Retry save");
+    Prompts prompts=Prompts.dialogs(null);
+    /** "Saved views" for the page's ⋯ menu; each item runs one of the methods below. */
+    private final JMenu menu=new JMenu("Saved views"), load=new JMenu("Load");
+    private final JMenuItem saveItem=new JMenuItem("Save current view…"), deleteItem=new JMenuItem("Delete view…");
+    final JMenuItem reset=new JMenuItem("Reset saved state"), retry=new JMenuItem("Retry save");
+    /** The page shows this line under its filter row only while it reports a failure. */
     final JLabel status=new JLabel();
     private boolean blocked, queued;
     private long generation;
@@ -52,27 +72,33 @@ final class LoggingViewState {
 
     LoggingViewState(ViewStateStore store, Supplier<Fields> capture, Consumer<Fields> apply, Consumer<Fields> validate) {
         this.store=store; this.capture=capture; this.apply=apply; this.validate=validate;
-        names.setEditable(true); names.setPrototypeDisplayValue("Named view…"); names.setName("logging-named-view");
-        names.getAccessibleContext().setAccessibleName("Logging named view name");
-        names.setToolTipText("Saved views reopen on fresh diagnostics, unpaused. Collection, disk saving and sampling are not restored.");
-        names.getAccessibleContext().setAccessibleDescription(names.getToolTipText());
-        JPanel row=ContentStyle.controls(); JLabel label=new JLabel("Views"); label.setLabelFor(names); row.add(label); row.add(names);
-        JButton[] buttons={saveNamed,loadNamed,deleteNamed,reset,retry};
+        menu.setName("logging-saved-views");
+        menu.setToolTipText("Saved views reopen on fresh diagnostics, unpaused. Collection, disk saving and sampling are not restored.");
+        menu.getAccessibleContext().setAccessibleDescription(menu.getToolTipText());
+        JMenuItem[] items={saveItem,load,deleteItem,reset,retry};
         String[] ids={"save-named","load-named","delete-named","reset-state","retry-state"};
         String[] labels={"Save named Logging view", "Load named Logging view", "Delete named Logging view", "Reset all saved Logging state and named views", "Retry saving Logging view state"};
-        for (int i=0;i<buttons.length;i++) {
-            buttons[i].setName("logging-"+ids[i]); buttons[i].getAccessibleContext().setAccessibleName(labels[i]);
-            buttons[i].setToolTipText(labels[i]); row.add(buttons[i]);
+        for (int i=0;i<items.length;i++) {
+            items[i].setName("logging-"+ids[i]); items[i].setToolTipText(labels[i]); items[i].getAccessibleContext().setAccessibleDescription(labels[i]);
         }
+        menu.add(saveItem); menu.add(load); menu.add(deleteItem); menu.addSeparator(); menu.add(reset); menu.add(retry);
+        // Retry starts enabled, as before: a restored view in memory is not proof that it reached the disk.
+        load.setEnabled(false); deleteItem.setEnabled(false);
         status.setName("logging-state-status"); status.getAccessibleContext().setAccessibleName("Logging view state save status");
-        controls.add(row); controls.add(status,java.awt.BorderLayout.SOUTH);
-        saveNamed.addActionListener(e -> saveNamed(name()));
-        loadNamed.addActionListener(e -> loadNamed(name()));
-        deleteNamed.addActionListener(e -> deleteNamed(name()));
+        status.setVisible(false);
+        saveItem.addActionListener(e -> { String name=prompts.ask("Save view","Name for this Logging view",Collections.emptyList()); if (name!=null) saveNamed(name.trim()); });
+        deleteItem.addActionListener(e -> {
+            List<String> names;
+            try { names=names(); } catch (RuntimeException failure) { block(); return; }
+            if (names.isEmpty()) return;
+            String name=prompts.ask("Delete view","Delete which saved Logging view?",names);
+            if (name!=null) deleteNamed(name);
+        });
         reset.addActionListener(e -> reset()); retry.addActionListener(e -> retry());
     }
-    JPanel controls() { return controls; }
-    private String name() { Object value=names.getEditor().getItem(); return value==null ? "" : value.toString().trim(); }
+    JMenu menu() { return menu; }
+    /** The saved view names, in the store's order. */
+    List<String> names() { return store.names(MODULE); }
     static ViewState<Fields,Order> envelope(Fields fields) {
         return ViewState.initial(ArchiveQuery.of(ArchiveQuery.CURRENT,fields,Fields.class,Order.NONE));
     }
@@ -85,13 +111,13 @@ final class LoggingViewState {
             // Validate named payloads too: a newer document must not be rewritten by automatic saving.
             for (String name:store.names(MODULE)) read(store.loadNamed(MODULE,name,envelope(new Fields())));
             Fields fields=read(store.load(MODULE,envelope(new Fields())));
-            apply.accept(fields); refreshNames(""); queued=false;
+            apply.accept(fields); refreshNames(); queued=false;
             lastIntent=envelope(capture.get()).toJson().toString();
         } catch (RuntimeException failure) { block(); }
     }
     private void block() {
         blocked=true; queued=false; generation++; retryAction=null; retry.setEnabled(false);
-        message("Saved Logging state unavailable; current controls still work. Reset saved to replace it.",true);
+        message("Saved Logging state unavailable; current controls still work. ⋯ › Saved views › Reset saved state replaces it.",true);
     }
     void changed() {
         if (blocked) return;
@@ -121,7 +147,7 @@ final class LoggingViewState {
         }
         save(); Fields fields=capture.get(); validate.accept(fields); ViewState<Fields,Order> saved=envelope(fields);
         CompletionStage<PreferencesStore.SaveResult> result=watch(() -> store.saveNamed(MODULE,name,saved));
-        refreshNames(name); return result;
+        refreshNames(); return result;
     }
     void loadNamed(String name) {
         requireEdt(); if (blocked) return;
@@ -133,12 +159,12 @@ final class LoggingViewState {
     }
     CompletionStage<PreferencesStore.SaveResult> deleteNamed(String name) {
         requireEdt(); if (blocked) return rejected();
-        CompletionStage<PreferencesStore.SaveResult> result=watch(() -> store.deleteNamed(MODULE,name)); refreshNames(""); return result;
+        CompletionStage<PreferencesStore.SaveResult> result=watch(() -> store.deleteNamed(MODULE,name)); refreshNames(); return result;
     }
     CompletionStage<PreferencesStore.SaveResult> reset() {
         requireEdt(); queued=false; blocked=false; generation++;
         apply.accept(new Fields()); queued=false; lastIntent=null;
-        CompletionStage<PreferencesStore.SaveResult> result=watch(() -> store.reset(MODULE)); refreshNames(""); return result;
+        CompletionStage<PreferencesStore.SaveResult> result=watch(() -> store.reset(MODULE)); refreshNames(); return result;
     }
     CompletionStage<PreferencesStore.SaveResult> retry() {
         requireEdt(); if (blocked) return rejected();
@@ -149,10 +175,15 @@ final class LoggingViewState {
         if (queued) save();
         generation++; // Disk completion may continue; it must not act on a detached view.
     }
-    private void refreshNames(String selected) {
+    /** Rebuilds ⋯ › Saved views › Load with the saved names; Load and Delete view… need at least one. */
+    private void refreshNames() {
         try {
-            names.setModel(new DefaultComboBoxModel<>(store.names(MODULE).toArray(new String[0])));
-            names.setSelectedItem(selected);
+            List<String> names=names(); load.removeAll();
+            for (String name:names) {
+                JMenuItem item=new JMenuItem(name); item.putClientProperty("html.disable",Boolean.TRUE);
+                item.addActionListener(e -> loadNamed(name)); load.add(item);
+            }
+            load.setEnabled(!names.isEmpty()); deleteItem.setEnabled(!names.isEmpty());
         } catch (RuntimeException failure) { block(); }
     }
     private CompletionStage<PreferencesStore.SaveResult> watch(Supplier<CompletionStage<PreferencesStore.SaveResult>> action) {
@@ -167,11 +198,12 @@ final class LoggingViewState {
         completion.whenComplete((result,failure) -> SwingUtilities.invokeLater(() -> {
             if (request!=generation || queued) return;
             boolean ok=failure==null && result!=null && result.isSuccess();
-            retry.setEnabled(!ok); message(ok ? "Logging view saved." : "View save failed; working state retained. Retry save.",!ok);
+            retry.setEnabled(!ok); message(ok ? "Logging view saved." : "View save failed; working state retained. ⋯ › Saved views › Retry save.",!ok);
         }));
         return completion;
     }
-    private void message(String text, boolean visible) { status.setText(text); status.setVisible(visible); controls.revalidate(); }
+    /** Every outcome keeps its text; the line shows only for a failure. */
+    private void message(String text, boolean visible) { status.setText(text); status.setVisible(visible); status.revalidate(); }
     private static CompletionStage<PreferencesStore.SaveResult> rejected() {
         return CompletableFuture.completedFuture(PreferencesStore.SaveResult.failed(0,new IllegalStateException("Saved state unavailable or invalid name")));
     }
