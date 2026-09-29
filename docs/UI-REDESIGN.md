@@ -2,37 +2,51 @@
 
 For the current typography, layout, controls and performance improvements, see [UI consistency and responsiveness](UI-CONSISTENCY.md). The notes below retain the original refresh and subsequent capture-fix history.
 
-## Information architecture after P5 (2026-09-29)
+## Information architecture after P6a (2026-09-29)
 
-After the redesign's P5 phase the sidebar lists six core destinations and five Advanced pages; Settings stays below the list. Page indices, shortcuts and saved navigation IDs are unchanged. A saved layout that still names Statistics or DPS Logger simply no longer lists them; if it hid Runs while DPS Logger stayed visible, Runs & DPS is shown once, so the live meter never disappears from the sidebar.
+After the redesign's P6a phase the sidebar lists six core destinations and five Advanced pages, with Settings below the list, and every page of the app is one of them. The Build, DPS Logger and Statistics pages are gone; their shortcuts open where their content lives now. Pages are addressed by stable IDs, which the saved sidebar layout (`ui.nav.*`) already used, never by their position. A saved layout that still names `statistics`, `my-info` or `dps-logger` is read and those names are ignored. If it hid Runs while DPS Logger stayed visible, Runs & DPS is shown once (P5b's rule; `dps-logger` is still written beside a hidden Runs, so an older build does not show it again).
 
 | Sidebar | Destinations |
 | --- | --- |
-| Core | **Home** (Alt+H), **Characters**, **Runs & DPS** (Alt+R), **Loot**, **Quests**, **Chat** |
-| Advanced (5), collapsed by default | **Party**, **Key-pops**, **Timeline** (Alt+T), **Logging**, **Bridge Review** |
-| Below the list | **Settings** (Alt+, or Alt+N): Notifications, General (Combat history), Appearance |
+| Core | **Home** (Alt+H), **Characters** (Alt+4), **Runs & DPS** (Alt+R), **Loot** (Alt+9), **Quests** (Alt+6), **Chat** (Alt+1) |
+| Advanced (5), collapsed by default | **Party** (Alt+3), **Key-pops** (Alt+2), **Timeline** (Alt+T), **Logging** (Alt+0), **Bridge Review** (Alt+B) |
+| Below the list | **Settings** (Alt+, or Alt+N) with six sections: **Notifications**, **General** (Combat history), **Appearance**, **Loot filters**, **Chat** and **About** |
 
-**Runs & DPS** is one page with four customizable tabs, **Feed · Dungeons · Live meter · Recordings**, and starts on its first visible tab; the tab in front is not saved ([Activity › Runs & DPS](ACTIVITY.md#runs--dps)). Three pages are no longer in the sidebar but still exist:
+Three pages have customizable tabs. Each opens on its first visible tab, and the tab in front is not saved. Tabs can be reordered and hidden, and only explicit navigation (a route, Back, a search entry, a card or tile) brings a hidden tab forward.
 
-| Page | How to reach it | Why |
+| Page | Tabs |
+| --- | --- |
+| Characters | **Roster · Exalts · Pets**, and **Fame history** in Analyst mode with saved history ([Characters](CHARACTERS.md#fame-history-analyst)) |
+| Runs & DPS | **Feed · Dungeons · Live meter · Recordings** ([Activity › Runs & DPS](ACTIVITY.md#runs--dps)) |
+| Loot | **Highlights · Explore** ([Loot](LOOT.md)) |
+
+Shortcuts without a page of their own go through navigation, so Back returns to where you were:
+
+| Shortcut | Opens | Before |
 | --- | --- | --- |
-| Build (page 6) | Alt+7, Settings search, the Home hero's Build action | Build is a tab of the character sheet; the page only points there |
-| DPS Logger (page 7) | An old shortcut or layout; **Alt+8** opens the Live meter instead | The live meter and the recordings are tabs of Runs & DPS; the page offers **Open Live meter** and **Open Recordings** |
-| Statistics (page 4) | Alt+5, Settings search, the Dungeons analysis banner | Kept, unchanged, until P6 retires it; a banner points to Runs & DPS › Dungeons ([Statistics](STATISTICS.md#where-statistics-is-now)) |
+| **Alt+5** | Runs & DPS › **Dungeons** | The Statistics page |
+| **Alt+7** | The character sheet's **Build** tab for the character in game, else the last one played; the Characters list ("No characters yet") when there is none | The Build pointer page (earlier My Info) |
+| **Alt+8** | Runs & DPS › **Live meter** | The DPS Logger page |
 
-Where the older pages went:
+Other keys: **Alt+M** opens the workspace navigation menu, **Ctrl+K** Settings search, **Ctrl+Shift+A** switches Simple/Analyst and **Ctrl+Shift+S** starts or stops capture. The menu entries of the new Settings sections open them: **Edit › Filter Loot › Loot filter settings…**, **Edit › Chat › Chat settings…** and **Info › About**.
 
-| Before | After P5 |
+Where the older pages went (P5 and P6a):
+
+| Before | Now |
 | --- | --- |
 | Runs (sidebar page) | Runs & DPS › **Feed** (saved-run cards, the run recap, the archive table as its Table view) |
 | DPS Logger › Damage meters | Runs & DPS › **Live meter** › Damage meters, restyled, with one filter row ([DPS meters](DPS-METERS.md)) |
-| DPS Logger › Resources & buffs | Runs & DPS › **Live meter** › Resources & buffs (final home in P6) |
+| DPS Logger › Resources & buffs | Runs & DPS › **Live meter** › Resources & buffs (it stays nested there) |
 | The Encounter library dialog | Runs & DPS › **Recordings**, which also lists saved summaries and kept full detail |
-| Statistics' dungeon, session comparison and cohort views | Runs & DPS › **Dungeons** (cards) and its Analyst **Analysis** view; still also on the Statistics page until P6 |
 | My Info | The character sheet's **Build** tab |
+| Statistics › Loot (Live log, explorer, legacy sharing status) | **Loot › Highlights**, **Loot › Explore** and Highlights' ⋯ › **Loot sharing status…** |
+| Statistics' dungeon, session comparison and cohort views, and Dungeon Stats | Runs & DPS › **Dungeons** (cards) and its Analyst **Analysis** view; most are also Analyst views of Loot › Explore |
+| Statistics' Character fame view | **Characters › Fame history** (Analyst) |
+| Statistics' Fame Graph, Fame Table, map breakdown and `.fame` autosave | Removed (user decision); **Open fame session file…** stays ([where Statistics went](STATISTICS.md)) |
 | Security / Inspect | **Party** (Advanced) |
+| The About dialog, the Chat filters dialog, Edit › Filter Loot | Still there, and also **Settings › About**, **Chat** and **Loot filters** |
 
-P6 merges the live scope row on Runs, Timeline, Resources, Loot, Chat, Key-pops and Party, settles the final home of Resources & buffs, and removes the Statistics and DPS Logger pages. Validation: [P5a](superpowers/plans/2026-09-28-p5a-validation.md), [P5b](superpowers/plans/2026-09-28-p5b-validation.md).
+P6b, after P6a merges, brings the Scope ▾ chip into the filter row on Runs, Timeline, Resources, Party, Loot, Chat and Key-pops, restyles the Advanced pages, adds sidebar drag and the final Simple/Analyst screenshot set. Validation: [P5a](superpowers/plans/2026-09-28-p5a-validation.md), [P5b](superpowers/plans/2026-09-28-p5b-validation.md), [P6a](superpowers/plans/2026-09-29-p6a-validation.md).
 
 This folder now builds a complete Swing desktop application. The supplied download contained the RealmShark library branch, without the Tomato application described in its README. The Tomato GUI and its backend/resources were imported from `X-com/RealmShark`, branch `tomato`, commit `257a1c5` (2026-02-28). The supplied library sources remain in place. The upstream MIT license and credits are preserved.
 
@@ -56,7 +70,7 @@ the dated legacy-theme checks below describe earlier releases.
 
 The sidebar automatically collapses to labeled-by-tooltip icons below 1000 pixels. At smaller widths the descriptive subtitle and footer hint yield space to the actual controls. The window supports sizes down to 680 by 520 logical pixels (or the available screen size). Legacy panels retain their scrolling and sub-tabs.
 
-- **Alt+1** through **Alt+8**: navigate to a section.
+- **Alt+1** through **Alt+8**: navigate to a section (in the original refresh; the current shortcuts are listed under [Information architecture after P6a](#information-architecture-after-p6a-2026-09-29)).
 - **Ctrl+Shift+S**: start or stop capture, using the same action as File > Start Sniffer.
 - **Ctrl+F** in Chat: focus search in the active channel.
 - **Enter / Shift+Enter** in search: next / previous match, wrapping at the end.

@@ -1,6 +1,6 @@
 # DPS meters
 
-The damage meter is the **Live meter** tab of **Runs & DPS** (sidebar, Alt+R). **Alt+8** opens that tab directly and adds a Back entry, as do Home's **Now** card and Settings search ("Live DPS meter"); routes to an exact recording from other pages open it on that recording. There is one meter in the app. The **DPS Logger** page is no longer in the sidebar: reached from an old shortcut or saved layout, it only says that the meter moved, with **Open Live meter** and **Open Recordings**. Every recording the meter can show is listed in the **Recordings** tab beside it ([below](#recordings)).
+The damage meter is the **Live meter** tab of **Runs & DPS** (sidebar, Alt+R). **Alt+8** opens that tab directly and adds a Back entry, as do Home's **Now** card and Settings search ("Live DPS meter"); routes to an exact recording from other pages open it on that recording. There is one meter in the app, and there is no DPS Logger page any more: P5b moved the meter into Runs & DPS, and P6a removed the pointer page that remained. **Alt+8**, the DPS Logger's old shortcut, opens the Live meter, and a saved sidebar layout that still names the DPS Logger simply no longer lists it. Every recording the meter can show is listed in the **Recordings** tab beside it ([below](#recordings)).
 
 The Live meter keeps two nested tabs. **Damage meters** holds the meter described here. **Resources & buffs** charts local HP/MP and buff intervals and provides an observed-uptime summary; its visit selection is independent of the damage encounter (see [Activity modules](ACTIVITY.md) for coverage and recording details), and its routes also bring the Live meter tab forward.
 
@@ -44,7 +44,7 @@ Packet decoding and damage reconstruction retain their existing behavior. Step 1
 
 ## Recordings
 
-**Runs & DPS › Recordings** is the encounter library, now a tab instead of a dialog. It lists every combat recording, one row each: this app run's recordings held in memory, the combat summaries saved in history ([below](#saved-combat-history)), saved full-detail files and the `.dps` files you import. Open it from its tab, from the meter's position button (**Live** or "3 of 12") or ⋯ **Open Recordings**, from the DPS Logger pointer, or from Settings search ("Recordings (encounter library)").
+**Runs & DPS › Recordings** is the encounter library, now a tab instead of a dialog. It lists every combat recording, one row each: this app run's recordings held in memory, the combat summaries saved in history ([below](#saved-combat-history)), saved full-detail files and the `.dps` files you import. Open it from its tab, from the meter's position button (**Live** or "3 of 12") or ⋯ **Open Recordings**, or from Settings search ("Recordings (encounter library)").
 
 Rows are merged by recording ID: a recording in memory and its saved summary are one row. An imported copy of a recording that is already listed stays a row of its own and says so ("Imported file · same recording as Captured · Mad Lab"); older imports without a recording ID are told apart by their file. Besides the library's columns (the export check, Entry, Dungeon, Recorded start, Elapsed, Contributors, Damage, Source file and Local context), two columns say where each recording stands:
 
