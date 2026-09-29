@@ -1,6 +1,7 @@
 package tomato.gui.kit;
 
 import java.awt.*;
+import java.awt.geom.RoundRectangle2D;
 import java.util.Locale;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -56,11 +57,13 @@ public class StatTile extends JPanel {
         value.setForeground(Tokens.color(current.dimmed() ? Tokens.Role.TEXT_MUTED : Tokens.Role.TEXT));
     }
 
+    /** The raised surface; in the light theme also a 1 px outline, without which the tile vanishes on the canvas (Tokens.outline). */
     @Override protected void paintComponent(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setColor(Tokens.color(Tokens.Role.RAISED));
         g.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, Tokens.ARC_CARD, Tokens.ARC_CARD);
+        Tokens.outline(g, new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, Tokens.ARC_CARD, Tokens.ARC_CARD));
         g.dispose();
     }
 }

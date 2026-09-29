@@ -109,6 +109,31 @@ public class ContainersTest {
         });
     }
 
+    /** The light-theme outline is paint only: the value, its accessible name and the tile's name are unchanged. */
+    @Test public void statTileKeepsItsValueTextWhenPaintedWithTheLightOutline() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                for (tomato.gui.modern.Themes.Variant variant : tomato.gui.modern.Themes.Variant.values()) {
+                    tomato.gui.modern.Themes.install(new tomato.gui.modern.Themes.Choice(variant, true));
+                    StatTile tile = new StatTile("Weapon DPS");
+                    tile.setValue(DisplayValue.estimate("1,240", "Weapon formula, 0 defense"), null);
+                    tile.setSize(160, 72);
+                    java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(160, 72, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                    java.awt.Graphics2D g = image.createGraphics();
+                    try { tile.paint(g); } finally { g.dispose(); }
+                    String estimate = DisplayValue.approximately() + " 1,240";
+                    assertEquals(variant + ": an estimate still reads ≈", estimate, tile.valueText());
+                    assertEquals("Weapon DPS: " + estimate, tile.getAccessibleContext().getAccessibleName());
+                    assertEquals("tile-weapon-dps", tile.getName());
+                    tile.setValue(DisplayValue.unknown("Not captured"), null);
+                    assertEquals("—", tile.valueText());
+                }
+            } finally {
+                tomato.gui.modern.Themes.install(new tomato.gui.modern.Themes.Choice(tomato.gui.modern.Themes.Variant.DARK, false));
+            }
+        });
+    }
+
     @Test public void collapsibleRemembersItsState() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Map<String, String> store = new HashMap<>();

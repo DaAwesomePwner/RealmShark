@@ -1,6 +1,7 @@
 package tomato.gui.kit;
 
 import java.awt.*;
+import java.util.Objects;
 import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
@@ -8,6 +9,7 @@ import javax.swing.*;
 
 /** One equipment or inventory slot. Empty and not-captured are drawn differently; items show their sprite and tier edge. */
 public class ItemSlot extends JComponent implements Accessible {
+    /** UNKNOWN is a slot that was not captured ("Slot not captured"), never an empty one. */
     public enum State { ITEM, EMPTY, UNKNOWN }
 
     /** Plain JComponent has no accessible context; without this, getAccessibleContext() returns null. */
@@ -24,6 +26,67 @@ public class ItemSlot extends JComponent implements Accessible {
     private State state = State.UNKNOWN;
     private int itemId = -1;
     private String tier = "";
+
+    /**
+     * The slot as a painted {@link Icon} for table and list renderers, drawn exactly as an {@code ItemSlot(size)} component and as
+     * large ({@code size + Sprites.WELL} square). ITEM draws {@code sprite} (the kit placeholder when null) centered, scaled down to
+     * {@code size} when larger, in a well bordered by its tier ({@link ItemTiers#label} → {@link Tokens#tier}; subtle when "");
+     * EMPTY and UNKNOWN (not captured) ignore the sprite and tier and look different from each other. Colors resolve while painting.
+     * It is a stamp, not a component: it announces nothing to assistive technology, so the renderer's cell must say what it shows.
+     */
+    public static Icon icon(Icon sprite, String tier, State state, int size) {
+        Objects.requireNonNull(state, "state");
+        int side = size + Sprites.WELL;
+        return new Icon() {
+            @Override public void paintIcon(Component c, Graphics graphics, int x, int y) {
+                Icon shown = state != State.ITEM ? null
+                    : sprite == null || sprite.getIconWidth() <= 0 || sprite.getIconHeight() <= 0 ? Sprites.sprite(0, size) : sprite;
+                Graphics2D g = (Graphics2D) graphics.create();
+                try {
+                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    paint(c, g, state, shown, tier, x, y, side - 1);
+                } finally {
+                    g.dispose();
+                }
+            }
+            @Override public int getIconWidth() { return side; }
+            @Override public int getIconHeight() { return side; }
+        };
+    }
+
+    /**
+     * One slot's drawing, shared by the component and {@link #icon}: a rounded well {@code side + 1} px square at x, y (the fill,
+     * then the edge: the tier's color for an item with a tier, subtle otherwise), then the sprite centered (scaled down only when
+     * it would cover the well's border) or, when not captured, a muted "?".
+     */
+    private static void paint(Component owner, Graphics2D g, State state, Icon sprite, String tier, int x, int y, int side) {
+        boolean tiered = state == State.ITEM && tier != null && !tier.isEmpty();
+        g.setColor(Tokens.color(state == State.EMPTY ? Tokens.Role.SURFACE_ALT : Tokens.Role.RAISED));
+        g.fillRoundRect(x, y, side, side, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
+        g.setColor(tiered ? Tokens.tier(tier) : Tokens.color(Tokens.Role.BORDER_SUBTLE));
+        g.drawRoundRect(x, y, side, side, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
+        if (state == State.ITEM && sprite != null) {
+            int room = side + 1 - Sprites.WELL, width = sprite.getIconWidth(), height = sprite.getIconHeight();
+            if (width <= room && height <= room) {
+                sprite.paintIcon(owner, g, x + (side + 1 - width) / 2, y + (side + 1 - height) / 2);
+            } else {
+                double scale = (double) room / Math.max(width, height);
+                Graphics2D icon = (Graphics2D) g.create();
+                try {
+                    icon.translate(x + (side + 1 - width * scale) / 2, y + (side + 1 - height * scale) / 2);
+                    icon.scale(scale, scale);
+                    sprite.paintIcon(owner, icon, 0, 0);
+                } finally {
+                    icon.dispose();
+                }
+            }
+        } else if (state == State.UNKNOWN) {
+            g.setColor(Tokens.color(Tokens.Role.TEXT_MUTED));
+            g.setFont(Type.caption());
+            FontMetrics metrics = g.getFontMetrics();
+            g.drawString("?", x + (side + 1 - metrics.stringWidth("?")) / 2, y + (side + 1 + metrics.getAscent() - metrics.getDescent()) / 2);
+        }
+    }
 
     public ItemSlot(int size) {
         this.size = size;
@@ -84,19 +147,7 @@ public class ItemSlot extends JComponent implements Accessible {
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int side = Math.min(getWidth(), getHeight()) - 1, x = (getWidth() - 1 - side) / 2, y = (getHeight() - 1 - side) / 2;
-        g.setColor(Tokens.color(state == State.EMPTY ? Tokens.Role.SURFACE_ALT : Tokens.Role.RAISED));
-        g.fillRoundRect(x, y, side, side, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
-        g.setColor(state == State.ITEM && !tier.isEmpty() ? Tokens.tier(tier) : Tokens.color(Tokens.Role.BORDER_SUBTLE));
-        g.drawRoundRect(x, y, side, side, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
-        if (state == State.ITEM) {
-            Icon icon = Sprites.sprite(itemId, size);
-            icon.paintIcon(this, g, x + (side + 1 - icon.getIconWidth()) / 2, y + (side + 1 - icon.getIconHeight()) / 2);
-        } else if (state == State.UNKNOWN) {
-            g.setColor(Tokens.color(Tokens.Role.TEXT_MUTED));
-            g.setFont(Type.caption());
-            FontMetrics metrics = g.getFontMetrics();
-            g.drawString("?", x + (side + 1 - metrics.stringWidth("?")) / 2, y + (side + 1 + metrics.getAscent() - metrics.getDescent()) / 2);
-        }
+        paint(this, g, state, state == State.ITEM ? Sprites.sprite(itemId, size) : null, tier, x, y, side);
         g.dispose();
     }
 }
