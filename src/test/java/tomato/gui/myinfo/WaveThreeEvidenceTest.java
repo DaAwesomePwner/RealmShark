@@ -55,11 +55,11 @@ public class WaveThreeEvidenceTest {
             DpsGUI dps = new DpsGUI(library, DiscoveryLog.historyView(new ActivityJournal.State()));
             view[0] = new MyInfoGUI(data); MyInfoGUI.updatePlayer(player); MyInfoGuiTest.equipPet(data, 408);
             Map<String, JComponent> pages = TestPages.placeholders();
-            pages.put("my-info", view[0]); pages.put("dps-logger", dps);
+            pages.put("characters", view[0]); pages.put("runs", dps);   // where Build (the sheet's tab) and the Live meter live
             WorkspaceShell created = new WorkspaceShell(pages, () -> fail("Preview must not capture"), true);
             ShellNavigator navigator = created.createNavigator(); Navigator.install(navigator);
             navigator.register(dps.encounterRouteTarget());
-            created.select("my-info"); return created;
+            created.select("characters"); return created;
         });
         try {
             RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));
@@ -85,7 +85,7 @@ public class WaveThreeEvidenceTest {
                 assertTrue(panel(view[0]).explanationText().contains("Legacy recording"));
                 assertTrue(panel(view[0]).explanationText().contains("not attributable to you"));
             });
-            // An empty library (a fresh DPS Logger) says so rather than showing another recording.
+            // An empty library (a fresh DPS meter) says so rather than showing another recording.
             run(() -> { new DpsGUI(new TomatoData(), DiscoveryLog.historyView(new ActivityJournal.State())); panel(view[0]).reload(); });
             RecordedDpsHandoffTest.awaitLoaded(edt(() -> panel(view[0])));
             footer(shell, view[0], "myinfo-recorded-dps-empty", () -> {

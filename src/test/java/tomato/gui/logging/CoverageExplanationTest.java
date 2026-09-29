@@ -39,7 +39,8 @@ public class CoverageExplanationTest {
             assertTrue(text.contains("Decode failures: 1 (packet could not be decoded"));
             assertTrue(text.contains("Collection: paused; frames are not observed while paused, which is not zero activity"));
             assertTrue(text.contains("Collection: paused · Collection paused"));
-            assertTrue(text.contains("Views affected by decode issues: Resources & buffs (1 frames); Inspect (1 frames); Loot (1 frames)"));
+            // P6a: the INSPECT view is labeled by its page, Party (the ENCOUNTER view is the Live meter).
+            assertTrue(text.contains("Views affected by decode issues: Resources & buffs (1 frames); Party (1 frames); Loot (1 frames)"));
             assertTrue(text.contains("Diagnostic disk drops: 0 (writer lifetime"));
             assertTrue(text.contains("Sampled-out events: 0"));
             assertTrue(text.contains("Omitted stat deltas: 0"));

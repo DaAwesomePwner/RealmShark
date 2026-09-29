@@ -1,6 +1,7 @@
 package tomato.gui;
 
 import java.awt.*;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import javax.swing.*;
@@ -160,8 +161,6 @@ public class TomatoGUI {
         pages.put("characters", characterPanel);
         pages.put("statistics", statisticsWorkspace);
         pages.put("quests", questPanel);
-        pages.put("my-info", new tomato.gui.myinfo.BuildMovedPanel(TomatoGUI::openBuild, () -> tomato.gui.myinfo.BuildRoute.key(data) != null));
-        pages.put("dps-logger", new tomato.gui.dps.DpsMovedPanel(TomatoGUI::openLiveMeter, TomatoGUI::openRecordings)); // only points to Runs & DPS
         pages.put("loot", lootWorkspace);
         pages.put("logging", logging);
         pages.put("runs", runsDps);
@@ -185,18 +184,14 @@ public class TomatoGUI {
         // DpsGUI's encounter target, which is therefore tried first: exact recording routes keep resolving there.
         navigator.register(page.liveMeterTarget(() -> page.tabs().component().requestFocusInWindow()));
         registerRetainedPage(Destination.HOME);
-        // Build is a tab on the character sheet (spec §6.2). The Build route, Settings search, the Home hero and Alt+7 open it for
-        // the character in game, else the most recent one. The my-info page only says that Build moved, for when no character
-        // exists yet.
+        // Build is a tab on the character sheet (spec §6.2) with no page of its own. The Build route, Settings search, the Home
+        // hero and Alt+7 open it for the character in game, else the most recent one; with no character yet they open the
+        // Characters list ("No characters yet").
         navigator.register(new tomato.gui.myinfo.BuildRoute(() -> tomato.gui.myinfo.BuildRoute.key(data)));
-        shell.getActionMap().put("page-my-info", new AbstractAction() {
-            public void actionPerformed(java.awt.event.ActionEvent e) { openBuild(); }
-        });
-        // The live meter is the Live meter tab of Runs & DPS; the dps-logger page only points there. Alt+8 opens that tab through
-        // the navigator (a Back entry, as Alt+7 adds), and the target moves focus to the tab strip once the page shows.
-        shell.getActionMap().put("page-dps-logger", new AbstractAction() {
-            public void actionPerformed(java.awt.event.ActionEvent e) { openLiveMeter(); }
-        });
+        // Alt+7 and Alt+8 kept their meaning when the Build and DPS Logger pointer pages went (P6a): both open their route
+        // through the navigator (a Back entry). The Live meter target moves focus to the tab strip once the page shows.
+        shell.bindShortcut(KeyEvent.VK_7, "open-build", TomatoGUI::openBuild);
+        shell.bindShortcut(KeyEvent.VK_8, "open-live-meter", TomatoGUI::openLiveMeter);
         // Runs routes to rows (a visit or a query) bring the Feed tab and its Table view forward; Back restores the view it left.
         RouteTarget runsTable = runsWorkspace instanceof ArchiveWorkspace ? archiveTarget(Destination.RUNS, (ArchiveWorkspace<?, ?, ?>) runsWorkspace) : null;
         if (runsTable != null) navigator.register(page.routes(tomato.gui.runs.RunsTab.FEED, runsPage.tableRoutes(runsTable)));
@@ -218,7 +213,7 @@ public class TomatoGUI {
             navigator.register(page.routes(tomato.gui.runs.RunsTab.FEED, target));
             if (target.destination() == Destination.RUNS) page.owner(tomato.gui.runs.RunsTab.FEED, target);
         }
-        // RUNS routes with a RunsFocus payload (search, the DPS Logger pointer, the meter's library button) bring that tab forward.
+        // RUNS routes with a RunsFocus payload (search, the meter's library button, the Dungeons cards) bring that tab forward.
         navigator.register(page.tabTarget());
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.TIMELINE, timelineWorkspace));
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.INSPECT, inspectWorkspace));
@@ -627,17 +622,17 @@ public class TomatoGUI {
             () -> openFromHome(tomato.gui.route.Route.to(Destination.QUESTS)));
     }
 
-    /** Alt+7 and the my-info page's button: the Build route (the sheet's Build tab, or my-info while no character exists). */
+    /** Alt+7: the Build route (the sheet's Build tab, or the Characters list while no character exists). */
     private static void openBuild() {
         if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.MY_INFO));
     }
 
-    /** Alt+8, the DPS Logger pointer and Settings search: the Live meter tab of Runs & DPS, through the navigator (Back returns). */
+    /** Alt+8, Recordings' live row and Settings search: the Live meter tab of Runs & DPS, through the navigator (Back returns). */
     private static void openLiveMeter() {
         if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.ENCOUNTER));
     }
 
-    /** The pointer's "Open Recordings", the meter's library button and Settings search: the Recordings tab of Runs & DPS. */
+    /** The meter's library button and Settings search: the Recordings tab of Runs & DPS. */
     private static void openRecordings() {
         if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.RUNS)
             .withPayload(tomato.gui.runs.RunsFocus.of(tomato.gui.runs.RunsTab.RECORDINGS)));

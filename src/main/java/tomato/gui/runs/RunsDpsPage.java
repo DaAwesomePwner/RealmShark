@@ -17,14 +17,14 @@ import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
 /**
- * Shell page 10, "Runs & DPS" (spec §6.3): customizable tabs Feed · Dungeons · Live meter · Recordings ({@link RunsTab}, strip
+ * The runs page, "Runs & DPS" (spec §6.3): customizable tabs Feed · Dungeons · Live meter · Recordings ({@link RunsTab}, strip
  * {@code runs-tabs}, order and hidden set in {@code ui.tabs.runs}; none is Analyst-only). The Feed is the {@link RunsPage}
  * unchanged, the Live meter is the app's single DPS meter, and Dungeons and Recordings are holders filled later
  * ({@link #setContent}).
  * - The page opens on its first visible tab: the selected tab is not persisted, and startup only selects, never showing a hidden
  *   tab. Only explicit navigation ({@link #bring}: a route, Back, a search entry, a card action) brings a hidden tab forward.
  * - Back: {@code ShellNavigator} captures one target per page (whichever last opened it, else the newest registered), so every
- *   page-10 target is this page's: the wrappers ({@link #routes}), {@link #tabTarget()} and {@link #liveMeterTarget}. Each
+ *   runs page target is this page's: the wrappers ({@link #routes}), {@link #tabTarget()} and {@link #liveMeterTarget}. Each
  *   captures the same {@link PageState}, the tab in front and the state of that tab's {@link #owner} (Feed: the {@code RUNS}
  *   {@link RunsRouteTarget}; Live meter: the meter's encounter target), and each restores it: the tab comes forward first, then
  *   its owner restores. This is {@link RunsPage#tableRoutes} one level up.
@@ -33,7 +33,7 @@ import tomato.gui.route.RouteTarget;
  */
 public final class RunsDpsPage extends JPanel implements AutoCloseable {
     /**
-     * The detached Back state every page-10 target captures: the tab in front, and its owner's own state (null when that tab has
+     * The detached Back state every runs page target captures: the tab in front, and its owner's own state (null when that tab has
      * no owner). Restoring brings {@code tab} forward (showing it if it was hidden since), then restores the owner.
      */
     public record PageState(RunsTab tab, Object inner) {}
@@ -117,7 +117,7 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
     }
 
     /**
-     * {@code inner} (a target whose view is in {@code tab}) as a page-10 target: its destination, {@code accepts} and
+     * {@code inner} (a target whose view is in {@code tab}) as a runs page target: its destination, {@code accepts} and
      * {@code redirect} are the inner target's; opening brings {@code tab} forward first, then opens {@code inner}, and a rejected
      * open brings back the tab that was in front (hiding {@code tab} again if it was hidden) before the rejection reaches the
      * navigator. Its Back state is the page's {@link PageState}, not the inner target's own.
@@ -134,7 +134,7 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
     }
 
     /**
-     * {@code RUNS} routes with a {@link RunsFocus} payload and no other reference (search entries, the DPS Logger pointer, a
+     * {@code RUNS} routes with a {@link RunsFocus} payload and no other reference (search entries, the meter's library button, a
      * card action): opening brings that tab forward. A Feed focus with a dungeon also shows the feed (not a recap left open)
      * and hands the dungeon to the {@link #onFeedDungeon} hook; while no hook is set such a route is rejected, not approximated.
      */
@@ -220,7 +220,7 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
             || route.localObjectId != null || route.from != null || route.until != null;
     }
 
-    /** A page-10 target: whichever of them the navigator captures or restores, the state is the page's {@link PageState}. */
+    /** A runs page target: whichever of them the navigator captures or restores, the state is the page's {@link PageState}. */
     private abstract class PageTarget implements RouteTarget {
         @Override public final Object captureState() { return capture(); }
         @Override public final void restoreState(Object state) { restore(state); }

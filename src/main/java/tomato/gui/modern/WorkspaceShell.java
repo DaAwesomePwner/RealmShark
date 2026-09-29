@@ -415,7 +415,7 @@ public final class WorkspaceShell extends JPanel {
         } else if (entry.group() == NavEntry.Group.ADVANCED) {
             menu.add(menuItem("nav-menu-pin", "Pin to top", true, () -> change(() -> layout.pin(id), page)));
         }
-        // Settings is always listed and unlisted pages (Build, Statistics, DPS Logger) have no row, so only core and Advanced rows hide.
+        // Settings is always listed and the unlisted page (Statistics) has no row, so only core and Advanced rows hide.
         if (entry.group() == NavEntry.Group.CORE || entry.group() == NavEntry.Group.ADVANCED) {
             if (layout.isHidden(id)) menu.add(menuItem("nav-menu-show", "Show in sidebar", true, () -> change(() -> layout.show(id), page)));
             else menu.add(menuItem("nav-menu-hide", "Hide", layout.canHide(id), () -> change(() -> layout.hide(id), page)));
@@ -482,8 +482,8 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void showNavigation() {
-        // Unlisted pages (Build, Statistics, DPS Logger) have no row or menu item, so while one is current the menu opens at the top
-        // of the destination list.
+        // The unlisted page (Statistics) has no row or menu item, so while it is current the menu opens at the top of the
+        // destination list.
         Component row = navigation.get(selected);
         Component anchor = compact ? compactNavigation : row.isShowing() ? row : navScroll;
         navigationPopup.show(anchor, 0, anchor == navScroll ? 0 : anchor.getHeight());
@@ -744,8 +744,10 @@ public final class WorkspaceShell extends JPanel {
             case CHARACTERS: case CHARACTER_SHEET: return "characters"; // The sheet is a card on the Characters Roster tab.
             case STATISTICS: return "statistics";
             case QUESTS: return "quests";
-            case MY_INFO: return "my-info";
-            // The live meter (with Resources & buffs nested in it) is the Live meter tab of Runs & DPS; dps-logger only points there.
+            // Build is a tab of the character sheet: BuildRoute redirects to the sheet, or with no character to the Characters
+            // list, so a Build route always lands on Characters, and every routed destination keeps a real page.
+            case MY_INFO: return "characters";
+            // The live meter (with Resources & buffs nested in it) is the Live meter tab of Runs & DPS.
             case ENCOUNTER: case RESOURCES: return "runs";
             case LOOT: return "loot";
             case LOGGING: return "logging";
@@ -801,9 +803,8 @@ public final class WorkspaceShell extends JPanel {
     private void focusPage(String page) { focusTarget(page).requestFocusInWindow(); }
 
     /**
-     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (an unlisted page such
-     * as Build, Statistics or DPS Logger, or a hidden row) the page's first focusable component in traversal order, else the page
-     * container.
+     * Where page navigation puts keyboard focus: the page's sidebar row while it is visible; otherwise (the unlisted Statistics
+     * page, or a hidden row) the page's first focusable component in traversal order, else the page container.
      */
     Component focusTarget(String page) {
         JToggleButton row = navigation.get(page);
@@ -941,8 +942,8 @@ public final class WorkspaceShell extends JPanel {
             boolean listed = layout.advancedOpen() && !layout.isHidden(entry.id());
             row.setVisible(listed || entry.id().equals(selected));
         }
-        // Unlisted pages (Build, Statistics, DPS Logger) are reached by route, search and their shortcuts (Alt+7, Alt+5, Alt+8),
-        // never from the sidebar, even while current.
+        // The unlisted page (Statistics) is reached by route, search and its shortcut (Alt+5), never from the sidebar, even while
+        // current.
         for (NavEntry entry : NavEntry.defaults())
             if (entry.group() == NavEntry.Group.UNLISTED) navigation.get(entry.id()).setVisible(false);
         gc.gridy++; gc.weighty = 1; gc.insets = new Insets(0, 0, 0, 0);
@@ -956,7 +957,7 @@ public final class WorkspaceShell extends JPanel {
      * The compact menu lists every sidebar destination in sidebar order and groups: core, then Advanced after
      * a labelled separator, then Settings. Hidden destinations stay attached but invisible, so keyboard
      * traversal skips them and they keep the current look and feel; the current page is always listed.
-     * Unlisted pages (Build, Statistics, DPS Logger) are never added.
+     * The unlisted page (Statistics) is never added.
      */
     private void rebuildPopup() {
         navigationPopup.removeAll();

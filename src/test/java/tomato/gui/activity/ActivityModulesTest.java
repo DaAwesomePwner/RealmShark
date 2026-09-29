@@ -97,7 +97,9 @@ public class ActivityModulesTest {
             VioletTheme.install();
             ActivityPanel runs=new ActivityPanel(log,ActivityPanel.Mode.RUNS),timeline=new ActivityPanel(log,ActivityPanel.Mode.TIMELINE);
             DpsGUI dps=new DpsGUI(new TomatoData(),log);
-            Map<String,JComponent> pages=TestPages.placeholders();pages.put("dps-logger",dps);pages.put("runs",runs);pages.put("timeline",timeline);
+            // The app nests the DPS meter in Runs & DPS; here the Runs page holds the runs panel, so the meter takes a free page.
+            String meter="party";
+            Map<String,JComponent> pages=TestPages.placeholders();pages.put(meter,dps);pages.put("runs",runs);pages.put("timeline",timeline);
             WorkspaceShell shell=new WorkspaceShell(pages,()->{},true);JFrame frame=new JFrame("Activity modules · synthetic validation sample");frame.setContentPane(shell);frame.setSize(1240,800);frame.setVisible(true);
             try{
                 assertEquals("Runs & DPS",TestPages.title("runs"));assertEquals("Timeline",TestPages.title("timeline"));
@@ -113,14 +115,14 @@ public class ActivityModulesTest {
                 assertEquals("Party roster",events.getValueAt(0,2));events.setRowSelectionInterval(0,0);
                 assertTrue(find(timeline,JTextArea.class,"activity-detail").getText().contains("\"members\": []"));
                 search.setText("[no-such-event]");assertEquals(0,events.getRowCount());search.setText("");
-                shell.select("dps-logger");JTabbedPane tabs=find(dps,JTabbedPane.class,"dps-tabs");assertEquals("Resources & buffs",tabs.getTitleAt(1));tabs.setSelectedIndex(1);
+                shell.select(meter);JTabbedPane tabs=find(dps,JTabbedPane.class,"dps-tabs");assertEquals("Resources & buffs",tabs.getTitleAt(1));tabs.setSelectedIndex(1);
                 ActivityPanel combat=find(dps,ActivityPanel.class,"activity-combat");await(()->find(combat,JComboBox.class,"activity-visit").getItemCount()==2);combat.selectVisit(log.activityHistory().visits.get(0).id);
                 await(()->find(combat,JTable.class,null).getRowCount()==2);
                 assertEquals(2,find(combat,JTable.class,null).getRowCount());
                 assertTrue(find(combat,JTextArea.class,"activity-detail").getText().contains("Buff coverage"));
                 for(int width:new int[]{1240,760}){
                     frame.setSize(width,width==1240?800:680);frame.validate();shell.dispatchEvent(new ComponentEvent(shell,ComponentEvent.COMPONENT_RESIZED));frame.validate();
-                    for(String page:new String[]{"runs","timeline","dps-logger"}){shell.select(page);frame.validate();capture(frame,"activity-"+width+"-"+page+".png");}
+                    for(String page:new String[]{"runs","timeline",meter}){shell.select(page);frame.validate();capture(frame,"activity-"+width+"-"+(page.equals(meter)?"dps-meter":page)+".png");}
                     CombatTimelineChart chart=find(combat,CombatTimelineChart.class,null);assertTrue(chart.getWidth()>300);
                     assertNotNull(chart.getToolTipText(new MouseEvent(chart,MouseEvent.MOUSE_MOVED,0,0,200,60,0,false)));
                     JTabbedPane views=find(combat,JTabbedPane.class,null);views.setSelectedIndex(1);frame.validate();capture(frame,"uptime-"+width+".png");views.setSelectedIndex(0);

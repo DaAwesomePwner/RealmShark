@@ -105,7 +105,7 @@ public class ResourceWindowTest {
             ViewStateStore states = ViewStateStore.preferences(preferences);
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> resources = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.COMBAT, scratch, states));
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> timeline = edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.TIMELINE, scratch, states));
-            String[] page = {"dps-logger"};
+            String[] page = {"chat"};   // the page the route leaves; Resources opens on the runs page
             try {
                 edt(() -> {
                     ShellNavigator navigator = new ShellNavigator(() -> page[0], value -> page[0] = value, WorkspaceShell::pageOf, 20);

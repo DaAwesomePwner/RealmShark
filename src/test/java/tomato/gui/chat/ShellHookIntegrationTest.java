@@ -131,7 +131,7 @@ public class ShellHookIntegrationTest {
                 field.setAccessible(true); original.put(field, field.get(null));
             }
         data = new TomatoData();
-        // Build now follows the journal (live or most recent character): an empty temporary journal keeps Build on page 6 here.
+        // Build now follows the journal (live or most recent character): with this empty temporary journal a Build route opens Characters.
         tomato.gui.glance.character.SheetFixtures.inject(data, new tomato.backend.data.CharacterJournal(temp.newFolder().toPath().resolve("journal.json")));
         SwingUtilities.invokeAndWait(this::buildShell);
     }
@@ -229,11 +229,11 @@ public class ShellHookIntegrationTest {
         });
     }
 
-    @Test public void homeIsPageFourteenAndBuildOpensFromSearchUnderItsNewTitle() throws Exception {
+    @Test public void homeIsAPageAndTheBuildSearchOpensCharactersWithoutACharacter() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
             tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
-            assertNotNull("Home is shell page 14", home);
+            assertNotNull("Home is a shell page", home);
             assertEquals("home-page", home.getName());
             assertNotNull("Home shows its cards", named(home, "home-hero", tomato.gui.kit.Card.class));
             shell.select("chat");
@@ -245,10 +245,10 @@ public class ShellHookIntegrationTest {
             assertEquals(1, registry.search("build.open").size());
             assertEquals("Build (weapon damage and recovery)", registry.search("build.open").get(0).label);
             assertTrue(registry.search("build.open").get(0).open());
-            assertEquals("my-info", shell.selectedPage());
-            assertEquals("Build", named(shell, "page-title", JLabel.class).getText());
-            assertNotNull("With no character, page 6 says that Build moved", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
-            assertFalse("Build never takes a sidebar row", named(shell, "nav-my-info", AbstractButton.class).isVisible());
+            assertEquals("With no character, Build opens Characters", "characters", shell.selectedPage());
+            assertEquals("Characters", named(shell, "page-title", JLabel.class).getText());
+            assertFalse("…on the list, not a sheet", find(shell, tomato.gui.character.CharacterRosterView.class).showingSheet());
+            assertNull("Build has no page or row of its own", named(shell, "nav-my-info", AbstractButton.class));
             assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
         });
     }
@@ -258,7 +258,7 @@ public class ShellHookIntegrationTest {
         tomato.history.link.VisitRef[] opened = new tomato.history.link.VisitRef[1];
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
-            assertNotNull("Home is shell page 14", home);
+            assertNotNull("Home is a shell page", home);
             tomato.gui.glance.home.HomeModel model = tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis());
             home.apply(model);
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
@@ -274,8 +274,8 @@ public class ShellHookIntegrationTest {
                 assertEquals(cards[i] + ": Back returns to Home", "home", shell.selectedPage());
             }
             named(home, "home-build", AbstractButton.class).doClick();
-            assertEquals("The hero's Build action opens page 6", "my-info", shell.selectedPage());
-            assertNotNull("With no character yet, that is the Build moved page", find(shell, tomato.gui.myinfo.BuildMovedPanel.class));
+            assertEquals("With no character yet, the hero's Build action opens Characters", "characters", shell.selectedPage());
+            assertFalse("…on the list, not a sheet", find(shell, tomato.gui.character.CharacterRosterView.class).showingSheet());
             assertTrue(navigator.back());
             assertEquals("home", shell.selectedPage());
             named(home, "home-run-0", JComponent.class).getActionMap().get("open-run").actionPerformed(null);
@@ -739,8 +739,9 @@ public class ShellHookIntegrationTest {
     }
 
     /**
-     * P5b: page 10 is Runs & DPS, whose tabs are the Feed (the Runs page), Dungeons, the app's single DPS meter (Live meter) and
-     * the encounter library (Recordings); page 7 only points there. ENCOUNTER and RESOURCES routes bring the Live meter forward,
+     * P5b: the runs page is Runs & DPS, whose tabs are the Feed (the Runs page), Dungeons, the app's single DPS meter (Live meter)
+     * and the encounter library (Recordings); P6a removed the DPS Logger page that pointed there. ENCOUNTER and RESOURCES routes
+     * bring the Live meter forward,
      * and Back returns to the page and the tab they left (the page's composite Back state).
      */
     @Test public void runsAndDpsHostsTheMeterAndRecordingsAndMeterRoutesBringTheLiveMeterForward() throws Exception {
@@ -762,7 +763,8 @@ public class ShellHookIntegrationTest {
             assertSame("The Live meter tab is the app's single DPS meter", dps, tabs.getComponentAt(tabs.indexOfTab("Live meter")));
             assertNotNull("Recordings hosts the encounter library, not a dialog",
                 find(named(page, "runs-recordings-slot", JPanel.class), tomato.gui.dps.DungeonListGUI.class));
-            assertNotNull("Page 7 only points to Runs & DPS", find(shell, tomato.gui.dps.DpsMovedPanel.class));
+            assertNull("No DPS Logger page remains", tomato.gui.modern.NavEntry.forId("dps-logger"));
+            assertNull("…and no pointer to Runs & DPS", named(shell, "dps-moved", JComponent.class));
             assertEquals("runs", WorkspaceShell.pageOf(tomato.gui.route.Destination.ENCOUNTER));
             assertEquals("runs", WorkspaceShell.pageOf(tomato.gui.route.Destination.RESOURCES));
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
@@ -793,13 +795,19 @@ public class ShellHookIntegrationTest {
         });
     }
 
-    /** Alt+8, the DPS Logger pointer's two buttons and the meter's library button open their tab through the navigator; Back returns. */
-    @Test public void altEightThePointerAndTheLibraryButtonOpenTheirTabsAndBackReturns() throws Exception {
+    /**
+     * Alt+8 (TomatoGUI's key binding; P6a removed the DPS Logger page) and the meter's library button open their tab through the
+     * navigator; Back returns. Recordings is also reached by search (searchOpensTheLiveMeterRecordingsAndStatistics).
+     */
+    @Test public void altEightAndTheLibraryButtonOpenTheirTabsAndBackReturns() throws Exception {
         int windows = Window.getWindows().length;
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.runs.RunsDpsPage page = runsDps();
             tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
-            Action altEight = shell.getActionMap().get("page-dps-logger");   // WorkspaceShellLayoutTest pins Alt+8 to "page-dps-logger"
+            Object binding = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_8, java.awt.event.InputEvent.ALT_DOWN_MASK));
+            assertEquals("Alt+8 is bound to the Live meter route", "open-live-meter", binding);
+            assertNull("No DPS Logger page action remains", shell.getActionMap().get("page-dps-logger"));
+            Action altEight = shell.getActionMap().get(binding);
             shell.select("chat");
             altEight.actionPerformed(null);
             assertEquals("Alt+8 opens Runs & DPS", "runs", shell.selectedPage());
@@ -813,17 +821,12 @@ public class ShellHookIntegrationTest {
             assertTrue(navigator.back());
             assertEquals("runs", shell.selectedPage());
             assertEquals("Back returns to the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
-
-            shell.select("dps-logger");
-            tomato.gui.dps.DpsMovedPanel pointer = find(shell, tomato.gui.dps.DpsMovedPanel.class);
-            named(pointer, "dps-moved-open", AbstractButton.class).doClick();
-            assertEquals("runs", shell.selectedPage());
-            assertEquals("Open Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals("Back returns to the pointer", "dps-logger", shell.selectedPage());
-            named(pointer, "dps-moved-recordings", AbstractButton.class).doClick();
-            assertEquals("runs", shell.selectedPage());
-            assertEquals("Open Recordings", tomato.gui.runs.RunsTab.RECORDINGS, page.selectedTab());
-            assertTrue(navigator.back()); assertEquals("dps-logger", shell.selectedPage());
+            shell.select("home");
+            altEight.actionPerformed(null);
+            assertEquals("From another page too", "runs", shell.selectedPage());
+            assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
+            assertEquals("The Back label names the page Alt+8 left", "Back to Home", named(shell, "navigate-back", AbstractButton.class).getText());
+            assertTrue(navigator.back()); assertEquals("home", shell.selectedPage());
 
             // The meter's library button opens the Recordings tab, no longer a modal dialog; Back returns to the Live meter.
             shell.select("runs"); page.tabs().select(tomato.gui.runs.RunsTab.LIVE_METER.id());
@@ -836,6 +839,38 @@ public class ShellHookIntegrationTest {
             assertEquals(tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
         });
         assertEquals("No dialog opened", windows, Window.getWindows().length);
+    }
+
+    /**
+     * P6a: the Build and DPS Logger pointer pages are gone. Alt+7 (TomatoGUI's key binding) opens Build through the navigator: with
+     * no character (this fixture's empty journal) the Characters list; Back returns. Neither page keeps a row, a compact-menu item,
+     * a page action or a page.
+     */
+    @Test public void altSevenWithoutACharacterOpensCharactersAndThePointerPagesAreGone() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            InputMap keys = shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+            Object altSeven = keys.get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_7, java.awt.event.InputEvent.ALT_DOWN_MASK));
+            assertEquals("Alt+7 is bound to the Build route", "open-build", altSeven);
+            shell.select("chat");
+            shell.getActionMap().get(altSeven).actionPerformed(null);
+            assertEquals("With no character, Alt+7 opens Characters", "characters", shell.selectedPage());
+            assertFalse("…on the list, not a sheet", find(shell, tomato.gui.character.CharacterRosterView.class).showingSheet());
+            assertEquals("Back to Chat", named(shell, "navigate-back", AbstractButton.class).getText());
+            assertTrue("Alt+7 goes through the navigator", navigator.back());
+            assertEquals("chat", shell.selectedPage());
+            JPopupMenu popup = named(shell, "compact-navigation", AbstractButton.class).getComponentPopupMenu();
+            for (String removed : new String[] {"my-info", "dps-logger"}) {
+                assertNull(removed + " has no row", named(shell, "nav-" + removed, AbstractButton.class));
+                assertNull(removed + " has no compact menu item", named(popup, "compact-nav-" + removed, JMenuItem.class));
+                assertNull(removed + " has no page action", shell.getActionMap().get("page-" + removed));
+                try { shell.select(removed); fail(removed + " is no page"); }
+                catch (IllegalArgumentException expected) { assertEquals("Invalid page", expected.getMessage()); }
+            }
+            assertNull("No Build moved page", named(shell, "build-moved", JComponent.class));
+            assertNull("No DPS Logger moved page", named(shell, "dps-moved", JComponent.class));
+            assertEquals("chat", shell.selectedPage());
+        });
     }
 
     /** The Live meter, Recordings and Statistics (no longer in the sidebar) are found by search and open through their routes. */
