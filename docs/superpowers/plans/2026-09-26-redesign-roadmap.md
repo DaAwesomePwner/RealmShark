@@ -15,7 +15,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P3b Characters: Exalts grid, Pets, Pet and Fame tabs | [2026-09-27-p3b-characters.md](2026-09-27-p3b-characters.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #23 (`b559bca`) |
 | P4 Quests | [2026-09-28-p4-quests.md](2026-09-28-p4-quests.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #24 (`e541874`) |
 | P5a Runs: combat auto-save, feed, recap | [2026-09-28-p5a-runs.md](2026-09-28-p5a-runs.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #25 (`3ab077c`) |
-| P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | [2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md) | `claude/redesign-handoff-next-steps-edrr7w` | Implemented; PR open |
+| P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | [2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #26 (`73400af`) |
 | P6 Loot and cleanup | written at phase start | `claude/realmshark-ui-ux-redesign-cb0914` | Outline below |
 
 Update the State column when a phase's PR merges and `main` is verified.
@@ -26,7 +26,7 @@ P1b merged in PR #19 as `0abafe4`, including fix `a011bfd` (pulled before P1c).
 P1c merged in PR #20 as `e973f10`, including fix `4ca1657` (startup restore no longer un-hides tabs).
 P2 merged in PR #21 as `94db6f6`, including seven review fixes (`f10bd7d`..`2367bc7`).
 P3a merged in PR #22 as `04a61d4`, including fix `508d1d1` for the two Codex pet-merge threads; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P3b merged in PR #23 as `b559bca`, including the Codex review fix `9c0da67`; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P4 merged in PR #24 as `e541874` (Codex review: no findings); its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it.
-P5a merged in PR #25 as `3ab077c`, including the Codex review fix `21d896e` (queued fights are saved before the history store closes); its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P5b is implemented on the cloud session branch (Tasks 1–15 merged there; final suite, `shadowJar` and an isolated JAR smoke in the [P5b validation record](2026-09-28-p5b-validation.md)); its PR is open.
+P5a merged in PR #25 as `3ab077c`, including the Codex review fix `21d896e` (queued fights are saved before the history store closes); its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P5b merged in PR #26 as `73400af`, including the Codex review fixes `a7b873e` and the quest native-matrix harness fix `1498102`; its merge tree matches the reviewed head, and `shadowJar` plus an isolated `--help` pass on it. P6 has not started.
 Evidence: [P0 validation](2026-09-26-p0-validation.md),
 [P1a validation](2026-09-26-p1a-validation.md), [P1b validation](2026-09-26-p1b-validation.md),
 [P1c validation](2026-09-26-p1c-validation.md), [P2 validation](2026-09-26-p2-validation.md), [P3a validation](2026-09-27-p3a-validation.md), [P3b validation](2026-09-27-p3b-validation.md), [P4 validation](2026-09-28-p4-validation.md), [P5a validation](2026-09-28-p5a-validation.md), [P5b validation](2026-09-28-p5b-validation.md).
