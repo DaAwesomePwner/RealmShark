@@ -18,7 +18,7 @@ import tomato.realmshark.enums.StatPotion;
  */
 public final class LootFacts {
     /**
-     * One saved item occurrence; {@code untiered}/{@code setTiered} are UT/ST gear exactly as Statistics counts them.
+     * One saved item occurrence; {@code untiered}/{@code setTiered} are UT/ST gear exactly as the saved loot views count them.
      * {@code slots} (unlocked enchant slots, empty ones included) and {@code applied} (applied enchants) are null when the drop
      * did not record them (legacy drops, capture without enchant data; older builds saved -1 for that).
      */

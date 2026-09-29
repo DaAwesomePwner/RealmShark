@@ -13,8 +13,8 @@ import util.PropertiesManager;
  * The user's sidebar arrangement over the fixed destinations: the core order (including pinned
  * Advanced entries), hidden entries and whether the Advanced group is open. Saved values are
  * comma-separated NavEntry IDs; IDs this version does not know (including {@code my-info} and
- * {@code dps-logger}, the Build and DPS Logger pages removed in P6a) and the unlisted destination
- * (Statistics) are ignored and dropped on the next write. The one exception is {@code dps-logger}:
+ * {@code dps-logger}, the Build and DPS Logger pages, and {@code statistics}, all removed in P6a) are
+ * ignored and dropped on the next write. The one exception is {@code dps-logger}:
  * still read as a raw string and still saved beside a hidden {@code runs} (see {@code savedHidden()}).
  * Settings is never hidden, and at least one core entry always stays visible. Use on the EDT.
  */
@@ -129,7 +129,7 @@ public final class NavLayout {
         return true;
     }
 
-    /** Only core and Advanced rows hide: Settings is always listed, unlisted pages have no row, and the last visible core entry stays. */
+    /** Only core and Advanced rows hide: Settings is always listed and the last visible core entry stays. */
     public boolean canHide(String id) {
         NavEntry.Group group = group(id);
         if ((group != NavEntry.Group.CORE && group != NavEntry.Group.ADVANCED) || hidden.contains(id)) return false;

@@ -17,13 +17,13 @@ import tomato.history.archive.ArchiveQuery;
 
 /**
  * Characters › Fame history (user decision 2026-09-29: saved character fame moves from Statistics to an Analyst tab of
- * Characters): a saved-only archive workspace ({@link ArchiveWorkspace#savedOnly}) over the Statistics workspace's Character
- * fame view, unchanged — per saved session and character, the first and last fame reading, the change between them and the
+ * Characters): a saved-only archive workspace ({@link ArchiveWorkspace#savedOnly}) over the Character fame view that the
+ * retired Statistics page offered, unchanged — per saved session and character, the first and last fame reading, the change between them and the
  * observed time, with undated observations counted apart and never ordered as epoch zero — opening on every saved session. No
  * live view: the live Fame Table and the legacy {@code FameSessions} autosave go with Statistics.
  *
  * <p>"Open selected session's full fame graph" ({@code archive-open-fame}) opens the selected row's whole pinned session in the
- * fame session viewer, as on Statistics. {@link #view} adds a header line and "Open fame session file…"
+ * fame session viewer, as Statistics did. {@link #view} adds a header line and "Open fame session file…"
  * ({@code character-fame-open-file}), which opens a saved {@code .fame} file as the Fame Table's Sessions popup did.
  *
  * <p>The workspace starts a read from its constructor, so Characters builds it on the tab's first selection
@@ -46,7 +46,7 @@ public final class CharacterFameHistory {
     /** The first query: the character fame of every saved session. */
     public static ArchiveQuery<Facets, Sort> initialQuery() { return LootQuery.initial(View.FAME, SessionStore.ALL); }
 
-    /** The client: Statistics' queries, rows, drill-downs and exports, offering only Character fame. */
+    /** The client: the saved loot queries, rows, drill-downs and exports, offering only Character fame. */
     static LootArchiveClient client(Path scratch) { return new LootArchiveClient(scratch, VIEWS, initialQuery()); }
 
     /**
