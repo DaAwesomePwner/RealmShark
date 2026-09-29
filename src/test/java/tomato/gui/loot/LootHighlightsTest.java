@@ -1,6 +1,7 @@
 package tomato.gui.loot;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.List;
@@ -18,6 +19,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ErrorCollector;
 import tomato.gui.kit.*;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.Themes;
@@ -42,6 +44,7 @@ import static tomato.gui.loot.HighlightsModel.Window.TODAY;
  */
 public class LootHighlightsTest {
     @Rule public ui.VisualEvidence evidence = new ui.VisualEvidence("p6a");
+    @Rule public final ErrorCollector errors = new ErrorCollector();
     private static final String[] FILTER_KEYS = {"filterWhiteBag", "filterOrangeBag", "filterRedBag", "filterGoldBag", "filterEggBag",
         "filterBlueBag", "filterTealBag", "filterPurpleBag", "filterPinkBag", "filterBrownBag", LootHighlights.WINDOW_KEY};
     private static final long NOON = at(0, 12, 0);
@@ -401,6 +404,54 @@ public class LootHighlightsTest {
             assertTrue("The grid wraps within the page", grid.getWidth() <= page.getWidth() && grid.getHeight() > grid.getFixedCellHeight());
             evidence.capture("loot-highlights-populated-680x520-font18-light");
         });
+    }
+
+    /**
+     * Polish A: at 1240×800 font 13 (five cards a row) and 680×520 font 18 (two) every notable card paints its area whole ("Lost
+     * Halls", "Pirate Cave", "Unknown area"…), whatever its kind chip, at the grid's own cell size.
+     */
+    @Test public void notableCardsPaintTheirAreaWholeAtBothReferenceSizes() throws Exception {
+        LootHighlights view = view(new Fake(LootHighlightsTest::populated));
+        JPanel workspace = edt(() -> {
+            JPanel panel = new JPanel(new BorderLayout());
+            panel.setBorder(new javax.swing.border.EmptyBorder(34, 12, 10, 12));
+            panel.add(view, BorderLayout.CENTER);
+            return panel;
+        });
+        SwingUtilities.invokeAndWait(() -> evidence.show(workspace, "Loot highlights cards 1240x800 font 13", 1240, 800, 13));
+        loaded(view);
+        evidence.settle();
+        // Each size is captured before it is checked; the collector reports every size's failure at the end.
+        SwingUtilities.invokeAndWait(() -> {
+            evidence.capture("loot-highlights-cards-1240x800-font13-dark");
+            errors.checkSucceeds(() -> { assertAreasWhole(view, 5, "1240x800 font 13"); return null; });
+            evidence.show(workspace, "Loot highlights cards 680x520 font 18", 680, 520, 18);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            evidence.capture("loot-highlights-cards-680x520-font18-dark");
+            errors.checkSucceeds(() -> { assertAreasWhole(view, 2, "680x520 font 18"); return null; });
+        });
+    }
+
+    private static void assertAreasWhole(LootHighlights view, int columns, String size) {
+        TileList<HighlightsModel.Notable> grid = view.notableList();
+        assertEquals(size + ": cards a row", columns, grid.getWidth() / grid.getFixedCellWidth());
+        @SuppressWarnings("unchecked")
+        ListCellRenderer<HighlightsModel.Notable> renderer = (ListCellRenderer<HighlightsModel.Notable>) grid.getCellRenderer();
+        List<HighlightsModel.Notable> items = grid.items();
+        assertFalse(items.isEmpty());
+        for (int i = 0; i < items.size(); i++) {
+            HighlightsModel.Notable drop = items.get(i);
+            NotableDropRenderer card = (NotableDropRenderer) renderer.getListCellRendererComponent(grid, drop, i, false, false);
+            card.setSize(grid.getFixedCellWidth(), grid.getFixedCellHeight());
+            BufferedImage image = new BufferedImage(card.getWidth(), card.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = image.createGraphics();
+            card.paint(g);
+            g.dispose();
+            String area = drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon();
+            assertTrue(size + ": " + drop.kind() + " card paints '" + area + "' whole: " + card.painted(), card.painted().contains(area));
+        }
     }
 
     private static List<StatTile> tiles(LootHighlights view) {

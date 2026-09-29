@@ -11,6 +11,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ErrorCollector;
 import tomato.gui.kit.SectionHeader;
 import tomato.gui.kit.Tokens;
 import tomato.gui.maingui.TomatoMenuBar;
@@ -24,6 +25,7 @@ import static tomato.gui.settings.SettingsPageTest.named;
 /** P6a: Settings › Loot filters edits the same LootFilters model as Edit › Filter Loot, both ways. */
 public class LootFiltersSectionTest {
     @Rule public final VisualEvidence evidence = new VisualEvidence("redesign-p6a-settings");
+    @Rule public final ErrorCollector errors = new ErrorCollector();
     private static final String[] KINDS = {"white", "orange", "red", "gold", "egg", "blue", "teal", "purple", "pink", "brown"};
     private final String[] saved = new String[LootFilters.Kind.values().length];
     private final List<String> openedSettings = new ArrayList<>();
@@ -171,6 +173,89 @@ public class LootFiltersSectionTest {
             evidence.capture("settings-loot-filters-light-1240-13");
         });
     }
+
+    /**
+     * Polish A: the ten colors pack into two columns at their natural width (the widest label) with a normal gap, from the section's
+     * left edge (where Show all starts), instead of spreading across the page; below about 420 px they stack in one column.
+     */
+    @Test public void theColorsPackIntoTwoNaturalColumnsAndStackWhenNarrow() throws Exception {
+        SettingsPage[] page = new SettingsPage[1];
+        LootFiltersSection[] narrow = new LootFiltersSection[1];
+        SwingUtilities.invokeAndWait(() -> {
+            page[0] = new SettingsPage(new JPanel(), () -> {}, new JPanel(), new JPanel(), new LootFiltersSection(), new JPanel(), new JPanel());
+            page[0].showSection(SettingsPage.LOOT_FILTERS);
+            evidence.show(page[0], "Settings Loot filters 1240", 1240, 800, 13);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            captureAndCheck(section(page[0]), 2, "1240x800 font 13", "settings-loot-filters-columns-1240-13-dark");
+            evidence.show(page[0], "Settings Loot filters 680", 680, 520, 18);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            captureAndCheck(section(page[0]), 2, "680x520 font 18", "settings-loot-filters-columns-680-18-dark");
+            Themes.install(new Themes.Choice(Themes.Variant.LIGHT, false));
+            SwingUtilities.updateComponentTreeUI(SwingUtilities.getWindowAncestor(page[0]));
+            evidence.show(page[0], "Settings Loot filters 1240 light", 1240, 800, 13);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            captureAndCheck(section(page[0]), 2, "1240x800 font 13, light", "settings-loot-filters-columns-1240-13-light");
+            narrow[0] = new LootFiltersSection();
+            JPanel host = new JPanel(new BorderLayout());
+            host.add(narrow[0]);
+            evidence.show(host, "Settings Loot filters narrow", 400, 620, 13);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            assertTrue("A narrow section: " + narrow[0].getWidth(), narrow[0].getWidth() < 420);
+            captureAndCheck(narrow[0], 1, "400 px wide, font 13", "settings-loot-filters-columns-400-13-light");
+            evidence.show((JComponent) narrow[0].getParent(), "Settings Loot filters widened", 900, 620, 13);
+        });
+        // The same section follows its width both ways: its height (the rows) is laid out again after the width changes.
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> {
+            errors.checkSucceeds(() -> { assertColumns(narrow[0], 2, "widened to 900 px"); return null; });
+            evidence.show((JComponent) narrow[0].getParent(), "Settings Loot filters narrowed", 400, 620, 13);
+        });
+        evidence.settle();
+        SwingUtilities.invokeAndWait(() -> errors.checkSucceeds(() -> { assertColumns(narrow[0], 1, "narrowed to 400 px again"); return null; }));
+    }
+
+    private static LootFiltersSection section(SettingsPage page) { return VisualEvidence.find(page, LootFiltersSection.class, component -> true); }
+
+    /** Captures first, then checks; the collector reports every size's failure at the end, so each size is captured and checked. */
+    private void captureAndCheck(LootFiltersSection section, int columns, String size, String capture) {
+        evidence.capture(capture);
+        errors.checkSucceeds(() -> { assertColumns(section, columns, size); return null; });
+    }
+
+    /** The boxes in {@code columns} columns, row by row in the menu's order, each column as wide as the widest label. */
+    private static void assertColumns(LootFiltersSection section, int columns, String size) {
+        List<JCheckBox> boxes = checkboxes(section);
+        Component view = VisualEvidence.find(section, JScrollPane.class, scroll -> true).getViewport().getView();
+        int widest = 0;
+        for (JCheckBox box : boxes) {
+            VisualEvidence.completeButton(box);
+            widest = Math.max(widest, box.getPreferredSize().width);
+        }
+        int first = x(boxes.get(0), view);
+        System.out.println(size + ": boxes at " + first + " and " + x(boxes.get(1), view) + ", widest " + widest + ", Show all at "
+            + x(named(section, "settings-loot-filters-show-all", JComponent.class), view) + ", section " + section.getWidth());
+        for (int i = 0; i < boxes.size(); i++) {
+            JCheckBox box = boxes.get(i), rowStart = boxes.get(i - i % columns);
+            assertEquals(size + ": " + box.getName() + " is in column " + i % columns, first + (i % columns) * (widest + Tokens.XL), x(box, view), 1);
+            assertEquals(size + ": " + box.getName() + " is in row " + i / columns, rowStart.getY(), box.getY());
+            if (i >= columns) assertTrue(size + ": row " + i / columns + " is below the one before", box.getY() > boxes.get(i - columns).getY());
+        }
+        JComponent showAll = named(section, "settings-loot-filters-show-all", JComponent.class);
+        assertEquals(size + ": the boxes start where Show all starts", x(showAll, view), first, 1);
+        JCheckBox last = boxes.get(boxes.size() - 1);
+        assertTrue(size + ": Show all is below the last row", SwingUtilities.convertPoint(showAll.getParent(), 0, showAll.getY(), view).y
+            >= SwingUtilities.convertPoint(last.getParent(), 0, last.getY() + last.getHeight(), view).y);
+    }
+
+    private static int x(Component component, Component root) { return SwingUtilities.convertPoint(component.getParent(), component.getX(), 0, root).x; }
 
     private static List<JCheckBox> checkboxes(Container root) {
         List<JCheckBox> boxes = new ArrayList<>();
