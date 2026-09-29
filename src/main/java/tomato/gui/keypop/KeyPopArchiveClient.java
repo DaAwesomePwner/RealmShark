@@ -159,7 +159,7 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&table.getSelectedRow()>=0)table.getActionMap().get("archive-details").actionPerformed(null);});
         JScrollPane scroll=ContentStyle.tableScroll(table,3);JPanel body=new JPanel(new BorderLayout(0,4));body.add(scroll);
         Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("All columns",new ArrayList<>(sorts.keySet()));presets.put("Compact",f.mode==Mode.EVENTS?Arrays.asList("player","item","time","kind"):f.mode==Mode.BY_PLAYER?Arrays.asList("player","pops","share"):Arrays.asList("item","pops","players","share"));
-        body.add(state.tableControls(table,scroll,page,f.mode.name(),presets),BorderLayout.SOUTH);tabs.setComponentAt(f.mode.ordinal(),body);
+        state.tableTools(table,scroll,page,f.mode.name(),presets);tabs.setComponentAt(f.mode.ordinal(),body);   // tools go to the workspace ⋯ via filters()
         tabs.addChangeListener(e->{Mode mode=Mode.values()[tabs.getSelectedIndex()];if(mode==f.mode)return;state.tab(mode.name());Facets next=state.value.query.facets();next.mode=mode;
             state.query(state.value.query.withFacets(next).withOrder(Collections.singletonList(new ArchiveQuery.Order<>(mode==Mode.EVENTS?Sort.TIME:Sort.POPS,ArchiveQuery.Direction.DESCENDING))));});
         JPanel actions=ContentStyle.controls();JButton drill=new JButton(f.mode==Mode.BY_ITEM?"Show this item's events":"Show this player's events");drill.setEnabled(f.mode!=Mode.EVENTS);
@@ -204,7 +204,7 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
         if(!f.kinds.isEmpty())chips.add(chip(state,"Types: "+kinds(f.kinds),next->next.kinds=new LinkedHashSet<>()));
         if(!f.items.isEmpty())chips.add(chip(state,"Dungeons/items: "+ArchiveFilters.summary(f.items),next->next.items=new LinkedHashSet<>()));
         ArchiveFilters.dates(chips,initial.query,state::query);
-        return new ArchiveFilters(drawer,chips);
+        return new ArchiveFilters(drawer,chips,state.tools());
     }
     private static FilterBar.ActiveFilter chip(SocialQueryControls.State<Row,Facets,Sort> state,String label,java.util.function.Consumer<Facets> reset){
         return new FilterBar.ActiveFilter(label,()->{Facets next=state.value.query.facets();reset.accept(next);state.query(state.value.query.withFacets(next));});

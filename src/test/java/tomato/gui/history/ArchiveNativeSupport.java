@@ -133,7 +133,10 @@ public final class ArchiveNativeSupport {
         for (String label : new String[]{"Refresh", "Saved views", "Save current view…", "Reset saved state",
                 "Export selected…", "Export page…", "Export all matches…", "Open export folder"}) assertNotNull("Overflow action " + label, more.item(label));
         assertTrue("⋯ Refresh shows in saved history", more.item("Refresh").isVisible());
-        completeButton(find(workspace, AbstractButton.class, b -> b.isShowing() && "Columns…".equals(b.getText())));
+        // The column tools are ⋯ items since P6b (the "Columns…" button row is gone): the displayed table's, enabled.
+        for (String label : new String[]{"Columns", "Column preset", "Reset columns", "Copy selected rows", "Row details…"})
+            assertTrue("Overflow column tool " + label, more.item(label) != null && more.item(label).isEnabled());
+        assertEquals(table + "-columns", more.item("Columns").getName());
         if (detail != null) completeText(named(workspace, detail, JTextArea.class));
     }
 

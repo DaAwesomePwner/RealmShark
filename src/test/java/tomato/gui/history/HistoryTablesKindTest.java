@@ -44,8 +44,7 @@ public class HistoryTablesKindTest {
                 HistoryTables.applyColumns(table, new ViewState.Table("Custom", Arrays.asList(new ViewState.Column("value", 300, true),
                     new ViewState.Column("text", 40, true), new ViewState.Column("group", 90, true))));
                 assertEquals(300, table.getColumnModel().getColumn(0).getWidth());
-                JComponent controls = HistoryTables.controls(table, defaults, Collections.emptyMap(), layout -> {});
-                for (Component c : controls.getComponents()) if (c instanceof JButton && "Reset columns".equals(((JButton) c).getText())) ((JButton) c).doClick();
+                HistoryTables.columnTools(table, defaults, Collections.emptyMap(), layout -> {}).reset().doClick();   // ⋯ Reset columns
                 assertEquals(ColumnKind.COUNT.width(font), table.getColumnModel().getColumn(0).getWidth());
                 assertEquals(ColumnKind.TEXT.width(font), table.getColumnModel().getColumn(1).getWidth());
                 JTable adhoc = new JTable(new DefaultTableModel(new Object[]{"When", "Who"}, 0));

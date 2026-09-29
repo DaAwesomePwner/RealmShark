@@ -58,7 +58,7 @@ public class SocialArchiveNativeTest {
                 edt(() -> {
                     assertEquals(200,workspace.displayedPage().rows.size());
                     JTable table = named(workspace,"chat-archive-messages",JTable.class); table.setRowSelectionInterval(2,2);
-                    find(workspace,JComboBox.class,c -> c.isShowing() && "Column preset".equals(c.getAccessibleContext().getAccessibleName())).setSelectedItem("Conversation");
+                    ArchiveNativeSupport.more(workspace).item("Conversation").doClick();   // ⋯ Column preset ▸ Conversation
                     assertEquals(4,table.getColumnCount()); return null;
                 });
                 ViewState<ChatArchiveClient.Facets,ChatArchiveClient.Sort> saved = edt(workspace::state);
