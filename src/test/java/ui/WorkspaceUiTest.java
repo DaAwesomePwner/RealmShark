@@ -78,39 +78,56 @@ public class WorkspaceUiTest {
         });
     }
 
-    @Test public void aboutMenuShowsOwnedBrandedDialogWithOriginalCredits() throws Exception {
+    /**
+     * P6a (user decision 2026-09-29: Settings gains About, and its menu entry opens it): in the app, Info › About opens Settings ›
+     * About, which shows the About dialog's content (the same AboutPanel), no longer a dialog. The dialog itself, still what About
+     * opens without the Settings hook, is checked by tomato.gui.settings.AboutSectionTest (modeless, its Close default button).
+     */
+    @Test public void aboutMenuOpensSettingsAboutWithTheOriginalCredits() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JMenuItem about = menuItem(frame.getJMenuBar(), "About");
             assertNotNull("The original About menu must remain reachable", about);
+            int windows = frame.getOwnedWindows().length;
+            shell.select("chat");
             about.doClick();
-            JDialog dialog = null;
-            for (Window window : frame.getOwnedWindows()) {
-                if (window instanceof JDialog && window.isShowing()
-                        && "About RealmShark".equals(((JDialog)window).getTitle())) dialog = (JDialog)window;
-            }
-            assertNotNull("About must be owned by the main window", dialog);
             try {
-                assertFalse("About should remain readable while using the app", dialog.isModal());
-                assertEquals(AppIdentity.icons(), dialog.getIconImages());
-                String text = visibleText(dialog);
+                assertEquals("About opens Settings", "settings", shell.selectedPage());
+                tomato.gui.settings.SettingsPage settings = findType(shell, tomato.gui.settings.SettingsPage.class);
+                assertEquals("…on its About section", tomato.gui.settings.SettingsPage.ABOUT, settings.currentSection());
+                for (Window window : frame.getOwnedWindows())
+                    assertFalse("No About dialog opens", window instanceof JDialog && window.isShowing()
+                        && "About RealmShark".equals(((JDialog)window).getTitle()));
+                assertEquals(windows, frame.getOwnedWindows().length);
+                JComponent section = null;
+                for (Component child : findAll(settings)) if ("settings-about".equals(child.getName())) section = (JComponent) child;
+                assertNotNull("Settings › About", section);
+                assertTrue(section.isShowing());
+                String text = visibleText(section);
                 assertTrue(text.contains("RealmShark"));
                 assertTrue(text.contains(realmshark.version.Version.VERSION));
                 assertTrue(text.contains("Realm of the Mad God"));
                 assertTrue(text.contains("Anon"));
                 assertTrue(text.contains("MIT License"));
                 assertFalse(text.toLowerCase(java.util.Locale.ROOT).contains("tomato"));
-                JLabel logo = findLogo(dialog);
+                JLabel logo = findLogo(section);
                 assertNotNull("About must display the product logo", logo);
                 assertEquals(80, logo.getIcon().getIconWidth());
                 assertEquals(80, logo.getIcon().getIconHeight());
                 assertEquals("RealmShark logo", logo.getAccessibleContext().getAccessibleName());
-                snapshot(dialog, "about.png");
-                assertNotNull(dialog.getRootPane().getDefaultButton());
-                assertEquals("Close", dialog.getRootPane().getDefaultButton().getText());
-                dialog.getRootPane().getDefaultButton().doClick();
-                assertFalse("Close should dispose the dialog", dialog.isDisplayable());
-            } finally { dialog.dispose(); }
+                snapshot(frame, "about.png");
+            } finally {
+                findType(shell, tomato.gui.settings.SettingsPage.class).showSection(tomato.gui.settings.SettingsPage.NOTIFICATIONS);
+                shell.select("chat");
+            }
         });
+    }
+    private static List<Component> findAll(Container root) {
+        List<Component> all = new ArrayList<>();
+        for (Component child : root.getComponents()) {
+            all.add(child);
+            if (child instanceof Container) all.addAll(findAll((Container) child));
+        }
+        return all;
     }
 
     @Test public void allOriginalSectionsRemainReachableAtRealizedNativeSizes() throws Exception {

@@ -97,6 +97,12 @@ public class ShellHookIntegrationTest {
     private static final String[] RECAP_PREFERENCES = {"damage", "loot", "players", "resources", "timeline", "evidence"};
     private final Map<String,String> recapPreferences = new LinkedHashMap<>();
     private static final String[] MODULES = {"chat", "keypops", "inspect", "statistics", "loot", "runs", "timeline"};
+    /**
+     * P6a Task 11: Loot's tabs (it opens on Highlights with both tabs shown), the Characters tabs (the Fame history search entry
+     * may show that tab) and the Highlights window: cleared, then restored.
+     */
+    private static final String[] LOOT_PREFERENCES = {"ui.tabs.loot", "ui.tabs.characters", tomato.gui.loot.LootHighlights.WINDOW_KEY};
+    private final Map<String,String> lootPreferences = new LinkedHashMap<>();
 
     @Before public void open() throws Exception {
         filters = PropertiesManager.getProperty("chat.filters");
@@ -115,6 +121,10 @@ public class ShellHookIntegrationTest {
         }
         for (String key : TAB_PREFERENCES) {
             tabPreferences.put(key, PropertiesManager.getProperty(key));
+            PropertiesManager.setProperties(key, "");
+        }
+        for (String key : LOOT_PREFERENCES) {
+            lootPreferences.put(key, PropertiesManager.getProperty(key));
             PropertiesManager.setProperties(key, "");
         }
         for (String id : RECAP_PREFERENCES) {
@@ -157,6 +167,7 @@ public class ShellHookIntegrationTest {
         for (String key : archiveKeys()) PropertiesManager.setProperties(key, archivePreferences.getOrDefault(key, ""));
         for (String key : QUEST_PREFERENCES) { String saved = questPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
         for (String key : TAB_PREFERENCES) { String saved = tabPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
+        for (String key : LOOT_PREFERENCES) { String saved = lootPreferences.get(key); PropertiesManager.setProperties(key, saved == null ? "" : saved); }
         for (Map.Entry<String,String> saved : recapPreferences.entrySet()) PropertiesManager.setProperties(saved.getKey(), saved.getValue() == null ? "" : saved.getValue());
         PropertiesManager.flush().toCompletableFuture().get(5, TimeUnit.SECONDS);
         if (temporaryDirectory != null) System.setProperty("java.io.tmpdir", temporaryDirectory);
@@ -1223,6 +1234,286 @@ public class ShellHookIntegrationTest {
             statistics.doClick();
             assertEquals("statistics", shell.selectedPage());
         });
+    }
+
+    // ---- P6a Task 11: the Loot page (Highlights · Explore) and the new sections' wiring ----
+
+    /** Loot's page. EDT. */
+    private tomato.gui.loot.LootPage lootPage() {
+        tomato.gui.loot.LootPage page = named(shell, "loot-page", tomato.gui.loot.LootPage.class);
+        assertNotNull("The loot page is the Loot page", page);
+        return page;
+    }
+    /** A private field of {@code owner} (the Highlights hooks, the menu bar, LootCapture's game data). */
+    private static Object field(Object owner, String name) {
+        try { Field f = owner.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(owner); }
+        catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+    @SuppressWarnings("unchecked")
+    private static <T> java.util.function.Consumer<T> hook(tomato.gui.loot.LootHighlights highlights, String name) {
+        return (java.util.function.Consumer<T>) field(highlights, name);
+    }
+    /** The ⋯ entry named {@code name} of Loot highlights. */
+    private static JMenuItem more(tomato.gui.loot.LootHighlights highlights, String name) {
+        tomato.gui.kit.OverflowMenu menu = named(highlights, "loot-highlights-more", tomato.gui.kit.OverflowMenu.class);
+        for (Component item : menu.menu().getComponents()) if (item instanceof JMenuItem && name.equals(item.getName())) return (JMenuItem) item;
+        return null;
+    }
+    private static JMenuItem menuItem(MenuElement root, String text) {
+        for (MenuElement element : root.getSubElements()) {
+            if (element instanceof JMenuItem && text.equals(((JMenuItem) element).getText())) return (JMenuItem) element;
+            JMenuItem found = menuItem(element, text);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /**
+     * The loot page is Loot with the tabs Highlights · Explore (P6a): Highlights is the view over saved history, Explore the Loot
+     * workspace whose live card attaches to the app's loot capture (which the shell binds to the game data), and Highlights' ⋯
+     * holds "Loot sharing status…" and "Loot filter settings…". A plain Loot page opens on Highlights; Explore still holds the
+     * workspace every Loot route and the S8 check reach.
+     */
+    @Test public void lootIsAPageWithHighlightsAndExploreOverTheAppsLootCapture() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.loot.LootPage page = lootPage();
+            JTabbedPane tabs = named(page, "loot-tabs", JTabbedPane.class);
+            assertEquals(Arrays.asList("Highlights", "Explore"), Arrays.asList(tabs.getTitleAt(0), tabs.getTitleAt(1)));
+            assertEquals("Loot opens on Highlights", tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+            tomato.gui.loot.LootHighlights highlights = named(page, "loot-highlights", tomato.gui.loot.LootHighlights.class);
+            assertSame(highlights, tabs.getComponentAt(0));
+            assertSame("Explore is the Loot workspace", workspace("loot"), tabs.getComponentAt(1));
+            tomato.gui.stats.LootDashboard live = find(workspace("loot"), tomato.gui.stats.LootDashboard.class);
+            assertSame("Explore's live card is attached to the app's loot capture, not to Statistics",
+                field(tomato.gui.stats.LootCapture.get().feed(), "state"), field(live, "state"));
+            assertSame("The shell binds the loot capture to the game data", data, field(tomato.gui.stats.LootCapture.get(), "data"));
+            JMenuItem sharing = more(highlights, "loot-sharing-status"), filters = more(highlights, "loot-filter-settings");
+            assertNotNull(sharing); assertEquals("Loot sharing status…", sharing.getText());
+            assertNotNull(filters); assertEquals("Loot filter settings…", filters.getText());
+            shell.select("loot");
+            filters.doClick();
+            assertEquals("settings", shell.selectedPage());
+            assertEquals(tomato.gui.settings.SettingsPage.LOOT_FILTERS, find(shell, tomato.gui.settings.SettingsPage.class).currentSection());
+        });
+    }
+
+    /**
+     * A Loot visit route (the recap's and the workbench's "Open Loot") brings Explore forward with the workspace's drill, and Back
+     * returns to the tab it left, from Loot's own Highlights or from another page.
+     */
+    @Test public void aLootVisitRouteBringsExploreAndBackReturnsToTheTabLeft() throws Exception {
+        tomato.history.link.VisitRef visit = new tomato.history.link.VisitRef(store.currentId(), "journal:1");
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.loot.LootPage page = lootPage();
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            shell.select("loot");
+            assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.LOOT).withVisit(visit)));
+            assertEquals("loot", shell.selectedPage());
+            assertEquals("A visit route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, page.selectedTab());
+            assertEquals("…on the exact visit", "journal:1", ((tomato.gui.stats.LootQuery.Facets) workspace("loot").state().query.facets()).visitId);
+            assertTrue(navigator.back());
+            assertEquals("loot", shell.selectedPage());
+            assertEquals("Back returns to Highlights", tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+            shell.select("chat");
+            assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.LOOT).withVisit(visit)));
+            assertEquals(tomato.gui.loot.LootTab.EXPLORE, page.selectedTab());
+            assertTrue(navigator.back());
+            assertEquals("chat", shell.selectedPage());
+            assertTrue("Each Loot tab has a route", navigator.canOpen(tomato.gui.route.Route.to(tomato.gui.route.Destination.LOOT)
+                .withPayload(new tomato.gui.loot.LootFocus(tomato.gui.loot.LootTab.HIGHLIGHTS))));
+        });
+    }
+
+    /**
+     * Highlights' hooks go through the navigator: a by-dungeon cell opens Explore on saved loot filtered to that dungeon over the
+     * Highlights window (Today: every session, kept to the local day), Unknown area opens Explore as it is, and a notable drop
+     * opens its exact run's recap; Back returns to Highlights after each.
+     */
+    @Test public void highlightsDungeonCellsAndNotableDropsOpenExploreAndTheRunAndBackReturns() throws Exception {
+        tomato.history.link.VisitRef visit = new tomato.history.link.VisitRef(store.currentId(), "journal:1");
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.loot.LootPage page = lootPage();
+            tomato.gui.loot.LootHighlights highlights = named(page, "loot-highlights", tomato.gui.loot.LootHighlights.class);
+            tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+            ArchiveWorkspace<?,?,?> loot = workspace("loot");
+            shell.select("loot");
+            hook(highlights, "openDungeon").accept("Lost Halls");
+            assertEquals("loot", shell.selectedPage());
+            assertEquals(tomato.gui.loot.LootTab.EXPLORE, page.selectedTab());
+            assertTrue("Explore shows saved loot", loot.state().archive);
+            tomato.gui.stats.LootQuery.Facets facets = (tomato.gui.stats.LootQuery.Facets) loot.state().query.facets();
+            assertEquals(Collections.singleton("Lost Halls"), facets.dungeons);
+            assertEquals(tomato.gui.stats.LootQuery.View.ITEMS, facets.view);
+            assertEquals("Today (the default window) reads every session", SessionStore.ALL, loot.state().query.scope());
+            assertNotNull("…kept to the local day", loot.state().query.bounds().from);
+            assertTrue(navigator.back());
+            assertEquals("loot", shell.selectedPage());
+            assertEquals("Back returns to Highlights", tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+
+            String before = loot.state().query.toJson().toString();
+            hook(highlights, "openDungeon").accept(null);
+            assertEquals("Unknown area opens Explore", tomato.gui.loot.LootTab.EXPLORE, page.selectedTab());
+            assertEquals("…without a dungeon filter of its own", before, loot.state().query.toJson().toString());
+            assertTrue(navigator.back());
+            assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+
+            hook(highlights, "openRun").accept(visit);
+            assertEquals("A notable drop opens its run", "runs", shell.selectedPage());
+            tomato.gui.runs.RunsPage runs = named(shell, "runs-page", tomato.gui.runs.RunsPage.class);
+            assertTrue(runs.recapShown());
+            assertEquals("…the exact visit", visit, ((tomato.gui.runs.RunRecapView) runs.recap()).ref());
+            assertTrue(navigator.back());
+            assertEquals("loot", shell.selectedPage());
+            assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+        });
+    }
+
+    /** The new search entries: found by their words, unambiguous beside the old ones, each opening its place through the navigator. */
+    @Test public void searchFindsLootHighlightsExploreFameHistoryAndTheNewSettingsSections() throws Exception {
+        tomato.gui.kit.DisplayModeModel.Mode mode = edt(() -> tomato.gui.kit.DisplayModeModel.application().mode());
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.kit.DisplayModeModel.application().set(tomato.gui.kit.DisplayModeModel.Mode.SIMPLE);
+                tomato.gui.search.ActionRegistry registry = tomato.gui.search.ActionRegistry.application();
+                tomato.gui.route.Navigator navigator = tomato.gui.route.Navigator.current();
+                tomato.gui.loot.LootPage page = lootPage();
+                tomato.gui.settings.SettingsPage settings = find(shell, tomato.gui.settings.SettingsPage.class);
+                String[][] entries = {
+                    {"loot.highlights", "Loot highlights", "Loot › Highlights"},
+                    {"loot.explore", "Explore loot", "Loot › Explore"},
+                    {"fame.history", "Character fame history", "Characters › Fame history (Analyst)"},
+                    {"fame.file", "Open fame session file…", "Characters › Fame history › Open fame session file…"},
+                    {"loot.filters", "Loot filters", "Settings › Loot filters"},
+                    {"chat.settings", "Chat settings (filters and saving)", "Settings › Chat"},
+                    {"about.open", "About RealmShark", "Settings › About"}};
+                for (String[] entry : entries) {
+                    assertEquals(entry[0], Collections.singletonList(entry[0]), ids(registry.search(entry[0])));
+                    assertEquals(entry[1], registry.search(entry[0]).get(0).label);
+                    assertEquals(entry[2], registry.search(entry[0]).get(0).location);
+                }
+                assertEquals("Found by what it shows", Collections.singletonList("loot.highlights"), ids(registry.search("notable drops")));
+                assertEquals(Collections.singletonList("loot.explore"), ids(registry.search("explore loot")));
+                assertEquals(Collections.singletonList("fame.history"), ids(registry.search("fame gain")));
+                assertEquals("Both fame entries answer their words", Arrays.asList("fame.history", "fame.file"), ids(registry.search("character fame history")));
+                // The entries other tests search for stay unambiguous.
+                assertEquals(1, registry.search("build.open").size());
+                assertEquals(1, registry.search("combat.settings").size());
+                assertEquals("combat.settings", registry.search("full detail retention").get(0).id);
+                assertEquals(Collections.singletonList("dps.meter"), ids(registry.search("dps logger")));
+                assertEquals(Collections.singletonList("dps.meter"), ids(registry.search("alt+8")));
+                assertEquals(Collections.singletonList("dps.recordings"), ids(registry.search("encounter library")));
+                assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("cohorts")));
+                assertEquals(Collections.singletonList("dungeons.open"), ids(registry.search("session comparison")));
+                assertEquals(1, registry.search("statistics.open").size());
+                assertEquals(1, registry.search("appearance.settings").size());
+                assertEquals(1, registry.search("plans.characters").size());
+
+                shell.select("chat");
+                assertTrue(registry.search("loot.explore").get(0).open());
+                assertEquals("loot", shell.selectedPage()); assertEquals(tomato.gui.loot.LootTab.EXPLORE, page.selectedTab());
+                assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
+                assertTrue(registry.search("loot.highlights").get(0).open());
+                assertEquals("loot", shell.selectedPage()); assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+                assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
+
+                String[][] sections = {{"loot.filters", tomato.gui.settings.SettingsPage.LOOT_FILTERS}, {"chat.settings", tomato.gui.settings.SettingsPage.CHAT},
+                    {"about.open", tomato.gui.settings.SettingsPage.ABOUT}};
+                for (String[] section : sections) {
+                    shell.select("chat");
+                    assertTrue(registry.search(section[0]).get(0).open());
+                    assertEquals(section[0], "settings", shell.selectedPage());
+                    assertEquals(section[0], section[1], settings.currentSection());
+                }
+
+                JTabbedPane characters = named(shell, "characters-tabs", JTabbedPane.class);
+                shell.select("chat");
+                assertTrue(registry.search("fame.history").get(0).open());
+                assertEquals("In Simple it opens Characters", "characters", shell.selectedPage());
+                assertEquals("Roster", characters.getTitleAt(characters.getSelectedIndex()));
+                assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
+                tomato.gui.kit.DisplayModeModel.application().set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST);
+                assertTrue(registry.search("fame.history").get(0).open());
+                assertEquals("characters", shell.selectedPage());
+                assertEquals("In Analyst it shows Fame history", "Fame history", characters.getTitleAt(characters.getSelectedIndex()));
+                assertNotNull("…built on its first show", named(shell, "character-fame-view", JComponent.class));
+                assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
+            });
+        } finally { SwingUtilities.invokeAndWait(() -> tomato.gui.kit.DisplayModeModel.application().set(mode)); }
+    }
+
+    /** With the Settings hook the menu's Loot filter settings…, Chat settings… and About open their Settings sections. */
+    @Test public void theMenuOpensTheLootFiltersChatAndAboutSections() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JMenuBar bar = (JMenuBar) field(gui, "jMenuBar");
+            tomato.gui.settings.SettingsPage settings = find(shell, tomato.gui.settings.SettingsPage.class);
+            String[][] entries = {{"Loot filter settings…", tomato.gui.settings.SettingsPage.LOOT_FILTERS},
+                {"Chat settings…", tomato.gui.settings.SettingsPage.CHAT}, {"About", tomato.gui.settings.SettingsPage.ABOUT}};
+            for (String[] entry : entries) {
+                shell.select("chat");
+                JMenuItem item = menuItem(bar, entry[0]);
+                assertNotNull(entry[0] + " is in the menu", item);
+                item.doClick();
+                assertEquals(entry[0], "settings", shell.selectedPage());
+                assertEquals(entry[0], entry[1], settings.currentSection());
+            }
+            assertNotNull("Settings hosts Loot filters", named(settings, "settings-loot-filters", JComponent.class));
+            assertNotNull("…Chat", named(settings, "settings-chat", JComponent.class));
+            assertNotNull("…and About", named(settings, "settings-about", JComponent.class));
+        });
+    }
+
+    /** Home's Notable loot tile opens Loot › Highlights through the navigator, even from Explore, and Back returns Home. */
+    @Test public void homesNotableLootTileOpensHighlightsAndBackReturnsHome() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            tomato.gui.glance.home.HomePage home = find(shell, tomato.gui.glance.home.HomePage.class);
+            home.apply(tomato.gui.glance.home.HomeModels.populated(System.currentTimeMillis()));
+            tomato.gui.loot.LootPage page = lootPage();
+            page.bring(tomato.gui.loot.LootTab.EXPLORE);
+            shell.select("home");
+            tomato.gui.kit.StatTile tile = named(home, "home-tile-loot", tomato.gui.kit.StatTile.class);
+            assertNotNull("The tile is activatable", tile.getActionMap().get("open-tile"));
+            tile.getActionMap().get("open-tile").actionPerformed(null);
+            assertEquals("loot", shell.selectedPage());
+            assertEquals("Notable loot opens Highlights", tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals("Back returns Home", "home", shell.selectedPage());
+        });
+    }
+
+    /**
+     * Closing the app reaches Loot's hidden Explore tab (its workspace releases its result) and closes Loot highlights, and the
+     * Fame history workspace, built in Analyst, is released while Simple detaches its tab.
+     */
+    @Test public void closingReachesAHiddenExploreTabHighlightsAndFameHistory() throws Exception {
+        tomato.gui.kit.DisplayModeModel.Mode mode = edt(() -> tomato.gui.kit.DisplayModeModel.application().mode());
+        try {
+            ArchiveWorkspace<?,?,?> loot = workspace("loot");
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.kit.DisplayModeModel.application().set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST);
+                loot.showSaved();
+                assertTrue("Analyst shows Fame history", find(shell, tomato.gui.character.CharacterPanelGUI.class).showFameHistory());
+            });
+            ArchiveWorkspace<?,?,?> fame = edt(() -> named(shell, "character-fame-session-view", ArchiveWorkspace.class));
+            assertNotNull("Fame history's workspace is built", fame);
+            await(() -> !loot.loading() && loot.displayedPage() != null && !fame.loading() && fame.displayedPage() != null);
+            java.util.List<ArchivePage<?>> pages = edt(() -> Arrays.asList(loot.displayedPage(), fame.displayedPage()));
+            tomato.gui.loot.LootHighlights highlights = edt(() -> named(shell, "loot-highlights", tomato.gui.loot.LootHighlights.class));
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue(lootPage().tabs().hide(tomato.gui.loot.LootTab.EXPLORE.id()));
+                assertNull("The hidden Explore tab is detached", named(shell, "loot-session-view", ArchiveWorkspace.class));
+                tomato.gui.kit.DisplayModeModel.application().set(tomato.gui.kit.DisplayModeModel.Mode.SIMPLE);
+                assertFalse("Simple has no Fame history to show", find(shell, tomato.gui.character.CharacterPanelGUI.class).showFameHistory());
+                assertNull("Simple detaches Fame history", named(shell, "character-fame-session-view", ArchiveWorkspace.class));
+            });
+            for (ArchivePage<?> open : pages) try (ArchiveResult.Lease<?> lease = open.lease()) { assertNotNull(lease); }
+            gui.closeWorkspace();
+            for (ArchivePage<?> closed : pages) {
+                try (ArchiveResult.Lease<?> unexpected = closed.lease()) { fail("A hidden tab's workspace kept its result owner"); }
+                catch (java.io.IOException expected) { /* Owner closed. */ }
+            }
+            assertTrue("Loot highlights is closed", edt(() -> (Boolean) field(highlights, "closed")));
+        } finally { SwingUtilities.invokeAndWait(() -> tomato.gui.kit.DisplayModeModel.application().set(mode)); }
     }
 
     /** The card named {@code canonical} among the loaded Dungeons cards. */

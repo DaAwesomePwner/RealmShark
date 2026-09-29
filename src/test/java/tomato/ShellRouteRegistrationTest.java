@@ -27,9 +27,10 @@ public class ShellRouteRegistrationTest {
     private static final String[] RECAP_SECTIONS = {"damage", "loot", "players", "resources", "timeline", "evidence"};
     /**
      * The Runs & DPS tabs, the Live meter's nested tabs, the Recordings tab's saved view (the encounter library's live state) and
-     * the Dungeons tab's view.
+     * the Dungeons tab's view; and Loot's tabs (P6a: it opens on Highlights with both tabs shown).
      */
-    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live", "ui.dungeons.view"};
+    private static final String[] TAB_PREFERENCES = {"ui.tabs.runs", "ui.tabs.dps", "ux.archive.encounter-library-live", "ui.dungeons.view",
+        "ui.tabs.loot"};
 
     @Test public void createdWorkspaceRegistersAnalyticsTargetsAndCloseUninstallsTheNavigator() throws Exception {
         java.util.Map<String, String> recapSections = new java.util.HashMap<>();
@@ -147,6 +148,45 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.back());
                 assertEquals("Back returns to Dungeons", tomato.gui.runs.RunsTab.DUNGEONS, runsDps.selectedTab());
                 assertTrue(navigator.back()); assertEquals(landing, workspace.selectedPage());
+
+                // P6a: the loot page is Loot with the tabs Highlights · Explore. Both Loot workspace targets bring Explore forward (a
+                // visit, a query or a plain route); a LootFocus route brings its tab; Back returns to the tab left.
+                tomato.gui.loot.LootPage loot = find(workspace, tomato.gui.loot.LootPage.class);
+                assertNotNull("The loot page is Loot", loot);
+                assertEquals("loot", tomato.gui.modern.WorkspaceShell.pageOf(Destination.LOOT));
+                assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, loot.selectedTab());
+                assertTrue(navigator.canOpen(Route.to(Destination.LOOT).withQuery(LootQuery.initial(LootQuery.View.ITEMS, ArchiveQuery.CURRENT))));
+                for (tomato.gui.loot.LootTab tab : tomato.gui.loot.LootTab.values())
+                    assertTrue("Each Loot tab has a route: " + tab, navigator.canOpen(Route.to(Destination.LOOT).withPayload(new tomato.gui.loot.LootFocus(tab))));
+                assertTrue(navigator.open(Route.to(Destination.LOOT).withPayload(new tomato.gui.loot.LootFocus(tomato.gui.loot.LootTab.EXPLORE))));
+                assertEquals("loot", workspace.selectedPage());
+                assertEquals(tomato.gui.loot.LootTab.EXPLORE, loot.selectedTab());
+                assertTrue(navigator.open(Route.to(Destination.LOOT).withPayload(new tomato.gui.loot.LootFocus(tomato.gui.loot.LootTab.HIGHLIGHTS))));
+                assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, loot.selectedTab());
+                assertTrue(navigator.open(Route.to(Destination.LOOT).withVisit(visit)));
+                assertEquals("A visit route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, loot.selectedTab());
+            });
+            // The visit route's drill summary is read off the EDT; it sits in the Explore tab.
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(20);
+            JTextArea[] summary = new JTextArea[1];
+            while (summary[0] == null && System.nanoTime() < deadline) {
+                SwingUtilities.invokeAndWait(() -> summary[0] = named(shell.get(), "loot-drill-summary", JTextArea.class));
+                if (summary[0] == null) Thread.sleep(20);
+            }
+            assertNotNull("The Loot visit route shows its drill summary", summary[0]);
+            SwingUtilities.invokeAndWait(() -> {
+                tomato.gui.loot.LootPage loot = find(shell.get(), tomato.gui.loot.LootPage.class);
+                java.awt.Component explore = loot.tabs().component().getComponentAt(loot.tabs().visibleIds().indexOf(tomato.gui.loot.LootTab.EXPLORE.id()));
+                assertTrue("loot-drill-summary sits inside Explore", SwingUtilities.isDescendingFrom(summary[0], explore));
+                Navigator navigator = Navigator.current();
+                tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
+                assertTrue(navigator.back());
+                assertEquals("loot", workspace.selectedPage());
+                assertEquals("Back returns to the tab left", tomato.gui.loot.LootTab.HIGHLIGHTS, loot.selectedTab());
+                assertTrue(navigator.back());
+                assertEquals(tomato.gui.loot.LootTab.EXPLORE, loot.selectedTab());
+                assertTrue(navigator.back());
+                assertNotEquals("loot", workspace.selectedPage());
             });
             gui.closeWorkspace();
             SwingUtilities.invokeAndWait(() -> assertSame(Navigator.NONE, Navigator.current()));
@@ -164,6 +204,14 @@ public class ShellRouteRegistrationTest {
         for (java.awt.Component child : root.getComponents()) {
             if (type.isInstance(child)) return type.cast(child);
             if (child instanceof java.awt.Container) { T found = find((java.awt.Container) child, type); if (found != null) return found; }
+        }
+        return null;
+    }
+
+    private static <T extends java.awt.Component> T named(java.awt.Container root, String name, Class<T> type) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (type.isInstance(child) && name.equals(child.getName())) return type.cast(child);
+            if (child instanceof java.awt.Container) { T found = named((java.awt.Container) child, name, type); if (found != null) return found; }
         }
         return null;
     }
