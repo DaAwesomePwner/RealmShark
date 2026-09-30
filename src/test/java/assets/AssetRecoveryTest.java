@@ -109,6 +109,76 @@ public class AssetRecoveryTest {
         }
     }
 
+    @Test public void nonXmlTextAssetsAreSkippedButBrokenXmlStillFailsRecovery() throws Exception {
+        Path assets = Paths.get("assets");
+        assertFalse("This test requires an isolated working directory without game assets", Files.exists(assets));
+        String marker = PropertiesManager.getProperty("lastModifiedTime"), remembered = PropertiesManager.getProperty("realmResPath");
+        Path source = temp.newFile("resources.assets").toPath();
+        try {
+            // The game ships Unity performance-test data (JSON) that extraction names *.xml; it holds no definitions.
+            AssetExtractor.recover(source.toFile(), "test", text -> {}, (input, output) -> {
+                Path xml = definitions(output);
+                Files.write(xml.resolve("PerformanceTestRunInfo.xml"), "﻿ {\"TestSuite\":\"\",\"Date\":0}".getBytes(StandardCharsets.UTF_8));
+                Files.write(xml.resolve("PerformanceTestRunSettings.xml"), "{\"MeasurementCount\":-1}".getBytes(StandardCharsets.UTF_8));
+                Files.write(xml.resolve("empty.xml"), new byte[0]);
+            });
+            assertTrue(AssetExtractor.hasUsableCache());
+            assertEquals("Synthetic weapon", IdToAsset.objectName(0x1234));
+
+            String published = PropertiesManager.getProperty("lastModifiedTime");
+            try {
+                AssetExtractor.recover(source.toFile(), "broken", text -> {}, (input, output) -> {
+                    Path xml = definitions(output);
+                    Files.write(xml.resolve("dungeons.xml"), "<Objects><Object type='0x9'".getBytes(StandardCharsets.UTF_8));
+                });
+                fail("A broken XML definition file must still fail recovery");
+            } catch (java.io.IOException expected) { assertTrue(expected.getMessage().contains("could not be parsed")); }
+            assertEquals(published, PropertiesManager.getProperty("lastModifiedTime"));
+        } finally {
+            PropertiesManager.setProperties("lastModifiedTime", marker == null ? "" : marker);
+            PropertiesManager.setProperties("realmResPath", remembered == null ? "" : remembered);
+            if (Files.exists(assets)) try (java.util.stream.Stream<Path> paths = Files.walk(assets)) {
+                for (Path path : (Iterable<Path>)paths.sorted(Comparator.reverseOrder())::iterator) Files.delete(path);
+            }
+        }
+    }
+
+    @Test public void namesTheListCharsetCannotEncodeDoNotFailRecovery() throws Exception {
+        Path assets = Paths.get("assets");
+        assertFalse("This test requires an isolated working directory without game assets", Files.exists(assets));
+        String marker = PropertiesManager.getProperty("lastModifiedTime"), remembered = PropertiesManager.getProperty("realmResPath");
+        Path source = temp.newFile("resources.assets").toPath();
+        try {
+            AssetExtractor.recover(source.toFile(), "test", text -> {}, (input, output) -> {
+                Path xml = definitions(output);
+                // CJK and a check mark are outside windows-1252, the lists' charset on most Windows JDK 17 installs.
+                Files.write(xml.resolve("pets.xml"), "<Objects><Object type='0x4321' id='Synthetic 中 ✓ pet'/></Objects>"
+                    .getBytes(StandardCharsets.UTF_8));
+            });
+            assertTrue(AssetExtractor.hasUsableCache());
+            assertEquals("Synthetic weapon", IdToAsset.objectName(0x1234));
+            assertTrue(IdToAsset.objectName(0x4321).startsWith("Synthetic "));
+        } finally {
+            PropertiesManager.setProperties("lastModifiedTime", marker == null ? "" : marker);
+            PropertiesManager.setProperties("realmResPath", remembered == null ? "" : remembered);
+            if (Files.exists(assets)) try (java.util.stream.Stream<Path> paths = Files.walk(assets)) {
+                for (Path path : (Iterable<Path>)paths.sorted(Comparator.reverseOrder())::iterator) Files.delete(path);
+            }
+        }
+    }
+
+    /** The three required definition files, in the extraction's xml folder. */
+    private static Path definitions(java.io.File[] output) throws java.io.IOException {
+        Path xml = output[2].toPath(); Files.createDirectories(xml);
+        Files.write(xml.resolve("equip.xml"), ("<Objects><Object type='0x1234' id='Synthetic weapon'><Class>Equipment</Class>"
+            + "<SlotType>1</SlotType><Projectile id='0'><MinDamage>10</MinDamage><MaxDamage>20</MaxDamage></Projectile></Object>"
+            + "<Ground type='0x1' id='Synthetic tile'/></Objects>").getBytes(StandardCharsets.UTF_8));
+        Files.write(xml.resolve("players.xml"), ("<Objects><Object type='0x7ffe' id='Synthetic class'><Equipment>1,2,3</Equipment>"
+            + "<MaxHitPoints max='100'>10</MaxHitPoints></Object></Objects>").getBytes(StandardCharsets.UTF_8));
+        Files.write(xml.resolve("enchantments.xml"), "<Enchantments/>".getBytes(StandardCharsets.UTF_8));
+        return xml;
+    }
+
     @Test public void freshGenerationsIgnoreObsoleteXmlAndRefreshDungeonAndRemovedScalingRulesOnRepeatedRecovery() throws Exception {
         Path legacy = Paths.get("assets"); assertFalse(Files.exists(legacy));
         String marker = PropertiesManager.getProperty("lastModifiedTime"), remembered = PropertiesManager.getProperty("realmResPath");

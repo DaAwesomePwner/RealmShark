@@ -85,6 +85,34 @@ public class AssetReadinessRecoveryTest {
             Files.deleteIfExists(invalid);
         }
     }
+    @Test public void startupExtractsWhenTheGameSourceIsFoundAndOnlyReportsMissingWithoutOne() throws Exception {
+        Map<Field,Object> original = new LinkedHashMap<>();
+        String savedPreference = PropertiesManager.getProperty("sniffer");
+        java.util.function.Supplier<PacketProcessor> factory = () -> { throw new AssertionError("Capture must not start"); };
+        Path unreadable = Files.createTempFile(Paths.get("."), "startup-source-", ".assets");   // not a Unity file
+        try (AssetGenerationFixture fixture = new AssetGenerationFixture()) {
+            SwingUtilities.invokeAndWait(() -> {
+                replace(original, "preview", false); replace(original, "assetsReady", false); replace(original, "setupBusy", false);
+                PropertiesManager.setProperties("sniffer", "F");
+            });
+            assets.AssetExtractor.setRealmResPath(Paths.get("missing-" + System.nanoTime() + ".assets").toAbsolutePath().toString());
+            assertFalse("No source and no cache: startup reports missing assets without extracting",
+                runSetup(null, false, factory).get(5, TimeUnit.SECONDS));
+            await(() -> !flag("setupBusy"));
+
+            assets.AssetExtractor.setRealmResPath(unreadable.toAbsolutePath().toString());
+            try { runSetup(null, false, factory).get(30, TimeUnit.SECONDS); fail("Startup must attempt extraction when the game source exists"); }
+            catch (ExecutionException attempted) { assertNotNull(attempted.getCause()); }
+            await(() -> !flag("setupBusy")); assertFalse(flag("assetsReady"));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                try { for (Map.Entry<Field,Object> entry : original.entrySet()) entry.getKey().set(null, entry.getValue()); }
+                catch (IllegalAccessException e) { throw new AssertionError(e); }
+            });
+            PropertiesManager.setProperties("sniffer", savedPreference == null ? "" : savedPreference);
+            Files.deleteIfExists(unreadable);
+        }
+    }
     private static SwingWorker<Boolean,String> runSetup(java.io.File chosen, boolean recover, java.util.function.Supplier<PacketProcessor> factory) throws Exception {
         AtomicReference<SwingWorker<Boolean,String>> worker = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> worker.set(Tomato.beginAssetSetup(chosen, recover, factory)));
