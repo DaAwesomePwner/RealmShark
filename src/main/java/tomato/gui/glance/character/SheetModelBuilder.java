@@ -14,6 +14,7 @@ import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.ItemTiers;
 import tomato.gui.modern.DisplayFormat;
 import tomato.planning.PlanningMetadata;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.CharacterClass;
 
@@ -114,7 +115,7 @@ public final class SheetModelBuilder {
     }
 
     /**
-     * Saved slots, with the live equipped four and their enchant rarity while this character plays. Tier labels come from the
+     * Saved slots, with the live equipped four and their enchantments while this character plays. Tier labels come from the
      * definitions this build was given (ItemTiers' pure overload), never from the global RosterDefinitions.current() on the EDT.
      */
     private static SheetModel.Gear gear(CharacterRecord r, LiveCharacter.Snapshot live, boolean playing, RosterDefinitions definitions) {
@@ -128,13 +129,13 @@ public final class SheetModelBuilder {
         return new SheetModel.Gear(list(slots), List.copyOf(tiers), r.hasBackpack, playing ? enchants(live) : null);
     }
 
-    /** Unlocked enchant slots of the 4 equipped items from the live snapshot's detached inputs; -1 where not decodable. */
-    static List<Integer> enchants(LiveCharacter.Snapshot live) {
+    /** The 4 equipped items' enchantments from the live snapshot's detached inputs. */
+    static List<EnchantInfo> enchants(LiveCharacter.Snapshot live) {
         if (live.build() == null) return null;
         ParseEnchants.EquippedCapture capture = live.build().enchants();
-        int[] slots = new int[4];
-        for (int i = 0; i < 4; i++) slots[i] = capture.unlockedSlots(i);
-        return list(slots);
+        List<EnchantInfo> slots = new ArrayList<>(4);
+        for (int i = 0; i < 4; i++) slots.add(capture.info(i));
+        return List.copyOf(slots);
     }
 
     /** Exalt arrays are in RealmCharacter order (dex, spd, vit, wis, def, atk, mana, life); EXALT_ORDER maps canonical stats into them. */
