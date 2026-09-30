@@ -245,7 +245,10 @@ public final class CharacterJournal implements AutoCloseable {
         for (int i = 0; i < 28; i++) {
             int stat = i < 12 ? 8 + i : 131 + i - 12;
             StatData item = player.stat.get(stat);
-            if (item != null) { record.equipment[i] = item.statValue; capture(record, "equipment." + i, player.fieldCapture(stat)); }
+            if (item != null) {
+                Integer previous = record.equipment[i]; record.equipment[i] = item.statValue; forgetEnchant(record, i, previous, record.equipment[i]);
+                capture(record, "equipment." + i, player.fieldCapture(stat));
+            }
         }
         StatData enchants = player.stat.get(StatType.UNIQUE_DATA_STRING);
         // Like equipment, an observation without the stat keeps what was saved.
@@ -267,6 +270,11 @@ public final class CharacterJournal implements AutoCloseable {
             changed();
         }
         return account;
+    }
+
+    /** A changed equipped item invalidates its saved enchantments; a fresh enchant stat in the same observation replaces them anyway. */
+    private static void forgetEnchant(CharacterRecord r, int slot, Integer before, Integer after) {
+        if (slot < 4 && r.equipmentEnchants != null && slot < r.equipmentEnchants.length && !Objects.equals(before, after)) r.equipmentEnchants[slot] = null;
     }
 
     /** The first four comma-separated entries (the equipped slots); "" is the protocol's known-empty shorthand for all four. */
@@ -309,7 +317,7 @@ public final class CharacterJournal implements AutoCloseable {
             int[] values = {c.hp, c.mp, c.atk, c.def, c.spd, c.dex, c.vit, c.wis};
             for (int i = 0; i < 8; i++) if ((c.capturedStatMask & (1 << i)) != 0) r.stats[i] = values[i];
             if (c.equipment != null) for (int i = 0; i < Math.min(28, c.equipment.length); i++) {
-                r.equipment[i] = c.equipment[i];
+                Integer previous = r.equipment[i]; r.equipment[i] = c.equipment[i]; forgetEnchant(r, i, previous, r.equipment[i]);
                 r.fields.put("equipment." + i, c.presence.getOrDefault("equipment." + i, new FieldCapture(0, "Legacy character list")));
             }
             for (Map.Entry<String, FieldCapture> field : c.presence.entrySet())

@@ -46,6 +46,38 @@ public class CharacterJournalTest {
         assertArrayEquals(new String[] {"AAIE", "", "", ""}, new CharacterJournal(file).characters().get(0).equipmentEnchants);
     }
 
+    @Test public void aChangedItemForgetsItsSlotsSavedEnchantsUnlessFreshOnesArrive() throws Exception {
+        CharacterJournal j = new CharacterJournal(file());
+        Entity e = player("account-a", 782);
+        put(e, StatType.INVENTORY_0_STAT, 100); put(e, StatType.INVENTORY_1_STAT, 200);
+        StatData enchants = new StatData(); enchants.stringStatValue = "AAIE_wU,AAIE_wU,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        j.observe(e, 10);
+        e.stat.set(StatType.UNIQUE_DATA_STRING, null);
+        put(e, StatType.INVENTORY_0_STAT, 101);   // weapon swapped, no fresh enchant stat
+        j.observe(e, 10);
+        assertArrayEquals(new String[] {null, "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+        StatData fresh = new StatData(); fresh.stringStatValue = "AAIE,AAIE_wU,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, fresh);
+        put(e, StatType.INVENTORY_0_STAT, 102);
+        j.observe(e, 10);
+        assertArrayEquals("A fresh enchant stat in the same observation wins", new String[] {"AAIE", "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+    }
+
+    @Test public void rosterMergeForgetsOnlyChangedEquippedItemsEnchants() {
+        CharacterJournal j = new CharacterJournal(file());
+        Entity e = player("account-a", 782);
+        put(e, StatType.INVENTORY_0_STAT, 100); put(e, StatType.INVENTORY_1_STAT, 200);
+        put(e, StatType.INVENTORY_2_STAT, 300); put(e, StatType.INVENTORY_3_STAT, 400);
+        StatData enchants = new StatData(); enchants.stringStatValue = "AAIE_wU,AAIE_wU,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        String account = j.observe(e, 10);
+        ArrayList<RealmCharacter> same = RealmCharacter.getCharList("<Chars><Char id='10'><ObjectType>782</ObjectType><Equipment>100,200,300,400</Equipment></Char></Chars>");
+        j.mergeRoster(account, same);
+        assertArrayEquals("An unchanged roster item keeps its saved enchants", new String[] {"AAIE_wU", "AAIE_wU", "", ""},
+            j.characters().get(0).equipmentEnchants);
+        ArrayList<RealmCharacter> changed = RealmCharacter.getCharList("<Chars><Char id='10'><ObjectType>782</ObjectType><Equipment>101,200,300,400</Equipment></Char></Chars>");
+        j.mergeRoster(account, changed);
+        assertArrayEquals(new String[] {null, "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+    }
+
     @Test public void theEmptyShorthandIsFourUnenchantedSlotsAndMissingSlotsAreNotRecorded() {
         assertArrayEquals(new String[] {"", "", "", ""}, CharacterJournal.equippedEnchants(""));
         assertArrayEquals(new String[] {"AAIE", "", null, null}, CharacterJournal.equippedEnchants("AAIE,"));
