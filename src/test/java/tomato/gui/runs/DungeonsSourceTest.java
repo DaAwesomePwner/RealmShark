@@ -117,7 +117,7 @@ public class DungeonsSourceTest {
     @Test public void cardsAgreeWithTheRunFeedsCardsForTheSameRuns() throws Exception {
         try (SessionStore store = new SessionStore(mixed(), false, "fixture")) {
             DungeonsModel model = all(source(store));
-            RunFeedSource feed = new RunFeedSource(store, ZONE, () -> RunFixtures.NOW, temp.newFolder("scratch").toPath());
+            RunFeedSource feed = new RunFeedSource(store, ZONE, () -> RunFixtures.NOW);
             RunFeedSource.Page page = feed.first(RunFeedQuery.all(), new Cancellation());
             while (page.model().more()) { RunFeedSource.Page next = feed.more(page, new Cancellation()); page.close(); page = next; }
             Map<String, List<RunCardModel>> byDungeon = new TreeMap<>();

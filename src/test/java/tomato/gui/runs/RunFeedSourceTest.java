@@ -6,7 +6,6 @@ import java.nio.file.attribute.FileTime;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.swing.SwingUtilities;
 import org.junit.Rule;
 import org.junit.Test;
@@ -40,7 +39,7 @@ public class RunFeedSourceTest {
     }
     private Path scenario() throws Exception { Path root = temp.newFolder("history").toPath(); RunFixtures.write(root); return root; }
     private RunFeedSource source(SessionStore store, long now) throws Exception {
-        return new RunFeedSource(store, ZONE, () -> now, temp.newFolder().toPath());
+        return new RunFeedSource(store, ZONE, () -> now);
     }
     private static List<VisitRef> refs(RunFeedModel model) { return model.cards().stream().map(RunCardModel::ref).collect(Collectors.toList()); }
     private static RunCardModel card(RunFeedModel model, VisitRef ref) {
@@ -415,23 +414,209 @@ public class RunFeedSourceTest {
         }
     }
 
-    @Test public void readsRefuseTheEventDispatchThreadAndClosingReleasesTheScratchFiles() throws Exception {
-        Path root = scenario(), scratch = temp.newFolder("scratch").toPath();
+    @Test public void readsRefuseTheEventDispatchThreadAndClosingIsIdempotent() throws Exception {
+        Path root = scenario();
         try (SessionStore store = new SessionStore(root, false, "fixture")) {
-            RunFeedSource source = new RunFeedSource(store, ZONE, () -> RunFixtures.NOW, scratch);
+            RunFeedSource source = new RunFeedSource(store, ZONE, () -> RunFixtures.NOW);
             AtomicReference<Throwable> thrown = new AtomicReference<>();
             SwingUtilities.invokeAndWait(() -> {
                 try { source.first(RunFeedQuery.all(), new Cancellation()); } catch (Throwable failure) { thrown.set(failure); }
             });
             assertTrue(String.valueOf(thrown.get()), thrown.get() instanceof IllegalStateException);
             RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation());
-            try (Stream<Path> files = Files.list(scratch)) { assertTrue("The page holds its pinned result", files.findAny().isPresent()); }
             page.close(); page.close();   // idempotent
-            try (Stream<Path> files = Files.list(scratch)) { assertEquals("Released", List.of(), files.collect(Collectors.toList())); }
+            try { source.more(page, new Cancellation()); fail("Closed pages cannot be extended"); }
+            catch (IllegalStateException expected) { }
             Cancellation cancelled = new Cancellation(); cancelled.cancel();
             try { source.first(RunFeedQuery.all(), cancelled); fail("A cancelled read stops"); }
             catch (java.util.concurrent.CancellationException expected) { }
-            try (Stream<Path> files = Files.list(scratch)) { assertEquals("A cancelled read leaves nothing behind", List.of(), files.collect(Collectors.toList())); }
+        }
+    }
+
+    @Test public void closedSessionsRunsAreReusedUntilTheirFilesChange() throws Exception {
+        Path root = scenario();
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            source.first(RunFeedQuery.all(), new Cancellation()).close();
+            int cold = source.sessionReads();
+            source.first(new RunFeedQuery("Snake", Set.of(), null), new Cancellation()).close();
+            assertEquals("Only the current session is re-read", cold + 1, source.sessionReads());
+            HomeHistoryFixture.runs(root, RunFixtures.A, HomeHistoryFixture.visit("new", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals(cold + 3, source.sessionReads());
+                assertEquals(6, page.matches());
+            }
+            Path file = root.resolve(RunFixtures.A).resolve("runs").resolve(SessionStore.checkpointName("new") + ".json");
+            FileTime written = Files.getLastModifiedTime(file);
+            ActivityJournal.Visit changed = HomeHistoryFixture.visit("new", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true);
+            changed.rosterSize = 9;
+            HomeHistoryFixture.runs(root, RunFixtures.A, changed);
+            Files.setLastModifiedTime(file, FileTime.fromMillis(written.toMillis() + 2_000));
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals(cold + 5, source.sessionReads());
+                assertEquals(Integer.valueOf(9), card(page.model(), new VisitRef(RunFixtures.A, "new")).partySize());
+            }
+        }
+    }
+
+    @Test public void pagesKeepTheirMatchingRowsWhenAClosedSessionSavesAnotherRun() throws Exception {
+        Path root = large();
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, NOW);
+            try (RunFeedSource.Page first = source.first(RunFeedQuery.all(), new Cancellation());
+                 RunFeedSource.Page before = source.more(first, new Cancellation())) {
+                VisitRef added = new VisitRef(id("large-0"), "newest");
+                HomeHistoryFixture.runs(root, added.sessionId, HomeHistoryFixture.visit(added.visitId, "Lost Halls", NOW - 1_000, NOW, true));
+                try (RunFeedSource.Page refreshed = source.first(RunFeedQuery.all(), new Cancellation());
+                     RunFeedSource.Page after = source.more(first, new Cancellation())) {
+                    assertEquals(first.matches() + 1, refreshed.matches());
+                    assertEquals(added, refs(refreshed.model()).get(0));
+                    assertEquals(before.matches(), after.matches());
+                    assertEquals(refs(before.model()), refs(after.model()));
+                    assertEquals(100, new HashSet<>(refs(after.model())).size());
+                    first.close();
+                    try (RunFeedSource.Page next = source.more(after, new Cancellation())) { assertEquals(150, next.model().cards().size()); }
+                }
+            }
+        }
+    }
+
+    @Test public void unfinishedJournalTailsAreExcludedEvenWhenTheyAreValidJson() throws Exception {
+        Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        String visit = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            for (String tail : List.of("{unfinished", visit)) {
+                Files.writeString(journal, visit + "\n" + tail);
+                try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                    assertEquals(6, page.matches());
+                    assertEquals(List.of(RunFixtures.A + "/runs: unfinished journal tail excluded"), page.issues());
+                }
+            }
+            Files.writeString(journal, visit + "\n");
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals(6, page.matches()); assertTrue(page.issues().isEmpty());
+            }
+        }
+    }
+
+    @Test public void aDamagedCompleteJournalRecordFailsAndIsNotCached() throws Exception {
+        Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            for (String text : List.of("{damaged\n", "{damaged\n{}\n")) {
+                Files.writeString(journal, text);
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    int reads = source.sessionReads();
+                    try { source.first(RunFeedQuery.all(), new Cancellation()); fail("Damaged complete records fail the read"); }
+                    catch (java.io.IOException expected) { assertTrue(source.sessionReads() > reads); }
+                }
+            }
+            Files.writeString(journal, "");
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) { assertEquals(5, page.matches()); }
+        }
+    }
+
+    @Test public void truncatedUtf8InAnUnfinishedJournalTailIsExcluded() throws Exception {
+        Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        String visit = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
+        Files.writeString(journal, visit + "\n{\"id\":\"unfinished");
+        Files.write(journal, new byte[] {(byte) 0xe2, (byte) 0x82}, java.nio.file.StandardOpenOption.APPEND);
+        try (SessionStore store = new SessionStore(root, false, "fixture");
+             RunFeedSource.Page page = source(store, RunFixtures.NOW).first(RunFeedQuery.all(), new Cancellation())) {
+            assertEquals(6, page.matches());
+            assertEquals(List.of(RunFixtures.A + "/runs: unfinished journal tail excluded"), page.issues());
+        }
+    }
+
+    @Test public void journalGrowthDuringReadOnlyEmitsTheInitialCompletePrefix() throws Exception {
+        Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        String visit = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
+        // Exceed the reader's buffer so growth occurs before the entire prefix has been consumed.
+        String prefix = (visit + "\n").repeat(120);
+        Files.writeString(journal, prefix + visit);
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            Cancellation mutation = duringJournal(store, source, () ->
+                Files.writeString(journal, "\n" + visit + "\n{damaged\n", java.nio.file.StandardOpenOption.APPEND));
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), mutation)) {
+                assertEquals("Neither the completed tail nor later records enter the result", 125, page.matches());
+                assertEquals(List.of(RunFixtures.A + "/runs: unfinished journal tail excluded"), page.issues());
+            }
+            assertTrue(Files.size(journal) > prefix.length() + visit.length());
+        }
+    }
+
+    /**
+     * A journal that shrinks while it is read fails the read. A same-name replacement that only grows is not detectable on
+     * Windows (no file key, and a recreated name keeps its creation time), as the archive pin could not detect it either.
+     */
+    @Test public void journalShrinkageDuringReadFails() throws Exception {
+        Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        Files.writeString(journal, SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true)) + "\n");
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            Cancellation mutation = duringJournal(store, source, () -> Files.writeString(journal, ""));
+            try { source.first(RunFeedQuery.all(), mutation); fail("A shrunk journal must fail"); }
+            catch (java.io.IOException expected) { assertTrue(expected.toString(), expected.getMessage().contains("changed during read")); }
+        }
+    }
+
+    @FunctionalInterface private interface JournalMutation { void run() throws java.io.IOException; }
+
+    /** The first cancellation check after this session's read counter advances is inside its journal reader. */
+    private static Cancellation duringJournal(SessionStore store, RunFeedSource source, JournalMutation mutation) throws Exception {
+        List<SessionStore.SessionEntry> catalog = store.catalog();
+        int target = java.util.stream.IntStream.range(0, catalog.size())
+            .filter(i -> catalog.get(i).id.equals(RunFixtures.A)).findFirst().orElseThrow() + 1;
+        java.util.concurrent.atomic.AtomicBoolean changed = new java.util.concurrent.atomic.AtomicBoolean();
+        return new Cancellation(() -> {
+            if (source.sessionReads() == target && changed.compareAndSet(false, true)) {
+                try { mutation.run(); } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            }
+            return false;
+        });
+    }
+
+    @Test public void journalAndCheckpointVisitsRemainDuplicatesWithTheSameEndedSessionFixup() throws Exception {
+        Path root = scenario();
+        ActivityJournal.Visit visit = HomeHistoryFixture.visit("duplicate", "Lost Halls", at(0, 9, 30), 0, false);
+        visit.lastSeen = at(0, 9, 40);
+        visit.rosterSize = 99;
+        HomeHistoryFixture.runs(root, RunFixtures.A, visit);
+        StringBuilder journal = new StringBuilder();
+        for (int i = 0; i < 12; i++) {
+            visit.rosterSize = i;
+            journal.append(SessionStore.JSON.toJson(visit)).append('\n');
+        }
+        Files.writeString(root.resolve(RunFixtures.A).resolve("runs.jsonl"), journal);
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                List<RunCardModel> duplicates = page.model().cards().stream()
+                    .filter(c -> c.ref().equals(new VisitRef(RunFixtures.A, "duplicate"))).collect(Collectors.toList());
+                assertEquals(18, page.matches()); assertEquals(13, duplicates.size());
+                assertEquals("Checkpoint sorts before journal copies", Integer.valueOf(99), duplicates.get(0).partySize());
+                for (int i = 0; i < 12; i++) assertEquals("Journal ordinals sort numerically", Integer.valueOf(i), duplicates.get(i + 1).partySize());
+                for (RunCardModel card : duplicates) {
+                    assertEquals(RunOutcome.APP_ENDED, card.outcome()); assertEquals(Long.valueOf(10 * 60_000), card.durationMs());
+                }
+            }
+        }
+    }
+
+    @Test public void cancellingDuringASessionsProjectionDoesNotKeepIt() throws Exception {
+        Path root = scenario();
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            Cancellation cancel = new Cancellation(() -> source.sessionReads() > 0);
+            try { source.first(RunFeedQuery.all(), cancel); fail("Cancellation stops the session read"); }
+            catch (java.util.concurrent.CancellationException expected) { }
+            assertEquals(1, source.sessionReads());
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals(5, page.matches());
+                assertEquals("Both saved sessions and the current session must still be read", 4, source.sessionReads());
+            }
         }
     }
 }

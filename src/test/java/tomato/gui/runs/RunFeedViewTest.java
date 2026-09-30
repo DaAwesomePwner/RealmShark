@@ -84,7 +84,7 @@ public class RunFeedViewTest {
         return store;
     }
     private Counting feed(SessionStore store, long now) throws Exception {
-        RunFeedSource source = new RunFeedSource(store, HomeHistoryFixture.ZONE, () -> now, temp.newFolder().toPath());
+        RunFeedSource source = new RunFeedSource(store, HomeHistoryFixture.ZONE, () -> now);
         return new Counting(RunFeedView.feed(store, source));
     }
     private Counting scenario() throws Exception {
@@ -448,7 +448,7 @@ public class RunFeedViewTest {
         Path root = temp.newFolder("history").toPath();
         RunFixtures.write(root);
         SessionStore store = store(root);
-        RunFeedSource source = new RunFeedSource(store, HomeHistoryFixture.ZONE, () -> RunFixtures.NOW, temp.newFolder().toPath());
+        RunFeedSource source = new RunFeedSource(store, HomeHistoryFixture.ZONE, () -> RunFixtures.NOW);
         source.combatReader((s, catalog, scope, sink) -> {
             if (scope.equals(RunFixtures.A)) throw new IOException("synthetic listing failure");
             CombatFacts.read(s, catalog, scope, sink);
