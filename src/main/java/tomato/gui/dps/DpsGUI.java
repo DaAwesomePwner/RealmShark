@@ -5,6 +5,7 @@ import packets.incoming.NotificationPacket;
 import tomato.backend.data.DpsData;
 import tomato.backend.data.DpsSnapshot;
 import tomato.backend.data.Entity;
+import tomato.backend.data.PresenceTimeline;
 import tomato.backend.data.TomatoData;
 import util.PropertiesManager;
 import tomato.gui.history.FilterChips;
@@ -597,7 +598,9 @@ public class DpsGUI extends JPanel {
         DpsData saved = b ? null : selectedEncounter.data;
         DpsData.LocalPlayerContext context = b ? rendered.localPlayerContext : saved.getLocalPlayerContext();
         EncounterLink link=b?EncounterLink.live(rendered.context):EncounterLink.of(saved,selectedEncounter.imported());
-        displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context,link);
+        PresenceTimeline presence = b ? rendered.presence : saved.getPresence();
+        long startedAt = b ? rendered.startedAt : saved.dungeonStartTime;
+        displayed=new DisplayFrame(map,entityHitList,notifications,totalDungeonPcTime,b,b?map:saved,b?rendered.player:null,context,link,presence,startedAt);
         present(displayed);
     }
     private void present(DisplayFrame frame){
@@ -605,6 +608,7 @@ public class DpsGUI extends JPanel {
         displayMeter.setContext(frame.key, frame.player, frame.context);
         displayString.setPlayerContext(frame.context);
         displayIcon.setPlayerContext(frame.context);
+        displayMeter.setPresence(frame.presence, frame.startedAt);
         showLink(frame.link);
         displayMeter.setInspectOrigin((frame.live ? "Live DPS encounter" : "Saved DPS encounter") + " · " + (frame.map == null ? "No map" : frame.map.name)
             + " · " + frame.link.label() + (frame.link.linked() ? " · session " + frame.link.visit.sessionId + " · visit " + frame.link.visit.visitId : "")
@@ -620,8 +624,9 @@ public class DpsGUI extends JPanel {
     private static final class DisplayFrame {
         final MapInfoPacket map;final Entity[] targets;final ArrayList<NotificationPacket> notes;
         final long elapsed;final boolean live;final Object key;final Entity player;final DpsData.LocalPlayerContext context;final EncounterLink link;
+        final PresenceTimeline presence;final long startedAt;
         final String displayedAt=java.time.Instant.now().toString();
-        DisplayFrame(MapInfoPacket map,Entity[] targets,ArrayList<NotificationPacket> notes,long elapsed,boolean live,Object key,Entity player,DpsData.LocalPlayerContext context,EncounterLink link){this.map=map;this.targets=targets;this.notes=notes;this.elapsed=elapsed;this.live=live;this.key=key;this.player=player;this.context=context;this.link=link;}
+        DisplayFrame(MapInfoPacket map,Entity[] targets,ArrayList<NotificationPacket> notes,long elapsed,boolean live,Object key,Entity player,DpsData.LocalPlayerContext context,EncounterLink link,PresenceTimeline presence,long startedAt){this.map=map;this.targets=targets;this.notes=notes;this.elapsed=elapsed;this.live=live;this.key=key;this.player=player;this.context=context;this.link=link;this.presence=presence;this.startedAt=startedAt;}
     }
 
     /** COMBAT-3: link status plus Open run / Timeline / Resources only for a linked encounter the navigator accepts. */

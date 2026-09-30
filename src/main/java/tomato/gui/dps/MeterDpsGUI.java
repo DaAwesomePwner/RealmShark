@@ -1,5 +1,6 @@
 package tomato.gui.dps;
 
+import assets.ImageBuffer;
 import packets.incoming.*;
 import packets.Packet;
 import packets.data.ObjectData;
@@ -131,6 +132,16 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private boolean missingLocalSpawn;
     private int scopedEnemies;
     private double meterMaximum;
+    /** The shown encounter's presence timeline (null for a recording made before outcome tracking), its start and its death notices. */
+    private PresenceTimeline presence;
+    private long startedAt = -1;
+    private ArrayList<NotificationPacket> notices = new ArrayList<>();
+    private EncounterOutcomes outcomes = EncounterOutcomes.none();
+    private static final String OUTCOME_HELP = "Completed: in the dungeon when it ended (server victory, final-boss line or the last boss removed). "
+        + "Nexused: left view before the end and did not return (inferred, except your own nexus). Died: a death notice before the end.";
+    private final JLabel outcomeLine = new JLabel(" ") {
+        @Override public void updateUI() { super.updateUI(); setForeground(ContentStyle.color("muted")); }
+    };
 
     public MeterDpsGUI() {
         setLayout(new BorderLayout(8, 8));
@@ -142,8 +153,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         ContentStyle.font(scope, ContentStyle.metadata(ContentStyle.body()));
         // The filter controls (player search, Rank by, class, enemy order, class colors) belong to the host's filter row
         // (DpsGUI's FilterBar "dps-meter"); a standalone meter applies them without showing them.
-        summary.setAlignmentX(LEFT_ALIGNMENT); scope.setAlignmentX(LEFT_ALIGNMENT);
-        controls.add(summary); controls.add(scope);
+        ContentStyle.font(outcomeLine, ContentStyle.metadata(ContentStyle.body()));
+        outcomeLine.setName("dps-outcome-summary"); outcomeLine.putClientProperty("html.disable", true);
+        summary.setAlignmentX(LEFT_ALIGNMENT); scope.setAlignmentX(LEFT_ALIGNMENT); outcomeLine.setAlignmentX(LEFT_ALIGNMENT);
+        controls.add(summary); controls.add(scope); controls.add(outcomeLine);
         captureWarning.setEditable(false); captureWarning.setFocusable(false);
         captureWarning.setLineWrap(true); captureWarning.setWrapStyleWord(true);
         captureWarning.setOpaque(false); ContentStyle.font(captureWarning, ContentStyle.body());
@@ -175,6 +188,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         kinds.put("Player / meter", ColumnKind.TEXT); kinds.put("Class", ColumnKind.CLASS); kinds.put("Recorded share %", ColumnKind.PERCENT);
         for (String number : new String[]{"Damage", "DPS", "Avg hit", "Max hit", "Taken (est.)"}) kinds.put(number, ColumnKind.NUMBER);
         for (String count : new String[]{"Hits dealt", "Hits taken"}) kinds.put(count, ColumnKind.COUNT);
+        kinds.put("Outcome", ColumnKind.TEXT);
         HistoryTables.kinds(table, kinds);
         table.getColumnModel().getColumn(0).setCellRenderer(new BarRenderer());
         table.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
@@ -188,6 +202,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
                 washMine(entry, selected, this); return this;
             }
         });
+        table.getColumnModel().getColumn(10).setCellRenderer(new OutcomeRenderer());
         DefaultTableCellRenderer numeric = new ContentStyle.Cell() {
             public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
                 super.getTableCellRendererComponent(t, value, selected, focus, row, column);
@@ -401,6 +416,8 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         localPlayer = player;
         playerContext = context;
     }
+    /** The shown encounter's presence timeline (null for a recording made before outcome tracking) and its first tick. */
+    void setPresence(PresenceTimeline presence, long startedAt) { this.presence = presence; this.startedAt = startedAt; }
     static boolean missingLocalSpawn(DpsData saved) {
         if (saved.debugPackets == null) return false;
         int localId = -1;
@@ -418,6 +435,8 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     protected void renderData(MapInfoPacket map, List<Entity> entities, ArrayList<NotificationPacket> notes, long elapsed, boolean isLive) {
         targets = new ArrayList<>(entities); mapName = map == null ? "No encounter" : map.name; live = isLive;
         targets.removeIf(Entity::isPlayerCharacter);
+        notices = notes == null ? new ArrayList<>() : notes;
+        outcomes = EncounterOutcomes.of(presence, startedAt, isLive, EncounterOutcomes.playersOf(targets), notices);
         String warning = missingLocalSpawn && !isLive
             ? "Personal damage is incomplete: shots arrived before your character data. This saved encounter cannot show your full damage."
             : isLive && map != null && localPlayer == null
@@ -486,6 +505,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         summary.setToolTipText(summary.getText().startsWith("<html>") ? " " + summary.getText() : summary.getText());
         scope.setText(DisplayFormat.formatNumber(snapshot.seconds, 1) + "s first-to-last hit window · Taken: "
             + (wholeEncounter ? "full dungeon" : "inclusive fight window") + " · Represented contributors only");
+        outcomeLine.setText(outcomes.summary()); outcomeLine.setToolTipText(OUTCOME_HELP);
         showDetails();
         filtersChanged.run();
     }
@@ -721,11 +741,11 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     private static String number(long value) { return DisplayFormat.formatInteger(value); }
     private final class MeterModel extends AbstractTableModel {
-        private final String[] names = {"Player / meter", "Class", "Damage", "DPS", "Recorded share %", "Hits dealt", "Avg hit", "Max hit", "Taken (est.)", "Hits taken"};
+        private final String[] names = {"Player / meter", "Class", "Damage", "DPS", "Recorded share %", "Hits dealt", "Avg hit", "Max hit", "Taken (est.)", "Hits taken", "Outcome"};
         public int getRowCount() { return visible.size(); }
         public int getColumnCount() { return names.length; }
         public String getColumnName(int c) { return names[c]; }
-        public Class<?> getColumnClass(int c) { return c < 2 ? String.class : (c == 3 || c == 4 || c == 6 ? Double.class : Long.class); }
+        public Class<?> getColumnClass(int c) { return c == 10 ? EncounterOutcomes.Outcome.class : c < 2 ? String.class : (c == 3 || c == 4 || c == 6 ? Double.class : Long.class); }
         public Object getValueAt(int r, int c) { return value(visible.get(r), c); }
     }
     /** A row's value in model column {@code c}; the ranks read the same values the table shows. */
@@ -735,8 +755,33 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             case 3: return snapshot.dps(row); case 4: return snapshot.share(row);
             case 5: return row.hits; case 6: return row.hits == 0 ? null : (double)row.damage / row.hits;
             case 7: return row.biggest; case 8: return row.incomingAvailable ? row.taken : null;
+            case 10: return outcomes.outcome(row.player);
             default: return row.incomingAvailable ? row.incomingHits : null;
         }
+    }
+    /** The Outcome column: its label, a gravestone for a death, the reason as the tooltip; color follows the text. */
+    private final class OutcomeRenderer extends ContentStyle.Cell {
+        public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
+            super.getTableCellRendererComponent(t, value, selected, focus, row, column);
+            EncounterOutcomes.Outcome outcome = value instanceof EncounterOutcomes.Outcome
+                ? (EncounterOutcomes.Outcome) value : EncounterOutcomes.none().outcome(-1);
+            setText(outcome.label()); setToolTipText(outcome.reason);
+            setFont(tableMetadata(t.getFont()));
+            setIcon(outcome.graveIcon > 0 ? grave(outcome.graveIcon) : null); setIconTextGap(Tokens.XS);
+            if (!selected) {
+                switch (outcome.kind) {
+                    case DIED: setForeground(ContentStyle.color("rose")); break;
+                    case NEXUSED: setForeground(ContentStyle.color("amber")); break;
+                    case COMPLETED: break;
+                    default: setForeground(ContentStyle.color("muted"));
+                }
+            }
+            washMine(visible.get(t.convertRowIndexToModel(row)), selected, this);
+            return this;
+        }
+    }
+    private static Icon grave(int type) {
+        try { return ImageBuffer.getOutlinedIcon(type, 16); } catch (RuntimeException e) { return null; }
     }
     /**
      * The player cell: a bar in the class hue scaled to the metric with its 3 px rail, the true rank as a fixed-width
@@ -767,6 +812,11 @@ public class MeterDpsGUI extends DisplayDpsGUI {
             setIcon(rankIcon); setIconTextGap(Tokens.S);
             setText(String.valueOf(value) + (entry.player.isUser() ? " (you)" : "") + (Filter.filter(entry.player, playerContext) == 2 ? " ★" : ""));
             setToolTipText(String.valueOf(value) + " · " + entry.className() + " · " + metric.getSelectedItem() + ": " + amount + " · Rank " + rank);
+            EncounterOutcomes.Outcome outcome = outcomes.outcome(entry.player);
+            if (outcome.didNotComplete()) {
+                if (!selected) setForeground(ContentStyle.color("muted"));
+                setToolTipText(getToolTipText() + " · " + outcome.label());
+            }
             washMine(entry, selected, this);
             setOpaque(false); return this;
         }
