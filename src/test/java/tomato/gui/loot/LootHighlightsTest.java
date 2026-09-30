@@ -545,11 +545,11 @@ public class LootHighlightsTest {
                 errors.checkSucceeds(() -> { assertNothingCut(view, "light"); return null; });
                 TileList<HighlightsModel.Notable> grid = view.notableList();
                 HighlightsModel.Notable mail = find(view, 9501);
-                assertEquals("The accessible name is unchanged", "Synthetic Crystal Mail, ST; Pirate Cave, today at 10:10; Orange bag; Enter opens the run recap",
+                assertEquals("The accessible name includes the recorded rarity", "Synthetic Crystal Mail, ST (Rare · 2 enchant slots); Pirate Cave, today at 10:10; Orange bag; Enter opens the run recap",
                     NotableDropRenderer.accessibleName(mail, ZONE, NOON));
                 @SuppressWarnings("unchecked") ListCellRenderer<HighlightsModel.Notable> renderer = (ListCellRenderer<HighlightsModel.Notable>) grid.getCellRenderer();
                 JComponent card = (JComponent) renderer.getListCellRendererComponent(grid, mail, 0, false, false);
-                assertEquals("…and so is the tooltip", "Synthetic Crystal Mail, ST; Pirate Cave, today at 10:10; Orange bag; Enter opens the run recap · " + HighlightsModel.OBSERVED, card.getToolTipText());
+                assertEquals("…and the tooltip includes the shared enchant lines", EnchantTooltip.html("Synthetic Crystal Mail, ST (Rare · 2 enchant slots); Pirate Cave, today at 10:10; Orange bag; Enter opens the run recap · " + HighlightsModel.OBSERVED, mail.enchant()), card.getToolTipText());
                 HighlightsModel.DungeonCell halls = view.stripList().items().get(0);
                 assertEquals("Lost Halls; 4 bags; 1 UT · 1 ST · 3 potions", DungeonStripRenderer.accessibleName(halls));
             });
