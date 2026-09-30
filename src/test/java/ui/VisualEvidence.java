@@ -70,11 +70,64 @@ public final class VisualEvidence extends ExternalResource {
         UiTestLayout.settle(window);
         BufferedImage image = new BufferedImage(window.getWidth(), window.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics(); window.printAll(graphics); graphics.dispose();
+        write(image, name);
+    }
+
+    /**
+     * Paints the shown frame's root pane, not the window: on XToolkit {@code Window.printAll} paints a title band and edges over
+     * the content even when the frame has no insets, and the root pane has neither, so the image is exactly the root pane's size
+     * with nothing padded or covered. Lightweight popups live in its layered pane and are included; heavyweight popups (the
+     * look and feel's menus, such as a Scope or navigation menu) are windows the frame owns, painted over the image at their place.
+     */
+    public void captureRoot(String name) {
+        assertTrue(SwingUtilities.isEventDispatchThread());
+        assertNotNull("A shown frame", frame);
+        JRootPane root = frame.getRootPane();
+        UiTestLayout.settle(frame);
+        BufferedImage image = new BufferedImage(root.getWidth(), root.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics(); root.printAll(graphics);
+        Point origin = root.getLocationOnScreen();
+        for (Window owned : frame.getOwnedWindows())
+            if (owned.isShowing() && owned instanceof RootPaneContainer) {
+                JRootPane popup = ((RootPaneContainer) owned).getRootPane();
+                Point at = popup.getLocationOnScreen();
+                Graphics2D over = (Graphics2D) graphics.create(at.x - origin.x, at.y - origin.y, popup.getWidth(), popup.getHeight());
+                popup.printAll(over); over.dispose();
+            }
+        graphics.dispose();
+        write(image, name);
+    }
+
+    private void write(BufferedImage image, String name) {
         try {
             File directory = new File("screenshots", folder);
             assertTrue("Evidence directory", directory.isDirectory() || directory.mkdirs());
             assertTrue("PNG writer", ImageIO.write(image, "png", new File(directory, name + ".png")));
         } catch (Exception e) { throw new AssertionError(e); }
+    }
+
+    /**
+     * No page scrolls or cuts its content sideways: every showing scroll pane under {@code root} has no horizontal scroll bar and a
+     * view no wider than its viewport. A data table scrolls its own columns sideways by design, and a report text area that does
+     * not wrap its lines (a hit report, a raw log) scrolls them: both are listed on standard output instead (as in P3b–P6a).
+     */
+    public static void nothingSideways(Container root, String capture) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JScrollPane && child.isShowing()) {
+                JScrollPane scroll = (JScrollPane) child;
+                Component view = scroll.getViewport().getView();
+                String where = scroll.getName() != null ? scroll.getName() : view == null ? "an empty scroll pane" : view.getClass().getSimpleName();
+                boolean report = view instanceof JTextArea && !((JTextArea) view).getLineWrap();
+                if (view instanceof JTable || report) System.out.println(capture + ": " + (report ? "report " : "table ") + where + " " + view.getWidth() + " px in a "
+                    + scroll.getViewport().getWidth() + " px viewport, horizontal bar " + (scroll.getHorizontalScrollBar().isShowing() ? "shown" : "hidden"));
+                else {
+                    assertFalse(capture + ": a horizontal scroll bar in " + where, scroll.getHorizontalScrollBar().isShowing());
+                    if (view != null) assertTrue(capture + ": " + where + " is " + view.getWidth() + " px wide in a " + scroll.getViewport().getWidth() + " px viewport",
+                        view.getWidth() <= scroll.getViewport().getWidth());
+                }
+            }
+            if (child instanceof Container) nothingSideways((Container) child, capture);
+        }
     }
 
     public void closeWindow() {
