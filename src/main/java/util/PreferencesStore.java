@@ -17,7 +17,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
-import javax.swing.SwingUtilities;
 
 /** One preferences file, an immediate memory view, and a coalescing single writer. */
 public final class PreferencesStore {
@@ -199,7 +198,15 @@ public final class PreferencesStore {
     }
 
     private static void requireOffEdt(String operation) {
-        if (SwingUtilities.isEventDispatchThread()) throw new IllegalStateException(operation + " must run off the EDT.");
+        if (isEventDispatchThread(Thread.currentThread())) throw new IllegalStateException(operation + " must run off the EDT.");
+    }
+
+    /**
+     * SwingUtilities.isEventDispatchThread() initializes the toolkit, which never finishes during
+     * JVM shutdown on Windows. Every EDT is a java.awt.EventDispatchThread, so check the class.
+     */
+    static boolean isEventDispatchThread(Thread thread) {
+        return thread.getClass().getName().equals("java.awt.EventDispatchThread");
     }
 
     private void startWorker() {
