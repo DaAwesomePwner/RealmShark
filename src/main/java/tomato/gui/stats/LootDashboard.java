@@ -23,6 +23,7 @@ import tomato.gui.history.LiveFilterHost;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.ItemIcon;
 import tomato.gui.kit.StatTile;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.ViewSelector;
@@ -425,7 +426,7 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
                 Icon icon = iconForItem(item.item.id);
                 ParseEnchants.Summary enchants = item.item.enchants;
                 keys.add(item.item.key.toString());potions.set(rows.size(),item.item.potion);
-                rows.add(new Object[]{icon, item.item.name, item.count, item.dungeon, item.item.tier,
+                rows.add(new Object[]{rowIcon(icon, item.item.name, item.count, item.item), item.item.name, item.count, item.dungeon, item.item.tier,
                     enchants.slots == 0 ? "Common / Unenchanted" : enchants.rarity(),
                     enchants.slots < 0 ? null : enchants.slots, enchants.applied < 0 ? null : enchants.applied});
             }
@@ -451,6 +452,14 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
         rowKeys.set(view,keys);potionRows.set(view,potions);return rows;
     }
     Icon iconForItem(int id) { return state.icons.computeIfAbsent(id, key -> ImageBuffer.liveOutlinedIcon(key, 24)); }
+    /**
+     * The icon cell of one dashboard row: the cached sprite with the row's rarity gem. A row that merges several drops (same item,
+     * slots and applied count) shares their rarity but not necessarily their enchantments, so it names none.
+     */
+    static ItemIcon rowIcon(Icon base, String name, int count, Item item) {
+        EnchantInfo enchant = count == 1 ? item.enchantInfo() : EnchantInfo.ofSlotCount(item.enchants == null ? null : item.enchants.slots);
+        return new ItemIcon(base, count == 1 ? name : name + " · " + count + " drops", enchant);
+    }
     private static void addOption(JComboBox<String> combo, String value) {
         for (int i = 0; i < combo.getItemCount(); i++) if (value.equals(combo.getItemAt(i))) return;
         combo.addItem(value);

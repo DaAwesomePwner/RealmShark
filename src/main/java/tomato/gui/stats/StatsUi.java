@@ -6,6 +6,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import tomato.gui.kit.ItemIcon;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 
@@ -86,13 +87,16 @@ final class StatsUi {
             @Override public String getToolTipText(java.awt.event.MouseEvent e) {
                 int row = rowAtPoint(e.getPoint()), column = columnAtPoint(e.getPoint());
                 if (row < 0 || column < 0) return null;
-                if (getValueAt(row, column) instanceof Icon) return null;
+                Object value = getValueAt(row, column);
+                // Item icons carry their own (already escaped) enchant tooltip, built here on hover.
+                if (value instanceof ItemIcon) return ((ItemIcon) value).tooltip();
+                if (value instanceof Icon) return null;
                 Component cell = prepareRenderer(getCellRenderer(row, column), row, column);
                 if (!(cell instanceof JLabel)) return null;
                 JLabel label = (JLabel)cell;
-                String value = label.getToolTipText() == null ? label.getText() : label.getToolTipText();
-                if (value == null) return null;
-                return "<html>" + value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</html>";
+                String text = label.getToolTipText() == null ? label.getText() : label.getToolTipText();
+                if (text == null) return null;
+                return "<html>" + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</html>";
             }
         }; table.setName(name);
         ContentStyle.table(table, ContentStyle.Density.COMFORTABLE);
