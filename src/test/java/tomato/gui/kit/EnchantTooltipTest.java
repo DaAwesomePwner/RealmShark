@@ -55,5 +55,12 @@ public class EnchantTooltipTest {
         });
     }
 
+    @Test public void aRarityOnlyTooltipSaysTheNamesAreNotAvailable() {
+        String html = EnchantTooltip.html("Old Bow", EnchantInfo.ofSlotCount(2));
+        assertTrue(html, html.contains("Rare · 2 enchant slots"));
+        assertTrue(html, html.contains("Enchant names not available"));
+        assertFalse("Unenchanted needs no names line", EnchantTooltip.html("Old Bow", EnchantInfo.ofSlotCount(0)).contains("not available"));
+    }
+
     private static String hex(java.awt.Color color) { return String.format("#%06x", color.getRGB() & 0xFFFFFF); }
 }

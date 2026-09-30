@@ -6,6 +6,7 @@ import tomato.gui.kit.Portals;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.stats.LootFacts;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * What Loot › Highlights shows for one window (spec §6.4; P6a decisions), built off the EDT by {@link HighlightsSource} and
@@ -71,8 +72,15 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
     /**
      * One notable drop: {@code bag} as saved (null = no bag name saved), {@code dungeon} null = Unknown area, {@code visit} the exact
      * run recorded at drop time (null = not linked to a run: none is inferred).
+     * {@code enchant} gives the gem, the rarity words and the hover enchant lines (not recorded = none).
      */
-    public record Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind) {
+    public record Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind, EnchantInfo enchant) {
+        public Notable {
+            if (enchant == null) enchant = EnchantInfo.notRecorded();
+        }
+        public Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind) {
+            this(itemId, bag, dungeon, time, visit, kind, null);
+        }
         /** A stable identity for the painted list (equal drops of one bag share it, which only affects the kept selection). */
         public String key() { return time + "/" + itemId + "/" + bag + "/" + visit + "/" + kind; }
     }
@@ -148,7 +156,7 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
                 if (item.setTiered()) { st++; cell[2]++; }
                 if (item.potion()) { potions++; cell[3]++; stats[stat(item.id())]++; }
                 Kind kind = kind(item);
-                if (kind != null) listed.add(new Notable(item.id(), bag.bag(), area, bag.time(), bag.visit(), kind));
+                if (kind != null) listed.add(new Notable(item.id(), bag.bag(), area, bag.time(), bag.visit(), kind, item.enchant()));
                 else if (!item.potion() && !item.enchantKnown()) enchantUnknown++;   // could be enchanted: never counted either way
             }
             listed.sort(Comparator.comparing(Notable::kind));   // stable: drop order within a kind

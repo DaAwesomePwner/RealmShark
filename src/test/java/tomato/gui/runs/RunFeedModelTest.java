@@ -10,6 +10,7 @@ import tomato.gui.stats.LootFacts;
 import tomato.history.encounter.CombatRecord;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeHistoryFixture.*;
 
@@ -129,6 +130,17 @@ public class RunFeedModelTest {
         assertEquals(List.of(), card.loot()); assertEquals(0, card.lootCount()); assertEquals("", card.lootSummary());
         assertEquals(RunOutcome.APP_ENDED, card.outcome());
         assertEquals("Pirate Cave", card.map()); assertEquals("Pirate Cave", card.mapName());
+    }
+
+    @Test public void runCardLootCarriesEachItemsEnchantments() {
+        VisitRef ref = new VisitRef(SESSION, "v1");
+        LootFacts.Item rare = new LootFacts.Item(7, false, false, false, false, 2, 1);
+        RunCardModel card = RunCardModel.of(ref, "Lost Halls", RunOutcome.COMPLETED, NOW, MINUTE, null, 0, List.of(),
+            List.of(bag("White", ref, rare, potion(8))), 1_240L);
+        java.util.Map<Integer, EnchantInfo> byId = card.loot().stream()
+            .collect(Collectors.toMap(RunCardModel.LootItem::id, RunCardModel.LootItem::enchant));
+        assertEquals(EnchantInfo.ofSlotCount(2), byId.get(7));
+        assertSame("A potion has no enchant data", EnchantInfo.notRecorded(), byId.get(8));
     }
 
     @Test public void lootKeepsHomesNotabilityOrderWithBagNamesAndSummarizesEveryExactItem() {

@@ -16,7 +16,7 @@ import tomato.realmshark.EnchantInfo;
 import static tomato.gui.glance.character.SheetViews.*;
 
 /**
- * Sheet › Gear (spec §6.2): four large equipped slots with tier labels and, for the character in game only, an enchant rarity gem and enchant tooltip;
+ * Sheet › Gear (spec §6.2): four large equipped slots with tier labels, an enchant rarity gem and enchant tooltip when recorded;
  * then the inventory (8) and backpack (16) as a sprite grid. Unknown and empty slots stay distinct; each slot's tooltip names its
  * item. Tier labels come from the model (computed off the EDT with the build's definitions). The 28-row slot table with field
  * evidence is an Analyst-only Collapsible. EDT only.
@@ -35,7 +35,7 @@ final class GearTab extends JPanel {
     private Object analystShown = NOT_SHOWN;
 
     /**
-     * What the Analyst slot table shows for one record copy: the character, each slot's state, item, item name and field evidence
+     * What the Analyst slot table shows for one record copy: the character, each slot's state, item, item name, field evidence and enchantments
      * (CharacterEquipmentPanel's own projection) and the definitions whose details each slot carries. While playing, every
      * capture hands the sheet a new copy whose times moved but whose slots did not; such a copy re-renders nothing, so the user's
      * selection and scroll stay. (A slot's full-details text also names the record's last update; it refreshes with the next
@@ -46,7 +46,7 @@ final class GearTab extends JPanel {
             if (record == null) return null;
             List<List<Object>> rows = new ArrayList<>(28);
             for (CharacterEquipmentPanel.Slot slot : CharacterEquipmentPanel.project(record, definitions))
-                rows.add(Arrays.asList(slot.state, slot.item, slot.item == null || slot.item < 0 ? null : IdToAsset.objectName(slot.item), slot.evidence));
+                rows.add(Arrays.asList(slot.state, slot.item, slot.item == null || slot.item < 0 ? null : IdToAsset.objectName(slot.item), slot.evidence, slot.enchant));
             return new SlotRows(record.key, record.dead, List.copyOf(rows), definitions);
         }
     }
@@ -80,8 +80,9 @@ final class GearTab extends JPanel {
         for (int i = 0; i < 28; i++) {
             int id = gear == null ? -1 : gear.slots().get(i);
             String tier = id > 0 ? gear.tier(i) : "";
-            // Enchantments are decoded from the character in game only; saved records show no gem.
-            EnchantInfo enchant = i < 4 && gear != null && gear.enchants() != null ? gear.enchants().get(i) : null;
+            // Live characters show their live enchantments; saved records show the enchantments last observed live.
+            EnchantInfo enchant = i < 4 && gear != null && gear.enchants() != null
+                && gear.enchants().get(i).state() != EnchantInfo.State.NOT_RECORDED ? gear.enchants().get(i) : null;
             if (id > 0) slots[i].setItem(id, tier, enchant); else if (id == 0) slots[i].setEmpty(); else slots[i].setUnknown();
             if (i >= 12 && id >= 0) backpackCaptured = true;
             if (i < 4) tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);

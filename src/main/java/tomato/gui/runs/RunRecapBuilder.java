@@ -27,6 +27,8 @@ import tomato.history.encounter.CombatDetail;
 import tomato.history.encounter.CombatFacts;
 import tomato.history.encounter.CombatRecord;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.ParseEnchants;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * Builds the {@link RunRecapModel} of one exact saved run. Off the EDT only; one build reads the catalog once, the run's own
@@ -355,11 +357,14 @@ public final class RunRecapBuilder {
             InspectSnapshot snapshot = entry.getValue();
             if (snapshot == null || !snapshot.isValid()) continue;
             Entity player = snapshot.toEntity();
+            ParseEnchants.EquippedCapture capture = ParseEnchants.equippedCapture(player);
+            List<EnchantInfo> enchants = new ArrayList<>(SLOTS.length);
+            for (int i = 0; i < SLOTS.length; i++) enchants.add(capture.info(i));
             String name = player.name();
             List<Integer> equipment = new ArrayList<>(SLOTS.length);
             for (StatType slot : SLOTS) { StatData item = player.stat.get(slot); equipment.add(item == null ? null : item.statValue); }
             players.add(new RunRecapModel.Players.Player(snapshot.objectId(), name == null || name.isEmpty() ? null : name, snapshot.className(),
-                player.objectType, equipment, visit.damage(entry.getKey()), snapshot.observedAt()));
+                player.objectType, equipment, visit.damage(entry.getKey()), snapshot.observedAt(), enchants));
         }
         // Most Inspect damage first (unknown last); the saved order otherwise.
         players.sort(Comparator.comparing(RunRecapModel.Players.Player::inspectDamage, Comparator.nullsLast(Comparator.<Long>reverseOrder())));

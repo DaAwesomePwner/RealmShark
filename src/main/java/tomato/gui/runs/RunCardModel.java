@@ -7,6 +7,7 @@ import tomato.gui.stats.LootFacts;
 import tomato.history.encounter.CombatFacts;
 import tomato.history.encounter.CombatRecord;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * One saved dungeon run as the run feed shows it (spec §6.3 Feed). Immutable; built off the EDT by {@link RunFeedSource}.
@@ -75,8 +76,14 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
      * One loot sprite: the item, its bag's name ({@code Tokens.bag}; null when not saved) and its tier label: the saved UT/ST
      * classification, else the definitions' label when the card was read; "" while unknown (a renderer may then ask
      * {@code ItemTiers.label} at paint time, for definitions that load later).
+     * {@code enchant} drives the loot well's rarity gem (not recorded = no gem).
      */
-    public record LootItem(int id, String bag, String tier) {}
+    public record LootItem(int id, String bag, String tier, EnchantInfo enchant) {
+        public LootItem {
+            if (enchant == null) enchant = EnchantInfo.notRecorded();
+        }
+        public LootItem(int id, String bag, String tier) { this(id, bag, tier, null); }
+    }
 
     /**
      * A card for the saved visit {@code ref}. {@code records} may hold anything of the run's session and {@code bags} is every
@@ -127,7 +134,7 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
         for (LootFacts.Bag bag : bags) for (LootFacts.Item item : bag.items()) {
             // The saved UT/ST classification is drop-time evidence; other tiers come from the loaded definitions ("" while unknown).
             String tier = item.untiered() ? "UT" : item.setTiered() ? "ST" : ItemTiers.label(item.id());
-            items.add(new LootItem(item.id(), bag.bag(), tier));
+            items.add(new LootItem(item.id(), bag.bag(), tier, item.enchant()));
             ranks.add(notability(item));
         }
         Integer[] order = new Integer[items.size()];

@@ -6,6 +6,7 @@ import java.util.Objects;
 import tomato.gui.dps.MeterSummary;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.kit.DisplayValue;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * Immutable Home view model: built off the EDT, swapped in on the EDT. Per-stat arrays have 8 entries in canonical
@@ -29,17 +30,27 @@ public record HomeModel(Hero hero, Now now, Today today, Runs runs, Quests quest
      * {@code maxed} 0-8 or -1; {@code exaltTiers} sum over 8 stats or -1; {@code lastSeenAt} when a STALE character was last seen
      * (epoch ms), 0 while LIVE; {@code key} the journal key of the character's sheet ("<64 hex>:<characterId>"), null when unknown;
      * {@code petChip} "Legendary pet" or "No pet" from the character's journal record (PetSummary.chip), null = hidden (unknown).
+     * {@code enchants} the four equipped items' enchantments; live when in game, else as last observed live; null when the journal recorded none.
+     * A live hero whose enchant stat was not captured carries four not-recorded entries.
      */
     public record Hero(State state, String name, int classId, String className, Integer skin, Integer level,
                        DisplayValue fame, int maxed, int[] base, int[] caps, int[] totals, int[] potionsNeeded,
                        String needsLine, int exaltTiers, int[] equipment, DisplayValue weaponDps, DisplayValue mpPerSecond,
-                       String accountLine, long lastSeenAt, String evidence, String key, String petChip) {
+                       String accountLine, long lastSeenAt, String evidence, String key, String petChip, List<EnchantInfo> enchants) {
         public Hero {
             Objects.requireNonNull(state, "state");
             fame = orUnknown(fame); weaponDps = orUnknown(weaponDps); mpPerSecond = orUnknown(mpPerSecond);
             base = sized(base, 8); caps = sized(caps, 8); totals = sized(totals, 8); potionsNeeded = sized(potionsNeeded, 8);
             equipment = sized(equipment, 4);
+            enchants = enchants == null ? null : List.copyOf(enchants);
             needsLine = text(needsLine); accountLine = text(accountLine); evidence = text(evidence);
+        }
+        public Hero(State state, String name, int classId, String className, Integer skin, Integer level,
+                    DisplayValue fame, int maxed, int[] base, int[] caps, int[] totals, int[] potionsNeeded,
+                    String needsLine, int exaltTiers, int[] equipment, DisplayValue weaponDps, DisplayValue mpPerSecond,
+                    String accountLine, long lastSeenAt, String evidence, String key, String petChip) {
+            this(state, name, classId, className, skin, level, fame, maxed, base, caps, totals, potionsNeeded,
+                needsLine, exaltTiers, equipment, weaponDps, mpPerSecond, accountLine, lastSeenAt, evidence, key, petChip, null);
         }
         @Override public int[] base() { return base.clone(); }  @Override public int[] caps() { return caps.clone(); }
         @Override public int[] totals() { return totals.clone(); }  @Override public int[] potionsNeeded() { return potionsNeeded.clone(); }
@@ -51,11 +62,11 @@ public record HomeModel(Hero hero, Now now, Today today, Runs runs, Quests quest
                 && Arrays.equals(caps, h.caps) && Arrays.equals(totals, h.totals) && Arrays.equals(potionsNeeded, h.potionsNeeded)
                 && needsLine.equals(h.needsLine) && Arrays.equals(equipment, h.equipment) && weaponDps.equals(h.weaponDps)
                 && mpPerSecond.equals(h.mpPerSecond) && accountLine.equals(h.accountLine) && evidence.equals(h.evidence) && Objects.equals(key, h.key)
-                && Objects.equals(petChip, h.petChip);
+                && Objects.equals(petChip, h.petChip) && Objects.equals(enchants, h.enchants);
         }
         @Override public int hashCode() {
             return Objects.hash(state, name, classId, level, fame, maxed, Arrays.hashCode(base), Arrays.hashCode(totals), Arrays.hashCode(equipment), lastSeenAt, key,
-                petChip);
+                petChip, enchants);
         }
         /** No character data (loading, empty or unavailable): every value unknown; {@code evidence} says why. */
         public static Hero placeholder(State state, String evidence) {

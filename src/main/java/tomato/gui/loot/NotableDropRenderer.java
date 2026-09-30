@@ -17,11 +17,14 @@ import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
 import javax.swing.*;
+import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.stats.LootFacts;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * Paints one notable drop of Loot › Highlights (spec §6.4, §9, §10): one component reused for every cell of the grid's TileList,
@@ -79,7 +82,8 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
 
     /**
      * "Potion of Life, stat potion; Lost Halls, today at 09:05; Orange bag; Enter opens the run recap": the item, its kind, where
-     * and when it dropped, its bag and whether it links to a run, in words.
+     * and when it dropped, its bag and whether it links to a run, in words. Enchanted drops include their recorded rarity,
+     * for example "enchanted, rare or better (Rare · 2 enchant slots)".
      */
     static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) {
         String kind = switch (drop.kind()) {
@@ -88,6 +92,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             case POTION -> "stat potion";
             case ENCHANTED -> "enchanted, rare or better";
         };
+        if (drop.enchant().state() != EnchantInfo.State.NOT_RECORDED) kind += " (" + drop.enchant().summary() + ")";
         return Sprites.name(drop.itemId()) + ", " + kind + "; " + LootFacts.areaLabel(drop.dungeon())
             + ", " + spokenTime(drop.time(), zone, now) + "; " + (drop.bag() == null ? "bag not saved" : drop.bag() + " bag") + "; "
             + (drop.visit() == null ? "not linked to a run" : "Enter opens the run recap");
@@ -115,7 +120,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     List<String> painted() { return List.copyOf(painted); }
 
     /** Where the well paints in a cell {@code width} × {@code height}: at the card's left, vertically centered. */
-    Rectangle well(int width, int height) {
+    static Rectangle well(int width, int height) {
         int top = GAP / 2 + PAD, inner = height - GAP - 2 * PAD;
         return new Rectangle(GAP / 2 + PAD, top + Math.max(0, (inner - WELL_SIDE) / 2), WELL_SIDE, WELL_SIDE);
     }
@@ -146,6 +151,13 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         return this;
     }
 
+    /** Built when the list asks (on hover): the drop's facts, then its enchant lines when it has enchant data. */
+    @Override public String getToolTipText() {
+        String facts = super.getToolTipText();
+        if (facts == null || drop == null || drop.enchant().state() == EnchantInfo.State.NOT_RECORDED) return facts;
+        return EnchantTooltip.html(facts, drop.enchant());
+    }
+
     @Override protected void paintComponent(Graphics graphics) {
         painted = List.of();
         if (drop == null || lines == null) return;
@@ -161,6 +173,8 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             edge(g, shape, selected, focused);
             Rectangle well = well(getWidth(), getHeight());
             Sprites.paintWell(this, g, Sprites.sprite(drop.itemId(), SPRITE), drop.bag(), well.x, well.y, well.width);
+            // paintWell's side covers side px; the gem painter takes ItemSlot's side + 1 convention.
+            EnchantGem.paint(g, drop.enchant(), well.x, well.y, well.width - 1);
             Font titleFont = Type.emphasis(), captionFont = Type.caption();
             FontMetrics title = g.getFontMetrics(titleFont), caption = g.getFontMetrics(captionFont);
             int left = well.x + well.width + Tokens.S, right = x + w - PAD;

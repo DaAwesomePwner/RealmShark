@@ -17,6 +17,7 @@ import tomato.gui.modern.DisplayFormat;
 import tomato.gui.myinfo.BuildEstimates;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeArchive.Window.SESSION;
 import static tomato.gui.glance.home.HomeArchive.Window.TODAY;
@@ -232,6 +233,7 @@ public class HomeModelBuilderTest {
         last.stats = new Integer[]{720, 252, 75, 25, 50, 75, 40, null}; last.equipment[0] = 2001; last.equipment[1] = -1;
         CharacterJournal.AccountRecord saved = account(); saved.rankStars = 50; saved.accountFame = 999L;
         HomeModel.Hero h = hero(null, null, last, saved, 0);
+        assertNull("No saved enchants", h.enchants());
         assertEquals(State.STALE, h.state()); assertEquals("Saved", h.name()); assertEquals(NOW - 7_200_000, h.lastSeenAt());
         assertEquals(DisplayValue.State.STALE, h.fame().state);
         assertEquals(-1, h.maxed()); assertEquals(-1, h.potionsNeeded()[7]); assertEquals(0, h.potionsNeeded()[0]);
@@ -240,6 +242,18 @@ public class HomeModelBuilderTest {
         assertEquals(DisplayValue.State.UNKNOWN, h.weaponDps().state);
         assertEquals(DisplayFormat.formatInteger(50) + " stars · " + DisplayFormat.formatInteger(999) + " account fame", h.accountLine());
         assertEquals(State.EMPTY, hero(null, null, null, null, 0).state());
+    }
+
+    @Test public void aJournalHeroShowsTheEnchantsLastObservedLive() {
+        CharacterJournal.CharacterRecord last = new CharacterJournal.CharacterRecord();
+        last.name = "Saved"; last.classId = CLASS; last.className = "Wizard"; last.characterId = 3; last.lastSeen = NOW - 7_200_000;
+        last.equipment[0] = 2001; last.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        HomeModel.Hero h = hero(null, null, last, account(), 0);
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, h.enchants().get(0).rarity());
+        HomeModel.Hero without = new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(),
+            h.base(), h.caps(), h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), h.equipment(), h.weaponDps(), h.mpPerSecond(),
+            h.accountLine(), h.lastSeenAt(), h.evidence(), h.key(), h.petChip());
+        assertNotEquals("Enchants alone make two heroes differ (so the card repaints)", without, h);
     }
 
     @Test public void nowShowsAreaAndMeterOnlyInDungeons() {

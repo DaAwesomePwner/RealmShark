@@ -37,7 +37,7 @@ public record SheetModel(String key, Identity identity, Stats stats, Gear gear, 
     /**
      * 28 slots (0-3 equipped, 4-11 inventory, 12-27 backpack): item id > 0, 0 empty, -1 not captured. {@code tiers}: each slot's
      * tier label ("UT", "ST", "T12"), "" for an empty, uncaptured or unlabeled slot, from the definitions the build was given (so
-     * the section changes when they finish loading). {@code hasBackpack} null unknown. {@code enchants}: the 4 equipped items' enchantments; null unless playing.
+     * the section changes when they finish loading). {@code hasBackpack} null unknown. {@code enchants}: the 4 equipped items' enchantments; live while playing, else as last observed live; null when never recorded.
      */
     public record Gear(List<Integer> slots, List<String> tiers, Boolean hasBackpack, List<EnchantInfo> enchants) {
         /** The tier label of {@code slot}; "" when none (or when {@code tiers} does not reach it). */

@@ -65,6 +65,48 @@ public class CharacterJournalV5Test {
         assertEquals(newer, read(newerPath));
     }
 
+    @Test public void legacyFilesWithoutEquipmentEnchantsLeaveThemNotRecorded() throws Exception {
+        for (int version : new int[] {4, 5}) {
+            Path path = temp.newFolder().toPath().resolve("journal.json");
+            write(path, v3().replace("\"version\":3", "\"version\":" + version));
+            CharacterJournal j = new CharacterJournal(path);
+            assertTrue(j.readable());
+            CharacterJournal.CharacterRecord r = j.characterCopy(KEY);
+            assertNull(r.equipmentEnchants); assertNull(r.enchantInfos());
+        }
+    }
+
+    @Test public void malformedEquipmentEnchantsAreUnknownAndTheJournalStaysWritable() throws Exception {
+        for (String malformed : new String[] {"12", "[\"a\",\"b\"]"}) {
+            Path path = temp.newFolder().toPath().resolve("journal.json");
+            write(path, v3().replace("\"version\":3", "\"version\":5")
+                .replace("\"source\":\"Captured character\"}",
+                    "\"source\":\"Captured character\",\"equipmentEnchants\":" + malformed + "}"));
+            CharacterJournal j = new CharacterJournal(path);
+            assertTrue("One malformed optional field never makes the journal read-only", j.readable());
+            assertNull(j.characterCopy(KEY).equipmentEnchants);
+            assertNull(j.characterCopy(KEY).enchantInfos());
+            j.notes(KEY, "still writable"); j.save();
+            assertTrue(read(path).contains("still writable")); assertTrue(read(path).contains("\"version\": 5"));
+            assertNull(new CharacterJournal(path).characterCopy(KEY).equipmentEnchants);
+        }
+    }
+
+    @Test public void equipmentEnchantsCopiesAreDeepAndSurviveSaveAndReload() throws Exception {
+        Path path = file();
+        write(path, v3().replace("\"version\":3", "\"version\":5")
+            .replace("\"source\":\"Captured character\"}",
+                "\"source\":\"Captured character\",\"equipmentEnchants\":[\"AAIE_wU\",\"\",null,null]}"));
+        CharacterJournal j = new CharacterJournal(path);
+        CharacterJournal.CharacterRecord copy = j.characterCopy(KEY);
+        assertNotSame(copy.equipmentEnchants, j.characterCopy(KEY).equipmentEnchants);
+        copy.equipmentEnchants[0] = "Changed";
+        String[] expected = {"AAIE_wU", "", null, null};
+        assertArrayEquals(expected, j.characterCopy(KEY).equipmentEnchants);
+        j.notes(KEY, "save enchant snapshot"); j.save();
+        assertArrayEquals(expected, new CharacterJournal(path).characterCopy(KEY).equipmentEnchants);
+    }
+
     @Test public void malformedNewFieldsAreUnknownAndTheJournalStaysWritable() throws Exception {
         Path path = file();
         write(path, v3().replace("\"version\":3", "\"version\":5")

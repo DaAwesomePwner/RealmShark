@@ -12,6 +12,7 @@ import tomato.backend.data.CharacterJournal;
 import tomato.gui.kit.*;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.realmshark.EnchantInfo;
 import static tomato.gui.glance.character.SheetViews.*;
 
 /**
@@ -133,7 +134,9 @@ final class OverviewTab extends JPanel {
             for (int i = 0; i < 4; i++) {
                 int id = equipped == null ? -1 : equipped.slots().get(i);
                 String tier = id > 0 ? equipped.tier(i) : ""; // computed off the EDT with the build's definitions
-                if (id > 0) gear[i].setItem(id, tier); else if (id == 0) gear[i].setEmpty(); else gear[i].setUnknown();
+                EnchantInfo enchant = equipped == null || equipped.enchants() == null
+                    || equipped.enchants().get(i).state() == EnchantInfo.State.NOT_RECORDED ? null : equipped.enchants().get(i);
+                if (id > 0) gear[i].setItem(id, tier, enchant); else if (id == 0) gear[i].setEmpty(); else gear[i].setUnknown();
                 tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);
             }
             gearShown = equipped;

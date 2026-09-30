@@ -10,6 +10,7 @@ import java.util.Map;
 import javax.swing.*;
 import org.junit.*;
 import tomato.gui.kit.*;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeModels.named;
 
@@ -57,6 +58,20 @@ public class HeroCardTest {
             assertNotNull(named(card, "home-hero-content", JComponent.class));
         });
     }
+    @Test public void heroGearShowsEachSlotsEnchants() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HeroCard card = card();
+            HomeModel.Hero h = HomeModels.hero(HomeModel.State.STALE, NOW);
+            EnchantInfo uncommon = EnchantInfo.ofSlotCount(1);
+            card.apply(new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(),
+                h.base(), h.caps(), h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), new int[]{2593, 2594, -1, -1},
+                h.weaponDps(), h.mpPerSecond(), h.accountLine(), h.lastSeenAt(), h.evidence(), h.key(), h.petChip(),
+                List.of(uncommon, EnchantInfo.notRecorded(), EnchantInfo.notRecorded(), EnchantInfo.notRecorded())), NOW);
+            assertEquals(uncommon, named(card, "home-hero-slot-0", ItemSlot.class).enchant());
+            assertNull("Not recorded reads as before", named(card, "home-hero-slot-1", ItemSlot.class).enchant());
+        });
+    }
+
     @Test public void uncapturedSlotsAreUnknownAndEmptySlotsAreEmpty() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             HeroCard card = card();

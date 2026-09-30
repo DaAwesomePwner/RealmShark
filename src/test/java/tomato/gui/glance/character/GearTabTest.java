@@ -19,10 +19,21 @@ import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
-/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity gems only for the live character. */
+/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity gems from the live character or, when not in game, the enchants last observed live. */
 public class GearTabTest {
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
     private static ItemSlot slot(JComponent tab, int index) { return named(tab, "character-gear-slot-" + index, ItemSlot.class); }
+
+    @Test public void aCharacterNotInGameShowsTheEnchantsLastObservedLive() throws Exception {
+        CharacterJournal.CharacterRecord r = record();
+        r.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        SheetModel.Gear gear = model(r, account(), null).gear();
+        SwingUtilities.invokeAndWait(() -> {
+            GearTab tab = new GearTab(mode);
+            tab.apply(gear);
+            assertEquals(EnchantInfo.Rarity.UNCOMMON, slot(tab, 0).enchant().rarity());
+        });
+    }
 
     @Test public void emptyAndNotCapturedSlotsStayDistinctAndEquippedItemsShowTiers() throws Exception {
         SheetModel model = model(record(), account(), null);
