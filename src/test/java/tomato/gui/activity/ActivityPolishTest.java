@@ -14,6 +14,7 @@ import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.history.SessionPanel;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.modern.CollectionControl;
+import tomato.gui.modern.Themes;
 import tomato.history.SessionStore;
 import tomato.history.archive.ArchivePage;
 import static org.junit.Assert.*;
@@ -23,7 +24,8 @@ import static tomato.gui.activity.ActivityLiveStateTest.retainedLog;
 /**
  * P6b Polish C: saved Runs, Party, Resources and Timeline keep IDs and revisions out of Simple (spec §3.2), "Cancel linked export"
  * is enabled only while a linked export runs, the live summary does not repeat the status line's collection checkbox, and the
- * collection wording names Party. Synthetic history and an in-memory display mode and view states only.
+ * collection wording names Party, and Resources' sample scroll stays borderless through a live theme switch. Synthetic history and an
+ * in-memory display mode and view states only; the dark theme is installed again afterwards.
  */
 public class ActivityPolishTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
@@ -129,6 +131,33 @@ public class ActivityPolishTest {
             assertTrue(named(legacy, JLabel.class, "activity-summary").getText().contains("Saved history"));
             return null;
         });
+    }
+
+    /**
+     * Polish B's finding: a scroll pane whose border is null gets the look and feel's outline back on a live theme switch (nested frames
+     * in the light theme). Resources' sample summary keeps an empty border through dark → light.
+     */
+    @Test public void theResourceSampleScrollStaysBorderlessThroughALiveThemeSwitch() throws Exception {
+        ActivityJournal.State history = new ActivityJournal.State(); history.visits.add(ActivityArchiveTest.visit("synthetic-visit", 1));
+        try (DiscoveryLog log = retainedLog(temp.newFolder().toPath(), history)) {
+            edt(() -> {
+                Themes.install(new Themes.Choice(Themes.Variant.DARK, false));
+                ActivityPanel panel = new ActivityPanel(log, ActivityPanel.Mode.COMBAT, mode);
+                JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, named(panel, JTextArea.class, "combat-sample-summary"));
+                assertEquals("dark: no outline", new Insets(0, 0, 0, 0), scroll.getInsets());
+                Themes.install(new Themes.Choice(Themes.Variant.LIGHT, false));
+                SwingUtilities.updateComponentTreeUI(panel);
+                assertBorderless("after the switch to light", scroll);
+                return null;
+            });
+        } finally { edt(() -> Themes.install(new Themes.Choice(Themes.Variant.DARK, false))); }
+    }
+    /** No outline: an empty, non-UIResource border (the look and feel replaces only null or UIResource borders). */
+    static void assertBorderless(String when, JComponent scroll) {
+        javax.swing.border.Border border = scroll.getBorder();
+        assertNotNull(when + ": an explicit empty border, not null (which the look and feel refills)", border);
+        assertFalse(when + ": not the look and feel's border: " + border, border instanceof javax.swing.plaf.UIResource);
+        assertEquals(when + ": no outline", new Insets(0, 0, 0, 0), border.getBorderInsets(scroll));
     }
 
     @Test public void theCollectionEffectNamesPartyBuilds() {

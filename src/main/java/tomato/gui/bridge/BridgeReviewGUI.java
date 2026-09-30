@@ -264,7 +264,7 @@ public final class BridgeReviewGUI extends JPanel {
             public boolean getScrollableTracksViewportWidth(){return true;}
             public boolean getScrollableTracksViewportHeight(){return false;}
         }
-        JScrollPane scroll=new JScrollPane(new ScrollPage());scroll.setBorder(null);
+        JScrollPane scroll=new JScrollPane(new ScrollPage());scroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would reinstall the outline
         JPanel content=new JPanel(new BorderLayout(0,8));content.add(scroll);actions.setBorder(BorderFactory.createEmptyBorder(6,8,6,8));content.add(actions,BorderLayout.SOUTH);return content;
     }
     private static void field(JPanel p,GridBagConstraints g,int row,String title,JComponent value,JComponent... targets){

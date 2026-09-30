@@ -235,7 +235,7 @@ public final class ActivityPanel extends JPanel implements LiveFilterHost {
             inspection.setFont(ContentStyle.metadata(ContentStyle.body()));inspection.setRows(2);
             inspection.getAccessibleContext().setAccessibleName("Inspected resource sample");
             chart.addPropertyChangeListener("inspectionSummary",e->inspection.setText((String)e.getNewValue()));
-            JScrollPane inspectionScroll=new JScrollPane(inspection);inspectionScroll.setBorder(null);
+            JScrollPane inspectionScroll=new JScrollPane(inspection);inspectionScroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would reinstall the outline
             inspectionScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
             plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspectionScroll,BorderLayout.SOUTH);
             combatViews.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
