@@ -28,7 +28,7 @@ public class CombatReportingTest {
                 MeterDpsGUI meter=new MeterDpsGUI();meter.renderData(null,Collections.singletonList(enemy),new ArrayList<>(),3000,false);
                 JTable table=field(meter,"table");JTextField search=field(meter,"search");search.setText("Alice");
                 assertEquals(1,table.getRowCount());assertEquals(50.0,(Double)table.getValueAt(0,4),.001);assertEquals(100.0,(Double)table.getValueAt(0,3),.001);
-                String legacy=DpsToString.display(enemy,Collections.emptyMap(),null,null);
+                String legacy=DpsToString.display(enemy,EncounterOutcomes.none(),null,null);
                 assertTrue(legacy.contains(tomato.gui.modern.DisplayFormat.formatPercentage(20,3)+" of max HP"));assertTrue(legacy.contains("first-to-last hit window"));
                 table.setRowSelectionInterval(0,0);JTextArea details=field(meter,"details");assertTrue(details.getText().contains("denominator includes hidden players"));
                 assertTrue(details.getText().contains("not a full player roster"));

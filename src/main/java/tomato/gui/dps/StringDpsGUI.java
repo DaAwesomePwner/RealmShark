@@ -3,6 +3,7 @@ package tomato.gui.dps;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Entity;
+import tomato.backend.data.PresenceTimeline;
 import tomato.backend.data.DpsData.LocalPlayerContext;
 import tomato.backend.data.TomatoData;
 import tomato.gui.TomatoGUI;
@@ -18,6 +19,10 @@ public class StringDpsGUI extends DisplayDpsGUI {
     private static JTextArea textAreaDPS;
     private LocalPlayerContext playerContext;
     void setPlayerContext(LocalPlayerContext player) { playerContext=player; }
+    private PresenceTimeline presence;
+    private long startedAt = -1;
+    /** The shown encounter's presence timeline (null before outcome tracking) and its first tick. */
+    void setPresence(PresenceTimeline presence, long startedAt) { this.presence = presence; this.startedAt = startedAt; }
 
     public StringDpsGUI(TomatoData data) {
 
@@ -41,7 +46,8 @@ public class StringDpsGUI extends DisplayDpsGUI {
 
     @Override
     protected void renderData(MapInfoPacket map, List<Entity> sortedEntityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean isLive) {
-        setTextAreaAndLabelDPS(DpsToString.stringDmgRealtime(map, sortedEntityHitList, notifications, playerContext, totalDungeonPcTime));
+        EncounterOutcomes outcomes = EncounterOutcomes.of(presence, startedAt, isLive, EncounterOutcomes.playersOf(sortedEntityHitList), notifications);
+        setTextAreaAndLabelDPS(DpsToString.stringDmgRealtime(map, sortedEntityHitList, notifications, playerContext, totalDungeonPcTime, outcomes));
     }
 
     /**

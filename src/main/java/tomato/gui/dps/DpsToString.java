@@ -4,7 +4,6 @@ import assets.IdToAsset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
@@ -12,8 +11,6 @@ import tomato.backend.data.Damage;
 import tomato.backend.data.DpsData.LocalPlayerContext;
 import tomato.backend.data.Entity;
 import tomato.backend.data.Equipment;
-import tomato.backend.data.PlayerRemoved;
-import tomato.gui.dps.shared.DeathParser;
 import tomato.gui.dps.shared.DpsTextFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
 import tomato.gui.dps.shared.GuardsHandler;
@@ -36,6 +33,18 @@ import tomato.realmshark.enums.CharacterClass;
  */
 public class DpsToString {
 
+    /** Legacy entry: outcomes from the notices only (no presence timeline). */
+    public static String stringDmgRealtime(
+        MapInfoPacket map,
+        List<Entity> sortedEntityHitList,
+        ArrayList<NotificationPacket> notifications,
+        LocalPlayerContext player,
+        long totalDungeonPcTime
+    ) {
+        return stringDmgRealtime(map, sortedEntityHitList, notifications, player, totalDungeonPcTime,
+            EncounterOutcomes.of(null, -1, false, EncounterOutcomes.playersOf(sortedEntityHitList), notifications));
+    }
+
     /**
      * Real time string display.
      *
@@ -46,7 +55,8 @@ public class DpsToString {
         List<Entity> sortedEntityHitList,
         ArrayList<NotificationPacket> notifications,
         LocalPlayerContext player,
-        long totalDungeonPcTime
+        long totalDungeonPcTime,
+        EncounterOutcomes outcomes
     ) {
         StringBuilder sb = new StringBuilder();
         sb.append("Legacy: % enemy max HP = player damage / captured enemy max HP; hidden players do not change it.\n")
@@ -66,9 +76,7 @@ public class DpsToString {
                 .append("\n\n");
         }
 
-        Map<String, Integer> deathMap = DeathParser.parseDeathsToMap(
-            notifications
-        );
+        appendPartyOutcome(sb, outcomes);
 
         for (Entity e : sortedEntityHitList) {
             if (!isValidEntity(e)) continue;
@@ -78,10 +86,25 @@ public class DpsToString {
                     ? null
                     : EquipmentUsageAggregator.of(e);
 
-            sb.append(display(e, deathMap, player, eqAgg)).append("\n");
+            sb.append(display(e, outcomes, player, eqAgg)).append("\n");
         }
 
         return sb.toString();
+    }
+
+    /** "Party outcome: …" then one line per player (name, class, outcome); nothing when there are no players. */
+    static void appendPartyOutcome(StringBuilder sb, EncounterOutcomes outcomes) {
+        if (outcomes == null || outcomes.lines().isEmpty()) return;
+        sb.append("Party outcome: ").append(outcomes.summary()).append('\n');
+        for (EncounterOutcomes.Line line : outcomes.lines()) {
+            sb.append("    ");
+            DpsTextFormat.appendPaddedRight(sb, line.name, 12);
+            sb.append(' ');
+            String className = CharacterClass.getName(line.classType);
+            DpsTextFormat.appendPaddedRight(sb, className == null ? "Unknown" : className, 10);
+            sb.append(' ').append(line.outcome.label()).append('\n');
+        }
+        sb.append('\n');
     }
 
     /**
@@ -89,7 +112,7 @@ public class DpsToString {
      */
     public static String display(
         Entity entity,
-        Map<String, Integer> deathMap,
+        EncounterOutcomes outcomes,
         LocalPlayerContext player,
         EquipmentUsageAggregator eqAgg
     ) {
@@ -128,23 +151,9 @@ public class DpsToString {
             String extra = GuardsHandler.buildExtraTag(entity, dmg);
             if (extra.isEmpty()) extra = "    ";
 
-            // Death/Nexus info, if available
-            if (entity.playerDropped != null) {
-                PlayerRemoved pr = entity.playerDropped.get(dmg.owner.id);
-                if (pr != null) {
-                    boolean dead =
-                        deathMap != null && deathMap.containsKey(name);
-                    float hpPct = safePercent(pr.hp, pr.max);
-                    extra +=
-                        (dead ? "Died " : "Nexus ") +
-                        DisplayFormat.formatPercentage(hpPct, 2) +
-                        " [" +
-                        DisplayFormat.formatInteger(pr.hp) +
-                        " / " +
-                        DisplayFormat.formatInteger(pr.max) +
-                        "]";
-                }
-            }
+            // Dungeon-level outcome for players who did not complete (docs/DPS-METERS.md, "Party outcomes")
+            EncounterOutcomes.Outcome outcome = outcomes == null ? null : outcomes.outcome(dmg.owner);
+            if (outcome != null && outcome.didNotComplete()) extra += outcome.label();
 
             // Equipment
             String inv = "";
