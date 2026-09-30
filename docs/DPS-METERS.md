@@ -30,6 +30,18 @@ The meter summary and the encounter's link and status line stay below the row.
 - **Pause this view** freezes one displayed snapshot for both Meters and Legacy while capture continues. Switching display modes or receiving a new map preserves that snapshot; unpause refreshes immediately, and choosing another encounter clears the pause. The source label gives the snapshot's display time, not a capture timestamp. Resources & buffs has separate controls. Enemy/player selection and column sorting survive ordinary live refreshes.
 - Switching to the Live meter during a heavy fight stays within the app's 100 ms page-switch goal: the enemy list is refilled in one pass. With a synthetic 300-enemy, 96,000-hit fight the switch measured 14–19 ms median and at most 35 ms p95 (before P5b: 173–197 ms median); see the [P5b validation record](superpowers/plans/2026-09-28-p5b-validation.md).
 
+### Party outcomes
+
+Every player on the meter keeps their damage and DPS; the **Outcome** column and the line under the window say whether they finished the dungeon. The text view lists the same outcomes in a "Party outcome" block.
+
+- **Completed**: in the dungeon when it ended. The end is the server's victory notice; for The Void, The Shatters and Moonlight Village also the final boss's closing line; otherwise the last boss leaving the hit list. Leaving or dying afterwards still counts as completed.
+- **Died**: a death notice for the player (or your own death packet, which names the killer) arrived before the end. Shows the time and the gravestone.
+- **Nexused**: the player left view before the end and never came back, with the time and the HP they had. The game sends no nexus message for other players, so this is inferred: it can also be a disconnect or someone standing out of view when the dungeon ended. Your own nexus is confirmed by the nexus key press itself.
+- **In progress**: a live encounter that has not ended yet.
+- **Unknown**: the end was never seen (usually because you left first), the player was first seen after the end, or capture started mid-dungeon.
+
+Players who walk out of view and come back are unaffected, and a reconnect under a new object ID counts as the same player. Recordings saved before outcome tracking show only deaths matched by a unique name ("Outcomes unavailable"). `.dps` files carry the outcome data, so imported recordings show the same outcomes.
+
 ## Interpretation
 
 **Recorded share %** in Meters is player damage divided by all recorded damage on the selected enemies, including hidden players and unattributed damage. A zero total leaves the percentage unavailable. Legacy text/icons instead show **% enemy max HP**: player damage divided by that enemy's captured maximum HP. For example, 200 damage out of 400 recorded against a 1,000-HP enemy is 50% recorded share but 20% enemy max HP.
