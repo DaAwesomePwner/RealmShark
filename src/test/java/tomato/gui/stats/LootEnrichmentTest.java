@@ -10,6 +10,29 @@ import static org.junit.Assert.*;
 
 public class LootEnrichmentTest {
     @org.junit.Rule public org.junit.rules.TemporaryFolder temp=new org.junit.rules.TemporaryFolder();
+    @Test public void occurrenceRowsNameTheirEnchantmentsForTheArchiveDetail() {
+        java.util.HashMap<Short, ParseEnchants.Definition> saved = ParseEnchants.ENCHANT_DEFINITIONS;
+        try {
+            java.util.HashMap<Short, ParseEnchants.Definition> definitions = new java.util.HashMap<>();
+            definitions.put((short) 42, new ParseEnchants.Definition("Attack Bonus I", "Increases Attack by 1.4"));
+            ParseEnchants.ENCHANT_DEFINITIONS = definitions;
+            LootDashboard.Item item = new LootDashboard.Item(10, "Doom Bow", "EQUIPMENT,WEAPON,UT", ParseEnchants.evidence(enchants(-1, 42)));
+            LootDashboard.Drop drop = new LootDashboard.Drop("White", "Lost Halls", "Boss", 1_000, java.util.List.of(item));
+            LootQuery.Row row = LootQuery.Row.item("s", drop, item, "Lost Halls");
+            assertEquals("Rare · 2 enchant slots\n  (empty slot)\n  Attack Bonus I — Increases Attack by 1.4", row.enchantments);
+            assertTrue("The exact-evidence export column is unchanged", row.enchantEvidence.contains("RECORDED"));
+        } finally {
+            ParseEnchants.ENCHANT_DEFINITIONS = saved;
+        }
+    }
+
+    /** An item's enchant code as the game sends it (ParseEnchantsSummaryTest's layout): -1 an empty unlocked slot, others applied IDs. */
+    private static String enchants(int... slots) {
+        ByteBuffer buffer = ByteBuffer.allocate(3 + slots.length * 2).order(ByteOrder.LITTLE_ENDIAN);
+        buffer.put((byte) 0).putShort((short) 1026);
+        for (int slot : slots) buffer.putShort((short) slot);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(buffer.array());
+    }
     @Test public void groupedVariantsNeverClaimOneOccurrencesExactEffects()throws Exception{
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")){
             LootDashboard.Item a=new LootDashboard.Item(42,"A","WEAPON",ParseEnchants.evidence(encoded(1)));
