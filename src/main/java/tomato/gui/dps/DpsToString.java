@@ -3,8 +3,10 @@ package tomato.gui.dps;
 import assets.IdToAsset;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Damage;
@@ -76,7 +78,7 @@ public class DpsToString {
                 .append("\n\n");
         }
 
-        appendPartyOutcome(sb, outcomes);
+        appendPartyOutcome(sb, outcomes, sortedEntityHitList, player);
 
         for (Entity e : sortedEntityHitList) {
             if (!isValidEntity(e)) continue;
@@ -92,11 +94,18 @@ public class DpsToString {
         return sb.toString();
     }
 
-    /** "Party outcome: …" then one line per player (name, class, outcome); nothing when there are no players. */
-    static void appendPartyOutcome(StringBuilder sb, EncounterOutcomes outcomes) {
+    /**
+     * "Party outcome: " and the whole-party counts, then one line per player (name, class, outcome); nothing when there are
+     * no players. The player lines follow the player filter like the enemy rows: in filter mode only players the filter shows
+     * are listed. A player is matched to the damaging player's entity by name, since the filter reads its guild and class;
+     * someone with no recorded damage has no such entity, so filter mode hides them.
+     */
+    static void appendPartyOutcome(StringBuilder sb, EncounterOutcomes outcomes, List<Entity> enemies, LocalPlayerContext player) {
         if (outcomes == null || outcomes.lines().isEmpty()) return;
+        Map<String, List<Entity>> damagers = Filter.shouldFilter(player) ? playersByName(enemies) : null;
         sb.append("Party outcome: ").append(outcomes.summary()).append('\n');
         for (EncounterOutcomes.Line line : outcomes.lines()) {
+            if (damagers != null && !shownByFilter(damagers.get(line.name), player)) continue;
             sb.append("    ");
             DpsTextFormat.appendPaddedRight(sb, line.name, 12);
             sb.append(' ');
@@ -105,6 +114,21 @@ public class DpsToString {
             sb.append(' ').append(line.outcome.label()).append('\n');
         }
         sb.append('\n');
+    }
+
+    private static Map<String, List<Entity>> playersByName(List<Entity> enemies) {
+        Map<String, List<Entity>> byName = new HashMap<>();
+        for (Entity owner : EncounterOutcomes.playersOf(enemies)) {
+            String name = owner.name();
+            if (name != null && !name.isEmpty()) byName.computeIfAbsent(name, key -> new ArrayList<>()).add(owner);
+        }
+        return byName;
+    }
+
+    /** The enemy rows' rule: a player is shown when the filter matches it (the same name may have had several object IDs). */
+    private static boolean shownByFilter(List<Entity> entities, LocalPlayerContext player) {
+        if (entities != null) for (Entity owner : entities) if (Filter.filter(owner, player) == 1) return true;
+        return false;
     }
 
     /**

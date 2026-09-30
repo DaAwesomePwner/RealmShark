@@ -50,6 +50,30 @@ public class DpsTextOutcomeTest {
         assertFalse("Completers carry no tag", lineFor(text, "Alice").contains("Nexus"));
     }
 
+    @Test public void thePartyBlockListsOnlyPlayersTheFilterShows() {
+        Entity alice = EncounterOutcomesTest.named(1, "Alice", 768), bob = EncounterOutcomesTest.named(2, "Bob", 775);
+        PresenceTimeline presence = new PresenceTimeline();   // Carol never hit anything, so no entity carries her filter data
+        presence.recordSeen(1, "Alice", 768, 1_000, false); presence.recordSeen(2, "Bob", 775, 1_000, false);
+        presence.recordSeen(3, "Carol", 782, 1_000, false);
+        presence.recordLeft(2, 126, 700, 161_000); presence.recordEnd(PresenceTimeline.END_VICTORY, 300_000);
+        List<Entity> enemies = Collections.singletonList(enemy(alice, bob));
+        EncounterOutcomes outcomes = EncounterOutcomes.of(presence, 1_000, false, EncounterOutcomes.playersOf(enemies), List.of());
+        MapInfoPacket map = new MapInfoPacket(); map.name = "Synthetic Dungeon";
+
+        Filter.filter = 1; Filter.filterNames.add("alice");
+        String filtered = DpsToString.stringDmgRealtime(map, enemies, new ArrayList<>(), null, 2123, outcomes);
+        assertTrue(filtered, filtered.contains("Party outcome: 3 players · 2 completed · 1 nexused"));
+        assertTrue(filtered, filtered.contains("Alice"));
+        assertFalse("A hidden player is not named in the party block: " + filtered, filtered.contains("Bob"));
+        assertFalse("A player the filter cannot match is hidden too: " + filtered, filtered.contains("Carol"));
+
+        Filter.filter = 2;   // highlight shows everyone
+        String highlighted = DpsToString.stringDmgRealtime(map, enemies, new ArrayList<>(), null, 2123, outcomes);
+        assertTrue(highlighted, highlighted.contains("Bob") && highlighted.contains("Carol"));
+        Filter.filter = 0;
+        assertTrue(DpsToString.stringDmgRealtime(map, enemies, new ArrayList<>(), null, 2123, outcomes).contains("Carol"));
+    }
+
     @Test public void anUntrackedAreaAddsNoPartyBlockAndNoTags() {
         Entity alice = EncounterOutcomesTest.named(1, "Alice", 768), bob = EncounterOutcomesTest.named(2, "Bob", 775);
         MapInfoPacket map = new MapInfoPacket(); map.name = "Realm of the Mad God";
