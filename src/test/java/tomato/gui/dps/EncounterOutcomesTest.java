@@ -24,7 +24,7 @@ public class EncounterOutcomesTest {
     private static EncounterOutcomes saved(PresenceTimeline t) { return EncounterOutcomes.of(t, START, false, List.of(), List.of()); }
 
     static Entity named(int id, String name, int type) {
-        Entity player = new Entity(null, id, 0); player.objectType = type;
+        Entity player = new Entity(null, id, 0); player.objectType = type; player.markPlayerIdentity();
         StatData stat = new StatData(); stat.statType = StatType.NAME_STAT; stat.statTypeNum = StatType.NAME_STAT.get(); stat.stringStatValue = name;
         player.stat.set(StatType.NAME_STAT, stat);
         return player;

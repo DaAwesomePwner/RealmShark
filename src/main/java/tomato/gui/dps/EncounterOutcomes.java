@@ -215,22 +215,22 @@ public final class EncounterOutcomes {
     private static EncounterOutcomes legacy(Collection<Entity> players, Collection<NotificationPacket> notices) {
         List<Entity> people = players == null ? Collections.emptyList() : new ArrayList<>(players);
         Map<String, Integer> names = new HashMap<>();
-        for (Entity player : people) { String pname = name(player); if (pname != null) names.merge(pname, 1, Integer::sum); }
+        for (Entity player : people) { String name = name(player); if (name != null) names.merge(name, 1, Integer::sum); }
         Map<String, NotificationPacket> deaths = new HashMap<>();
         if (notices != null) for (NotificationPacket notice : new ArrayList<>(notices)) {
-            String extracted = notice == null ? null : DeathParser.extractName(notice);
-            if (extracted != null && !extracted.isEmpty()) deaths.putIfAbsent(extracted, notice);
+            String name = notice == null ? null : DeathParser.extractName(notice);
+            if (name != null && !name.isEmpty()) deaths.putIfAbsent(name, notice);
         }
         Map<Integer, Outcome> byId = new HashMap<>();
         List<Line> lines = new ArrayList<>();
         for (Entity player : people) {
             if (player == null) continue;
-            String pname = name(player);
-            NotificationPacket death = pname != null && names.get(pname) == 1 ? deaths.get(pname) : null;
+            String name = name(player);
+            NotificationPacket death = name != null && names.get(name) == 1 ? deaths.get(name) : null;
             Outcome outcome = death == null ? LEGACY_UNKNOWN : new Outcome(Kind.DIED, null, null, death.pictureType, null, false,
                 "A death notice names this player; recorded before outcome tracking, so no time is known.");
             byId.put(player.id, outcome);
-            lines.add(new Line(pname == null ? "Unknown player" : pname, player.objectType, outcome));
+            lines.add(new Line(name == null ? "Unknown player" : name, player.objectType, outcome));
         }
         return new EncounterOutcomes(State.UNAVAILABLE, byId, lines, 0);
     }
@@ -286,14 +286,7 @@ public final class EncounterOutcomes {
     private static Outcome unknown(String reason) { return new Outcome(Kind.UNKNOWN, null, null, -1, null, false, reason); }
 
     private static String name(Entity player) {
-        if (player == null) return null;
-        String name = player.name();
-        if (name != null && !name.isEmpty()) return name;
-        // Fallback: check if there's a NAME_STAT directly (in case CharacterClass data isn't loaded)
-        packets.data.StatData stat = player.stat.get(packets.data.enums.StatType.NAME_STAT);
-        if (stat != null && stat.stringStatValue != null && !stat.stringStatValue.isEmpty()) {
-            return stat.stringStatValue.split(",", 2)[0].trim();
-        }
-        return null;
+        String name = player == null ? null : player.name();
+        return name == null || name.isEmpty() ? null : name;
     }
 }
