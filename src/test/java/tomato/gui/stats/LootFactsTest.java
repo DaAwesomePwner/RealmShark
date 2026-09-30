@@ -159,6 +159,15 @@ public class LootFactsTest {
         }
     }
 
+    @Test public void statPotionsNeverCarryEnchantments() {
+        LootDashboard.Item live = new LootDashboard.Item(30, "Potion of Life", "STATPOTION", ParseEnchants.evidence(""));
+        assertSame("A live potion's empty blob is not an enchant record", EnchantInfo.notRecorded(), live.enchantInfo());
+        LootDashboard.Item summarized = new LootDashboard.Item(31, "Potion of Mana", "STATPOTION", ParseEnchants.summarize(""));
+        assertSame(EnchantInfo.notRecorded(), summarized.enchantInfo());
+        LootFacts.Bag bag = LootFacts.bag("live", new LootDashboard.Drop("White", "Lost Halls", "Boss", 1_000, List.of(live)));
+        assertSame("…so highlights, run cards and recaps show no enchant line for it", EnchantInfo.notRecorded(), bag.items().get(0).enchant());
+    }
+
     @Test public void theLiveProjectionFillsTheSameFacts() {
         LootDashboard.Drop drop = new LootDashboard.Drop("B.White", "Lost Halls", "Marble Colossus", 7_000, List.of(
             new LootDashboard.Item(20, "Item #20", "EQUIPMENT,ARMOR,ST", ParseEnchants.evidence(enchants(-1, 42, 7, 0)))));

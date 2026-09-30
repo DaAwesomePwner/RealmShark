@@ -526,9 +526,12 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
         }
         /**
          * This item's enchantments for display: exact when its evidence was captured, the rarity alone for older records that
-         * saved only a slot count. Derived on every call from saved fields (Gson-read items may lack any of them); never persisted.
+         * saved only a slot count; stat potions never have enchantments.
+         * Derived on every call from saved fields (Gson-read items may lack any of them); never persisted.
          */
         EnchantInfo enchantInfo() {
+            // Stat potions have no enchant slots: whatever was saved for them is not an enchant record.
+            if (potion) return EnchantInfo.notRecorded();
             if (enchantEvidence != null && enchantEvidence.state != null
                     && enchantEvidence.state != ParseEnchants.EvidenceState.LEGACY_NOT_RECORDED)
                 return EnchantInfo.fromEvidence(enchantEvidence);
