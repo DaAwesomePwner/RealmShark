@@ -8,6 +8,7 @@ import javax.swing.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import tomato.gui.history.*;
+import tomato.gui.kit.OverflowMenu;
 import tomato.gui.stats.LootQuery.*;
 import tomato.history.*;
 import tomato.history.archive.*;
@@ -38,7 +39,7 @@ public class LootArchiveStateTest {
                 ArchiveRow.Ref selected=edt(()->workspace.displayedPage().rows.get(7).ref);assertEquals(Collections.singletonList(selected),edt(()->workspace.state().selected));
                 edt(()->workspace.saveNamed("Exact saved occurrence")).toCompletableFuture().get(5,TimeUnit.SECONDS);prefs.flush().toCompletableFuture().get();
                 assertEquals(SessionStore.ALL,edt(()->other.state().query.scope()));assertEquals(View.SESSIONS,edt(()->other.state().query.facets().view));
-                edt(()->{named(workspace,"loot-archive-view",JComboBox.class).setSelectedItem(View.BAGS);return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.BAGS);
+                edt(()->{named(workspace,"loot-views",JComboBox.class).setSelectedItem(View.BAGS);return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.BAGS);
                 assertEquals("bag-type summaries",edt(()->workspace.displayedPage().unit));
                 edt(()->{workspace.loadNamed("Exact saved occurrence");return null;});await(()->!workspace.loading()&&workspace.state().query.facets().view==View.OCCURRENCES);
                 assertEquals(1,edt(()->workspace.state().page).longValue());assertEquals(Collections.singletonList(selected),edt(()->workspace.state().selected));assertEquals(7,edt(()->named(workspace,"loot-archive-table",JTable.class).getSelectedRow()).intValue());
@@ -77,11 +78,35 @@ public class LootArchiveStateTest {
         try{
             LootDashboard live=edt(()->{LootDashboard view=new LootDashboard();view.bindViewState(states,"failure-live");view.accept(drop(1000,"Ice Citadel","White","",item(1,"UT","WEAPON,UT",""),item(2,"ST","ARMOR,ST","")));Facets f=new Facets();f.kind=Kind.UT_EQUIPMENT;view.applyFacets(f);return view;});
             await(()->named(live,"failure-live-state-status",JTextArea.class).getText().contains("save failed"));assertEquals(1,edt(()->live.matchingTotals()[1]).intValue());
+            // B5: after a failed save the status line shows, and Retry and Reset are items of the live row's ⋯.
+            edt(()->{assertTrue(named(live,"failure-live-state-status",JTextArea.class).isVisible());OverflowMenu more=liveMore(live);assertTrue(more.isVisible());
+                assertEquals("failure-live-retry-state",more.item("Retry view save").getName());assertEquals("failure-live-reset-state",more.item("Reset saved live view").getName());return null;});
             Files.delete(file.resolve("keep"));Files.delete(file);
-            edt(()->{named(live,"failure-live-retry-state",JButton.class).doClick();return null;});await(()->named(live,"failure-live-state-status",JTextArea.class).getText().contains("state saved"));
+            edt(()->{liveMore(live).item("Retry view save").doClick();return null;});await(()->named(live,"failure-live-state-status",JTextArea.class).getText().contains("state saved"));
+            edt(()->{assertFalse("A saved state shows no status line",named(live,"failure-live-state-status",JTextArea.class).isVisible());
+                assertNull("…and no Retry",liveMore(live).item("Retry view save"));assertNull(liveMore(live).item("Reset saved live view"));assertFalse("An empty ⋯ hides",liveMore(live).isVisible());return null;});
             edt(()->{LootDashboard restored=new LootDashboard(live);restored.bindViewState(states,"failure-live");assertEquals(1,restored.matchingTotals()[1]);return null;});
         }finally{prefs.shutdown(5,TimeUnit.SECONDS,message->{});}
     }
+    /** B5: a working save shows neither the status line nor Retry/Reset; an unreadable saved state offers Reset only, with its reason. */
+    @Test public void liveStateActionsShowOnlyWhenSavingFailsOrIsBlocked()throws Exception{
+        PreferencesStore prefs=new PreferencesStore(temp.getRoot().toPath().resolve("state.properties"));prefs.preload();ViewStateStore states=ViewStateStore.preferences(prefs);
+        try{
+            LootDashboard live=edt(()->{LootDashboard view=new LootDashboard();view.bindViewState(states,"working-live");Facets f=new Facets();f.kind=Kind.UT_EQUIPMENT;view.applyFacets(f);return view;});
+            await(()->named(live,"working-live-state-status",JTextArea.class).getText().contains("state saved"));
+            edt(()->{assertFalse(named(live,"working-live-state-status",JTextArea.class).isVisible());assertNull(liveMore(live).item("Retry view save"));
+                assertNull(liveMore(live).item("Reset saved live view"));assertFalse(liveMore(live).isVisible());return null;});
+            prefs.setProperties("ux.archive.blocked-live","{not json");
+            LootDashboard blocked=edt(()->{LootDashboard view=new LootDashboard();view.bindViewState(states,"blocked-live");return view;});
+            edt(()->{JTextArea status=named(blocked,"blocked-live-state-status",JTextArea.class);assertTrue(status.isVisible());assertTrue(status.getText(),status.getText().startsWith("Saved live view unavailable"));
+                assertNull("Nothing to retry while saving is blocked",liveMore(blocked).item("Retry view save"));JMenuItem reset=liveMore(blocked).item("Reset saved live view");assertNotNull(reset);
+                reset.doClick();return null;});
+            await(()->named(blocked,"blocked-live-state-status",JTextArea.class).getText().contains("state saved"));
+            edt(()->{assertFalse(named(blocked,"blocked-live-state-status",JTextArea.class).isVisible());assertNull(liveMore(blocked).item("Reset saved live view"));return null;});
+        }finally{prefs.shutdown(5,TimeUnit.SECONDS,message->{});}
+    }
+    /** The live row's ⋯ ({@code loot-live-more}). */
+    private static OverflowMenu liveMore(LootDashboard live){return named(live,"loot-live-more",OverflowMenu.class);}
     @Test public void arrivingFacetChoicesPreserveTheUnappliedLiveDraft()throws Exception{
         edt(()->{AtomicReference<Facets> applied=new AtomicReference<>();LootFacetControls controls=new LootFacetControls(new Facets(),Collections.singleton("White"),Collections.singleton("Ice Citadel"),applied::set);
             named(controls,"loot-bags-multi",JList.class).setSelectedValue("White",false);named(controls,"loot-slots-min",JTextField.class).setText("2");named(controls,"loot-kind",JComboBox.class).setSelectedItem(Kind.UT_EQUIPMENT);

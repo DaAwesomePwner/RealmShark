@@ -7,6 +7,7 @@ import java.util.function.*;
 import javax.swing.*;
 import javax.swing.table.TableColumn;
 import tomato.gui.history.*;
+import tomato.gui.kit.KitTables;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.archive.ArchiveQuery;
 import util.PreferencesStore;
@@ -131,16 +132,32 @@ public final class RosterViewState {
         for (int i = 0; i < ids.length; i++) if (ids[i].equals(value)) return i;
         throw new IllegalArgumentException("Unknown " + key);
     }
+    /**
+     * Sort keys and the widths of the table's columns by model index. A column {@code KitTables.analystOnly} hides in Simple keeps
+     * the width it had (or the width a restore gave it while hidden), so a Simple capture never drops it; nothing records it as
+     * hidden. The table must reach {@link #listenTable}, this or {@link #prepareTable} before the mode first hides a column.
+     */
     public static void captureTable(Map<String, String> values, JTable table) {
+        ModeWidths mode = modeWidths(table);
         StringJoiner sort = new StringJoiner(",");
         if (table.getRowSorter() != null) for (RowSorter.SortKey key : table.getRowSorter().getSortKeys()) sort.add(key.getColumn() + ":" + key.getSortOrder().name());
         values.put("sort", sort.toString());
+        Set<Integer> shown = new HashSet<>();
         for (Enumeration<TableColumn> columns = table.getColumnModel().getColumns(); columns.hasMoreElements();) {
-            TableColumn column = columns.nextElement(); values.put("width." + column.getModelIndex(), Integer.toString(Math.min(10000, Math.max(16, column.getWidth()))));
+            TableColumn column = columns.nextElement(); shown.add(column.getModelIndex());
+            values.put("width." + column.getModelIndex(), Integer.toString(Math.min(10000, Math.max(16, column.getWidth()))));
         }
+        if (!KitTables.modeHidden(table).isEmpty())
+            for (Map.Entry<Integer, Integer> width : mode.widths.entrySet())
+                if (!shown.contains(width.getKey()) && width.getKey() < table.getModel().getColumnCount())
+                    values.put("width." + width.getKey(), Integer.toString(Math.min(10000, Math.max(16, width.getValue()))));
     }
-    /** Validate everything before changing any controls, so a malformed document cannot apply half a state. */
+    /**
+     * Validate everything before changing any controls, so a malformed document cannot apply half a state. A saved width for a
+     * column the mode hides right now is kept and applied when Analyst shows the column again; no column is hidden or dropped.
+     */
     public static Runnable prepareTable(Map<String, String> values, JTable table) {
+        ModeWidths mode = modeWidths(table);
         List<RowSorter.SortKey> sort = new ArrayList<>();
         String raw = values.get("sort");
         if (raw != null && !raw.isEmpty()) for (String entry : raw.split(",")) {
@@ -155,22 +172,74 @@ public final class RosterViewState {
             if (values.containsKey("width." + column)) widths.put(column, number(values, "width." + column, 75, 16, 10000));
         return () -> {
             if (raw != null && table.getRowSorter() != null) table.getRowSorter().setSortKeys(sort);
+            Set<Integer> shown = new HashSet<>();
             for (Enumeration<TableColumn> columns = table.getColumnModel().getColumns(); columns.hasMoreElements();) {
-                TableColumn column = columns.nextElement(); Integer width = widths.get(column.getModelIndex());
+                TableColumn column = columns.nextElement(); Integer width = widths.get(column.getModelIndex()); shown.add(column.getModelIndex());
                 if (width != null) { column.setPreferredWidth(width); column.setWidth(width); }
             }
+            if (!KitTables.modeHidden(table).isEmpty())
+                for (Map.Entry<Integer, Integer> width : widths.entrySet())
+                    if (!shown.contains(width.getKey())) { mode.widths.put(width.getKey(), width.getValue()); mode.pending.add(width.getKey()); }
         };
     }
+    /**
+     * Calls {@code changed} after the user sorts, moves or resizes. Changes {@code KitTables.analystOnly} makes on a mode switch,
+     * layouts HistoryTables applies and the widths restored here are not the user's; the mode's flag is read in each callback.
+     */
     public static void listenTable(JTable table, Runnable changed) {
+        ModeWidths mode = modeWidths(table);
+        java.util.function.BooleanSupplier ignored = () -> mode.applying || Boolean.TRUE.equals(table.getClientProperty(KitTables.MODE_CHANGING))
+            || Boolean.TRUE.equals(table.getClientProperty(HistoryTables.RESTORING_COLUMNS));
         if (table.getRowSorter() != null) table.getRowSorter().addRowSorterListener(e -> {
-            if (e.getType() == javax.swing.event.RowSorterEvent.Type.SORT_ORDER_CHANGED) changed.run();
+            if (e.getType() == javax.swing.event.RowSorterEvent.Type.SORT_ORDER_CHANGED && !ignored.getAsBoolean()) changed.run();
         });
         table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener() {
             public void columnAdded(javax.swing.event.TableColumnModelEvent e) { }
             public void columnRemoved(javax.swing.event.TableColumnModelEvent e) { }
-            public void columnMoved(javax.swing.event.TableColumnModelEvent e) { if (e.getFromIndex() != e.getToIndex()) changed.run(); }
-            public void columnMarginChanged(javax.swing.event.ChangeEvent e) { changed.run(); }
+            public void columnMoved(javax.swing.event.TableColumnModelEvent e) { if (e.getFromIndex() != e.getToIndex() && !ignored.getAsBoolean()) changed.run(); }
+            public void columnMarginChanged(javax.swing.event.ChangeEvent e) { if (!ignored.getAsBoolean()) changed.run(); }
             public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) { }
         });
+    }
+
+    /** Table client property: the table's {@link ModeWidths}. */
+    private static final String MODE_WIDTHS = "roster.modeWidths";
+    private static ModeWidths modeWidths(JTable table) {
+        Object saved = table.getClientProperty(MODE_WIDTHS);
+        if (saved instanceof ModeWidths) return (ModeWidths) saved;
+        ModeWidths mode = new ModeWidths(table); table.putClientProperty(MODE_WIDTHS, mode);
+        table.addPropertyChangeListener(KitTables.MODE_CHANGING, mode);
+        return mode;
+    }
+    /**
+     * One table's column widths across mode switches, by model index. {@code KitTables.analystOnly} flags each change with
+     * {@code KitTables.MODE_CHANGING}: as a change begins the shown columns' widths are remembered (the hidden ones keep theirs),
+     * and a column shown again takes a width restored while it was hidden. EDT.
+     */
+    private static final class ModeWidths implements java.beans.PropertyChangeListener {
+        private final JTable table;
+        final Map<Integer, Integer> widths = new HashMap<>();
+        /** Hidden columns whose width a restore replaced; applied when they are shown again. */
+        final Set<Integer> pending = new HashSet<>();
+        boolean applying;
+        private List<TableColumn> before;
+        ModeWidths(JTable table) { this.table = table; }
+        @Override public void propertyChange(java.beans.PropertyChangeEvent event) {
+            if (Boolean.TRUE.equals(event.getNewValue())) {
+                before = Collections.list(table.getColumnModel().getColumns());
+                for (TableColumn column : before) widths.put(column.getModelIndex(), column.getWidth());
+                return;
+            }
+            List<TableColumn> was = before; before = null;
+            if (was == null) return;
+            applying = true;
+            try {
+                for (TableColumn column : Collections.list(table.getColumnModel().getColumns())) {
+                    if (was.contains(column) || !pending.remove(column.getModelIndex())) continue;
+                    Integer width = widths.get(column.getModelIndex());
+                    if (width != null) { column.setPreferredWidth(width); column.setWidth(width); }
+                }
+            } finally { applying = false; }
+        }
     }
 }

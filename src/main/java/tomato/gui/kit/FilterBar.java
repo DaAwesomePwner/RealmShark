@@ -1,6 +1,8 @@
 package tomato.gui.kit;
 
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -13,11 +15,14 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.LineIcon;
+import tomato.gui.modern.VioletTheme;
 import util.PropertiesManager;
 
 /**
  * One row: search, a Filters toggle with the active count, removable chips, Clear, then scope and
- * "More actions" on the right. The module's existing facet controls live in a drawer below, closed by default.
+ * "More actions" on the right. The module's existing facet controls live in a drawer below, closed by default; the
+ * toggle is selected (drawn pressed) while the drawer is open.
+ * While the drawer is open and focus is inside the bar, Esc closes it (as the toggle does) and focuses the toggle.
  */
 public class FilterBar extends JPanel {
     public static final class ActiveFilter {
@@ -60,6 +65,8 @@ public class FilterBar extends JPanel {
         overflow = new OverflowMenu(name + "-more");
         filters.setName(name + "-filters");
         filters.setIcon(new LineIcon(LineIcon.FILTER, 14));
+        // While the drawer is open the toggle is selected: the theme paints it pressed and assistive technology hears "checked".
+        filters.putClientProperty("FlatLaf.styleClass", VioletTheme.PRESSED_TOGGLE);
         filters.addActionListener(e -> setDrawerOpen(!open));
         clear.setName(name + "-clear-filters");
         clear.addActionListener(e -> { if (clearAll != null) clearAll.run(); });
@@ -86,8 +93,21 @@ public class FilterBar extends JPanel {
         add(drawerHolder, BorderLayout.CENTER);
         open = "true".equals(read.apply(key()));
         drawer.setVisible(false);
+        // Esc closes an open drawer; while it is closed the action is disabled, so the key falls through to ancestors.
+        // A focused component's own WHEN_FOCUSED Esc binding is processed first and keeps precedence.
+        getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), CLOSE_DRAWER);
+        getActionMap().put(CLOSE_DRAWER, new AbstractAction() {
+            @Override public boolean isEnabled() { return drawerOpen(); }
+            @Override public void actionPerformed(ActionEvent e) {
+                if (!drawerOpen()) return;
+                setDrawerOpen(false);
+                filters.requestFocusInWindow();
+            }
+        });
         rebuild();
     }
+
+    private static final String CLOSE_DRAWER = "filter-drawer-close";
 
     private String key() { return "ui.filters." + name + ".open"; }
 
@@ -120,6 +140,8 @@ public class FilterBar extends JPanel {
     }
 
     public JComponent drawerContent() { return drawerContent; }
+    /** The component passed to {@link #search}, or null. */
+    public JComponent searchSlot() { return search; }
     public OverflowMenu overflow() { return overflow; }
 
     public void setActive(List<ActiveFilter> filters, Runnable clearAll) {
@@ -206,6 +228,7 @@ public class FilterBar extends JPanel {
 
     private void updateFiltersButton() {
         filters.setText(active.isEmpty() ? "Filters" : "Filters · " + active.size());
+        filters.setSelected(drawerOpen());
         filters.getAccessibleContext().setAccessibleDescription(drawerOpen() ? "Filters shown" : "Filters hidden");
     }
 }

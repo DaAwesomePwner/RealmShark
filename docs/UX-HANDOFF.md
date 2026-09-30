@@ -1,19 +1,11 @@
 # Four-wave UX implementation handoff
 
-**Latest redesign handoff (2026-09-27): read [the redesign handoff](superpowers/plans/2026-09-27-redesign-handoff.md) first.**
-- It covers the state, open PR #22 and its two Codex threads, the user's decisions, the review and implementation process, build and test notes, and the P3b plan inputs.
-- It supersedes session-local notes when you switch machines, including cloud sessions.
-
-Current redesign handoff (2026-09-27): the four waves are complete. P0 merged
-in PR #17 (`9b6844a`); P1a design kit merged in PR #18 (`7b3e0c5`), including fix `ee8d085`.
-Use the [presentation roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md)
-and [P3a validation](superpowers/plans/2026-09-27-p3a-validation.md) for current
-scope and evidence. Every phase uses `claude/realmshark-ui-ux-redesign-cb0914`.
-P1b merged in PR #19 as `0abafe4`, including `a011bfd`. P1c merged in PR #20 as
-`e973f10`, including `4ca1657`. P2 merged in PR #21 as `94db6f6`. P3a (Characters) is
-implemented, pending PR merge. Focused checks, S2/S5, the final full suite and JAR smoke
-are recorded in the P3a validation; see the P3a PR for independent final-head review.
-Verify merged main before starting P3b. The older resumption instructions below are historical.
+**Redesign status (2026-09-30):** phases P0–P6a are merged (PRs #17–#27), and P6b (the consistency pass) is implemented on
+`claude/redesign-handoff-next-steps-edrr7w`, pending its PR. Start from the
+[redesign roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md) and the
+[redesign handoff](superpowers/plans/2026-09-27-redesign-handoff.md); the current phase plan is
+[P6b](superpowers/plans/2026-09-29-p6b-consistency.md). Everything below this paragraph describes the completed four-wave
+implementation (Waves 1–4) and is history.
 
 Current policy (user approved 2026-09-26): CI is manual-only, not required for
 merges. Follow AGENTS.md for focused local validation; historical CI gates below

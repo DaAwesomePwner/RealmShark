@@ -83,6 +83,65 @@ public final class SocialQueryControls {
         panel.add(names); panel.add(load); panel.add(name); panel.add(save); panel.add(remove); panel.add(reset); reload.run(); return panel;
     }
 
+    /** The ⋯ section {@link #liveViewItems} fills. */
+    public static final String LIVE_VIEWS = "live-views";
+
+    /**
+     * The named live views of {@code key} as a "Saved views ▸" submenu ({@code <key>-saved-views}) in {@code menu}'s
+     * {@link #LIVE_VIEWS} section, for a live page's own ⋯ instead of a row of view controls: Save current view…, Load: &lt;name&gt;
+     * for each saved view, Delete view… and Reset saved state. The names relist whenever the submenu opens; a failed read or save
+     * is reported through {@code status} and the current controls stay usable. Calling again replaces the submenu. EDT.
+     */
+    public static <F,S extends Enum<S>> tomato.gui.kit.OverflowMenu.Section liveViewItems(tomato.gui.kit.OverflowMenu menu, String key, ViewStateStore store,
+            Supplier<ViewState<F,S>> capture, Consumer<ViewState<F,S>> restore, ViewState<F,S> defaults, Consumer<String> status) {
+        Objects.requireNonNull(store, "store"); Objects.requireNonNull(capture, "capture"); Objects.requireNonNull(restore, "restore");
+        Objects.requireNonNull(defaults, "defaults"); Objects.requireNonNull(status, "status");
+        JMenu views = new JMenu("Saved views"); views.setName(key + "-saved-views");
+        Runnable[] reload = new Runnable[1];
+        reload[0] = () -> {
+            List<String> names;
+            try { names = store.names(key); } catch (RuntimeException failure) { status.accept(failure.getMessage()); names = Collections.emptyList(); }
+            views.removeAll();
+            JMenuItem save = new JMenuItem("Save current view…"); views.add(save);
+            save.addActionListener(e -> {
+                String label = JOptionPane.showInputDialog(menu, "Name for this view", "Save view", JOptionPane.PLAIN_MESSAGE);
+                if (label == null) return;
+                try { store.saveNamed(key, label, capture.get()).whenComplete((result, error) -> SwingUtilities.invokeLater(() ->
+                    status.accept(error == null && result.isSuccess() ? "Live view saved." : "Live view active; save failed. Retry Save current view…"))); }
+                catch (RuntimeException failure) { status.accept(failure.getMessage()); }
+                reload[0].run();
+            });
+            if (!names.isEmpty()) views.addSeparator();
+            for (String label : names) {
+                JMenuItem load = new JMenuItem("Load: " + label); views.add(load);
+                load.addActionListener(e -> {
+                    try { restore.accept(store.loadNamed(key, label, defaults)); }
+                    catch (RuntimeException failure) { status.accept("Live view not applied: " + failure.getMessage()); }
+                });
+            }
+            views.addSeparator();
+            List<String> deletable = names;
+            JMenuItem delete = new JMenuItem("Delete view…"); delete.setEnabled(!names.isEmpty()); views.add(delete);
+            delete.addActionListener(e -> {
+                if (deletable.isEmpty()) return;
+                Object label = JOptionPane.showInputDialog(menu, "Delete which saved view?", "Delete view", JOptionPane.PLAIN_MESSAGE, null, deletable.toArray(), deletable.get(0));
+                if (label == null) return;
+                store.deleteNamed(key, label.toString()); reload[0].run();
+            });
+            JMenuItem reset = new JMenuItem("Reset saved state"); views.add(reset);
+            reset.addActionListener(e -> { store.reset(key); restore.accept(defaults); reload[0].run(); });
+        };
+        views.addMenuListener(new MenuListener() {
+            public void menuSelected(MenuEvent e) { reload[0].run(); }
+            public void menuDeselected(MenuEvent e) { }
+            public void menuCanceled(MenuEvent e) { }
+        });
+        reload[0].run();
+        tomato.gui.kit.OverflowMenu.Section section = menu.section(LIVE_VIEWS);
+        section.replace(views);
+        return section;
+    }
+
     /** Renderer-local evolving state; callbacks from a retired renderer cannot replace later intent. */
     public static final class State<R,F,S extends Enum<S>> {
         public ViewState<F,S> value;
@@ -90,12 +149,13 @@ public final class SocialQueryControls {
         private final BooleanSupplier current;
         private boolean retired, restoring;
         private JComponent owner;
+        private HistoryTables.ColumnTools tools;
         public State(ViewState<F,S> initial, ArchiveClient.Binding<F,S> binding, BooleanSupplier current) {
             value = initial; this.binding = binding; this.current = current;
         }
         public boolean active() { return !retired && current.getAsBoolean(); }
         public void owner(JComponent owner) { this.owner = owner; }
-        private void retire() { retired = true; if (owner != null) disable(owner); }
+        private void retire() { retired = true; if (owner != null) disable(owner); if (tools != null) tools.setEnabled(false); }
         private void disable(Component component) {
             if (component instanceof AbstractButton || component instanceof JTextField || component instanceof JTextArea && ((JTextArea)component).isEditable()
                     || component instanceof JComboBox || component instanceof JTable || component instanceof JTabbedPane) component.setEnabled(false);
@@ -104,21 +164,29 @@ public final class SocialQueryControls {
         public void query(ArchiveQuery<F,S> next) { if (active()) { retire(); binding.queryChanged(next); } }
         public void refresh() { if (active()) { retire(); binding.refresh(); } }
         public void tab(String tab) { if (active()) { value = value.withPosition(tab, Collections.emptyList(), null, 0); binding.viewChanged(value); } }
-        public JComponent tableControls(JTable table, JScrollPane scroll, ArchivePage<R> page, String key, Map<String,List<String>> presets) {
+        /**
+         * Restores the table's saved layout ({@code key}) and position, remembers later layout, selection and scroll changes, and
+         * returns the table's column tools for the workspace ⋯ (also {@link #tools()}, which the client hands to ArchiveFilters).
+         */
+        public HistoryTables.ColumnTools tableTools(JTable table, JScrollPane scroll, ArchivePage<R> page, String key, Map<String,List<String>> presets) {
             restoring = true;
             ViewState.Table defaults = HistoryTables.columnState(table, "Default");
             if (value.tables.containsKey(key)) HistoryTables.applyColumns(table, value.tables.get(key));
             HistoryTables.restorePosition(table, scroll, page, value);
-            JComponent controls = HistoryTables.controls(table, defaults, presets, layout -> {
+            java.util.function.Consumer<ViewState.Table> save = layout -> {
                 if (active() && !restoring) { value = value.withTable(key, layout); binding.viewChanged(value); }
-            });
+            };
+            HistoryTables.rememberLayout(table, save);
+            tools = HistoryTables.columnTools(table, defaults, presets, save);
             Runnable position = () -> {
                 if (active() && !restoring && !table.getSelectionModel().getValueIsAdjusting()) {
                     value = HistoryTables.position(table, scroll, page, value); binding.viewChanged(value);
                 }
             };
             table.getSelectionModel().addListSelectionListener(e -> position.run());
-            scroll.getViewport().addChangeListener(e -> position.run()); restoring = false; return controls;
+            scroll.getViewport().addChangeListener(e -> position.run()); restoring = false; return tools;
         }
+        /** The column tools {@link #tableTools} made for this render's table; null before. */
+        public HistoryTables.ColumnTools tools() { return tools; }
     }
 }

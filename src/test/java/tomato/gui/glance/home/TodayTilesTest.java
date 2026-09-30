@@ -136,7 +136,7 @@ public class TodayTilesTest {
     @Test public void theNotableLootTileOpensLootHighlightsByClickEnterOrSpace() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             int[] opened = {0};
-            TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode, () -> opened[0]++);
+            TodayTiles tiles = new TodayTiles(window -> {}, TODAY, mode, window -> opened[0]++);
             tiles.apply(HomeModels.today(TODAY, NOW));
             StatTile loot = named(tiles, "home-tile-loot", StatTile.class);
             assertTrue(loot.isFocusable());
@@ -174,9 +174,11 @@ public class TodayTilesTest {
 
     /** HomeActions gained {@code loot}; the five-action form (tests, fixtures) has none, so its tile is not activatable. */
     @Test public void homeActionsCarryTheLootActionAndHomeHandsItToTheTile() throws Exception {
-        Runnable loot = () -> {};
+        int[] ran = {0};
+        Runnable loot = () -> ran[0]++;
         HomeActions actions = new HomeActions(key -> {}, () -> {}, () -> {}, visit -> {}, () -> {}, loot);
-        assertSame(loot, actions.loot());
+        actions.loot().accept(TODAY);
+        assertEquals("The Runnable form carries the loot action (P6b: adapted to the window form)", 1, ran[0]);
         assertNull("The five-action form has no loot action", HomeModels.NO_ACTIONS.loot());
         SwingUtilities.invokeAndWait(() -> {
             int[] opened = {0};
@@ -188,6 +190,42 @@ public class TodayTilesTest {
             assertNotNull("Home makes the Notable loot tile activatable", tile.getActionMap().get("open-tile"));
             tile.getActionMap().get("open-tile").actionPerformed(null);
             assertEquals(1, opened[0]);
+            page.close();
+        });
+    }
+
+    /**
+     * P6b Task 9 (R3 B10): the Notable loot tile passes the window it shows, Today or This session, so Loot › Highlights opens on
+     * the same period; a window the user picks after is the one passed next. Home hands its window-aware loot action to the tile.
+     */
+    @Test public void theNotableLootTilePassesTheWindowItShows() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            List<HomeArchive.Window> opened = new ArrayList<>(), changes = new ArrayList<>();
+            TodayTiles tiles = new TodayTiles(changes::add, TODAY, mode, opened::add);
+            tiles.apply(HomeModels.today(TODAY, NOW));
+            StatTile loot = named(tiles, "home-tile-loot", StatTile.class);
+            loot.getActionMap().get("open-tile").actionPerformed(null);
+            assertEquals("Today opens Highlights on Today", List.of(TODAY), opened);
+            named(tiles, "home-today-window-1", JToggleButton.class).doClick();
+            assertEquals(List.of(SESSION), changes);
+            tiles.apply(HomeModels.today(SESSION, NOW));
+            loot.getActionMap().get(loot.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0))).actionPerformed(null);
+            loot.dispatchEvent(new java.awt.event.MouseEvent(loot, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            assertEquals("This session opens it on This session, by key or click", List.of(TODAY, SESSION, SESSION), opened);
+            opened.clear();
+            TodayTiles restored = new TodayTiles(window -> {}, SESSION, mode, opened::add);
+            restored.apply(HomeModels.today(SESSION, NOW));
+            named(restored, "home-tile-loot", StatTile.class).getActionMap().get("open-tile").actionPerformed(null);
+            assertEquals("A restored This session passes it", List.of(SESSION), opened);
+
+            List<HomeArchive.Window> windows = new ArrayList<>();
+            Map<String, String> prefs = new HashMap<>();
+            prefs.put(HomePage.WINDOW_KEY, "session");
+            HomePage page = new HomePage(null, new HomeActions(key -> {}, () -> {}, () -> {}, visit -> {}, () -> {}, windows::add),
+                new DisplayModeModel(prefs::get, prefs::put), prefs::get, prefs::put, () -> NOW);
+            page.apply(HomeModels.populated(NOW).withToday(HomeModels.today(SESSION, NOW)));
+            named(page, "home-tile-loot", StatTile.class).getActionMap().get("open-tile").actionPerformed(null);
+            assertEquals("Home's tile passes Home's window", List.of(SESSION), windows);
             page.close();
         });
     }

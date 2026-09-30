@@ -232,7 +232,7 @@ public final class RunRecapView extends JPanel {
         Column page = new Column(content);
         scroll = new JScrollPane(page);
         scroll.setName("run-recap-scroll");
-        scroll.setBorder(null);
+        scroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would put the outline back
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.getVerticalScrollBar().setUnitIncrement(32);
         scroll.getAccessibleContext().setAccessibleName("Run recap");

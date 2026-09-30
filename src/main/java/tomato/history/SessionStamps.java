@@ -10,7 +10,7 @@ import java.util.*;
 
 /**
  * Per-session stamps and the values kept by them, for readers of saved history that keep closed sessions' facts between
- * reads (Home's archive, the Dungeons cards, the run feed's sessions through {@code SessionFacts}; Loot Highlights next).
+ * reads (Home's archive, the Dungeons cards, the run feed's sessions and Loot Highlights).
  *
  * <p>A session's stamp is the name, size and modification time of every entry of its folder and of the files in the module
  * folders a reader depends on, sorted by name, so a saved, pruned or rewritten record changes it. A folder that does not

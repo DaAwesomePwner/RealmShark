@@ -167,7 +167,8 @@ public class CharacterJournalLayoutTest {
                 assertEquals(roster.getValueAt(0, 1), ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 1), 0, 1)).getToolTipText());
                 assertEquals(Integer.class, roster.getColumnClass(5));
                 assertNull(roster.getValueAt(0, 5));
-                assertEquals("Unknown", ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 5), 0, 5)).getText());
+                assertEquals("An unknown maxed count reads \"—\", as in the gallery (Polish C)", DisplayFormat.UNAVAILABLE,
+                        ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 5), 0, 5)).getText());
                 assertEquals(Formatters.formatTimestamp((Long)roster.getValueAt(0, 7)),
                         ((JLabel)roster.prepareRenderer(roster.getCellRenderer(0, 7), 0, 7)).getText());
                 roster.getRowSorter().toggleSortOrder(0);

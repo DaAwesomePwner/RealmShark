@@ -280,7 +280,8 @@ public final class ContentStyle {
                 return new Dimension(0, page.getPreferredSize().height + border.top + border.bottom);
             }
         };
-        scroll.setBorder(null); scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        // No box, after a live theme switch too: updateUI replaces a null border with the look and feel's outline, never an empty one.
+        scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         return scroll;
     }
 
@@ -496,14 +497,6 @@ public final class ContentStyle {
      */
     public static JPanel card(LayoutManager layout) {
         return new RoundedPanel(layout);
-    }
-
-    /** A real button keeps summary explanations available to keyboard and assistive technology. */
-    public static JButton detailsButton(String subject, Runnable open) {
-        JButton button = new JButton("Details…");
-        button.getAccessibleContext().setAccessibleName(subject + " details");
-        button.addActionListener(e -> open.run());
-        return button;
     }
 
     /** The caller supplies detached text, so an open explanation never follows a different record. */

@@ -164,7 +164,7 @@ public class ActivityArchiveUiTest {
             }finally{edt(()->{reordered.close();return null;});}
         }finally{preferences.shutdown(5,TimeUnit.SECONDS,m->{});}
     }
-    /** A restored view whose tab the user hid shows the first visible tab; only the user's own "Show hidden tab" brings it back. */
+    /** A restored view whose tab the user hid shows the first visible tab; only the user's own "Show hidden" brings it back. */
     @Test public void restoringASavedResourceTabNeverUnhidesIt()throws Exception {
         Path scratch=temp.newFolder().toPath();PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("hidden.properties"));preferences.preload();
         ViewStateStore states=ViewStateStore.preferences(preferences);
@@ -197,28 +197,44 @@ public class ActivityArchiveUiTest {
         }finally{preferences.shutdown(5,TimeUnit.SECONDS,m->{});}
     }
     /**
-     * Each render makes its own tabs, and the display-mode model holds their listener weakly: after re-rendering, the replaced views'
-     * tabs are collectable and the model keeps at most the shown view's listener.
+     * Each render makes its own tabs and its own relative-time column, and the display-mode model holds their listeners weakly: after
+     * re-rendering, every replaced view's tabs are collectable and the model keeps only the shown view's listeners. The counts do not
+     * depend on collection timing: the baseline and the shown view's own count are read once collections stop lowering the count, and
+     * every replaced view is awaited, not only the first (a view that other objects awaiting finalization still reach goes a cycle later).
      */
     @Test public void savedResourceTabsMadePerRenderLeaveNoModeListenerBehind()throws Exception {
         Path scratch=temp.newFolder().toPath();PreferencesStore preferences=new PreferencesStore(temp.getRoot().toPath().resolve("leak.properties"));preferences.preload();
         try(SessionStore store=new SessionStore(temp.newFolder().toPath(),true,"synthetic")) {
             for(int i=1;i<=145;i++)store.put("runs","v"+i,ActivityArchiveTest.visit("v"+i,i));store.flush();
-            collect(new java.lang.ref.WeakReference<>(new Object()));   // one full collection: listeners of earlier tests' views are gone
-            int before=edt(()->tomato.gui.kit.DisplayModeModel.application().listenerCount());
+            int before=settledListeners();   // listeners of earlier tests' views are gone
             ArchiveWorkspace<Row,Filters,Sort> workspace=edt(()->ActivityPanel.workspace(store,new JPanel(),ActivityPanel.Mode.COMBAT,scratch,ViewStateStore.preferences(preferences)));
             try {
                 edt(()->{workspace.showSaved();return null;});await(()->!workspace.loading()&&workspace.displayedPage()!=null);
-                java.lang.ref.WeakReference<JTabbedPane> replaced=new java.lang.ref.WeakReference<>(edt(()->named(workspace,JTabbedPane.class,"saved-resource-tabs")));
-                assertNotNull(replaced.get());
+                int shown=settledListeners()-before;   // one shown view's: its tabs' and its time column's
+                assertTrue("A shown view listens to the mode: "+shown,shown>=1);
+                java.util.List<java.lang.ref.WeakReference<JTabbedPane>> replaced=new ArrayList<>();
                 for(long page:new long[]{1,0,1,0}){
+                    replaced.add(new java.lang.ref.WeakReference<>(edt(()->named(workspace,JTabbedPane.class,"saved-resource-tabs"))));
+                    assertNotNull(replaced.get(replaced.size()-1).get());
                     edt(()->{workspace.selectPage(page);return null;});await(()->!workspace.loading()&&workspace.displayedPage().page==page);
                 }
-                assertNotSame("Each render makes its own tabs",replaced.get(),edt(()->named(workspace,JTabbedPane.class,"saved-resource-tabs")));
-                assertTrue("A replaced view's tabs are collectable",collect(replaced));
-                assertTrue("The model keeps only the shown view's listener",edt(()->tomato.gui.kit.DisplayModeModel.application().listenerCount())<=before+1);
+                JTabbedPane current=edt(()->named(workspace,JTabbedPane.class,"saved-resource-tabs"));
+                for(java.lang.ref.WeakReference<JTabbedPane> old:replaced)assertNotSame("Each render makes its own tabs",current,old.get());
+                for(java.lang.ref.WeakReference<JTabbedPane> old:replaced)assertTrue("Every replaced view's tabs are collectable",collect(old));
+                int after=settledListeners();
+                assertTrue("The model keeps only the shown view's listeners: "+after+" > "+before+" + "+shown,after<=before+shown);
             }finally{edt(()->{workspace.close();return null;});}
         }finally{preferences.shutdown(5,TimeUnit.SECONDS,m->{});}
+    }
+    /** The application mode's listener count once five collections in a row do not lower it (at most 10 s). */
+    private static int settledListeners()throws Exception {
+        long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);int lowest=Integer.MAX_VALUE,steady=0;
+        while(System.nanoTime()<until&&steady<5){
+            System.gc();Thread.sleep(20);
+            int count=edt(()->tomato.gui.kit.DisplayModeModel.application().listenerCount());
+            if(count<lowest){lowest=count;steady=0;}else steady++;
+        }
+        return lowest;
     }
     /** Collects garbage until {@code reference} is cleared (at most 10 s); true once it is. */
     private static boolean collect(java.lang.ref.WeakReference<?> reference)throws InterruptedException {

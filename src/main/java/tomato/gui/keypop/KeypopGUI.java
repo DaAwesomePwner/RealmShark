@@ -6,6 +6,11 @@ import tomato.backend.data.TomatoData;
 import tomato.realmshark.Sound;
 import tomato.realmshark.RealmCharacterStats;
 import tomato.realmshark.enums.CharacterStatistics;
+import tomato.gui.history.LiveFilterHost;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.OverflowMenu;
+import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.maingui.DraftSaveStatus;
 import util.PropertiesManager;
@@ -28,9 +33,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * GUI class for popping dungeons.
+ * GUI class for popping dungeons. While its workspace is live, the page's own dashboard row hosts the Scope chip
+ * ({@link LiveFilterHost}); the page's exports, Log to file, Notification settings and Clear history are that row's ⋯ items.
  */
-public class KeypopGUI extends JPanel {
+public class KeypopGUI extends JPanel implements LiveFilterHost {
     private JComponent queriedWorkspace;
     /** Coordinator shell registration: keypopPanel.workspace(). */
     public JComponent workspace() {
@@ -41,12 +47,12 @@ public class KeypopGUI extends JPanel {
     public JComponent workspace(tomato.history.SessionStore store, java.nio.file.Path scratch, tomato.gui.history.ViewStateStore states) {
         if (queriedWorkspace != null) return queriedWorkspace;
         if (store != null && (scratch == null || !scratch.isAbsolute())) throw new IllegalArgumentException("Use an absolute, explicitly chosen archive scratch directory.");
-        dashboard.enableLiveState(states);
+        live.enableLiveState(states);
         if (store == null) return this;
         KeyPopArchiveClient client = new KeyPopArchiveClient(scratch.normalize());
         tomato.gui.history.ArchiveWorkspace<KeyPopArchiveClient.Row,KeyPopArchiveClient.Facets,KeyPopArchiveClient.Sort> workspace =
             tomato.gui.history.SessionPanel.queried(store, "keypops", this, client, states);
-        client.bind(workspace); queriedWorkspace = workspace; return workspace;
+        queriedWorkspace = workspace; return workspace;
     }
     public static tomato.gui.history.SessionPanel.Loaded history(tomato.history.SessionStore store, String scope, int page, String query) throws IOException {
         tomato.gui.history.HistoryPage<KeyPopEvent> events = tomato.gui.history.HistoryPage.read(store, scope, "keypops", KeyPopEvent.class, page, query,
@@ -58,7 +64,13 @@ public class KeypopGUI extends JPanel {
     }
 
     private static final KeyPopHistory history = new KeyPopHistory();
+    /** The most recently built page's dashboard, for the static font, logging and dialog hooks; a page uses its own {@link #live}. */
     private static KeyPopDashboard dashboard;
+    /** This page's dashboard: its row is the Scope chip's host while live, and holds the page's ⋯ actions. */
+    final KeyPopDashboard live;
+    /** Asks before Clear history…; tests answer it. */
+    java.util.function.Predicate<String> confirm = message -> JOptionPane.showConfirmDialog(this, message, "Clear key-pops",
+        JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION;
     private static volatile boolean logToFile = false;
     private static volatile String loggingError = "";
     private static final String LOG_FILE = "keypops.log";
@@ -71,38 +83,19 @@ public class KeypopGUI extends JPanel {
         loadLoggingPreference();
 
         setLayout(new BorderLayout());
-        dashboard = new KeyPopDashboard(history);
-        add(dashboard);
+        live = new KeyPopDashboard(history);
+        dashboard = live;
+        add(live);
+        pageActions();
 
+        // Dungeon alert… acts on the selected row, so it stays in view beside its status line.
         JPanel south = ContentStyle.controls();
         south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-        JButton clearButton = new JButton("Clear history");
-        clearButton.addActionListener(e -> {
-            if (JOptionPane.showConfirmDialog(this, "Clear the live key-pop buffer and statistics? Saved session history is kept.", "Clear key-pops", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) dashboard.clearHistory();
-        });
-
-        JButton notificationButton = new JButton("Notifications");
-        notificationButton.addActionListener(e -> tomato.gui.TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS));
-        south.add(notificationButton);
-        JButton dungeonAlert = new JButton("Dungeon alert…");
+        KitButton dungeonAlert = KitButton.secondary("Dungeon alert…");
         dungeonAlert.setName("keypop-notify-dungeon");
         dungeonAlert.setToolTipText("Show the selected dungeon in Notifications with its current choice. Nothing changes until you toggle it there.");
-        dungeonAlert.addActionListener(e -> handoffStatus.setText(handoff(dashboard.selectedDungeon(), this)));
+        dungeonAlert.addActionListener(e -> handoffStatus.setText(handoff(live.selectedDungeon(), this)));
         south.add(dungeonAlert);
-
-        JCheckBox logCheckbox = new JCheckBox("Log to file");
-        logCheckbox.setSelected(logToFile);
-        logCheckbox.addActionListener(e -> {
-            logToFile = logCheckbox.isSelected();
-            saveLoggingPreference();
-        });
-        south.add(logCheckbox);
-
-        JButton exportButton = new JButton("Export events (retained CSV)");
-        exportButton.addActionListener(e -> dashboard.exportCsv());
-        south.add(exportButton);
-        JButton summaryExport = new JButton("Export current tab (retained CSV)"); summaryExport.addActionListener(e -> dashboard.exportCurrentTab()); south.add(summaryExport);
-        south.add(clearButton);
 
         handoffStatus.setName("keypop-handoff-status");
         JPanel footer = new JPanel(new BorderLayout()); footer.add(south); footer.add(handoffStatus, BorderLayout.SOUTH);
@@ -111,6 +104,40 @@ public class KeypopGUI extends JPanel {
     }
 
     private final JTextArea handoffStatus = ContentStyle.wrappingText("");
+
+    @Override public FilterBar liveFilterBar() { return live.liveFilterBar(); }
+
+    /**
+     * The page's own actions as the live row's ⋯ items (spec §6.7), between its Saved views and column tools: Export events…,
+     * Export current tab…, Log to file (a check item), Notification settings… and Clear history… (Danger, confirmed).
+     */
+    private void pageActions() {
+        OverflowMenu more = live.liveFilterBar().overflow();
+        JMenuItem events = item("Export events…", "keypop-export-events", "The filtered retained events as CSV, with UTC timestamps.", live::exportCsv);
+        JMenuItem tab = item("Export current tab…", "keypop-export-tab", "The shown tab's retained rows as CSV; on Events, the filtered events.", live::exportCurrentTab);
+        JCheckBoxMenuItem log = new JCheckBoxMenuItem("Log to file", logToFile);
+        log.setName("keypop-log-to-file");
+        log.setToolTipText("Also append each observed pop to " + LOG_FILE + " in RealmShark's working folder.");
+        log.addActionListener(e -> { logToFile = log.isSelected(); saveLoggingPreference(); });
+        // Another page may have changed the shared choice since this menu was built.
+        more.menu().addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) { log.setSelected(logToFile); }
+            @Override public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) { }
+            @Override public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { }
+        });
+        JMenuItem notifications = item("Notification settings…", "keypop-notification-settings", "Choose which dungeon pops play a sound.",
+            () -> tomato.gui.TomatoGUI.openNotifications(tomato.gui.notifications.NotificationsGUI.KEY_POPS));
+        JMenuItem clear = new JMenuItem("Clear history…") {
+            @Override public void updateUI() { super.updateUI(); setForeground(Tokens.color(Tokens.Role.BAD)); }
+        };
+        clear.setName("keypop-clear-history");
+        clear.setToolTipText("Clear the live buffer and statistics of this app run. Saved session history is kept.");
+        clear.addActionListener(e -> { if (confirm.test("Clear the live key-pop buffer and statistics? Saved session history is kept.")) live.clearHistory(); });
+        more.section(KeyPopDashboard.PAGE_ACTIONS).replace(events, tab, new JPopupMenu.Separator(), log, notifications, new JPopupMenu.Separator(), clear);
+    }
+    private static JMenuItem item(String label, String name, String tip, Runnable action) {
+        JMenuItem item = new JMenuItem(label); item.setName(name); item.setToolTipText(tip); item.addActionListener(e -> action.run()); return item;
+    }
 
     /**
      * KEY-3 handoff. Resolves the observed name exactly; unknown names are reported and nothing opens.

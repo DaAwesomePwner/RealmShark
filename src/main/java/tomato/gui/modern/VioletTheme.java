@@ -13,6 +13,11 @@ public final class VioletTheme extends FlatDarkLaf {
     public static final Color CAPTURE_BACKGROUND = new Color(0x7041BD);
     public static final Color CAPTURE_HOVER = new Color(0x8052CD);
     public static final Color CAPTURE_PRESSED = new Color(0x6036A5);
+    /**
+     * A FlatLaf style class for a button that works as an on/off toggle (the filter bar's Filters button): while it is
+     * selected it is drawn pressed, on the selection wash with the accent edge and a selected segment's ink.
+     */
+    public static final String PRESSED_TOGGLE = "pressedToggle";
 
     /**
      * One variant's colors. Surfaces share one hue, so depth reads as elevation instead of as a
@@ -172,6 +177,9 @@ public final class VioletTheme extends FlatDarkLaf {
         color(d, "ToggleButton.pressedBackground", p.controlPressed);
         color(d, "ToggleButton.selectedBackground", p.accentWash);
         color(d, "ToggleButton.selectedForeground", p.accentBright);
+        // A style class, not Button.selectedBorderColor: that key is shared with every JToggleButton (the Simple/Analyst segments).
+        d.put("[style]Button." + PRESSED_TOGGLE, String.format("selectedBackground: %s; selectedForeground: %s; selectedBorderColor: %s",
+            hex(p.selection), hex(p.accentBright), hex(p.accent)));
 
         color(d, "Table.selectionBackground", p.selection);
         color(d, "Table.selectionForeground", p.selectionText);
@@ -268,6 +276,8 @@ public final class VioletTheme extends FlatDarkLaf {
     private static void color(UIDefaults d, String key, int rgb) {
         d.put(key, new ColorUIResource(rgb));
     }
+
+    private static String hex(int rgb) { return String.format("#%06X", rgb & 0xFFFFFF); }
 
     /** Installs Violet Dark without contrast; kept for callers that predate {@link Themes}. */
     public static boolean install() {

@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import tomato.gui.chat.ChatGUI;
 import tomato.gui.kit.SectionHeader;
 import tomato.gui.kit.Tokens;
 import tomato.gui.maingui.TomatoMenuBar;
@@ -18,23 +19,24 @@ import tomato.gui.modern.ContentStyle;
  * so the menu and this checkbox always agree). Below it, the existing chat filter editor, embedded: it edits the live chat's own
  * rules and saves exactly as the Chat filters… dialog does. Clear Chat stays in the Chat menu and on the Chat page.
  * <p>
- * Polish B2: the section no longer scrolls as a whole (that put the editor's Save and Cancel below the fold at 1240×800). Saving
- * and the Chat filters heading sit on top ({@code settings-chat-top}) and the editor fills the rest of the height, scrolling its
- * own options and lists, so its footer (Save filters, Cancel, the save status) stays at the bottom of the section, in view
- * ({@link Fill}).
+ * P6b (R3 B6): one scroll area. Saving, the Chat filters heading ({@code settings-chat-top}) and the editor's options and lists
+ * (its embedded body, with no border or scroll of its own) scroll together in one page ({@code settings-chat-page}); the editor's
+ * footer (the save status, Cancel and Save filters) is pinned below the page at the section's bottom edge, so it stays in view
+ * however the page is scrolled ({@link Fill}). Polish B2's goal is kept: Save and Cancel are in view as the section opens.
  */
 public final class ChatSection extends JPanel {
     static final String SAVE_HELP = "Also writes each chat message to a plain-text log in the app folder's chat folder, ignored "
         + "messages with their reason. It does not change saved session history. This is Edit › Chat › Save Chat.";
     static final String FILTERS_HELP = "The same rules as Chat › Actions › Chat filters…; saving here applies them to live chat at once.";
-    /** The editor's room, in body lines, before the top gives way: its footer (about 3) and one filter list with its tabs (about 12). */
-    static final int EDITOR_LINES = 16;
 
     private final JCheckBox save = new JCheckBox("Save chat");
     private final List<JTextArea> notes = new ArrayList<>();
 
-    /** @param filtersEditor builds the live chat's filter editor (production: ChatGUI::filtersEditor); called once, here */
-    public ChatSection(Supplier<? extends JComponent> filtersEditor) {
+    /**
+     * @param filtersEditor builds the live chat's filter editor (production: ChatGUI::filtersEditor); called once, here. Its body goes
+     *                      in the page and its footer is pinned below it; the editor refills both holders when it rebuilds.
+     */
+    public ChatSection(Supplier<ChatGUI.FiltersEditor> filtersEditor) {
         setName("settings-chat");
         setOpaque(false);
         save.setName("settings-chat-save");
@@ -46,13 +48,17 @@ public final class ChatSection extends JPanel {
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         top.add(group("Saving", SAVE_HELP, "settings-chat-save-help", save));
         top.add(group("Chat filters", FILTERS_HELP, "settings-chat-filters-help"));
-        JComponent editor = Objects.requireNonNull(filtersEditor.get(), "filtersEditor");
-        // The top scrolls only when the section is too short for it and the editor (680×520 at font 18); otherwise it is whole.
-        JScrollPane head = ContentStyle.page(null, top, null);
-        head.setName("settings-chat-top");
-        setLayout(new Fill(head, editor));
-        add(head);
-        add(editor);
+        top.setName("settings-chat-top");
+        ChatGUI.FiltersEditor editor = Objects.requireNonNull(filtersEditor.get(), "filtersEditor");
+        JPanel content = new JPanel(new BorderLayout());
+        content.setOpaque(false);
+        content.add(top, BorderLayout.NORTH);
+        content.add(editor.body(), BorderLayout.CENTER);
+        JScrollPane page = ContentStyle.page(null, content, null);
+        page.setName("settings-chat-page");
+        setLayout(new Fill(page, editor.footer()));
+        add(page);
+        add(editor.footer());
 
         sync();
         TomatoMenuBar.addSaveChatListener(new Follow(this));
@@ -100,42 +106,34 @@ public final class ChatSection extends JPanel {
     }
 
     /**
-     * The top (Saving and the Chat filters heading) at its whole height, the editor filling the rest of the section's height, so
-     * the editor's own footer is the section's bottom edge. When the section is too short for the whole top and the editor's room
-     * ({@value #EDITOR_LINES} body lines, or less if the editor needs less), the top gives way and scrolls, down to a third of the
-     * height; the editor keeps the rest. The section never asks its host for more height than it is given (its minimum is 0).
+     * The page over the pinned footer: the footer at its preferred height at the section's bottom edge, a small gap, and the page
+     * filling the rest (it scrolls when its content is taller). The section never asks its host for more height than it is given
+     * (its minimum is 0).
      */
     static final class Fill implements LayoutManager {
-        private final JScrollPane head;
-        private final JComponent editor;
+        private final JScrollPane page;
+        private final JComponent footer;
 
-        Fill(JScrollPane head, JComponent editor) { this.head = head; this.editor = editor; }
-
-        /** The top's height in a section of inner height {@code height}. */
-        int headHeight(Container section, int height) {
-            int whole = head.getMinimumSize().height;   // ContentStyle.page: the whole top at its width
-            int room = Math.min(editor.getPreferredSize().height, EDITOR_LINES * section.getFontMetrics(ContentStyle.body()).getHeight());
-            if (whole + room <= height) return whole;
-            return Math.max(0, Math.min(whole, Math.max(height / 3, height - room)));
-        }
+        Fill(JScrollPane page, JComponent footer) { this.page = page; this.footer = footer; }
 
         @Override public void layoutContainer(Container section) {
             synchronized (section.getTreeLock()) {
                 Insets insets = section.getInsets();
                 int width = Math.max(0, section.getWidth() - insets.left - insets.right);
                 int height = Math.max(0, section.getHeight() - insets.top - insets.bottom);
-                int top = headHeight(section, height);
-                head.setBounds(insets.left, insets.top, width, top);
-                editor.setBounds(insets.left, insets.top + top, width, height - top);
+                int bottom = footer.isVisible() ? Math.min(height, footer.getPreferredSize().height) : 0;
+                int gap = bottom > 0 ? Math.min(Tokens.S, height - bottom) : 0;
+                page.setBounds(insets.left, insets.top, width, height - bottom - gap);
+                footer.setBounds(insets.left, insets.top + height - bottom, width, bottom);
             }
         }
 
         @Override public Dimension preferredLayoutSize(Container section) {
             synchronized (section.getTreeLock()) {
                 Insets insets = section.getInsets();
-                Dimension editorSize = editor.getPreferredSize();
-                return new Dimension(Math.max(head.getPreferredSize().width, editorSize.width) + insets.left + insets.right,
-                    head.getMinimumSize().height + editorSize.height + insets.top + insets.bottom);
+                Dimension footerSize = footer.isVisible() ? footer.getPreferredSize() : new Dimension();
+                return new Dimension(Math.max(page.getPreferredSize().width, footerSize.width) + insets.left + insets.right,
+                    page.getMinimumSize().height + (footerSize.height > 0 ? Tokens.S : 0) + footerSize.height + insets.top + insets.bottom);
             }
         }
 

@@ -21,20 +21,25 @@ import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.stats.LootFacts;
 
 /**
  * Paints one notable drop of Loot › Highlights (spec §6.4, §9, §10): one component reused for every cell of the grid's TileList,
  * no per-drop component tree. The item's sprite sits in a well tinted and outlined in its bag's color ({@link Sprites#paintWell},
- * shared with the run cards; muted when no bag name was saved); beside it four lines: the item's name (cut with "…" when long);
- * the kind chip (UT, ST, Potion, Enchanted) with the time ("14:32" today, "Yesterday 22:10", else the date); the area on a line of
- * its own ("Unknown area" when none was recorded), so no chip cuts it and only a name wider than the card is cut; and "Not linked
+ * shared with the run cards; muted when no bag name was saved); beside it: the item's name on up to two lines (wrapped at its
+ * spaces; only a name longer than two lines is cut with "…"; every card keeps room for both, P6b); the kind chip (UT, ST, Potion,
+ * Enchanted) with the time ("14:32" today, "Yesterday 22:10", else the date); the area on a line of its own ("Unknown area" when
+ * none was recorded, {@link LootFacts#areaLabel}), so no chip cuts it and only an area wider than the card is cut; and "Not linked
  * to a run" when the drop recorded no exact run (the line stays empty otherwise, so every card is the same height). Every fact
  * is in the accessible name in words and, in full, in the tooltip. The cell is fixed at 17 em of the body font (five columns at
- * 1240×800 font 13, two at 680 px and font 18); colors come from Tokens at paint time, so both themes and every font work.
+ * 1240×800 font 13, two at 680 px and font 18); colors come from Tokens at paint time, so both themes and every font work, and
+ * the light theme outlines the card ({@link Tokens#outline}).
  */
 public final class NotableDropRenderer extends JComponent implements ListCellRenderer<HighlightsModel.Notable>, Accessible {
     /** The well, its sprite, the space between cells, the card's inner padding and the space between the chip row and the area. */
     static final int WELL_SIDE = 40, SPRITE = WELL_SIDE - Sprites.WELL - 2, GAP = 8, PAD = Tokens.S, LINE = 2;
+    /** The item's name wraps to this many lines (P6b: a long name read "Synthetic Crystal M…" on one). */
+    static final int NAME_LINES = 2;
     static final String NOT_LINKED = "Not linked to a run";
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH),
         DATE = DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.ENGLISH), DATE_YEAR = DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", Locale.ENGLISH);
@@ -57,7 +62,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     }
 
     static Lines lines(HighlightsModel.Notable drop, ZoneId zone, long now) {
-        String area = drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon();
+        String area = LootFacts.areaLabel(drop.dungeon());
         return new Lines(Sprites.name(drop.itemId()), drop.kind().label(), tone(drop.kind()), time(drop.time(), zone, now), area,
             drop.visit() == null ? NOT_LINKED : "");
     }
@@ -83,7 +88,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             case POTION -> "stat potion";
             case ENCHANTED -> "enchanted, rare or better";
         };
-        return Sprites.name(drop.itemId()) + ", " + kind + "; " + (drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon())
+        return Sprites.name(drop.itemId()) + ", " + kind + "; " + LootFacts.areaLabel(drop.dungeon())
             + ", " + spokenTime(drop.time(), zone, now) + "; " + (drop.bag() == null ? "bag not saved" : drop.bag() + " bag") + "; "
             + (drop.visit() == null ? "not linked to a run" : "Enter opens the run recap");
     }
@@ -153,10 +158,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             RoundRectangle2D shape = new RoundRectangle2D.Float(x + .5f, y + .5f, w - 1, h - 1, Tokens.ARC_CARD, Tokens.ARC_CARD);
             g.setColor(Tokens.color(selected ? Tokens.Role.ACCENT_WASH : Tokens.Role.RAISED));
             g.fill(shape);
-            g.setColor(Tokens.color(selected || focused ? Tokens.Role.ACCENT : Tokens.Role.BORDER_SUBTLE));
-            g.setStroke(new BasicStroke(focused ? 2f : 1f));
-            g.draw(shape);
-            g.setStroke(new BasicStroke(1f));
+            edge(g, shape, selected, focused);
             Rectangle well = well(getWidth(), getHeight());
             Sprites.paintWell(this, g, Sprites.sprite(drop.itemId(), SPRITE), drop.bag(), well.x, well.y, well.width);
             Font titleFont = Type.emphasis(), captionFont = Type.caption();
@@ -164,10 +166,12 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             int left = well.x + well.width + Tokens.S, right = x + w - PAD;
             int top = y + PAD + Math.max(0, (h - 2 * PAD - textHeight(title, caption)) / 2);
             Color ink = Tokens.color(Tokens.Role.TEXT), muted = Tokens.color(Tokens.Role.TEXT_MUTED);
-            List<String> drawn = new ArrayList<>(5);
-            text(g, drawn, lines.name(), titleFont, title, ink, left, top + title.getAscent(), right - left);
+            List<String> drawn = new ArrayList<>(6);
+            // The name on up to two lines (every card keeps both, so the rows below line up across the grid).
+            List<String> name = wrap(lines.name(), title, right - left, NAME_LINES);
+            for (int i = 0; i < name.size(); i++) text(g, drawn, name.get(i), titleFont, title, ink, left, top + i * title.getHeight() + title.getAscent(), right - left);
             // The kind chip and the time; then the area on a line of its own, so a chip never cuts it; then the run link note.
-            int row = top + title.getHeight() + Tokens.XS, chipHeight = caption.getHeight() + 2;
+            int row = top + NAME_LINES * title.getHeight() + Tokens.XS, chipHeight = caption.getHeight() + 2;
             int chipWidth = chip(g, drawn, lines.chip(), lines.tone(), left, row, caption, right - left);
             int after = left + chipWidth + (chipWidth > 0 ? Tokens.S : 0);
             text(g, drawn, lines.when(), captionFont, caption, muted, after, row + 1 + caption.getAscent(), right - after);
@@ -180,9 +184,41 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         }
     }
 
-    /** The four lines: the name, the chip row (the chip is 2 px taller than the caption), the area and the run link note. */
+    /** The lines: the name's two, the chip row (the chip is 2 px taller than the caption), the area and the run link note. */
     private static int textHeight(FontMetrics title, FontMetrics caption) {
-        return title.getHeight() + Tokens.XS + caption.getHeight() + 2 + LINE + 2 * caption.getHeight();
+        return NAME_LINES * title.getHeight() + Tokens.XS + caption.getHeight() + 2 + LINE + 2 * caption.getHeight();
+    }
+
+    /**
+     * The card's edge: the accent when selected or focused (2 px when focused); else in the light theme {@link Tokens#outline}
+     * (BORDER_SUBTLE, BORDER under Increase contrast) and in the dark theme its subtle border, as before (dark pixels never move).
+     * Leaves a 1 px stroke.
+     */
+    static void edge(Graphics2D g, Shape shape, boolean selected, boolean focused) {
+        if (selected || focused || Tokens.dark()) {
+            g.setColor(Tokens.color(selected || focused ? Tokens.Role.ACCENT : Tokens.Role.BORDER_SUBTLE));
+            g.setStroke(new BasicStroke(focused ? 2f : 1f));
+            g.draw(shape);
+        } else Tokens.outline(g, shape);
+        g.setStroke(new BasicStroke(1f));
+    }
+
+    /**
+     * {@code value} on at most {@code max} lines of {@code width}: broken at spaces, each line as full as fits; the last line takes
+     * the rest, cut with "…" when it is still too wide, as is a first word wider than a line. Empty for no text.
+     */
+    static List<String> wrap(String value, FontMetrics metrics, int width, int max) {
+        List<String> lines = new ArrayList<>(max);
+        String rest = value == null ? "" : value.trim();
+        while (!rest.isEmpty() && width > 0) {
+            if (lines.size() == max - 1 || metrics.stringWidth(rest) <= width) { lines.add(fit(rest, metrics, width)); break; }
+            int cut = -1;   // the last space before which the line still fits
+            for (int space = rest.indexOf(' '); space > 0 && metrics.stringWidth(rest.substring(0, space)) <= width; space = rest.indexOf(' ', space + 1)) cut = space;
+            if (cut < 0) { lines.add(fit(rest, metrics, width)); break; }
+            lines.add(rest.substring(0, cut));
+            rest = rest.substring(cut + 1).trim();
+        }
+        return lines;
     }
 
     private static void text(Graphics2D g, List<String> drawn, String value, Font font, FontMetrics metrics, Color color, int x, int baseline, int width) {

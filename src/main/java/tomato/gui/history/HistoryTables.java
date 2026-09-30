@@ -29,7 +29,11 @@ public final class HistoryTables {
         table.setDefaultRenderer(Double.class,new ContentStyle.Cell(){protected void setValue(Object value){setText(value==null?DisplayFormat.UNAVAILABLE:DisplayFormat.formatNumber(((Number)value).doubleValue(),0,2));}});
         table.setDefaultRenderer(Long.class,new ContentStyle.Cell(){protected void setValue(Object value){setText(DisplayFormat.formatInteger((Long)value));}});
         table.setDefaultRenderer(Instant.class,new ContentStyle.Cell(){protected void setValue(Object value){setText(DisplayFormat.formatTimestamp((Instant)value));}});
+        // Integer IDs and counts: a missing value reads "—" (JTable's own number renderer drew a blank), and IDs are never grouped ("2591", not "2,591").
+        table.setDefaultRenderer(Integer.class,new ContentStyle.Cell(){protected void setValue(Object value){setText(value==null?DisplayFormat.UNAVAILABLE:value.toString());}});
         for(int i=0;i<columns.length;i++)table.getColumnModel().getColumn(i).setPreferredWidth(i==0?240:145);
+        track(table);   // before any KitTables.analystOnly, so every column is known (see columnState)
+        Fill fill=new Fill(table);table.putClientProperty(FILL,fill);fill.install();
         return table;
     }
     public static JComponent page(JTable table,String note){
@@ -60,7 +64,7 @@ public final class HistoryTables {
         for(int c=0;c<columns.size();c++){TableColumn column=table.getColumnModel().getColumn(c);Column<R,?> spec=columns.get(c);column.setIdentifier(spec.id);
             if(spec.renderer!=null)column.setCellRenderer(spec.renderer);
             else if(spec.kind!=null&&spec.type==String.class&&TEXT_KINDS.contains(spec.kind))column.setCellRenderer(KitTables.renderer(spec.kind));
-            if(spec.kind!=null)KitTables.fitKind(table,column,spec.kind);}
+            if(spec.kind!=null){KitTables.fitKind(table,column,spec.kind);kindsOf(table).put(spec.id,spec.kind);}}
         Consumer<ArchiveQuery.Direction> sort=direction->{
             int view=table.getSelectedColumn();if(view<0)view=0;if(table.getColumnCount()==0)return;
             S field=sorts.get(table.getColumnModel().getColumn(view).getIdentifier().toString());
@@ -79,7 +83,7 @@ public final class HistoryTables {
         action(table,"ENTER","archive-details",inspect);action(table,"control C","archive-copy",()->copy(table));
         table.addMouseListener(new MouseAdapter(){public void mouseClicked(MouseEvent event){if(event.getClickCount()==2)inspect.run();}});
         table.getAccessibleContext().setAccessibleDescription(page.description()+". Enter: details; Ctrl+C: copy; Ctrl+Shift+Up/Down: sort selected column globally.");
-        table.putClientProperty("archive.columns",allColumns(table));return table;
+        table.putClientProperty(RETAINED,allColumns(table));return table;
     }
     /**
      * Ad-hoc tables: ColumnKind widths by column identifier (the header text when none was set), following later font
@@ -87,8 +91,126 @@ public final class HistoryTables {
      * so displayed text, sorting and exports stay identical.
      */
     public static void kinds(JTable table,Map<String,ColumnKind> kinds){
-        for(TableColumn column:allColumns(table)){ColumnKind kind=kinds.get(String.valueOf(column.getIdentifier()));if(kind!=null)KitTables.fitKind(table,column,kind);}
+        for(TableColumn column:allColumns(table)){String id=String.valueOf(column.getIdentifier());ColumnKind kind=kinds.get(id);if(kind!=null){KitTables.fitKind(table,column,kind);kindsOf(table).put(id,kind);}}
     }
+    /**
+     * Names the column that takes the spare width of a table {@link #table} or {@link #queried} built (see {@link Fill}); null, or a
+     * column not shown, leaves the default: the last shown TEXT, ITEM, PLAYER or DUNGEON column. Display only, like the fill.
+     */
+    public static void fill(JTable table,String columnId){
+        table.putClientProperty(FILL_COLUMN,columnId);Object fill=table.getClientProperty(FILL);if(fill instanceof Fill)((Fill)fill).later();
+    }
+    /** Table client property: the ID of the column {@link #fill} named. */
+    public static final String FILL_COLUMN="archive.fillColumn";
+    /** Table client properties: the table's {@link Fill}, and the ColumnKind of each column by ID ({@link #queried}, {@link #kinds}). */
+    private static final String FILL="archive.fill",KINDS="archive.kinds";
+    /** Kinds that may take the spare width: left-aligned free text. Status, class and ID columns stay compact and centred or short. */
+    private static final Set<ColumnKind> FILL_KINDS=EnumSet.of(ColumnKind.TEXT,ColumnKind.ITEM,ColumnKind.PLAYER,ColumnKind.DUNGEON);
+    /** Rows measured for a cut value (archive pages are shorter); measuring happens only while the viewport has room. */
+    private static final int MEASURED_ROWS=500;
+    @SuppressWarnings("unchecked") private static Map<String,ColumnKind> kindsOf(JTable table){
+        Object saved=table.getClientProperty(KINDS);if(saved==null){saved=new HashMap<String,ColumnKind>();table.putClientProperty(KINDS,saved);}return (Map<String,ColumnKind>)saved;
+    }
+    /**
+     * Polish D: a saved table (AUTO_RESIZE_OFF) narrower than its viewport uses the spare width instead of ending short. First each
+     * shown column whose widest value on the page (first {@value #MEASURED_ROWS} rows) or header is cut grows to show it, the
+     * smallest shortfall first so the most columns read whole; what is left goes to the fill column ({@link #fill}, else the last
+     * shown TEXT, ITEM, PLAYER or DUNGEON column, or a String column without a kind; none: the space stays spare). Wider columns
+     * than the viewport: every column keeps its own width and the table scrolls sideways as before.
+     * <p>Display only. A widened column keeps its own width (the layout's, a preset's or the user's), which {@link #columnState}
+     * reports, so no layout records a fitted width; the fit's own changes are marked {@link #RESTORING_COLUMNS}. Any other width
+     * change (a user's resize) becomes that column's own width and is saved as usual. It refits when the viewport's width changes,
+     * after a font change (once {@code KitTables.fitKind} has refitted the kinds), after a layout, preset or Reset
+     * ({@link #applyColumns}), after a user resize or a column shown or hidden, and when rows change. Never on a display-mode switch
+     * ({@code KitTables.MODE_CHANGING}): widths never change on a switch, so its spare width stays spare (or its columns scroll)
+     * until one of those happens.
+     */
+    private static final class Fill {
+        private final JTable table;
+        /** Each column the fit widened: its own width, and the width the fit gave it. Columns the mode hides keep theirs. */
+        final Map<TableColumn,Integer> own=new HashMap<>(),fitted=new HashMap<>();
+        private boolean fitting,pending;
+        /** The viewport width of the last fit; a resize of another size (a taller viewport) does not refit. */
+        private int viewport=-1;
+        Fill(JTable table){this.table=table;}
+        void install(){
+            table.addHierarchyBoundsListener(new HierarchyBoundsAdapter(){@Override public void ancestorResized(HierarchyEvent e){if(viewportWidth()!=viewport)later();}});
+            table.addHierarchyListener(e->{if((e.getChangeFlags()&(HierarchyEvent.PARENT_CHANGED|HierarchyEvent.SHOWING_CHANGED))!=0)later();});
+            // A font change: own widths back first, so KitTables.fitKind (a later EDT turn) refits the kinds; the fit follows it.
+            table.addPropertyChangeListener("font",e->{release();SwingUtilities.invokeLater(this::later);});
+            table.getModel().addTableModelListener(e->later());
+            if(table.getTableHeader()!=null)table.getTableHeader().addMouseListener(new MouseAdapter(){@Override public void mouseReleased(MouseEvent e){later();}});
+            table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener(){
+                // HistoryTables' own changes (applyColumns refits itself) and the mode's are quiet: read in the callback, as MODE_CHANGING is only set while columns move.
+                public void columnAdded(javax.swing.event.TableColumnModelEvent e){if(!quiet())later();}
+                public void columnRemoved(javax.swing.event.TableColumnModelEvent e){if(!quiet())later();}
+                public void columnMoved(javax.swing.event.TableColumnModelEvent e){ }
+                public void columnMarginChanged(javax.swing.event.ChangeEvent e){if(fitting)return;adopt();if(!quiet())later();}
+                public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e){ }
+            });
+        }
+        private boolean quiet(){return Boolean.TRUE.equals(table.getClientProperty(RESTORING_COLUMNS))||Boolean.TRUE.equals(table.getClientProperty(KitTables.MODE_CHANGING));}
+        private int viewportWidth(){return table.getParent() instanceof JViewport?table.getParent().getWidth():-1;}
+        /** A widened column someone else re-sized (the user, a layout, the mode restoring a width): that width is its own now. */
+        private void adopt(){
+            for(Iterator<Map.Entry<TableColumn,Integer>> it=fitted.entrySet().iterator();it.hasNext();){
+                Map.Entry<TableColumn,Integer> entry=it.next();if(entry.getKey().getWidth()!=entry.getValue()){own.remove(entry.getKey());it.remove();}
+            }
+        }
+        /** Every widened column back at its own width (before a layout applies, or a font change refits the kinds). */
+        void release(){
+            if(own.isEmpty())return;Map<TableColumn,Integer> back=new HashMap<>(own);own.clear();fitted.clear();
+            restoring(table,()->{fitting=true;try{for(Map.Entry<TableColumn,Integer> entry:back.entrySet())size(entry.getKey(),entry.getValue());}finally{fitting=false;}});
+        }
+        /** One fit on a later EDT turn, however many changes ask for it. */
+        void later(){if(pending)return;pending=true;SwingUtilities.invokeLater(()->{pending=false;fit();});}
+        void fit(){
+            if(Boolean.TRUE.equals(table.getClientProperty(KitTables.MODE_CHANGING)))return;
+            int width=viewportWidth();if(width<=0)return;
+            // During a header drag the dragged width is the user's; the release refits.
+            if(table.getTableHeader()!=null&&table.getTableHeader().getResizingColumn()!=null)return;
+            viewport=width;List<TableColumn> shown=allColumns(table);if(shown.isEmpty())return;
+            Map<TableColumn,Integer> target=new LinkedHashMap<>();int spare=width;
+            for(TableColumn column:shown){int base=ownWidth(column);target.put(column,base);spare-=base;}
+            if(spare>0){
+                Map<TableColumn,Integer> lacking=new HashMap<>();List<TableColumn> cut=new ArrayList<>();
+                for(TableColumn column:shown){int lack=needed(column)-target.get(column);if(lack>0){lacking.put(column,lack);cut.add(column);}}
+                cut.sort(Comparator.comparingInt(lacking::get));
+                for(TableColumn column:cut){if(spare<=0)break;int grow=Math.min(lacking.get(column),spare);target.merge(column,grow,Integer::sum);spare-=grow;}
+                TableColumn fill=spare>0?fillColumn(shown):null;if(fill!=null)target.merge(fill,spare,Integer::sum);
+            }
+            restoring(table,()->{fitting=true;try{
+                for(Map.Entry<TableColumn,Integer> entry:target.entrySet()){
+                    TableColumn column=entry.getKey();int base=ownWidth(column);size(column,entry.getValue());
+                    if(column.getWidth()==base){own.remove(column);fitted.remove(column);}else{own.putIfAbsent(column,base);fitted.put(column,column.getWidth());}
+                }
+            }finally{fitting=false;}});
+        }
+        int ownWidth(TableColumn column){Integer saved=own.get(column);return saved!=null?saved:column.getWidth();}
+        private static void size(TableColumn column,int width){if(column.getPreferredWidth()!=width||column.getWidth()!=width){column.setPreferredWidth(width);column.setWidth(width);}}
+        /** The width that shows the column's header and its widest value (plus the column margin) whole. */
+        private int needed(TableColumn column){
+            int view=allColumns(table).indexOf(column),need=0;
+            javax.swing.table.JTableHeader header=table.getTableHeader();
+            TableCellRenderer title=column.getHeaderRenderer()!=null?column.getHeaderRenderer():header==null?null:header.getDefaultRenderer();
+            if(title!=null)need=title.getTableCellRendererComponent(table,column.getHeaderValue(),false,false,-1,view).getPreferredSize().width;
+            int margin=table.getColumnModel().getColumnMargin();
+            for(int row=0,rows=Math.min(table.getRowCount(),MEASURED_ROWS);row<rows;row++)
+                need=Math.max(need,table.prepareRenderer(table.getCellRenderer(row,view),row,view).getPreferredSize().width+margin);
+            return need;
+        }
+        private TableColumn fillColumn(List<TableColumn> shown){
+            Object named=table.getClientProperty(FILL_COLUMN);
+            if(named!=null)for(TableColumn column:shown)if(named.toString().equals(id(column)))return column;
+            Map<String,ColumnKind> kinds=kindsOf(table);
+            for(int i=shown.size()-1;i>=0;i--){
+                TableColumn column=shown.get(i);ColumnKind kind=kinds.get(id(column));
+                if(kind!=null?FILL_KINDS.contains(kind):table.getModel().getColumnClass(column.getModelIndex())==String.class)return column;
+            }
+            return null;
+        }
+    }
+    private static Fill fillOf(JTable table){Object fill=table.getClientProperty(FILL);return fill instanceof Fill?(Fill)fill:null;}
     private static void action(JTable table,String stroke,String name,Runnable run){
         table.getInputMap().put(KeyStroke.getKeyStroke(stroke),name);table.getActionMap().put(name,new AbstractAction(){public void actionPerformed(ActionEvent e){run.run();}});
     }
@@ -119,54 +241,268 @@ public final class HistoryTables {
     private static void copy(JTable table){
         String text=selectedText(table);if(!text.isEmpty())Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(text),null);
     }
+    /** Table client property: the name of the layout last applied or saved ("Custom" after a move or resize), for Column preset ▸. */
+    private static final String PRESET="archive.preset";
+    /** Table client property: TRUE while HistoryTables itself changes the columns (a restored layout, a preset or Reset, or the mode rules), so layout listeners ignore it. */
+    public static final String RESTORING_COLUMNS="archive.restoringColumns";
+    /** Table client properties: every column HistoryTables has seen (shown, hidden by the user or by the mode), and the mode bookkeeping. */
+    private static final String RETAINED="archive.columns",MODE_LAYOUT="archive.modeLayout";
     private static List<TableColumn> allColumns(JTable table){return Collections.list(table.getColumnModel().getColumns());}
     @SuppressWarnings("unchecked") private static List<TableColumn> retainedColumns(JTable table){
-        Object saved=table.getClientProperty("archive.columns");if(saved==null){saved=allColumns(table);table.putClientProperty("archive.columns",saved);}return (List<TableColumn>)saved;
+        Object saved=table.getClientProperty(RETAINED);if(saved==null){saved=allColumns(table);table.putClientProperty(RETAINED,saved);}return (List<TableColumn>)saved;
     }
+    private static void retain(JTable table,List<TableColumn> columns){
+        List<TableColumn> retained=retainedColumns(table);for(TableColumn column:columns)if(!retained.contains(column))retained.add(column);
+    }
+    private static String id(TableColumn column){return column.getIdentifier().toString();}
+    /** A column's width for a layout: its own width, never one the spare-width fit gave it ({@link Fill}). */
+    private static int width(JTable table,TableColumn column){Fill fill=fillOf(table);return Math.max(16,Math.min(10000,fill==null?column.getWidth():fill.ownWidth(column)));}
+    /** The IDs {@code KitTables.analystOnly} hides right now (every Analyst-only column while Simple, none in Analyst). */
+    private static Set<String> modeHidden(JTable table){Set<String> ids=new HashSet<>();for(Object id:KitTables.modeHidden(table))ids.add(String.valueOf(id));return ids;}
+    private static void restoring(JTable table,Runnable change){
+        Object before=table.getClientProperty(RESTORING_COLUMNS);table.putClientProperty(RESTORING_COLUMNS,true);
+        try{change.run();}finally{table.putClientProperty(RESTORING_COLUMNS,before);}
+    }
+    /** The table's mode bookkeeping, installed once: it must see the table before the mode first hides a column. */
+    private static ModeLayout track(JTable table){
+        Object saved=table.getClientProperty(MODE_LAYOUT);if(saved instanceof ModeLayout)return (ModeLayout)saved;
+        retainedColumns(table);ModeLayout layout=new ModeLayout(table);table.putClientProperty(MODE_LAYOUT,layout);
+        table.addPropertyChangeListener(KitTables.MODE_CHANGING,layout);return layout;
+    }
+    /**
+     * One table's mode-hidden columns (spec §3.2: Analyst-only columns are display only). {@code KitTables.analystOnly} removes a
+     * column in Simple and puts it back in Analyst where it stood, flagging both with {@code KitTables.MODE_CHANGING}. Around each
+     * change this remembers where the hidden columns stood; when one comes back it applies what a layout restored while it was
+     * hidden: its width and place, or the user's hide (then it goes again). Its own changes are marked {@link #RESTORING_COLUMNS}.
+     */
+    private static final class ModeLayout implements java.beans.PropertyChangeListener {
+        private final JTable table;
+        /** The user's visibility by column ID, as the last applied layout set it. */
+        final Map<String,Boolean> user=new HashMap<>();
+        /** For columns a layout set while the mode hid them: the width, and (when shown) the view index among the layout's shown columns. */
+        final Map<String,Integer> widths=new HashMap<>(),places=new HashMap<>();
+        /** Where each column the mode hid stood in the view when it was hidden. */
+        final Map<String,Integer> hiddenAt=new HashMap<>();
+        private List<TableColumn> before;
+        ModeLayout(JTable table){this.table=table;}
+        /** A mode-hidden column is the user's to show or hide: the last layout's choice, else shown if the mode (not the user) removed it. */
+        boolean userVisible(String id){Boolean chosen=user.get(id);return chosen!=null?chosen:hiddenAt.containsKey(id);}
+        @Override public void propertyChange(java.beans.PropertyChangeEvent event){
+            if(Boolean.TRUE.equals(event.getNewValue())){before=allColumns(table);retain(table,before);return;}
+            List<TableColumn> was=before;before=null;if(was==null)return;
+            List<TableColumn> now=allColumns(table);retain(table,now);
+            for(int i=0;i<was.size();i++)if(!now.contains(was.get(i)))hiddenAt.put(id(was.get(i)),i);
+            List<TableColumn> back=new ArrayList<>();for(TableColumn column:now)if(!was.contains(column))back.add(column);
+            if(back.isEmpty())return;
+            restoring(table,()->{
+                SortedMap<Integer,List<TableColumn>> moves=new TreeMap<>();
+                for(TableColumn column:back){
+                    String id=id(column);hiddenAt.remove(id);Integer width=widths.remove(id),place=places.remove(id);
+                    if(Boolean.FALSE.equals(user.get(id))){table.removeColumn(column);continue;}
+                    if(width!=null){column.setPreferredWidth(width);column.setWidth(width);}
+                    if(place!=null)moves.computeIfAbsent(place,key->new ArrayList<>()).add(column);
+                }
+                // Ascending, so every earlier place is filled first (as analystOnly restores).
+                for(Map.Entry<Integer,List<TableColumn>> move:moves.entrySet())for(TableColumn column:move.getValue()){
+                    int from=allColumns(table).indexOf(column),to=Math.min(move.getKey(),table.getColumnCount()-1);if(from>=0&&from!=to)table.moveColumn(from,to);
+                }
+            });
+        }
+    }
+    /**
+     * The table's layout: shown columns in view order with their widths, then every other known column. A column that
+     * {@code KitTables.analystOnly} hides in Simple is saved as the user left it (shown unless a layout hid it), at its place, with
+     * its width: never as hidden because of the mode. Tables with Analyst-only columns must reach HistoryTables ({@link #table},
+     * {@link #queried}, {@link #rememberLayout}, {@link #columnTools} or this) before the mode first hides them; a hidden column
+     * it never saw is written only when a restored layout gave it a width. Widths are each column's own, never one the spare-width
+     * fit ({@link Fill}) gave it.
+     */
     public static ViewState.Table columnState(JTable table,String preset){
-        List<ViewState.Column> columns=new ArrayList<>();Set<String> visible=new HashSet<>();
-        for(TableColumn column:allColumns(table)){String id=column.getIdentifier().toString();visible.add(id);columns.add(new ViewState.Column(id,Math.max(16,Math.min(10000,column.getWidth())),true));}
-        for(TableColumn column:retainedColumns(table))if(!visible.contains(column.getIdentifier().toString()))columns.add(new ViewState.Column(column.getIdentifier().toString(),Math.max(16,Math.min(10000,column.getWidth())),false));
+        ModeLayout mode=track(table);Set<String> hidden=modeHidden(table);
+        List<ViewState.Column> columns=new ArrayList<>();Set<String> listed=new HashSet<>();
+        for(TableColumn column:allColumns(table)){listed.add(id(column));columns.add(new ViewState.Column(id(column),width(table,column),true));}
+        Map<String,TableColumn> known=new LinkedHashMap<>();for(TableColumn column:retainedColumns(table))known.putIfAbsent(id(column),column);
+        SortedMap<Integer,List<ViewState.Column>> placed=new TreeMap<>();
+        List<String> order=new ArrayList<>(known.keySet());for(String id:hidden)if(!order.contains(id))order.add(id);
+        for(String id:order){
+            if(!hidden.contains(id)||listed.contains(id))continue;
+            TableColumn column=known.get(id);Integer width=mode.widths.get(id);if(column==null&&width==null)continue;
+            Integer place=mode.places.containsKey(id)?mode.places.get(id):mode.hiddenAt.get(id);
+            placed.computeIfAbsent(place==null?Integer.MAX_VALUE:place,key->new ArrayList<>())
+                .add(new ViewState.Column(id,width!=null?Math.max(16,Math.min(10000,width)):width(table,column),mode.userVisible(id)));listed.add(id);
+        }
+        for(Map.Entry<Integer,List<ViewState.Column>> entry:placed.entrySet())for(ViewState.Column column:entry.getValue())columns.add(Math.min(entry.getKey(),columns.size()),column);
+        for(TableColumn column:known.values())if(listed.add(id(column)))columns.add(new ViewState.Column(id(column),width(table,column),false));
         return new ViewState.Table(preset,columns);
     }
+    /**
+     * Applies a layout: widths, order and the user's visibility. In Simple a column {@code KitTables.analystOnly} hides stays
+     * hidden; its saved width, place and visibility are kept for Analyst (a column the layout hides does not come back there). The
+     * layout's widths are the columns' own; a built table then fits its spare width again ({@link Fill}).
+     *
+     * @throws IllegalArgumentException when the layout shows no column
+     */
     public static void applyColumns(JTable table,ViewState.Table state){
-        Object restoring=table.getClientProperty("archive.restoringColumns");table.putClientProperty("archive.restoringColumns",true);
-        try {
-        Map<String,TableColumn> columns=new LinkedHashMap<>();for(TableColumn column:retainedColumns(table))columns.put(column.getIdentifier().toString(),column);
-        List<TableColumn> visible=new ArrayList<>();
-        for(ViewState.Column saved:state.columns){TableColumn column=columns.remove(saved.id);if(column==null)continue;
-            column.setPreferredWidth(saved.width);column.setWidth(saved.width);if(saved.visible)visible.add(column);}
-        visible.addAll(columns.values());if(visible.isEmpty())throw new IllegalArgumentException("Keep at least one visible column");
-        for(TableColumn column:allColumns(table))table.removeColumn(column);for(TableColumn column:visible)table.addColumn(column);
-        } finally { table.putClientProperty("archive.restoringColumns",restoring); }
-    }
-    /** Reusable visible controls; defaults and presets use stable column IDs. */
-    public static JComponent controls(JTable table,ViewState.Table defaults,Map<String,List<String>> presets,Consumer<ViewState.Table> save){
-        JPanel controls=ContentStyle.controls();JButton copy=new JButton("Copy selected"),details=new JButton("Details…"),reset=new JButton("Reset columns"),columns=new JButton("Columns…");
-        copy.addActionListener(e->copy(table));details.addActionListener(e->{Action action=table.getActionMap().get("archive-details");if(action!=null)action.actionPerformed(e);});
-        reset.addActionListener(e->{applyColumns(table,defaults);save.accept(defaults);});
-        columns.addActionListener(e->{JPopupMenu menu=new JPopupMenu();ViewState.Table state=columnState(table,"");
-            for(ViewState.Column column:state.columns){JCheckBoxMenuItem item=new JCheckBoxMenuItem(column.id,column.visible);item.addActionListener(change->{
-                List<ViewState.Column> next=new ArrayList<>();for(ViewState.Column old:state.columns)next.add(new ViewState.Column(old.id,old.width,old.id.equals(column.id)?item.isSelected():old.visible));
-                if(next.stream().noneMatch(value->value.visible))return;ViewState.Table updated=new ViewState.Table("Custom",next);applyColumns(table,updated);save.accept(updated);
-            });menu.add(item);}menu.show(columns,0,columns.getHeight());});
-        JComboBox<String> preset=new JComboBox<>();preset.addItem("Column preset…");for(String name:presets.keySet())preset.addItem(name);
-        preset.getAccessibleContext().setAccessibleName("Column preset");preset.addActionListener(e->{List<String> ids=presets.get(preset.getSelectedItem());if(ids==null)return;
-            Map<String,ViewState.Column> known=new LinkedHashMap<>();for(ViewState.Column column:defaults.columns)known.put(column.id,column);
-            List<ViewState.Column> next=new ArrayList<>();for(String id:ids){ViewState.Column c=known.remove(id);if(c!=null)next.add(new ViewState.Column(c.id,c.width,true));}
-            for(ViewState.Column c:known.values())next.add(new ViewState.Column(c.id,c.width,false));
-            ViewState.Table updated=new ViewState.Table(preset.getSelectedItem().toString(),next);applyColumns(table,updated);save.accept(updated);
+        ModeLayout mode=track(table);Set<String> hidden=modeHidden(table);
+        Map<String,TableColumn> columns=new LinkedHashMap<>();for(TableColumn column:retainedColumns(table))columns.put(id(column),column);
+        // Validate before changing anything: the layout must show a column (now, or in Analyst for a column the mode hides).
+        Set<String> listed=new HashSet<>();boolean shows=false;
+        for(ViewState.Column saved:state.columns){listed.add(saved.id);if(saved.visible&&(columns.containsKey(saved.id)||hidden.contains(saved.id)))shows=true;}
+        for(String id:columns.keySet())if(!listed.contains(id))shows=true;   // columns the layout does not list are shown
+        if(!shows)throw new IllegalArgumentException("Keep at least one visible column");
+        Fill fill=fillOf(table);
+        restoring(table,()->{
+            if(fill!=null)fill.release();   // the layout's widths are own widths; the spare width is fitted again below
+            List<TableColumn> visible=new ArrayList<>();int place=0;
+            for(ViewState.Column saved:state.columns){
+                TableColumn column=columns.remove(saved.id);boolean later=hidden.contains(saved.id);
+                if(column==null&&!later)continue;
+                mode.user.put(saved.id,saved.visible);
+                if(column!=null){column.setPreferredWidth(saved.width);column.setWidth(saved.width);}
+                if(later){
+                    // Simple hides it for now: keep the layout's width and place for Analyst.
+                    mode.widths.put(saved.id,saved.width);if(saved.visible)mode.places.put(saved.id,place++);else mode.places.remove(saved.id);
+                }else if(saved.visible){visible.add(column);place++;}
+            }
+            for(TableColumn column:columns.values()){mode.user.put(id(column),true);if(!hidden.contains(id(column)))visible.add(column);}
+            // A layout that shows only Analyst-only columns still leaves Simple a column to show.
+            if(visible.isEmpty())for(TableColumn column:retainedColumns(table))if(!hidden.contains(id(column)))visible.add(column);
+            for(TableColumn column:allColumns(table))table.removeColumn(column);for(TableColumn column:visible)table.addColumn(column);
+            table.putClientProperty(PRESET,state.preset);
         });
+        if(fill!=null)fill.later();
+    }
+    /**
+     * Saves the table's layout ("Custom") one EDT turn after the user moves or resizes a column. Changes HistoryTables makes itself
+     * (a restored layout, preset or Reset) and changes {@code KitTables.analystOnly} makes on a mode switch are ignored; the mode's
+     * flag is read in the listener callback itself, because it is only set while the columns move.
+     */
+    public static void rememberLayout(JTable table,Consumer<ViewState.Table> save){
+        Objects.requireNonNull(save,"save");track(table);
         table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener(){
             private boolean pending;
-            private void remember(){if(Boolean.TRUE.equals(table.getClientProperty("archive.restoringColumns"))||pending)return;
-                pending=true;SwingUtilities.invokeLater(()->{pending=false;save.accept(columnState(table,"Custom"));});}
+            private void remember(){
+                if(Boolean.TRUE.equals(table.getClientProperty(RESTORING_COLUMNS))||Boolean.TRUE.equals(table.getClientProperty(KitTables.MODE_CHANGING))||pending)return;
+                pending=true;SwingUtilities.invokeLater(()->{pending=false;table.putClientProperty(PRESET,"Custom");save.accept(columnState(table,"Custom"));});}
             public void columnAdded(javax.swing.event.TableColumnModelEvent e){ }
             public void columnRemoved(javax.swing.event.TableColumnModelEvent e){ }
             public void columnMoved(javax.swing.event.TableColumnModelEvent e){if(e.getFromIndex()!=e.getToIndex())remember();}
             public void columnMarginChanged(javax.swing.event.ChangeEvent e){remember();}
             public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e){ }
         });
-        controls.add(copy);controls.add(details);controls.add(preset);controls.add(columns);controls.add(reset);return controls;
+    }
+    /**
+     * One ⋯ menu section of column tools for {@code table}: Columns ▸, Column preset ▸, Reset columns, then Copy selected rows and
+     * Row details…. Defaults and presets use stable column IDs; every change is applied and handed to {@code save}. The tools do
+     * not install the layout listener: pair them with {@link #rememberLayout} where moves and resizes should be saved too.
+     */
+    public static ColumnTools columnTools(JTable table,ViewState.Table defaults,Map<String,List<String>> presets,Consumer<ViewState.Table> save){
+        return new ColumnTools(table,defaults,presets,save);
+    }
+    /**
+     * A table's column tools as ⋯ menu items (see {@link #columnTools}): {@code <table>-columns}, {@code <table>-column-preset},
+     * {@code <table>-reset-columns}, a separator, {@code <table>-copy-rows} and {@code <table>-row-details}. A page puts them in its
+     * ⋯ with {@link #addTo}, which replaces the previous table's tools in the same section.
+     */
+    public static final class ColumnTools {
+        /** The ⋯ section the tools occupy. */
+        public static final String SECTION="column-tools";
+        private final JTable table;private final ViewState.Table defaults;private final Map<String,List<String>> presets;private final Consumer<ViewState.Table> save;
+        private final JMenu columns=new JMenu("Columns"),preset=new JMenu("Column preset");
+        private final JMenuItem reset=new JMenuItem("Reset columns"),copy=new JMenuItem("Copy selected rows"),details=new JMenuItem("Row details…");
+        private final List<Component> items;
+        private boolean enabled=true;
+        private ColumnTools(JTable table,ViewState.Table defaults,Map<String,List<String>> presets,Consumer<ViewState.Table> save){
+            // Without defaults (a live caller that captured none), Reset returns to the layout the table has now.
+            this.table=Objects.requireNonNull(table,"table");this.defaults=defaults!=null?defaults:columnState(table,"Default");
+            this.presets=Collections.unmodifiableMap(new LinkedHashMap<>(presets));this.save=Objects.requireNonNull(save,"save");
+            track(table);String name=table.getName()==null?"table":table.getName();
+            columns.setName(name+"-columns");preset.setName(name+"-column-preset");reset.setName(name+"-reset-columns");
+            copy.setName(name+"-copy-rows");details.setName(name+"-row-details");
+            columns.putClientProperty(ColumnTools.class,this);
+            copy.setToolTipText("Ctrl+C in the table");details.setToolTipText("Enter or double-click in the table");
+            copy.getAccessibleContext().setAccessibleDescription("Copies the selected rows; Ctrl+C in the table");
+            details.getAccessibleContext().setAccessibleDescription("Shows the selected row's details; Enter in the table");
+            reset.addActionListener(e->resetColumns());
+            copy.addActionListener(e->run("archive-copy"));details.addActionListener(e->run("archive-details"));
+            // The menus relist when opened: the layout, the mode and the presets may have changed since.
+            javax.swing.event.MenuListener relist=new javax.swing.event.MenuListener(){
+                public void menuSelected(javax.swing.event.MenuEvent e){refresh();}
+                public void menuDeselected(javax.swing.event.MenuEvent e){ }
+                public void menuCanceled(javax.swing.event.MenuEvent e){ }
+            };
+            columns.addMenuListener(relist);preset.addMenuListener(relist);
+            items=Collections.unmodifiableList(Arrays.asList(columns,preset,reset,new JPopupMenu.Separator(),copy,details));
+            refresh();
+        }
+        public JMenu columns(){return columns;}
+        public JMenu presets(){return preset;}
+        public JMenuItem reset(){return reset;}
+        public JMenuItem copy(){return copy;}
+        public JMenuItem details(){return details;}
+        /** The section's items in order. */
+        public List<Component> items(){return items;}
+        /** Puts these tools in {@code menu}'s {@link #SECTION}, replacing whatever tools were there. */
+        public void addTo(tomato.gui.kit.OverflowMenu menu){menu.section(SECTION).replace(items);}
+        /** Empties {@code menu}'s {@link #SECTION} if it holds these tools (a newer table's tools are left alone). */
+        public void removeFrom(tomato.gui.kit.OverflowMenu menu){
+            tomato.gui.kit.OverflowMenu.Section section=menu.section(SECTION);if(section.items().contains(columns))section.clear();
+        }
+        /** A stale view's tools are disabled until its replacement arrives. */
+        public void setEnabled(boolean enabled){
+            if(this.enabled==enabled)return;this.enabled=enabled;
+            // The submenus relist (and follow this flag) when opened; only the section's own items change here.
+            columns.setEnabled(enabled);preset.setEnabled(enabled&&!presets.isEmpty());reset.setEnabled(enabled);copy.setEnabled(enabled);details.setEnabled(enabled);
+        }
+        public boolean isEnabled(){return enabled;}
+        /**
+         * Relists Columns ▸ (each column's visibility; a column the mode hides shows the user's choice, disabled and marked
+         * "(Analyst)") and Column preset ▸ (the applied preset is selected).
+         */
+        public void refresh(){
+            columns.removeAll();String name=table.getName()==null?"table":table.getName();Set<String> hidden=modeHidden(table);
+            Map<String,TableColumn> known=new HashMap<>();for(TableColumn column:retainedColumns(table))known.put(id(column),column);
+            for(ViewState.Column column:columnState(table,"").columns){
+                TableColumn source=known.get(column.id);String label=source==null||source.getHeaderValue()==null?column.id:String.valueOf(source.getHeaderValue());
+                boolean analyst=hidden.contains(column.id);
+                JCheckBoxMenuItem item=new JCheckBoxMenuItem(analyst?label+" (Analyst)":label,column.visible);item.setName(name+"-column-"+column.id);item.setEnabled(enabled&&!analyst);
+                if(analyst)item.setToolTipText("Shown in Analyst mode");
+                item.addActionListener(e->toggle(column.id,item.isSelected()));columns.add(item);
+            }
+            preset.removeAll();ButtonGroup group=new ButtonGroup();Object applied=table.getClientProperty(PRESET);
+            for(String label:presets.keySet()){JRadioButtonMenuItem item=new JRadioButtonMenuItem(label,label.equals(applied));item.setEnabled(enabled);
+                item.addActionListener(e->preset(label));group.add(item);preset.add(item);}
+            columns.setEnabled(enabled);preset.setEnabled(enabled&&!presets.isEmpty());reset.setEnabled(enabled);copy.setEnabled(enabled);details.setEnabled(enabled);
+        }
+        private void run(String action){
+            if(!enabled)return;Action target=table.getActionMap().get(action);
+            if(target!=null)target.actionPerformed(new ActionEvent(table,ActionEvent.ACTION_PERFORMED,action));
+            else if("archive-copy".equals(action))HistoryTables.copy(table);
+        }
+        private void toggle(String id,boolean show){
+            Set<String> hidden=modeHidden(table);if(!enabled||hidden.contains(id)){refresh();return;}
+            List<ViewState.Column> next=new ArrayList<>();
+            for(ViewState.Column old:columnState(table,"").columns)next.add(new ViewState.Column(old.id,old.width,old.id.equals(id)?show:old.visible));
+            // The last column the table shows stays: a column the mode hides does not count.
+            if(next.stream().noneMatch(value->value.visible&&!hidden.contains(value.id))){refresh();return;}
+            apply(new ViewState.Table("Custom",next));
+        }
+        private void preset(String label){
+            List<String> ids=presets.get(label);if(!enabled||ids==null)return;
+            Map<String,ViewState.Column> known=new LinkedHashMap<>();for(ViewState.Column column:defaults.columns)known.put(column.id,column);
+            List<ViewState.Column> next=new ArrayList<>();for(String id:ids){ViewState.Column c=known.remove(id);if(c!=null)next.add(new ViewState.Column(c.id,c.width,true));}
+            for(ViewState.Column c:known.values())next.add(new ViewState.Column(c.id,c.width,false));
+            apply(keepModeHidden(new ViewState.Table(label,next)));
+        }
+        private void resetColumns(){if(enabled)apply(keepModeHidden(defaults));}
+        /** A preset or Reset in Simple leaves the columns the mode hides as they are (width and the user's visibility). */
+        private ViewState.Table keepModeHidden(ViewState.Table layout){
+            Set<String> hidden=modeHidden(table);if(hidden.isEmpty())return layout;
+            Map<String,ViewState.Column> now=new HashMap<>();for(ViewState.Column column:columnState(table,"").columns)now.put(column.id,column);
+            List<ViewState.Column> next=new ArrayList<>();
+            for(ViewState.Column column:layout.columns){ViewState.Column kept=hidden.contains(column.id)?now.get(column.id):null;next.add(kept==null?column:new ViewState.Column(column.id,kept.width,kept.visible));}
+            return new ViewState.Table(layout.preset,next);
+        }
+        private void apply(ViewState.Table layout){applyColumns(table,layout);save.accept(layout);refresh();}
     }
 }

@@ -7,11 +7,30 @@ import javax.swing.table.*;
 import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.List;
+import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
+import java.util.function.IntUnaryOperator;
 import java.util.regex.Pattern;
+import tomato.gui.history.FilterChips;
+import tomato.gui.history.HistoryTables;
+import tomato.gui.history.WrapRow;
+import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.KitTables;
+import tomato.gui.kit.Sprites;
+import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 
 /** The same Swing/FlatLaf surface as the surrounding workspace. */
 public final class BridgeReviewGUI extends JPanel {
@@ -27,78 +46,108 @@ public final class BridgeReviewGUI extends JPanel {
     private final JComboBox<String> character=new JComboBox<>(new String[]{"All characters"}), dungeon=new JComboBox<>(new String[]{"All dungeons"});
     private final JComboBox<String> enchantFilter=new JComboBox<>(new String[]{"All enchant states","Applied enchants","No applied enchants","Unknown enchants"});
     private final JComboBox<String> level=new JComboBox<>(new String[]{"All levels","INFO","DEBUG","ERROR"});
-    private final Rows reviewModel=new Rows("Time (UTC)","Item","Rarity","Shiny","Character","Dungeon","Outcome","Delivery status");
-    private final Rows logModel=new Rows("Time (UTC)","Level","Message");
-    private final JTable review=new JTable(reviewModel),logs=new JTable(logModel);
+    // Times are recorded ISO-8601 UTC texts; the column shows them by display mode (relative in Simple, local in Analyst) and sorts as instants.
+    private final Rows reviewModel=new Rows("Time","Item","Rarity","Shiny","Character","Dungeon","Outcome","Delivery status");
+    private final Rows logModel=new Rows("Time","Level","Message");
+    private final JTable review=new FitTable(reviewModel);
+    private final JTable logs=new JTable(logModel){
+        /** Room beyond the preferred widths goes to the message; Time and Level keep their kind widths. A header drag lays out as usual. */
+        @Override public void doLayout(){
+            TableColumnModel columns=getColumnModel();int last=columns.getColumnCount()-1,others=0;
+            if(last<1||getTableHeader()==null||getTableHeader().getResizingColumn()!=null){super.doLayout();return;}
+            for(int i=0;i<last;i++)others+=columns.getColumn(i).getPreferredWidth();
+            TableColumn message=columns.getColumn(last);
+            if(getWidth()-others<message.getPreferredWidth()){super.doLayout();return;}
+            for(int i=0;i<last;i++)columns.getColumn(i).setWidth(columns.getColumn(i).getPreferredWidth());
+            message.setWidth(getWidth()-others);
+        }
+    };
     private final JTextArea details=note("Detected drops will appear here once the bridge and network capture are enabled. Select a row to inspect enchants and the outgoing fields.");
     private final JTextArea logDetails=note("Select a diagnostic entry to read its full message.");
     private final CustomizableTabs views=new CustomizableTabs("bridge");private final JTabbedPane tabs=views.component();
-    private final JButton save=new JButton("Save settings"),export=new JButton("Export review CSV"),exportLogs=new JButton("Export logs"),revert=new JButton("Revert to active");
-    private final JButton alertDraft=new JButton("Item alert from this drop…");
-    private final Rows savedModel=new Rows("Time (UTC)","Item","Outcome","Delivery status","Character","Dungeon","Session","Journal");
-    private final JTable saved=new JTable(savedModel);
+    private final KitButton save=KitButton.primary("Save settings"),revert=KitButton.secondary("Revert to active");
+    private final KitButton alertDraft=KitButton.secondary("Item alert from this drop…");
+    // One filter row per tab (S6). Review: [Search][Reset filters] [Filters · n][chips][Clear] … [⋯]; the facets live in the drawer.
+    private final FilterBar reviewBar=new FilterBar("bridge-review"),logBar=new FilterBar("bridge-logs");
+    private final KitButton reset=KitButton.ghost("Reset filters");
+    private final DisplayModeModel mode;
+    private final Rows savedModel=new Rows("Time","Item","Outcome","Delivery status","Character","Dungeon","Session","Journal");
+    private final JTable saved=new FitTable(savedModel);
     private final JTextArea savedSummary=ContentStyle.wrappingText("No journal opened.",2),savedProblems=ContentStyle.wrappingText(""),savedDetails=note("Select a saved record to read its historical outcome.");
-    private final JButton openConfigured=new JButton("Open configured review log"),openFile=new JButton("Open journal file…"),exportSaved=new JButton("Export saved review CSV");
+    private final KitButton openConfigured=KitButton.primary("Open configured review log"),openFile=KitButton.secondary("Open journal file…"),exportSaved=KitButton.secondary("Export saved review CSV");
     private List<BridgeJournal.Entry> savedEntries=Collections.emptyList();
     private BridgeJournal.Result savedResult;
     private long savedRequest;
     /** Opens a detached alert draft; replaced by tests. The Runnable restores the source row when the editor closes. */
     private java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft,Runnable> draftOpener=tomato.gui.maingui.AlertRuleEditor::openDraft;
+    /** Saves an export (file name, content) through a file chooser; replaced by tests. */
+    private BiConsumer<String,String> exporter=this::chooseExport;
+    /** Asks before a destructive action (title, message); replaced by tests. */
+    private BiPredicate<String,String> confirm=(title,message)->JOptionPane.showConfirmDialog(this,message,title,JOptionPane.YES_NO_OPTION,JOptionPane.WARNING_MESSAGE)==JOptionPane.YES_OPTION;
     private final JTextArea activeSummary=ContentStyle.wrappingText(""),draftState=ContentStyle.wrappingText(""),validation=ContentStyle.wrappingText(""),confirmation=ContentStyle.wrappingText(""),saveResult=ContentStyle.wrappingText("");
     private final javax.swing.Timer timer;
     private BridgeService.Snapshot snapshot;
     private List<BridgeService.Review> rows=Collections.emptyList();
     private long revision=-1;
-    private boolean rebuilding;
+    private boolean rebuilding,resetting;
     private boolean loadingFields,initialSettingsLoaded,saving;
     private final Set<JComponent> editedFields=Collections.newSetFromMap(new IdentityHashMap<>());
 
-    public BridgeReviewGUI(BridgeService bridge) {
-        super(new BorderLayout(0,8));this.bridge=bridge;setName("bridge-review-panel");
+    public BridgeReviewGUI(BridgeService bridge) {this(bridge,DisplayModeModel.application());}
+    /** The mode drives the tables' Time columns (relative in Simple) and Saved review's Analyst-only Session and Journal. */
+    public BridgeReviewGUI(BridgeService bridge,DisplayModeModel mode) {
+        super(new BorderLayout(0,8));this.bridge=bridge;this.mode=Objects.requireNonNull(mode,"mode");setName("bridge-review-panel");
         JPanel summary=new JPanel(new BorderLayout(0,5));
         state.setFont(ContentStyle.emphasis(ContentStyle.body()));
         // The lifetime/shown counters describe the live Review table only, so they live on that tab instead of
         // taking height from Settings, Logs and Saved review in short windows.
         totals.setName("bridge-totals");totals.getAccessibleContext().setAccessibleName("Lifetime and shown delivery outcome counts");summary.add(state,BorderLayout.NORTH);add(summary,BorderLayout.NORTH);
         setupTable(review,ContentStyle.Density.COMFORTABLE);setupTable(logs,ContentStyle.Density.DENSE);review.setName("bridge-review-table");logs.setName("bridge-log-table");
-        review.getColumnModel().getColumn(6).setCellRenderer(new ContentStyle.Badge(){
-            @Override protected Color badgeColor(Object value){
-                String status=String.valueOf(value);
-                if(status.equals(BridgeService.Outcome.LOGGED.toString()))return ContentStyle.color("mint");
-                if(status.equals(BridgeService.Outcome.RECEIVED.toString())||status.equals(BridgeService.Outcome.PENDING.toString()))return ContentStyle.color("amber");
-                if(status.equals(BridgeService.Outcome.FAILED.toString()))return ContentStyle.color("rose");
-                return ContentStyle.color("muted");
-            }
-        });
-        review.getColumnModel().getColumn(1).setPreferredWidth(230);logs.getColumnModel().getColumn(2).setPreferredWidth(620);
-        review.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);int[] widths={145,205,75,55,125,145,180,115};
-        for(int i=0;i<widths.length;i++)review.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        review.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<rows.size()?rows.get(model).drop.item.id:0));
+        review.getColumnModel().getColumn(6).setCellRenderer(outcomeBadge());
+        // Widths come from the column kinds and follow the font. Review fits its columns to the page while every header and Outcome
+        // label stays whole, else it scrolls sideways; on Logs the message takes the room left.
+        keepWhole(review,review.getColumnModel().getColumn(0),review.getColumnModel().getColumn(6));logs.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        HistoryTables.kinds(review,kinds(reviewModel,ColumnKind.DATE_TIME,ColumnKind.ITEM,ColumnKind.STATUS,ColumnKind.STATUS,ColumnKind.PLAYER,ColumnKind.DUNGEON,ColumnKind.STATUS,ColumnKind.STATUS));
+        HistoryTables.kinds(logs,kinds(logModel,ColumnKind.DATE_TIME,ColumnKind.STATUS,ColumnKind.TEXT));
+        timeColumn(review);timeColumn(logs);
         JPanel reviewPage=new JPanel(new BorderLayout(0,8));
-        JPanel tools=ContentStyle.controls();search.setName("bridge-search");status.setName("bridge-status-filter");
+        search.setName("bridge-search");status.setName("bridge-status-filter");
         search.setColumns(18);search.getAccessibleContext().setAccessibleName("Search bridge review and logs");status.getAccessibleContext().setAccessibleName("Drop delivery status");
+        search.putClientProperty("JTextField.placeholderText","Search review and logs…");
         outcome.addItem("All outcomes");for(BridgeService.Outcome bucket:BridgeService.Outcome.values())outcome.addItem(bucket);
         outcome.setName("bridge-outcome-filter");character.setName("bridge-character-filter");dungeon.setName("bridge-dungeon-filter");enchantFilter.setName("bridge-enchant-filter");
         outcome.getAccessibleContext().setAccessibleName("Delivery outcome bucket");character.getAccessibleContext().setAccessibleName("Observed character");dungeon.getAccessibleContext().setAccessibleName("Observed dungeon");enchantFilter.getAccessibleContext().setAccessibleName("Applied enchant state");
         search.setToolTipText("Search reasons, item IDs, names, enchant descriptions, characters and dungeons in retained review rows.");
         character.setPrototypeDisplayValue("All characters / Example #123");dungeon.setPrototypeDisplayValue("All dungeons / Lost Halls");
-        JButton reset=new JButton("Reset filters");reset.addActionListener(e->{search.setText("");status.setSelectedIndex(0);outcome.setSelectedIndex(0);character.setSelectedIndex(0);dungeon.setSelectedIndex(0);enchantFilter.setSelectedIndex(0);});
-        tools.add(labeled("Search",search));tools.add(outcome);tools.add(status);tools.add(character);tools.add(dungeon);tools.add(enchantFilter);tools.add(reset);tools.add(export);
+        reset.setName("bridge-reset");reset.setToolTipText("Clear the search and every drawer filter");reset.addActionListener(e->resetFilters());
+        JPanel facets=ContentStyle.controls();facets.setOpaque(false);for(JComponent facet:new JComponent[]{outcome,status,character,dungeon,enchantFilter})facets.add(facet);
+        reviewBar.search(new WrapRow(search,reset)).drawer(facets);
+        JMenuItem export=reviewBar.overflow().add("Export review CSV…",this::exportReview);export.setName("bridge-export-review");
+        export.setToolTipText("Export the rows shown, with every recorded field, as CSV. Times stay in UTC.");
         alertDraft.setName("bridge-alert-draft");alertDraft.setEnabled(false);alertDraft.setToolTipText("Draft an exact item-ID alert from the selected drop. Opens silently; nothing is saved, enabled or sent.");
-        alertDraft.addActionListener(e->draftFromSelected());tools.add(alertDraft);
-        JPanel reviewTop=new JPanel(new BorderLayout(0,6));reviewTop.add(totals,BorderLayout.NORTH);reviewTop.add(tools);
+        alertDraft.addActionListener(e->draftFromSelected());
+        JPanel reviewTop=new JPanel(new BorderLayout(0,6));reviewTop.add(totals,BorderLayout.NORTH);reviewTop.add(reviewBar);
         details.setName("bridge-details");details.setOpaque(true);details.setFont(ContentStyle.report(ContentStyle.body()));details.setMargin(new Insets(6,8,6,8));
         details.getAccessibleContext().setAccessibleName("Selected drop delivery details");
         JScrollPane detailScroll=new JScrollPane(details);detailScroll.setMinimumSize(new Dimension(0,100));detailScroll.setPreferredSize(new Dimension(700,175));
-        JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(review,3),detailScroll);split.setResizeWeight(.68);split.setBorder(null);
+        // The selected drop's action sits right above its details.
+        JPanel detailActions=new JPanel(new FlowLayout(FlowLayout.LEADING,0,0));detailActions.setOpaque(false);detailActions.add(alertDraft);
+        JPanel detailPane=new JPanel(new BorderLayout(0,6));detailPane.setOpaque(false);detailPane.add(detailActions,BorderLayout.NORTH);detailPane.add(detailScroll);
+        JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,ContentStyle.tableScroll(review,3),detailPane);split.setResizeWeight(.68);split.setBorder(null);
         // Short windows scroll the tab content instead of squeezing the table and details to nothing.
         reviewPage.add(ContentStyle.page(reviewTop,split,note("CSV controls what can be sent. Drops are observed in bags; pickup is not verified. Review retains the latest 1,000 items.")));
         views.add("review","Review",reviewPage).add("settings","Settings",settings());
-        JPanel logPage=new JPanel(new BorderLayout(0,8));JPanel logTools=ContentStyle.controls();
-        JTextField logSearch=new JTextField(18);logSearch.setDocument(search.getDocument());logSearch.getAccessibleContext().setAccessibleName("Search bridge logs and review");
-        level.getAccessibleContext().setAccessibleName("Bridge log level");
-        logTools.add(labeled("Search",logSearch));logTools.add(level);
-        logTools.add(exportLogs);JButton clear=new JButton("Clear logs");logTools.add(clear);
-        logPage.add(logTools,BorderLayout.NORTH);
+        JPanel logPage=new JPanel(new BorderLayout(0,8));
+        JTextField logSearch=new JTextField(18);logSearch.setDocument(search.getDocument());logSearch.setName("bridge-log-search");logSearch.getAccessibleContext().setAccessibleName("Search bridge logs and review");
+        logSearch.putClientProperty("JTextField.placeholderText","Search review and logs…");
+        level.setName("bridge-log-level");level.getAccessibleContext().setAccessibleName("Bridge log level");
+        logBar.search(new WrapRow(logSearch,level));
+        logBar.overflow().add("Export logs…",this::exportLogs).setName("bridge-export-logs");logBar.overflow().addSeparator();
+        JMenuItem clear=new JMenuItem("Clear logs…"){@Override public void updateUI(){super.updateUI();setForeground(Tokens.color(Tokens.Role.BAD));}};
+        clear.setName("bridge-clear-logs");clear.setToolTipText("Clear the retained diagnostic entries. Review rows, counts and saved journals are kept.");
+        clear.addActionListener(e->clearLogs());logBar.overflow().menu().add(clear);
+        logPage.add(logBar,BorderLayout.NORTH);
         logDetails.setName("bridge-log-details");logDetails.setOpaque(true);logDetails.setMargin(new Insets(6,8,6,8));logDetails.setFont(ContentStyle.report(ContentStyle.body()));
         logDetails.getAccessibleContext().setAccessibleName("Selected bridge log message");
         JScrollPane logDetailScroll=new JScrollPane(logDetails);logDetailScroll.setMinimumSize(new Dimension(0,90));logDetailScroll.setPreferredSize(new Dimension(700,120));
@@ -110,7 +159,7 @@ public final class BridgeReviewGUI extends JPanel {
         outcome.addActionListener(e->filter());character.addActionListener(e->{if(!rebuilding)filter();});dungeon.addActionListener(e->{if(!rebuilding)filter();});enchantFilter.addActionListener(e->filter());
         review.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!rebuilding)showDetails();});
         logs.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!rebuilding)showLogDetails();});
-        clear.addActionListener(e->{bridge.clearLogs();refresh();});export.addActionListener(e->exportReview());exportLogs.addActionListener(e->exportLogs());save.addActionListener(e->save());
+        save.addActionListener(e->save());
         state.setName("bridge-state");save.setName("bridge-save");
         load(bridge.config());trackEdits();if(bridge.isPreview())save.setToolTipText("Preview never saves settings or contacts the bot.");
         timer=new javax.swing.Timer(650,e->{if(isShowing())refresh();});refresh();
@@ -126,6 +175,12 @@ public final class BridgeReviewGUI extends JPanel {
         saved.setName("bridge-saved-table");savedSummary.setName("bridge-saved-summary");savedProblems.setName("bridge-saved-problems");savedDetails.setName("bridge-saved-details");
         savedProblems.setVisible(false);
         setupTable(saved,ContentStyle.Density.COMFORTABLE);saved.getAccessibleContext().setAccessibleName("Saved review records");
+        saved.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<savedEntries.size()?savedEntries.get(model).review.drop.item.id:0));
+        saved.getColumnModel().getColumn(2).setCellRenderer(outcomeBadge());keepWhole(saved,saved.getColumnModel().getColumn(0),saved.getColumnModel().getColumn(2));
+        HistoryTables.kinds(saved,kinds(savedModel,ColumnKind.DATE_TIME,ColumnKind.ITEM,ColumnKind.STATUS,ColumnKind.STATUS,ColumnKind.PLAYER,ColumnKind.DUNGEON,ColumnKind.ID,ColumnKind.ID));
+        timeColumn(saved);
+        // Journal identity is provenance: Analyst shows it; Simple keeps it in the details and the export.
+        KitTables.analystOnly(saved,mode,"Session","Journal");
         savedDetails.setOpaque(true);savedDetails.setMargin(new Insets(6,8,6,8));savedDetails.setFont(ContentStyle.report(ContentStyle.body()));savedDetails.getAccessibleContext().setAccessibleName("Selected saved record details");
         JPanel tools=ContentStyle.controls();tools.add(openConfigured);tools.add(openFile);tools.add(exportSaved);
         JPanel top=new JPanel(new BorderLayout(0,6));top.add(explain,BorderLayout.NORTH);top.add(tools);
@@ -140,7 +195,7 @@ public final class BridgeReviewGUI extends JPanel {
         openFile.addActionListener(e->{JFileChooser chooser=new JFileChooser();chooser.setDialogTitle("Open saved Bridge review journals");chooser.setMultiSelectionEnabled(true);
             if(chooser.showOpenDialog(this)!=JFileChooser.APPROVE_OPTION)return;List<Path> paths=new ArrayList<>();for(java.io.File f:chooser.getSelectedFiles())paths.add(f.toPath());
             if(paths.isEmpty()&&chooser.getSelectedFile()!=null)paths.add(chooser.getSelectedFile().toPath());openJournals(paths);});
-        exportSaved.addActionListener(e->chooseExport("bridge-saved-review.csv",savedCsv()));
+        exportSaved.addActionListener(e->exporter.accept("bridge-saved-review.csv",savedCsv()));
         saved.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting())showSavedDetails();});
         return page;
     }
@@ -154,8 +209,10 @@ public final class BridgeReviewGUI extends JPanel {
         }.execute();
     }
     private void showSaved(BridgeJournal.Result result){
-        savedResult=result;savedEntries=new ArrayList<>(result.entries);Collections.reverse(savedEntries);savedModel.setRowCount(0);
-        for(BridgeJournal.Entry e:savedEntries){BridgeService.Review r=e.review;savedModel.addRow(new Object[]{r.time,r.drop.item.rawName,r.outcome().toString(),r.status,characterLabel(r),dungeonLabel(r),e.session,e.journal});}
+        savedResult=result;savedEntries=new ArrayList<>(result.entries);Collections.reverse(savedEntries);
+        List<Object[]> data=new ArrayList<>(savedEntries.size());
+        for(BridgeJournal.Entry e:savedEntries){BridgeService.Review r=e.review;data.add(new Object[]{r.time,r.drop.item.rawName,r.outcome().toString(),r.status,characterLabel(r),dungeonLabel(r),e.session,e.journal});}
+        savedModel.replace(data);
         savedSummary.setText(result.summary()+". Sources: "+String.join(", ",result.sources)+".");
         StringBuilder problems=new StringBuilder();for(BridgeJournal.Problem p:result.problems){if(problems.length()>0)problems.append('\n');problems.append(p);}
         if(result.malformed>result.problems.size())problems.append("\n…and ").append(result.malformed-result.problems.size()).append(" more unreadable lines.");
@@ -182,13 +239,13 @@ public final class BridgeReviewGUI extends JPanel {
         activeSummary.setFont(ContentStyle.emphasis(ContentStyle.metadata(ContentStyle.body())));validation.setForeground(ContentStyle.color("rose"));
         saveResult.addPropertyChangeListener("UI",e->{if(saveResultIsError())saveResult.setForeground(ContentStyle.color("rose"));});
         for(JTextArea area:new JTextArea[]{activeSummary,draftState,validation,saveResult,confirmation}){area.setAlignmentX(Component.LEFT_ALIGNMENT);area.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));status.add(area);}
-        JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File > Start Sniffer. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
+        JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File › Start capture connection. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
         page.add(intro,BorderLayout.NORTH);
         JPanel form=new JPanel(new GridBagLayout());GridBagConstraints g=new GridBagConstraints();g.insets=new Insets(3,0,5,0);g.fill=GridBagConstraints.HORIZONTAL;g.anchor=GridBagConstraints.NORTHWEST;
         field(form,g,0,"Endpoint",endpoint);field(form,g,1,"Guild ID",guild);field(form,g,2,"Link Token",token);
         endpoint.setName("bridge-endpoint");guild.setName("bridge-guild");token.setName("bridge-token");csv.setName("bridge-csv");audit.setName("bridge-audit");
         token.setToolTipText("Stored locally in bridge.properties. Do not share that file.");
-        JPanel csvBox=new JPanel(new BorderLayout(7,0));csvBox.add(csv);JButton browse=new JButton("Browse…");csvBox.add(browse,BorderLayout.EAST);
+        JPanel csvBox=new JPanel(new BorderLayout(7,0));csvBox.add(csv);KitButton browse=KitButton.secondary("Browse…");csvBox.add(browse,BorderLayout.EAST);
         browse.getAccessibleContext().setAccessibleName("Browse for loot CSV");
         browse.addActionListener(e->{JFileChooser chooser=new JFileChooser();if(chooser.showOpenDialog(this)==JFileChooser.APPROVE_OPTION)csv.setText(chooser.getSelectedFile().getAbsolutePath());});
         field(form,g,3,"Loot CSV (input)",csvBox,csv);field(form,g,4,"Review log (optional)",audit);
@@ -197,7 +254,7 @@ public final class BridgeReviewGUI extends JPanel {
         JPanel categories=ContentStyle.controls();for(JCheckBox box:new JCheckBox[]{ut,st,shiny,enchanted,other})categories.add(box);field(form,g,6,"Include categories",categories);
         JTextArea help=note("Categories are additive: any selected match qualifies, and the item must also be in the CSV to send. All categories selected matches the public bridge. Unlisted items remain visible for review. Turn off Send for local review only.\n\nCSV paths such as ./rotmg_loot_drops_updated.csv resolve from the application folder. The optional review log is a local JSONL file with one 5 MB backup. Relative and absolute paths are supported.\n\nKeep one sniffer instance running. New characters are configured in Discord with /mysniffer → Configure Character. Bridge enablement is independent of the original loot-sharing menu option.");
         field(form,g,7,"How it works",help);
-        JPanel actions=ContentStyle.controls();actions.add(save);actions.add(revert);revert.addActionListener(e->revert());JButton included=new JButton("Use included CSV");actions.add(included);included.addActionListener(e->csv.setText("./rotmg_loot_drops_updated.csv"));
+        JPanel actions=ContentStyle.controls();actions.add(save);actions.add(revert);revert.addActionListener(e->revert());KitButton included=KitButton.ghost("Use included CSV");actions.add(included);included.addActionListener(e->csv.setText("./rotmg_loot_drops_updated.csv"));
         g.gridy=16;g.weighty=1;form.add(Box.createVerticalGlue(),g);page.add(form);
         class ScrollPage extends JPanel implements Scrollable {
             ScrollPage(){super(new BorderLayout());add(page);}
@@ -207,10 +264,9 @@ public final class BridgeReviewGUI extends JPanel {
             public boolean getScrollableTracksViewportWidth(){return true;}
             public boolean getScrollableTracksViewportHeight(){return false;}
         }
-        JScrollPane scroll=new JScrollPane(new ScrollPage());scroll.setBorder(null);
+        JScrollPane scroll=new JScrollPane(new ScrollPage());scroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would reinstall the outline
         JPanel content=new JPanel(new BorderLayout(0,8));content.add(scroll);actions.setBorder(BorderFactory.createEmptyBorder(6,8,6,8));content.add(actions,BorderLayout.SOUTH);return content;
     }
-    private static JPanel labeled(String text,JComponent value){JPanel panel=new JPanel(new BorderLayout(6,0));JLabel label=new JLabel(text);label.setLabelFor(value);panel.add(label,BorderLayout.WEST);panel.add(value);return panel;}
     private static void field(JPanel p,GridBagConstraints g,int row,String title,JComponent value,JComponent... targets){
         JComponent target=targets.length==0?value:targets[0];JLabel label=new JLabel(title);label.setLabelFor(target);target.getAccessibleContext().setAccessibleName(title);
         label.setFont(ContentStyle.metadata(ContentStyle.body()));
@@ -288,34 +344,57 @@ public final class BridgeReviewGUI extends JPanel {
         String logSelection=logs.getSelectedRow()<0?null:String.valueOf(logs.getValueAt(logs.getSelectedRow(),0))+logs.getValueAt(logs.getSelectedRow(),2);
         rebuilding=true;
         state.setText(snapshot.state);
-        rows=new ArrayList<>(snapshot.reviews);Collections.reverse(rows);reviewModel.setRowCount(0);
-        for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;reviewModel.addRow(new Object[]{r.time,d.item.rawName,d.item.rarity,d.item.shiny?"Yes":"",(d.characterName==null?"":d.characterName)+" #"+d.characterId,d.dungeon,r.outcome().toString(),r.status});}
+        rows=new ArrayList<>(snapshot.reviews);Collections.reverse(rows);
+        List<Object[]> data=new ArrayList<>(rows.size());
+        for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;data.add(new Object[]{r.time,d.item.rawName,d.item.rarity,d.item.shiny?"Yes":"",(d.characterName==null?"":d.characterName)+" #"+d.characterId,d.dungeon,r.outcome().toString(),r.status});}
+        reviewModel.replace(data);
         TreeSet<String> characters=new TreeSet<>(),dungeons=new TreeSet<>();for(BridgeService.Review r:rows){characters.add(characterLabel(r));dungeons.add(dungeonLabel(r));}
         updateFacet(character,"All characters",characters);updateFacet(dungeon,"All dungeons",dungeons);
-        logModel.setRowCount(0);for(BridgeService.Log l:snapshot.logs)logModel.addRow(new Object[]{l.time,l.level,l.message});filter();
+        List<Object[]> entries=new ArrayList<>(snapshot.logs.size());for(BridgeService.Log l:snapshot.logs)entries.add(new Object[]{l.time,l.level,l.message});logModel.replace(entries);filter();
         for(int i=0;i<rows.size();i++)if(rows.get(i).id==selected){int view=review.convertRowIndexToView(i);if(view>=0)review.setRowSelectionInterval(view,view);break;}
         if(logSelection!=null)for(int i=0;i<logModel.getRowCount();i++)if(logSelection.equals(String.valueOf(logModel.getValueAt(i,0))+logModel.getValueAt(i,2))){int view=logs.convertRowIndexToView(i);if(view>=0)logs.setRowSelectionInterval(view,view);break;}
         rebuilding=false;showDetails();showLogDetails();
     }
     private void showLogDetails(){int row=logs.getSelectedRow();String text=row<0?"Select a diagnostic entry to read its full message.":logs.getValueAt(row,0)+" ["+logs.getValueAt(row,1)+"]\n"+logs.getValueAt(row,2);if(!text.equals(logDetails.getText())){logDetails.setText(text);logDetails.setCaretPosition(0);}}
     @SuppressWarnings("unchecked") private void filter(){
+        if(resetting)return; // Reset and Clear change several controls, then filter once.
         String query=search.getText().trim();
         TableRowSorter<Rows> rs=(TableRowSorter<Rows>)review.getRowSorter(),ls=(TableRowSorter<Rows>)logs.getRowSorter();
         List<RowFilter<Rows,Integer>> rf=new ArrayList<>(),lf=new ArrayList<>();
         rf.add(new RowFilter<Rows,Integer>(){public boolean include(Entry<? extends Rows,? extends Integer> entry){
             int index=entry.getIdentifier();if(index>=rows.size())return false;BridgeService.Review r=rows.get(index);
             int enchants=r.drop.item.enchantCount;
-            return r.matches(query)&&(status.getSelectedIndex()==0||r.status.equals(status.getSelectedItem()))
+            return (r.matches(query)||showsTime(r.time,query))&&(status.getSelectedIndex()==0||r.status.equals(status.getSelectedItem()))
                 &&(outcome.getSelectedIndex()==0||r.outcome()==outcome.getSelectedItem())
                 &&(character.getSelectedIndex()==0||characterLabel(r).equals(character.getSelectedItem()))
                 &&(dungeon.getSelectedIndex()==0||dungeonLabel(r).equals(dungeon.getSelectedItem()))
                 &&(enchantFilter.getSelectedIndex()==0||enchantFilter.getSelectedIndex()==1&&enchants>0||enchantFilter.getSelectedIndex()==2&&enchants==0||enchantFilter.getSelectedIndex()==3&&enchants<0);
         }});
-        if(!query.isEmpty())lf.add(RowFilter.regexFilter("(?iu)"+Pattern.quote(query)));
+        if(!query.isEmpty()){Pattern text=Pattern.compile(Pattern.quote(query),Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE);
+            lf.add(new RowFilter<Rows,Integer>(){public boolean include(Entry<? extends Rows,? extends Integer> entry){
+                for(int i=0;i<entry.getValueCount();i++)if(text.matcher(entry.getStringValue(i)).find())return true;
+                String shown=shownTime(entry.getValue(0));return shown!=null&&text.matcher(shown).find();
+            }});}
         if(level.getSelectedIndex()>0)lf.add(RowFilter.regexFilter("^"+Pattern.quote(String.valueOf(level.getSelectedItem()))+"$",1));
         rs.setRowFilter(rf.isEmpty()?null:RowFilter.andFilter(rf));ls.setRowFilter(lf.isEmpty()?null:RowFilter.andFilter(lf));
-        updateTotals();if(!rebuilding)showDetails();
+        updateTotals();updateChips();if(!rebuilding)showDetails();
     }
+    /** The drawer's non-default facets as removable chips (the search text shows in its own field); Clear removes exactly these. */
+    private void updateChips(){
+        List<FilterBar.ActiveFilter> active=new ArrayList<>();
+        JComboBox<?>[] facets={outcome,status,character,dungeon,enchantFilter};String[] names={"Outcome","Status","Character","Dungeon","Enchants"};
+        for(int i=0;i<facets.length;i++){JComboBox<?> facet=facets[i];if(facet.getSelectedIndex()>0)active.add(new FilterBar.ActiveFilter(names[i]+": "+facet.getSelectedItem(),()->facet.setSelectedIndex(0)));}
+        FilterChips.update(reviewBar,active,active.isEmpty()?null:this::clearFacets,false);
+    }
+    /** Clear: every drawer facet back to "All", keeping the search. */
+    private void clearFacets(){
+        resetting=true;
+        try{for(JComboBox<?> facet:new JComboBox<?>[]{outcome,status,character,dungeon,enchantFilter})if(facet.getItemCount()>0)facet.setSelectedIndex(0);}
+        finally{resetting=false;}
+        filter();
+    }
+    /** Reset filters: the search and every drawer facet. */
+    private void resetFilters(){resetting=true;try{search.setText("");}finally{resetting=false;}clearFacets();}
     private static String characterLabel(BridgeService.Review r){return (r.drop.characterName==null?"Unknown":r.drop.characterName)+" #"+r.drop.characterId;}
     private static String dungeonLabel(BridgeService.Review r){return r.drop.dungeon==null||r.drop.dungeon.isEmpty()?"Unknown":r.drop.dungeon;}
     private static void updateFacet(JComboBox<String> combo,String all,Set<String> values){Object selected=combo.getSelectedItem();combo.removeAllItems();combo.addItem(all);for(String value:values)combo.addItem(value);if(selected!=null&&!all.equals(selected)&&!values.contains(selected))combo.addItem(selected.toString());combo.setSelectedItem(selected==null?all:selected);}
@@ -330,6 +409,9 @@ public final class BridgeReviewGUI extends JPanel {
         totals.setText(text.toString());
     }
     private BridgeService.Review selected(){int row=review.getSelectedRow();if(row<0)return null;int model=review.convertRowIndexToModel(row);return model<rows.size()?rows.get(model):null;}
+    /** Test seams: the export chooser (file name, content) and the confirmation prompt (title, message). */
+    void useExporter(BiConsumer<String,String> exporter){this.exporter=Objects.requireNonNull(exporter);}
+    void useConfirm(BiPredicate<String,String> confirm){this.confirm=Objects.requireNonNull(confirm);}
     /** Test seam for the draft opener. */
     public void useDraftOpener(java.util.function.BiConsumer<tomato.realmshark.AlertRules.Draft,Runnable> opener){draftOpener=opener;}
     /** Drafts from the selected retained review; returning reselects the same review by ID when it is still retained and shown. */
@@ -341,10 +423,135 @@ public final class BridgeReviewGUI extends JPanel {
             feedback.setText("The drop used for the alert draft is no longer shown (filters changed or it left the retained review).");});
     }
     private void showDetails(){BridgeService.Review r=selected();alertDraft.setEnabled(r!=null&&r.drop.item.id>0);if(r==null){details.setText(rows.isEmpty()?"No retained observations. Bridge Review only records drops while enabled.":review.getRowCount()==0?"No matching retained observations. Reset filters to see other drops.":"Select a detected drop to inspect its enchants, character and delivery details.");return;}BridgePayload.Item i=r.drop.item;details.setText("Observation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot+" (pickup not verified)\nRarity: "+i.rarity+" ("+i.raritySource+") | Enchant count: "+(i.enchantCount<0?"unknown":i.enchantCount)+" | Divine: "+i.divine+"\nEnchants: "+(i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)+"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail+"\nNext step: "+r.nextStep()+"\n\nOutgoing JSON (token redacted):\n"+(r.payload.isEmpty()?"No payload queued.":r.payload));details.setCaretPosition(0);}
-    private void exportReview(){List<BridgeService.Review> visible=new ArrayList<>();for(int i=0;i<review.getRowCount();i++)visible.add(rows.get(review.convertRowIndexToModel(i)));chooseExport("bridge-review.csv",reviewCsv(visible));}
-    private void exportLogs(){StringBuilder text=new StringBuilder();for(int i=0;i<logs.getRowCount();i++){int r=logs.convertRowIndexToModel(i);text.append(logModel.getValueAt(r,0)).append(" [").append(logModel.getValueAt(r,1)).append("] ").append(logModel.getValueAt(r,2)).append('\n');}chooseExport("bridge-diagnostics.log",text.toString());}
+    private void exportReview(){List<BridgeService.Review> visible=new ArrayList<>();for(int i=0;i<review.getRowCount();i++)visible.add(rows.get(review.convertRowIndexToModel(i)));exporter.accept("bridge-review.csv",reviewCsv(visible));}
+    private void exportLogs(){StringBuilder text=new StringBuilder();for(int i=0;i<logs.getRowCount();i++){int r=logs.convertRowIndexToModel(i);text.append(logModel.getValueAt(r,0)).append(" [").append(logModel.getValueAt(r,1)).append("] ").append(logModel.getValueAt(r,2)).append('\n');}exporter.accept("bridge-diagnostics.log",text.toString());}
+    /** Danger: asks first; review rows, lifetime counts and saved journals are not affected. */
+    private void clearLogs(){if(!confirm.test("Clear Bridge logs","Clear the retained Bridge diagnostic entries?\nReview rows, lifetime counts and saved journals are not affected."))return;bridge.clearLogs();refresh();}
     private void chooseExport(String name,String content){JFileChooser chooser=new JFileChooser();chooser.setSelectedFile(new java.io.File(name));if(chooser.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION)return;Path path=chooser.getSelectedFile().toPath();if(Files.exists(path)&&JOptionPane.showConfirmDialog(this,"Replace the selected file?","Export",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;new SwingWorker<Void,Void>(){protected Void doInBackground()throws Exception{Files.write(path,content.getBytes(StandardCharsets.UTF_8));return null;}protected void done(){try{get();feedback.setText("Exported "+path.getFileName());}catch(Exception ex){feedback.setText("Export failed. Check the chosen folder and permissions.");}}}.execute();}
     public static String reviewCsv(List<BridgeService.Review> rows){StringBuilder out=new StringBuilder("Time (UTC),Item,Item ID,Rarity,Shiny,Divine,Enchant count,Enchants,Character ID,Character name,Class,Dungeon,Status,Details\r\n");for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;Object[] cells={r.time,d.item.rawName,d.item.id,d.item.rarity,d.item.shiny,d.item.divine,d.item.enchantCount,d.item.enchants,d.characterId,d.characterName,d.characterClass,d.dungeon,r.status,r.detail};for(int i=0;i<cells.length;i++){if(i>0)out.append(',');out.append(csvCell(cells[i]));}out.append("\r\n");}return out.toString();}
     private static String csvCell(Object value){String s=value==null?"":String.valueOf(value);if(s.matches("(?s)^[=+@\\-\\t\\r].*"))s="'"+s;return '"'+s.replace("\"","\"\"")+'"';}
-    private static final class Rows extends DefaultTableModel {Rows(String...headers){super(headers,0);}@Override public boolean isCellEditable(int r,int c){return false;}}
+    private static final class Rows extends DefaultTableModel {
+        Rows(String...headers){super(headers,0);}
+        @Override public boolean isCellEditable(int r,int c){return false;}
+        /** Replaces every row with one change event, so a sorted or filtered table sorts once instead of once per added row. */
+        void replace(List<Object[]> rows){dataVector.clear();for(Object[] row:rows)dataVector.add(convertToVector(row));fireTableDataChanged();}
+    }
+    /** Header text → kind, in column order (plain models identify their columns by header text). */
+    private static Map<String,ColumnKind> kinds(TableModel model,ColumnKind... kinds){Map<String,ColumnKind> result=new LinkedHashMap<>();for(int i=0;i<kinds.length;i++)result.put(model.getColumnName(i),kinds[i]);return result;}
+    /** The Outcome badge, toned from Tokens: confirmed good, received or pending warn, failed bad, the rest muted. */
+    private static TableCellRenderer outcomeBadge(){return KitTables.status(value->{String outcome=String.valueOf(value);
+        if(outcome.equals(BridgeService.Outcome.LOGGED.toString()))return Tokens.Tone.GOOD;
+        if(outcome.equals(BridgeService.Outcome.RECEIVED.toString())||outcome.equals(BridgeService.Outcome.PENDING.toString()))return Tokens.Tone.WARN;
+        return outcome.equals(BridgeService.Outcome.FAILED.toString())?Tokens.Tone.BAD:Tokens.Tone.NEUTRAL;});}
+    /**
+     * Column minimums for {@link FitTable}: each header's text; for Time also Analyst's "yyyy-MM-dd HH:mm:ss" in its widest digit, and
+     * for Outcome its widest label in the badge font, so fitting the columns to the page never cuts a time or "Received—unconfirmed"
+     * to "Received—unc…". Follows font changes; KitTables' kind fit then starts from these minimums. Call before the kinds and before
+     * any column is hidden.
+     */
+    private static void keepWhole(JTable table,TableColumn time,TableColumn outcome){
+        Runnable fit=()->{
+            TableCellRenderer header=table.getTableHeader().getDefaultRenderer();
+            for(TableColumn column:Collections.list(table.getColumnModel().getColumns()))
+                column.setMinWidth(header.getTableCellRendererComponent(table,column.getHeaderValue(),false,false,-1,0).getPreferredSize().width);
+            FontMetrics cell=table.getFontMetrics(table.getFont());int clock=0;
+            for(char digit='0';digit<='9';digit++)clock=Math.max(clock,cell.stringWidth("0000-00-00 00:00:00".replace('0',digit)));
+            time.setMinWidth(Math.max(time.getMinWidth(),clock+2*Tokens.S)); // the cell's insets
+            FontMetrics badge=table.getFontMetrics(ContentStyle.emphasis(ContentStyle.metadata(table.getFont())));int widest=0;
+            for(BridgeService.Outcome bucket:BridgeService.Outcome.values())widest=Math.max(widest,badge.stringWidth(bucket.toString()));
+            outcome.setMinWidth(Math.max(outcome.getMinWidth(),widest+2*Tokens.M)); // the cell's insets and the badge's padding
+        };
+        fit.run();table.addPropertyChangeListener("font",e->fit.run());table.getTableHeader().addPropertyChangeListener("font",e->fit.run());
+    }
+    /** Fits its columns to the page while the page holds every column's minimum; narrower pages scroll sideways at the kind widths. */
+    private static final class FitTable extends JTable {
+        FitTable(TableModel model){super(model);}
+        @Override public boolean getScrollableTracksViewportWidth(){
+            if(!(getParent() instanceof JViewport))return super.getScrollableTracksViewportWidth();
+            int minimum=0;for(TableColumn column:Collections.list(getColumnModel().getColumns()))minimum+=column.getMinWidth();
+            return getParent().getWidth()>=minimum;
+        }
+    }
+    /**
+     * Column 0 of a review, log or saved table: the absolute local time in Analyst, relative in Simple (KitTables.relativeTime), the
+     * instant in UTC and local time as the tooltip in both, sorted as instants. Only the renderer and comparator change: models,
+     * search, details and exports keep the recorded ISO-8601 UTC text.
+     */
+    private void timeColumn(JTable table){
+        TableColumn column=table.getColumnModel().getColumn(0);column.setCellRenderer(new TimeCell());
+        KitTables.relativeTime(table,column.getIdentifier(),mode,KitTables::epoch,null);
+        column.setCellRenderer(new ZoneTip(column.getCellRenderer()));
+        TimeOrder order=new TimeOrder();table.getModel().addTableModelListener(e->order.parsed.clear());
+        ((DefaultRowSorter<?,?>)table.getRowSorter()).setComparator(0,order);
+    }
+    /** Analyst's absolute text for a recorded time: local "yyyy-MM-dd HH:mm:ss"; null when the text is not an instant. */
+    static String shownTime(Object value){Long at=KitTables.epoch(value);return at==null?null:DisplayFormat.formatTimestamp(at);}
+    /**
+     * Search also matches the absolute local time the Time column shows (the recorded UTC text matches through the row's own fields).
+     * Simple's relative text is never searchable.
+     */
+    private static boolean showsTime(String time,String query){
+        if(query.isEmpty())return true;String shown=shownTime(time);
+        return shown!=null&&shown.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
+    }
+    /** "2026-09-29 12:04:11 UTC · 2026-09-29 14:04:11 local (Europe/Berlin)"; null when the text is not an instant. */
+    static String zones(Object value){
+        Long at=KitTables.epoch(value);if(at==null)return null;Instant instant=Instant.ofEpochMilli(at);ZoneId local=ZoneId.systemDefault();
+        return DisplayFormat.DATE_TIME.format(instant.atZone(ZoneOffset.UTC))+" UTC · "+DisplayFormat.DATE_TIME.format(instant.atZone(local))+" local ("+local.getId()+")";
+    }
+    /** An ISO-8601 instant with its full precision ("…Z", an offset or a zone), or null; never guessed for a text without one. */
+    static Instant instant(String text){
+        String value=text.trim();
+        if(value.length()<16||value.charAt(4)!='-'||value.charAt(7)!='-'||Character.toUpperCase(value.charAt(10))!='T')return null;
+        try{return Instant.parse(value);}catch(DateTimeException offset){/* an offset or zone follows */}
+        try{return ZonedDateTime.parse(value).toInstant();}catch(DateTimeException unreadable){return null;}
+    }
+    /**
+     * Chronological order of recorded times: text order misplaces a whole second after its fractions ("…00Z" after "…00.5Z").
+     * Unreadable texts sort after readable ones, by text. Parses are pure, so they are kept until the model changes.
+     */
+    private static final class TimeOrder implements Comparator<Object> {
+        private static final Instant UNREADABLE=Instant.MIN;
+        final Map<String,Instant> parsed=new HashMap<>();
+        @Override public int compare(Object a,Object b){
+            String x=String.valueOf(a),y=String.valueOf(b);Instant p=parse(x),q=parse(y);
+            if(p!=UNREADABLE&&q!=UNREADABLE)return p.compareTo(q);
+            if(p!=UNREADABLE||q!=UNREADABLE)return p!=UNREADABLE?-1:1;
+            return x.compareTo(y);
+        }
+        private Instant parse(String text){return parsed.computeIfAbsent(text,key->{Instant at=instant(key);return at==null?UNREADABLE:at;});}
+    }
+    /**
+     * The app's absolute time (local "yyyy-MM-dd HH:mm:ss", the DATE_TIME kind's text) with UTC and local time as its tooltip. A text
+     * that is not an instant shows as recorded; a missing one is "—". Details and exports keep the recorded UTC text.
+     */
+    private static final class TimeCell extends ContentStyle.Cell {
+        @Override public Component getTableCellRendererComponent(JTable table,Object value,boolean selected,boolean focus,int row,int column){
+            String shown=shownTime(value);
+            super.getTableCellRendererComponent(table,value==null?DisplayFormat.UNAVAILABLE:shown==null?value:shown,selected,focus,row,column);
+            setToolTipText(zones(value));return this;
+        }
+    }
+    /** Simple's relative stamp replaces the tooltip with the absolute text; this puts UTC and local time back (KitTables undoes its own stamp). */
+    private static final class ZoneTip implements TableCellRenderer {
+        private final TableCellRenderer inner;
+        ZoneTip(TableCellRenderer inner){this.inner=inner;}
+        @Override public Component getTableCellRendererComponent(JTable table,Object value,boolean selected,boolean focus,int row,int column){
+            Component shown=inner.getTableCellRendererComponent(table,value,selected,focus,row,column);String tip=zones(value);
+            if(tip!=null&&shown instanceof JComponent)((JComponent)shown).setToolTipText(tip);
+            return shown;
+        }
+    }
+    /** The Item cell: the row's item sprite beside its name. The model keeps the name, so sorting, search and exports are unchanged. */
+    private static final class ItemCell extends ContentStyle.Cell {
+        private static final int SPRITE=16;
+        private final IntUnaryOperator itemId; // model row → item ID; 0 or less shows the kit placeholder
+        ItemCell(IntUnaryOperator itemId){this.itemId=itemId;}
+        @Override public Component getTableCellRendererComponent(JTable table,Object value,boolean selected,boolean focus,int row,int column){
+            super.getTableCellRendererComponent(table,value,selected,focus,row,column);
+            int model=row<0||row>=table.getRowCount()?-1:table.convertRowIndexToModel(row);
+            if(model>=0){setIcon(Sprites.sprite(itemId.applyAsInt(model),SPRITE));setIconTextGap(Tokens.XS);}
+            return this;
+        }
+    }
 }

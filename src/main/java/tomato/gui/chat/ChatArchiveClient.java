@@ -10,8 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import tomato.gui.history.*;
 import tomato.gui.kit.ColumnKind;
+import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.DisplayFormat;
 import tomato.history.SessionStore;
 import tomato.history.archive.*;
 
@@ -45,11 +47,21 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
     private final Map<String,String> policies = new ConcurrentHashMap<>();
     private SocialQueryControls.State<Row,Facets,Sort> rendered;
     private Binding<Facets,Sort> renderedBinding;
+    /** Simple or Analyst: the saved count line names the pinned revision in Analyst only (display only). */
+    private final DisplayModeModel display;
     ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch) {
         this(store, filters, live, scratch, ChatBookmarkIntents.forStore(store));
     }
+    /** As above with the display mode (tests). */
+    ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch, DisplayModeModel display) {
+        this(store, filters, live, scratch, ChatBookmarkIntents.forStore(store), display);
+    }
     ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch, ChatBookmarkIntents bookmarks) {
+        this(store, filters, live, scratch, bookmarks, DisplayModeModel.application());
+    }
+    ChatArchiveClient(SessionStore store, ChatFilters filters, ChatExplorer live, Path scratch, ChatBookmarkIntents bookmarks, DisplayModeModel display) {
         this.store = store; this.filters = filters; this.live = live; this.scratch = scratch; this.bookmarks = bookmarks;
+        this.display = Objects.requireNonNull(display, "display");
         if (live != null) live.useBookmarkIntents(store, bookmarks);
     }
     public ArchiveQuery<Facets,Sort> initialQuery() {
@@ -145,7 +157,7 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         JTextArea detail = ContentStyle.wrappingText("Select a saved message. Classification and stars describe the pinned revision."); detail.setName("chat-archive-detail");
         List<HistoryTables.Column<Row,?>> columns = Arrays.asList(
             new HistoryTables.Column<>("star", "Starred", Boolean.class, r -> r.starred, null, ColumnKind.STATUS),
-            new HistoryTables.Column<>("time", "Local receipt", LocalDateTime.class, r -> r.message.received, null, ColumnKind.DATE_TIME),
+            new HistoryTables.Column<>("time", "Local receipt", LocalDateTime.class, r -> r.message.received, new ReceiptCell(), ColumnKind.DATE_TIME),
             new HistoryTables.Column<>("channel", "Channel", String.class, r -> r.message.channel.label + (r.reason.isEmpty() ? "" : " · Ignored"), null, ColumnKind.STATUS),
             new HistoryTables.Column<>("player", "Player", String.class, r -> r.message.playerLabel(), null, ColumnKind.PLAYER),
             new HistoryTables.Column<>("message", "Message", String.class, r -> r.message.text, null, ColumnKind.TEXT));
@@ -197,9 +209,13 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         editPolicy.setEnabled(live != null); editPolicy.addActionListener(e -> { JDialog dialog = live.createFiltersDialog(); dialog.setLocationRelativeTo(view); dialog.setVisible(true); });
         actions.add(star); actions.add(ignore); actions.add(thisPlayer); actions.add(copySelected); actions.add(copy); actions.add(editPolicy);
         Map<String,List<String>> presets = new LinkedHashMap<>(); presets.put("Conversation", Arrays.asList("star", "time", "player", "message")); presets.put("All columns", new ArrayList<>(sorts.keySet()));
-        JPanel body = new JPanel(new BorderLayout(0, 4)); body.add(scroll); body.add(state.tableControls(table, scroll, page, "messages", presets), BorderLayout.SOUTH);
+        // The column tools go to the workspace ⋯ through filters().
+        JPanel body = new JPanel(new BorderLayout(0, 4)); body.add(scroll); state.tableTools(table, scroll, page, "messages", presets);
         JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(actions, BorderLayout.NORTH); footer.add(detail);
-        footer.add(ContentStyle.wrappingText(page.description() + " · use workspace Export selected / page / all matches (CSV or JSON).\n" + (page.rows.isEmpty() ? "No saved messages match this query; adjust filters or Refresh." : "")), BorderLayout.SOUTH);
+        // The count line names the pinned revision in Analyst only (spec §3.2: Simple hides IDs and revisions); it follows the mode.
+        JTextArea population = ContentStyle.wrappingText(""); population.setName("chat-archive-population"); footer.add(population, BorderLayout.SOUTH);
+        display.bind(population, shown -> population.setText((shown == DisplayModeModel.Mode.ANALYST ? page.description() : plainDescription(page))
+            + " · use workspace Export selected / page / all matches (CSV or JSON).\n" + (page.rows.isEmpty() ? "No saved messages match this query; adjust filters or Refresh." : "")));
         JPanel lower = new JPanel(new BorderLayout()); lower.add(footer); lower.add(saveStatus, BorderLayout.SOUTH);
         view.add(ContentStyle.page(null, body, lower)); state.owner(view); policyChanged.run(); return view;
     }
@@ -224,7 +240,28 @@ public final class ChatArchiveClient implements ArchiveClient<ChatArchiveClient.
         if (f.starredOnly) chips.add(chip(state, "Starred only", next -> next.starredOnly = false));
         if (f.showIgnoredPlayers != ignoredDefault) chips.add(chip(state, f.showIgnoredPlayers ? "Ignored players shown" : "Ignored players hidden", next -> next.showIgnoredPlayers = ignoredDefault));
         ArchiveFilters.dates(chips, initial.query, state::query);
-        return new ArchiveFilters(drawer, chips);
+        return new ArchiveFilters(drawer, chips, state.tools());
+    }
+    /** {@link ArchivePage#description()} without the pinned revision: "21 displayed / 21 matching messages · page 1" (a partial read still says so). */
+    static String plainDescription(ArchivePage<?> page) {
+        return page.rows.size() + " displayed / " + page.matches + " matching " + page.unit + " · page " + (page.page + 1)
+            + (page.issues.isEmpty() ? "" : " · partial: " + page.issues.size() + " source issue(s)");
+    }
+    /**
+     * Local receipt: one local "yyyy-MM-dd HH:mm:ss" in both modes, whatever precision the saved text has (it was raw ISO text, with or
+     * without seconds and fractions). Display only: the model, the global sort and exports keep the saved value, and search already
+     * matches this same text (ChatMessage#date()). An unrecorded receipt reads "—" with its reason.
+     */
+    static final class ReceiptCell extends ContentStyle.Cell {
+        @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int row, int column) {
+            super.getTableCellRendererComponent(table, value, selected, focus, row, column);
+            setHorizontalAlignment(ColumnKind.DATE_TIME.alignment); return this;
+        }
+        @Override protected void setValue(Object value) {
+            LocalDateTime time = value instanceof LocalDateTime ? (LocalDateTime) value : null;
+            setText(time == null ? DisplayFormat.UNAVAILABLE : DisplayFormat.DATE_TIME.format(time));
+            setToolTipText(time == null ? "Receipt time not captured" : getText() + " · local receipt time (offset not captured)");
+        }
     }
     private static FilterBar.ActiveFilter chip(SocialQueryControls.State<Row,Facets,Sort> state, String label, java.util.function.Consumer<Facets> reset) {
         return new FilterBar.ActiveFilter(label, () -> { Facets next = state.value.query.facets(); reset.accept(next); state.query(state.value.query.withFacets(next)); });

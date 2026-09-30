@@ -12,7 +12,15 @@ import tomato.gui.history.FilterChips;
 import tomato.gui.history.HistoryTables;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.history.WrapRow;
+import tomato.gui.kit.Banner;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.ItemSlot;
+import tomato.gui.kit.ItemTiers;
+import tomato.gui.kit.KitButton;
+import tomato.gui.kit.KitTables;
+import tomato.gui.kit.OverflowMenu;
+import tomato.gui.kit.Sprites;
+import tomato.gui.kit.Tokens;
 import tomato.gui.roster.RosterViewState;
 import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
@@ -46,7 +54,7 @@ public class ParsePanelGUI extends JPanel {
     private RosterDefinitions definitions = RosterDefinitions.empty();
     private SecurityFilter selectedFilter;
     private long requirementsRevision;
-    private final JTextField rosterSearch = new JTextField(16);
+    private final JTextField rosterSearch = new JTextField(12);
     private final FilterBar filterBar = new FilterBar("inspect-roster");
     private Runnable clearFilters = () -> {};
     private final JComboBox<Choice<Integer>> classFacet = new JComboBox<>();
@@ -58,7 +66,12 @@ public class ParsePanelGUI extends JPanel {
     private final JSpinner minMaxed = new JSpinner(new SpinnerNumberModel(0, 0, 8, 1)), maxMaxed = new JSpinner(new SpinnerNumberModel(8, 0, 8, 1));
     private final JTextArea resultDetails = ContentStyle.wrappingText("Select a player to explain requirements."), rosterCount = ContentStyle.wrappingText("No captured players");
     private RosterViewState viewState;
+    /** The live roster's "Save view state" / "Reset saved view state", items of the row's ⋯ (null until bound, and on saved rosters). */
+    private JMenuItem saveState, resetState;
+    /** The host page's own state (SecurityGUI: its tab), saved and reset with the live roster's; null outside Party. */
+    private Runnable pageSave, pageReset;
     private final JPanel stateHost = new JPanel(new BorderLayout());
+    private final Banner stateBanner = new Banner("inspect-live-roster-view-state");
     private boolean restoringState;
     private JToggleButton explain;
 
@@ -149,7 +162,7 @@ public class ParsePanelGUI extends JPanel {
             }
         };
         pageScroll.setName("security-page-scroll");
-        pageScroll.setBorder(null);
+        pageScroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would put the outline back
         pageScroll.getVerticalScrollBar().setUnitIncrement(40);
         pageScroll.getAccessibleContext().setAccessibleName("Inspect page; scroll for controls at large text sizes");
         add(pageScroll, BorderLayout.CENTER);
@@ -157,7 +170,8 @@ public class ParsePanelGUI extends JPanel {
         JPanel top = new JPanel(new BorderLayout(8, 4));
         JPanel filterRow = new JPanel(new BorderLayout(8, 0)); filterRow.setOpaque(false);
         filterComboBox = new JComboBox<>(new String[]{DISABLE_FILTER});
-        filterComboBox.setPrototypeDisplayValue("Select an inspect filter");
+        // Compact enough that the row keeps the Scope chip in its own slot at 1240 px (P6b); longer rule names are cut with "…".
+        filterComboBox.setPrototypeDisplayValue("Inspect filter name");
         filterComboBox.getAccessibleContext().setAccessibleName("Inspect filter");
         filterComboBox.addActionListener(this::comboAction);
         JLabel filterLabel = new JLabel("Filter");
@@ -181,12 +195,13 @@ public class ParsePanelGUI extends JPanel {
         options.add(sortCheckBox);
         JPanel facets = ContentStyle.controls();
         rosterSearch.setName("inspect-roster-search"); rosterSearch.getAccessibleContext().setAccessibleName("Search displayed roster");
+        rosterSearch.putClientProperty("JTextField.placeholderText", "Search players");
         classFacet.addItem(new Choice<>(null, "All classes"));
         guildFacet.addItem(new Choice<>(null, "All guilds")); guildFacet.addItem(new Choice<>(null, "No guild (captured)")); guildFacet.addItem(new Choice<>(null, "Guild not captured"));
         JComponent[] controls = {classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet, minMaxed, maxMaxed};
         String[] facetNames = {"Class", "Guild", "Season", "Crucible", "Requirements result", "Maxed count", "Minimum maxed", "Maximum maxed"};
         for (int i = 0; i < controls.length; i++) { controls[i].setName("inspect-facet-" + i); controls[i].getAccessibleContext().setAccessibleName(facetNames[i]); facets.add(controls[i]); }
-        JButton reset = new JButton("Reset display filters");
+        JButton reset = KitButton.secondary("Reset display filters");
         reset.addActionListener(e -> {
             guiUpdateSuppression = true; rosterSearch.setText("");
             for (JComboBox<?> combo : new JComboBox<?>[]{classFacet, guildFacet, seasonalFacet, crucibleFacet, verdictFacet, maxedFacet}) combo.setSelectedIndex(0);
@@ -231,10 +246,12 @@ public class ParsePanelGUI extends JPanel {
         });
 
         JPanel buttons = ContentStyle.controls();
-        JButton names = new JButton(action("Copy names", e -> {
+        JButton names = KitButton.secondary(null);
+        names.setAction(action("Copy names", e -> {
             if (shiftDown(e)) saveNamesAsText(); else clicked(false);
         }));
-        JButton all = new JButton(action("Copy all (JSON)", e -> {
+        JButton all = KitButton.secondary(null);
+        all.setAction(action("Copy all (JSON)", e -> {
             if (shiftDown(e)) saveAsJson(getFilteredPlayers()); else clicked(true);
         }));
         names.setToolTipText("Copy names; Shift+click exports a text file.");
@@ -248,7 +265,7 @@ public class ParsePanelGUI extends JPanel {
                 KeyStroke.getKeyStroke(KeyEvent.VK_J, InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK));
         actions.addSeparator();
         actions.add(new JMenuItem(action("Edit filters…", e -> SecurityFilterGUI.open(this))));
-        JButton actionsButton = new JButton("Actions…");
+        JButton actionsButton = KitButton.secondary("Actions…");
         actionsButton.setMnemonic(KeyEvent.VK_A);
         actionsButton.setToolTipText("Player/guild actions, equipment details (Ctrl+E), exports and filters (Alt+A).");
         actionsButton.setComponentPopupMenu(actions);
@@ -266,6 +283,8 @@ public class ParsePanelGUI extends JPanel {
         rosterCount.setName("inspect-roster-count"); resultDetails.setName("inspect-requirement-reasons"); resultDetails.setFocusable(true); resultDetails.setVisible(false);
         explain = new JToggleButton("Requirement details"); buttons.add(explain);
         explain.addActionListener(e -> { resultDetails.setVisible(explain.isSelected()); page.revalidate(); rememberViewState(); });
+        // The live roster's saved view state is in the row's ⋯; this line shows its status only while it is a failure.
+        stateBanner.setTone(Tokens.Tone.WARN); stateBanner.setVisible(false); stateHost.add(stateBanner);
         JPanel bottom = new JPanel(new BorderLayout(0, 4)); bottom.add(buttons, BorderLayout.NORTH); bottom.add(stateHost, BorderLayout.SOUTH); stateHost.setVisible(false);
         footer.add(rosterCount, BorderLayout.NORTH); footer.add(resultDetails, BorderLayout.CENTER); footer.add(bottom, BorderLayout.SOUTH);
         page.add(footer, BorderLayout.SOUTH);
@@ -729,8 +748,35 @@ public class ParsePanelGUI extends JPanel {
     public void bindViewState(ViewStateStore store) {
         if (viewState != null || !liveOwner) return;
         viewState = new RosterViewState(store, "inspect-live-roster", this::captureViewState, this::prepareViewState, this::ownsLiveViewState);
-        stateHost.add(viewState.controls()); updateViewStateOwnership();
+        // Saved view state lives in the row's ⋯ (spec §3.2, as on Characters); the footer shows its status only while it is a failure.
+        OverflowMenu more = filterBar.overflow();
+        saveState = more.add("Save view state", this::saveLiveViewState); saveState.setName("inspect-live-roster-save-state");
+        resetState = more.add("Reset saved view state", this::resetLiveViewState); resetState.setName("inspect-live-roster-reset-state");
+        viewState.onStatus(this::viewStateChanged);
+        updateViewStateOwnership();
         RosterViewState.listenTable(table, this::rememberViewState);
+    }
+    /**
+     * SecurityGUI: the live roster's Save and Reset also save and reset the page's own state (its tab), so Current Area's ⋯ offers
+     * one pair for the whole view. They run only while the roster is live, as the roster's own actions do.
+     */
+    void alsoOnViewState(Runnable save, Runnable reset) { pageSave = save; pageReset = reset; }
+    /** The roster's filter row (Party lends it the Scope chip on Current Area). */
+    FilterBar filterBar() { return filterBar; }
+    // A queued or direct call while a recorded run owns the roster is inert, like the disabled items.
+    private void saveLiveViewState() {
+        if (viewState == null || !ownsLiveViewState()) return;
+        viewState.save(); if (pageSave != null) pageSave.run();
+    }
+    private void resetLiveViewState() {
+        if (viewState == null || !ownsLiveViewState()) return;
+        viewState.resetSaved(); if (pageReset != null) pageReset.run();
+    }
+    /** The saved view's status as a warning line while it is a failure (a save failed, or the saved state could not be read). */
+    private void viewStateChanged() {
+        boolean problem = viewState != null && ownsLiveViewState() && viewState.statusProblem();
+        stateBanner.setText(problem ? viewState.statusText() : ""); stateBanner.setVisible(problem);
+        if (stateHost.isVisible() != problem) { stateHost.setVisible(problem); stateHost.revalidate(); }
     }
     public java.util.concurrent.CompletionStage<util.PreferencesStore.SaveResult> saveViewState() {
         if (viewState == null || !ownsLiveViewState()) throw new IllegalStateException("Live view state is not active"); return viewState.save();
@@ -742,7 +788,10 @@ public class ParsePanelGUI extends JPanel {
     private boolean ownsLiveViewState() { return liveOwner && historicalPlayers == null; }
     private void updateViewStateOwnership() {
         if (viewState == null) return;
-        viewState.ownershipChanged(); stateHost.setVisible(ownsLiveViewState());
+        viewState.ownershipChanged();
+        // Disabled (not hidden) while a recorded run owns the roster, so the ⋯ keeps its shape.
+        boolean live = ownsLiveViewState(); saveState.setEnabled(live); resetState.setEnabled(live);
+        viewStateChanged();
     }
     private Map<String, String> captureViewState() {
         if (!ownsLiveViewState()) throw new IllegalStateException("Cannot capture recorded controls as live state");
@@ -971,8 +1020,10 @@ public class ParsePanelGUI extends JPanel {
         final Long damage;
         final Double dps;
         final String[] equipmentLabels = new String[4], equipmentDetails = new String[4];
-        final ImageIcon[] icons = new ImageIcon[4];
-        final ImageIcon skin;
+        /** Painted gear wells (tier edge, enchant glow inside); rebuilt with the row on a theme change. */
+        final Icon[] icons = new Icon[4];
+        /** The Class cell's sprite: the captured skin, else the class's own sprite. */
+        final Icon classIcon;
         Row(CapturedPlayer player, long themeRevision, ActivityJournal.Visit run) {
             this(player, themeRevision, run, null, RosterDefinitions.current(), 0);
         }
@@ -986,7 +1037,8 @@ public class ParsePanelGUI extends JPanel {
             damage = run == null ? null : run.damage(player.historyKey());
             dps = run == null ? null : run.dps(damage);
             ParseEnchants.EquippedCapture capture = ParseEnchants.equippedCapture(player.playerEntity);
-            skin = ImageBuffer.getOutlinedIcon(player.getSkinId(), 20);
+            StatData skin = player.playerEntity.stat.get(StatType.SKIN_ID);
+            classIcon = skin != null && skin.statValue != 0 ? ImageBuffer.getOutlinedIcon(skin.statValue, 20) : Sprites.sprite(player.playerEntity.objectType, 16);
             for (int i = 0; i < 4; i++) {
                 player.itemName[i] = IdToAsset.objectName(player.inv[i]);
                 String slot = Player.equipmentNames[i];
@@ -1001,10 +1053,42 @@ public class ParsePanelGUI extends JPanel {
                         + (known && enchant.isEmpty() ? "None (captured)" : enchant);
                 int count = !known || enchant.isEmpty() ? 0 : enchant.split("\n").length;
                 String role = count == 1 ? "mint" : count == 2 ? "blue" : count == 3 ? "violet" : "amber";
-                icons[i] = count == 0 ? ImageBuffer.getOutlinedIcon(player.inv[i], 20)
-                        : ImageBuffer.getOutlinedIconWithGlow(player.inv[i], 20, ContentStyle.color(role), 3);
+                // The well says what the slot holds (as its label does): not captured, empty (a negative ID) or an item with its tier.
+                ItemSlot.State state = !player.equipmentCaptured[i] ? ItemSlot.State.UNKNOWN : player.inv[i] < 0 ? ItemSlot.State.EMPTY : ItemSlot.State.ITEM;
+                String tier = state == ItemSlot.State.ITEM && player.inv[i] > 0 && definitions != null ? ItemTiers.label(definitions.item(player.inv[i])) : "";
+                Icon well = ItemSlot.icon(state == ItemSlot.State.ITEM ? Sprites.sprite(player.inv[i], 20) : null, tier, state, 20);
+                icons[i] = count == 0 ? well : new GlowWell(well, ContentStyle.color(role));
             }
         }
+    }
+
+    /**
+     * A gear well with its enchant glow drawn inside it: a soft ring in the enchant color (1–4+ enchants: mint, blue, violet, amber)
+     * just within the well's edge, which it never covers, so the tier edge still reads. A stamp like the well: it announces nothing,
+     * and the cell's accessible name and description carry the slot and its enchants.
+     */
+    private static final class GlowWell implements Icon {
+        private final Icon well;
+        private final Color glow;
+        GlowWell(Icon well, Color glow) { this.well = well; this.glow = glow; }
+        @Override public void paintIcon(Component c, Graphics graphics, int x, int y) {
+            well.paintIcon(c, graphics, x, y);
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int edge = getIconWidth() - 1;   // the well's edge runs along 0 and edge
+                g.setColor(new Color(glow.getRed(), glow.getGreen(), glow.getBlue(), 90));
+                g.setStroke(new BasicStroke(3f));
+                g.drawRoundRect(x + 3, y + 3, edge - 6, edge - 6, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
+                g.setColor(new Color(glow.getRed(), glow.getGreen(), glow.getBlue(), 220));
+                g.setStroke(new BasicStroke(1f));
+                g.drawRoundRect(x + 2, y + 2, edge - 4, edge - 4, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
+            } finally {
+                g.dispose();
+            }
+        }
+        @Override public int getIconWidth() { return well.getIconWidth(); }
+        @Override public int getIconHeight() { return well.getIconHeight(); }
     }
 
     /** The whole page scrolls only when controls plus three roster rows cannot fit. */
@@ -1056,11 +1140,21 @@ public class ParsePanelGUI extends JPanel {
         }
     }
 
+    /** The verdict's tone: pass good, below bad, unknown a warning; not evaluated stays neutral. */
+    private static Tokens.Tone requirementTone(Object verdict) {
+        String label = String.valueOf(verdict);
+        return RequirementResult.Verdict.PASS.label.equals(label) ? Tokens.Tone.GOOD : RequirementResult.Verdict.BELOW.label.equals(label) ? Tokens.Tone.BAD
+            : RequirementResult.Verdict.UNKNOWN.label.equals(label) ? Tokens.Tone.WARN : Tokens.Tone.NEUTRAL;
+    }
+
     private class RosterCell extends ContentStyle.Cell {
+        /** Requirements read as a tone badge (the kit's status cell) with the verdict's reasons as its tooltip. */
+        private final javax.swing.table.TableCellRenderer requirementBadge = KitTables.status(ParsePanelGUI::requirementTone);
         @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int rowIndex, int columnIndex) {
-            super.getTableCellRendererComponent(table, value, selected, focus, rowIndex, columnIndex);
             Row row = model.rows.get(table.convertRowIndexToModel(rowIndex));
             int column = table.convertColumnIndexToModel(columnIndex);
+            if (column == 11) return requirements(table, row, value, selected, focus, rowIndex, columnIndex);
+            super.getTableCellRendererComponent(table, value, selected, focus, rowIndex, columnIndex);
             setToolTipText(null);
             if (column == 7) setText(value==null?DisplayFormat.UNAVAILABLE:value + " / 8");
             if (column == 9) setText(DisplayFormat.formatInteger((Long)value));
@@ -1071,8 +1165,9 @@ public class ParsePanelGUI extends JPanel {
             if (focus) setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(ContentStyle.color("violet"), 2), BorderFactory.createEmptyBorder(0, 6, 0, 6)));
             if (column == 0) {
-                setIcon(row.skin);
                 setToolTipText("Click to copy player; Ctrl+click or Enter to open RealmEye. Ctrl+C copies the selected player.");
+            } else if (column == 2) {
+                setIcon(row.classIcon);
             } else if (column == 1) {
                 setToolTipText(row.guild + " — click to copy; Ctrl+click or Ctrl+Enter opens RealmEye.");
             } else if (column >= 3 && column <= 6) {
@@ -1086,15 +1181,21 @@ public class ParsePanelGUI extends JPanel {
             } else if (column == 8 && !selected) {
                 boolean seasonal = Boolean.TRUE.equals(Player.seasonal(row.player.playerEntity)), crucible = Boolean.TRUE.equals(Player.crucible(row.player.playerEntity));
                 setForeground(ContentStyle.color(crucible ? (seasonal ? "violet" : "amber") : seasonal ? "mint" : "muted"));
-            } else if (column == 11) {
-                setToolTipText("<html>" + html(row.requirements.description()) + "</html>");
-                if (!selected) setForeground(ContentStyle.color(row.requirements.verdict == RequirementResult.Verdict.PASS ? "mint"
-                    : row.requirements.verdict == RequirementResult.Verdict.BELOW ? "rose" : "muted"));
             } else if (column == 9 || column == 10) {
                 setToolTipText(column == 9 ? "Captured outgoing damage in this dungeon; missing older recordings are shown as —."
                         : "Damage per second over the dungeon's shared first-to-last captured hit window. A single timestamp has no measurable DPS. Gear is the last captured loadout.");
             }
             return this;
+        }
+        private Component requirements(JTable table, Row row, Object value, boolean selected, boolean focus, int rowIndex, int columnIndex) {
+            JLabel badge = (JLabel) requirementBadge.getTableCellRendererComponent(table, value, selected, focus, rowIndex, columnIndex);
+            badge.setToolTipText("<html>" + html(row.requirements.description()) + "</html>");
+            String name = model.getColumnName(11) + ": " + badge.getText();
+            badge.getAccessibleContext().setAccessibleName(name);
+            badge.getAccessibleContext().setAccessibleDescription(name);
+            if (focus) badge.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(ContentStyle.color("violet"), 2), BorderFactory.createEmptyBorder(0, 6, 0, 6)));
+            return badge;
         }
     }
 }

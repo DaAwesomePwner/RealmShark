@@ -35,7 +35,7 @@ public class LoggingViewStateTest {
                 packet.setPreferredWidth(333); packet.setWidth(333); table(first).setRowSelectionInterval(0,0);
                 selectedKey[0]=first.captureViewState().tabs.get("events").selection.key;
                 field(first,"split",JSplitPane.class).setDividerLocation(180);
-                state(first).names.getEditor().setItem("HP evidence"); state(first).saveNamed.doClick();
+                state(first).saveNamed("HP evidence");
                 tabs(first).setSelectedIndex(2); search(first).setText("NEWTICK");
                 field(first,"observedOnly",JCheckBox.class).doClick();
                 state(first).save();
@@ -54,9 +54,9 @@ public class LoggingViewStateTest {
                 assertEquals(selectedKey[0],second.captureViewState().tabs.get("events").selection.key);
                 assertEquals(180,field(second,"split",JSplitPane.class).getDividerLocation());
                 search(second).setText("different draft");
-                state(second).names.setSelectedItem("HP evidence"); state(second).loadNamed.doClick();
+                state(second).loadNamed("HP evidence");
                 assertEquals("HP_STAT",search(second).getText()); assertEquals(4,tabs(second).getSelectedIndex());
-                state(second).deleteNamed.doClick(); assertEquals(0,state(second).names.getItemCount());
+                state(second).deleteNamed("HP evidence"); assertEquals(0,state(second).names().size());
                 assertEquals("other module bytes",memory.values.get("ux.archive.chat"));
             });
         }
@@ -70,7 +70,7 @@ public class LoggingViewStateTest {
             SwingUtilities.invokeAndWait(() -> {
                 tabs(first).setSelectedIndex(4); search(first).setText("800");
                 field(first,"freeze",JCheckBox.class).setSelected(true);
-                state(first).names.getEditor().setItem("Frozen investigation intent"); state(first).saveNamed.doClick();
+                state(first).saveNamed("Frozen investigation intent");
             });
             assertTrue(preferences.flush().toCompletableFuture().get(5,TimeUnit.SECONDS).isSuccess());
             String encoded=preferences.getProperty(KEY);
@@ -82,12 +82,12 @@ public class LoggingViewStateTest {
                 LoggingGUI second=view(log,ViewStateStore.preferences(restarted));
                 SwingUtilities.invokeAndWait(() -> {
                     assertEquals("800",search(second).getText()); assertFalse(field(second,"freeze",JCheckBox.class).isSelected());
-                    assertEquals(1,state(second).names.getItemCount());
+                    assertEquals(1,state(second).names().size());
                     assertEquals(1,field(second,"snapshot",DiscoveryLog.Snapshot.class).events.size());
                     assertEquals(0,table(second).getRowCount()); // The frozen 800 sample was not restored.
                     assertFalse(log.isEnabled()); assertTrue(log.isSaving());
                     assertEquals(1000,field(second,"snapshot",DiscoveryLog.Snapshot.class).sampleMillis);
-                    state(second).names.setSelectedItem("Frozen investigation intent"); state(second).loadNamed.doClick();
+                    state(second).loadNamed("Frozen investigation intent");
                     assertFalse(field(second,"freeze",JCheckBox.class).isSelected());
                     assertFalse(log.isEnabled()); assertTrue(log.isSaving());
                 });
@@ -137,7 +137,7 @@ public class LoggingViewStateTest {
                     search(view).setText("working draft"); state(view).saveNamed("replacement");
                     assertEquals(original,memory.values.get(KEY)); assertEquals("working draft",search(view).getText());
                     state(view).reset.doClick(); assertEquals("",search(view).getText());
-                    assertEquals(0,state(view).names.getItemCount());
+                    assertEquals(0,state(view).names().size());
                 });
                 SwingUtilities.invokeAndWait(() -> {});
                 assertNotEquals(original,memory.values.get(KEY));

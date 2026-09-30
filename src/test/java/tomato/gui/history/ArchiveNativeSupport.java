@@ -125,24 +125,44 @@ public final class ArchiveNativeSupport {
         assertTrue(workspace.state().archive); assertTrue(ready(workspace));
         JTable rows = named(workspace, table, JTable.class); assertNull("Global order must not become page-local", rows.getRowSorter());
         tableRows(rows);
-        reachable(named(workspace, module + "-session-picker", JComboBox.class));
+        completeButton(scope(workspace));
         reachable(named(workspace, module + "-history-search", JTextField.class));
-        for (String label : new String[]{"Current live view", "Previous page", "Next page"}) completeButton(button(workspace, label));
+        for (String label : new String[]{"Previous page", "Next page"}) completeButton(button(workspace, label));
+        for (String suffix : new String[]{"live", "current", "all", "library", "refresh"}) scopeItem(workspace, suffix);
         OverflowMenu more = more(workspace); reachable(more);
-        for (String label : new String[]{"History library…", "Saved views", "Save current view…", "Reset saved state",
+        for (String label : new String[]{"Refresh", "Saved views", "Save current view…", "Reset saved state",
                 "Export selected…", "Export page…", "Export all matches…", "Open export folder"}) assertNotNull("Overflow action " + label, more.item(label));
-        completeButton(find(workspace, AbstractButton.class, b -> b.isShowing() && "Columns…".equals(b.getText())));
+        assertTrue("⋯ Refresh shows in saved history", more.item("Refresh").isVisible());
+        // The column tools are ⋯ items since P6b (the "Columns…" button row is gone): the displayed table's, enabled.
+        for (String label : new String[]{"Columns", "Column preset", "Reset columns", "Copy selected rows", "Row details…"})
+            assertTrue("Overflow column tool " + label, more.item(label) != null && more.item(label).isEnabled());
+        assertEquals(table + "-columns", more.item("Columns").getName());
         if (detail != null) completeText(named(workspace, detail, JTextArea.class));
     }
 
-    /** The workspace's ⋯ menu: exports, saved views and History library live there since P1c. */
+    /** The workspace's ⋯ menu: Refresh (saved history), saved views and exports; History library… is in the Scope menu. */
     public static OverflowMenu more(ArchiveWorkspace<?,?,?> workspace) {
         String module = workspace.getName().substring(0, workspace.getName().length() - "-session-view".length());
         return named(workspace, module + "-more", OverflowMenu.class);
     }
 
+    /** A ⋯ action, or else a Scope menu item (History library… moved there in P6b), by its exact text. */
     public static JMenuItem action(ArchiveWorkspace<?,?,?> workspace, String label) {
-        JMenuItem item = more(workspace).item(label); assertNotNull("Overflow action " + label, item); return item;
+        JMenuItem item = more(workspace).item(label);
+        if (item == null) for (Component child : scope(workspace).menu().getComponents())
+            if (child instanceof JMenuItem && label.equals(((JMenuItem)child).getText())) { item = (JMenuItem)child; break; }
+        assertNotNull("Overflow or Scope action " + label, item); return item;
+    }
+
+    /** The workspace's Scope chip: live vs saved and the session picker since P6b. It is always inside the workspace. */
+    public static ScopeChip scope(ArchiveWorkspace<?,?,?> workspace) {
+        String module = workspace.getName().substring(0, workspace.getName().length() - "-session-view".length());
+        return named(workspace, module + "-scope", ScopeChip.class);
+    }
+
+    /** A Scope menu item by suffix ("live", "current", "all", "session:&lt;id&gt;", "library", "refresh"); fails when absent. */
+    public static JMenuItem scopeItem(ArchiveWorkspace<?,?,?> workspace, String suffix) {
+        JMenuItem item = scope(workspace).item(suffix); assertNotNull("Scope item " + suffix, item); return item;
     }
 
     /** Chip labels in display order, read from each chip's remove button ("Remove filter: <label>"). */

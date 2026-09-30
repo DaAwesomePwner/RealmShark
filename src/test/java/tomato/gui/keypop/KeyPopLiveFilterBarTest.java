@@ -27,6 +27,30 @@ public class KeyPopLiveFilterBarTest {
         });
     }
 
+    /** P6b: the row is the dashboard's LiveFilterHost bar, and multi-select and dates are plain drawer sections without a toggle. */
+    @Test public void theRowIsTheHostBarAndTheDrawerShowsMultiSelectAndDatesWithoutAToggle() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            KeyPopDashboard ui = new KeyPopDashboard(new KeyPopHistory());
+            FilterBar bar = find(ui, FilterBar.class, "keypops-live-filter-bar");
+            assertSame("The dashboard lends this row to its workspace's Scope chip", bar, ui.liveFilterBar());
+            JComponent drawer = bar.drawerContent();
+            for (String name : new String[]{"keypop-live-kinds", "keypop-live-items", "social-date-from", "social-date-until"}) {
+                Component part = find(drawer, Component.class, name); assertNotNull(name, part);
+                for (Component c = part; c != drawer; c = c.getParent()) assertTrue(name + " shows without a toggle", c.isVisible());
+            }
+            for (AbstractButton button : buttons(ui)) assertNotEquals("Multi-select / absolute dates / view state", button.getText());
+        });
+    }
+
+    private static java.util.List<AbstractButton> buttons(Container root) {
+        java.util.List<AbstractButton> result = new ArrayList<>();
+        for (Component child : root.getComponents()) {
+            if (child instanceof AbstractButton) result.add((AbstractButton) child);
+            if (child instanceof Container) result.addAll(buttons((Container) child));
+        }
+        return result;
+    }
+
     private static <T extends Component> T find(Container root, Class<T> type, String name) {
         for (Component child : root.getComponents()) {
             if (type.isInstance(child) && name.equals(child.getName())) return type.cast(child);

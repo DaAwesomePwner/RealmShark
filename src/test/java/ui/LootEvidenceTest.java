@@ -41,6 +41,7 @@ import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.EmptyState;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.FilterBarAssert;
 import tomato.gui.kit.SegmentedControl;
 import tomato.gui.kit.StatTile;
 import tomato.gui.loot.HighlightsModel;
@@ -357,7 +358,9 @@ public class LootEvidenceTest {
     /**
      * 6 captures: Loot › Explore live (this app run's bags) and saved (every saved session) behind one view selector, Simple
      * 1240×800 font 13 and Analyst 680×520 font 18 (compact captures scrolled to the view selector); then a saved-only Analyst view
-     * chosen from the live selector opens saved history with that view, captioned "Saved history only" (Analyst at 1240 and 680).
+     * chosen from the selector while live opens saved history with that view, captioned "Saved history only" (Analyst at 1240 and
+     * 680). Since P6b the one selector leads the filter row the page shows (the live row, which hosts the Scope chip, or the saved
+     * row), and saved Simple shows one plain count line without the "pinned …" caption.
      * The saved sessions hold no legacy bag without a saved name: Dungeon loot profile cannot read one (finding 2).
      */
     @Test public void exploreShowsLiveAndSavedLootBehindOneViewSelector() throws Exception {
@@ -371,68 +374,80 @@ public class LootEvidenceTest {
         pause();
         capture("explore-live", 1240, 13, SIMPLE, "", () -> {
             assertExplore(false);
-            assertEquals("Simple lists the nine item views", SIMPLE_VIEWS, rows(liveSelector()));
-            assertEquals(LootQuery.View.ITEMS, liveSelector().getSelectedItem());
+            assertEquals("Simple lists the nine item views", SIMPLE_VIEWS, rows(selector()));
+            assertEquals(LootQuery.View.ITEMS, selector().getSelectedItem());
             FilterBar bar = VisualEvidence.named(shell, "loot-live-filter-bar", FilterBar.class);
             assertFalse(bar.drawerOpen());
-            assertOneFilterRow("loot-live", bar);
-            assertTrue("The live view selector sits in the filter row's search slot", SwingUtilities.isDescendingFrom(liveSelector(), searchSlot(bar)));
+            FilterBarAssert.assertOneRow(bar);
+            assertTrue("The view selector sits in the live filter row's search slot", SwingUtilities.isDescendingFrom(selector(), searchSlot(bar)));
+            FilterBarAssert.assertChipInVisibleBar(workspace());
+            assertTrue("The live filter row is above the tiles", SwingUtilities.convertPoint(bar, 0, 0, shell).y
+                < SwingUtilities.convertPoint(VisualEvidence.named(shell, "loot-metrics", JComponent.class), 0, 0, shell).y);
             assertTrue("The capture shows the live table", inView(liveTable(0)));
             assertSidebar();
         });
-        // Compact: the heading, the description and the tiles push the filter row below the fold; the capture starts at the row.
+        // Compact: the capture starts at the filter row, the page's first row since P6b.
         show("Loot explore live compact", 680, 520, 18, ANALYST, () -> { });
         SwingUtilities.invokeAndWait(() -> scrollTo(VisualEvidence.named(shell, "loot-live-filter-bar", FilterBar.class), 4));
         pause();
         capture("explore-live", 680, 18, ANALYST, "", () -> {
             assertExplore(false);
             List<String> analyst = new ArrayList<>(SIMPLE_VIEWS); analyst.add("[Analyst]"); analyst.addAll(ANALYST_VIEWS);
-            assertEquals("Analyst adds the six saved-only views", analyst, rows(liveSelector()));
+            assertEquals("Analyst adds the six saved-only views", analyst, rows(selector()));
+            FilterBarAssert.assertChipInVisibleBar(workspace());
         });
 
         // Saved history over every saved session, then the selector's Analyst list at the compact size.
         SwingUtilities.invokeAndWait(() -> workspace().selectSession(SessionStore.ALL));
         await("the saved loot", () -> ArchiveNativeSupport.ready(workspace()) && workspace().state().archive && savedTable().getRowCount() > 0);
         pause();
-        SwingUtilities.invokeAndWait(() -> scrollTo(savedSelector(), 4));
+        SwingUtilities.invokeAndWait(() -> scrollTo(selector(), 4));
         pause();
         capture("explore-saved", 680, 18, ANALYST, "", () -> {
             assertExplore(true);
-            assertEquals(LootQuery.View.ITEMS, savedSelector().getSelectedItem());
+            assertEquals(LootQuery.View.ITEMS, selector().getSelectedItem());
             List<String> analyst = new ArrayList<>(SIMPLE_VIEWS); analyst.add("[Analyst]"); analyst.addAll(ANALYST_VIEWS);
-            assertEquals(analyst, rows(savedSelector()));
+            assertEquals(analyst, rows(selector()));
+            FilterBarAssert.assertChipInVisibleBar(workspace());
         });
         show("Loot explore saved", 1240, 800, 13, SIMPLE, () -> { });
         capture("explore-saved", 1240, 13, SIMPLE, "", () -> {
             assertExplore(true);
-            assertEquals(SIMPLE_VIEWS, rows(savedSelector()));
-            assertEquals(LootQuery.View.ITEMS, savedSelector().getSelectedItem());
+            assertEquals(SIMPLE_VIEWS, rows(selector()));
+            assertEquals(LootQuery.View.ITEMS, selector().getSelectedItem());
             assertFalse("All Items is not saved-only", caption().isVisible());
             FilterBar bar = workspace().filterBar();
-            assertOneFilterRow("loot", bar);
-            int barBottom = SwingUtilities.convertPoint(bar, 0, bar.getHeight(), shell).y, top = SwingUtilities.convertPoint(savedSelector(), 0, 0, shell).y;
-            assertTrue("The saved view selector leads the saved view, right under the filter row", top >= barBottom && top - barBottom < 3 * savedSelector().getHeight());
+            FilterBarAssert.assertOneRow(bar);
+            assertTrue("The one view selector leads the saved filter row's search slot", SwingUtilities.isDescendingFrom(selector(), bar.searchSlot()));
+            FilterBarAssert.assertChipInVisibleBar(workspace());
+            // Polish B4: Simple shows one plain count line, and the "pinned …" caption is Analyst detail.
+            JTextArea counts = VisualEvidence.named(workspace(), "loot-archive-counts", JTextArea.class);
+            assertTrue("One plain count line: " + counts.getText(), counts.getText().matches("[0-9,]+ bags? · [0-9,]+ item variants? · [0-9,]+ items?"));
+            String status = field(workspace(), "status", JTextArea.class).getText();
+            assertFalse("No pinned caption in Simple: " + status, status.contains("pinned"));
+            assertNull("The drill-downs are ⋯ items", search(workspace(), JButton.class, b -> "loot-drill-occurrences".equals(b.getName())));
             assertTrue("The capture shows the saved table", inView(savedTable()));
         });
 
-        // Back to live, Analyst: a saved-only view chosen from the live selector opens saved history with it.
+        // Back to live, Analyst: a saved-only view chosen from the selector while live opens saved history with it.
         SwingUtilities.invokeAndWait(() -> {
             DisplayModeModel.application().set(ANALYST);
-            VisualEvidence.button(workspace(), "Current live view").doClick();
+            ArchiveNativeSupport.scopeItem(workspace(), "live").doClick();
         });
         pause();
         SwingUtilities.invokeAndWait(() -> {
             assertFalse("Live again", workspace().state().archive);
-            liveSelector().setSelectedItem(LootQuery.View.RATES);   // a user's choice
+            selector().setSelectedItem(LootQuery.View.RATES);   // a user's choice
             assertTrue("A saved-only view opens saved history", workspace().state().archive);
         });
         await("the saved-only view", () -> ArchiveNativeSupport.ready(workspace()) && workspace().state().query.facets().view == LootQuery.View.RATES);
         pause();
         Runnable savedOnly = () -> {
             assertExplore(true);
-            assertEquals(LootQuery.View.RATES, savedSelector().getSelectedItem());
+            assertEquals(LootQuery.View.RATES, selector().getSelectedItem());
             assertTrue("The caption says the view is saved-only", caption().isVisible());
             assertEquals("Saved history only", caption().getText());
+            assertTrue("The caption follows the selector in the saved filter row", SwingUtilities.isDescendingFrom(caption(), workspace().filterBar()));
             assertTrue(inView(caption()));
         };
         capture("explore-saved-only", 1240, 13, ANALYST, "", () -> {
@@ -440,9 +455,10 @@ public class LootEvidenceTest {
             assertTrue("The Dungeon loot profile rows show", savedTable().getRowCount() > 0 && inView(savedTable()));
             String status = field(workspace(), "status", JTextArea.class).getText();
             assertFalse("The read succeeded: " + status, status.contains("read failed"));
+            assertTrue("Analyst keeps the pinned caption: " + status, status.contains(" · pinned "));
         });
         show("Loot explore saved-only compact", 680, 520, 18, ANALYST, () -> { });
-        SwingUtilities.invokeAndWait(() -> scrollTo(savedSelector(), 4));
+        SwingUtilities.invokeAndWait(() -> scrollTo(selector(), 4));
         pause();
         capture("explore-saved-only", 680, 18, ANALYST, "", savedOnly);
     }
@@ -468,8 +484,8 @@ public class LootEvidenceTest {
             show("Settings chat", size[0], size[1], size[2], mode, () -> TomatoGUI.openSettings(SettingsPage.CHAT));
             capture("settings-chat", size[0], size[2], mode, "", () -> {
                 assertSettings(SettingsPage.CHAT, "settings-chat");
-                // Polish B2 (finding 9): the editor fills the section under Saving and scrolls its own lists, so its footer (Save
-                // filters, Cancel and the save status) is in view as the section opens, before anything is scrolled.
+                // Polish B2 (finding 9), kept by P6b: Saving and the editor scroll together in one page over a pinned footer (Save
+                // filters, Cancel and the save status), so the footer is in view as the section opens, before anything is scrolled.
                 assertInViewWithoutScrolling("chat-save-filters", "chat-cancel-filters", "chat-filter-save-status");
                 AbstractButton save = VisualEvidence.named(shell, "settings-chat-save", AbstractButton.class);
                 assertFalse("Save chat is off (key cleared)", save.isSelected());
@@ -523,13 +539,16 @@ public class LootEvidenceTest {
         };
         capture("characters-fame-history", 1240, 13, ANALYST, "", () -> {
             facts.run();
-            assertTrue("The capture shows the table", inView(VisualEvidence.named(fameWorkspace(), "loot-archive-table", JTable.class)));
+            JTable table = VisualEvidence.named(fameWorkspace(), "loot-archive-table", JTable.class);
+            assertTrue("The capture shows the table", inView(table));
+            // Polish B7: the four compact columns fit, so Name takes the spare width instead of ending the table at about 60 %.
+            assertEquals("The columns fill the table's viewport", table.getParent().getWidth(), table.getWidth());
         });
         show("Characters fame history compact", 680, 520, 18, ANALYST, () -> { });
         capture("characters-fame-history", 680, 18, ANALYST, "", () -> {
             facts.run();
-            // At 680×520 font 18 the header, the filter row, the view row and the caption push the table below the fold: reachable by
-            // scrolling (checked after the capture).
+            // At 680×520 font 18 the header, the filter row and the saved view's description and counts push the table below the
+            // fold (a one-view workspace shows no view row): reachable by scrolling (checked after the capture).
             JTable table = VisualEvidence.named(fameWorkspace(), "loot-archive-table", JTable.class);
             VisualEvidence.reachable(table, table.getCellRect(0, 0, true));
         });
@@ -735,7 +754,8 @@ public class LootEvidenceTest {
         assertEquals(LootTab.EXPLORE, VisualEvidence.named(shell, "loot-page", LootPage.class).selectedTab());
         assertEquals(saved ? "Saved history" : "Live", saved, workspace().state().archive);
         assertTrue(workspace().isShowing());
-        assertTrue(saved ? "The saved view selector is in view" : "The live view selector is in view", inView(saved ? savedSelector() : liveSelector()));
+        assertTrue(saved ? "The view selector is in view in the saved row" : "The view selector is in view in the live row", inView(selector())
+            && SwingUtilities.isDescendingFrom(selector(), saved ? workspace().filterBar() : VisualEvidence.named(shell, "loot-live-filter-bar", FilterBar.class)));
     }
 
     /** S7 in the real shell at desktop width: the six core rows, and no Statistics, DPS Logger or Build page row. */
@@ -864,13 +884,6 @@ public class LootEvidenceTest {
         return texts.isEmpty() ? "" : texts.get(texts.size() - 1);
     }
 
-    /** S6 at desktop width, as FilterBarEvidenceTest checks it: with the drawer closed, the search slot and Filters share one row. */
-    private static void assertOneFilterRow(String name, FilterBar bar) {
-        AbstractButton filters = VisualEvidence.named(bar, bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class);
-        Component slot = filters.getParent().getComponent(0);
-        int slotY = SwingUtilities.convertPoint(slot, 0, 0, bar).y, filtersY = SwingUtilities.convertPoint(filters, 0, 0, bar).y;
-        assertTrue(name + ": the search slot and Filters share one row", Math.abs(slotY - filtersY) < filters.getHeight());
-    }
     private static Component searchSlot(FilterBar bar) {
         return VisualEvidence.named(bar, bar.getName().replace("-filter-bar", "-filters"), AbstractButton.class).getParent().getComponent(0);
     }
@@ -881,8 +894,8 @@ public class LootEvidenceTest {
     @SuppressWarnings("unchecked") private ArchiveWorkspace<LootQuery.Row, LootQuery.Facets, LootQuery.Sort> workspace() {
         return VisualEvidence.named(shell, "loot-session-view", ArchiveWorkspace.class);
     }
-    private JComboBox<?> liveSelector() { return VisualEvidence.named(shell, "loot-views", JComboBox.class); }
-    private JComboBox<?> savedSelector() { return VisualEvidence.named(shell, "loot-archive-view", JComboBox.class); }
+    /** Explore's one view selector ({@code loot-views}), leading the filter row shown, live or saved (P6b). */
+    private JComboBox<?> selector() { return VisualEvidence.named(shell, "loot-views", JComboBox.class); }
     private JLabel caption() { return VisualEvidence.named(shell, "loot-archive-view-caption", JLabel.class); }
     private JTable liveTable(int index) { return VisualEvidence.named(shell, "loot-view-" + index, JTable.class); }
     private JTable savedTable() { return VisualEvidence.named(workspace(), "loot-archive-table", JTable.class); }

@@ -41,7 +41,7 @@ public final class QuestPlanPanel extends JPanel {
     private static final String NONE = "Select a known account…";
     private final PlanningStore store;
     private final IntFunction<String> names;
-    private final JComboBox<String> account = new AccountList();
+    private final AccountList account = new AccountList();
     private final Map<String, Draft> drafts = new HashMap<>();
     private final Set<String> known = new TreeSet<>();
     private final Map<String, QuestPlanEntry> observed = new LinkedHashMap<>();
@@ -162,9 +162,11 @@ public final class QuestPlanPanel extends JPanel {
         }));
         JScrollPane page = ContentStyle.page(header, body, actions); page.setName("quest-plan-scroll");
         add(page, BorderLayout.CENTER); installReveal(this);
-        // Analyst: the Cards/Table toggle beside the account; Simple: the other view in the ⋯ menu.
+        // Analyst: the Cards/Table toggle beside the account and the whole account key in its tooltip; Simple: the other view in the ⋯
+        // menu and the short account alone.
         mode.bind(this, value -> {
             boolean analyst = value == DisplayModeModel.Mode.ANALYST;
+            account.analyst(analyst);
             view.setVisible(analyst); overflow.setVisible(!analyst); scope.revalidate(); scope.repaint();
         });
         showCards(!"table".equals(read.apply(VIEW_KEY)), false);
@@ -443,19 +445,38 @@ public final class QuestPlanPanel extends JPanel {
         if (value instanceof Container) for (Component child : ((Container)value).getComponents()) installReveal(child);
     }
     /**
-     * The account list never asks for more width than its row can give: a 64-character account key is cut by the renderer instead
-     * of pushing the list and its drop-down arrow past the row's edge, and the tooltip keeps the whole selected key (the accessible
-     * description falls back to it). The items, the selection and the popup's full-width entries are unchanged.
+     * The account list shows a short account, never the raw 64-character key (P6b): the key's first six characters and "…", as the
+     * Board's header names the account, in the closed list and in the drop-down (the placeholder and a key of six characters or
+     * fewer read whole). Analyst's tooltip keeps the whole selected key (the accessible description falls back to it); Simple's
+     * names the short account. The items and the selection stay the whole keys. The list never asks for more width than its row
+     * can give, so its drop-down arrow stays inside the row at any font.
      */
     private static final class AccountList extends JComboBox<String> {
+        private boolean analyst;
         AccountList() { super(new String[]{NONE}); describe(); }
+        /** The account as the page shows it: the key's first six characters and "…"; the placeholder and a short key whole. */
+        static String shortForm(Object value) {
+            String text = value == null ? "" : value.toString();
+            return NONE.equals(text) || text.length() <= 6 ? text : text.substring(0, 6) + "…";
+        }
+        /** Wraps the look and feel's renderer (a theme change installs a new one), painting each entry's short form. */
+        @Override public void updateUI() {
+            if (getRenderer() instanceof ShortKeys) setRenderer(null);
+            super.updateUI();
+            ListCellRenderer<? super String> base = getRenderer();
+            if (base != null && !(base instanceof ShortKeys)) setRenderer(new ShortKeys(base));
+        }
+        void analyst(boolean value) { analyst = value; describe(); }
         @Override public Dimension getPreferredSize() {
             Dimension size = super.getPreferredSize();
             int room = room();
             return room > 0 && size.width > room ? new Dimension(room, size.height) : size;
         }
         @Override protected void selectedItemChanged() { super.selectedItemChanged(); describe(); }
-        private void describe() { Object value = getSelectedItem(); setToolTipText(value == null || NONE.equals(value) ? null : value.toString()); }
+        private void describe() {
+            Object value = getSelectedItem();
+            setToolTipText(value == null || NONE.equals(value) ? null : analyst ? value.toString() : "Account " + shortForm(value));
+        }
         /** The row's width inside its insets and its flow gaps (as ContentStyle.controls wraps it); 0 before anything is laid out. */
         private int room() {
             Container row = getParent();
@@ -465,6 +486,14 @@ public final class QuestPlanPanel extends JPanel {
             Insets insets = row.getInsets();
             int gap = row.getLayout() instanceof FlowLayout ? ((FlowLayout) row.getLayout()).getHgap() : 0;
             return width <= 0 ? 0 : Math.max(1, width - insets.left - insets.right - 2 * gap);
+        }
+    }
+    /** The look and feel's list renderer over each account's short form ({@link AccountList#shortForm}). */
+    private static final class ShortKeys implements ListCellRenderer<String> {
+        private final ListCellRenderer<? super String> base;
+        ShortKeys(ListCellRenderer<? super String> base) { this.base = base; }
+        @Override public Component getListCellRendererComponent(JList<? extends String> list, String value, int index, boolean selected, boolean focus) {
+            return base.getListCellRendererComponent(list, value == null ? null : AccountList.shortForm(value), index, selected, focus);
         }
     }
     private final class PlanModel extends AbstractTableModel {

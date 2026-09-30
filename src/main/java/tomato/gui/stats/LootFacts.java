@@ -40,7 +40,8 @@ public final class LootFacts {
      * One saved bag; {@code bag} is the bag name the drop recorded ("White", "B.White", "Orange", …; {@code Tokens.bag} colors it)
      * or null when none was saved (legacy drops); {@code visit} is {@code DropContext.visit} (exact, recorded at drop time) or null.
      * {@code dungeon} is the map the bag dropped in, canonical ({@code DungeonStatData.Snapshot.canonicalName}, as the Dungeons
-     * cards key it), or null when it was not known ("Unknown area"); {@code dropper} is the enemy's name, or null when unknown.
+     * cards key it), or null when it was not known or the catalog did not know it ({@link #area}; "Unknown area"); {@code dropper} is
+     * the enemy's name, or null when unknown.
      */
     public record Bag(String session, long time, boolean white, String bag, VisitRef visit, List<Item> items, String dungeon, String dropper) {
         public Bag { items = List.copyOf(items); }
@@ -49,6 +50,14 @@ public final class LootFacts {
             this(session, time, white, bag, visit, items, null, null);
         }
     }
+
+    /** How an area without a known name reads, everywhere loot is shown ({@link #areaLabel}). */
+    public static final String UNKNOWN_AREA = "Unknown area";
+    /**
+     * What capture saves for an area the dungeon catalog does not know ({@code DungeonCatalog.UNRECOGNIZED}, package-private in
+     * {@code tomato.realmshark}; {@code ParseDungeon.canonicalName} returns it for any unknown name), and capture's word for none.
+     */
+    public static final String UNRECOGNIZED = "Unrecognized area", UNKNOWN = "Unknown";
 
     private LootFacts() {}
 
@@ -88,9 +97,21 @@ public final class LootFacts {
         boolean exact = visit != null && visit.sessionId != null && !visit.sessionId.isEmpty() && visit.visitId != null && !visit.visitId.isEmpty();
         String name = drop.bag == null || drop.bag.isBlank() ? null : drop.bag;   // not recorded: unknown, never guessed
         return new Bag(session, drop.time, LootArchiveAdapter.white(drop.bag), name, exact ? visit : null, items,
-            known(drop.dungeon == null ? null : DungeonStatData.Snapshot.canonicalName(drop.dungeon)), known(drop.dropper));
+            area(drop.dungeon == null ? null : DungeonStatData.Snapshot.canonicalName(drop.dungeon)), known(drop.dropper));
     }
 
-    /** Capture writes "Unknown" when the map or the dropper was not known; that, an empty name or none saved is null. */
-    private static String known(String name) { return name == null || name.isBlank() || "Unknown".equals(name) ? null : name; }
+    /** Capture writes "Unknown" when the dropper was not known; that, an empty name or none saved is null. */
+    private static String known(String name) { return name == null || name.isBlank() || UNKNOWN.equals(name) ? null : name; }
+
+    /**
+     * The area a bag dropped in, or null when it is not known: none saved, blank, capture's "Unknown" (no map when the bag dropped)
+     * or the catalog's {@value #UNRECOGNIZED} (a name it does not know). Highlights groups those under {@value #UNKNOWN_AREA}.
+     */
+    public static String area(String name) { return known(name) == null || UNRECOGNIZED.equals(name) ? null : name; }
+
+    /**
+     * The area's name for display: {@value #UNKNOWN_AREA} for every unknown form ({@link #area}), else the name. Display only:
+     * saved rows, facet keys ("facet.dungeon.Unknown"), saved view states and drill keys keep the saved name.
+     */
+    public static String areaLabel(String name) { String area = area(name); return area == null ? UNKNOWN_AREA : area; }
 }

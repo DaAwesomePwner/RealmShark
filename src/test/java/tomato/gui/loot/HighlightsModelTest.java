@@ -122,8 +122,10 @@ public class HighlightsModelTest {
         assertEquals(2, unknown.bags()); assertEquals(1, unknown.ut()); assertEquals(0, unknown.st()); assertEquals(2, unknown.potions());
         assertEquals(new HighlightsModel.DungeonCell("Snake Pit", cells.get(1).portalId(), 1, 0, 1, 0), cells.get(1));
         assertEquals(2, cells.get(0).bags());
-        assertNull(HighlightsModel.area(null)); assertNull(HighlightsModel.area(HighlightsModel.UNRECOGNIZED));
-        assertEquals("Lost Halls", HighlightsModel.area("Lost Halls"));
+        assertNull(LootFacts.area(null)); assertNull(LootFacts.area(HighlightsModel.UNRECOGNIZED));
+        assertEquals("Lost Halls", LootFacts.area("Lost Halls"));
+        assertEquals("One label for every unknown form", HighlightsModel.UNKNOWN_AREA, unknown.name());
+        assertEquals(LootFacts.UNKNOWN_AREA, HighlightsModel.UNKNOWN_AREA);
         assertNull("A notable drop in an unrecognized area is in Unknown area", model.notable().stream()
             .filter(n -> n.itemId() == LIFE).findFirst().orElseThrow().dungeon());
     }

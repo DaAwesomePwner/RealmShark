@@ -13,15 +13,6 @@ import tomato.gui.modern.DisplayFormat;
 final class StatsUi {
     private StatsUi() {}
 
-    static JPanel heading(String title, String description) {
-        JPanel panel = new JPanel(new BorderLayout(0, 4));
-        JLabel label = new JLabel(title);
-        label.setFont(ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 16f / ContentStyle.FONT_SIZE));
-        panel.add(label, BorderLayout.NORTH);
-        panel.add(note(description), BorderLayout.CENTER);
-        return panel;
-    }
-
     static JTextArea note(String text) {
         return ContentStyle.wrappingText(text, 1);
     }

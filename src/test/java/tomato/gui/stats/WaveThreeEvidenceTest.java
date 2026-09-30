@@ -98,7 +98,7 @@ public class WaveThreeEvidenceTest {
                     int needle = -1;
                     for (int i = 0; i < workspace.displayedPage().rows.size(); i++) if ("1/0/0".equals(workspace.displayedPage().rows.get(i).value.variantKey())) needle = i;
                     table(workspace).setRowSelectionInterval(needle, needle);
-                    named(workspace, "loot-drill-occurrences", JButton.class).doClick();
+                    LootDrillDownTest.drill(workspace, "loot-drill-occurrences").doClick();
                 });
                 await(() -> !workspace.loading() && workspace.state().query.facets().view == View.OCCURRENCES && workspace.displayedPage().matches == 3);
                 int linked = edt(() -> { List<ArchiveRow<Row>> rows = workspace.displayedPage().rows; for (int i = 0; i < rows.size(); i++) if (Boolean.TRUE.equals(rows.get(i).value.runLinked)) return i; return -1; });
@@ -107,7 +107,7 @@ public class WaveThreeEvidenceTest {
                 run(() -> table(workspace).setRowSelectionInterval(linked, linked));
                 wideAndCompact(evidence, shell, "loot-occurrences-open-run-unavailable", () -> {
                     reveal(named(workspace, "loot-run-link-status", JTextArea.class));
-                    assertFalse(named(workspace, "loot-open-run", JButton.class).isEnabled());
+                    assertFalse(LootDrillDownTest.drill(workspace, "loot-open-run").isEnabled());
                     assertTrue(label(workspace, "loot-run-link-status"), label(workspace, "loot-run-link-status").contains("Runs view unavailable in this window"));
                     assertFalse(label(workspace, "loot-run-link-status").contains("navigation not registered"));
                     assertLineReadable(named(workspace, "loot-run-link-status", JTextArea.class));
@@ -125,7 +125,7 @@ public class WaveThreeEvidenceTest {
                     assertTrue(label(workspace, "loot-run-link-status").contains("no recorded visit ID"));
                     assertLineReadable(named(workspace, "loot-run-link-status", JTextArea.class));
                 });
-                run(() -> { table(workspace).setRowSelectionInterval(linked, linked); named(workspace, "loot-drill-rate", JButton.class).doClick(); });
+                run(() -> { table(workspace).setRowSelectionInterval(linked, linked); LootDrillDownTest.drill(workspace, "loot-drill-rate").doClick(); });
                 await(() -> !workspace.loading() && workspace.state().query.facets().view == View.RATES && workspace.displayedPage().matches == 1);
                 run(() -> table(workspace).setRowSelectionInterval(0, 0));
                 wideAndCompact(evidence, shell, "loot-rate-calculation", () -> {
@@ -139,8 +139,8 @@ public class WaveThreeEvidenceTest {
                     assertEquals("Visits", rows.getColumn("runs").getHeaderValue());
                     assertEquals("Observed duration is h:mm:ss, not raw ms", "00:02:00", cell(rows, 0, "millis"));
                     assertEquals(120000L, model(rows, 0, "millis"));
-                    // The disabled rate button explains itself; run-link reasons are not shown for rate rows.
-                    assertFalse(named(workspace, "loot-drill-rate", JButton.class).isEnabled());
+                    // The disabled rate item explains itself; run-link reasons are not shown for rate rows.
+                    assertFalse(LootDrillDownTest.drill(workspace, "loot-drill-rate").isEnabled());
                     JTextArea rate = named(workspace, "loot-rate-status", JTextArea.class);
                     reveal(rate); assertTrue(rate.getText(), rate.getText().contains("already is the Ice Citadel rate")); assertLineReadable(rate);
                     assertFalse(named(workspace, "loot-run-link-status", JTextArea.class).isShowing());

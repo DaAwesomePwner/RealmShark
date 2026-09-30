@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.time.ZoneId;
 import java.util.List;
+import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.SwingUtilities;
 import org.junit.Rule;
@@ -12,6 +13,7 @@ import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
+import tomato.gui.modern.Themes;
 import tomato.history.link.VisitRef;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeHistoryFixture.*;
@@ -151,6 +153,136 @@ public class NotableDropRendererTest {
         assertEquals("Unknown area", unknown.name()); assertEquals("1 bag", unknown.bags()); assertEquals("1 ST · 1 potion", unknown.summary());
         assertEquals("No UT, ST or potions", DungeonStripRenderer.lines(new HighlightsModel.DungeonCell("Snake Pit", 0, 2, 0, 0, 0)).summary());
         assertEquals("Lost Halls; 3 bags; 1 UT · 2 potions", DungeonStripRenderer.accessibleName(new HighlightsModel.DungeonCell("Lost Halls", 0, 3, 1, 0, 2)));
+    }
+
+    /**
+     * P6b Task 9 (R3 B9): a name wider than the card wraps to a second line at its spaces instead of ending in "…", and every card
+     * is one title line taller for it (the same size whatever its name). A name too long for two lines is cut on the second; the
+     * tooltip and the accessible name keep it whole and are unchanged.
+     */
+    @Test public void longNamesWrapToTwoLinesAndEveryCardIsOneTitleLineTaller() throws Exception {
+        String wraps = "Synthetic Crystal Mail of Tides", endless = "Synthetic Everlasting Crystal Mail of the Very Deep and Endless Tides";
+        Runnable restore = LootHighlightsTest.names(java.util.Map.of(9901, wraps, 9902, endless, 9903, "Short"));
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, 13));
+                NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+                FontMetrics title = renderer.getFontMetrics(Type.emphasis()), caption = renderer.getFontMetrics(Type.caption());
+                int text = 2 * title.getHeight() + Tokens.XS + caption.getHeight() + 2 + NotableDropRenderer.LINE + 2 * caption.getHeight();
+                int height = 2 * NotableDropRenderer.PAD + Math.max(NotableDropRenderer.WELL_SIDE, text) + NotableDropRenderer.GAP;
+                JList<HighlightsModel.Notable> list = new JList<>();
+                Dimension cell = null;
+                for (int id : new int[] {9901, 9902, 9903}) {
+                    HighlightsModel.Notable drop = new HighlightsModel.Notable(id, "Orange", "Lost Halls", at(0, 11, 30), RUN, HighlightsModel.Kind.UT);
+                    renderer.getListCellRendererComponent(list, drop, 0, false, false);
+                    Dimension size = renderer.getPreferredSize();
+                    assertEquals("The cell is one title line taller: " + size, height, size.height);
+                    if (cell == null) cell = size; else assertEquals("Every card is the same size", cell, size);
+                    List<String> painted = paint(renderer, size);
+                    String name = Sprites.name(id);
+                    assertEquals("The tooltip is unchanged", NotableDropRenderer.accessibleName(drop, ZONE_NY, NOON) + " · " + HighlightsModel.OBSERVED, renderer.getToolTipText());
+                    assertTrue("…and says the whole name", renderer.getToolTipText().startsWith(name + ", UT; Lost Halls"));
+                    assertEquals(NotableDropRenderer.accessibleName(drop, ZONE_NY, NOON), renderer.getAccessibleContext().getAccessibleName());
+                    int index = painted.indexOf("UT");
+                    List<String> nameLines = painted.subList(0, index);
+                    assertTrue(name + " paints its time and area after its name: " + painted, painted.contains("11:30") && painted.contains("Lost Halls"));
+                    if (id == 9903) assertEquals("A short name keeps one line", List.of("Short"), nameLines);
+                    else if (id == 9901) {
+                        assertEquals(wraps + " takes two lines: " + nameLines, 2, nameLines.size());
+                        assertEquals("…wrapped at a space, nothing cut", wraps, String.join(" ", nameLines));
+                    } else {
+                        assertEquals(endless + " takes two lines: " + nameLines, 2, nameLines.size());
+                        assertTrue("…the second cut with \"…\": " + nameLines, nameLines.get(1).endsWith("…") && !nameLines.get(0).endsWith("…"));
+                        assertTrue(endless.startsWith(nameLines.get(0) + " "));
+                    }
+                    int width = size.width - NotableDropRenderer.GAP - 2 * NotableDropRenderer.PAD - NotableDropRenderer.WELL_SIDE - Tokens.S;
+                    for (String line : nameLines) assertTrue("'" + line + "' fits the card", title.stringWidth(line) <= width);
+                }
+            });
+        } finally { restore.run(); }
+    }
+
+    /**
+     * P6b Task 9 (R3 B9): a strip cell's bag count and summary are one " · " sequence wrapped at its " · " boundaries across the two
+     * caption lines, so "4 bags · 1 UT · 1 ST · 3 potions" paints whole where "1 UT · 1 ST · 3 potions" alone was cut; the cell keeps
+     * its size and its tooltip and accessible name are unchanged.
+     */
+    @Test public void stripCaptionsWrapAtTheirSeparatorsAcrossTheTwoCaptionLines() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, 13));
+            DungeonStripRenderer strip = new DungeonStripRenderer();
+            FontMetrics title = strip.getFontMetrics(Type.emphasis()), caption = strip.getFontMetrics(Type.caption());
+            int height = 2 * DungeonStripRenderer.PAD + Math.max(DungeonStripRenderer.PORTAL, title.getHeight() + 2 * caption.getHeight()) + DungeonStripRenderer.GAP;
+            JList<HighlightsModel.DungeonCell> list = new JList<>();
+            for (HighlightsModel.DungeonCell cell : List.of(new HighlightsModel.DungeonCell("Lost Halls", 0, 4, 1, 1, 3),
+                    new HighlightsModel.DungeonCell(null, 0, 12, 10, 11, 14), new HighlightsModel.DungeonCell("Snake Pit", 0, 2, 0, 0, 0))) {
+                strip.getListCellRendererComponent(list, cell, 0, false, false);
+                Dimension size = strip.getPreferredSize();
+                assertEquals("The cell keeps its height", height, size.height);
+                strip.setSize(size);
+                BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = image.createGraphics();
+                strip.paint(g);
+                g.dispose();
+                List<String> painted = strip.painted();
+                DungeonStripRenderer.Lines lines = DungeonStripRenderer.lines(cell);
+                assertEquals("The name first", lines.name(), painted.get(0));
+                assertEquals("Two caption lines at most: " + painted, 3, painted.size());
+                String joined = lines.bags() + " · " + lines.summary();
+                assertEquals(joined, DungeonStripRenderer.caption(cell));
+                assertEquals("Tooltip unchanged", DungeonStripRenderer.accessibleName(cell) + " · " + HighlightsModel.OBSERVED, strip.getToolTipText());
+                assertEquals("Accessible name unchanged", DungeonStripRenderer.accessibleName(cell), strip.getAccessibleContext().getAccessibleName());
+                if (cell.dungeon() != null && cell.dungeon().equals("Lost Halls")) {
+                    for (String line : painted) assertFalse("Nothing is cut: " + painted, line.endsWith("…"));
+                    assertEquals("Split at a separator, nothing lost", joined, painted.get(1) + " · " + painted.get(2));
+                }
+            }
+            assertEquals("A caption wider than a line breaks at its separator",
+                List.of("1 bag", "1 UT"), DungeonStripRenderer.captionLines("1 bag · 1 UT", caption, Math.max(caption.stringWidth("1 bag"), caption.stringWidth("1 UT"))));
+            assertEquals("A caption that fits one line keeps one", List.of("1 bag · 1 UT"), DungeonStripRenderer.captionLines("1 bag · 1 UT", caption, 1000));
+            List<String> cut = DungeonStripRenderer.captionLines("12 bags · 10 UT · 11 ST · 14 potions", caption, caption.stringWidth("12 bags · 10 UT"));
+            assertEquals("12 bags · 10 UT", cut.get(0));
+            assertTrue("The rest on the second line, cut only when it does not fit: " + cut, cut.get(1).equals("11 ST · 14 potions") || cut.get(1).endsWith("…"));
+        });
+    }
+
+    /**
+     * P6b Task 9: the notable cards (and the strip's cells) outline with {@code Tokens.outline} in the light theme, BORDER under
+     * Increase contrast; the dark theme keeps its own subtle edge (dark captures do not move), and selection keeps the accent.
+     */
+    @Test public void notableCardsAndStripCellsOutlineInTheLightThemeAndKeepTheirDarkEdge() throws Exception {
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                for (Themes.Variant variant : Themes.Variant.values())
+                    for (boolean contrast : new boolean[] {false, true}) {
+                        Themes.install(new Themes.Choice(variant, contrast));
+                        Color expected = Tokens.color(variant == Themes.Variant.LIGHT && contrast ? Tokens.Role.BORDER : Tokens.Role.BORDER_SUBTLE);
+                        String what = variant + (contrast ? " with Increase contrast" : "");
+                        NotableDropRenderer card = new NotableDropRenderer(ZONE_NY, () -> NOON);
+                        card.getListCellRendererComponent(new JList<>(), notable("Orange", "Lost Halls", NOON, RUN, HighlightsModel.Kind.UT), 0, false, false);
+                        assertEquals(what + ": the notable card's edge", expected.getRGB(), edge(card, card.getPreferredSize()));
+                        DungeonStripRenderer strip = new DungeonStripRenderer();
+                        strip.getListCellRendererComponent(new JList<>(), new HighlightsModel.DungeonCell("Lost Halls", 0, 3, 1, 0, 2), 0, false, false);
+                        assertEquals(what + ": the strip cell's edge", expected.getRGB(), edge(strip, strip.getPreferredSize()));
+                        card.getListCellRendererComponent(new JList<>(), notable("Orange", "Lost Halls", NOON, RUN, HighlightsModel.Kind.UT), 0, true, false);
+                        assertEquals(what + ": a selected card keeps the accent", Tokens.color(Tokens.Role.ACCENT).getRGB(), edge(card, card.getPreferredSize()));
+                    }
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> Themes.install(new Themes.Choice(Themes.Variant.DARK, false)));
+        }
+    }
+
+    /** The pixel at the middle of the card's left edge (the card starts half a gap in), painted on an opaque canvas. */
+    private static int edge(JComponent cell, Dimension size) {
+        cell.setSize(size);
+        BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        g.setColor(Tokens.color(Tokens.Role.SURFACE));
+        g.fillRect(0, 0, size.width, size.height);
+        cell.paint(g);
+        g.dispose();
+        return image.getRGB(NotableDropRenderer.GAP / 2, size.height / 2);
     }
 
     private static boolean close(Color a, Color b) {

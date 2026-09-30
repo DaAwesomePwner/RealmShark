@@ -100,7 +100,9 @@ public final class StatisticsArchiveAdapter implements ArchiveAdapter<Row,Facets
                 +undated+" undated fame observations. "+(incompleteFame.contains(id)?"Combined fame change unavailable: at least one included character has incomplete chronology.":"Single-timestamp characters contribute a same-sample zero delta, not measured session growth.");
             out.accept(summary(q,id,row));
         }}else for(Map.Entry<String,LootProfile> entry:dungeons.entrySet()){
-            if(!LootQuery.contains(entry.getKey(),q.text()))continue;Row row=profile(entry.getValue());row.type="rate";row.name=row.dungeon=entry.getKey();
+            // The name reads "Unknown area" for bags saved without a map; the dungeon stays the saved key ("Unknown"), which drills use.
+            String label=LootFacts.areaLabel(entry.getKey());
+            if(!LootQuery.contains(label.equals(entry.getKey())?label:entry.getKey()+" "+label,q.text()))continue;Row row=profile(entry.getValue());row.type="rate";row.dungeon=entry.getKey();row.name=label;
             row.evidence="Rate text searches dungeon names. All loot from visits selected by entry/overlap bounds; unlinked bags use their own timestamps. Item/bag/enchant facets do not filter this cohort.\n"+row.evidence;
             out.accept(summary(q,entry.getKey(),row));
         }

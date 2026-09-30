@@ -1,20 +1,19 @@
 {
   "schemaVersion": 1,
   "repository": "DaAwesomePwner/RealmShark",
-  "recordedDate": "2026-09-29",
+  "recordedDate": "2026-09-30",
   "redesign": {
-    "phase": "P6a",
-    "status": "P6a implemented (13 tasks + 3 polish tasks); final suite 2020 tests with only the 4 known Linux/Xvfb failures; shadowJar and isolated --help pass; PR open for review",
+    "phase": "P6b",
+    "status": "P6b implemented and validated on the integration branch (Waves A-D + polish A-E merged); PR open for review",
     "p1aMerge": "7b3e0c5",
     "p1aFix": "ee8d085",
     "branch": "claude/redesign-handoff-next-steps-edrr7w",
-    "base": "73400af",
-    "sourceHead": "0625e34",
-    "localChecks": "P6a: final full suite 2020 tests / 4 failures (the 4 known Linux/Xvfb baseline ones) / 5 skipped on 0625e34; wave runs 887, 1353, 1510 tests; Task 1 refactor proof identical per-class results; S8 Loot <= ~12 ms p95, core <= ~23 ms; shadowJar and isolated --help pass",
+    "base": "b5dcd24",
+    "sourceHead": "5dbae2c",
+    "localChecks": "P6b: final full suite 2216 tests / 3 failures (known Linux/Xvfb) / 6 skipped on 5dbae2c; S8 frame p95 <= ~38 ms; S6 31 pages strict pass; final set 155 captures 0 failed checks; shadowJar and isolated --help pass",
     "roadmap": "docs/superpowers/plans/2026-09-26-redesign-roadmap.md",
-    "validation": "docs/superpowers/plans/2026-09-29-p6a-validation.md",
-    "nextAction": "Watch the P6a PR: fix Codex comments, merge once fixed or none (standing permission), verify main, record the merge, then plan P6b",
-    "historicalFieldsBelow": "All four prior waves are complete; their pending gate text below is superseded",
+    "validation": "docs/superpowers/plans/2026-09-29-p6b-validation.md",
+    "nextAction": "Open the P6b PR, handle Codex review, merge once fixed or none, verify main, record the merge",
     "p1bMerge": "0abafe4",
     "p1bFix": "a011bfd",
     "p1bPullRequest": 19,
@@ -34,29 +33,36 @@
     "p5aPullRequest": 25,
     "p5aMerge": "3ab077c",
     "p5aFix": "21d896e",
-    "plan": "docs/superpowers/plans/2026-09-29-p6a-structure.md",
+    "plan": "docs/superpowers/plans/2026-09-29-p6b-consistency.md",
     "p5bPullRequest": 26,
     "p5bMerge": "73400af",
-    "p5bFix": "a7b873e"
+    "p5bFix": "a7b873e",
+    "p6aPullRequest": 27,
+    "p6aMerge": "82983c2",
+    "p6aFix": "4a22ce4",
+    "p6bDecisions": "one PR; Simple relative times and Analyst-only columns as proposed (Logging absolute, widths unchanged on mode switch); sidebar drag whole row, no grip, 5 px threshold, violet drop line, Esc cancels, core rows only; extras Esc closes filter drawers and light-theme outlines; deferred: Appearance font size, search inside Settings, AGENTS.md pointer"
   },
-  "phase": "wave-4",
-  "status": "Implementation complete; shortest finish approved; final PR CI/review and merge pending",
-  "branch": "feat/ux-wave-4-planning",
-  "base": "dfceefb9ab87dd4d37a2429167d740b7ab0a33ee",
-  "mainCi": "36245882529",
-  "trackingIssue": "https://github.com/DaAwesomePwner/RealmShark/issues/9",
-  "plan": "docs/UX-WAVE4-IMPLEMENTATION.md",
-  "approved": [
-    "Optional manual stock and reservations",
-    "Session-only bounded ability evidence",
-    "Exact enchantment and presence-verified drop context"
-  ],
-  "remainingGates": [
-    "Independent final PR head review",
-    "Required Windows PR CI",
-    "Normal merge and main CI verification"
-  ],
-  "nextAction": "Reconcile local checkpoint and actual Git state; continue earliest unfinished Wave 4 package or gate.",
-  "pullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/15",
-  "validationScope": "User approved no repeated local full/scaled/package cycle. Deferred extra native death-action fixture; see UX-WAVE4-VALIDATION.md."
+  "waves": {
+    "phase": "wave-4",
+    "status": "Implementation complete; shortest finish approved; final PR CI/review and merge pending",
+    "branch": "feat/ux-wave-4-planning",
+    "base": "dfceefb9ab87dd4d37a2429167d740b7ab0a33ee",
+    "mainCi": "36245882529",
+    "trackingIssue": "https://github.com/DaAwesomePwner/RealmShark/issues/9",
+    "plan": "docs/UX-WAVE4-IMPLEMENTATION.md",
+    "approved": [
+      "Optional manual stock and reservations",
+      "Session-only bounded ability evidence",
+      "Exact enchantment and presence-verified drop context"
+    ],
+    "remainingGates": [
+      "Independent final PR head review",
+      "Required Windows PR CI",
+      "Normal merge and main CI verification"
+    ],
+    "nextAction": "Reconcile local checkpoint and actual Git state; continue earliest unfinished Wave 4 package or gate.",
+    "pullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/15",
+    "validationScope": "User approved no repeated local full/scaled/package cycle. Deferred extra native death-action fixture; see UX-WAVE4-VALIDATION.md.",
+    "note": "Historical: the four-wave implementation (Waves 1-4) is complete; Wave 4 PR #15 merged as 337c7f0. Current state is under \"redesign\"."
+  }
 }

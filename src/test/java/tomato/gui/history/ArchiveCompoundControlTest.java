@@ -38,7 +38,7 @@ public class ArchiveCompoundControlTest {
 
             before=edt(()->f.client.adoptions);ArchiveClient.Binding<Facets,Sort> stale=edt(()->f.client.binding);
             edt(()->{
-                button(f.workspace,"Current live view").doClick();f.workspace.refresh();
+                ArchiveNativeSupport.scopeItem(f.workspace,"live").doClick();f.workspace.refresh();
                 f.client.host.remove(f.client.cached);f.client.host.add(f.client.cached);
                 assertFalse(f.client.combo.isEnabled());assertFalse(f.client.arrow.isEnabled());
                 stale.queryChanged(query(f.id).withText("obsolete"));assertFalse(f.workspace.state().archive);
@@ -146,8 +146,4 @@ public class ArchiveCompoundControlTest {
     private static <T>T edt(Checked<T> work)throws Exception{AtomicReference<T> value=new AtomicReference<>();AtomicReference<Throwable> error=new AtomicReference<>();
         SwingUtilities.invokeAndWait(()->{try{value.set(work.get());}catch(Throwable failure){error.set(failure);}});if(error.get()!=null)throw new AssertionError(error.get());return value.get();}
     private static void await(BooleanSupplier condition)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(15);while(System.nanoTime()<end){if(edt(condition::getAsBoolean))return;Thread.sleep(20);}fail("Archive view did not settle");}
-    private static JButton button(Container root,String text){for(Component child:root.getComponents()){
-        if(child instanceof JButton&&text.equals(((JButton)child).getText()))return (JButton)child;
-        if(child instanceof Container){JButton found=button((Container)child,text);if(found!=null)return found;}
-    }return null;}
 }

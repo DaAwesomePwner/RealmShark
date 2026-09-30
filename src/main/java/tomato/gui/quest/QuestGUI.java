@@ -30,9 +30,10 @@ import java.util.prefs.Preferences;
 /**
  * Read-only quest planner. The server's requirements and reward choices remain authoritative.
  * The Board tab (id "captured") shows the quests as grouped painted cards (spec §6.5) or, as its Table view, the quest table with
- * its split detail and footer actions exactly as before; one filter row, search and drawer serve both, and the Sort order is each
- * view's order (the cards' within each group). Simple offers the other view in the ⋯ menu, Analyst a Cards/Table toggle; the
- * view, grouping and "Pinned first" persist ({@link #VIEW_KEY}, {@link #GROUP_KEY}, {@link #PINNED_FIRST_KEY}). Card and board
+ * its split detail and footer actions exactly as before; one filter row, search and drawer serve both, and the Sort order (the ⋯
+ * menu's "Sort by ▸") is each view's order (the cards' within each group). Simple offers the other view in the ⋯ menu, Analyst a
+ * Cards/Table toggle at the row's end; the view, grouping and "Pinned first" (a ⋯ item of the cards) persist ({@link #VIEW_KEY},
+ * {@link #GROUP_KEY}, {@link #PINNED_FIRST_KEY}). Simple shows no account, capture or raw server detail (Analyst's). Card and board
  * models are built on the EDT from the page's detached quest copies, only when the list, pins, type labels, filters, sort,
  * grouping or "Pinned first" change and only while the cards show; the summary line re-reads its relative age once a minute.
  */
@@ -66,9 +67,11 @@ public class QuestGUI extends JPanel {
     private QuestPlanPanel plans;
     private final CustomizableTabs views = new CustomizableTabs("quests");
     private final JTabbedPane tabs = views.component();
-    private final JComboBox<String> sort = new JComboBox<>(new String[] {
-        "Pinned first", "Reward name", "Quest type", "Fewest required items", "Quest name"
-    });
+    /** The Sort order's choices (a "Sort by ▸" radio group in the filter row's ⋯) and their component-name ids. */
+    private static final String[] SORTS = {"Pinned first", "Reward name", "Quest type", "Fewest required items", "Quest name"},
+        SORT_IDS = {"pinned", "reward", "type", "fewest", "name"};
+    private final JMenu sort = new JMenu("Sort by");
+    private final JRadioButtonMenuItem[] sortItems = new JRadioButtonMenuItem[SORTS.length];
     private final JCheckBox completed = new JCheckBox("Show completed");
     private final JCheckBox onlyPinned = new JCheckBox("Pinned only");
     private final JTextArea summary = labelText("Enter the Daily Quest Room during capture to load your quests.");
@@ -85,9 +88,10 @@ public class QuestGUI extends JPanel {
     private Runnable clearFilters = () -> {};
     // The Board's Cards view and its controls; the table, split detail and footer above are its Table view.
     private final JComboBox<String> groupBy = new JComboBox<>(GROUPS);
-    private final JCheckBox pinnedFirst = new JCheckBox("Pinned first");
+    private final JCheckBoxMenuItem pinnedFirst = new JCheckBoxMenuItem("Pinned first");
     private final SegmentedControl view = new SegmentedControl("quest-view", "Cards", "Table");
-    private final JPanel boardControls = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.S, 0));
+    /** The cards' own row control: "Group by", labeled inline. */
+    private final JPanel boardControls = inline("Group by", groupBy);
     private final DisplayModeModel mode = DisplayModeModel.application();
     private final QuestDetail detail;
     private final QuestBoard board;
@@ -208,8 +212,10 @@ public class QuestGUI extends JPanel {
         context.setName("quest-capture-context"); context.getAccessibleContext().setAccessibleName("Quest account and freshness");
         descriptions.add(context, BorderLayout.NORTH); descriptions.add(summary, BorderLayout.SOUTH);
         header.add(descriptions, BorderLayout.NORTH);
-        search.putClientProperty("JTextField.placeholderText", "Search quests, rewards, marks or tokens…");
-        search.getAccessibleContext().setAccessibleName("Search quests"); search.setColumns(22);
+        // Narrower, so the row keeps room for its chips in the shell (P6b); the tooltip keeps what the search reads.
+        search.putClientProperty("JTextField.placeholderText", "Search quests or items…");
+        search.setToolTipText("Search quest names, descriptions, types, rewards and required marks or tokens");
+        search.getAccessibleContext().setAccessibleName("Search quests"); search.setColumns(18);
         JPanel filters = new JPanel(new BorderLayout(0, 6));
         // Wrap whole labeled fields using their font-aware preferred sizes, not 180px cells.
         JPanel selects = ContentStyle.controls();
@@ -233,7 +239,8 @@ public class QuestGUI extends JPanel {
         reset.setName("quest-reset");
         reset.addActionListener(e -> {
             refreshing = true; search.setText(""); type.setSelectedIndex(0); reward.setSelectedIndex(0);
-            completed.setSelected(false); onlyPinned.setSelected(false); sort.setSelectedIndex(0);
+            completed.setSelected(false); onlyPinned.setSelected(false);
+            sortItems[0].setSelected(true); table.getRowSorter().setSortKeys(null); // as choosing a Sort order does
             repeatMode.setSelectedIndex(0); rewardMode.setSelectedIndex(0); expirationMode.setSelectedIndex(0);
             requirementItem.setText(""); requirementCount.setValue(0);
             refreshing = false; refresh();
@@ -241,18 +248,28 @@ public class QuestGUI extends JPanel {
         // Category labeling lives in the Filters drawer (spec §6.5), beside the pinned and completed filters.
         options.add(onlyPinned); options.add(completed); options.add(labels);
         filters.add(options, BorderLayout.CENTER);
-        // One filter row: search, reset, sort and the cards' grouping stay visible (the grouping and, in Analyst, the Cards/Table
-        // toggle wrap below the search when narrow); every narrowing filter lives in the drawer.
+        // One filter row (P6b: one control high at 1240×800 font 13 in the shell, in Simple and Analyst): the search, Reset filters
+        // and the cards' grouping (a primary control, P4) with its label inline, wrapping whole when narrow; Analyst's Cards/Table
+        // toggle is the bar's trailing control (Quests has no Scope chip). Sort by and Pinned first are ⋯ items (below), and every
+        // narrowing filter lives in the drawer.
         groupBy.setName("quest-group-by");
         groupBy.setToolTipText("Group the cards by chest tier (from reward names), by your type labels, or not at all");
+        boardControls.setName("quest-board-controls");
+        view.getAccessibleContext().setAccessibleName("Board view");
+        filterBar.search(new WrapRow(search, reset, boardControls)).scope(view).drawer(filters); clearFilters = reset::doClick;
+        // The ⋯ menu: a "Sort by ▸" radio group (as Party's "Duration unit ▸"), the Sort order of the cards within each group and of
+        // the table; and "Pinned first", the cards' own check item, shown while the cards show.
+        sort.getAccessibleContext().setAccessibleName("Sort by");
+        sort.setToolTipText("The order of the cards within each group, and of the table");
+        ButtonGroup sorts = new ButtonGroup();
+        for (int i = 0; i < SORTS.length; i++) {
+            JRadioButtonMenuItem item = sortItems[i] = new JRadioButtonMenuItem(SORTS[i], i == 0);
+            item.setName("quest-sort-" + SORT_IDS[i]);
+            item.addActionListener(e -> { table.getRowSorter().setSortKeys(null); refresh(); });
+            sorts.add(item); sort.add(item);
+        }
         pinnedFirst.setName("quest-pinned-first");
         pinnedFirst.setToolTipText("Put pinned quests first within each group");
-        pinnedFirst.setOpaque(false);
-        boardControls.setName("quest-board-controls");
-        boardControls.setOpaque(false);
-        boardControls.add(field("Group by", groupBy)); boardControls.add(pinnedFirst);
-        view.getAccessibleContext().setAccessibleName("Board view");
-        filterBar.search(new WrapRow(search, reset, field("Sort by", sort), boardControls, view)).drawer(filters); clearFilters = reset::doClick;
         header.add(filterBar, BorderLayout.CENTER);
 
         ContentStyle.table(table, ContentStyle.Density.COMFORTABLE);
@@ -266,6 +283,11 @@ public class QuestGUI extends JPanel {
                 super.getTableCellRendererComponent(t, v, selected, focus, r, c);
                 setToolTipText(v == null ? null : v.toString());
                 setIcon(null);
+                // Simple reads an unlabeled type as such, never the raw server category; the model, sort and search keep it.
+                if (c == 2 && !analyst && typeLabel(visible.get(t.convertRowIndexToModel(r))).isEmpty()) {
+                    setText(QuestBoardModel.NO_TYPE_TITLE);
+                    setToolTipText("No type label: Name types… in Filters labels it");
+                }
                 if (c == 3) {
                     Quest q = visible.get(t.convertRowIndexToModel(r));
                     if (q.rewards.length > 0) setIcon(icon(q.rewards[0]));
@@ -321,8 +343,8 @@ public class QuestGUI extends JPanel {
         page.setName("quest-page-scroll");
         page.getAccessibleContext().setAccessibleName("Quests; scroll for filters, selected details and actions");
         views.add("captured", "Board", page).add("plans", "Planner", plans); add(tabs, BorderLayout.CENTER);
-        for (JComponent control : new JComponent[]{search, type, reward, sort, repeatMode, rewardMode, expirationMode,
-                requirementItem, requirementCount, onlyPinned, completed, labels, reset, pin, removeGlobal, plan, groupBy, pinnedFirst}) revealOnFocus(control);
+        for (JComponent control : new JComponent[]{search, type, reward, repeatMode, rewardMode, expirationMode,
+                requirementItem, requirementCount, onlyPinned, completed, labels, reset, pin, removeGlobal, plan, groupBy}) revealOnFocus(control);
         // Swing transfers spinner keyboard focus to its editor, not to the spinner itself.
         revealOnFocus(((JSpinner.DefaultEditor) requirementCount.getEditor()).getTextField());
         table.addFocusListener(new java.awt.event.FocusAdapter() {
@@ -342,7 +364,6 @@ public class QuestGUI extends JPanel {
         requirementItem.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { refresh(); } public void removeUpdate(DocumentEvent e) { refresh(); } public void changedUpdate(DocumentEvent e) { refresh(); }
         });
-        sort.addActionListener(e -> { table.getRowSorter().setSortKeys(null); refresh(); });
         completed.addActionListener(e -> refresh()); onlyPinned.addActionListener(e -> refresh());
 
         // Cards view: grouping and "Pinned first" rebuild only the cards; the view, grouping and toggle persist.
@@ -357,6 +378,7 @@ public class QuestGUI extends JPanel {
         view.onChange(index -> showCards(index == 0, true));
         viewItem = filterBar.overflow().add("Table view", () -> showCards(!cardsShown, true));
         viewItem.setName("quest-view-item");
+        filterBar.overflow().section("arrange").replace(sort, pinnedFirst);
         board.onSelect(this::selectCard);
         board.onOpen(this::openDetail);
         detail.onPin(() -> togglePin(quest(detailKey)));
@@ -413,6 +435,19 @@ public class QuestGUI extends JPanel {
         label.setFont(ContentStyle.metadata(ContentStyle.body()));
         component.getAccessibleContext().setAccessibleName(title);
         p.add(label, BorderLayout.NORTH); p.add(component, BorderLayout.CENTER); return p;
+    }
+
+    /**
+     * A filter-row control labeled inline: the label left of it on its line, so the row stays one control high; the pair wraps whole.
+     * The label names the control (its labelFor and accessible name), as {@link #field} does for the drawer's stacked fields.
+     */
+    private static JPanel inline(String title, JComponent component) {
+        JPanel p = new JPanel(new BorderLayout(Tokens.XS + 2, 0));
+        p.setOpaque(false);
+        JLabel label = new JLabel(title); label.setLabelFor(component);
+        label.setFont(ContentStyle.metadata(ContentStyle.body()));
+        component.getAccessibleContext().setAccessibleName(title);
+        p.add(label, BorderLayout.WEST); p.add(component, BorderLayout.CENTER); return p;
     }
 
     /** Copy mutable packet arrays before dispatching work to Swing. */
@@ -504,7 +539,7 @@ public class QuestGUI extends JPanel {
         }
         Comparator<Quest> byName = Comparator.comparing(q -> q.name.toLowerCase(Locale.ROOT));
         Comparator<Quest> order;
-        switch (sort.getSelectedIndex()) {
+        switch (sortOrder()) {
             case 1: order = Comparator.comparing(q -> Arrays.stream(q.rewards).mapToObj(this::itemName)
                 .sorted(String.CASE_INSENSITIVE_ORDER).findFirst().orElse("~").toLowerCase(Locale.ROOT)); break;
             case 2: order = Comparator.comparing(this::typeName); break;
@@ -526,7 +561,7 @@ public class QuestGUI extends JPanel {
         } finally { refreshing = false; }
         showSummary();
         count.setText(captured ? visible.size() + " shown • Requirements shown; owned items not checked." : "No quests captured");
-        for (JComboBox<String> combo : Arrays.asList(type, reward, sort)) combo.setToolTipText((String)combo.getSelectedItem());
+        for (JComboBox<String> combo : Arrays.asList(type, reward)) combo.setToolTipText((String)combo.getSelectedItem());
         showDetails();
         showContext();
         refreshBoard();
@@ -572,6 +607,12 @@ public class QuestGUI extends JPanel {
 
     private QuestBoardModel.GroupBy groupBy() { return QuestBoardModel.GroupBy.values()[Math.max(0, groupBy.getSelectedIndex())]; }
 
+    /** The chosen Sort order: the index of the selected "Sort by ▸" item in {@link #SORTS}. */
+    private int sortOrder() {
+        for (int i = 0; i < sortItems.length; i++) if (sortItems[i].isSelected()) return i;
+        return 0;
+    }
+
     /**
      * Rebuilds the cards from the visible quests (the filters' result in the Sort order) and applies them: only when an input
      * changed (every caller is one) and only while the cards show; switching to the cards does it then.
@@ -606,6 +647,7 @@ public class QuestGUI extends JPanel {
         split.setVisible(!show);
         board.setVisible(show);
         boardControls.setVisible(show);
+        pinnedFirst.setVisible(show); // the cards' own ⋯ item
         pinActions.setVisible(!show);
         view.setSelected(show ? 0 : 1);
         viewItem.setText(show ? "Table view" : "Cards view");
@@ -633,9 +675,18 @@ public class QuestGUI extends JPanel {
         return false;
     }
 
-    /** Analyst: the Cards/Table toggle in the filter row and the raw details; Simple: the other view in the ⋯ menu (hidden when alone). */
+    /**
+     * Analyst: the Cards/Table toggle in the filter row, the account and capture line above the summary, and the raw details (the
+     * stable ID, the server category, the raw expiration) in the drawer and the Table view. Simple: the plain summary line alone
+     * (stale still labeled there), the user's type labels only, and the other view in the ⋯ menu (hidden when alone). The hidden
+     * line keeps its text current; the table's model, sort and search keep the raw category (renderer only).
+     */
     private void modeChanged(DisplayModeModel.Mode value) {
         analyst = value == DisplayModeModel.Mode.ANALYST;
+        context.setVisible(analyst);
+        context.getParent().revalidate();
+        table.repaint();
+        showDetails();
         view.setVisible(analyst);
         viewItem.setVisible(!analyst);
         boolean items = false;
@@ -741,10 +792,12 @@ public class QuestGUI extends JPanel {
             JTextArea title = text(q.name); title.setName("quest-detail-title");
             ContentStyle.font(title, ContentStyle.emphasis(ContentStyle.body()).deriveFont(ContentStyle.body().getSize2D() * 16f / ContentStyle.FONT_SIZE));
             body.add(title); body.add(Box.createVerticalStrut(6));
-            body.add(text(typeName(q) + " • " + status(q) + " • " + (q.requirementsKnown ? q.requirements.length + " required items" : "Requirements not captured")));
-            body.add(text(q.id.isEmpty() ? "Stable ID unavailable · provisional interest only" : "Stable quest ID: " + q.id));
+            // As the drawer: Simple names the user's type label (never the server category) and leaves out the raw server details.
+            String type = analyst ? typeName(q) : typeLabel(q).isEmpty() ? "No type label (Name types… in Filters)" : typeLabel(q);
+            body.add(text(type + " • " + status(q) + " • " + (q.requirementsKnown ? q.requirements.length + " required items" : "Requirements not captured")));
+            if (analyst) body.add(text(q.id.isEmpty() ? "Stable ID unavailable · provisional interest only" : "Stable quest ID: " + q.id));
             if (!q.description.isEmpty()) body.add(text(q.description));
-            body.add(text("Expiration (raw server value): " + (q.expiration.isEmpty() ? "Not supplied" : q.expiration)));
+            if (analyst) body.add(text("Expiration (raw server value): " + (q.expiration.isEmpty() ? "Not supplied" : q.expiration)));
             body.add(Box.createVerticalStrut(8));
             JPanel exchange = ContentStyle.responsiveGrid(2, 220, 8);
             exchange.add(itemPanel("BRING • all required items", q.requirements, q.requirementsKnown));
@@ -752,8 +805,8 @@ public class QuestGUI extends JPanel {
             exchange.setAlignmentX(Component.LEFT_ALIGNMENT);
             body.add(exchange);
             body.add(Box.createVerticalStrut(8));
-            body.add(text("Compare turn-ins: select a reward above, then sort by Fewest required items. Pin quests you want to keep at the top."));
-            body.add(text("Server category: " + q.category + " • Use Name types to label it Daily, Event, or Utility."));
+            body.add(text("Compare turn-ins: select a reward above, then choose ⋯ › Sort by › Fewest required items. Pin quests you want to keep at the top."));
+            if (analyst) body.add(text("Server category: " + q.category + " • Use Name types to label it Daily, Event, or Utility."));
             if (globalPinned.contains(key(q))) body.add(text("Legacy global interest · Not an account-specific plan."));
             details.add(body, BorderLayout.NORTH);
             pin.setText(pinned.contains(key(q)) ? "Unpin quest" : source == null ? "Pin quest" : "Pin for account");

@@ -5,7 +5,7 @@ import javax.swing.*;
 
 /** Current collector state is independent of the displayed data revision, including paused views. */
 public final class CollectionControl extends JCheckBox {
-    public static final String EFFECT = "Shared with Logging, Runs, Timeline, resource/buff history and recorded Inspect builds. "
+    public static final String EFFECT = "Shared with Logging, Runs, Timeline, resource/buff history and recorded Party builds. "
         + "Capture connection must also be running. Does not stop the network sniffer or independent Chat, loot and DPS processing.";
     private final DiscoveryLog log;
     private final Timer timer;

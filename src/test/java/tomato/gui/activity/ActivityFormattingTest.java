@@ -43,7 +43,8 @@ public class ActivityFormattingTest {
         try {
             Locale.setDefault(Locale.Category.FORMAT, Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             SwingUtilities.invokeAndWait(() -> {
-                runs[0] = new ActivityPanel(log, ActivityPanel.Mode.RUNS); runs[0].refresh();
+                // Analyst: the RUNS time cells below stay absolute (Simple reads them relatively since P6b).
+                runs[0] = new ActivityPanel(log, ActivityPanel.Mode.RUNS, analyst()); runs[0].refresh();
                 combat[0] = new ActivityPanel(log, ActivityPanel.Mode.COMBAT); combat[0].refresh();
             });
             await(() -> named(runs[0], "activity-table", JTable.class).getRowCount() == 1
@@ -191,7 +192,8 @@ public class ActivityFormattingTest {
             Locale.setDefault(Locale.Category.FORMAT, Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             SwingUtilities.invokeAndWait(() -> {
                 ActivityPanel.Mode[] modes = {ActivityPanel.Mode.RUNS, ActivityPanel.Mode.TIMELINE, ActivityPanel.Mode.COMBAT};
-                for (int i = 0; i < panels.length; i++) { panels[i] = new ActivityPanel(log, modes[i]); panels[i].refresh(); }
+                // Analyst for RUNS: its time cells below stay absolute (Simple reads them relatively since P6b).
+                for (int i = 0; i < panels.length; i++) { panels[i] = i == 0 ? new ActivityPanel(log, modes[i], analyst()) : new ActivityPanel(log, modes[i]); panels[i].refresh(); }
             });
             await(() -> activityTable(panels[0]).getRowCount() == 3 && activityTable(panels[1]).getRowCount() == 1000
                 && named(panels[2], "activity-visit", JComboBox.class).getItemCount() == 3 && idle(panels));
@@ -280,6 +282,8 @@ public class ActivityFormattingTest {
         }
         return history;
     }
+    /** An Analyst display mode of the test's own (the application's mode is untouched). */
+    private static tomato.gui.kit.DisplayModeModel analyst() { return new tomato.gui.kit.DisplayModeModel(key -> "analyst", (key, value) -> { }); }
     private static JTable activityTable(ActivityPanel panel) { return named(panel, "activity-table", JTable.class); }
     private static JTextField activitySearch(ActivityPanel panel) { return named(panel, "activity-search", JTextField.class); }
     private static boolean idle(ActivityPanel... panels) {

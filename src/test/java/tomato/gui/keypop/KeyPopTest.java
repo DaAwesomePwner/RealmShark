@@ -109,13 +109,13 @@ public class KeyPopTest {
         SwingUtilities.invokeAndWait(() -> {
             KeyPopHistory history = sample();
             KeyPopDashboard ui = new KeyPopDashboard(history);
-            assertEquals("6", ui.metrics[0].getText()); assertEquals("3", ui.metrics[1].getText());
-            assertEquals("3", ui.metrics[2].getText()); assertEquals("5", ui.metrics[3].getText());
+            assertEquals("6", ui.metrics[0].valueText()); assertEquals("3", ui.metrics[1].valueText());
+            assertEquals("3", ui.metrics[2].valueText()); assertEquals("5", ui.metrics[3].valueText());
             assertEquals("Aster", ui.players.getValueAt(0, 0)); assertEquals(3, ui.players.getValueAt(0, 1));
             assertEquals(50.0, (Double)ui.players.getValueAt(0, 6), .001);
             assertEquals("Lost Halls", ui.items.getValueAt(0, 0)); assertEquals(2, ui.items.getValueAt(0, 1));
             ui.search.setText("aster"); assertEquals(3, ui.events.getRowCount());
-            ui.type.setSelectedItem("Key"); assertEquals(2, ui.events.getRowCount()); assertEquals("1", ui.metrics[2].getText());
+            ui.type.setSelectedItem("Key"); assertEquals(2, ui.events.getRowCount()); assertEquals("1", ui.metrics[2].valueText());
             ui.item.setSelectedItem("Vial"); assertEquals(0, ui.events.getRowCount()); assertTrue(ui.empty.isVisible());
             ui.resetFilters(); ui.period.setSelectedItem("Last hour"); assertEquals(5, ui.events.getRowCount());
             ui.resetFilters(); ui.events.getRowSorter().toggleSortOrder(0);
@@ -124,7 +124,7 @@ public class KeyPopTest {
             ui.events.setRowSelectionInterval(0, 0);
             history.add(event(Instant.now(), "Wren", "Lost Halls", KeyPopEvent.Kind.KEY));
             ui.refresh(); assertEquals("Nova", ui.events.getValueAt(ui.events.getSelectedRow(), 1));
-            ui.clearHistory(); assertEquals("0", ui.metrics[0].getText()); assertEquals(0, ui.players.getRowCount());
+            ui.clearHistory(); assertEquals("0", ui.metrics[0].valueText()); assertEquals(0, ui.players.getRowCount());
         });
     }
 
