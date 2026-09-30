@@ -26,7 +26,7 @@ public class AssetRecoveryTest {
         Field rules = tomato.backend.data.AbilityScalingManager.class.getDeclaredField("rules"); rules.setAccessible(true);
         scalingRules = rules.get(tomato.backend.data.AbilityScalingManager.getInstance());
         keep(IdToAsset.class, "objectID"); keep(IdToAsset.class, "tileID");
-        for (String name : new String[]{"ENCHANTS", "ENCHANT_EFFECTS", "ENCHANT_REGEN", "ENCHANT_LOOT_BONUS"}) keep(ParseEnchants.class, name);
+        for (String name : new String[]{"ENCHANTS", "ENCHANT_EFFECTS", "ENCHANT_REGEN", "ENCHANT_LOOT_BONUS", "ENCHANT_DEFINITIONS"}) keep(ParseEnchants.class, name);
     }
     private void keep(Class<?> type, String name) throws Exception { Field field = type.getDeclaredField(name); field.setAccessible(true); original.put(field, field.get(null)); }
     @After public void restore() throws Exception {

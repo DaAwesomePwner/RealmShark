@@ -31,7 +31,7 @@ public final class AssetGenerationFixture implements AutoCloseable {
         save(tomato.realmshark.ParseDungeon.class, "CATALOG", null);
         for (String field : new String[]{"CHAR_CLASS_LIST", "CHARACTER_CLASS", "CLASS_NAME", "CLASS_MAX_STATS", "WEAPON_CLASSES", "CHARACTER_IDS"})
             save(tomato.realmshark.enums.CharacterClass.class, field, null);
-        for (String field : new String[]{"ENCHANTS", "ENCHANT_EFFECTS", "ENCHANT_REGEN", "ENCHANT_LOOT_BONUS"})
+        for (String field : new String[]{"ENCHANTS", "ENCHANT_EFFECTS", "ENCHANT_REGEN", "ENCHANT_LOOT_BONUS", "ENCHANT_DEFINITIONS"})
             save(tomato.realmshark.ParseEnchants.class, field, null);
         save(AbilityScalingManager.class, "rules", AbilityScalingManager.getInstance());
         source = Files.createTempFile(Paths.get("."), "synthetic-atlas-", ".assets");
