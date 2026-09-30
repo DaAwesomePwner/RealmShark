@@ -2,8 +2,10 @@ package tomato.gui.kit;
 
 import java.awt.*;
 import java.util.Arrays;
+import java.util.Collections;
 import javax.swing.*;
 import tomato.gui.modern.ContentStyle;
+import tomato.realmshark.EnchantInfo;
 
 /** Every kit component with representative synthetic values, for visual review. */
 final class KitGallery {
@@ -60,6 +62,22 @@ final class KitGallery {
         card.header().setCount("7/8 maxed");
         card.onOpen("Open character", () -> {});
         page.add(card);
+
+        JPanel gems = new JPanel(new FlowLayout(FlowLayout.LEFT, Tokens.XS, 0));
+        gems.setOpaque(false);
+        EnchantInfo.Rarity[] rarities = {EnchantInfo.Rarity.UNCOMMON, EnchantInfo.Rarity.RARE, EnchantInfo.Rarity.LEGENDARY, EnchantInfo.Rarity.DIVINE};
+        for (int size : new int[] {20, 24, 32, 48}) {
+            for (EnchantInfo.Rarity rarity : rarities) {
+                ItemSlot slot = new ItemSlot(size);
+                slot.setItem(987_654_321, "UT", new EnchantInfo(EnchantInfo.State.RECORDED, rarity,
+                    Collections.nCopies(rarity.ordinal(), new EnchantInfo.Slot(-1))));
+                gems.add(slot);
+            }
+            ItemSlot unreadable = new ItemSlot(size);
+            unreadable.setItem(987_654_321, "T12", EnchantInfo.unreadable());
+            gems.add(unreadable);
+        }
+        page.add(section("Enchant gems", gems));
 
         page.add(new Collapsible("gallery-timeline", "Timeline", new JLabel("Area entered · Equipment changed · Exalt gained"), true, k -> null, (k, v) -> {}));
         page.add(new EmptyState("See your character here", "Start capture and enter the game to load your character.", KitButton.primary("Start capture")));
