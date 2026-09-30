@@ -33,6 +33,7 @@ public final class HistoryTables {
         table.setDefaultRenderer(Integer.class,new ContentStyle.Cell(){protected void setValue(Object value){setText(value==null?DisplayFormat.UNAVAILABLE:value.toString());}});
         for(int i=0;i<columns.length;i++)table.getColumnModel().getColumn(i).setPreferredWidth(i==0?240:145);
         track(table);   // before any KitTables.analystOnly, so every column is known (see columnState)
+        Fill fill=new Fill(table);table.putClientProperty(FILL,fill);fill.install();
         return table;
     }
     public static JComponent page(JTable table,String note){
@@ -63,7 +64,7 @@ public final class HistoryTables {
         for(int c=0;c<columns.size();c++){TableColumn column=table.getColumnModel().getColumn(c);Column<R,?> spec=columns.get(c);column.setIdentifier(spec.id);
             if(spec.renderer!=null)column.setCellRenderer(spec.renderer);
             else if(spec.kind!=null&&spec.type==String.class&&TEXT_KINDS.contains(spec.kind))column.setCellRenderer(KitTables.renderer(spec.kind));
-            if(spec.kind!=null)KitTables.fitKind(table,column,spec.kind);}
+            if(spec.kind!=null){KitTables.fitKind(table,column,spec.kind);kindsOf(table).put(spec.id,spec.kind);}}
         Consumer<ArchiveQuery.Direction> sort=direction->{
             int view=table.getSelectedColumn();if(view<0)view=0;if(table.getColumnCount()==0)return;
             S field=sorts.get(table.getColumnModel().getColumn(view).getIdentifier().toString());
@@ -90,8 +91,126 @@ public final class HistoryTables {
      * so displayed text, sorting and exports stay identical.
      */
     public static void kinds(JTable table,Map<String,ColumnKind> kinds){
-        for(TableColumn column:allColumns(table)){ColumnKind kind=kinds.get(String.valueOf(column.getIdentifier()));if(kind!=null)KitTables.fitKind(table,column,kind);}
+        for(TableColumn column:allColumns(table)){String id=String.valueOf(column.getIdentifier());ColumnKind kind=kinds.get(id);if(kind!=null){KitTables.fitKind(table,column,kind);kindsOf(table).put(id,kind);}}
     }
+    /**
+     * Names the column that takes the spare width of a table {@link #table} or {@link #queried} built (see {@link Fill}); null, or a
+     * column not shown, leaves the default: the last shown TEXT, ITEM, PLAYER or DUNGEON column. Display only, like the fill.
+     */
+    public static void fill(JTable table,String columnId){
+        table.putClientProperty(FILL_COLUMN,columnId);Object fill=table.getClientProperty(FILL);if(fill instanceof Fill)((Fill)fill).later();
+    }
+    /** Table client property: the ID of the column {@link #fill} named. */
+    public static final String FILL_COLUMN="archive.fillColumn";
+    /** Table client properties: the table's {@link Fill}, and the ColumnKind of each column by ID ({@link #queried}, {@link #kinds}). */
+    private static final String FILL="archive.fill",KINDS="archive.kinds";
+    /** Kinds that may take the spare width: left-aligned free text. Status, class and ID columns stay compact and centred or short. */
+    private static final Set<ColumnKind> FILL_KINDS=EnumSet.of(ColumnKind.TEXT,ColumnKind.ITEM,ColumnKind.PLAYER,ColumnKind.DUNGEON);
+    /** Rows measured for a cut value (archive pages are shorter); measuring happens only while the viewport has room. */
+    private static final int MEASURED_ROWS=500;
+    @SuppressWarnings("unchecked") private static Map<String,ColumnKind> kindsOf(JTable table){
+        Object saved=table.getClientProperty(KINDS);if(saved==null){saved=new HashMap<String,ColumnKind>();table.putClientProperty(KINDS,saved);}return (Map<String,ColumnKind>)saved;
+    }
+    /**
+     * Polish D: a saved table (AUTO_RESIZE_OFF) narrower than its viewport uses the spare width instead of ending short. First each
+     * shown column whose widest value on the page (first {@value #MEASURED_ROWS} rows) or header is cut grows to show it, the
+     * smallest shortfall first so the most columns read whole; what is left goes to the fill column ({@link #fill}, else the last
+     * shown TEXT, ITEM, PLAYER or DUNGEON column, or a String column without a kind; none: the space stays spare). Wider columns
+     * than the viewport: every column keeps its own width and the table scrolls sideways as before.
+     * <p>Display only. A widened column keeps its own width (the layout's, a preset's or the user's), which {@link #columnState}
+     * reports, so no layout records a fitted width; the fit's own changes are marked {@link #RESTORING_COLUMNS}. Any other width
+     * change (a user's resize) becomes that column's own width and is saved as usual. It refits when the viewport's width changes,
+     * after a font change (once {@code KitTables.fitKind} has refitted the kinds), after a layout, preset or Reset
+     * ({@link #applyColumns}), after a user resize or a column shown or hidden, and when rows change. Never on a display-mode switch
+     * ({@code KitTables.MODE_CHANGING}): widths never change on a switch, so its spare width stays spare (or its columns scroll)
+     * until one of those happens.
+     */
+    private static final class Fill {
+        private final JTable table;
+        /** Each column the fit widened: its own width, and the width the fit gave it. Columns the mode hides keep theirs. */
+        final Map<TableColumn,Integer> own=new HashMap<>(),fitted=new HashMap<>();
+        private boolean fitting,pending;
+        /** The viewport width of the last fit; a resize of another size (a taller viewport) does not refit. */
+        private int viewport=-1;
+        Fill(JTable table){this.table=table;}
+        void install(){
+            table.addHierarchyBoundsListener(new HierarchyBoundsAdapter(){@Override public void ancestorResized(HierarchyEvent e){if(viewportWidth()!=viewport)later();}});
+            table.addHierarchyListener(e->{if((e.getChangeFlags()&(HierarchyEvent.PARENT_CHANGED|HierarchyEvent.SHOWING_CHANGED))!=0)later();});
+            // A font change: own widths back first, so KitTables.fitKind (a later EDT turn) refits the kinds; the fit follows it.
+            table.addPropertyChangeListener("font",e->{release();SwingUtilities.invokeLater(this::later);});
+            table.getModel().addTableModelListener(e->later());
+            if(table.getTableHeader()!=null)table.getTableHeader().addMouseListener(new MouseAdapter(){@Override public void mouseReleased(MouseEvent e){later();}});
+            table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener(){
+                // HistoryTables' own changes (applyColumns refits itself) and the mode's are quiet: read in the callback, as MODE_CHANGING is only set while columns move.
+                public void columnAdded(javax.swing.event.TableColumnModelEvent e){if(!quiet())later();}
+                public void columnRemoved(javax.swing.event.TableColumnModelEvent e){if(!quiet())later();}
+                public void columnMoved(javax.swing.event.TableColumnModelEvent e){ }
+                public void columnMarginChanged(javax.swing.event.ChangeEvent e){if(fitting)return;adopt();if(!quiet())later();}
+                public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e){ }
+            });
+        }
+        private boolean quiet(){return Boolean.TRUE.equals(table.getClientProperty(RESTORING_COLUMNS))||Boolean.TRUE.equals(table.getClientProperty(KitTables.MODE_CHANGING));}
+        private int viewportWidth(){return table.getParent() instanceof JViewport?table.getParent().getWidth():-1;}
+        /** A widened column someone else re-sized (the user, a layout, the mode restoring a width): that width is its own now. */
+        private void adopt(){
+            for(Iterator<Map.Entry<TableColumn,Integer>> it=fitted.entrySet().iterator();it.hasNext();){
+                Map.Entry<TableColumn,Integer> entry=it.next();if(entry.getKey().getWidth()!=entry.getValue()){own.remove(entry.getKey());it.remove();}
+            }
+        }
+        /** Every widened column back at its own width (before a layout applies, or a font change refits the kinds). */
+        void release(){
+            if(own.isEmpty())return;Map<TableColumn,Integer> back=new HashMap<>(own);own.clear();fitted.clear();
+            restoring(table,()->{fitting=true;try{for(Map.Entry<TableColumn,Integer> entry:back.entrySet())size(entry.getKey(),entry.getValue());}finally{fitting=false;}});
+        }
+        /** One fit on a later EDT turn, however many changes ask for it. */
+        void later(){if(pending)return;pending=true;SwingUtilities.invokeLater(()->{pending=false;fit();});}
+        void fit(){
+            if(Boolean.TRUE.equals(table.getClientProperty(KitTables.MODE_CHANGING)))return;
+            int width=viewportWidth();if(width<=0)return;
+            // During a header drag the dragged width is the user's; the release refits.
+            if(table.getTableHeader()!=null&&table.getTableHeader().getResizingColumn()!=null)return;
+            viewport=width;List<TableColumn> shown=allColumns(table);if(shown.isEmpty())return;
+            Map<TableColumn,Integer> target=new LinkedHashMap<>();int spare=width;
+            for(TableColumn column:shown){int base=ownWidth(column);target.put(column,base);spare-=base;}
+            if(spare>0){
+                Map<TableColumn,Integer> lacking=new HashMap<>();List<TableColumn> cut=new ArrayList<>();
+                for(TableColumn column:shown){int lack=needed(column)-target.get(column);if(lack>0){lacking.put(column,lack);cut.add(column);}}
+                cut.sort(Comparator.comparingInt(lacking::get));
+                for(TableColumn column:cut){if(spare<=0)break;int grow=Math.min(lacking.get(column),spare);target.merge(column,grow,Integer::sum);spare-=grow;}
+                TableColumn fill=spare>0?fillColumn(shown):null;if(fill!=null)target.merge(fill,spare,Integer::sum);
+            }
+            restoring(table,()->{fitting=true;try{
+                for(Map.Entry<TableColumn,Integer> entry:target.entrySet()){
+                    TableColumn column=entry.getKey();int base=ownWidth(column);size(column,entry.getValue());
+                    if(column.getWidth()==base){own.remove(column);fitted.remove(column);}else{own.putIfAbsent(column,base);fitted.put(column,column.getWidth());}
+                }
+            }finally{fitting=false;}});
+        }
+        int ownWidth(TableColumn column){Integer saved=own.get(column);return saved!=null?saved:column.getWidth();}
+        private static void size(TableColumn column,int width){if(column.getPreferredWidth()!=width||column.getWidth()!=width){column.setPreferredWidth(width);column.setWidth(width);}}
+        /** The width that shows the column's header and its widest value (plus the column margin) whole. */
+        private int needed(TableColumn column){
+            int view=allColumns(table).indexOf(column),need=0;
+            javax.swing.table.JTableHeader header=table.getTableHeader();
+            TableCellRenderer title=column.getHeaderRenderer()!=null?column.getHeaderRenderer():header==null?null:header.getDefaultRenderer();
+            if(title!=null)need=title.getTableCellRendererComponent(table,column.getHeaderValue(),false,false,-1,view).getPreferredSize().width;
+            int margin=table.getColumnModel().getColumnMargin();
+            for(int row=0,rows=Math.min(table.getRowCount(),MEASURED_ROWS);row<rows;row++)
+                need=Math.max(need,table.prepareRenderer(table.getCellRenderer(row,view),row,view).getPreferredSize().width+margin);
+            return need;
+        }
+        private TableColumn fillColumn(List<TableColumn> shown){
+            Object named=table.getClientProperty(FILL_COLUMN);
+            if(named!=null)for(TableColumn column:shown)if(named.toString().equals(id(column)))return column;
+            Map<String,ColumnKind> kinds=kindsOf(table);
+            for(int i=shown.size()-1;i>=0;i--){
+                TableColumn column=shown.get(i);ColumnKind kind=kinds.get(id(column));
+                if(kind!=null?FILL_KINDS.contains(kind):table.getModel().getColumnClass(column.getModelIndex())==String.class)return column;
+            }
+            return null;
+        }
+    }
+    private static Fill fillOf(JTable table){Object fill=table.getClientProperty(FILL);return fill instanceof Fill?(Fill)fill:null;}
     private static void action(JTable table,String stroke,String name,Runnable run){
         table.getInputMap().put(KeyStroke.getKeyStroke(stroke),name);table.getActionMap().put(name,new AbstractAction(){public void actionPerformed(ActionEvent e){run.run();}});
     }
@@ -136,7 +255,8 @@ public final class HistoryTables {
         List<TableColumn> retained=retainedColumns(table);for(TableColumn column:columns)if(!retained.contains(column))retained.add(column);
     }
     private static String id(TableColumn column){return column.getIdentifier().toString();}
-    private static int width(TableColumn column){return Math.max(16,Math.min(10000,column.getWidth()));}
+    /** A column's width for a layout: its own width, never one the spare-width fit gave it ({@link Fill}). */
+    private static int width(JTable table,TableColumn column){Fill fill=fillOf(table);return Math.max(16,Math.min(10000,fill==null?column.getWidth():fill.ownWidth(column)));}
     /** The IDs {@code KitTables.analystOnly} hides right now (every Analyst-only column while Simple, none in Analyst). */
     private static Set<String> modeHidden(JTable table){Set<String> ids=new HashSet<>();for(Object id:KitTables.modeHidden(table))ids.add(String.valueOf(id));return ids;}
     private static void restoring(JTable table,Runnable change){
@@ -194,12 +314,13 @@ public final class HistoryTables {
      * {@code KitTables.analystOnly} hides in Simple is saved as the user left it (shown unless a layout hid it), at its place, with
      * its width: never as hidden because of the mode. Tables with Analyst-only columns must reach HistoryTables ({@link #table},
      * {@link #queried}, {@link #rememberLayout}, {@link #columnTools} or this) before the mode first hides them; a hidden column
-     * it never saw is written only when a restored layout gave it a width.
+     * it never saw is written only when a restored layout gave it a width. Widths are each column's own, never one the spare-width
+     * fit ({@link Fill}) gave it.
      */
     public static ViewState.Table columnState(JTable table,String preset){
         ModeLayout mode=track(table);Set<String> hidden=modeHidden(table);
         List<ViewState.Column> columns=new ArrayList<>();Set<String> listed=new HashSet<>();
-        for(TableColumn column:allColumns(table)){listed.add(id(column));columns.add(new ViewState.Column(id(column),width(column),true));}
+        for(TableColumn column:allColumns(table)){listed.add(id(column));columns.add(new ViewState.Column(id(column),width(table,column),true));}
         Map<String,TableColumn> known=new LinkedHashMap<>();for(TableColumn column:retainedColumns(table))known.putIfAbsent(id(column),column);
         SortedMap<Integer,List<ViewState.Column>> placed=new TreeMap<>();
         List<String> order=new ArrayList<>(known.keySet());for(String id:hidden)if(!order.contains(id))order.add(id);
@@ -208,15 +329,16 @@ public final class HistoryTables {
             TableColumn column=known.get(id);Integer width=mode.widths.get(id);if(column==null&&width==null)continue;
             Integer place=mode.places.containsKey(id)?mode.places.get(id):mode.hiddenAt.get(id);
             placed.computeIfAbsent(place==null?Integer.MAX_VALUE:place,key->new ArrayList<>())
-                .add(new ViewState.Column(id,width!=null?Math.max(16,Math.min(10000,width)):width(column),mode.userVisible(id)));listed.add(id);
+                .add(new ViewState.Column(id,width!=null?Math.max(16,Math.min(10000,width)):width(table,column),mode.userVisible(id)));listed.add(id);
         }
         for(Map.Entry<Integer,List<ViewState.Column>> entry:placed.entrySet())for(ViewState.Column column:entry.getValue())columns.add(Math.min(entry.getKey(),columns.size()),column);
-        for(TableColumn column:known.values())if(listed.add(id(column)))columns.add(new ViewState.Column(id(column),width(column),false));
+        for(TableColumn column:known.values())if(listed.add(id(column)))columns.add(new ViewState.Column(id(column),width(table,column),false));
         return new ViewState.Table(preset,columns);
     }
     /**
      * Applies a layout: widths, order and the user's visibility. In Simple a column {@code KitTables.analystOnly} hides stays
-     * hidden; its saved width, place and visibility are kept for Analyst (a column the layout hides does not come back there).
+     * hidden; its saved width, place and visibility are kept for Analyst (a column the layout hides does not come back there). The
+     * layout's widths are the columns' own; a built table then fits its spare width again ({@link Fill}).
      *
      * @throws IllegalArgumentException when the layout shows no column
      */
@@ -228,7 +350,9 @@ public final class HistoryTables {
         for(ViewState.Column saved:state.columns){listed.add(saved.id);if(saved.visible&&(columns.containsKey(saved.id)||hidden.contains(saved.id)))shows=true;}
         for(String id:columns.keySet())if(!listed.contains(id))shows=true;   // columns the layout does not list are shown
         if(!shows)throw new IllegalArgumentException("Keep at least one visible column");
+        Fill fill=fillOf(table);
         restoring(table,()->{
+            if(fill!=null)fill.release();   // the layout's widths are own widths; the spare width is fitted again below
             List<TableColumn> visible=new ArrayList<>();int place=0;
             for(ViewState.Column saved:state.columns){
                 TableColumn column=columns.remove(saved.id);boolean later=hidden.contains(saved.id);
@@ -246,6 +370,7 @@ public final class HistoryTables {
             for(TableColumn column:allColumns(table))table.removeColumn(column);for(TableColumn column:visible)table.addColumn(column);
             table.putClientProperty(PRESET,state.preset);
         });
+        if(fill!=null)fill.later();
     }
     /**
      * Saves the table's layout ("Custom") one EDT turn after the user moves or resizes a column. Changes HistoryTables makes itself

@@ -150,8 +150,6 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             openRun=drillAction("Open recorded run"),rateDetails=drillAction("Dungeon rate calculation");
         /** The view row's selector: only without Explore, whose one selector leads the workspace's filter row. */
         private ViewSelector<View> selector;
-        /** Fame history's Name column: the layout's own width (-1: not fitted), the width fitted to the viewport (-1: none), and the fit's guards. */
-        private int nameWidth=-1,fitted=-1;private boolean fitting,refitting;
         Render(ArchivePage<Row> page,ViewState<Facets,Sort> state,Binding<Facets,Sort> binding){
             super(new BorderLayout(0,5));this.page=page;this.current=state;this.binding=binding;View view=state.query.facets().view;
             // One view selector replaces the tabs (P6a): the offered views, and a routed or restored view outside them as its "Current view".
@@ -165,6 +163,8 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             // Explore's count line follows the mode (Simple: one plain line); the mode never changes the query.
             if(explore!=null)explore.mode().bind(this,mode->counts());else counts();
             table=HistoryTables.queried("loot-archive-table",columns(),page,sorts(),state.query,this::query,this::detail);sizeColumns(table);
+            // Polish B7/D: Fame history's Name takes the spare width while the columns fit (display only; HistoryTables.fill).
+            if(view==View.FAME)HistoryTables.fill(table,"name");
             ViewState.Table defaults=HistoryTables.columnState(table,"All columns");ViewState.Table compact=compact(defaults,view);
             HistoryTables.applyColumns(table,current.tables.getOrDefault(view.name(),compact));
             // Polish B4: an Items column that reads "—" on every row says nothing in Simple, so Explore's Simple leaves it out of every
@@ -181,14 +181,13 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
             detailScroll.setPreferredSize(new Dimension(300,130));JSplitPane split=new JSplitPane(JSplitPane.VERTICAL_SPLIT,scroll,detailScroll);split.setResizeWeight(.75);body.add(split);
             JPanel actions=new JPanel(new BorderLayout());Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("Compact",visible(compact));presets.put("All analytical columns",visible(defaults));
             // The column tools go to the workspace ⋯ (filters()); moves and resizes are still remembered with the view state.
-            java.util.function.Consumer<ViewState.Table> saveLayout=layout->{current=current.withTable(view.name(),layoutWidths(layout));savePosition();};
+            java.util.function.Consumer<ViewState.Table> saveLayout=layout->{current=current.withTable(view.name(),layout);savePosition();};
             HistoryTables.rememberLayout(table,saveLayout);tools=HistoryTables.columnTools(table,defaults,presets,saveLayout);
             if(view.loot()||view==View.RATES)actions.add(drillActions(view),BorderLayout.NORTH);
             if(view==View.SESSIONS||view==View.FAME){JButton graph=new JButton("Open selected session's full fame graph");graph.setName("archive-open-fame");graph.addActionListener(e->openFame(graph));actions.add(graph,BorderLayout.SOUTH);}
             body.add(actions,BorderLayout.SOUTH);
             table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!restoring){savePosition();int r=table.getSelectedRow();if(r>=0)detail(page.rows.get(r));updateDrill(selected());}});
             scroll.getViewport().addChangeListener(e->{if(!restoring)savePosition();});HistoryTables.restorePosition(table,scroll,page,current);
-            if(view==View.FAME)fillName();
             restoring=false;
             ArchiveRow<Row> restored=selected();if(restored!=null)detail(restored);updateDrill(restored);
             if(explore!=null){
@@ -230,53 +229,6 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         /** A user's choice in the view row: the tabs' logic (the view, its own position, the query). */
         private void choose(View selected){
             if(restoring)return;Facets f=current.query.facets();f.view=selected;current=current.withPosition(selected.name(),Collections.emptyList(),null,0);binding.viewChanged(current);query(current.query.withFacets(f));
-        }
-        /**
-         * Polish B7 (Fame history): while the columns fit, Name takes the table's spare width instead of the table ending at about
-         * 60 %. Display only: {@link #nameWidth} is the layout's own Name width (the applied layout, a preset or Reset, or the user's
-         * drag); the fitted width is never saved as a layout change, and a layout saved for another reason records the layout's own
-         * Name width ({@link #layoutWidths}).
-         */
-        private void fillName(){
-            javax.swing.table.TableColumn name=nameColumn();if(name!=null)nameWidth=name.getWidth();
-            scroll.getViewport().addComponentListener(new java.awt.event.ComponentAdapter(){@Override public void componentResized(java.awt.event.ComponentEvent e){fitName();}});
-            table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener(){
-                // A column shown or hidden, or another width, changes what is spare: refit after the layout the change triggers.
-                public void columnAdded(javax.swing.event.TableColumnModelEvent e){refit();}
-                public void columnRemoved(javax.swing.event.TableColumnModelEvent e){refit();}
-                public void columnMoved(javax.swing.event.TableColumnModelEvent e){}
-                public void columnMarginChanged(javax.swing.event.ChangeEvent e){
-                    if(fitting)return;javax.swing.table.TableColumn shown=nameColumn();
-                    // Name changed by anything but the fit (a drag, a preset, Reset, a restored layout): that is the layout's width now.
-                    if(shown!=null&&nameWidth>=0&&shown.getWidth()!=(fitted<0?nameWidth:fitted)){nameWidth=shown.getWidth();fitted=-1;}
-                    refit();
-                }
-                public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e){}
-            });
-        }
-        private void refit(){if(refitting)return;refitting=true;SwingUtilities.invokeLater(()->{refitting=false;fitName();});}
-        private void fitName(){
-            javax.swing.table.TableColumn name=nameColumn();int viewport=scroll.getViewport().getWidth();
-            if(name==null||viewport<=0||table.getTableHeader().getResizingColumn()!=null)return;
-            if(nameWidth<0)nameWidth=name.getWidth();   // Name was hidden when the view was built
-            int others=0;for(javax.swing.table.TableColumn column:Collections.list(table.getColumnModel().getColumns()))if(column!=name)others+=column.getWidth();
-            int width=Math.max(nameWidth,viewport-others);
-            if(width!=name.getWidth()){
-                // Marked as HistoryTables' own change, so the layout listener does not save the fitted width.
-                Object before=table.getClientProperty(HistoryTables.RESTORING_COLUMNS);table.putClientProperty(HistoryTables.RESTORING_COLUMNS,true);fitting=true;
-                try{name.setPreferredWidth(width);name.setWidth(width);}finally{fitting=false;table.putClientProperty(HistoryTables.RESTORING_COLUMNS,before);}
-            }
-            fitted=width==nameWidth?-1:width;
-        }
-        /** A layout to save: Fame history's Name keeps the layout's own width, never the width fitted to the viewport. */
-        private ViewState.Table layoutWidths(ViewState.Table layout){
-            if(nameWidth<0)return layout;List<ViewState.Column> columns=new ArrayList<>();
-            for(ViewState.Column column:layout.columns)columns.add("name".equals(column.id)?new ViewState.Column(column.id,nameWidth,column.visible):column);
-            return new ViewState.Table(layout.preset,columns);
-        }
-        private javax.swing.table.TableColumn nameColumn(){
-            for(javax.swing.table.TableColumn column:Collections.list(table.getColumnModel().getColumns()))if("name".equals(column.getIdentifier()))return column;
-            return null;
         }
         /** After a cohort input error the shown comparison no longer matches the inputs: clear it until a valid Compare runs. */
         private void cohortInputInvalid(){
