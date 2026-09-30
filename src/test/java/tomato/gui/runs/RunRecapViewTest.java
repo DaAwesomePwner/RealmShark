@@ -14,6 +14,7 @@ import tomato.gui.route.Destination;
 import tomato.gui.route.Route;
 import tomato.gui.stats.LootFacts;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import ui.VisualEvidence;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
@@ -82,7 +83,8 @@ public class RunRecapViewTest {
         RunRecapModel.Loot loot = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0 + 300_000, List.of(new LootFacts.Item(101, true, false, false, false, 2, 0))),
             new RunRecapModel.Loot.Bag("Purple", T0 + 400_000, List.of(potion(102), potion(103)))), 3, "1 UT · 2 potions", null);
         RunRecapModel.Players players = new RunRecapModel.Players(List.of(
-            new RunRecapModel.Players.Player(1, "Alpha", "Wizard", 782, Arrays.asList(2001, 2002, null, -1), 700L, T0 + 10_000),
+            new RunRecapModel.Players.Player(1, "Alpha", "Wizard", 782, Arrays.asList(2001, 2002, null, -1), 700L, T0 + 10_000,
+                List.of(EnchantInfo.ofSlotCount(2), EnchantInfo.notRecorded(), EnchantInfo.notRecorded(), EnchantInfo.notRecorded())),
             new RunRecapModel.Players.Player(2, null, "Priest", 784, Arrays.asList(null, null, null, null), 0L, T0 + 12_000)), 2, null, null);
         RunRecapModel.Timeline timeline = new RunRecapModel.Timeline(List.of(new RunRecapModel.Timeline.Event(T0, "Area entered", "Entered Lost Halls"),
             new RunRecapModel.Timeline.Event(T0 + 60_000, "Key pop", "Synthetic key popped"),
@@ -168,6 +170,10 @@ public class RunRecapViewTest {
             assertEquals(List.of("Alpha", "Unnamed player"), texts(view, "run-recap-player-name"));
             assertEquals(List.of("Inspect damage 700", "Inspect damage 0"), texts(view, "run-recap-player-damage"));
             assertEquals("2 players seen in this run", text(view, "run-recap-players-count"));
+            List<ItemSlot> gear = new ArrayList<>();
+            collect(named(view, "run-recap-players", JComponent.class), c -> { if (c instanceof ItemSlot) gear.add((ItemSlot) c); });
+            assertEquals(EnchantInfo.ofSlotCount(2), gear.get(0).enchant());
+            assertNull(gear.get(1).enchant());
 
             CombatTimelineChart chart = VisualEvidence.find(section(view, "resources"), CombatTimelineChart.class, c -> true);
             assertEquals("The saved visit's own samples", REF.visitId, chart.getVisit().id);

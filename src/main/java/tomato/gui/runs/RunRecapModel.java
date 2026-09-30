@@ -5,6 +5,7 @@ import packets.packetcapture.logger.ActivityJournal;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.stats.LootFacts;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * The run recap's view model: one exact saved run with its linked combat recordings, loot, fame, players, resources,
@@ -155,10 +156,17 @@ public record RunRecapModel(VisitRef ref, String unavailable, long capturedAt, H
          * One player's last-recorded loadout. {@code name} null when none was recorded; {@code equipment} the four equipped
          * item ids (weapon, ability, armor, ring), an entry null when that slot was not captured, -1 when it was empty;
          * {@code inspectDamage} null when Inspect damage was not tracked for this run.
+         * {@code enchants}: each equipped slot's enchantments from the snapshot (not recorded when it lacked the stat).
          */
         public record Player(int objectId, String name, String className, int classType, List<Integer> equipment, Long inspectDamage,
-                             long observedAt) {
-            public Player { equipment = Collections.unmodifiableList(new ArrayList<>(equipment)); }
+                             long observedAt, List<EnchantInfo> enchants) {
+            public Player {
+                equipment = Collections.unmodifiableList(new ArrayList<>(equipment));
+                enchants = enchants == null ? Collections.nCopies(equipment.size(), EnchantInfo.notRecorded()) : List.copyOf(enchants);
+            }
+            public Player(int objectId, String name, String className, int classType, List<Integer> equipment, Long inspectDamage, long observedAt) {
+                this(objectId, name, className, classType, equipment, inspectDamage, observedAt, null);
+            }
         }
     }
 
