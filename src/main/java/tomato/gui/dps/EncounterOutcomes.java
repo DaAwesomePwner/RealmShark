@@ -9,11 +9,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Damage;
 import tomato.backend.data.Entity;
 import tomato.backend.data.PresenceTimeline;
 import tomato.gui.dps.shared.DeathParser;
+import tomato.realmshark.ParseDungeon;
 
 /**
  * Whether each player of a recording completed the dungeon, died, nexused, is still in progress, or is unknown
@@ -25,12 +27,16 @@ import tomato.gui.dps.shared.DeathParser;
 public final class EncounterOutcomes {
     /** Sort order in the meter: completed first, unknown last. */
     public enum Kind { COMPLETED, PENDING, NEXUSED, DIED, UNKNOWN }
-    /** AVAILABLE: the end was seen. PENDING: live, not ended yet. UNSEEN: saved, the end was never seen. UNAVAILABLE: no timeline. */
-    public enum State { AVAILABLE, PENDING, UNSEEN, UNAVAILABLE }
+    /**
+     * AVAILABLE: the end was seen. PENDING: live, not ended yet. UNSEEN: saved, the end was never seen. UNAVAILABLE: no
+     * timeline. UNTRACKED: the area is a known non-dungeon (the Realm, a hub), where outcomes are not shown.
+     */
+    public enum State { AVAILABLE, PENDING, UNSEEN, UNAVAILABLE, UNTRACKED }
 
     static final String LEGACY = "Recorded before outcome tracking: only a death notice naming this player can be shown.";
     static final String PENDING_REASON = "The dungeon has not ended yet; outcomes are decided when it does.";
     static final String UNSEEN_REASON = "The end of the dungeon was not seen (you left first, or it sent no victory, final-boss line or boss removal).";
+    static final String UNTRACKED_REASON = "Outcomes are tracked in dungeons only";
     static final String NOT_SEEN = "Not seen entering this area (capture started or restarted mid-dungeon).";
 
     /** One player's outcome. {@code toString} is the label, so the meter's sorter and copy show it. */
@@ -91,6 +97,8 @@ public final class EncounterOutcomes {
 
     private static final Outcome LEGACY_UNKNOWN = new Outcome(Kind.UNKNOWN, null, null, -1, null, false, LEGACY);
     private static final Outcome NOT_SEEN_OUTCOME = new Outcome(Kind.UNKNOWN, null, null, -1, null, false, NOT_SEEN);
+    private static final Outcome UNTRACKED_OUTCOME = new Outcome(Kind.UNKNOWN, null, null, -1, null, false, UNTRACKED_REASON);
+    private static final EncounterOutcomes UNTRACKED = new EncounterOutcomes(State.UNTRACKED, Collections.emptyMap(), Collections.emptyList(), 0);
     private static final EncounterOutcomes NONE = new EncounterOutcomes(State.UNAVAILABLE, Collections.emptyMap(), Collections.emptyList(), 0);
 
     private final State state;
@@ -120,6 +128,23 @@ public final class EncounterOutcomes {
     /** No players and no timeline. */
     public static EncounterOutcomes none() { return NONE; }
 
+    /** No players: the area is not a dungeon. {@link #summary()} says so and every {@link #outcome(int)} is Unknown. */
+    public static EncounterOutcomes untracked() { return UNTRACKED; }
+
+    /**
+     * Whether outcomes are tracked in this area: everywhere except an area the catalog affirmatively classifies as a known
+     * non-dungeon (the Realm, a hub). An area the catalog does not know is tracked, so new dungeons work; so is no map.
+     */
+    public static boolean trackedIn(MapInfoPacket map) {
+        return map == null || !ParseDungeon.isKnownNonDungeon(ParseDungeon.canonicalMapName(map));
+    }
+
+    /** {@link #of} for a shown encounter: {@link #untracked()} when its {@code map} is not a dungeon. */
+    public static EncounterOutcomes forArea(MapInfoPacket map, PresenceTimeline presence, long startedAt, boolean live,
+                                            Collection<Entity> players, Collection<NotificationPacket> notices) {
+        return trackedIn(map) ? of(presence, startedAt, live, players, notices) : untracked();
+    }
+
     /**
      * Outcomes of one recording. {@code startedAt} is its first tick ({@code DpsData.dungeonStartTime}); {@code live} marks
      * an encounter still being recorded. {@code players} and {@code notices} are read only when {@code presence} is null.
@@ -141,6 +166,8 @@ public final class EncounterOutcomes {
 
     private static EncounterOutcomes observed(PresenceTimeline timeline, long startedAt, boolean live) {
         PresenceTimeline.Mark end = timeline.end();
+        // A boss removal alone is provisional while the dungeon is live: a miniboss-like kill or a boss out of view is not the end.
+        if (live && end != null && PresenceTimeline.END_BOSS.equals(end.detail)) end = null;
         List<PresenceTimeline.Player> ordered = new ArrayList<>(timeline.players().values());
         ordered.sort(Comparator.comparingInt(player -> player.objectId));
         Map<String, List<PresenceTimeline.Player>> groups = new LinkedHashMap<>();
@@ -201,6 +228,9 @@ public final class EncounterOutcomes {
             return new Outcome(Kind.NEXUSED, at, hp, -1, null, false, "Left view" + when(at) + (hp == null ? "" : " at " + hp + "% HP")
                 + " and did not return before the dungeon ended: a nexus, a disconnect, or out of view when it ended.");
         }
+        if (PresenceTimeline.END_BOSS.equals(end.detail))
+            return new Outcome(Kind.COMPLETED, since(end.at, startedAt), null, -1, null, false,
+                "In the dungeon when the last boss was removed (inferred: no victory or final-boss line was seen).");
         return new Outcome(Kind.COMPLETED, since(end.at, startedAt), null, -1, null, mine,
             "In the dungeon when it ended (" + endLabel(end.detail) + ").");
     }
@@ -237,7 +267,8 @@ public final class EncounterOutcomes {
 
     public Outcome outcome(int objectId) {
         Outcome outcome = byId.get(objectId);
-        return outcome != null ? outcome : state == State.UNAVAILABLE ? LEGACY_UNKNOWN : NOT_SEEN_OUTCOME;
+        if (outcome != null) return outcome;
+        return state == State.UNTRACKED ? UNTRACKED_OUTCOME : state == State.UNAVAILABLE ? LEGACY_UNKNOWN : NOT_SEEN_OUTCOME;
     }
 
     public Outcome outcome(Entity player) { return player == null ? outcome(Integer.MIN_VALUE) : outcome(player.id); }
@@ -254,6 +285,7 @@ public final class EncounterOutcomes {
 
     /** "8 players · 5 completed · 2 nexused · 1 died", or the pending, unseen or unavailable form. */
     public String summary() {
+        if (state == State.UNTRACKED) return UNTRACKED_REASON;
         if (state == State.UNAVAILABLE) return "Outcomes unavailable (recorded before this feature)";
         StringBuilder text = new StringBuilder().append(players).append(players == 1 ? " player" : " players");
         if (state == State.AVAILABLE) text.append(" · ").append(completed).append(" completed");
@@ -279,7 +311,6 @@ public final class EncounterOutcomes {
     private static String endLabel(String source) {
         if (PresenceTimeline.END_VICTORY.equals(source)) return "server victory";
         if (PresenceTimeline.END_DIALOGUE.equals(source)) return "final-boss dialogue";
-        if (PresenceTimeline.END_BOSS.equals(source)) return "last boss removed";
         return "end observed";
     }
 

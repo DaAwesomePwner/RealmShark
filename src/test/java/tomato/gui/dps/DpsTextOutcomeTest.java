@@ -1,5 +1,7 @@
 package tomato.gui.dps;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import packets.data.StatData;
 import packets.data.enums.StatType;
@@ -15,6 +17,12 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class DpsTextOutcomeTest {
+    private int savedFilter;
+
+    /** The rows honor the static player filter, whose default hides everyone: make the state explicit and restore it. */
+    @Before public void showEveryPlayer() { savedFilter = Filter.filter; Filter.disable(); }
+    @After public void restoreTheFilter() { Filter.filter = savedFilter; Filter.filterNames.clear(); }
+
     private static Entity enemy(Entity alice, Entity bob) {
         Entity e = new Entity(null, 11, 0);
         StatData hp = new StatData(); hp.statValue = 1000; e.stat.set(StatType.MAX_HP_STAT, hp);
@@ -40,6 +48,15 @@ public class DpsTextOutcomeTest {
         assertTrue(text, text.contains("Nexused 2:40 · 18% HP"));
         assertTrue(lineFor(text, "Bob").contains("Nexused 2:40"));
         assertFalse("Completers carry no tag", lineFor(text, "Alice").contains("Nexus"));
+    }
+
+    @Test public void anUntrackedAreaAddsNoPartyBlockAndNoTags() {
+        Entity alice = EncounterOutcomesTest.named(1, "Alice", 768), bob = EncounterOutcomesTest.named(2, "Bob", 775);
+        MapInfoPacket map = new MapInfoPacket(); map.name = "Realm of the Mad God";
+        String text = DpsToString.stringDmgRealtime(map, Collections.singletonList(enemy(alice, bob)), new ArrayList<>(), null, 2123,
+            EncounterOutcomes.untracked());
+        assertFalse(text, text.contains("Party outcome"));
+        assertFalse(lineFor(text, "Bob").contains("Nexus")); assertFalse(lineFor(text, "Bob").contains("Died"));
     }
 
     @Test public void theFiveArgumentFormKeepsDeathsFromNotices() {

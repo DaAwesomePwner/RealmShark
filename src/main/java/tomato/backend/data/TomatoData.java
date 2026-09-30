@@ -535,8 +535,8 @@ public class TomatoData {
 
             if (entityHitList.containsKey(dropId)) {
                 killedEntitys.add(e);
-                // A boss leaving the hit list ends the dungeon only when no victory or final-boss line does.
-                if (e != null && e.isBossMob()) presence.recordEnd(PresenceTimeline.END_BOSS, timePc);
+                // A BOSS (not a miniboss) leaving the hit list is the fallback end when no victory or final-boss line comes.
+                if (e != null && e.isBoss()) presence.recordEnd(PresenceTimeline.END_BOSS, timePc);
             }
 
             playerListUpdated.remove(dropId);

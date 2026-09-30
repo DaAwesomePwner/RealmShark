@@ -46,7 +46,7 @@ public class StringDpsGUI extends DisplayDpsGUI {
 
     @Override
     protected void renderData(MapInfoPacket map, List<Entity> sortedEntityHitList, ArrayList<NotificationPacket> notifications, long totalDungeonPcTime, boolean isLive) {
-        EncounterOutcomes outcomes = EncounterOutcomes.of(presence, startedAt, isLive, EncounterOutcomes.playersOf(sortedEntityHitList), notifications);
+        EncounterOutcomes outcomes = EncounterOutcomes.forArea(map, presence, startedAt, isLive, EncounterOutcomes.playersOf(sortedEntityHitList), notifications);
         setTextAreaAndLabelDPS(DpsToString.stringDmgRealtime(map, sortedEntityHitList, notifications, playerContext, totalDungeonPcTime, outcomes));
     }
 

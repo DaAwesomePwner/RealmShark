@@ -91,6 +91,28 @@ public class MeterOutcomeTest {
         });
     }
 
+    @Test public void theRealmShowsNoOutcomesButADungeonDoes() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                Filter.disable();
+                Entity alice = EncounterOutcomesTest.named(1, "Alice", 768), bob = EncounterOutcomesTest.named(2, "Bob", 775);
+                PresenceTimeline presence = new PresenceTimeline();
+                presence.recordSeen(1, "Alice", 768, 1_000, false); presence.recordSeen(2, "Bob", 775, 1_000, false);
+                presence.recordLeft(2, 126, 700, 161_000); presence.recordEnd(PresenceTimeline.END_VICTORY, 300_000);
+                MeterDpsGUI meter = new MeterDpsGUI();
+                meter.setPresence(presence, 1_000);
+                packets.incoming.MapInfoPacket realm = new packets.incoming.MapInfoPacket(); realm.name = realm.displayName = "Realm of the Mad God";
+                meter.renderData(realm, Collections.singletonList(enemy(11, alice, bob)), new ArrayList<>(), 0, false);
+                JTable table = field(meter, "table"); JLabel line = field(meter, "outcomeLine");
+                assertEquals("Outcomes are tracked in dungeons only", line.getText());
+                assertEquals("Unknown", outcomesByName(table).get("Bob").toString());
+                packets.incoming.MapInfoPacket halls = new packets.incoming.MapInfoPacket(); halls.name = halls.displayName = "Lost Halls";
+                meter.renderData(halls, Collections.singletonList(enemy(11, alice, bob)), new ArrayList<>(), 0, false);
+                assertEquals("2 players · 1 completed · 1 nexused", line.getText());
+            } catch (Exception e) { throw new AssertionError(e); }
+        });
+    }
+
     @Test public void aRecordingWithoutATimelineShowsNameMatchedDeathsOnly() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             try {

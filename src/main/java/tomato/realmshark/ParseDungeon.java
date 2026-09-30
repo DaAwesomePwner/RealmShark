@@ -32,6 +32,11 @@ public class ParseDungeon {
         return CATALOG.isDungeon(name);
     }
 
+    /** A catalogued area that is affirmatively not a dungeon (the Realm, a hub); false for a dungeon and for an unknown name. */
+    public static boolean isKnownNonDungeon(String name) {
+        return CATALOG.isKnownNonDungeon(name);
+    }
+
     /** Exact map name wins (including hubs); only a locally known display label is a fallback. */
     public static String canonicalMapName(MapInfoPacket map) {
         return CATALOG.canonicalMapName(map);

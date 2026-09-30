@@ -4,6 +4,7 @@ import org.junit.Test;
 import packets.data.StatData;
 import packets.data.enums.NotificationEffectType;
 import packets.data.enums.StatType;
+import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Entity;
 import tomato.backend.data.PresenceTimeline;
@@ -72,7 +73,7 @@ public class EncounterOutcomesTest {
         t.recordLeft(2, 700, 700, 120_000); t.recordDeath("Late", 0x0723, 130_000);
         EncounterOutcomes o = saved(t);
         assertEquals(Kind.COMPLETED, o.outcome(2).kind); assertEquals(Kind.COMPLETED, o.outcome(3).kind);
-        assertEquals("In the dungeon when it ended (last boss removed).", o.outcome(2).reason);
+        assertEquals("In the dungeon when the last boss was removed (inferred: no victory or final-boss line was seen).", o.outcome(2).reason);
         assertEquals("2 players · 2 completed", o.summary());
     }
 
@@ -160,6 +161,74 @@ public class EncounterOutcomesTest {
         assertEquals("Outcomes unavailable (recorded before this feature)", o.summary());
         assertEquals(Kind.UNKNOWN, EncounterOutcomes.none().outcome(99).kind);
         assertEquals(Kind.UNKNOWN, EncounterOutcomes.none().outcome((Entity) null).kind);
+    }
+
+    @Test public void aLiveEncounterWithOnlyABossEndIsStillPendingAndDeathsStayDeaths() {
+        PresenceTimeline t = new PresenceTimeline();
+        t.recordSeen(1, "Self", 768, 1_000, true); t.recordSeen(2, "Faller", 775, 1_000, false);
+        t.recordDeath("Faller", 0x0723, 30_000); t.recordLeft(2, 0, 700, 30_000);
+        t.recordEnd(PresenceTimeline.END_BOSS, 100_000);
+        EncounterOutcomes live = EncounterOutcomes.of(t, START, true, List.of(), List.of());
+        assertEquals(State.PENDING, live.state());
+        assertEquals("In progress", live.outcome(1).label());
+        assertEquals(Kind.DIED, live.outcome(2).kind);
+        assertEquals("2 players · 1 died · outcome pending", live.summary());
+        t.recordEnd(PresenceTimeline.END_VICTORY, 200_000);
+        assertEquals("A victory or dialogue end is final even live", State.AVAILABLE,
+            EncounterOutcomes.of(t, START, true, List.of(), List.of()).state());
+    }
+
+    @Test public void aSavedBossOnlyEndIsAnInferredCompletionEvenForYou() {
+        PresenceTimeline t = new PresenceTimeline();
+        t.recordSeen(1, "Self", 768, 1_000, true); t.recordSeen(2, "Other", 775, 1_000, false);
+        t.recordEnd(PresenceTimeline.END_BOSS, 100_000);
+        EncounterOutcomes o = saved(t);
+        assertEquals(State.AVAILABLE, o.state());
+        for (int id = 1; id <= 2; id++) {
+            assertEquals(Kind.COMPLETED, o.outcome(id).kind);
+            assertFalse("A boss-only end is never confirmed", o.outcome(id).confirmed);
+            assertTrue(o.outcome(id).reason, o.outcome(id).reason.contains("inferred"));
+        }
+        PresenceTimeline victory = new PresenceTimeline();
+        victory.recordSeen(1, "Self", 768, 1_000, true); victory.recordEnd(PresenceTimeline.END_VICTORY, 100_000);
+        assertTrue("A victory keeps your completion confirmed", saved(victory).outcome(1).confirmed);
+    }
+
+    @Test public void aNexusBeforeABossOnlyEndKeepsItsReason() {
+        PresenceTimeline t = new PresenceTimeline();
+        t.recordSeen(2, "Quitter", 775, 1_000, false); t.recordLeft(2, 350, 700, 50_000);
+        t.recordEnd(PresenceTimeline.END_BOSS, 100_000);
+        Outcome q = saved(t).outcome(2);
+        assertEquals(Kind.NEXUSED, q.kind);
+        assertTrue(q.reason, q.reason.contains("a nexus, a disconnect, or out of view when it ended"));
+    }
+
+    @Test public void anUntrackedAreaShowsNoOutcomes() {
+        EncounterOutcomes o = EncounterOutcomes.untracked();
+        assertEquals(State.UNTRACKED, o.state());
+        assertEquals("Outcomes are tracked in dungeons only", o.summary());
+        assertTrue(o.lines().isEmpty());
+        assertEquals(Kind.UNKNOWN, o.outcome(1).kind);
+        assertEquals("Outcomes are tracked in dungeons only", o.outcome(1).reason);
+        assertEquals(Kind.UNKNOWN, o.outcome(named(3, "Someone", 768)).kind);
+        assertFalse(o.outcome(1).didNotComplete());
+        PresenceTimeline t = new PresenceTimeline();
+        t.recordSeen(1, "Self", 768, 1_000, true); t.recordEnd(PresenceTimeline.END_VICTORY, 100_000);
+        assertEquals("The area decides: an untracked map ignores the timeline", State.UNTRACKED,
+            EncounterOutcomes.forArea(area("Realm of the Mad God"), t, START, false, List.of(), List.of()).state());
+        assertEquals(State.AVAILABLE, EncounterOutcomes.forArea(area("Lost Halls"), t, START, false, List.of(), List.of()).state());
+    }
+
+    @Test public void onlyAKnownNonDungeonAreaIsUntracked() {
+        assertTrue("A catalogued dungeon", EncounterOutcomes.trackedIn(area("Lost Halls")));
+        assertFalse("The Realm", EncounterOutcomes.trackedIn(area("Realm of the Mad God")));
+        assertFalse("A hub", EncounterOutcomes.trackedIn(area("Nexus")));
+        assertTrue("An area the catalog does not know is tracked", EncounterOutcomes.trackedIn(area("Synthetic Brand New Dungeon")));
+        assertTrue("No map (tests) is tracked", EncounterOutcomes.trackedIn(null));
+    }
+
+    private static MapInfoPacket area(String name) {
+        MapInfoPacket map = new MapInfoPacket(); map.name = map.displayName = name; return map;
     }
 
     @Test public void playersOfListsEveryDamagingPlayerOnce() {

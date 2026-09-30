@@ -203,6 +203,11 @@ final class DungeonCatalog {
         return area != null && area.dungeon;
     }
 
+    boolean isKnownNonDungeon(String name) {
+        Area area = areas.get(name);
+        return area != null && !area.dungeon;
+    }
+
     String canonicalName(String name) {
         Area area = areas.get(name);
         return area == null ? UNRECOGNIZED : area.name;

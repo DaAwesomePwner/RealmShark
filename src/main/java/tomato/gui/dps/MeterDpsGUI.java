@@ -436,7 +436,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         targets = new ArrayList<>(entities); mapName = map == null ? "No encounter" : map.name; live = isLive;
         targets.removeIf(Entity::isPlayerCharacter);
         notices = notes == null ? new ArrayList<>() : notes;
-        outcomes = EncounterOutcomes.of(presence, startedAt, isLive, EncounterOutcomes.playersOf(targets), notices);
+        outcomes = EncounterOutcomes.forArea(map, presence, startedAt, isLive, EncounterOutcomes.playersOf(targets), notices);
         String warning = missingLocalSpawn && !isLive
             ? "Personal damage is incomplete: shots arrived before your character data. This saved encounter cannot show your full damage."
             : isLive && map != null && localPlayer == null
