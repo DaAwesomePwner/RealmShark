@@ -15,6 +15,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import tomato.history.SessionStore;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import static org.junit.Assert.*;
 import static tomato.gui.stats.LootTestDrops.Kind.*;
@@ -46,6 +47,31 @@ public class LootFactsTest {
             assertEquals(new LootFacts.Item(3, false, true, false, false, 0, 0), bags.get(1).items().get(0));
             assertFalse(bags.get(2).white());
             assertEquals(List.of(new LootFacts.Item(4, false, false, true, false, 0, 0), new LootFacts.Item(5, false, false, false, false, 0, 0)), bags.get(2).items());
+        }
+    }
+
+    @Test public void itemsCarryExactEnchantsWhenCapturedAndTheRarityForOlderRecords() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "fixture")) {
+            String id = store.currentId();
+            String rare = enchants(-1, 42);
+            store.append("loot", new LootDashboard.Drop("White", "Lost Halls", "Boss", 1_000, List.of(
+                new LootDashboard.Item(10, "Item #10", "EQUIPMENT,WEAPON,T12", ParseEnchants.evidence(rare)))));
+            String item = "{\"id\":%d,\"name\":\"Legacy\",\"tier\":\"T4\",\"potion\":false,\"ut\":false,\"st\":false,\"highTier\":false%s}";
+            store.append("loot", SessionStore.JSON.fromJson("{\"bag\":\"Brown\",\"dungeon\":\"Lost Halls\",\"dropper\":\"Boss\",\"time\":2000,\"items\":["
+                + String.format(item, 11, ",\"enchants\":{\"slots\":3,\"applied\":-1}") + ","
+                + String.format(item, 12, "") + ","
+                + String.format(item, 13, ",\"enchants\":{\"slots\":2,\"applied\":1},\"enchantEvidence\":{\"slots\":2,\"applied\":1}") + "]}",
+                LootDashboard.Drop.class));
+            store.flush();
+            List<LootFacts.Bag> bags = new ArrayList<>();
+            LootFacts.read(store, id, bags::add);
+            assertEquals("Captured evidence: the exact slots", EnchantInfo.of(rare), bags.get(0).items().get(0).enchant());
+            EnchantInfo legacy = bags.get(1).items().get(0).enchant();
+            assertEquals("A saved slot count alone: the rarity", EnchantInfo.State.COUNT_ONLY, legacy.state());
+            assertEquals(EnchantInfo.Rarity.LEGENDARY, legacy.rarity());
+            assertSame("Nothing saved: not recorded", EnchantInfo.notRecorded(), bags.get(1).items().get(1).enchant());
+            EnchantInfo partial = bags.get(1).items().get(2).enchant();
+            assertEquals("Evidence without a state falls back to the saved count, never throws", EnchantInfo.Rarity.RARE, partial.rarity());
         }
     }
 
@@ -139,7 +165,7 @@ public class LootFactsTest {
         LootFacts.Bag bag = LootFacts.bag("live", drop);
         assertEquals("live", bag.session()); assertTrue(bag.white()); assertEquals("B.White", bag.bag());
         assertEquals("Lost Halls", bag.dungeon()); assertEquals("Marble Colossus", bag.dropper());
-        assertEquals(new LootFacts.Item(20, false, true, false, false, 4, 3), bag.items().get(0));
+        assertEquals(new LootFacts.Item(20, false, true, false, false, 4, 3, EnchantInfo.of(enchants(-1, 42, 7, 0))), bag.items().get(0));
         LootFacts.Bag unknown = LootFacts.bag("live", new LootDashboard.Drop("Brown", "Unknown", "Unknown", 8_000, List.of(
             new LootDashboard.Item(21, "Potion #21", true))));
         assertNull("No map when the bag dropped: unknown area", unknown.dungeon()); assertNull(unknown.dropper());

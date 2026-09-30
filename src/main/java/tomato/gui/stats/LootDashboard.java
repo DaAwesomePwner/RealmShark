@@ -14,6 +14,7 @@ import packets.incoming.MapInfoPacket;
 import tomato.backend.data.Entity;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import tomato.realmshark.enums.LootBags;
 import tomato.gui.history.ViewStateStore;
@@ -513,6 +514,16 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
                 + ", " + DisplayFormat.formatInteger(enchants.slots) + " slots, "
                 + (enchants.applied < 0 ? DisplayFormat.UNAVAILABLE : DisplayFormat.formatInteger(enchants.applied)) + " enchants";
             return name + " [" + (tier.equals("—") ? "" : tier + " · ") + detail + "]";
+        }
+        /**
+         * This item's enchantments for display: exact when its evidence was captured, the rarity alone for older records that
+         * saved only a slot count. Derived on every call from saved fields (Gson-read items may lack any of them); never persisted.
+         */
+        EnchantInfo enchantInfo() {
+            if (enchantEvidence != null && enchantEvidence.state != null
+                    && enchantEvidence.state != ParseEnchants.EvidenceState.LEGACY_NOT_RECORDED)
+                return EnchantInfo.fromEvidence(enchantEvidence);
+            return EnchantInfo.ofSlotCount(enchants == null ? null : enchants.slots);
         }
     }
     static final class Drop {
