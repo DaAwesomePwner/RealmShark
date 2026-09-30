@@ -20,6 +20,15 @@ public class ParseDungeonCatalogTest {
         assertFalse(ParseDungeon.isDungeon("Unrecognized area"));
     }
 
+    @Test public void onlyACataloguedNonDungeonIsAKnownNonDungeon() {
+        assertTrue(ParseDungeon.isKnownNonDungeon("Realm of the Mad God"));
+        assertTrue(ParseDungeon.isKnownNonDungeon("Nexus"));
+        assertTrue(ParseDungeon.isKnownNonDungeon("Vault"));
+        assertFalse(ParseDungeon.isKnownNonDungeon("Lost Halls"));
+        assertFalse("An unknown name is not classified", ParseDungeon.isKnownNonDungeon("Synthetic Brand New Dungeon"));
+        assertFalse(ParseDungeon.isKnownNonDungeon(null));
+    }
+
     @Test public void publicMapResolverUsesExactNameThenKnownDisplayAndNeverRealmName() {
         MapInfoPacket map = new MapInfoPacket();
         map.name = "unfamiliar internal name";

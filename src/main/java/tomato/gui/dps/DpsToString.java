@@ -3,17 +3,16 @@ package tomato.gui.dps;
 import assets.IdToAsset;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
+import java.util.Map;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.Damage;
 import tomato.backend.data.DpsData.LocalPlayerContext;
 import tomato.backend.data.Entity;
 import tomato.backend.data.Equipment;
-import tomato.backend.data.PlayerRemoved;
-import tomato.gui.dps.shared.DeathParser;
 import tomato.gui.dps.shared.DpsTextFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
 import tomato.gui.dps.shared.GuardsHandler;
@@ -26,7 +25,7 @@ import tomato.realmshark.enums.CharacterClass;
  * Behavior preserved:
  * - Header and per-entity sections
  * - Player filter/highlight and "me" indicator
- * - Extra notes (guarded/dammah/garden) + death/nexus info
+ * - Extra notes (guarded/dammah/garden) + the dungeon-level outcome (completed, died, nexused)
  * - Equipment:
  *   - option 0: hidden
  *   - option 1: bracketed "[slot0 / slot1 / slot2 / slot3]" showing most-used item per slot
@@ -35,6 +34,18 @@ import tomato.realmshark.enums.CharacterClass;
  *     - Tiny non-zero percentages show "< 0.1%"
  */
 public class DpsToString {
+
+    /** Legacy entry: outcomes from the notices only (no presence timeline). */
+    public static String stringDmgRealtime(
+        MapInfoPacket map,
+        List<Entity> sortedEntityHitList,
+        ArrayList<NotificationPacket> notifications,
+        LocalPlayerContext player,
+        long totalDungeonPcTime
+    ) {
+        return stringDmgRealtime(map, sortedEntityHitList, notifications, player, totalDungeonPcTime,
+            EncounterOutcomes.of(null, -1, false, EncounterOutcomes.playersOf(sortedEntityHitList), notifications));
+    }
 
     /**
      * Real time string display.
@@ -46,7 +57,8 @@ public class DpsToString {
         List<Entity> sortedEntityHitList,
         ArrayList<NotificationPacket> notifications,
         LocalPlayerContext player,
-        long totalDungeonPcTime
+        long totalDungeonPcTime,
+        EncounterOutcomes outcomes
     ) {
         StringBuilder sb = new StringBuilder();
         sb.append("Legacy: % enemy max HP = player damage / captured enemy max HP; hidden players do not change it.\n")
@@ -66,9 +78,7 @@ public class DpsToString {
                 .append("\n\n");
         }
 
-        Map<String, Integer> deathMap = DeathParser.parseDeathsToMap(
-            notifications
-        );
+        appendPartyOutcome(sb, outcomes, sortedEntityHitList, player);
 
         for (Entity e : sortedEntityHitList) {
             if (!isValidEntity(e)) continue;
@@ -78,10 +88,47 @@ public class DpsToString {
                     ? null
                     : EquipmentUsageAggregator.of(e);
 
-            sb.append(display(e, deathMap, player, eqAgg)).append("\n");
+            sb.append(display(e, outcomes, player, eqAgg)).append("\n");
         }
 
         return sb.toString();
+    }
+
+    /**
+     * "Party outcome: " and the whole-party counts, then one line per player (name, class, outcome); nothing when there are
+     * no players. The player lines follow the player filter like the enemy rows: in filter mode only players the filter shows
+     * are listed. A player is matched to the damaging player's entity by name, since the filter reads its guild and class;
+     * someone with no recorded damage has no such entity, so filter mode hides them.
+     */
+    static void appendPartyOutcome(StringBuilder sb, EncounterOutcomes outcomes, List<Entity> enemies, LocalPlayerContext player) {
+        if (outcomes == null || outcomes.lines().isEmpty()) return;
+        Map<String, List<Entity>> damagers = Filter.shouldFilter(player) ? playersByName(enemies) : null;
+        sb.append("Party outcome: ").append(outcomes.summary()).append('\n');
+        for (EncounterOutcomes.Line line : outcomes.lines()) {
+            if (damagers != null && !shownByFilter(damagers.get(line.name), player)) continue;
+            sb.append("    ");
+            DpsTextFormat.appendPaddedRight(sb, line.name, 12);
+            sb.append(' ');
+            String className = CharacterClass.getName(line.classType);
+            DpsTextFormat.appendPaddedRight(sb, className == null ? "Unknown" : className, 10);
+            sb.append(' ').append(line.outcome.label()).append('\n');
+        }
+        sb.append('\n');
+    }
+
+    private static Map<String, List<Entity>> playersByName(List<Entity> enemies) {
+        Map<String, List<Entity>> byName = new HashMap<>();
+        for (Entity owner : EncounterOutcomes.playersOf(enemies)) {
+            String name = owner.name();
+            if (name != null && !name.isEmpty()) byName.computeIfAbsent(name, key -> new ArrayList<>()).add(owner);
+        }
+        return byName;
+    }
+
+    /** The enemy rows' rule: a player is shown when the filter matches it (the same name may have had several object IDs). */
+    private static boolean shownByFilter(List<Entity> entities, LocalPlayerContext player) {
+        if (entities != null) for (Entity owner : entities) if (Filter.filter(owner, player) == 1) return true;
+        return false;
     }
 
     /**
@@ -89,7 +136,7 @@ public class DpsToString {
      */
     public static String display(
         Entity entity,
-        Map<String, Integer> deathMap,
+        EncounterOutcomes outcomes,
         LocalPlayerContext player,
         EquipmentUsageAggregator eqAgg
     ) {
@@ -128,23 +175,9 @@ public class DpsToString {
             String extra = GuardsHandler.buildExtraTag(entity, dmg);
             if (extra.isEmpty()) extra = "    ";
 
-            // Death/Nexus info, if available
-            if (entity.playerDropped != null) {
-                PlayerRemoved pr = entity.playerDropped.get(dmg.owner.id);
-                if (pr != null) {
-                    boolean dead =
-                        deathMap != null && deathMap.containsKey(name);
-                    float hpPct = safePercent(pr.hp, pr.max);
-                    extra +=
-                        (dead ? "Died " : "Nexus ") +
-                        DisplayFormat.formatPercentage(hpPct, 2) +
-                        " [" +
-                        DisplayFormat.formatInteger(pr.hp) +
-                        " / " +
-                        DisplayFormat.formatInteger(pr.max) +
-                        "]";
-                }
-            }
+            // Dungeon-level outcome for players who did not complete (docs/DPS-METERS.md, "Party outcomes")
+            EncounterOutcomes.Outcome outcome = outcomes == null ? null : outcomes.outcome(dmg.owner);
+            if (outcome != null && outcome.didNotComplete()) extra += outcome.label();
 
             // Equipment
             String inv = "";

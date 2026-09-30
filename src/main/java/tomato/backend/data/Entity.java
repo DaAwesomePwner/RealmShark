@@ -871,4 +871,16 @@ public void genericDamageHit(
         }
         return false;
     }
+
+    /** A boss proper: labelled {@code BOSS}, not {@code MINIBOSS}. Only this ends a dungeon in the party outcomes. */
+    public boolean isBoss() {
+        return isBossLabel(IdToAsset.getIdLabel(objectType));
+    }
+
+    /** Whether a comma-separated asset label list names {@code BOSS} exactly (a {@code MINIBOSS} entry does not count). */
+    static boolean isBossLabel(String label) {
+        if (label == null) return false;
+        for (String part : label.split(",")) if (part.trim().equals("BOSS")) return true;
+        return false;
+    }
 }

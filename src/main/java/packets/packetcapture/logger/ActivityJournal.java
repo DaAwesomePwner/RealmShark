@@ -352,22 +352,9 @@ public final class ActivityJournal {
         if (archive != null && visit.ended > 0) archive.accept(new Visit(visit));
     }
 
-    // Exact server boss dialogue already used by loot attribution; miniboss lines are deliberately absent.
+    // The final-boss line for the current map, if this is one (see CompletionDialogue).
     private String completionDialogue(TextPacket p) {
-        if (current == null || p.name == null || !p.name.startsWith("#") || p.text == null) return null;
-        if ("Moonlight Village".equals(current.map) && (
-                ("#Kitsune Umi".equals(p.name) && "This fully concludes the Moonlight Festival!".equals(p.text)) ||
-                ("#Dancer Miko".equals(p.name) && "Thank you all for coming tonight.".equals(p.text)) ||
-                ("#Umi, Goddess of Revelry".equals(p.name) && "This fully concludes the Moonlight Festival.".equals(p.text))))
-            return "Final boss dialogue: " + p.name.substring(1);
-        if ("The Void".equals(current.map) && "#Void Entity".equals(p.name)
-                && "You fools... You can never truly defeat me! I am in all of you! I AM all of you!".equals(p.text))
-            return "Final boss dialogue: Void Entity";
-        if ("The Shatters".equals(current.map) && (
-                ("#The Accursed King".equals(p.name) && "...do you truly think your end will be any different?".equals(p.text)) ||
-                ("#King Azamoth".equals(p.name) && "This fate is mine to bear... not hers.".equals(p.text))))
-            return "Final boss dialogue: " + p.name.substring(1);
-        return null;
+        return current == null ? null : CompletionDialogue.evidence(current.map, p);
     }
 
     public void completionStats(int character, int[] counts) {

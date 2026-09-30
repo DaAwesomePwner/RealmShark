@@ -39,6 +39,9 @@ public final class EncounterImport {
         "tomato.backend.data.DpsData", "tomato.backend.data.DpsData$LocalPlayerContext", "tomato.backend.data.Entity",
         "tomato.backend.data.Stat", "tomato.backend.data.Damage", "tomato.backend.data.Projectile",
         "tomato.backend.data.DamageSource", "tomato.backend.data.PlayerRemoved", "packets.Packet",
+        "tomato.backend.data.PresenceTimeline", "tomato.backend.data.PresenceTimeline$Player",
+        "tomato.backend.data.PresenceTimeline$Change", "tomato.backend.data.PresenceTimeline$Death",
+        "tomato.backend.data.PresenceTimeline$Mark",
         "java.util.HashMap", "java.util.ArrayList", "java.util.Map$Entry", "java.lang.Object", "java.lang.Number",
         "java.lang.Integer", "java.lang.Long", "java.lang.Enum", "java.lang.String");
     /** Test hook: runs on the reader thread before a file is opened. */

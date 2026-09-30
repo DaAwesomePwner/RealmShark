@@ -25,7 +25,6 @@ import tomato.backend.data.*;
 import tomato.gui.SmartScroller;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
-import tomato.gui.dps.shared.DeathParser;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
 import tomato.gui.dps.shared.GuardsHandler;
 import tomato.realmshark.ParseEnchants;
@@ -43,7 +42,10 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
     private static Font mainFont;
 
-    private ArrayList<NotificationPacket> notifications;
+    private PresenceTimeline presence;
+    private long startedAt = -1;
+    /** The shown encounter's presence timeline (null before outcome tracking) and its first tick. */
+    void setPresence(PresenceTimeline presence, long startedAt) { this.presence = presence; this.startedAt = startedAt; }
 
     private static final BufferedImage ig = new BufferedImage(
         1,
@@ -89,11 +91,9 @@ public class IconDpsGUI extends DisplayDpsGUI {
     private void updateDps(
         MapInfoPacket map,
         List<Entity> sortedEntityHitList,
+        EncounterOutcomes outcomes,
         long totalDungeonPcTime
     ) {
-        Map<String, Integer> deaths = DeathParser.parseDeathsToMap(
-            notifications
-        );
         charPanel.removeAll();
 
         {
@@ -120,7 +120,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             if (CharacterClass.isPlayerCharacter(e.objectType)) continue;
 
             EquipmentUsageAggregator eqAgg = EquipmentUsageAggregator.of(e);
-            JPanel panel = createMainBox(e, deaths, playerContext, eqAgg);
+            JPanel panel = createMainBox(e, outcomes, playerContext, eqAgg);
 
             if (panel != null) {
                 charPanel.add(panel);
@@ -135,7 +135,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
     private static JPanel createMainBox(
         Entity entity,
-        Map<String, Integer> deaths,
+        EncounterOutcomes outcomes,
         DpsData.LocalPlayerContext player,
         EquipmentUsageAggregator eqAgg
     ) {
@@ -245,30 +245,9 @@ public class IconDpsGUI extends DisplayDpsGUI {
 
             JLabel nameLabel = new JLabel(name);
             JLabel dpsDataLabel = new JLabel(s2);
-            JLabel deathNexusLabel = new JLabel();
-            for (int id : entity.playerDropped.keySet()) {
-                if (dmg.owner.id == id) {
-                    PlayerRemoved pr = entity.playerDropped.get(id);
-                    int dead = DeathParser.getGraveIcon(deaths, name);
-                    if (dead != -1) {
-                        try {
-                            ImageBuffer.getImage(dead);
-                            deathNexusLabel = new JLabel(
-                                ImageBuffer.getOutlinedIcon(dead, iconSmall)
-                            );
-                        } catch (IOException e) {
-                            deathNexusLabel = new JLabel("Died");
-                        }
-                    } else {
-                        deathNexusLabel = new JLabel("Nexus");
-                    }
-
-                    deathNexusLabel.setToolTipText(
-                        DisplayFormat.formatPercentage(pr.max <= 0 ? Double.NaN : ((float) pr.hp / pr.max) * 100, 2)
-                            + " [" + DisplayFormat.formatInteger(pr.hp) + " / " + DisplayFormat.formatInteger(pr.max) + "]"
-                    );
-                }
-            }
+            // Dungeon-level outcome, as the text view shows it: a tag only for a player who died or nexused
+            JLabel deathNexusLabel = outcomeLabel(outcomes.outcome(dmg.owner), iconSmall);
+            if (deathNexusLabel == null) deathNexusLabel = new JLabel();
             JLabel counterLabel = new JLabel(extra);
 
             playerIconLabel.setHorizontalTextPosition(SwingConstants.LEFT);
@@ -357,6 +336,26 @@ public class IconDpsGUI extends DisplayDpsGUI {
         if (panelAllPlayers.getComponents().length == 0) return null;
 
         return panel;
+    }
+
+    /**
+     * The tag beside a player: null unless the outcome is a death or a nexus. A death shows its gravestone when the icon
+     * is available; otherwise the outcome's label. The tooltip is the outcome's reason.
+     */
+    static JLabel outcomeLabel(EncounterOutcomes.Outcome outcome, int iconSize) {
+        if (outcome == null || !outcome.didNotComplete()) return null;
+        JLabel label = null;
+        if (outcome.kind == EncounterOutcomes.Kind.DIED && outcome.graveIcon != -1) {
+            try {
+                ImageBuffer.getImage(outcome.graveIcon);
+                label = new JLabel(ImageBuffer.getOutlinedIcon(outcome.graveIcon, iconSize));
+            } catch (IOException e) {
+                label = null;
+            }
+        }
+        if (label == null) label = new JLabel(outcome.label());
+        label.setToolTipText(outcome.reason);
+        return label;
     }
 
     private static int getHighestHP(Entity entity) {
@@ -564,8 +563,9 @@ public class IconDpsGUI extends DisplayDpsGUI {
         long totalDungeonPcTime,
         boolean isLive
     ) {
-        this.notifications = deathNotifications;
-        updateDps(map, sortedEntityHitList, totalDungeonPcTime);
+        EncounterOutcomes outcomes = EncounterOutcomes.forArea(map, presence, startedAt, isLive,
+            EncounterOutcomes.playersOf(sortedEntityHitList), deathNotifications);
+        updateDps(map, sortedEntityHitList, outcomes, totalDungeonPcTime);
         guiUpdate();
     }
 

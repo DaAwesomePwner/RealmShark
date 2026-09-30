@@ -108,6 +108,10 @@ public class TomatoPacketCapture implements Controller {
         } else if (packet instanceof NotificationPacket) {
             NotificationPacket p = (NotificationPacket) packet;
             data.notification(p);
+        } else if (packet instanceof DeathPacket) {
+            data.localDeath((DeathPacket) packet);
+        } else if (packet instanceof EscapePacket) {
+            data.localEscape();
         } else if (packet instanceof VaultContentPacket) {
             VaultContentPacket p = (VaultContentPacket) packet;
             data.vaultPacketUpdate(p);
