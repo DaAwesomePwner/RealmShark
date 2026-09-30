@@ -11,6 +11,7 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeHistoryFixture.*;
 
@@ -26,6 +27,36 @@ public class RunCardRendererTest {
                 new RunCardModel.LootItem(501, "White", ""), new RunCardModel.LootItem(505, "Orange", ""),
                 new RunCardModel.LootItem(504, "Orange", "T12"), new RunCardModel.LootItem(503, "Orange", "")),
             6, "1 UT · 1 ST · 2 potions", null, 240L, 2);
+    }
+
+    @Test public void enchantedLootPaintsItsRarityGemAndKeepsTheCardsWords() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RunCardModel plain = linked();
+            List<RunCardModel.LootItem> loot = new ArrayList<>(plain.loot());
+            RunCardModel.LootItem first = loot.get(0);
+            loot.set(0, new RunCardModel.LootItem(first.id(), first.bag(), first.tier(), EnchantInfo.ofSlotCount(3)));
+            // linked()'s arguments with the enchanted loot list.
+            RunCardModel gem = new RunCardModel(REF, "Lost Halls", "Lost Halls", 0, RunOutcome.COMPLETED, at(0, 8, 5), 25 * MINUTE, 6,
+                new RunCardModel.Combat("r-v1-long", 2, 6_000L, 20d, 2, 6, 30d, 1, null), null, loot, 6, "1 UT · 1 ST · 2 potions", null, 240L, 2);
+            assertEquals("The card's words are unchanged", RunCardRenderer.accessibleName(plain, ZONE, NOW), RunCardRenderer.accessibleName(gem, ZONE, NOW));
+            BufferedImage before = card(plain), after = card(gem);
+            int ink = Tokens.rarity(EnchantInfo.Rarity.LEGENDARY).getRGB(), changed = 0; boolean inked = false;
+            for (int y = 0; y < before.getHeight(); y++) for (int x = 0; x < before.getWidth(); x++)
+                if (before.getRGB(x, y) != after.getRGB(x, y)) { changed++; inked |= after.getRGB(x, y) == ink; }
+            assertTrue("The gem is painted", changed > 8);
+            assertTrue("…in the Legendary ink", inked);
+        });
+    }
+
+    private static BufferedImage card(RunCardModel model) {
+        RunCardRenderer renderer = new RunCardRenderer(ZONE, () -> NOW);
+        Component painted = renderer.getListCellRendererComponent(new JList<>(), model, 0, false, false);
+        Dimension size = renderer.getPreferredSize();
+        painted.setSize(size);
+        BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        try { painted.paint(g); } finally { g.dispose(); }
+        return image;
     }
 
     private static RunCardModel with(RunCardModel card, RunOutcome outcome, Long duration, Integer party, RunCardModel.Combat combat,
