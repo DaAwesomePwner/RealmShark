@@ -79,7 +79,7 @@ public class RunRecapViewTest {
 
     static RunRecapModel full(VisitRef ref, RunOutcome outcome, int recordings) {
         RunRecapModel.Header header = new RunRecapModel.Header("Lost Halls", "Lost Halls", 0, outcome, T0, 591_000L, 4, "Wizard #3");
-        RunRecapModel.Loot loot = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0 + 300_000, List.of(ut(101))),
+        RunRecapModel.Loot loot = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0 + 300_000, List.of(new LootFacts.Item(101, true, false, false, false, 2, 0))),
             new RunRecapModel.Loot.Bag("Purple", T0 + 400_000, List.of(potion(102), potion(103)))), 3, "1 UT · 2 potions", null);
         RunRecapModel.Players players = new RunRecapModel.Players(List.of(
             new RunRecapModel.Players.Player(1, "Alpha", "Wizard", 782, Arrays.asList(2001, 2002, null, -1), 700L, T0 + 10_000),
@@ -156,6 +156,11 @@ public class RunRecapViewTest {
             List<Integer> loot = new ArrayList<>();
             collect(named(view, "run-recap-loot-bags", JComponent.class), c -> { if (c instanceof ItemSlot) loot.add(((ItemSlot) c).itemId()); });
             assertEquals(List.of(101, 102, 103), loot);
+            List<ItemSlot> slots = new ArrayList<>();
+            collect(named(view, "run-recap-loot-bags", JComponent.class), c -> { if (c instanceof ItemSlot) slots.add((ItemSlot) c); });
+            assertEquals(tomato.realmshark.EnchantInfo.ofSlotCount(2), slots.get(0).enchant());
+            assertTrue(slots.get(0).getAccessibleContext().getAccessibleName().endsWith("Rare · 2 enchant slots"));
+            assertNull("A potion shows no enchant line", slots.get(1).enchant());
             assertEquals(List.of("White bag", "Purple bag"), texts(view, "run-recap-loot-bag-name"));
             assertEquals(List.of("1 UT", "2 potions"), texts(view, "run-recap-loot-bag-kinds"));
 

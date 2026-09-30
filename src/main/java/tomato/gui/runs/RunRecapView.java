@@ -22,6 +22,7 @@ import tomato.gui.route.Destination;
 import tomato.gui.route.Route;
 import tomato.gui.stats.LootFacts;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import util.PropertiesManager;
 
 /**
@@ -595,7 +596,8 @@ public final class RunRecapView extends JPanel {
         List<String> names = new ArrayList<>();
         for (LootFacts.Item item : bag.items()) {
             ItemSlot slot = new ItemSlot(24);
-            slot.setItem(item.id(), item.untiered() ? "UT" : item.setTiered() ? "ST" : ItemTiers.label(item.id()));
+            EnchantInfo enchant = item.enchant().state() == EnchantInfo.State.NOT_RECORDED ? null : item.enchant();
+            slot.setItem(item.id(), item.untiered() ? "UT" : item.setTiered() ? "ST" : ItemTiers.label(item.id()), enchant);
             slots.add(slot);
             names.add(Sprites.name(item.id()));
         }

@@ -8,6 +8,7 @@ import java.util.function.Consumer;
 import tomato.backend.data.DungeonStatData;
 import tomato.history.SessionStore;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.enums.StatPotion;
 
 /**
@@ -21,11 +22,19 @@ public final class LootFacts {
      * One saved item occurrence; {@code untiered}/{@code setTiered} are UT/ST gear exactly as the saved loot views count them.
      * {@code slots} (unlocked enchant slots, empty ones included) and {@code applied} (applied enchants) are null when the drop
      * did not record them (legacy drops, capture without enchant data; older builds saved -1 for that).
+     * {@code enchant} is the item's enchantments for display: exact when captured, rarity only for older records, not recorded when unknown.
      */
-    public record Item(int id, boolean untiered, boolean setTiered, boolean highTier, boolean potion, Integer slots, Integer applied) {
+    public record Item(int id, boolean untiered, boolean setTiered, boolean highTier, boolean potion, Integer slots, Integer applied,
+                       EnchantInfo enchant) {
         public Item {
             if (slots != null && slots < 0) slots = null;   // the legacy -1: unknown
             if (applied != null && applied < 0) applied = null;
+            // No enchantments given: the rarity the slot count implies (not recorded when it is unknown).
+            if (enchant == null) enchant = EnchantInfo.ofSlotCount(slots);
+        }
+
+        public Item(int id, boolean untiered, boolean setTiered, boolean highTier, boolean potion, Integer slots, Integer applied) {
+            this(id, untiered, setTiered, highTier, potion, slots, applied, null);
         }
         /** An item without enchant data (tests and callers that do not need it). */
         public Item(int id, boolean untiered, boolean setTiered, boolean highTier, boolean potion) {
@@ -91,7 +100,7 @@ public final class LootFacts {
         for (LootDashboard.Item item : drop.items) {
             if (item == null) throw new UncheckedIOException(new IOException("A saved loot bag has an unreadable item"));
             // LootQuery's rule for saved variants: no enchant data or the legacy -1 is unknown.
-            items.add(new Item(item.id, item.ut, item.st, item.highTier, item.potion, LootQuery.slots(item), LootQuery.applied(item)));
+            items.add(new Item(item.id, item.ut, item.st, item.highTier, item.potion, LootQuery.slots(item), LootQuery.applied(item), item.enchantInfo()));
         }
         VisitRef visit = drop.context == null ? null : drop.context.visit;
         boolean exact = visit != null && visit.sessionId != null && !visit.sessionId.isEmpty() && visit.visitId != null && !visit.visitId.isEmpty();

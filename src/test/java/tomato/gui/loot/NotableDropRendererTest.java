@@ -15,6 +15,7 @@ import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.Themes;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeHistoryFixture.*;
 
@@ -27,6 +28,55 @@ public class NotableDropRendererTest {
 
     private static HighlightsModel.Notable notable(String bag, String dungeon, long time, VisitRef visit, HighlightsModel.Kind kind) {
         return new HighlightsModel.Notable(4242, bag, dungeon, time, visit, kind);
+    }
+
+    private static HighlightsModel.Notable enchanted(EnchantInfo enchant) {
+        return new HighlightsModel.Notable(4242, "White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.ENCHANTED, enchant);
+    }
+
+    @Test public void anEnchantedDropSaysItsRarityAndShowsTheEnchantTooltipOnHover() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            EnchantInfo legendary = EnchantInfo.ofSlotCount(3);
+            HighlightsModel.Notable drop = enchanted(legendary);
+            String name = NotableDropRenderer.accessibleName(drop, ZONE_NY, NOON);
+            assertTrue(name, name.contains("enchanted, rare or better (Legendary · 3 enchant slots)"));
+            NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+            renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
+            String tip = renderer.getToolTipText();
+            assertTrue(tip, tip.startsWith("<html>") && tip.contains("Legendary · 3 enchant slots") && tip.contains("Enchant names not available"));
+            String plain = NotableDropRenderer.accessibleName(enchanted(EnchantInfo.notRecorded()), ZONE_NY, NOON);
+            assertFalse("Without enchant data the name adds no rarity: " + plain, plain.contains("enchant slot"));
+            renderer.getListCellRendererComponent(new JList<>(), enchanted(EnchantInfo.notRecorded()), 0, false, false);
+            assertEquals("…and the tooltip stays the plain facts", plain + " · " + HighlightsModel.OBSERVED, renderer.getToolTipText());
+        });
+    }
+
+    @Test public void theGemIsPaintedInsideTheWellsTopRightCorner() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+            renderer.getListCellRendererComponent(new JList<>(), enchanted(EnchantInfo.notRecorded()), 0, false, false);
+            Dimension size = renderer.getPreferredSize();
+            BufferedImage plain = image(renderer, size);
+            renderer.getListCellRendererComponent(new JList<>(), enchanted(EnchantInfo.ofSlotCount(3)), 0, false, false);
+            BufferedImage gem = image(renderer, size);
+            Rectangle well = NotableDropRenderer.well(size.width, size.height);
+            int ink = Tokens.rarity(EnchantInfo.Rarity.LEGENDARY).getRGB(), changed = 0; boolean inked = false;
+            for (int y = 0; y < size.height; y++) for (int x = 0; x < size.width; x++) {
+                if (plain.getRGB(x, y) == gem.getRGB(x, y)) continue;
+                changed++; inked |= gem.getRGB(x, y) == ink;
+                assertTrue("Changes stay inside the well's top-right quarter at " + x + "," + y,
+                    x > well.x + well.width / 2 && x < well.x + well.width - 1 && y > well.y && y < well.y + well.height / 2);
+            }
+            assertTrue("The gem is painted", changed > 8);
+            assertTrue("…in the Legendary ink", inked);
+        });
+    }
+
+    private static BufferedImage image(JComponent c, Dimension size) {
+        c.setSize(size);
+        BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics(); c.paint(g); g.dispose();
+        return image;
     }
 
     @Test public void linesSayTheKindTheAreaAndWhenAndAMissingRunLink() {

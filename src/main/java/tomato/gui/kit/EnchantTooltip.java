@@ -29,6 +29,8 @@ public final class EnchantTooltip {
             if (!definition.description().isEmpty())
                 html.append("<br>&nbsp;&nbsp;&nbsp;<span style='color:").append(muted).append("'>").append(escape(definition.description())).append("</span>");
         }
+        if (info.state() == EnchantInfo.State.COUNT_ONLY && info.rarity() != EnchantInfo.Rarity.UNENCHANTED)
+            html.append("<br><span style='color:").append(muted).append("'>").append(EnchantInfo.NAMES_NOT_AVAILABLE).append("</span>");
         return html.append("</html>").toString();
     }
 

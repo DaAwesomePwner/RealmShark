@@ -9,6 +9,7 @@ import org.junit.Test;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.stats.LootFacts;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseDungeon;
 import static org.junit.Assert.*;
 import static tomato.gui.loot.HighlightsFixture.*;
@@ -62,6 +63,7 @@ public class HighlightsModelTest {
         assertEquals("The UT, then the only item with 2 known slots", List.of(6, 1),
             model.notable().stream().map(HighlightsModel.Notable::itemId).collect(Collectors.toList()));
         assertEquals(List.of(UT, ENCHANTED), kinds(model));
+        assertEquals(EnchantInfo.ofSlotCount(2), model.notable().get(1).enchant());
         assertEquals("Items 4 and 5 have no recorded enchant slots (the UT and the potion are listed or never enchanted)", 2, model.enchantUnknown());
         assertNull("Unknown enchant data: not enchanted and not unenchanted", HighlightsModel.kind(item(4, false, false, false, null)));
         assertNull(HighlightsModel.kind(item(2, false, false, false, 1)));

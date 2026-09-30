@@ -294,7 +294,11 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private void savePosition(){if(restoring)return;current=HistoryTables.position(table,scroll,page,current);current=current.withPosition(current.query.facets().view.name(),current.selected,current.anchor,current.anchorOffset);binding.viewChanged(current);}
         private Set<String> choices(String prefix){Set<String> values=new TreeSet<>();for(String key:page.counts.keySet())if(key.startsWith(prefix))values.add(key.substring(prefix.length()));return values;}
         private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"");
-            if("occurrence".equals(row.value.type))text.append("Exact enchantment evidence: ").append(row.value.enchantEvidence==null?"Not recorded":row.value.enchantEvidence).append("\nDrop context: ").append(row.value.dropContext==null?"Not recorded":row.value.dropContext).append('\n');
+            if("occurrence".equals(row.value.type)){
+                text.append("Exact enchantment evidence: ").append(row.value.enchantEvidence==null?"Not recorded":row.value.enchantEvidence).append("\nDrop context: ").append(row.value.dropContext==null?"Not recorded":row.value.dropContext).append('\n');
+                text.append("\nEnchantments: ").append(row.value.enchantments==null?"Not recorded":row.value.enchantments.replace("\n","\n  "));
+                text.append('\n');
+            }
             text.append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append(readable(column.id,value)).append('\n');}
             details.setText(text.toString());details.setCaretPosition(0);}
         private JComponent analyticalFilters(View view){
