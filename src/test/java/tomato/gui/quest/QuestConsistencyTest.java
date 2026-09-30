@@ -160,6 +160,18 @@ public class QuestConsistencyTest {
 
     @Test public void longDetailsAndNullOrFailingLookupsAllocateEveryFinalLineAcrossMatrix() throws Exception {
         preferences.put("category.77", CATEGORY);
+        // P6b polish: the raw expiration and the server category are Analyst detail in the Table view too, so the matrix runs in Analyst.
+        tomato.gui.kit.DisplayModeModel.Mode mode = tomato.gui.kit.DisplayModeModel.application().mode();
+        String key = util.PropertiesManager.getProperty(tomato.gui.kit.DisplayModeModel.KEY);
+        SwingUtilities.invokeAndWait(() -> tomato.gui.kit.DisplayModeModel.application().set(tomato.gui.kit.DisplayModeModel.Mode.ANALYST));
+        try { longDetailsMatrix(); }
+        finally {
+            SwingUtilities.invokeAndWait(() -> tomato.gui.kit.DisplayModeModel.application().set(mode));
+            util.PropertiesManager.setProperties(tomato.gui.kit.DisplayModeModel.KEY, key == null ? "" : key);
+        }
+    }
+
+    private void longDetailsMatrix() throws Exception {
         SwingUtilities.invokeAndWait(() -> createShell(false));
         for (int font : FONTS) for (Dimension client : CLIENTS) {
             SwingUtilities.invokeAndWait(() -> quest.update(new QuestData[]{longRecord()}));
@@ -522,7 +534,8 @@ public class QuestConsistencyTest {
     }
 
     private void assertControlsReachable() {
-        for (String name : new String[]{"quest-search", "quest-type", "quest-reward", "quest-sort", "quest-pinned-only",
+        // P6b: Sort by is a ⋯ item, so the row's ⋯ button ("quests-more") stands for it.
+        for (String name : new String[]{"quest-search", "quest-type", "quest-reward", "quests-more", "quest-pinned-only",
                 "quest-completed", "quest-name-types", "quest-reset", "quest-pin"}) {
             JComponent control = named(quest, name, JComponent.class);
             assertTrue(name + " width", control.getWidth() > 0);
