@@ -130,6 +130,10 @@ public class EnchantInfoTest {
         EnchantInfo fallback = EnchantInfo.fromEvidence(noIds);
         assertEquals("No ordered ids: the saved slot count still gives the rarity", State.COUNT_ONLY, fallback.state());
         assertEquals(Rarity.RARE, fallback.rarity());
+        ParseEnchants.Evidence noCount = tomato.history.SessionStore.JSON.fromJson("{\"state\":\"RECORDED\"}", ParseEnchants.Evidence.class);
+        assertSame("No ids and no saved count: not recorded, never a false Unenchanted", EnchantInfo.notRecorded(), EnchantInfo.fromEvidence(noCount));
+        ParseEnchants.Evidence nullId = tomato.history.SessionStore.JSON.fromJson("{\"state\":\"RECORDED\",\"orderedSlotIds\":[-1,null],\"slots\":2,\"applied\":0}", ParseEnchants.Evidence.class);
+        assertSame("A missing id inside the list: unreadable, never a throw", EnchantInfo.unreadable(), EnchantInfo.fromEvidence(nullId));
     }
 
     private static String encode(int... entries) {

@@ -62,9 +62,11 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
             case INVALID: return UNREADABLE;
             default: return NOT_RECORDED;
         }
-        if (evidence.orderedSlotIds == null) return ofSlotCount(evidence.slots);
+        // Gson defaults a missing primitive count to 0; real captures always carry the ordered ids.
+        if (evidence.orderedSlotIds == null) return evidence.slots > 0 ? ofSlotCount(evidence.slots) : NOT_RECORDED;
         List<Slot> unlocked = new ArrayList<>();
-        for (int id : evidence.orderedSlotIds) {
+        for (Integer id : evidence.orderedSlotIds) {
+            if (id == null) return UNREADABLE;
             if (id == -3) break;
             if (id >= -1) unlocked.add(new Slot(id));
         }
