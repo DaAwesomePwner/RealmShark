@@ -389,6 +389,13 @@ public class ParseEnchants {
                 : states[slot] == CaptureState.MALFORMED ? EnchantInfo.unreadable() : EnchantInfo.of(codes[slot]);
         }
 
+        /** The four equipped slots' enchantments (weapon, ability, armor, ring). */
+        public List<EnchantInfo> infos() {
+            List<EnchantInfo> slots = new ArrayList<>(4);
+            for (int i = 0; i < 4; i++) slots.add(info(i));
+            return List.copyOf(slots);
+        }
+
         /** Null means the four-slot total is unknown, even if some individual effects are valid. */
         public String[] completeCodes() {
             for (CaptureState state : states) if (state != CaptureState.KNOWN) return null;

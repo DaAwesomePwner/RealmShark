@@ -10,6 +10,7 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import packets.incoming.ExaltationUpdatePacket;
 import tomato.realmshark.RealmCharacter;
+import tomato.realmshark.EnchantInfo;
 
 public class CharacterJournalTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
@@ -24,6 +25,31 @@ public class CharacterJournalTest {
         return e;
     }
     private Path file() { return temp.getRoot().toPath().resolve("Characters/journal.json"); }
+
+    @Test public void observedEquipmentEnchantsAreSavedKeptAndReloaded() throws Exception {
+        Path file = file(); CharacterJournal j = new CharacterJournal(file);
+        Entity e = player("account-a", 782);
+        put(e, StatType.INVENTORY_0_STAT, 12345);
+        StatData enchants = new StatData(); enchants.stringStatValue = "AAIE_wU,,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        j.observe(e, 10);
+        assertArrayEquals(new String[] {"AAIE_wU", "", "", ""}, j.characters().get(0).equipmentEnchants);
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, j.characters().get(0).enchantInfos().get(0).rarity());
+        e.stat.set(StatType.UNIQUE_DATA_STRING, null);
+        j.observe(e, 10);
+        assertArrayEquals("An observation without the stat keeps the saved enchants", new String[] {"AAIE_wU", "", "", ""},
+            j.characters().get(0).equipmentEnchants);
+        StatData changed = new StatData(); changed.stringStatValue = "AAIE,,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, changed);
+        long before = j.revision();
+        j.observe(e, 10);
+        assertNotEquals("An enchants-only change is a change (so it is saved)", before, j.revision());
+        j.save();
+        assertArrayEquals(new String[] {"AAIE", "", "", ""}, new CharacterJournal(file).characters().get(0).equipmentEnchants);
+    }
+
+    @Test public void theEmptyShorthandIsFourUnenchantedSlotsAndMissingSlotsAreNotRecorded() {
+        assertArrayEquals(new String[] {"", "", "", ""}, CharacterJournal.equippedEnchants(""));
+        assertArrayEquals(new String[] {"AAIE", "", null, null}, CharacterJournal.equippedEnchants("AAIE,"));
+    }
 
     @Test public void savesOwnedIdentityAndPartialSnapshotsWithoutCredentials() throws Exception {
         Path file = file(); CharacterJournal j = new CharacterJournal(file);

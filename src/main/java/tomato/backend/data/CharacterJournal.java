@@ -17,6 +17,7 @@ import java.util.concurrent.*;
 import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.realmshark.RealmCharacter;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.RealmCharacterStats;
 import tomato.realmshark.enums.CharacterClass;
 import tomato.realmshark.enums.CharacterStatistics;
@@ -48,6 +49,19 @@ public final class CharacterJournal implements AutoCloseable {
         public boolean dead;
         public Integer[] stats = new Integer[8];
         public Integer[] equipment = new Integer[28];
+        /**
+         * v5: the four equipped items' UNIQUE_DATA_STRING entries (weapon, ability, armor, ring) as last observed live; null = not
+         * recorded (older records, or never observed since); a null element is a slot the capture did not include.
+         */
+        public String[] equipmentEnchants;
+
+        /** The equipped items' enchantments for display; null when none were recorded. */
+        public List<EnchantInfo> enchantInfos() {
+            if (equipmentEnchants == null) return null;
+            List<EnchantInfo> slots = new ArrayList<>(4);
+            for (int i = 0; i < 4; i++) slots.add(EnchantInfo.of(i < equipmentEnchants.length ? equipmentEnchants[i] : null));
+            return List.copyOf(slots);
+        }
         public String notes = "";
         public String source = "Captured character";
         public DeathAnnotation deathAnnotation;
@@ -233,6 +247,9 @@ public final class CharacterJournal implements AutoCloseable {
             StatData item = player.stat.get(stat);
             if (item != null) { record.equipment[i] = item.statValue; capture(record, "equipment." + i, player.fieldCapture(stat)); }
         }
+        StatData enchants = player.stat.get(StatType.UNIQUE_DATA_STRING);
+        // Like equipment, an observation without the stat keeps what was saved.
+        if (enchants != null && enchants.stringStatValue != null) record.equipmentEnchants = equippedEnchants(enchants.stringStatValue);
         boolean newObservation = player.observationRevision() != 0 && player.observationRevision() != record.observationRevision;
         record.observationRevision = player.observationRevision();
         record.lastObservedAlive = Math.max(record.lastObservedAlive, player.observedAt());
@@ -250,6 +267,14 @@ public final class CharacterJournal implements AutoCloseable {
             changed();
         }
         return account;
+    }
+
+    /** The first four comma-separated entries (the equipped slots); "" is the protocol's known-empty shorthand for all four. */
+    static String[] equippedEnchants(String captured) {
+        String[] parts = captured.isEmpty() ? new String[] {"", "", "", ""} : captured.split(",", -1);
+        String[] slots = new String[4];
+        for (int i = 0; i < 4; i++) slots[i] = i < parts.length ? parts[i] : null;
+        return slots;
     }
 
     public synchronized void mergeRoster(String account, List<RealmCharacter> chars) {
@@ -450,6 +475,7 @@ public final class CharacterJournal implements AutoCloseable {
     private static boolean known(int[] values) { return Arrays.stream(values).anyMatch(n -> n != -1); }
     /** v5 values that parsed but make no sense are unknown, never a load failure. */
     private static void normalizeV5(CharacterRecord r) {
+        if (r.equipmentEnchants != null && r.equipmentEnchants.length != 4) r.equipmentEnchants = null;
         if (r.pet != null && Boolean.FALSE.equals(r.pet.absent)) r.pet.absent = null; // only TRUE is saved
         if (r.pet != null && !validPet(r.pet)) r.pet = null;
         if (r.dungeonCompletions != null) for (Map.Entry<String, Integer> entry : r.dungeonCompletions.entrySet())
@@ -501,6 +527,7 @@ public final class CharacterJournal implements AutoCloseable {
             JsonObject r = row.getAsJsonObject();
             drop(r, "pet", PetRecord.class); drop(r, "dungeonCompletions", COMPLETIONS); drop(r, "dungeonCompletionsObservedAt", long.class);
             drop(r, "exp", Long.class); drop(r, "hasBackpack", Boolean.class);
+            drop(r, "equipmentEnchants", String[].class);
         }
         if (accounts != null && accounts.isJsonObject()) for (Map.Entry<String, JsonElement> row : accounts.getAsJsonObject().entrySet())
             if (row.getValue().isJsonObject()) {
@@ -710,6 +737,7 @@ public final class CharacterJournal implements AutoCloseable {
         c.observationRevision = r.observationRevision;
         c.rosterRevision = r.rosterRevision;
         c.stats = r.stats.clone(); c.equipment = r.equipment.clone();
+        c.equipmentEnchants = r.equipmentEnchants == null ? null : r.equipmentEnchants.clone();
         c.pet = copy(r.pet);
         c.dungeonCompletions = r.dungeonCompletions == null ? null : new TreeMap<>(r.dungeonCompletions);
         c.dungeonCompletionsObservedAt = r.dungeonCompletionsObservedAt; c.exp = r.exp; c.hasBackpack = r.hasBackpack;
@@ -741,7 +769,8 @@ public final class CharacterJournal implements AutoCloseable {
     private static boolean sameObservation(CharacterRecord a, CharacterRecord b) {
         return a.classId == b.classId && Objects.equals(a.className, b.className) && Objects.equals(a.name, b.name)
             && Objects.equals(a.level, b.level) && Objects.equals(a.skin, b.skin) && Objects.equals(a.fame, b.fame)
-            && Objects.equals(a.seasonal, b.seasonal) && Arrays.equals(a.stats, b.stats) && Arrays.equals(a.equipment, b.equipment);
+            && Objects.equals(a.seasonal, b.seasonal) && Arrays.equals(a.stats, b.stats) && Arrays.equals(a.equipment, b.equipment)
+            && Arrays.equals(a.equipmentEnchants, b.equipmentEnchants);
     }
     private static void capture(CharacterRecord record, String field, FieldCapture value) {
         if (value != null) record.fields.put(field, value);
