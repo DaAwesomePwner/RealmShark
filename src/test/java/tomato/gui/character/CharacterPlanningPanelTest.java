@@ -11,8 +11,19 @@ import org.junit.rules.TemporaryFolder;
 import static org.junit.Assert.*;
 import tomato.backend.data.*;
 import tomato.planning.*;
+import tomato.realmshark.EnchantInfo;
 
 public class CharacterPlanningPanelTest {
+    @Test public void equippedSlotsShowTheEnchantsLastObservedLive() {
+        CharacterJournal.CharacterRecord r = record("A"); r.equipment[0] = 123; r.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        java.util.List<CharacterEquipmentPanel.Slot> rows = CharacterEquipmentPanel.project(r, RosterDefinitions.empty());
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, rows.get(0).enchant.rarity());
+        assertTrue(rows.get(0).detail, rows.get(0).detail.contains("Enchantment effects: Uncommon · 1 enchant slot"));
+        assertNull("Inventory slots carry no enchant data", rows.get(4).enchant);
+        assertTrue(rows.get(4).detail.contains("Enchantment effects: Not recorded"));
+        assertNull("A record without saved enchants carries none", CharacterEquipmentPanel.project(record("B"), RosterDefinitions.empty()).get(0).enchant);
+    }
+
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private static <T extends Component> T named(Container root, String name, Class<T> type) {
         for (Component c : root.getComponents()) { if (name.equals(c.getName()) && type.isInstance(c)) return type.cast(c); if (c instanceof Container) { T found = named((Container)c, name, type); if (found != null) return found; } } return null;

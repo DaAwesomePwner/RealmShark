@@ -24,6 +24,17 @@ public class GearTabTest {
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
     private static ItemSlot slot(JComponent tab, int index) { return named(tab, "character-gear-slot-" + index, ItemSlot.class); }
 
+    @Test public void aCharacterNotInGameShowsTheEnchantsLastObservedLive() throws Exception {
+        CharacterJournal.CharacterRecord r = record();
+        r.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        SheetModel.Gear gear = model(r, account(), null).gear();
+        SwingUtilities.invokeAndWait(() -> {
+            GearTab tab = new GearTab(mode);
+            tab.apply(gear);
+            assertEquals(EnchantInfo.Rarity.UNCOMMON, slot(tab, 0).enchant().rarity());
+        });
+    }
+
     @Test public void emptyAndNotCapturedSlotsStayDistinctAndEquippedItemsShowTiers() throws Exception {
         SheetModel model = model(record(), account(), null);
         SwingUtilities.invokeAndWait(() -> {

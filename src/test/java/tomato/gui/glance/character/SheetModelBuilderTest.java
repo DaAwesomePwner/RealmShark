@@ -13,12 +13,23 @@ import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.modern.DisplayFormat;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
 /** Sheet rules on synthetic records: Home's potion arithmetic, vault counts only when known, unknown never 0, live only while playing. */
 public class SheetModelBuilderTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+
+    @Test public void aCharacterNotInGameShowsTheEnchantsLastObservedLive() {
+        CharacterJournal.CharacterRecord r = SheetFixtures.record();
+        r.equipmentEnchants = new String[] {"AAIE_wU", "", null, "!!!"};
+        List<EnchantInfo> saved = SheetFixtures.model(r, SheetFixtures.account(), null).gear().enchants();
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, saved.get(0).rarity());
+        assertEquals(EnchantInfo.Rarity.UNENCHANTED, saved.get(1).rarity());
+        assertSame(EnchantInfo.notRecorded(), saved.get(2));
+        assertSame(EnchantInfo.unreadable(), saved.get(3));
+    }
 
     @Test public void potionsMaxedAndNeedsUseCapsAndVaultCounts() {
         CharacterJournal.AccountRecord account = account();

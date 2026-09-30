@@ -5,11 +5,24 @@ import org.junit.Test;
 import tomato.backend.data.CharacterJournal;
 import tomato.gui.kit.*;
 import tomato.gui.modern.DisplayFormat;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
 /** Overview and header on synthetic models: live boost only while playing, vault counts only when known, unknown never 0. */
 public class OverviewTabTest {
+    @Test public void equippedSlotsShowTheEnchantsLastObservedLive() throws Exception {
+        CharacterJournal.CharacterRecord r = record();
+        r.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        SheetModel model = model(r, account(), null);
+        SwingUtilities.invokeAndWait(() -> {
+            OverviewTab tab = new OverviewTab(mode, System::currentTimeMillis, NO_OPEN);
+            tab.apply(model);
+            assertEquals(EnchantInfo.Rarity.UNCOMMON,
+                named(tab, "character-overview-slot-0", ItemSlot.class).enchant().rarity());
+        });
+    }
+
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
     /** Tests that do not open the Pet tab from the Overview's pet card. */
     private static final Runnable NO_OPEN = () -> {};
