@@ -235,7 +235,7 @@ public final class ActivityPanel extends JPanel implements LiveFilterHost {
             inspection.setFont(ContentStyle.metadata(ContentStyle.body()));inspection.setRows(2);
             inspection.getAccessibleContext().setAccessibleName("Inspected resource sample");
             chart.addPropertyChangeListener("inspectionSummary",e->inspection.setText((String)e.getNewValue()));
-            JScrollPane inspectionScroll=new JScrollPane(inspection);inspectionScroll.setBorder(null);
+            JScrollPane inspectionScroll=new JScrollPane(inspection);inspectionScroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would reinstall the outline
             inspectionScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
             plot.add(tools,BorderLayout.NORTH);plot.add(new JScrollPane(chart));plot.add(inspectionScroll,BorderLayout.SOUTH);
             combatViews.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -548,7 +548,10 @@ public final class ActivityPanel extends JPanel implements LiveFilterHost {
     private void updateSummary(){
         String counts=mode==Mode.RUNS ? number(table.getRowCount())+" of "+number(rows.size())+" dungeon runs · "+number(visitCount-rows.size())+" other area visits in Timeline"
             : number(visitCount)+" visits · "+number(eventCount)+" retained events";
-        summary.setText("<html>"+CollectionControl.status(log,freeze.isSelected())+"<br>"+counts+(mode==Mode.RUNS?"<br>Filters and sorting cover the entire retained displayed snapshot; Scope ▾ › Saved history shows persisted history.":"")+"</html>");
+        // The status line's collection checkbox already shows the collection state; the summary repeats it only where that checkbox is
+        // hidden (a saved page: "Saved history"). A paused view stays labeled, since its rows no longer follow collection.
+        String state=!record.isVisible()?CollectionControl.status(log,freeze.isSelected())+"<br>":freeze.isSelected()?"View paused (collection state is current)<br>":"";
+        summary.setText("<html>"+state+counts+(mode==Mode.RUNS?"<br>Filters and sorting cover the entire retained displayed snapshot; Scope ▾ › Saved history shows persisted history.":"")+"</html>");
     }
     /**
      * Runs' Entered and Timeline's Time read "12 min ago" in Simple, with the absolute time and zone in the tooltip; Analyst keeps the

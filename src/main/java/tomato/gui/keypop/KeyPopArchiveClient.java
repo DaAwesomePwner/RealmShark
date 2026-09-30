@@ -156,11 +156,17 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
         modes.show(MODE_TABS[f.mode.ordinal()]);modes.select(MODE_TABS[f.mode.ordinal()]);
         JTextArea detail=ContentStyle.wrappingText("Select a row for its full values.");detail.setName("keypop-archive-detail");
         List<HistoryTables.Column<Row,?>> columns=new ArrayList<>();Map<String,Sort> sorts=new LinkedHashMap<>();
-        if(f.mode!=Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("player","Player",String.class,r->r.player,null,ColumnKind.PLAYER));sorts.put("player",Sort.PLAYER);}
-        if(f.mode!=Mode.BY_PLAYER){columns.add(new HistoryTables.Column<>("item","Dungeon / item",String.class,r->r.item,null,ColumnKind.DUNGEON));sorts.put("item",Sort.ITEM);}
-        columns.add(new HistoryTables.Column<>("time",f.mode==Mode.EVENTS?"Time":"Last pop",Instant.class,r->r.time,null,ColumnKind.DATE_TIME));sorts.put("time",Sort.TIME);
-        if(f.mode==Mode.EVENTS){columns.add(new HistoryTables.Column<>("kind","Type",String.class,r->r.kind,null,ColumnKind.STATUS));sorts.put("kind",Sort.KIND);}
-        else{
+        if(f.mode==Mode.EVENTS){
+            // Live Events' order and Type badges (Time, Player, Type, Dungeon / item). Saved layouts name columns by ID, so a layout saved
+            // in the earlier order (Player, Dungeon / item, Time, Type) is restored as saved; only a table without one takes this order.
+            columns.add(new HistoryTables.Column<>("time","Time",Instant.class,r->r.time,null,ColumnKind.DATE_TIME));sorts.put("time",Sort.TIME);
+            columns.add(new HistoryTables.Column<>("player","Player",String.class,r->r.player,null,ColumnKind.PLAYER));sorts.put("player",Sort.PLAYER);
+            columns.add(new HistoryTables.Column<>("kind","Type",String.class,r->r.kind,KeyPopDashboard.typeBadge(),ColumnKind.STATUS));sorts.put("kind",Sort.KIND);
+            columns.add(new HistoryTables.Column<>("item","Dungeon / item",String.class,r->r.item,null,ColumnKind.DUNGEON));sorts.put("item",Sort.ITEM);
+        }else{
+            if(f.mode!=Mode.BY_ITEM){columns.add(new HistoryTables.Column<>("player","Player",String.class,r->r.player,null,ColumnKind.PLAYER));sorts.put("player",Sort.PLAYER);}
+            if(f.mode!=Mode.BY_PLAYER){columns.add(new HistoryTables.Column<>("item","Dungeon / item",String.class,r->r.item,null,ColumnKind.DUNGEON));sorts.put("item",Sort.ITEM);}
+            columns.add(new HistoryTables.Column<>("time","Last pop",Instant.class,r->r.time,null,ColumnKind.DATE_TIME));sorts.put("time",Sort.TIME);
             columns.add(new HistoryTables.Column<>("pops","Pops",Long.class,r->r.pops,null,ColumnKind.COUNT));sorts.put("pops",Sort.POPS);
             columns.add(new HistoryTables.Column<>("keys","Keys",Long.class,r->r.keys,null,ColumnKind.COUNT));sorts.put("keys",Sort.KEYS);
             columns.add(new HistoryTables.Column<>("runes","Runes",Long.class,r->r.runes,null,ColumnKind.COUNT));sorts.put("runes",Sort.RUNES);
@@ -173,7 +179,7 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
         KitTables.relativeTime(table,"time",mode,KitTables::epoch,DisplayFormat.timestampZoneLabel());   // "12 min ago" in Simple, absolute in Analyst
         table.getSelectionModel().addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&table.getSelectedRow()>=0)table.getActionMap().get("archive-details").actionPerformed(null);});
         JScrollPane scroll=ContentStyle.tableScroll(table,3);JPanel body=new JPanel(new BorderLayout(0,4));body.add(scroll);
-        Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("All columns",new ArrayList<>(sorts.keySet()));presets.put("Compact",f.mode==Mode.EVENTS?Arrays.asList("player","item","time","kind"):f.mode==Mode.BY_PLAYER?Arrays.asList("player","pops","share"):Arrays.asList("item","pops","players","share"));
+        Map<String,List<String>> presets=new LinkedHashMap<>();presets.put("All columns",new ArrayList<>(sorts.keySet()));presets.put("Compact",f.mode==Mode.EVENTS?Arrays.asList("time","player","kind","item"):f.mode==Mode.BY_PLAYER?Arrays.asList("player","pops","share"):Arrays.asList("item","pops","players","share"));
         state.tableTools(table,scroll,page,f.mode.name(),presets);holders.get(f.mode).add(body);   // tools go to the workspace ⋯ via filters()
         modes.onSelect(id->{int index=Arrays.asList(MODE_TABS).indexOf(id);if(index<0||index==f.mode.ordinal())return;Mode chosen=Mode.values()[index];
             state.tab(chosen.name());Facets next=state.value.query.facets();next.mode=chosen;
@@ -183,7 +189,9 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
             if(f.mode==Mode.BY_PLAYER)next.exactPlayer=row.player;else next.items=new LinkedHashSet<>(Collections.singleton(row.item));next.mode=Mode.EVENTS;state.tab(Mode.EVENTS.name());state.query(state.value.query.withFacets(next));});actions.add(drill);
         String export=f.mode==Mode.EVENTS?"Export events":"Export this summary";
         long denominator=page.counts.containsKey("events")?page.counts.get("events").value:0;
-        JTextArea note=ContentStyle.wrappingText(page.description()+"\n"+denominator+" matching observed pop events across the whole query; callouts excluded from totals and share denominator.\n"+export+": ⋯ Export selected / page / all matches, as CSV or JSON. The export follows this tab's pinned rows.");note.setName("keypop-archive-population");
+        // The count line names the pinned revision in Analyst only (spec §3.2: Simple hides IDs and revisions); it follows the mode.
+        JTextArea note=ContentStyle.wrappingText("");note.setName("keypop-archive-population");
+        mode.bind(note,shown->note.setText((shown==DisplayModeModel.Mode.ANALYST?page.description():plainDescription(page))+"\n"+denominator+" matching observed pop events across the whole query; callouts excluded from totals and share denominator.\n"+export+": ⋯ Export selected / page / all matches, as CSV or JSON. The export follows this tab's pinned rows."));
         JPanel footer=new JPanel(new BorderLayout(0,4));footer.add(actions,BorderLayout.NORTH);footer.add(detail);footer.add(note,BorderLayout.SOUTH);
         JComponent view = ContentStyle.page(null,tabs,footer); state.owner(view); return view;
     }
@@ -211,6 +219,10 @@ public final class KeyPopArchiveClient implements ArchiveClient<KeyPopArchiveCli
     }
     private static FilterBar.ActiveFilter chip(SocialQueryControls.State<Row,Facets,Sort> state,String label,java.util.function.Consumer<Facets> reset){
         return new FilterBar.ActiveFilter(label,()->{Facets next=state.value.query.facets();reset.accept(next);state.query(state.value.query.withFacets(next));});
+    }
+    /** {@link ArchivePage#description()} without the pinned revision: "18 displayed / 18 matching pop events · page 1" (a partial read still says so). */
+    static String plainDescription(ArchivePage<?> page){
+        return page.rows.size()+" displayed / "+page.matches+" matching "+page.unit+" · page "+(page.page+1)+(page.issues.isEmpty()?"":" · partial: "+page.issues.size()+" source issue(s)");
     }
     /** Kind codes as the labels players see; unrecorded kinds stay "Unknown". */
     static String kinds(Set<String> kinds){List<String> labels=new ArrayList<>();for(String kind:kinds)labels.add("UNKNOWN".equals(kind)?"Unknown":KeyPopEvent.Kind.valueOf(kind).label);return ArchiveFilters.summary(labels);}

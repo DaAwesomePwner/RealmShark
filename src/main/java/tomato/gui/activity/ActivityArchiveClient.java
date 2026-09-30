@@ -107,6 +107,8 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         private final JPanel uptime=new JPanel(new BorderLayout());
         private final JButton linked=new JButton("Export selected visit + Timeline…");
         private final JButton openFolder=new JButton("Open linked export folder");
+        /** Enabled only while a linked export runs (its preview, dialogs or write): there is nothing to cancel otherwise. */
+        private final JButton cancelLinked=new JButton("Cancel linked export");
         private Path exportedFolder;
         private Cancellation detailCancel=new Cancellation(),exportCancel=new Cancellation(),outcomeCancel=new Cancellation();
         private ArchiveRow<Row> pending, selected;
@@ -141,8 +143,10 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             // The column tools go to the workspace ⋯ (filters()); moves and resizes are still remembered with the view state.
             java.util.function.Consumer<ViewState.Table> saveLayout=layout->{this.state=this.state.withTable("activity",layout);remember();};
             HistoryTables.rememberLayout(table,saveLayout);tools=HistoryTables.columnTools(table,defaults,presets,saveLayout);
-            JTextArea counts=ContentStyle.wrappingText(counts(page)+(mode==ActivityPanel.Mode.TIMELINE?"":
-                    "\nVisit summary rows · Export selected visit + Timeline below includes full linked evidence."));counts.setName("activity-archive-counts");top.add(counts);
+            // The count line names the pinned revision in Analyst only (spec §3.2: Simple hides IDs and revisions); it follows the mode.
+            JTextArea counts=ContentStyle.wrappingText("");counts.setName("activity-archive-counts");top.add(counts);
+            display.bind(counts,shown->counts.setText(counts(page,shown==DisplayModeModel.Mode.ANALYST)+(mode==ActivityPanel.Mode.TIMELINE?"":
+                    "\nVisit summary rows · Export selected visit + Timeline below includes full linked evidence.")));
             if(mode==ActivityPanel.Mode.TIMELINE&&(exact||state.query.bounds().from!=null||state.query.bounds().until!=null)) {
                 window.setName("timeline-window");window.getAccessibleContext().setAccessibleName("Timeline window, exact visit link and linked outcome");
                 window.setText(windowText()+(exact?"\nLinked outcome: reading from this revision…":""));top.add(window);
@@ -175,7 +179,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             JPanel bottom=ContentStyle.controls();
             if(mode!=ActivityPanel.Mode.TIMELINE) {
                 linked.setEnabled(false);linked.addActionListener(e->chooseLinkedExport());bottom.add(linked);
-                JButton stop=new JButton("Cancel linked export");stop.addActionListener(e->exportCancel.cancel());bottom.add(stop);
+                cancelLinked.setEnabled(false);cancelLinked.addActionListener(e->exportCancel.cancel());bottom.add(cancelLinked);
                 openFolder.setEnabled(false);openFolder.addActionListener(e->{try{Desktop.getDesktop().open(exportedFolder.toFile());}catch(Exception failure){message.setText("Could not open export folder: "+failure.getMessage());}});bottom.add(openFolder);
             }
             add(bottom,BorderLayout.SOUTH);
@@ -375,7 +379,7 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
             if(selected==null||exporting)return;
             final ArchiveResult.Lease<Row> lease;
             try{lease=page.lease();}catch(IOException failure){message.setText("Displayed revision is closed. Refresh to retry.");return;}
-            ArchiveRow.Ref ref=selected.ref;exportCancel=new Cancellation();Cancellation token=exportCancel;exporting=true;linked.setEnabled(false);
+            ArchiveRow.Ref ref=selected.ref;exportCancel=new Cancellation();Cancellation token=exportCancel;exporting(true);
             new SwingWorker<SelectedRunExport.Preview,Void>() {
                 protected SelectedRunExport.Preview doInBackground()throws Exception { return SelectedRunExport.preview(lease,ref,token); }
                 protected void done() {
@@ -395,12 +399,16 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
                             }
                             protected void done(){try{Path path=get();exportedFolder=path.toAbsolutePath().getParent();openFolder.setEnabled(Desktop.isDesktopSupported());message.setText("Exported "+(1+preview.events)+" records · revision "+preview.revision+" · "+path.getFileName());}
                                 catch(Exception failure){message.setText("Linked export failed or cancelled; no completed report: "+failure.getMessage());}
-                                finally{lease.close();exporting=false;linked.setEnabled(selected!=null&&!removed);}}
+                                finally{lease.close();exporting(false);}}
                         }.execute();handedOff=true;
                     }catch(Exception failure){message.setText("Could not prepare linked export: "+failure.getMessage());}
-                    finally{if(!handedOff){lease.close();exporting=false;linked.setEnabled(selected!=null&&!removed);}}
+                    finally{if(!handedOff){lease.close();exporting(false);}}
                 }
             }.execute();
+        }
+        /** A linked export starts or ends: the export button and Cancel linked export follow it. */
+        private void exporting(boolean running) {
+            exporting=running;linked.setEnabled(!running&&selected!=null&&!removed);cancelLinked.setEnabled(running);
         }
         private void retire() { removed=true;generation++;pending=null;detailCancel.cancel();exportCancel.cancel();outcomeCancel.cancel(); }
         @Override public void removeNotify() { retire();super.removeNotify(); }
@@ -433,10 +441,16 @@ public final class ActivityArchiveClient implements ArchiveClient<Row,Filters,So
         for(int i=0;i<columns.size();i++)layout.add(new ViewState.Column(columns.get(i).id,table.getColumnModel().getColumn(i).getPreferredWidth(),i<5));
         return new ViewState.Table("Compact",layout);
     }
-    private static String counts(ArchivePage<Row> page) {
-        String text=page.description();
+    /** The page's counts: Analyst's full description (with the pinned revision), Simple's without the revision. */
+    private static String counts(ArchivePage<Row> page,boolean analyst) {
+        String text=analyst?page.description():plainDescription(page);
         for(Map.Entry<String,ArchiveAdapter.Count> entry:page.counts.entrySet())text+=" · "+entry.getValue().value+" matching "+entry.getKey()+" events";
         return text;
+    }
+    /** {@link ArchivePage#description()} without the pinned revision: "7 displayed / 7 matching visits · page 1" (a partial read still says so). */
+    static String plainDescription(ArchivePage<?> page) {
+        return page.rows.size()+" displayed / "+page.matches+" matching "+page.unit+" · page "+(page.page+1)
+                +(page.issues.isEmpty()?"":" · partial: "+page.issues.size()+" source issue(s)");
     }
     private static void uptimes(List<Object[]> rows,Map<String,Long> values,long coverage,String suffix) {
         values.forEach((name,ms)->rows.add(new Object[]{name+suffix,ms,coverage,coverage<=0?null:100.0*ms/coverage}));

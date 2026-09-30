@@ -172,6 +172,8 @@ final class KeyPopDashboard extends JPanel implements LiveFilterHost {
         status.setForeground(ContentStyle.color("muted"));
         JPanel footer = new JPanel(new BorderLayout(0, 4)); footer.add(status, BorderLayout.NORTH); footer.add(resolvedPeriod);
         resolvedPeriod.setName("keypop-live-resolved-period");
+        // The resolved bounds and the share denominator are Analyst detail (spec §3.2); Simple's filters show as chips instead.
+        displayMode.bind(resolvedPeriod, shown -> resolvedPeriod.setVisible(shown == DisplayModeModel.Mode.ANALYST));
         JScrollPane page = ContentStyle.page(top, body, footer); page.setName("keypop-page-scroll"); add(page);
         onChange(search, this::refresh);
         type.addActionListener(e -> { if (!updating) refresh(); }); period.addActionListener(e -> { if (!updating) { resolvePeriod(); refresh(); } });
@@ -526,6 +528,20 @@ final class KeyPopDashboard extends JPanel implements LiveFilterHost {
             }
         }
     }
+    /** A pop type as a tone badge (Key amber, Rune violet, Vial mint, Inc rose, anything else muted): live and saved Events share it. */
+    static ContentStyle.Badge typeBadge() {
+        return new ContentStyle.Badge() {
+            protected Color badgeColor(Object value) {
+                switch (String.valueOf(value)) {
+                    case "Key": return ContentStyle.color("amber");
+                    case "Rune": return ContentStyle.color("violet");
+                    case "Vial": return ContentStyle.color("mint");
+                    case "Inc": return ContentStyle.color("rose");
+                    default: return ContentStyle.color("muted");
+                }
+            }
+        };
+    }
     private static JTable table(DefaultTableModel model, String name) {
         JTable table = new JTable(model) {
             @Override public boolean getScrollableTracksViewportWidth() { return getParent() != null && getPreferredSize().width < getParent().getWidth(); }
@@ -541,19 +557,7 @@ final class KeyPopDashboard extends JPanel implements LiveFilterHost {
                 return this;
             }
         });
-        for (int i = 0; i < model.getColumnCount(); i++) if ("Type".equals(model.getColumnName(i))) {
-            table.getColumnModel().getColumn(i).setCellRenderer(new ContentStyle.Badge() {
-                protected Color badgeColor(Object value) {
-                    switch (String.valueOf(value)) {
-                        case "Key": return ContentStyle.color("amber");
-                        case "Rune": return ContentStyle.color("violet");
-                        case "Vial": return ContentStyle.color("mint");
-                        case "Inc": return ContentStyle.color("rose");
-                        default: return ContentStyle.color("muted");
-                    }
-                }
-            });
-        }
+        for (int i = 0; i < model.getColumnCount(); i++) if ("Type".equals(model.getColumnName(i))) table.getColumnModel().getColumn(i).setCellRenderer(typeBadge());
         table.setDefaultRenderer(Instant.class, new ContentStyle.Cell() {
             @Override public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
                 super.getTableCellRendererComponent(t, value, selected, focus, row, column);
