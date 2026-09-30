@@ -134,4 +134,6 @@ public final class PresenceTimeline implements Serializable {
     public Mark localDeath() { return localDeath; }
     public Mark localEscape() { return localEscape; }
     public Mark end() { return end; }
+    /** The sequence number of the latest recorded event (0 before any): it grows with every event. */
+    public long lastSeq() { return seq; }
 }

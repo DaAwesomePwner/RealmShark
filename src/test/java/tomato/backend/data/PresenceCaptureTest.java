@@ -125,6 +125,36 @@ public class PresenceCaptureTest {
             EncounterOutcomes.of(remainder, 1, true, List.of(), List.of()).outcome(61).kind);
     }
 
+    @Test public void aRestartedSegmentWithOnlyPresenceEvidenceIsKept() {
+        data.setUserId(21, 7, "AAAAAA==");
+        spawn(21, "Self", 700, 700); spawn(61, "Stayer", 700, 700);
+        data.captureTerminated();
+        data.notification(notice(NotificationEffectType.Victory));   // no damage and no death after the restart
+        enter("{s.nexus}");
+        assertEquals("The remainder with a victory is its own recording", 2, data.dpsData.size());
+        PresenceTimeline remainder = data.dpsData.get(1).getPresence();
+        assertEquals(PresenceTimeline.END_VICTORY, remainder.end().detail);
+        assertEquals(EncounterOutcomes.Kind.COMPLETED, outcomes(data.dpsData.get(1)).outcome(61).kind);
+    }
+
+    @Test public void aRestartedSegmentWithNothingNewIsStillDiscarded() {
+        spawn(61, "Stayer", 700, 700);
+        data.captureTerminated();   // re-registering who is still in view is not new evidence
+        enter("{s.nexus}");
+        assertEquals(1, data.dpsData.size());
+    }
+
+    @Test public void aKnownNonDungeonRecordsNoPresence() {
+        enter("Realm of the Mad God"); data.setTime(1);
+        spawn(71, "Passerby", 700, 700); drop(71);
+        data.notification(death("Passerby", 0x0723));
+        assertTrue(DpsSnapshot.capture(data).presence.players().isEmpty());
+        assertTrue(DpsSnapshot.capture(data).presence.deaths().isEmpty());
+        enter("Synthetic Brand New Dungeon"); data.setTime(1);
+        spawn(72, "Explorer", 700, 700);
+        assertTrue("An area the catalog does not know is still tracked", DpsSnapshot.capture(data).presence.players().containsKey(72));
+    }
+
     private EncounterOutcomes outcomes(DpsData recording) {
         return EncounterOutcomes.of(recording.getPresence(), recording.dungeonStartTime, false, List.of(), List.of());
     }

@@ -233,6 +233,10 @@ public class TomatoData {
         new ArrayList<>();
     // Who entered and left view, died, and when the area ended (outcome tracking); reset with the death notifications.
     private PresenceTimeline presence = new PresenceTimeline();
+    // Off in areas the catalog knows are not dungeons (the Realm, hubs): outcomes are never shown there, so nothing is kept.
+    private boolean presenceTracked = true;
+    // The timeline's last event right after a capture stop re-registered who was still in view; later events are new evidence.
+    private long presenceAtStop;
     protected final HashMap<Integer, Entity> dropList = new HashMap<>();
     private ArrayList<Packet> dpsPacketLog = new ArrayList<>();
     private boolean petyard;
@@ -291,6 +295,7 @@ public class TomatoData {
         ParsePanelGUI.clear();
         petYardCheck(map.displayName);
         this.map = map;
+        presenceTracked = tomato.gui.dps.EncounterOutcomes.trackedIn(map);
         rng = new RNG(map.seed);
         encounterVisit = visitSource.apply(map);
         encounterEnteredAt = System.currentTimeMillis();
@@ -328,7 +333,9 @@ public class TomatoData {
     }
 
     /** Whether the area's encounter holds nothing since capture stop closed it. */
-    private boolean nothingSinceStop() { return closedAtStop && entityHitList.isEmpty() && deathNotifications.isEmpty(); }
+    private boolean nothingSinceStop() {
+        return closedAtStop && entityHitList.isEmpty() && deathNotifications.isEmpty() && presence.lastSeq() == presenceAtStop;
+    }
 
     /**
      * Capture stop (see {@code CapturePublication.terminated}): runs on the producer once its loop has ended, so no packet is
@@ -368,8 +375,9 @@ public class TomatoData {
         // not "Not seen entering". Anyone who had already left view stays out (playerList keeps dropped players).
         closedPresence.players().forEach((id, seen) -> {
             Entity inView = playerList.get(id);
-            if (inView != null && seen.present()) presence.recordSeen(id, inView.name(), inView.objectType, timePc, inView == player);
+            if (presenceTracked && inView != null && seen.present()) presence.recordSeen(id, inView.name(), inView.objectType, timePc, inView == player);
         });
+        presenceAtStop = presence.lastSeq();   // re-registering is not new evidence; anything after it is (nothingSinceStop)
         Set<Entity> live = Collections.newSetFromMap(new IdentityHashMap<>());
         live.addAll(entityList.values()); live.addAll(playerList.values()); live.addAll(copies.keySet());
         if (player != null) live.add(player);
@@ -527,7 +535,7 @@ public class TomatoData {
             if (e != null) {
                 //                e.entityDropped(timePc);
                 if (isPlayerEntity(e.objectType)) {
-                    presence.recordLeft(dropId, e.hp(), e.maxHp(), timePc);
+                    if (presenceTracked) presence.recordLeft(dropId, e.hp(), e.maxHp(), timePc);
                     for (Map.Entry<
                         Integer,
                         Entity
@@ -543,7 +551,7 @@ public class TomatoData {
             if (entityHitList.containsKey(dropId)) {
                 killedEntitys.add(e);
                 // A BOSS (not a miniboss) leaving the hit list is the fallback end when no victory or final-boss line comes.
-                if (e != null && e.isBoss()) presence.recordEnd(PresenceTimeline.END_BOSS, timePc);
+                if (presenceTracked && e != null && e.isBoss()) presence.recordEnd(PresenceTimeline.END_BOSS, timePc);
             }
 
             playerListUpdated.remove(dropId);
@@ -591,7 +599,7 @@ public class TomatoData {
                 entity.isPlayer();
             }
             ParsePanelGUI.addPlayer(id, entity);
-            presence.recordSeen(id, entity.name(), idType, timePc, localPlayer);
+            if (presenceTracked) presence.recordSeen(id, entity.name(), idType, timePc, localPlayer);
             packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
     }
@@ -1836,7 +1844,7 @@ public class TomatoData {
             }
         }
 
-        if (map != null && CompletionDialogue.evidence(ParseDungeon.canonicalMapName(map), p) != null)
+        if (presenceTracked && map != null && CompletionDialogue.evidence(ParseDungeon.canonicalMapName(map), p) != null)
             presence.recordEnd(PresenceTimeline.END_DIALOGUE, timePc);
 
         // Centralized loot attribution trigger handling
@@ -1853,21 +1861,21 @@ public class TomatoData {
     public void notification(NotificationPacket packet) {
         if (packet.effect == NotificationEffectType.PlayerDeath) {
             deathNotifications.add(packet);
-            presence.recordDeath(DeathParser.extractName(packet), packet.pictureType, timePc);
+            if (presenceTracked) presence.recordDeath(DeathParser.extractName(packet), packet.pictureType, timePc);
         } else if (packet.effect == NotificationEffectType.Victory) {
-            presence.recordEnd(PresenceTimeline.END_VICTORY, timePc);
+            if (presenceTracked) presence.recordEnd(PresenceTimeline.END_VICTORY, timePc);
         }
         KeypopGUI.packet(this, packet);
     }
 
     /** Your own death (the DEATH packet): it names the killer. */
     public void localDeath(DeathPacket packet) {
-        presence.recordLocalDeath(packet.killedBy, timePc);
+        if (presenceTracked) presence.recordLocalDeath(packet.killedBy, timePc);
     }
 
     /** You pressed nexus (the outgoing ESCAPE packet). */
     public void localEscape() {
-        presence.recordEscape(timePc);
+        if (presenceTracked) presence.recordEscape(timePc);
     }
 
     public ArrayList<NotificationPacket> getDeathNotifications() {
