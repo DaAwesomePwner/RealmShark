@@ -268,6 +268,12 @@ public class PartyRestyleTest {
         }
     }
 
+    /** Polish E: the roster page's scroll pane keeps no box after a live dark → light (and back) switch; the dark theme is restored. */
+    @Test public void theRosterPageScrollKeepsNoBoxAfterALiveThemeSwitch() throws Exception {
+        tomato.gui.modern.ThemeSwitchBordersTest.assertBoxlessThroughThemeSwitch("Party roster", () -> new ParsePanelGUI(false, () -> definitions),
+            root -> named(root, JScrollPane.class, "security-page-scroll"));
+    }
+
     @Test public void abilityUseHasOneRowWithADrawerChipsAFooterAndAConfirmedResetInItsOverflow() throws Exception {
         AbilityObservationStore store = new AbilityObservationStore(500);
         long at = System.currentTimeMillis() - 30 * 60_000L;

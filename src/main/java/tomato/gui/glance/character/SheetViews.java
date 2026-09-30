@@ -62,7 +62,7 @@ final class SheetViews {
     /** A tab body that scrolls vertically, follows the viewport width (never sideways) and keeps its content at the top. */
     static JScrollPane scroll(JComponent body) {
         JScrollPane scroll = new JScrollPane(new Page(body));
-        scroll.setBorder(null);
+        scroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would put the outline back
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
