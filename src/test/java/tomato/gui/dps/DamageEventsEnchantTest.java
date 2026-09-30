@@ -20,7 +20,11 @@ public class DamageEventsEnchantTest {
                     + "  Ability enchants: Enchants not recorded\n"
                     + "  Armor enchants: Enchant data unreadable\n"
                     + "  Ring enchants: Unenchanted\n",
-                DamageEvents.enchantLines(new String[] {encode(42, -1), "", "!!!", encode()}));
+                DamageEvents.enchantLines(new int[] {1, 2, 3, 4}, new String[] {encode(42, -1), "", "!!!", encode()}));
+            assertEquals("  Weapon enchants: Rare · 2 enchant slots\n    Attack Bonus I — Increases Attack by 1.4\n    (empty slot)\n"
+                    + "  Armor enchants: Enchant data unreadable\n"
+                    + "  Ring enchants: Unenchanted\n",
+                DamageEvents.enchantLines(new int[] {1, -1, 3, 4}, new String[] {encode(42, -1), "", "!!!", encode()}));
         } finally {
             ParseEnchants.ENCHANT_DEFINITIONS = saved;
         }

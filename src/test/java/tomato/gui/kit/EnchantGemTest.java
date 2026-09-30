@@ -3,7 +3,6 @@ package tomato.gui.kit;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import javax.swing.*;
 import org.junit.After;
