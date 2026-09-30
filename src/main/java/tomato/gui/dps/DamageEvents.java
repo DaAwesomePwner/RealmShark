@@ -8,6 +8,7 @@ import tomato.backend.data.DamageSource;
 import tomato.backend.data.Entity;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.modern.Evidence;
+import tomato.realmshark.EnchantInfo;
 
 import java.util.*;
 
@@ -124,7 +125,7 @@ public final class DamageEvents {
         else if (allEmpty(slots)) text.append("  No equipment slots recorded (summon, minion or uncaptured slots)\n");
         else for (int i = 0; i < Math.min(4, slots.length); i++) text.append("  ").append(SLOTS[i]).append(": ").append(item(slots[i])).append('\n');
         String[] enchants = e.hit.ownerEnchants;
-        if (slots != null && enchants != null && enchants.length > 0) text.append("  Enchants: ").append(String.join(" · ", nonEmpty(enchants))).append('\n');
+        if (slots != null && enchants != null && enchants.length > 0) text.append(enchantLines(enchants));
         text.append("Last recorded gear on this owner (latest known; may differ from this event):\n");
         if (e.hit.owner == null) text.append("  Unavailable (unattributed)\n");
         else for (int i = 0; i < 4; i++) {
@@ -135,9 +136,12 @@ public final class DamageEvents {
     }
 
     private static boolean allEmpty(int[] slots) { for (int slot : slots) if (slot != -1) return false; return true; }
-    private static List<String> nonEmpty(String[] values) {
-        List<String> result = new ArrayList<>(); for (String value : values) if (value != null && !value.isEmpty()) result.add(value);
-        if (result.isEmpty()) result.add("None recorded"); return result;
+    /** One line per equipped slot naming its enchantments; a retained "" cannot be told from unenchanted, so it reads not recorded. */
+    static String enchantLines(String[] enchants) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < Math.min(4, enchants.length); i++)
+            text.append("  ").append(SLOTS[i]).append(" enchants: ").append(EnchantInfo.ofRetained(enchants[i]).text().replace("\n", "\n  ")).append('\n');
+        return text.toString();
     }
     static String item(int id) { return id == -1 ? "Empty" : Objects.toString(itemName(id), "Unknown item"); }
     static String itemName(int id) {

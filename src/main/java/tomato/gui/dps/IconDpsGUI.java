@@ -23,11 +23,13 @@ import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
 import tomato.backend.data.*;
 import tomato.gui.SmartScroller;
+import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
 import tomato.gui.dps.shared.GuardsHandler;
-import tomato.realmshark.ParseEnchants;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.enums.CharacterClass;
 
 public class IconDpsGUI extends DisplayDpsGUI {
@@ -412,67 +414,10 @@ public class IconDpsGUI extends DisplayDpsGUI {
         for (int i = 0; i < 4; i++) {
             Equipment max = eqAgg.getMostUsedItem(owner.id, i);
             int eq = (max != null) ? max.id : 0;
-
-            // Get enchant count similar to ParsePanelGUI
-
-            String parsedEnchant = (max != null)
-                ? ParseEnchants.parse(max.enchant)
-                : "";
-
-            int enchantCount = parsedEnchant.isEmpty()
-                ? 0
-                : parsedEnchant.split("\n").length;
-
-            // Apply glow based on enchant count
-
-            JLabel icon;
-
-            if (enchantCount == 0) {
-                icon = new JLabel(ImageBuffer.getOutlinedIcon(eq, s));
-            } else {
-                Color glowColor;
-
-                switch (enchantCount) {
-                    case 1:
-                        glowColor = new Color(0, 255, 0);
-
-                        break;
-                    case 2:
-                        glowColor = new Color(0, 200, 255);
-
-                        break;
-                    case 3:
-                        glowColor = new Color(200, 0, 255);
-
-                        break;
-                    case 4:
-                        glowColor = new Color(255, 215, 0);
-
-                        break;
-                    default:
-                        glowColor = Color.BLACK;
-                }
-
-                int glowSize = 3; // Same as ParsePanelGUI
-
-                icon = new JLabel(
-                    ImageBuffer.getOutlinedIconWithGlow(
-                        eq,
-                        s,
-                        glowColor,
-                        glowSize
-                    )
-                );
-            }
-
-            icon.setToolTipText(
-                String.format(
-                    "<html>%s<br>%s</html>",
-                    IdToAsset.objectName(eq),
-                    parsedEnchant
-                )
-            );
-
+            // Retained per-hit strings turn a missing stat into "", so "" reads as not recorded rather than unenchanted.
+            EnchantInfo enchant = EnchantInfo.ofRetained(max != null ? max.enchant : null);
+            JLabel icon = new JLabel(EnchantGem.decorate(ImageBuffer.getOutlinedIcon(eq, s), enchant));
+            icon.setToolTipText(EnchantTooltip.html(IdToAsset.objectName(eq), enchant));
             panel.add(icon);
         }
 
