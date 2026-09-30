@@ -316,12 +316,57 @@ public class QuestPlanPanelTest {
                     assertEquals("The selection is unchanged", key, account.getSelectedItem());
                     List<Object> now = new ArrayList<>(); for (int i = 0; i < account.getItemCount(); i++) now.add(account.getItemAt(i));
                     assertEquals("The list's items are unchanged", items, now);
+                    mode.set(DisplayModeModel.Mode.ANALYST); // P6b polish: the whole key is Analyst detail (Simple: see the next test)
                     assertEquals("The tooltip keeps the whole key", key, account.getToolTipText());
                     assertEquals(key, account.getAccessibleContext().getAccessibleDescription());
                     assertEquals("Account for manual quest plans", account.getAccessibleContext().getAccessibleName());
                 });
             } finally { SwingUtilities.invokeAndWait(() -> { if (frame[0] != null) frame[0].dispose(); }); }
         }
+    }
+
+    /**
+     * P6b polish: the account list shows the key's first six characters and "…" (as the Board's header names the account), in the
+     * closed list and in the drop-down, never the raw 64-character key; the placeholder and a short key read whole. The whole key is
+     * only in Analyst's tooltip (and so its accessible description); Simple's tooltip names the short account. The items and the
+     * selection stay the whole keys.
+     */
+    @Test public void theAccountListShowsAShortAccountAndTheWholeKeyOnlyInTheAnalystTooltip() throws Exception {
+        String key = tomato.backend.data.CharacterJournal.accountKey("quest-plan-short-account");
+        try (PlanningStore store = PlanningStore.memory()) {
+            ready(store);
+            Map<String, String> prefs = new HashMap<>(); DisplayModeModel mode = new DisplayModeModel(prefs::get, prefs::put);
+            SwingUtilities.invokeAndWait(() -> {
+                QuestPlanPanel p = new QuestPlanPanel(store, PlanCardModelTest.NAMES, mode, prefs::get, prefs::put);
+                p.knownAccounts(Arrays.asList("acct", key));
+                JComboBox<?> account = find(p, "quest-plan-account", JComboBox.class);
+                assertEquals("The placeholder reads whole", "Select a known account…", rendered(account, -1));
+                account.setSelectedItem(key);
+                assertEquals("The selection is the whole key", key, account.getSelectedItem());
+                String shortKey = key.substring(0, 6) + "…";
+                assertEquals("The closed list shows the short account", shortKey, rendered(account, -1));
+                Set<String> entries = new HashSet<>();
+                for (int i = 0; i < account.getItemCount(); i++) entries.add(rendered(account, i));
+                assertEquals("The drop-down: the placeholder, a short key whole, the long key short",
+                    new HashSet<>(Arrays.asList("Select a known account…", "acct", shortKey)), entries);
+                assertEquals("Simple: the tooltip names the short account", "Account " + shortKey, account.getToolTipText());
+                mode.set(DisplayModeModel.Mode.ANALYST);
+                assertEquals("Analyst: the whole key in the tooltip", key, account.getToolTipText());
+                assertEquals(key, account.getAccessibleContext().getAccessibleDescription());
+                assertEquals("…and still the short account in the list", shortKey, rendered(account, -1));
+                mode.set(DisplayModeModel.Mode.SIMPLE);
+                assertEquals("Account " + shortKey, account.getToolTipText());
+                account.setSelectedItem("acct");
+                assertEquals("Account acct", account.getToolTipText());
+            });
+        }
+    }
+
+    /** What the list paints for its entry {@code index} (-1: the selected value, as the closed list shows it). */
+    private static String rendered(JComboBox<?> combo, int index) {
+        @SuppressWarnings({"unchecked", "rawtypes"}) Component cell = ((ListCellRenderer) combo.getRenderer())
+            .getListCellRendererComponent(new JList<>(), index < 0 ? combo.getSelectedItem() : combo.getItemAt(index), index, false, false);
+        return ((JLabel) cell).getText();
     }
 
     /**

@@ -114,8 +114,8 @@ public class QuestBoardTest {
             QuestGUI ui = panel();
             ui.update(quests());
             named(ui, "quest-group-by", JComboBox.class).setSelectedItem("None");
-            named(ui, "quest-sort", JComboBox.class).setSelectedItem("Quest name");
-            JCheckBox pinnedFirst = named(ui, "quest-pinned-first", JCheckBox.class);
+            menuItem(ui, "quest-sort-name").doClick(); // "Sort by ▸ Quest name" in ⋯ (P6b)
+            AbstractButton pinnedFirst = menuItem(ui, "quest-pinned-first");
             assertTrue("Pinned first is on by default", pinnedFirst.isSelected());
             open(ui, "all", "Token swap");
             named(ui.detail(), "quest-detail-pin", AbstractButton.class).doClick();
@@ -127,7 +127,7 @@ public class QuestBoardTest {
             assertEquals("false", PropertiesManager.getProperty("ui.quests.pinned-first"));
             assertEquals("Off: the sort's order alone", List.of("Cultist tribute", "Festival exchange", "Mighty haul", "Royal tribute", "Token swap",
                 "Unknown loot"), names(ui.board().list("all").items()));
-            assertFalse("A new Board restores the toggle", named(panel(), "quest-pinned-first", JCheckBox.class).isSelected());
+            assertFalse("A new Board restores the toggle", menuItem(panel(), "quest-pinned-first").isSelected());
         });
     }
 
@@ -183,7 +183,7 @@ public class QuestBoardTest {
             assertEquals("A poll without a new list rebuilds nothing", builds[0], ui[0].boardBuilds());
             named(ui[0], "quest-group-by", JComboBox.class).setSelectedItem("Type label");
             assertEquals("Group by", builds[0] + 1, ui[0].boardBuilds());
-            named(ui[0], "quest-pinned-first", JCheckBox.class).doClick();
+            menuItem(ui[0], "quest-pinned-first").doClick();
             assertEquals("Pinned first", builds[0] + 2, ui[0].boardBuilds());
             named(ui[0], "quest-search", JTextField.class).setText("Royal tribute");
             assertTrue("A filter", ui[0].boardBuilds() > builds[0] + 2);
@@ -316,7 +316,7 @@ public class QuestBoardTest {
             assertTrue("Analyst: a Cards/Table toggle in the filter row", toggle.isVisible());
             assertEquals(1, toggle.selected());
             assertFalse(item.isVisible());
-            assertFalse("A ⋯ menu with nothing to show is hidden", bar.overflow().isVisible());
+            assertTrue("Analyst's ⋯ keeps Sort by (P6b), so it shows", bar.overflow().isVisible());
             named(toggle, "quest-view-0", JToggleButton.class).doClick();
             assertTrue(ui.cardsShown());
             assertEquals("cards", PropertiesManager.getProperty("ui.quests.view"));
@@ -324,6 +324,96 @@ public class QuestBoardTest {
             PropertiesManager.setProperties("ui.quests.view", "table");
             assertFalse("A new Board restores the saved view", panel().cardsShown());
         });
+    }
+
+    /**
+     * P6b polish: Simple's Board header is the plain summary line alone ("N quests · N pinned · captured N min ago"); the account,
+     * the capture generation, the capture time, the age in seconds and the snapshot's provenance are Analyst detail. Stale stays
+     * labeled in Simple through the summary (" · stale"), and the hidden line keeps its text current for Analyst.
+     */
+    @Test public void simpleHeaderIsThePlainSummaryAloneAndAnalystAddsTheAccountAndCaptureDetail() throws Exception {
+        TomatoData data = new TomatoData();
+        QuestGUI[] ui = new QuestGUI[1];
+        String account = QuestFilterBarTest.ACCOUNT.substring(0, 6);
+        SwingUtilities.invokeAndWait(() -> {
+            ui[0] = QuestFilterBarTest.boundPage(data);
+            JTextArea context = named(ui[0], "quest-capture-context", JTextArea.class), summary = named(ui[0], "quest-summary", JTextArea.class);
+            assertFalse("Simple: no account or capture detail", shown(context, ui[0]));
+            assertTrue(shown(summary, ui[0]));
+            assertEquals("4 quests · 0 pinned · captured 15 min ago", summary.getText());
+            String simple = shownText(ui[0]);
+            for (String detail : new String[] {"Capture generation", account, "Account-scoped snapshot", "legacy global interests", "Captured 20"})
+                assertFalse("Simple shows no " + detail + ": " + simple, simple.contains(detail));
+            assertFalse("…and no age in seconds: " + simple, simple.matches("(?s).*\\d+s ago.*"));
+            DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+            assertTrue("Analyst: the account and capture line", shown(context, ui[0]));
+            assertTrue(context.getText(), context.getText().startsWith("Account · " + account + " · Capture generation "));
+            assertTrue(context.getText(), context.getText().endsWith("Account-scoped snapshot · Account pins; legacy global interests retained."));
+            assertTrue("…above the same summary", shown(summary, ui[0]));
+            DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
+            assertFalse("A switch back hides it again", shown(context, ui[0]));
+        });
+        data.captureStopped(); // the list stays, but no longer matches the capture
+        await("the stale summary", () -> named(ui[0], "quest-summary", JTextArea.class).getText().endsWith(" · stale"));
+        SwingUtilities.invokeAndWait(() -> {
+            JTextArea context = named(ui[0], "quest-capture-context", JTextArea.class);
+            assertFalse("Simple labels stale through the summary alone", shown(context, ui[0]));
+            assertTrue("The hidden line is current for Analyst", context.getText().contains("Stale / unverified"));
+            DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+            assertTrue(shown(context, ui[0]));
+            ui[0].removeNotify();
+        });
+    }
+
+    /**
+     * P6b polish: the Table view shows no raw server detail in Simple, as the drawer does not: an unlabeled category reads "No type
+     * label" (the model, the sort and the search keep "Category 9"), and the split detail leaves out the stable ID, the raw
+     * expiration and the server category. Analyst shows them all.
+     */
+    @Test public void simpleTableViewShowsNoRawQuestIdsOrServerCategories() throws Exception {
+        PropertiesManager.setProperties("ui.quests.view", "table");
+        SwingUtilities.invokeAndWait(() -> {
+            QuestGUI ui = panel();
+            QuestData[] rows = quests();
+            rows[3].expiration = "raw-unparsed-expiration"; // Mighty haul: category 9, unlabeled
+            ui.update(rows);
+            assertFalse(ui.cardsShown());
+            JTable table = named(ui, "quest-table", JTable.class);
+            int haul = row(table, "Mighty haul");
+            table.setRowSelectionInterval(haul, haul);
+            assertEquals("The model keeps the raw category", "Category 9", table.getValueAt(haul, 2));
+            JLabel type = cell(table, haul, 2);
+            assertEquals("Simple reads the missing label", "No type label", type.getText());
+            assertFalse("…with no raw category in its tooltip", String.valueOf(type.getToolTipText()).contains("Category"));
+            assertEquals("A labeled category reads its label", "Daily", cell(table, row(table, "Royal tribute"), 2).getText());
+            JPanel details = named(ui, "quest-details", JPanel.class);
+            String simple = shownText(details);
+            assertTrue(simple, simple.contains("Mighty haul"));
+            assertTrue(simple, simple.contains("No type label"));
+            for (String raw : new String[] {"Category 9", "Stable quest ID", "Server category", "raw-unparsed-expiration", "Expiration (raw"})
+                assertFalse("Simple shows no " + raw + ": " + simple, simple.contains(raw));
+            named(ui, "quest-search", JTextField.class).setText("Category 9");
+            assertEquals("Search keeps matching the raw category", 1, table.getRowCount());
+            named(ui, "quest-search", JTextField.class).setText("");
+            DisplayModeModel.application().set(DisplayModeModel.Mode.ANALYST);
+            haul = row(table, "Mighty haul");
+            table.setRowSelectionInterval(haul, haul);
+            assertEquals("Analyst reads the server category", "Category 9", cell(table, haul, 2).getText());
+            String analyst = shownText(details);
+            for (String raw : new String[] {"Category 9", "Stable quest ID: Mighty haul", "Server category: 9", "Expiration (raw server value): raw-unparsed-expiration"})
+                assertTrue("Analyst shows " + raw + ": " + analyst, analyst.contains(raw));
+            DisplayModeModel.application().set(DisplayModeModel.Mode.SIMPLE);
+            assertFalse("A switch back hides them again", shownText(details).contains("Stable quest ID"));
+        });
+    }
+
+    private static int row(JTable table, String quest) {
+        for (int r = 0; r < table.getRowCount(); r++) if (quest.equals(table.getValueAt(r, 1))) return r;
+        throw new AssertionError("No row " + quest);
+    }
+
+    private static JLabel cell(JTable table, int row, int column) {
+        return (JLabel) table.prepareRenderer(table.getCellRenderer(row, column), row, column);
     }
 
     @Test public void emptyAndNoMatchStatesInviteTheNextStep() throws Exception {
@@ -548,6 +638,25 @@ public class QuestBoardTest {
             if (c == root) return true;
         }
         return false;
+    }
+
+    /** The item named {@code name} in the Board filter row's ⋯ menu (Sort by's orders, Pinned first). */
+    private static JMenuItem menuItem(QuestGUI ui, String name) {
+        JMenuItem item = QuestFilterBarTest.menuItem(named(ui, "quests-filter-bar", FilterBar.class), name);
+        assertNotNull("Missing ⋯ item " + name, item);
+        return item;
+    }
+
+    /** Every JTextArea and JLabel text under {@code root} that shows: it and each parent up to {@code root} visible. */
+    private static String shownText(Container root) {
+        StringBuilder text = new StringBuilder();
+        for (Component child : root.getComponents()) {
+            if (!child.isVisible()) continue;
+            if (child instanceof JTextArea) text.append(((JTextArea) child).getText()).append('\n');
+            if (child instanceof JLabel) text.append(((JLabel) child).getText()).append('\n');
+            if (child instanceof Container) text.append(shownText((Container) child));
+        }
+        return text.toString();
     }
 
     /** Every JTextArea, JLabel and button text under {@code root}, shown or not. */

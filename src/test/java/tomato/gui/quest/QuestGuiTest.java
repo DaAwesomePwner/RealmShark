@@ -83,7 +83,7 @@ public class QuestGuiTest {
             assertEquals(3, table.getRowCount()); // Includes the Epic option of a choice quest.
             combo(ui, "Quest type").setSelectedItem("Daily");
             assertEquals(2, table.getRowCount());
-            combo(ui, "Sort by").setSelectedItem("Fewest required items");
+            sortBy(ui, "Fewest required items");
             assertEquals("Cultist tribute", table.getValueAt(0, 1));
             assertEquals(2, table.getValueAt(0, 4));
             table.getRowSorter().toggleSortOrder(4);
@@ -222,6 +222,13 @@ public class QuestGuiTest {
             if(child instanceof Container) { JComboBox<?> result=combo((Container)child,name); if(result!=null)return result; }
         }
         return null;
+    }
+    /** Chooses {@code order} in the filter row's ⋯ "Sort by ▸" radio group (P6b; the Sort by list before). */
+    private static void sortBy(QuestGUI ui, String order) {
+        JMenu sort = (JMenu) find(ui, tomato.gui.kit.FilterBar.class).overflow().item("Sort by");
+        for (Component item : sort.getMenuComponents())
+            if (order.equals(((JMenuItem) item).getText())) { ((JMenuItem) item).doClick(); return; }
+        fail("No order " + order);
     }
     private static AbstractButton button(Container c,String name) {
         for(Component child:c.getComponents()) {
