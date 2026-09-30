@@ -115,7 +115,8 @@ public final class SheetModelBuilder {
     }
 
     /**
-     * Saved slots, with the live equipped four and their enchantments while this character plays. Tier labels come from the
+     * Saved slots, with the live equipped four and their enchantments while this character plays. Others show the enchantments
+     * last observed live, or none when never recorded. Tier labels come from the
      * definitions this build was given (ItemTiers' pure overload), never from the global RosterDefinitions.current() on the EDT.
      */
     private static SheetModel.Gear gear(CharacterRecord r, LiveCharacter.Snapshot live, boolean playing, RosterDefinitions definitions) {
@@ -126,7 +127,7 @@ public final class SheetModelBuilder {
             slots[i] = item == null ? -1 : item > 0 ? item : 0;
             tiers.add(slots[i] > 0 ? ItemTiers.label(definitions.item(slots[i])) : "");
         }
-        return new SheetModel.Gear(list(slots), List.copyOf(tiers), r.hasBackpack, playing ? enchants(live) : null);
+        return new SheetModel.Gear(list(slots), List.copyOf(tiers), r.hasBackpack, playing ? enchants(live) : r.enchantInfos());
     }
 
     /** The 4 equipped items' enchantments from the live snapshot's detached inputs. */

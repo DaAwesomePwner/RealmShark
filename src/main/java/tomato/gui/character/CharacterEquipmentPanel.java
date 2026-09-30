@@ -12,14 +12,19 @@ import tomato.backend.data.FieldCapture;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.stats.Formatters;
+import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantTooltip;
+import tomato.realmshark.EnchantInfo;
 
 /** Detached historical slot projection. Never resolves equipment from a current live entity. */
 public final class CharacterEquipmentPanel extends JPanel {
     public static final class Slot {
         public final int index; public final Integer item;
         public final String group, name, state, evidence, detail;
-        Slot(int index, Integer item, String group, String name, String state, String evidence, String detail) {
+        public final EnchantInfo enchant;
+        Slot(int index, Integer item, String group, String name, String state, String evidence, String detail, EnchantInfo enchant) {
             this.index = index; this.item = item; this.group = group; this.name = name; this.state = state; this.evidence = evidence; this.detail = detail;
+            this.enchant = enchant;
         }
     }
     private final JComboBox<String> group = new JComboBox<>(new String[]{"All groups", "Equipped", "Inventory", "Backpack"});
@@ -35,9 +40,15 @@ public final class CharacterEquipmentPanel extends JPanel {
         table.setAutoCreateRowSorter(true); table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         int[] widths = {90, 105, 100, 180, 90, 290}; for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         table.getColumnModel().getColumn(3).setCellRenderer(new ContentStyle.Cell() {
+            private Slot current;
             public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
-                super.getTableCellRendererComponent(t, v, s, f, row, col); Slot slot = shown.get(t.convertRowIndexToModel(row));
-                setIcon(slot.item == null || slot.item < 0 ? null : ImageBuffer.getOutlinedIcon(slot.item, 24)); return this;
+                super.getTableCellRendererComponent(t, v, s, f, row, col); current = shown.get(t.convertRowIndexToModel(row));
+                Icon icon = current.item == null || current.item < 0 ? null : ImageBuffer.getOutlinedIcon(current.item, 24);
+                setIcon(EnchantGem.decorate(icon, current.enchant)); return this;
+            }
+            /** Built when the table asks (on hover): the slot's enchant lines, when its enchantments were recorded. */
+            @Override public String getToolTipText() {
+                return current == null || current.enchant == null ? super.getToolTipText() : EnchantTooltip.html(itemName(current.item), current.enchant);
             }
         });
         add(ContentStyle.tableScroll(table, 3)); add(status, BorderLayout.SOUTH);
@@ -51,7 +62,9 @@ public final class CharacterEquipmentPanel extends JPanel {
     public void showRecord(CharacterRecord record, RosterDefinitions definitions) { slots = record == null ? Collections.emptyList() : project(record, definitions); render(); }
     public static List<Slot> project(CharacterRecord record, RosterDefinitions definitions) {
         List<Slot> result = new ArrayList<>(); String[] equipped = {"Weapon", "Ability", "Armor", "Ring"};
+        List<EnchantInfo> infos = record.enchantInfos();
         for (int i = 0; i < 28; i++) {
+            EnchantInfo enchant = infos == null || i >= 4 ? null : infos.get(i);
             Integer item = record.equipment != null && i < record.equipment.length ? record.equipment[i] : null;
             String group = i < 4 ? "Equipped" : i < 12 ? "Inventory" : "Backpack", name = i < 4 ? equipped[i] : group + " " + (i < 12 ? i - 3 : i - 11);
             String state = item == null ? "Not captured" : item < 0 ? "Empty" : "Occupied";
@@ -65,8 +78,8 @@ public final class CharacterEquipmentPanel extends JPanel {
                 + "\nCurrent local item definition (not capture-time data):\nTier: " + (definition == null || definition.tier == null ? "Unknown" : definition.tier)
                 + "\nLabels: " + (definition == null || definition.labels == null ? "Unknown" : definition.labels)
                 + "\nSlot type: " + (definition == null || definition.slotType == null ? "Unknown" : definition.slotType)
-                + "\nEnchantment effects: Not recorded in this character snapshot";
-            result.add(new Slot(i, item, group, name, state, evidence, detail));
+                + "\nEnchantment effects: " + (enchant == null ? "Not recorded in this character snapshot" : enchant.text().replace("\n", "\n  "));
+            result.add(new Slot(i, item, group, name, state, evidence, detail, enchant));
         }
         return Collections.unmodifiableList(result);
     }

@@ -6,19 +6,47 @@ import java.util.stream.Collectors;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import packets.data.StatData;
+import packets.data.enums.StatType;
 import tomato.backend.data.CharacterJournal;
+import tomato.backend.data.Entity;
 import tomato.backend.data.FieldCapture;
 import tomato.backend.data.LiveCharacter;
 import tomato.backend.data.PetDefinitions;
 import tomato.backend.data.RosterDefinitions;
+import tomato.backend.data.TomatoData;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.modern.DisplayFormat;
+import tomato.gui.myinfo.BuildEstimates;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
 /** Sheet rules on synthetic records: Home's potion arithmetic, vault counts only when known, unknown never 0, live only while playing. */
 public class SheetModelBuilderTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+
+    @Test public void aCharacterNotInGameShowsTheEnchantsLastObservedLive() {
+        CharacterJournal.CharacterRecord r = SheetFixtures.record();
+        r.equipmentEnchants = new String[] {"AAIE_wU", "", null, "!!!"};
+        List<EnchantInfo> saved = SheetFixtures.model(r, SheetFixtures.account(), null).gear().enchants();
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, saved.get(0).rarity());
+        assertEquals(EnchantInfo.Rarity.UNENCHANTED, saved.get(1).rarity());
+        assertSame(EnchantInfo.notRecorded(), saved.get(2));
+        assertSame(EnchantInfo.unreadable(), saved.get(3));
+    }
+
+    @Test public void anotherCharacterInGameDoesNotReplaceTheViewedRecordsSavedEnchants() {
+        CharacterJournal.CharacterRecord r = SheetFixtures.record();
+        r.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        Entity player = new Entity(null, 1, 0);
+        StatData enchants = new StatData();
+        enchants.stringStatValue = "AAIE,,,";
+        player.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        BuildEstimates.Inputs inputs = BuildEstimates.Inputs.detach(player, null, TomatoData.PetAvailability.UNKNOWN);
+        SheetModel m = SheetFixtures.model(r, SheetFixtures.account(), SheetFixtures.live(ACCOUNT, 8, "Ann", inputs));
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, m.gear().enchants().get(0).rarity());
+    }
 
     @Test public void potionsMaxedAndNeedsUseCapsAndVaultCounts() {
         CharacterJournal.AccountRecord account = account();
@@ -53,7 +81,7 @@ public class SheetModelBuilderTest {
         CharacterJournal.CharacterRecord noFame = record(); noFame.fame = null;
         assertEquals(DisplayValue.State.UNKNOWN, model(noFame, account(), null).identity().fame().state);
         assertEquals("Not captured stays -1, captured empty is 0", List.of(2_001, 0, -1, 2_004), m.gear().slots().subList(0, 4));
-        assertNull("Enchants belong to the live character only", m.gear().enchants());
+        assertNull("A record without saved enchants shows none", m.gear().enchants());
     }
 
     @Test public void exaltSummaryListsTheTopThreeByTierThenHowManyMore() {

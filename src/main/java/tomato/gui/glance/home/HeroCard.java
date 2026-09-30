@@ -1,6 +1,7 @@
 package tomato.gui.glance.home;
 
 import java.awt.*;
+import java.util.List;
 import java.util.function.Consumer;
 import javax.swing.*;
 import tomato.gui.kit.Chip;
@@ -17,6 +18,7 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * The current or last known character (spec §6.1), compact so the whole Home fits a 1240×800 window (S1). The header row
@@ -138,7 +140,7 @@ final class HeroCard extends HomeCard {
         meta.setText(kind + (hero.level() == null ? "" : " · Level " + hero.level()) + " · Fame " + fame.display());
         meta.setToolTipText(fame.tooltip());
         chips(hero, seenText);
-        gear(hero.equipment());
+        gear(hero.equipment(), hero.enchants());
         bars(hero, live);
         needs.setText(text(hero.needsLine(), ""));
         needs.setVisible(!needs.getText().isEmpty());
@@ -197,11 +199,12 @@ final class HeroCard extends HomeCard {
     }
 
     /** HomeModel.Hero.equipment: an item id > 0, 0 an empty slot, -1 (or a missing entry) a slot that was not captured. */
-    private void gear(int[] equipment) {
+    private void gear(int[] equipment, List<EnchantInfo> enchants) {
         for (int i = 0; i < gear.length; i++) {
             int id = equipment != null && i < equipment.length ? equipment[i] : -1;
             String tier = id > 0 ? HomeViews.tier(id) : "";
-            if (id > 0) gear[i].setItem(id, tier);
+            EnchantInfo enchant = enchants == null || enchants.get(i).state() == EnchantInfo.State.NOT_RECORDED ? null : enchants.get(i);
+            if (id > 0) gear[i].setItem(id, tier, enchant);
             else if (id == 0) gear[i].setEmpty();
             else gear[i].setUnknown();
             gearTiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);

@@ -10,6 +10,7 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import packets.incoming.ExaltationUpdatePacket;
 import tomato.realmshark.RealmCharacter;
+import tomato.realmshark.EnchantInfo;
 
 public class CharacterJournalTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
@@ -24,6 +25,89 @@ public class CharacterJournalTest {
         return e;
     }
     private Path file() { return temp.getRoot().toPath().resolve("Characters/journal.json"); }
+
+    private static StatData stat(StatType type, int value) { StatData s = new StatData(); s.statType = type; s.statTypeNum = type.get(); s.statValue = value; return s; }
+    private static StatData stat(StatType type, String value) { StatData s = new StatData(); s.statType = type; s.statTypeNum = type.get(); s.stringStatValue = value; return s; }
+    private static packets.data.ObjectStatusData update(StatData... stats) {
+        packets.data.ObjectStatusData status = new packets.data.ObjectStatusData(); status.objectId = 1;
+        status.stats = stats; status.pos = new packets.data.WorldPosData(); return status;
+    }
+
+    @Test public void retainedLiveEnchantStatNeverDescribesANewerItem() throws Exception {
+        java.util.concurrent.atomic.AtomicLong clock = new java.util.concurrent.atomic.AtomicLong(1_000);
+        Entity e = new Entity(null, 1, 0, clock::get);
+        e.entityUpdate(782, update(stat(StatType.ACCOUNT_ID_STAT, "account-a"), stat(StatType.NAME_STAT, "Sample"),
+            stat(StatType.INVENTORY_0_STAT, 100), stat(StatType.INVENTORY_1_STAT, 200), stat(StatType.UNIQUE_DATA_STRING, "AAIE_wU,AAIE_wU,,")), 0);
+        CharacterJournal j = new CharacterJournal(file());
+        j.observe(e, 10);
+        assertArrayEquals(new String[] {"AAIE_wU", "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+        clock.set(2_000);
+        e.updateStats(update(stat(StatType.INVENTORY_0_STAT, 101)), 0); // Weapon swapped; the entity still holds the old enchant stat.
+        j.observe(e, 10);
+        assertArrayEquals("The retained stat is older than the new weapon, so it does not describe it", new String[] {null, "AAIE_wU", "", ""},
+            j.characters().get(0).equipmentEnchants);
+        clock.set(3_000);
+        e.updateStats(update(stat(StatType.UNIQUE_DATA_STRING, "AAIE,AAIE_wU,,")), 0);
+        j.observe(e, 10);
+        assertArrayEquals("A newer enchant stat describes every slot again", new String[] {"AAIE", "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+    }
+
+    @Test public void observedEquipmentEnchantsAreSavedKeptAndReloaded() throws Exception {
+        Path file = file(); CharacterJournal j = new CharacterJournal(file);
+        Entity e = player("account-a", 782);
+        put(e, StatType.INVENTORY_0_STAT, 12345);
+        StatData enchants = new StatData(); enchants.stringStatValue = "AAIE_wU,,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        j.observe(e, 10);
+        assertArrayEquals(new String[] {"AAIE_wU", "", "", ""}, j.characters().get(0).equipmentEnchants);
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, j.characters().get(0).enchantInfos().get(0).rarity());
+        e.stat.set(StatType.UNIQUE_DATA_STRING, null);
+        j.observe(e, 10);
+        assertArrayEquals("An observation without the stat keeps the saved enchants", new String[] {"AAIE_wU", "", "", ""},
+            j.characters().get(0).equipmentEnchants);
+        StatData changed = new StatData(); changed.stringStatValue = "AAIE,,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, changed);
+        long before = j.revision();
+        j.observe(e, 10);
+        assertNotEquals("An enchants-only change is a change (so it is saved)", before, j.revision());
+        j.save();
+        assertArrayEquals(new String[] {"AAIE", "", "", ""}, new CharacterJournal(file).characters().get(0).equipmentEnchants);
+    }
+
+    @Test public void aChangedItemForgetsItsSlotsSavedEnchantsUnlessFreshOnesArrive() throws Exception {
+        CharacterJournal j = new CharacterJournal(file());
+        Entity e = player("account-a", 782);
+        put(e, StatType.INVENTORY_0_STAT, 100); put(e, StatType.INVENTORY_1_STAT, 200);
+        StatData enchants = new StatData(); enchants.stringStatValue = "AAIE_wU,AAIE_wU,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        j.observe(e, 10);
+        e.stat.set(StatType.UNIQUE_DATA_STRING, null);
+        put(e, StatType.INVENTORY_0_STAT, 101);   // weapon swapped, no fresh enchant stat
+        j.observe(e, 10);
+        assertArrayEquals(new String[] {null, "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+        StatData fresh = new StatData(); fresh.stringStatValue = "AAIE,AAIE_wU,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, fresh);
+        put(e, StatType.INVENTORY_0_STAT, 102);
+        j.observe(e, 10);
+        assertArrayEquals("A fresh enchant stat in the same observation wins", new String[] {"AAIE", "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+    }
+
+    @Test public void rosterMergeForgetsOnlyChangedEquippedItemsEnchants() {
+        CharacterJournal j = new CharacterJournal(file());
+        Entity e = player("account-a", 782);
+        put(e, StatType.INVENTORY_0_STAT, 100); put(e, StatType.INVENTORY_1_STAT, 200);
+        put(e, StatType.INVENTORY_2_STAT, 300); put(e, StatType.INVENTORY_3_STAT, 400);
+        StatData enchants = new StatData(); enchants.stringStatValue = "AAIE_wU,AAIE_wU,,"; e.stat.set(StatType.UNIQUE_DATA_STRING, enchants);
+        String account = j.observe(e, 10);
+        ArrayList<RealmCharacter> same = RealmCharacter.getCharList("<Chars><Char id='10'><ObjectType>782</ObjectType><Equipment>100,200,300,400</Equipment></Char></Chars>");
+        j.mergeRoster(account, same);
+        assertArrayEquals("An unchanged roster item keeps its saved enchants", new String[] {"AAIE_wU", "AAIE_wU", "", ""},
+            j.characters().get(0).equipmentEnchants);
+        ArrayList<RealmCharacter> changed = RealmCharacter.getCharList("<Chars><Char id='10'><ObjectType>782</ObjectType><Equipment>101,200,300,400</Equipment></Char></Chars>");
+        j.mergeRoster(account, changed);
+        assertArrayEquals(new String[] {null, "AAIE_wU", "", ""}, j.characters().get(0).equipmentEnchants);
+    }
+
+    @Test public void theEmptyShorthandIsFourUnenchantedSlotsAndMissingSlotsAreNotRecorded() {
+        assertArrayEquals(new String[] {"", "", "", ""}, CharacterJournal.equippedEnchants(""));
+        assertArrayEquals(new String[] {"AAIE", "", null, null}, CharacterJournal.equippedEnchants("AAIE,"));
+    }
 
     @Test public void savesOwnedIdentityAndPartialSnapshotsWithoutCredentials() throws Exception {
         Path file = file(); CharacterJournal j = new CharacterJournal(file);

@@ -640,9 +640,12 @@ public final class RunRecapView extends JPanel {
         lead.add(type);
         JPanel slots = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.XS, 0));
         slots.setOpaque(false);
-        for (Integer item : player.equipment()) {
+        List<Integer> equipment = player.equipment();
+        for (int i = 0; i < equipment.size(); i++) {
+            Integer item = equipment.get(i);
             ItemSlot slot = new ItemSlot(24);
-            if (item == null) slot.setUnknown(); else slot.setItem(item, ItemTiers.label(item));
+            EnchantInfo enchant = player.enchants().get(i).state() == EnchantInfo.State.NOT_RECORDED ? null : player.enchants().get(i);
+            if (item == null) slot.setUnknown(); else slot.setItem(item, ItemTiers.label(item), enchant);
             slots.add(slot);
         }
         Long inspect = player.inspectDamage();

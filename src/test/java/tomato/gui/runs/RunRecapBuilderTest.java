@@ -33,6 +33,7 @@ import tomato.history.encounter.CombatFixtures;
 import tomato.history.encounter.CombatRecord;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.home.HomeHistoryFixture.*;
 import static tomato.gui.stats.LootTestDrops.Kind.*;
@@ -65,7 +66,7 @@ public class RunRecapBuilderTest {
         v1.rosterSize = 4; v1.partyId = 12; v1.exaltIncrease = 2;
         v1.resourceTimeline.add(point(T0 + 1_000, 500, 200)); v1.resourceTimeline.add(point(T0 + 2_000, 450, 180));
         v1.damageTracked = true; v1.totalDamage = 999; v1.firstDamageAt = T0 + 1_000; v1.lastDamageAt = T0 + 9_000;
-        InspectSnapshot alpha = snapshot(1, 782, "Alpha", 2001, 2002), bravo = snapshot(2, 775, "Bravo");
+        InspectSnapshot alpha = snapshot(1, 782, "Alpha", "AAIE_wU,,,", 2001, 2002), bravo = snapshot(2, 775, "Bravo");
         v1.inspectedPlayers.put(bravo.key(), bravo); v1.inspectedPlayers.put(alpha.key(), alpha); v1.inspectedPlayerCount = 2;
         v1.playerDamage.put(alpha.key(), 700L);   // Bravo has none recorded: a tracked zero
         ActivityJournal.Visit v2 = visit("v2", "Ice Citadel", T0 + 15 * MINUTE, T0 + 25 * MINUTE, false);   // aggregate-only: no samples
@@ -144,6 +145,13 @@ public class RunRecapBuilderTest {
         StatData named = new StatData(); named.stringStatValue = name + ",GuildName"; player.stat.set(StatType.NAME_STAT, named);
         StatType[] slots = {StatType.INVENTORY_0_STAT, StatType.INVENTORY_1_STAT, StatType.INVENTORY_2_STAT, StatType.INVENTORY_3_STAT};
         for (int i = 0; i < equipment.length; i++) { StatData slot = new StatData(); slot.statValue = equipment[i]; player.stat.set(slots[i], slot); }
+        return new InspectSnapshot(player, T0 + 1_000);
+    }
+    /** As {@link #snapshot(int, int, String, int...)}, with the player's UNIQUE_DATA_STRING (one entry per equipped slot). */
+    private static InspectSnapshot snapshot(int id, int classType, String name, String enchants, int... equipment) {
+        InspectSnapshot plain = snapshot(id, classType, name, equipment);
+        Entity player = plain.toEntity();
+        StatData stat = new StatData(); stat.stringStatValue = enchants; player.stat.set(StatType.UNIQUE_DATA_STRING, stat);
         return new InspectSnapshot(player, T0 + 1_000);
     }
     /**
@@ -455,6 +463,9 @@ public class RunRecapBuilderTest {
         assertEquals(snapshot(1, 782, "Alpha").className(), alpha.className());
         assertEquals("Uncaptured slots stay unknown", Arrays.asList(2001, 2002, null, null), alpha.equipment());
         assertEquals(T0 + 1_000, alpha.observedAt());
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, alpha.enchants().get(0).rarity());
+        assertEquals(EnchantInfo.Rarity.UNENCHANTED, alpha.enchants().get(1).rarity());
+        assertEquals("A snapshot without the enchant stat records none", java.util.Collections.nCopies(4, EnchantInfo.notRecorded()), bravo.enchants());
 
         RunRecapModel.Players none = build(V2).players();
         assertTrue(none.players().isEmpty()); assertNotNull(none.reason());
