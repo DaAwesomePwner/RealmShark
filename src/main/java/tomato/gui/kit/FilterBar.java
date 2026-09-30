@@ -15,11 +15,13 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.LineIcon;
+import tomato.gui.modern.VioletTheme;
 import util.PropertiesManager;
 
 /**
  * One row: search, a Filters toggle with the active count, removable chips, Clear, then scope and
- * "More actions" on the right. The module's existing facet controls live in a drawer below, closed by default.
+ * "More actions" on the right. The module's existing facet controls live in a drawer below, closed by default; the
+ * toggle is selected (drawn pressed) while the drawer is open.
  * While the drawer is open and focus is inside the bar, Esc closes it (as the toggle does) and focuses the toggle.
  */
 public class FilterBar extends JPanel {
@@ -63,6 +65,8 @@ public class FilterBar extends JPanel {
         overflow = new OverflowMenu(name + "-more");
         filters.setName(name + "-filters");
         filters.setIcon(new LineIcon(LineIcon.FILTER, 14));
+        // While the drawer is open the toggle is selected: the theme paints it pressed and assistive technology hears "checked".
+        filters.putClientProperty("FlatLaf.styleClass", VioletTheme.PRESSED_TOGGLE);
         filters.addActionListener(e -> setDrawerOpen(!open));
         clear.setName(name + "-clear-filters");
         clear.addActionListener(e -> { if (clearAll != null) clearAll.run(); });
@@ -224,6 +228,7 @@ public class FilterBar extends JPanel {
 
     private void updateFiltersButton() {
         filters.setText(active.isEmpty() ? "Filters" : "Filters · " + active.size());
+        filters.setSelected(drawerOpen());
         filters.getAccessibleContext().setAccessibleDescription(drawerOpen() ? "Filters shown" : "Filters hidden");
     }
 }

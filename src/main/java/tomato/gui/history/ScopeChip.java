@@ -2,7 +2,10 @@ package tomato.gui.history;
 
 import java.awt.AWTEvent;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.EventQueue;
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -245,12 +248,32 @@ public final class ScopeChip extends KitButton {
         return (code == KeyEvent.VK_DOWN || code == KeyEvent.VK_KP_DOWN) && e.isAltDown();
     }
 
-    /** Opens the menu under the chip with the selected radio highlighted; Up, Down, Enter and Esc work as in any menu. */
+    /** Opens the menu with the selected radio highlighted; Up, Down, Enter and Esc work as in any menu. */
     private void open() {
         if (!isShowing()) return;
         refocus = isFocusOwner();
-        menu.show(this, 0, getHeight());
+        Point at = menuLocation();
+        menu.show(this, at.x, at.y);
         JRadioButtonMenuItem item = selected();
         if (item != null) MenuSelectionManager.defaultManager().setSelectedPath(new MenuElement[] {menu, item});
+    }
+
+    /**
+     * Where the menu opens, in chip coordinates. The chip ends its bar's row at the right, so the menu's right edge meets the chip's
+     * (x = chip width − menu width) and it opens below, or above when only that fits. It stays inside the window's content area:
+     * the menu otherwise ran past the window's right edge. (JPopupMenu.show then keeps it on screen.)
+     */
+    private Point menuLocation() {
+        Dimension size = menu.getPreferredSize();
+        int x = getWidth() - size.width, y = getHeight();
+        JRootPane root = getRootPane();
+        if (root == null) return new Point(x, y);
+        Rectangle area = SwingUtilities.convertRectangle(root, new Rectangle(root.getSize()), this);
+        x = Math.max(area.x, Math.min(x, area.x + area.width - size.width));
+        if (y + size.height > area.y + area.height) {
+            if (-size.height >= area.y) y = -size.height;                               // flip above the chip
+            else y = Math.max(area.y, area.y + area.height - size.height);               // neither fits: keep it in the window
+        }
+        return new Point(x, y);
     }
 }

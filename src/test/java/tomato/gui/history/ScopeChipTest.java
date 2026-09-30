@@ -1,7 +1,9 @@
 package tomato.gui.history;
 
+import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.KeyboardFocusManager;
+import java.awt.Rectangle;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -181,6 +183,85 @@ public class ScopeChipTest {
             });
         }
     }
+
+    // ---- Placement (P6b polish): the chip sits at the right end of its bar, so its menu opens right-aligned ----
+
+    /** Sessions with long labels: the menu is wider than the chip, as in the real app. */
+    private static final List<ScopeChip.SessionChoice> LONG_RECENT = Arrays.asList(
+        new ScopeChip.SessionChoice("s1", "Runs fixture · 2026-09-29 13:20:00 · Lost Halls", "Runs fixture"),
+        new ScopeChip.SessionChoice("s2", "Fame fixture · 2026-09-28 18:05:00 · Nexus", "Fame fixture"));
+
+    @Test public void theMenuOpensRightAlignedUnderTheChipInsideA1240By800Window() throws Exception {
+        placed(BorderLayout.NORTH, (chip, root) -> {
+            for (Runnable opener : new Runnable[]{chip::doClick, () -> press(chip, KeyEvent.VK_ENTER, 0)}) {
+                opener.run();
+                assertTrue("The menu opens", chip.menu().isShowing());
+                Rectangle at = screen(chip), menu = screen(chip.menu()), window = screen(root);
+                assertTrue("The menu is wider than the chip: " + menu + " vs " + at, menu.width > at.width);
+                assertEquals("Right edges align (menu x = chip width − menu width)", at.x + at.width, menu.x + menu.width);
+                assertEquals("It opens under the chip", at.y + at.height, menu.y);
+                assertTrue("Inside the window: " + menu + " in " + window, window.contains(menu));
+                MenuSelectionManager.defaultManager().clearSelectedPath();
+                assertFalse(chip.menu().isVisible());
+            }
+        });
+    }
+
+    @Test public void withoutRoomBelowTheMenuOpensAboveTheChipStillInsideTheWindow() throws Exception {
+        placed(BorderLayout.SOUTH, (chip, root) -> {
+            chip.doClick();
+            Rectangle at = screen(chip), menu = screen(chip.menu()), window = screen(root);
+            assertEquals("It flips above the chip", at.y, menu.y + menu.height);
+            assertEquals("Right edges still align", at.x + at.width, menu.x + menu.width);
+            assertTrue("Inside the window: " + menu + " in " + window, window.contains(menu));
+            MenuSelectionManager.defaultManager().clearSelectedPath();
+        });
+    }
+
+    @Test public void aChipNearTheLeftEdgeKeepsItsMenuInsideTheWindow() throws Exception {
+        placed(BorderLayout.WEST, (chip, root) -> {
+            chip.doClick();
+            Rectangle menu = screen(chip.menu()), window = screen(root);
+            assertEquals("Clamped to the window's left edge", window.x, menu.x);
+            assertTrue("Inside the window: " + menu + " in " + window, window.contains(menu));
+            MenuSelectionManager.defaultManager().clearSelectedPath();
+        });
+    }
+
+    /**
+     * A chip in a 1240×800 frame: at the right end of a top bar (NORTH), of a bottom bar (SOUTH), or at the left end of a top
+     * bar (WEST). Menu bounds are compared on screen with the root pane's, which is the window's content area.
+     */
+    private static void placed(String where, java.util.function.BiConsumer<ScopeChip, JRootPane> check) throws Exception {
+        JFrame[] frame = new JFrame[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                ScopeChip chip = new ScopeChip("chat", false, new Recorder());
+                chip.show(false, ArchiveQuery.CURRENT, "now", LONG_RECENT);
+                JPanel bar = new JPanel(new BorderLayout());
+                bar.add(chip, BorderLayout.WEST.equals(where) ? BorderLayout.WEST : BorderLayout.EAST);
+                JPanel content = new JPanel(new BorderLayout());
+                content.add(bar, BorderLayout.SOUTH.equals(where) ? BorderLayout.SOUTH : BorderLayout.NORTH);
+                frame[0] = new JFrame("Scope placement"); frame[0].setContentPane(content); frame[0].setSize(1240, 800);
+                frame[0].setVisible(true);
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                ScopeChip chip = null;
+                for (Component c : ((JPanel) ((JPanel) frame[0].getContentPane()).getComponent(0)).getComponents())
+                    if (c instanceof ScopeChip) chip = (ScopeChip) c;
+                assertNotNull(chip);
+                assertEquals(1240, frame[0].getRootPane().getWidth());
+                check.accept(chip, frame[0].getRootPane());
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                MenuSelectionManager.defaultManager().clearSelectedPath();
+                if (frame[0] != null) frame[0].dispose();
+            });
+        }
+    }
+
+    private static Rectangle screen(Component component) { return new Rectangle(component.getLocationOnScreen(), component.getSize()); }
 
     private static void assertState(ScopeChip chip, String text, String tip) {
         assertEquals(text, chip.getText());
