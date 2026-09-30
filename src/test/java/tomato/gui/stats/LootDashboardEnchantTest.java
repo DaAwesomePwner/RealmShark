@@ -30,6 +30,13 @@ public class LootDashboardEnchantTest {
         assertFalse("One drop's names are never shown for all three", merged.tooltip().contains("(empty slot)"));
     }
 
+    @Test public void mergedPotionRowsHaveNoEnchantTooltip() {
+        LootDashboard.Item potion = new LootDashboard.Item(30, "Potion of Life", "STATPOTION", ParseEnchants.summarize(""));
+        assertSame(EnchantInfo.notRecorded(), LootDashboard.rowIcon(BASE, "Potion of Life", 3, potion).enchant());
+        assertNull(LootDashboard.rowIcon(BASE, "Potion of Life", 3, potion).tooltip());
+        assertNull("…nor a single-drop potion row", LootDashboard.rowIcon(BASE, "Potion of Life", 1, potion).tooltip());
+    }
+
     @Test public void iconTooltipsReachTheUserUnescapedWhileTextStaysEscaped() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             DefaultTableModel model = new DefaultTableModel(new Object[][] {

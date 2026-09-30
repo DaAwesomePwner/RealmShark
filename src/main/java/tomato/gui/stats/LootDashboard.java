@@ -454,10 +454,10 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
     Icon iconForItem(int id) { return state.icons.computeIfAbsent(id, key -> ImageBuffer.liveOutlinedIcon(key, 24)); }
     /**
      * The icon cell of one dashboard row: the cached sprite with the row's rarity gem. A row that merges several drops (same item,
-     * slots and applied count) shares their rarity but not necessarily their enchantments, so it names none.
+     * slots and applied count) shares their rarity but not necessarily their enchantments, so it names none. Stat potions have no enchant data.
      */
     static ItemIcon rowIcon(Icon base, String name, int count, Item item) {
-        EnchantInfo enchant = count == 1 ? item.enchantInfo() : EnchantInfo.ofSlotCount(item.enchants == null ? null : item.enchants.slots);
+        EnchantInfo enchant = count == 1 ? item.enchantInfo() : item.potion ? EnchantInfo.notRecorded() : EnchantInfo.ofSlotCount(item.enchants == null ? null : item.enchants.slots);
         return new ItemIcon(base, count == 1 ? name : name + " · " + count + " drops", enchant);
     }
     private static void addOption(JComboBox<String> combo, String value) {
