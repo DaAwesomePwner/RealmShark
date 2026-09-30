@@ -1,13 +1,10 @@
 package tomato.gui.runs;
 
-import java.io.BufferedReader;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.FilterInputStream;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.ByteBuffer;
-import java.nio.channels.SeekableByteChannel;
-import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -322,46 +319,44 @@ public final class RunFeedSource {
     }
 
     /**
-     * Reads and validates complete lines from the initial byte prefix, replacing malformed UTF-8 like the store and old
-     * pin. The final byte identifies an unfinished tail, which is excluded even if it contains valid JSON. Appends never
-     * enter this read; the resulting visits are reused rather than asking the store to read a later prefix again.
+     * Reads and validates the '\n'-terminated lines of the initial byte prefix as the archive pin did: bytes are streamed and a
+     * line is held only up to {@link #MAX_RECORD} (a longer complete line fails the read without being held whole), and each
+     * line is decoded replacing malformed UTF-8. The bytes after the last '\n' are an unfinished tail, excluded even if they
+     * hold valid JSON. Appends never enter this read; the resulting visits are reused rather than read again from the store.
      */
     private static Journal journal(Path file, Cancellation cancel) throws IOException {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return new Journal(null, List.of(), false);
         BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
         long bytes = attributes.size();
-        boolean tail;
         List<ActivityJournal.Visit> visits = new ArrayList<>();
-        try (SeekableByteChannel channel = Files.newByteChannel(file)) {
-            ByteBuffer last = ByteBuffer.allocate(1);
-            if (bytes > 0) {
-                channel.position(bytes - 1);
-                if (channel.read(last) != 1) throw new IOException("History source changed during read; retry");
-            }
-            tail = bytes > 0 && last.get(0) != '\n';
-            channel.position(0);
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    new JournalPrefix(Channels.newInputStream(channel), bytes), StandardCharsets.UTF_8))) {
-                String line = reader.readLine();
-                while (line != null) {
-                    cancel.check();
-                    String next = reader.readLine();
-                    if (tail && next == null) break;
-                    if (line.length() >= MAX_RECORD) throw new IOException("Journal record exceeds the 16 MiB record limit");
-                    try {
-                        ActivityJournal.Visit visit = SessionStore.JSON.fromJson(line, ActivityJournal.Visit.class);
-                        if (visit == null) throw new IOException("Null archive record in runs");
-                        visits.add(visit);
-                    } catch (RuntimeException failure) {
-                        throw new IOException("Unreadable runs journal record", failure);
-                    }
-                    line = next;
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        boolean oversized = false;
+        int last = '\n';
+        try (InputStream input = new BufferedInputStream(new JournalPrefix(Files.newInputStream(file), bytes))) {
+            long offset = 0;
+            for (int value; (value = input.read()) >= 0; last = value) {
+                if ((offset++ & 4095) == 0) cancel.check();
+                if (value == '\n') {
+                    if (oversized) throw new IOException("Journal record exceeds the 16 MiB record limit");
+                    visits.add(visit(new String(line.toByteArray(), StandardCharsets.UTF_8)));
+                    line.reset();
+                } else if (!oversized) {   // an oversized line is skipped to its end: it fails there, or is the excluded tail
+                    if (line.size() >= MAX_RECORD) { oversized = true; line.reset(); } else line.write(value);
                 }
             }
         }
         unchangedPrefix(file, attributes);
         cancel.check();
-        return new Journal(attributes, visits, tail);
+        return new Journal(attributes, visits, last != '\n');
+    }
+
+    /** One complete journal line as a visit; an empty, null or damaged line fails the read. */
+    private static ActivityJournal.Visit visit(String json) throws IOException {
+        ActivityJournal.Visit visit;
+        try { visit = SessionStore.JSON.fromJson(json, ActivityJournal.Visit.class); }
+        catch (RuntimeException failure) { throw new IOException("Unreadable runs journal record", failure); }
+        if (visit == null) throw new IOException("Null archive record in runs");
+        return visit;
     }
 
     private static void unchangedPrefix(Path file, BasicFileAttributes before) throws IOException {

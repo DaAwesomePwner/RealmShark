@@ -529,6 +529,23 @@ public class RunFeedSourceTest {
         }
     }
 
+    @Test public void anOversizedCompleteJournalLineFailsWhileAnOversizedTailIsOnlyExcluded() throws Exception {
+        Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        String visit = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
+        String huge = "x".repeat(16 * 1024 * 1024 + 1);
+        try (SessionStore store = new SessionStore(root, false, "fixture")) {
+            RunFeedSource source = source(store, RunFixtures.NOW);
+            Files.writeString(journal, visit + "\n" + huge);
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals(6, page.matches());
+                assertEquals(List.of(RunFixtures.A + "/runs: unfinished journal tail excluded"), page.issues());
+            }
+            Files.writeString(journal, visit + "\n" + huge + "\n");
+            try { source.first(RunFeedQuery.all(), new Cancellation()); fail("An oversized record must fail the read"); }
+            catch (java.io.IOException expected) { assertTrue(expected.toString(), expected.getMessage().contains("16 MiB")); }
+        }
+    }
+
     @Test public void journalGrowthDuringReadOnlyEmitsTheInitialCompletePrefix() throws Exception {
         Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
         String visit = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
