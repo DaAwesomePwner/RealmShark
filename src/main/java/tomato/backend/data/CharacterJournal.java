@@ -251,8 +251,17 @@ public final class CharacterJournal implements AutoCloseable {
             }
         }
         StatData enchants = player.stat.get(StatType.UNIQUE_DATA_STRING);
-        // Like equipment, an observation without the stat keeps what was saved.
-        if (enchants != null && enchants.stringStatValue != null) record.equipmentEnchants = equippedEnchants(enchants.stringStatValue);
+        if (enchants != null && enchants.stringStatValue != null) {
+            // The entity keeps its last enchant stat; it describes a slot's item only if it arrived no earlier than that item.
+            String[] fresh = equippedEnchants(enchants.stringStatValue);
+            FieldCapture enchantAt = player.fieldCapture(StatType.UNIQUE_DATA_STRING);
+            String[] saved = record.equipmentEnchants == null ? new String[4] : record.equipmentEnchants.clone();
+            for (int i = 0; i < 4; i++) {
+                FieldCapture itemAt = player.fieldCapture(8 + i);
+                if (enchantAt == null || itemAt == null || enchantAt.at >= itemAt.at) saved[i] = fresh[i];
+            }
+            record.equipmentEnchants = saved;
+        }
         boolean newObservation = player.observationRevision() != 0 && player.observationRevision() != record.observationRevision;
         record.observationRevision = player.observationRevision();
         record.lastObservedAlive = Math.max(record.lastObservedAlive, player.observedAt());
