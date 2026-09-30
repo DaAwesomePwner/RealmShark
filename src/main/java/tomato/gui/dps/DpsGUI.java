@@ -610,6 +610,7 @@ public class DpsGUI extends JPanel {
         displayIcon.setPlayerContext(frame.context);
         displayMeter.setPresence(frame.presence, frame.startedAt);
         displayString.setPresence(frame.presence, frame.startedAt);
+        displayIcon.setPresence(frame.presence, frame.startedAt);
         showLink(frame.link);
         displayMeter.setInspectOrigin((frame.live ? "Live DPS encounter" : "Saved DPS encounter") + " · " + (frame.map == null ? "No map" : frame.map.name)
             + " · " + frame.link.label() + (frame.link.linked() ? " · session " + frame.link.visit.sessionId + " · visit " + frame.link.visit.visitId : "")
