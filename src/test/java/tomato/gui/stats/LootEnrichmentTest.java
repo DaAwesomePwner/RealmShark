@@ -42,7 +42,7 @@ public class LootEnrichmentTest {
             tomato.history.archive.ArchiveQuery<LootQuery.Facets,LootQuery.Sort> q=LootQuery.initial(LootQuery.View.OCCURRENCES,tomato.history.archive.ArchiveQuery.CURRENT).withScope(store.currentId()).withFacets(f);
             try(tomato.history.archive.ArchiveResult<LootQuery.Row> result=tomato.history.archive.ArchiveResult.open(store,q,new LootArchiveAdapter(q),temp.newFolder().toPath(),new tomato.history.archive.Cancellation())){
                 LootQuery.Row group=result.page(0,100,new tomato.history.archive.Cancellation()).rows.get(0).value;
-                assertEquals(Long.valueOf(2),group.count);assertNull(group.enchantEvidence);assertNull(group.dropContext);
+                assertEquals(Long.valueOf(2),group.count);assertNull(group.enchantEvidence);assertNull(group.enchantments);assertNull(group.dropContext);
             }
         }
     }

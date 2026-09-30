@@ -22,6 +22,7 @@ public final class LootFacts {
      * One saved item occurrence; {@code untiered}/{@code setTiered} are UT/ST gear exactly as the saved loot views count them.
      * {@code slots} (unlocked enchant slots, empty ones included) and {@code applied} (applied enchants) are null when the drop
      * did not record them (legacy drops, capture without enchant data; older builds saved -1 for that).
+     * {@code enchant} is the item's enchantments for display: exact when captured, rarity only for older records, not recorded when unknown.
      */
     public record Item(int id, boolean untiered, boolean setTiered, boolean highTier, boolean potion, Integer slots, Integer applied,
                        EnchantInfo enchant) {

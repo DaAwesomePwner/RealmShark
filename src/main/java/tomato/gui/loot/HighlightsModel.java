@@ -72,6 +72,7 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
     /**
      * One notable drop: {@code bag} as saved (null = no bag name saved), {@code dungeon} null = Unknown area, {@code visit} the exact
      * run recorded at drop time (null = not linked to a run: none is inferred).
+     * {@code enchant} gives the gem, the rarity words and the hover enchant lines (not recorded = none).
      */
     public record Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind, EnchantInfo enchant) {
         public Notable {
