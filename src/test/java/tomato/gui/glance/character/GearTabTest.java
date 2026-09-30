@@ -19,7 +19,7 @@ import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
-/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity gems only for the live character. */
+/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity gems from the live character or, when not in game, the enchants last observed live. */
 public class GearTabTest {
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
     private static ItemSlot slot(JComponent tab, int index) { return named(tab, "character-gear-slot-" + index, ItemSlot.class); }

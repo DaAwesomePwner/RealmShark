@@ -81,7 +81,8 @@ final class GearTab extends JPanel {
             int id = gear == null ? -1 : gear.slots().get(i);
             String tier = id > 0 ? gear.tier(i) : "";
             // Live characters show their live enchantments; saved records show the enchantments last observed live.
-            EnchantInfo enchant = i < 4 && gear != null && gear.enchants() != null ? gear.enchants().get(i) : null;
+            EnchantInfo enchant = i < 4 && gear != null && gear.enchants() != null
+                && gear.enchants().get(i).state() != EnchantInfo.State.NOT_RECORDED ? gear.enchants().get(i) : null;
             if (id > 0) slots[i].setItem(id, tier, enchant); else if (id == 0) slots[i].setEmpty(); else slots[i].setUnknown();
             if (i >= 12 && id >= 0) backpackCaptured = true;
             if (i < 4) tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);

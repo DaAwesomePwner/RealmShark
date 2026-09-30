@@ -30,7 +30,8 @@ public record HomeModel(Hero hero, Now now, Today today, Runs runs, Quests quest
      * {@code maxed} 0-8 or -1; {@code exaltTiers} sum over 8 stats or -1; {@code lastSeenAt} when a STALE character was last seen
      * (epoch ms), 0 while LIVE; {@code key} the journal key of the character's sheet ("<64 hex>:<characterId>"), null when unknown;
      * {@code petChip} "Legendary pet" or "No pet" from the character's journal record (PetSummary.chip), null = hidden (unknown).
-     * {@code enchants} the four equipped items' enchantments; live when in game, else as last observed live; null when none were recorded.
+     * {@code enchants} the four equipped items' enchantments; live when in game, else as last observed live; null when the journal recorded none.
+     * A live hero whose enchant stat was not captured carries four not-recorded entries.
      */
     public record Hero(State state, String name, int classId, String className, Integer skin, Integer level,
                        DisplayValue fame, int maxed, int[] base, int[] caps, int[] totals, int[] potionsNeeded,

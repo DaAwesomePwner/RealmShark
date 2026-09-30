@@ -62,8 +62,9 @@ public final class CharacterEquipmentPanel extends JPanel {
     public void showRecord(CharacterRecord record, RosterDefinitions definitions) { slots = record == null ? Collections.emptyList() : project(record, definitions); render(); }
     public static List<Slot> project(CharacterRecord record, RosterDefinitions definitions) {
         List<Slot> result = new ArrayList<>(); String[] equipped = {"Weapon", "Ability", "Armor", "Ring"};
+        List<EnchantInfo> infos = record.enchantInfos();
         for (int i = 0; i < 28; i++) {
-            EnchantInfo enchant = i < 4 && record.equipmentEnchants != null ? record.enchantInfos().get(i) : null;
+            EnchantInfo enchant = infos == null || i >= 4 ? null : infos.get(i);
             Integer item = record.equipment != null && i < record.equipment.length ? record.equipment[i] : null;
             String group = i < 4 ? "Equipped" : i < 12 ? "Inventory" : "Backpack", name = i < 4 ? equipped[i] : group + " " + (i < 12 ? i - 3 : i - 11);
             String state = item == null ? "Not captured" : item < 0 ? "Empty" : "Occupied";
