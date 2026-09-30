@@ -32,15 +32,15 @@ The meter summary and the encounter's link and status line stay below the row.
 
 ### Party outcomes
 
-Every player on the meter keeps their damage and DPS; the **Outcome** column and the line under the window say whether they finished the dungeon. The text view lists the same outcomes in a "Party outcome" block.
+Every player on the meter keeps their damage and DPS; the **Outcome** column and the line under the window say whether they finished the dungeon. The text view lists the same outcomes in a "Party outcome" block (it follows the player filter: in filter mode it names only the players the filter shows), and the legacy icon view tags players who died or nexused. Outcomes are shown in dungeons only: in the Realm and in hubs the line reads "Outcomes are tracked in dungeons only". An area the built-in catalog does not know counts as a dungeon.
 
-- **Completed**: in the dungeon when it ended. The end is the server's victory notice; for The Void, The Shatters and Moonlight Village also the final boss's closing line; otherwise the last boss leaving the hit list. Leaving or dying afterwards still counts as completed.
+- **Completed**: in the dungeon when it ended. The end is the server's victory notice; for The Void, The Shatters and Moonlight Village also the final boss's closing line. When neither arrives, the fallback is the last enemy labelled `BOSS` (never a miniboss) leaving the hit list. That fallback is provisional while the dungeon is live (everyone stays In progress) and inferred on a saved recording: the reason says so and even your own completion is not marked confirmed. Leaving or dying afterwards still counts as completed.
 - **Died**: a death notice for the player (or your own death packet, which names the killer) arrived before the end. Shows the time and the gravestone.
 - **Nexused**: the player left view before the end and never came back, with the time and the HP they had. The game sends no nexus message for other players, so this is inferred: it can also be a disconnect or someone standing out of view when the dungeon ended. Your own nexus is confirmed by the nexus key press itself.
 - **In progress**: a live encounter that has not ended yet.
 - **Unknown**: the end was never seen (usually because you left first), the player was first seen after the end, or capture started mid-dungeon.
 
-Players who walk out of view and come back are unaffected, and a reconnect under a new object ID counts as the same player. Recordings saved before outcome tracking show only deaths matched by a unique name ("Outcomes unavailable"). `.dps` files carry the outcome data, so imported recordings show the same outcomes.
+Players who walk out of view and come back are unaffected, and a reconnect under a new object ID counts as the same player. Recordings saved before outcome tracking show only deaths matched by a unique name ("Outcomes unavailable"). `.dps` files carry the outcome data, so imported recordings show the same outcomes. A recording made with outcome tracking can only be opened by this version or a newer one; older builds reject the file.
 
 ## Interpretation
 
@@ -86,7 +86,7 @@ Recorded start is the first captured tick, not guaranteed map entry. Elapsed is 
 
 ### Safe .dps reading
 
-Every `.dps` read, an import (**Load** or ⋯ **Load .dps…**) or saved full detail, goes through an allow-list: only the classes of RealmShark's recording graph, and RealmShark's own packet data classes (which files saved with **Save Debug Data** hold), are read. Anything else stops the read before any of its code runs, with "This file contains data RealmShark does not read: <class name>". Reads run on a dedicated background thread ("RealmShark recording reader") with a 64 MB stack, the stack the automatic save writes with, so long Realm recordings read without overflowing it; the window never waits on a read. Notices name the file, never its folder.
+Every `.dps` read, an import (**Load** or ⋯ **Load .dps…**) or saved full detail, goes through an allow-list: only the classes of RealmShark's recording graph, and RealmShark's own packet data classes (which files saved with **Save Debug Data** hold), are read. Anything else stops the read before any of its code runs, with "This file contains data RealmShark does not read: <class name>". Recordings made with party-outcome tracking add the class `PresenceTimeline` and its parts to the allow-list, so they can only be opened by a build that has it (this version or newer); older builds stop at the first such class with the message above. Reads run on a dedicated background thread ("RealmShark recording reader") with a 64 MB stack, the stack the automatic save writes with, so long Realm recordings read without overflowing it; the window never waits on a read. Notices name the file, never its folder.
 
 ## Saved combat history
 
