@@ -453,7 +453,8 @@ public class Tomato {
                 if (chosen != null) AssetExtractor.recover(chosen, Version.ASSET_CACHE_VERSION, this::publish);
                 else {
                     boolean needed = AssetExtractor.needsExtraction(Version.ASSET_CACHE_VERSION);
-                    if (recover && needed) AssetExtractor.recover(AssetExtractor.assetFile(), Version.ASSET_CACHE_VERSION, this::publish);
+                    // The startup check extracts on its own when the game's resources.assets is found; without it, it only reports.
+                    if (needed && (recover || sourceAvailable)) AssetExtractor.recover(AssetExtractor.assetFile(), Version.ASSET_CACHE_VERSION, this::publish);
                     else if (needed) return false;
                     else try { AssetExtractor.reloadAssetsOnRunningApp(); }
                     catch (java.io.IOException invalidActiveCache) {

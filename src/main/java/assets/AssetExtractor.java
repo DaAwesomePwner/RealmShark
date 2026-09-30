@@ -215,6 +215,8 @@ public class AssetExtractor {
         for (Path p : files) {
             counter++;
             AssetExtractor.setDisplay("Parsing XML Files " + counter);
+            // The game also ships non-XML text assets under .xml names (Unity performance-test JSON); they hold no definitions.
+            if (!looksLikeXml(p)) continue;
             try {
                 parseXML(p, objectAssets, tileAssets);
             } catch (SAXException e) { throw new IOException("An extracted XML file could not be parsed.", e); }
@@ -227,10 +229,30 @@ public class AssetExtractor {
         writeAssetList(root.resolve("TileID.list"), tileAssets.stream().map(Object::toString).collect(Collectors.toList()));
     }
 
+    /**
+     * Whether an extracted file's first significant character (after a UTF-8 byte-order mark and whitespace) is '<'.
+     * A file that looks like XML but does not parse still fails extraction.
+     */
+    private static boolean looksLikeXml(Path file) throws IOException {
+        byte[] head = new byte[256];
+        int read;
+        try (java.io.InputStream input = Files.newInputStream(file)) { read = input.readNBytes(head, 0, head.length); }
+        int i = read >= 3 && (head[0] & 0xFF) == 0xEF && (head[1] & 0xFF) == 0xBB && (head[2] & 0xFF) == 0xBF ? 3 : 0;
+        while (i < read && Character.isWhitespace(head[i])) i++;
+        return i < read && head[i] == '<';
+    }
+
     private static void writeAssetList(Path target, List<String> lines) throws IOException {
         Path temporary = Files.createTempFile(target.toAbsolutePath().getParent(), "asset-list-", ".tmp");
         try {
-            Files.write(temporary, lines, java.nio.charset.Charset.defaultCharset());
+            // IdToAsset reads the lists in the default charset, as existing caches were written; a name it cannot encode
+            // (the game has CJK and symbol names) is written with the charset's replacement instead of failing extraction.
+            java.nio.charset.CharsetEncoder encoder = java.nio.charset.Charset.defaultCharset().newEncoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE);
+            try (java.io.Writer writer = new java.io.OutputStreamWriter(Files.newOutputStream(temporary), encoder)) {
+                for (String line : lines) { writer.write(line); writer.write(System.lineSeparator()); }
+            }
             try { Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE); }
             catch (java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
         } finally { Files.deleteIfExists(temporary); }
