@@ -107,11 +107,22 @@ public class PresenceCaptureTest {
         assertTrue("The next area starts empty", DpsSnapshot.capture(data).presence.players().isEmpty());
     }
 
-    @Test public void aCaptureStopClosesTheTimelineAndTheRemainderStartsFresh() {
-        spawn(61, "Before", 700, 700);
+    @Test public void aCaptureStopClosesTheTimelineAndTheRemainderKnowsWhoIsStillInView() {
+        data.setUserId(21, 7, "AAAAAA==");
+        spawn(21, "Self", 700, 700); spawn(61, "Before", 700, 700); spawn(62, "Gone", 700, 700);
+        drop(62);
         data.captureTerminated();
-        assertTrue(data.dpsData.get(0).getPresence().players().containsKey(61));
-        assertTrue(DpsSnapshot.capture(data).presence.players().isEmpty());
+        PresenceTimeline closed = data.dpsData.get(0).getPresence();
+        assertTrue(closed.players().containsKey(61));
+        assertFalse("The closed recording keeps its own history", closed.players().get(62).present());
+        PresenceTimeline remainder = DpsSnapshot.capture(data).presence;
+        assertTrue("Everyone still in view is registered again, not 'Not seen entering'", remainder.players().get(61).present());
+        assertEquals("Before", remainder.players().get(61).name);
+        assertEquals("The local player is known", Integer.valueOf(21), remainder.localObjectId());
+        assertNull("Someone already out of view is not registered as present", remainder.players().get(62));
+        assertNull("The remainder has no end yet", remainder.end());
+        assertEquals("Present, so in progress rather than not seen", EncounterOutcomes.Kind.PENDING,
+            EncounterOutcomes.of(remainder, 1, true, List.of(), List.of()).outcome(61).kind);
     }
 
     private EncounterOutcomes outcomes(DpsData recording) {

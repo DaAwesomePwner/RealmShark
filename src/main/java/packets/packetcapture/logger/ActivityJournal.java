@@ -352,7 +352,7 @@ public final class ActivityJournal {
         if (archive != null && visit.ended > 0) archive.accept(new Visit(visit));
     }
 
-    // Exact server boss dialogue already used by loot attribution; miniboss lines are deliberately absent.
+    // The final-boss line for the current map, if this is one (see CompletionDialogue).
     private String completionDialogue(TextPacket p) {
         return current == null ? null : CompletionDialogue.evidence(current.map, p);
     }

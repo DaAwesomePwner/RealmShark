@@ -227,6 +227,18 @@ public class EncounterOutcomesTest {
         assertTrue("No map (tests) is tracked", EncounterOutcomes.trackedIn(null));
     }
 
+    @Test public void aCorruptTimelineFallsBackToTheLegacyResultInsteadOfThrowing() throws Exception {
+        PresenceTimeline t = new PresenceTimeline();
+        t.recordSeen(1, "Self", 768, 1_000, true);
+        java.lang.reflect.Field players = PresenceTimeline.class.getDeclaredField("players");
+        players.setAccessible(true); players.set(t, null);
+        Entity alice = named(1, "Alice", 768), bob = named(2, "Bob", 775);
+        EncounterOutcomes o = EncounterOutcomes.of(t, START, false, Arrays.asList(alice, bob), List.of(death("Bob", 0x0723)));
+        assertEquals(State.UNAVAILABLE, o.state());
+        assertEquals(Kind.DIED, o.outcome(bob).kind);
+        assertEquals(Kind.UNKNOWN, o.outcome(alice).kind);
+    }
+
     private static MapInfoPacket area(String name) {
         MapInfoPacket map = new MapInfoPacket(); map.name = map.displayName = name; return map;
     }

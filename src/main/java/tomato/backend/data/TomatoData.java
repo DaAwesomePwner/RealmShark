@@ -359,10 +359,17 @@ public class TomatoData {
         // The remainder starts from nothing: no hits, deaths or packets, a new tick window, no recorded damage on live objects.
         entityHitList = new HashMap<>();
         deathNotifications = new ArrayList<>();
+        PresenceTimeline closedPresence = presence;
         presence = new PresenceTimeline();
         dpsPacketLog = new ArrayList<>();
         timePc = -1;
         timePcFirst = -1;
+        // Players still in view were seen before the stop: register them again so the local player is known and they are
+        // not "Not seen entering". Anyone who had already left view stays out (playerList keeps dropped players).
+        closedPresence.players().forEach((id, seen) -> {
+            Entity inView = playerList.get(id);
+            if (inView != null && seen.present()) presence.recordSeen(id, inView.name(), inView.objectType, timePc, inView == player);
+        });
         Set<Entity> live = Collections.newSetFromMap(new IdentityHashMap<>());
         live.addAll(entityList.values()); live.addAll(playerList.values()); live.addAll(copies.keySet());
         if (player != null) live.add(player);

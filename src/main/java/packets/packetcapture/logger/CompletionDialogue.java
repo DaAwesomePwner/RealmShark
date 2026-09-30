@@ -4,7 +4,8 @@ import packets.incoming.TextPacket;
 
 /**
  * Final-boss lines that prove a dungeon was cleared where the server sends no victory notification. Shared by the activity
- * journal (run completion) and the DPS presence timeline (the end of the dungeon).
+ * journal (run completion) and the DPS presence timeline (the end of the dungeon). These are the exact server boss dialogue
+ * already used by loot attribution; miniboss lines are deliberately absent.
  */
 public final class CompletionDialogue {
     private CompletionDialogue() { }

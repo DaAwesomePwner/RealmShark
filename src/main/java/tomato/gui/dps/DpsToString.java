@@ -25,7 +25,7 @@ import tomato.realmshark.enums.CharacterClass;
  * Behavior preserved:
  * - Header and per-entity sections
  * - Player filter/highlight and "me" indicator
- * - Extra notes (guarded/dammah/garden) + death/nexus info
+ * - Extra notes (guarded/dammah/garden) + the dungeon-level outcome (completed, died, nexused)
  * - Equipment:
  *   - option 0: hidden
  *   - option 1: bracketed "[slot0 / slot1 / slot2 / slot3]" showing most-used item per slot

@@ -135,10 +135,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     /** The shown encounter's presence timeline (null for a recording made before outcome tracking), its start and its death notices. */
     private PresenceTimeline presence;
     private long startedAt = -1;
-    private ArrayList<NotificationPacket> notices = new ArrayList<>();
     private EncounterOutcomes outcomes = EncounterOutcomes.none();
-    private static final String OUTCOME_HELP = "Completed: in the dungeon when it ended (server victory, final-boss line or the last boss removed). "
-        + "Nexused: left view before the end and did not return (inferred, except your own nexus). Died: a death notice before the end.";
+    private static final String OUTCOME_HELP = "Completed: in the dungeon when it ended (server victory, final-boss line, or inferred from the last boss removed). "
+        + "Nexused: left view before the end and did not return (inferred, except your own nexus). Died: a death notice before the end. "
+        + "The line above counts everyone seen in the dungeon, including players with no recorded damage.";
     private final JLabel outcomeLine = new JLabel(" ") {
         @Override public void updateUI() { super.updateUI(); setForeground(ContentStyle.color("muted")); }
     };
@@ -435,7 +435,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     protected void renderData(MapInfoPacket map, List<Entity> entities, ArrayList<NotificationPacket> notes, long elapsed, boolean isLive) {
         targets = new ArrayList<>(entities); mapName = map == null ? "No encounter" : map.name; live = isLive;
         targets.removeIf(Entity::isPlayerCharacter);
-        notices = notes == null ? new ArrayList<>() : notes;
+        ArrayList<NotificationPacket> notices = notes == null ? new ArrayList<>() : notes;
         outcomes = EncounterOutcomes.forArea(map, presence, startedAt, isLive, EncounterOutcomes.playersOf(targets), notices);
         String warning = missingLocalSpawn && !isLive
             ? "Personal damage is incomplete: shots arrived before your character data. This saved encounter cannot show your full damage."

@@ -151,7 +151,12 @@ public final class EncounterOutcomes {
      */
     public static EncounterOutcomes of(PresenceTimeline presence, long startedAt, boolean live,
                                        Collection<Entity> players, Collection<NotificationPacket> notices) {
-        return presence == null ? legacy(players, notices) : observed(presence, startedAt, live);
+        if (presence == null) return legacy(players, notices);
+        try {
+            return observed(presence, startedAt, live);
+        } catch (RuntimeException corrupt) {   // a crafted .dps can leave the timeline's collections or their elements null
+            return legacy(players, notices);
+        }
     }
 
     /** Distinct player characters with recorded damage on these enemies, first seen first. */
