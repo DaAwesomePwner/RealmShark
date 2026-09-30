@@ -55,7 +55,7 @@ public class DpsInspectMenuTest {
             assertTrue(details.getText().contains("Seasonal · Crucible"));
             assertTrue(details.getText().contains("HP: 555"));
             assertTrue(details.getText().contains("ID 12345"));
-            assertTrue(details.getText().contains("Enchants: None (captured)"));
+            assertTrue(details.getText().contains("Enchants: Unenchanted"));
             assertTrue(details.getText().contains("Ring: Not captured"));
             assertFalse(details.getText().contains("Changed after click"));
             assertFalse(details.getText().contains("54321"));

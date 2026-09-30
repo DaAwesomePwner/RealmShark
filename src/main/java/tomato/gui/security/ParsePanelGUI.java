@@ -14,6 +14,8 @@ import tomato.gui.kit.ColumnKind;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.Banner;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.KitButton;
@@ -24,6 +26,7 @@ import tomato.gui.kit.Tokens;
 import tomato.gui.roster.RosterViewState;
 import tomato.gui.modern.ContentStyle;
 import tomato.realmshark.ParseEnchants;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.enums.CharacterClass;
 import util.PropertiesManager;
 
@@ -1019,8 +1022,8 @@ public class ParsePanelGUI extends JPanel {
         final String guild;
         final Long damage;
         final Double dps;
-        final String[] equipmentLabels = new String[4], equipmentDetails = new String[4];
-        /** Painted gear wells (tier edge, enchant glow inside); rebuilt with the row on a theme change. */
+        final String[] equipmentLabels = new String[4], equipmentDetails = new String[4], equipmentTooltips = new String[4];
+        /** Painted gear wells (tier edge, rarity gem in the corner); rebuilt with the row on a theme change. */
         final Icon[] icons = new Icon[4];
         /** The Class cell's sprite: the captured skin, else the class's own sprite. */
         final Icon classIcon;
@@ -1047,48 +1050,18 @@ public class ParsePanelGUI extends JPanel {
                         : player.inv[i] < 0 ? "Empty (ID " + player.inv[i] + ")"
                         : (player.itemName[i] == null ? "Unrecognized item" : player.itemName[i]) + " (ID " + player.inv[i] + ")";
                 equipmentLabels[i] = slot + ": " + item;
-                String enchant = capture.description(i).trim();
-                boolean known = capture.state(i) == ParseEnchants.CaptureState.KNOWN;
-                equipmentDetails[i] = equipmentLabels[i] + "\nEnchants: "
-                        + (known && enchant.isEmpty() ? "None (captured)" : enchant);
-                int count = !known || enchant.isEmpty() ? 0 : enchant.split("\n").length;
-                String role = count == 1 ? "mint" : count == 2 ? "blue" : count == 3 ? "violet" : "amber";
+                EnchantInfo enchant = capture.info(i);
+                equipmentDetails[i] = equipmentLabels[i] + "\nEnchants: " + enchant.text();
+                // Built with the row, which is rebuilt on a theme change, so the tooltip's colors follow the theme.
+                equipmentTooltips[i] = EnchantTooltip.html(equipmentLabels[i], enchant);
                 // The well says what the slot holds (as its label does): not captured, empty (a negative ID) or an item with its tier.
                 ItemSlot.State state = !player.equipmentCaptured[i] ? ItemSlot.State.UNKNOWN : player.inv[i] < 0 ? ItemSlot.State.EMPTY : ItemSlot.State.ITEM;
                 String tier = state == ItemSlot.State.ITEM && player.inv[i] > 0 && definitions != null ? ItemTiers.label(definitions.item(player.inv[i])) : "";
                 Icon well = ItemSlot.icon(state == ItemSlot.State.ITEM ? Sprites.sprite(player.inv[i], 20) : null, tier, state, 20);
-                icons[i] = count == 0 ? well : new GlowWell(well, ContentStyle.color(role));
+                // Only a captured item carries a rarity gem; a well that shows no item claims none.
+                icons[i] = state == ItemSlot.State.ITEM ? EnchantGem.decorate(well, enchant) : well;
             }
         }
-    }
-
-    /**
-     * A gear well with its enchant glow drawn inside it: a soft ring in the enchant color (1–4+ enchants: mint, blue, violet, amber)
-     * just within the well's edge, which it never covers, so the tier edge still reads. A stamp like the well: it announces nothing,
-     * and the cell's accessible name and description carry the slot and its enchants.
-     */
-    private static final class GlowWell implements Icon {
-        private final Icon well;
-        private final Color glow;
-        GlowWell(Icon well, Color glow) { this.well = well; this.glow = glow; }
-        @Override public void paintIcon(Component c, Graphics graphics, int x, int y) {
-            well.paintIcon(c, graphics, x, y);
-            Graphics2D g = (Graphics2D) graphics.create();
-            try {
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int edge = getIconWidth() - 1;   // the well's edge runs along 0 and edge
-                g.setColor(new Color(glow.getRed(), glow.getGreen(), glow.getBlue(), 90));
-                g.setStroke(new BasicStroke(3f));
-                g.drawRoundRect(x + 3, y + 3, edge - 6, edge - 6, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
-                g.setColor(new Color(glow.getRed(), glow.getGreen(), glow.getBlue(), 220));
-                g.setStroke(new BasicStroke(1f));
-                g.drawRoundRect(x + 2, y + 2, edge - 4, edge - 4, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
-            } finally {
-                g.dispose();
-            }
-        }
-        @Override public int getIconWidth() { return well.getIconWidth(); }
-        @Override public int getIconHeight() { return well.getIconHeight(); }
     }
 
     /** The whole page scrolls only when controls plus three roster rows cannot fit. */
@@ -1173,7 +1146,7 @@ public class ParsePanelGUI extends JPanel {
             } else if (column >= 3 && column <= 6) {
                 int slot = column - 3;
                 setText(""); setIcon(row.icons[slot]); setHorizontalAlignment(CENTER);
-                setToolTipText("<html>" + html(row.equipmentDetails[slot]) + "</html>");
+                setToolTipText(row.equipmentTooltips[slot]);
                 getAccessibleContext().setAccessibleName(row.equipmentLabels[slot]);
                 getAccessibleContext().setAccessibleDescription(row.equipmentDetails[slot]);
             } else if (column == 7) {

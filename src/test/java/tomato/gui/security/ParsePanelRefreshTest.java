@@ -564,6 +564,7 @@ public class ParsePanelRefreshTest {
             Entity enchanted = player(1, "Enchanted", "Guild");
             // Header, enchant record type 1026, one enchant ID (little endian).
             stat(enchanted, StatType.UNIQUE_DATA_STRING, 0, Base64.getUrlEncoder().encodeToString(new byte[]{0, 2, 4, 1, 0}));
+            stat(enchanted, StatType.INVENTORY_0_STAT, 42, "");
             ParsePanelGUI.addPlayer(1, enchanted);
             frame = new JFrame();
             frame.setContentPane(panel);
@@ -572,7 +573,7 @@ public class ParsePanelRefreshTest {
             JTable table = find(panel, JTable.class);
             table.setRowSelectionInterval(0, 0);
             darkIcon.set(equipmentIcon(table));
-            assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
+            assertEquipmentText(table, 0, 3, "Weapon: Unrecognized item (ID 42)", "Uncommon · 1 enchant slot");
             table.getModel().addTableModelListener(e -> themed.countDown());
             setLookAndFeel(new FlatLightLaf());
             SwingUtilities.updateComponentTreeUI(frame);
@@ -582,10 +583,10 @@ public class ParsePanelRefreshTest {
             JTable table = find(panel, JTable.class);
             Icon lightIcon = equipmentIcon(table);
             assertNotSame(darkIcon.get(), lightIcon);
-            // P6b: the well paints the one-enchant glow (the light theme's mint) inside the kit's not-captured well.
-            PartyRestyleTest.assertGlowInside(lightIcon, tomato.gui.kit.ItemSlot.icon(null, "", tomato.gui.kit.ItemSlot.State.UNKNOWN, 20), ContentStyle.color("mint"), table);
+            // The well paints the Uncommon gem in the light theme's ink after the theme change.
+            PartyRestyleTest.assertPaintsInk(lightIcon, tomato.gui.kit.Tokens.rarity(tomato.realmshark.EnchantInfo.Rarity.UNCOMMON), table);
             assertEquals(0, table.getSelectedRow());
-            assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
+            assertEquipmentText(table, 0, 3, "Weapon: Unrecognized item (ID 42)", "Uncommon · 1 enchant slot");
             assertFocusDistinctFromSelection(table, 0, 3);
             frame.setVisible(false);
             setLookAndFeel(new VioletTheme());
@@ -596,7 +597,7 @@ public class ParsePanelRefreshTest {
             Icon again = equipmentIcon(table);
             assertNotSame(lightIcon, again);
             assertArrayEquals(PartyRestyleTest.paint(darkIcon.get(), table), PartyRestyleTest.paint(again, table));
-            assertEquipmentText(table, 0, 3, "Weapon: Not captured", ParseEnchants.ENCHANTS.getOrDefault((short)1, "Unknown") + "(1)");
+            assertEquipmentText(table, 0, 3, "Weapon: Unrecognized item (ID 42)", "Uncommon · 1 enchant slot");
         });
     }
 
@@ -605,7 +606,7 @@ public class ParsePanelRefreshTest {
         Map<Integer, IdToAsset> objects = (Map<Integer, IdToAsset>)assets.get(null);
         int itemId = 987654;
         IdToAsset previous = objects.put(itemId, new IdToAsset("", itemId, "Sword of Acclaim", "Sword of Acclaim", "", null, "", "", ""));
-        String oldEnchant = ParseEnchants.ENCHANTS.put((short)1, "Test enchant");
+        ParseEnchants.Definition oldEnchant = ParseEnchants.ENCHANT_DEFINITIONS.put((short)1, new ParseEnchants.Definition("Test enchant", "Does a test thing"));
         try {
             SwingUtilities.invokeAndWait(() -> {
                 setLookAndFeel(new VioletTheme());
@@ -616,35 +617,35 @@ public class ParsePanelRefreshTest {
                 ParsePanelGUI.addPlayer(1, source);
                 frame = new JFrame(); frame.setContentPane(panel); frame.setSize(800, 600); frame.setVisible(true);
                 JTable table = find(panel, JTable.class);
-                JLabel reused = assertEquipmentText(table, 0, 3, "Weapon: Sword of Acclaim (ID " + itemId + ")", "Test enchant(1)");
+                JLabel reused = assertEquipmentText(table, 0, 3, "Weapon: Sword of Acclaim (ID " + itemId + ")", "Test enchant — Does a test thing");
                 assertFocusDistinctFromSelection(table, 0, 3);
 
                 stat(source, StatType.INVENTORY_0_STAT, -1, "");
                 stat(source, StatType.UNIQUE_DATA_STRING, 0, "");
                 publishOnShow(source);
-                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Empty (ID -1)", "None (captured)"));
+                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Empty (ID -1)", "Enchants: Unenchanted"));
                 assertFalse(reused.getAccessibleContext().getAccessibleDescription().contains("Test enchant"));
 
                 source.stat.set(StatType.INVENTORY_0_STAT, null);
                 source.stat.set(StatType.UNIQUE_DATA_STRING, null);
                 publishOnShow(source);
-                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Not captured", "Enchant data not captured."));
+                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Not captured", "Enchants not recorded"));
 
                 stat(source, StatType.INVENTORY_0_STAT, Integer.MAX_VALUE, "");
                 stat(source, StatType.UNIQUE_DATA_STRING, 0, "!!!,,,");
                 publishOnShow(source);
-                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Unrecognized item (ID 2147483647)", "Malformed enchant data"));
+                assertSame(reused, assertEquipmentText(table, 0, 3, "Weapon: Unrecognized item (ID 2147483647)", "Enchant data unreadable"));
 
                 // Reusing the icon renderer for text must clear its name, description, icon and alignment.
                 JLabel text = (JLabel)table.prepareRenderer(table.getCellRenderer(0, 1), 0, 1);
                 assertSame(reused, text); assertNull(text.getIcon()); assertEquals(SwingConstants.LEFT, text.getHorizontalAlignment());
                 assertEquals("Guild: Guild", text.getAccessibleContext().getAccessibleName());
                 assertEquals("Guild: Guild", text.getAccessibleContext().getAccessibleDescription());
-                assertSame(reused, assertEquipmentText(table, 0, 4, "Ability: Not captured", "None (captured)"));
+                assertSame(reused, assertEquipmentText(table, 0, 4, "Ability: Not captured", "Enchants: Unenchanted"));
             });
         } finally {
             if (previous == null) objects.remove(itemId); else objects.put(itemId, previous);
-            if (oldEnchant == null) ParseEnchants.ENCHANTS.remove((short)1); else ParseEnchants.ENCHANTS.put((short)1, oldEnchant);
+            if (oldEnchant == null) ParseEnchants.ENCHANT_DEFINITIONS.remove((short)1); else ParseEnchants.ENCHANT_DEFINITIONS.put((short)1, oldEnchant);
         }
     }
 
@@ -663,7 +664,7 @@ public class ParsePanelRefreshTest {
             assertEquals("Alpha [20]", table.getValueAt(0, 0));
             assertTrue("Keep user column reordering available", table.getTableHeader().getReorderingAllowed());
             table.moveColumn(3, 1);
-            assertEquipmentText(table, 0, 1, "Weapon: Unrecognized item (ID 2147483647)", "None (captured)");
+            assertEquipmentText(table, 0, 1, "Weapon: Unrecognized item (ID 2147483647)", "Enchants: Unenchanted");
             invokeEquipmentShortcut(actions, table);
             String shown = actions.details;
             assertEquals("Alpha", actions.detailsPlayer);

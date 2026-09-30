@@ -32,6 +32,7 @@ import tomato.gui.modern.DisplayFormat;
 import tomato.gui.roster.RosterStateTestSupport.Memory;
 import tomato.ability.AbilityObservation;
 import tomato.ability.AbilityObservationStore;
+import tomato.realmshark.EnchantInfo;
 import util.PropertiesManager;
 import static org.junit.Assert.*;
 import static tomato.gui.activity.ActivityArchiveUiTest.*;
@@ -84,7 +85,7 @@ public class PartyRestyleTest {
         });
     }
 
-    @Test public void gearWellsShowItemEmptyAndNotCapturedWithTheEnchantGlowInsideTheWell() throws Exception {
+    @Test public void gearWellsShowItemEmptyAndNotCapturedWithTheRarityGemInsideTheWell() throws Exception {
         edt(() -> {
             ParsePanelGUI panel = new ParsePanelGUI(true, () -> definitions);
             Entity e = RequirementResultTest.player(1).playerEntity;
@@ -103,7 +104,7 @@ public class PartyRestyleTest {
             assertArrayEquals("Not captured is the kit's not-captured well", paint(ItemSlot.icon(null, "", ItemSlot.State.UNKNOWN, 20), table), paint(armor, table));
             assertFalse("Empty and not captured differ", Arrays.equals(paint(ability, table), paint(armor, table)));
             assertArrayEquals("An item well has its sprite and tier edge", paint(ItemSlot.icon(Sprites.sprite(44, 20), "UT", ItemSlot.State.ITEM, 20), table), paint(ring, table));
-            assertGlowInside(weapon, ItemSlot.icon(Sprites.sprite(42, 20), "T5", ItemSlot.State.ITEM, 20), ContentStyle.color("mint"), table);
+            assertGemInside(weapon, ItemSlot.icon(Sprites.sprite(42, 20), "T5", ItemSlot.State.ITEM, 20), Tokens.rarity(EnchantInfo.Rarity.UNCOMMON), table);
             // The cells keep their empty text and accessible names.
             assertEquals("", render(table, 0, 3).getText());
             assertEquals("Weapon: Unrecognized item (ID 42)", render(table, 0, 3).getAccessibleContext().getAccessibleName());
@@ -350,24 +351,25 @@ public class PartyRestyleTest {
         return image.getRGB(0, 0, image.getWidth(), image.getHeight(), null, 0, image.getWidth());
     }
     /**
-     * The glowing well paints like the plain well except inside it: its outer frame (the tier edge) is untouched, and every pixel it
-     * changes moves toward the glow color.
+     * The gem well paints like the plain well except in its top-right quarter, inside the edge (the tier border still reads), and
+     * the gem paints its rarity ink.
      */
-    static void assertGlowInside(Icon glowing, Icon plain, Color glow, Component owner) {
-        int w = glowing.getIconWidth(), h = glowing.getIconHeight();
+    static void assertGemInside(Icon withGem, Icon plain, Color ink, Component owner) {
+        int w = withGem.getIconWidth(), h = withGem.getIconHeight();
         assertEquals(plain.getIconWidth(), w);
-        int[] a = paint(glowing, owner), b = paint(plain, owner); int changed = 0;
+        int[] a = paint(withGem, owner), b = paint(plain, owner); int changed = 0;
         for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
             int i = y * w + x; if (a[i] == b[i]) continue;
-            assertFalse("The glow leaves the well's edge alone at " + x + "," + y, x == 0 || y == 0 || x == w - 1 || y == h - 1);
-            assertTrue("A changed pixel moves toward the glow at " + x + "," + y, distance(a[i], glow) < distance(b[i], glow));
+            assertFalse("The gem leaves the well's edge alone at " + x + "," + y, x == 0 || y == 0 || x == w - 1 || y == h - 1);
+            assertTrue("The gem stays in the top-right corner at " + x + "," + y, x >= w / 2 && y < h / 2);
             changed++;
         }
-        assertTrue("The well paints a glow", changed > 8);
+        assertTrue("The well paints a gem", changed > 8);
+        assertPaintsInk(withGem, ink, owner);
     }
-    private static double distance(int argb, Color c) {
-        double alpha = (argb >>> 24) / 255.0;
-        int r = (argb >> 16) & 255, g = (argb >> 8) & 255, bl = argb & 255;
-        return Math.abs(r * alpha - c.getRed()) + Math.abs(g * alpha - c.getGreen()) + Math.abs(bl * alpha - c.getBlue());
+
+    static void assertPaintsInk(Icon icon, Color ink, Component owner) {
+        for (int argb : paint(icon, owner)) if (argb == ink.getRGB()) return;
+        fail("The icon paints its gem ink " + ink);
     }
 }
