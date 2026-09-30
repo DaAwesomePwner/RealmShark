@@ -276,6 +276,8 @@ public class Tomato {
             PacketType.NOTIFICATION,
             packCap::packetCapture
         );
+        Register.INSTANCE.register(PacketType.DEATH, packCap::packetCapture);
+        Register.INSTANCE.register(PacketType.ESCAPE, packCap::packetCapture);
         Register.INSTANCE.register(
             PacketType.EXALTATION_BONUS_CHANGED,
             packCap::packetCapture

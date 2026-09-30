@@ -92,6 +92,8 @@ public class EncounterImportFilterTest {
         assertEquals(debug.debugPackets.size(), exported.data.debugPackets.size());
         assertEquals(debug.hitList.size(), exported.data.hitList.size());
         assertEquals(VISIT, exported.data.getEncounterContext().visit);
+        assertEquals(Integer.valueOf(1), exported.data.getPresence().localObjectId());
+        assertEquals(PresenceTimeline.END_VICTORY, exported.data.getPresence().end().detail);
         EncounterImport old = EncounterImport.read(write("baseline.dps", baseline()));
         assertEquals("Baseline encounter", old.data.map.name); assertNull(old.data.getRecordingId());
     }
@@ -373,7 +375,18 @@ public class EncounterImportFilterTest {
             log.add(map);
             CreateSuccessPacket created = new CreateSuccessPacket(); created.str = "synthetic"; log.add(created);
         }
-        return new DpsData(map, hits, deaths, seconds * 1000L, T, log, party.get(0), new EncounterContext(VISIT, 1, T - 5_000));
+        DpsData data = new DpsData(map, hits, deaths, seconds * 1000L, T, log, party.get(0), new EncounterContext(VISIT, 1, T - 5_000));
+        if (!party.isEmpty()) {
+            PresenceTimeline presence = new PresenceTimeline();
+            for (Entity player : party) presence.recordSeen(player.id, player.name(), player.objectType, T, player.isUser());
+            presence.recordLeft(party.get(party.size() - 1).id, 600, 700, T + 1_000);
+            presence.recordDeath("Player1", 0x0723, T + 2_000);
+            presence.recordEscape(T + 2_500);
+            presence.recordLocalDeath("Synthetic foe", T + 2_600);
+            presence.recordEnd(PresenceTimeline.END_VICTORY, T + 3_000);
+            data.setPresence(presence);
+        }
+        return data;
     }
 
     /**

@@ -14,6 +14,10 @@ public final class DpsSnapshot {
     public final long elapsed;
     /** Entry-frozen identity of this live encounter, or null when it was not entered through a map change. */
     public final tomato.history.link.EncounterContext context;
+    /** The live encounter's presence timeline (a detached copy, never null). */
+    public final PresenceTimeline presence;
+    /** The live encounter's first tick, or -1 before it. */
+    public final long startedAt;
 
     private DpsSnapshot(TomatoData data) {
         // Decoded map/notification packets are never subsequently mutated by capture.
@@ -25,6 +29,8 @@ public final class DpsSnapshot {
         player=data.player==null?null:data.player.copyForDisplay(copies);
         localPlayerContext=DpsData.LocalPlayerContext.capture(player);
         context=data.currentEncounterContext();
+        presence=data.presenceCopy();
+        startedAt=data.encounterStartedAt();
     }
 
     /** Call on the packet producer, or before capture has started. */

@@ -34,6 +34,8 @@ public class DpsData implements Serializable {
     private String visitSessionId, visitId;
     private Integer localPlayerObjectId;
     private Long contextCapturedAt;
+    // Optional (outcome tracking): who was present, died or left, and when the dungeon ended. Null in older streams.
+    private PresenceTimeline presence;
 
     public DpsData(MapInfoPacket m, HashMap<Integer, Entity> entityHitList, ArrayList<NotificationPacket> deathNotifications, long totalDungeonPcTime, long timePcFirst, ArrayList<Packet> dpsPacketLog) {
         this(m, entityHitList, deathNotifications, totalDungeonPcTime, timePcFirst, dpsPacketLog,
@@ -70,6 +72,7 @@ public class DpsData implements Serializable {
         copy.recordingId = recordingId;
         copy.visitSessionId = visitSessionId; copy.visitId = visitId;
         copy.localPlayerObjectId = localPlayerObjectId; copy.contextCapturedAt = contextCapturedAt;
+        copy.presence = presence == null ? null : presence.copy();
         return copy;
     }
 
@@ -96,6 +99,12 @@ public class DpsData implements Serializable {
     public String getRecordingId() { return recordingId; }
 
     public LocalPlayerContext getLocalPlayerContext() { return localPlayerContext; }
+
+    /** The recording's presence timeline, or null when it was recorded before outcome tracking. */
+    public PresenceTimeline getPresence() { return presence; }
+
+    /** Set once by capture while closing the encounter, and by fixtures; the timeline is owned by this recording afterwards. */
+    public void setPresence(PresenceTimeline presence) { this.presence = presence; }
 
     private void readObject(ObjectInputStream input) throws IOException, ClassNotFoundException {
         input.defaultReadObject();

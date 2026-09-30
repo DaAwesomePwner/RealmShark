@@ -18,9 +18,11 @@ import packets.data.enums.NotificationEffectType;
 import packets.data.enums.StatType;
 import packets.incoming.*;
 import packets.outgoing.*;
+import packets.packetcapture.logger.CompletionDialogue;
 import tomato.backend.SecurityAbilityUseCheck;
 import tomato.gui.chat.ChatGUI;
 import tomato.gui.dps.DpsGUI;
+import tomato.gui.dps.shared.DeathParser;
 import tomato.gui.keypop.KeypopGUI;
 import tomato.gui.myinfo.BuildEstimates;
 import tomato.gui.myinfo.MyInfoGUI;
@@ -29,6 +31,7 @@ import tomato.gui.stats.LootCapture;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
 import tomato.realmshark.HttpCharListRequest;
+import tomato.realmshark.ParseDungeon;
 import tomato.realmshark.RealmCharacter;
 import tomato.realmshark.RealmCharacterStats;
 import tomato.realmshark.Sound;
@@ -228,6 +231,8 @@ public class TomatoData {
     public ArrayList<DpsData> dpsData = new ArrayList<>();
     protected ArrayList<NotificationPacket> deathNotifications =
         new ArrayList<>();
+    // Who entered and left view, died, and when the area ended (outcome tracking); reset with the death notifications.
+    private PresenceTimeline presence = new PresenceTimeline();
     protected final HashMap<Integer, Entity> dropList = new HashMap<>();
     private ArrayList<Packet> dpsPacketLog = new ArrayList<>();
     private boolean petyard;
@@ -347,12 +352,14 @@ public class TomatoData {
         Entity closedPlayer = player == null ? null : player.copyForDisplay(copies);
         DpsData closed = new DpsData(map, hits, new ArrayList<>(deathNotifications), dungeonTime(), timePcFirst,
             new ArrayList<>(dpsPacketLog), closedPlayer, context);
+        closed.setPresence(presence);
         dpsData.add(closed);
         DpsGUI.updateLabel();
         dungeonTimeBeforeStop += Math.max(0, dungeonTime());
         // The remainder starts from nothing: no hits, deaths or packets, a new tick window, no recorded damage on live objects.
         entityHitList = new HashMap<>();
         deathNotifications = new ArrayList<>();
+        presence = new PresenceTimeline();
         dpsPacketLog = new ArrayList<>();
         timePc = -1;
         timePcFirst = -1;
@@ -513,6 +520,7 @@ public class TomatoData {
             if (e != null) {
                 //                e.entityDropped(timePc);
                 if (isPlayerEntity(e.objectType)) {
+                    presence.recordLeft(dropId, e.hp(), e.maxHp(), timePc);
                     for (Map.Entry<
                         Integer,
                         Entity
@@ -527,6 +535,8 @@ public class TomatoData {
 
             if (entityHitList.containsKey(dropId)) {
                 killedEntitys.add(e);
+                // A boss leaving the hit list ends the dungeon only when no victory or final-boss line does.
+                if (e != null && e.isBossMob()) presence.recordEnd(PresenceTimeline.END_BOSS, timePc);
             }
 
             playerListUpdated.remove(dropId);
@@ -574,6 +584,7 @@ public class TomatoData {
                 entity.isPlayer();
             }
             ParsePanelGUI.addPlayer(id, entity);
+            presence.recordSeen(id, entity.name(), idType, timePc, localPlayer);
             packets.packetcapture.logger.DiscoveryLog.INSTANCE.inspectPlayer(entity);
         }
     }
@@ -1230,6 +1241,7 @@ public class TomatoData {
                 player,
                 context
             );
+            closed.setPresence(presence);   // the recording owns it; resetEncounterGraph starts a new one
             dpsData.add(closed);
             closedEncounter = closed;   // handed off by setNewRealm once this method has returned
             DpsGUI.updateLabel();
@@ -1273,6 +1285,7 @@ public class TomatoData {
         shotSources.clear();
 
         deathNotifications = new ArrayList<>();
+        presence = new PresenceTimeline();
 
         entityHitList = new HashMap<>();
 
@@ -1816,6 +1829,9 @@ public class TomatoData {
             }
         }
 
+        if (map != null && CompletionDialogue.evidence(ParseDungeon.canonicalMapName(map), p) != null)
+            presence.recordEnd(PresenceTimeline.END_DIALOGUE, timePc);
+
         // Centralized loot attribution trigger handling
         lootAttribution.handleTextPacket(p, map != null ? map.seed : -1);
 
@@ -1830,13 +1846,32 @@ public class TomatoData {
     public void notification(NotificationPacket packet) {
         if (packet.effect == NotificationEffectType.PlayerDeath) {
             deathNotifications.add(packet);
+            presence.recordDeath(DeathParser.extractName(packet), packet.pictureType, timePc);
+        } else if (packet.effect == NotificationEffectType.Victory) {
+            presence.recordEnd(PresenceTimeline.END_VICTORY, timePc);
         }
         KeypopGUI.packet(this, packet);
+    }
+
+    /** Your own death (the DEATH packet): it names the killer. */
+    public void localDeath(DeathPacket packet) {
+        presence.recordLocalDeath(packet.killedBy, timePc);
+    }
+
+    /** You pressed nexus (the outgoing ESCAPE packet). */
+    public void localEscape() {
+        presence.recordEscape(timePc);
     }
 
     public ArrayList<NotificationPacket> getDeathNotifications() {
         return deathNotifications;
     }
+
+    /** A detached copy of the in-progress timeline (producer thread only, like DpsSnapshot). */
+    PresenceTimeline presenceCopy() { return presence.copy(); }
+
+    /** First tick of the in-progress encounter, or -1 before it. */
+    long encounterStartedAt() { return timePcFirst; }
 
     public long dungeonTime() {
         return timePc - timePcFirst;
