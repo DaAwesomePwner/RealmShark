@@ -239,7 +239,7 @@ public final class BridgeReviewGUI extends JPanel {
         activeSummary.setFont(ContentStyle.emphasis(ContentStyle.metadata(ContentStyle.body())));validation.setForeground(ContentStyle.color("rose"));
         saveResult.addPropertyChangeListener("UI",e->{if(saveResultIsError())saveResult.setForeground(ContentStyle.color("rose"));});
         for(JTextArea area:new JTextArea[]{activeSummary,draftState,validation,saveResult,confirmation}){area.setAlignmentX(Component.LEFT_ALIGNMENT);area.setBorder(BorderFactory.createEmptyBorder(2,0,2,0));status.add(area);}
-        JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File > Start Sniffer. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
+        JPanel intro=new JPanel(new BorderLayout(0,6));intro.add(note("Use the endpoint, Guild ID and Link Token supplied by your guild. Enable capture with File › Start capture connection. Save with Enable bridge and Send selected to submit the same confirmation ping as the public bridge. The form is a draft until Save; the active settings are shown below."),BorderLayout.NORTH);intro.add(status);
         page.add(intro,BorderLayout.NORTH);
         JPanel form=new JPanel(new GridBagLayout());GridBagConstraints g=new GridBagConstraints();g.insets=new Insets(3,0,5,0);g.fill=GridBagConstraints.HORIZONTAL;g.anchor=GridBagConstraints.NORTHWEST;
         field(form,g,0,"Endpoint",endpoint);field(form,g,1,"Guild ID",guild);field(form,g,2,"Link Token",token);

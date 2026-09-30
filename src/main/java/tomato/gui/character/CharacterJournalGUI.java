@@ -137,19 +137,15 @@ public final class CharacterJournalGUI extends JPanel {
         roster.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
             @Override protected void setValue(Object value) { super.setValue(value); setToolTipText(getText()); }
         });
-        roster.getColumnModel().getColumn(6).setCellRenderer(new ContentStyle.Cell() {
-            @Override protected void setValue(Object value) {
-                setText(value instanceof Number ? DisplayFormat.formatInteger(((Number)value).longValue()) : "Unknown");
-            }
-        });
+        // An unknown number or time reads "—" as the gallery does, with its reason in the tooltip; the model keeps null (never 0), so sorting
+        // and the facets still tell unknown from zero. State and Season are words ("Unknown" season is a state of its own) and keep them.
+        roster.getColumnModel().getColumn(4).setCellRenderer(known(value -> String.valueOf(value), "Level not captured"));
+        roster.getColumnModel().getColumn(5).setCellRenderer(known(value -> value + "/8", "Maxed count unknown: not every base stat and its cap is captured"));
+        roster.getColumnModel().getColumn(6).setCellRenderer(known(value -> DisplayFormat.formatInteger(((Number)value).longValue()), "Fame not captured"));
         roster.getColumnModel().getColumn(7).setCellRenderer(dateRenderer());
-        roster.getColumnModel().getColumn(5).setCellRenderer(new ContentStyle.Cell() {
-            @Override protected void setValue(Object value) { setText(value == null ? "Unknown" : value + "/8"); }
-        });
-        roster.getColumnModel().getColumn(8).setCellRenderer(new ContentStyle.Cell() {
-            @Override protected void setValue(Object value) { setText(value == null ? "Unknown" : DisplayFormat.formatInteger(((Number)value).longValue())); }
-        });
-        roster.getTableHeader().setToolTipText("Potions remaining: complete known base stats and caps; +5 Life/Mana and +1 other stats. Unknown totals are not zero.");
+        roster.getColumnModel().getColumn(8).setCellRenderer(known(value -> DisplayFormat.formatInteger(((Number)value).longValue()),
+            "Potions remaining unknown: not every base stat and its cap is captured"));
+        roster.getTableHeader().setToolTipText("Potions remaining: complete known base stats and caps; +5 Life/Mana and +1 other stats. — means unknown, never zero.");
         roster.getAccessibleContext().setAccessibleDescription("Enter or double-click opens the character's sheet");
         roster.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "open-character");
         roster.getActionMap().put("open-character", new AbstractAction() {
@@ -479,9 +475,16 @@ public final class CharacterJournalGUI extends JPanel {
     }
     private static String className(int id) { String name = CharacterClass.getName(id); return name == null ? "Class " + id : name; }
     private static String itemName(Integer id) { if (id == null) return "Not captured"; if (id < 0) return "Empty"; String name = IdToAsset.objectName(id); return name == null ? "Item #" + id : name; }
-    private static String date(long time) { return time <= 0 ? "Unknown" : Formatters.formatTimestamp(time); }
+    /** The snapshot time; an unknown one reads "—" with its reason, as an unknown number does. */
     private static DefaultTableCellRenderer dateRenderer() { return new ContentStyle.Cell() {
-        @Override protected void setValue(Object v) { setText(v instanceof Long ? date((Long)v) : "Unknown"); setToolTipText(getText()); }
+        @Override protected void setValue(Object v) {
+            boolean known = v instanceof Long && (Long)v > 0;
+            setText(known ? Formatters.formatTimestamp((Long)v) : DisplayFormat.UNAVAILABLE); setToolTipText(known ? getText() : "Snapshot update time unknown");
+        }
+    }; }
+    /** A number column: {@code text} for a known value; null reads "—" with {@code reason} as its tooltip (spec §1: unknown is never 0). */
+    private static DefaultTableCellRenderer known(java.util.function.Function<Object, String> text, String reason) { return new ContentStyle.Cell() {
+        @Override protected void setValue(Object v) { setText(v == null ? DisplayFormat.UNAVAILABLE : text.apply(v)); setToolTipText(v == null ? reason : null); }
     }; }
     private static JTable table(DefaultTableModel model) {
         JTable t = new JTable(model); ContentStyle.table(t, ContentStyle.Density.DENSE);
