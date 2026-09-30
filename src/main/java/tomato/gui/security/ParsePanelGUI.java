@@ -162,7 +162,7 @@ public class ParsePanelGUI extends JPanel {
             }
         };
         pageScroll.setName("security-page-scroll");
-        pageScroll.setBorder(null);
+        pageScroll.setBorder(BorderFactory.createEmptyBorder());   // not null: a live theme switch would put the outline back
         pageScroll.getVerticalScrollBar().setUnitIncrement(40);
         pageScroll.getAccessibleContext().setAccessibleName("Inspect page; scroll for controls at large text sizes");
         add(pageScroll, BorderLayout.CENTER);

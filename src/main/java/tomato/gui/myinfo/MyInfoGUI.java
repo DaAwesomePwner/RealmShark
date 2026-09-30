@@ -472,7 +472,7 @@ public class MyInfoGUI extends JPanel {
         split.setResizeWeight(.8); split.setBorder(null); split.setContinuousLayout(true);
         split.setOneTouchExpandable(true);
         JScrollPane pageScroll = ContentStyle.page(header, split, recordedDps);
-        pageScroll.setBorder(null); pageScroll.setName("myinfo-page-scroll");
+        pageScroll.setBorder(BorderFactory.createEmptyBorder()); pageScroll.setName("myinfo-page-scroll");   // not null: see ContentStyle.page
         pageScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         add(pageScroll, BorderLayout.CENTER);
         addHierarchyListener(e -> {

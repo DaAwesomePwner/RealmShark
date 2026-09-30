@@ -280,7 +280,8 @@ public final class ContentStyle {
                 return new Dimension(0, page.getPreferredSize().height + border.top + border.bottom);
             }
         };
-        scroll.setBorder(null); scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        // No box, after a live theme switch too: updateUI replaces a null border with the look and feel's outline, never an empty one.
+        scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         return scroll;
     }
 

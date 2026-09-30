@@ -65,6 +65,7 @@ public final class VisualEvidence extends ExternalResource {
         capture(frame, name);
     }
 
+    /** Prints the window, with XToolkit's title band naming it a synthetic validation; printing shows no table selection ({@link #captureRoot} does). */
     public void capture(Window window, String name) {
         assertTrue(SwingUtilities.isEventDispatchThread());
         UiTestLayout.settle(window);
@@ -78,6 +79,7 @@ public final class VisualEvidence extends ExternalResource {
      * the content even when the frame has no insets, and the root pane has neither, so the image is exactly the root pane's size
      * with nothing padded or covered. Lightweight popups live in its layered pane and are included; heavyweight popups (the
      * look and feel's menus, such as a Scope or navigation menu) are windows the frame owns, painted over the image at their place.
+     * Both paint as the screen does ({@code paintAll}), not as printing does: a JTable draws no selection while printing.
      */
     public void captureRoot(String name) {
         assertTrue(SwingUtilities.isEventDispatchThread());
@@ -85,14 +87,14 @@ public final class VisualEvidence extends ExternalResource {
         JRootPane root = frame.getRootPane();
         UiTestLayout.settle(frame);
         BufferedImage image = new BufferedImage(root.getWidth(), root.getHeight(), BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = image.createGraphics(); root.printAll(graphics);
+        Graphics2D graphics = image.createGraphics(); root.paintAll(graphics);
         Point origin = root.getLocationOnScreen();
         for (Window owned : frame.getOwnedWindows())
             if (owned.isShowing() && owned instanceof RootPaneContainer) {
                 JRootPane popup = ((RootPaneContainer) owned).getRootPane();
                 Point at = popup.getLocationOnScreen();
                 Graphics2D over = (Graphics2D) graphics.create(at.x - origin.x, at.y - origin.y, popup.getWidth(), popup.getHeight());
-                popup.printAll(over); over.dispose();
+                popup.paintAll(over); over.dispose();
             }
         graphics.dispose();
         write(image, name);
