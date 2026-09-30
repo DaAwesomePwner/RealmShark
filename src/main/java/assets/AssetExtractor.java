@@ -216,7 +216,7 @@ public class AssetExtractor {
             counter++;
             AssetExtractor.setDisplay("Parsing XML Files " + counter);
             // The game also ships non-XML text assets under .xml names (Unity performance-test JSON); they hold no definitions.
-            if (!looksLikeXml(p)) continue;
+            if (!looksLikeXml(p)) { System.err.println("Skipped a non-XML extracted file: " + p.getFileName()); continue; }
             try {
                 parseXML(p, objectAssets, tileAssets);
             } catch (SAXException e) { throw new IOException("An extracted XML file could not be parsed.", e); }
@@ -231,12 +231,13 @@ public class AssetExtractor {
 
     /**
      * Whether an extracted file's first significant character (after a UTF-8 byte-order mark and whitespace) is '<'.
-     * A file that looks like XML but does not parse still fails extraction.
+     * A UTF-16 byte-order mark is left to the parser. A file that looks like XML but does not parse still fails extraction.
      */
     private static boolean looksLikeXml(Path file) throws IOException {
         byte[] head = new byte[256];
         int read;
         try (java.io.InputStream input = Files.newInputStream(file)) { read = input.readNBytes(head, 0, head.length); }
+        if (read >= 2 && ((head[0] & 0xFF) == 0xFF && (head[1] & 0xFF) == 0xFE || (head[0] & 0xFF) == 0xFE && (head[1] & 0xFF) == 0xFF)) return true;
         int i = read >= 3 && (head[0] & 0xFF) == 0xEF && (head[1] & 0xFF) == 0xBB && (head[2] & 0xFF) == 0xBF ? 3 : 0;
         while (i < read && Character.isWhitespace(head[i])) i++;
         return i < read && head[i] == '<';
