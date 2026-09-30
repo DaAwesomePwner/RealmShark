@@ -113,12 +113,17 @@ public final class PresenceTimeline implements Serializable {
     public PresenceTimeline copy() {
         PresenceTimeline copy = new PresenceTimeline();
         copy.seq = seq;
-        players.forEach((id, player) -> {
-            Player detached = new Player(id);
-            detached.name = player.name; detached.classType = player.classType; detached.changes.addAll(player.changes);
-            copy.players.put(id, detached);
-        });
-        copy.deaths.addAll(deaths);
+        if (players != null) {
+            players.forEach((id, player) -> {
+                if (player != null) {
+                    Player detached = new Player(id);
+                    detached.name = player.name; detached.classType = player.classType;
+                    if (player.changes != null) detached.changes.addAll(player.changes);
+                    copy.players.put(id, detached);
+                }
+            });
+        }
+        if (deaths != null) copy.deaths.addAll(deaths);
         copy.localObjectId = localObjectId; copy.localDeath = localDeath; copy.localEscape = localEscape; copy.end = end;
         return copy;
     }
