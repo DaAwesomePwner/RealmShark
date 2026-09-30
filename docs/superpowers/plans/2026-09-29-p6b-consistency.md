@@ -1051,7 +1051,28 @@ failures, the known Quest and two Chat dialog failures. Every archive page now h
 
 ### Wave D outcomes (coordinator review)
 
-_To be filled in after the merges._
+Merged: Task 16 `6e07d3b` (`e77f645`), Task 17 `f580488` (`990bd88`), Task 15 `005e5ba` (`52a74fb`) and Task 18 `8535891`
+(`c3d4d4c`).
+
+- **Task 15:**
+  - S6 now covers 31 pages and 236 captures, and checks every visible row strictly, collecting every failure.
+  - It found one row that wraps: Quests. Its "Sort by" and "Group by" labels sit above their combos, a P4 layout the old weak check
+    missed. Polish A fixes it.
+  - Removed: `HistoryTables.controls`, `ContentStyle.detailsButton` and `StatsUi.heading`. Fixed: the stale `SessionStamps` and
+    `LootEvidenceTest` notes.
+  - The S6 frame is 1,240 px wide; the real shell's rows are Task 18's check.
+- **Task 16:** `UI-REDESIGN.md` is the current interface guide, with history last. README has a Pages table and a Navigation
+  paragraph. `UI-CONSISTENCY.md` is marked as history. Everything is checked against code, and the old anchor is kept with an `<a id>`.
+- **Task 17:** the ten module guides describe the Scope chip, the filter rows, ⋯ actions, relative times, Analyst-only columns and
+  the restyled pages. A link check over the README and all docs finds only the links to this phase's validation record, which is
+  written in Wave E.
+- **Task 18:**
+  - 155 captures in the real shell: 130 primary, 1 labeled Bridge capture over a fake service, 12 compact and 12 light. They cover
+    the Scope menu, drawer, drag and navigation-menu states.
+  - The run takes about 3.5 minutes, only when the environment variable is set; it needs `cleanTest` after an ungated run.
+  - Seven checks fail, all the Quests row. The visual findings are in the coordinator review below.
+- **Found in passing:** saved-history write failures (`SessionStore.error()`) are shown only by the unmounted legacy `SessionPanel`
+  and the Logging summary. This predates P6b and is queued as a separate follow-up suggestion.
 
 ---
 
