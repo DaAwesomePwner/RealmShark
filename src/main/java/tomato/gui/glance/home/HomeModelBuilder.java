@@ -114,7 +114,8 @@ public final class HomeModelBuilder {
             estimate(dps, 0, basis + " with the Build page's method; not a recorded measurement", DPS_UNKNOWN),
             estimate(mp, 1, basis + " with the Build page's method", MP_UNKNOWN),
             // A live hero carries no stale label, so saved values may fill the account line only on a stale one (spec §1).
-            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence, live.journalKey(), petChip);
+            accountLine(live.rankStars(), live.accountFame(), live.gold(), current ? null : account), seen, evidence, live.journalKey(), petChip,
+            live.build() == null ? null : live.build().enchants().infos());
     }
 
     private static HomeModel.Hero fromJournal(CharacterJournal.CharacterRecord last, CharacterJournal.AccountRecord account, String petChip,
@@ -134,7 +135,8 @@ public final class HomeModelBuilder {
             + "enter the game with capture on. " + POTION_RULE + " Exalt tiers from saved account exalts" + (exalt < 0 ? " (not captured yet)" : "") + ".";
         return new HomeModel.Hero(State.STALE, name(last.name, className, last.characterId), classId, className, last.skin, last.level,
             fame, maxed, base, cap, null, need, needsLine(need, maxed), exalt, slots, DisplayValue.unknown(DPS_UNKNOWN),
-            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence, sheetKey(last.key), petChip);
+            DisplayValue.unknown(MP_UNKNOWN), accountLine(null, null, null, account), last.lastSeen, evidence, sheetKey(last.key), petChip,
+            last.enchantInfos());
     }
 
     private static final Pattern SHEET_KEY = Pattern.compile("[0-9a-f]{64}:[0-9]+");
