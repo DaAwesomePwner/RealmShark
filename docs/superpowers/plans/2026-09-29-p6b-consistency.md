@@ -1094,6 +1094,28 @@ Merged: Task 16 `6e07d3b` (`e77f645`), Task 17 `f580488` (`990bd88`), Task 15 `0
 - **Final checks:** the full suite and `shadowJar`, then an isolated `--help` smoke. Send the contact sheet to the user.
 - **PR:** fill the plan's wave outcomes, update the roadmap, handoff and checkpoint, push, and open the PR.
 
+### Wave E outcomes (coordinator)
+
+- **Final-set review:** the coordinator reviewed the 155 final captures and ran five polish tasks, each reviewed and merged:
+  - **A — Quests:** one filter row, with Sort by and Pinned first in ⋯; no Analyst detail in Simple; a short Planner account key.
+    `a2dd467` (`5a103c2`).
+  - **B — kit:** the Scope menu stays in the window; the Filters toggle is drawn pressed while its drawer is open. `0a26d35`
+    (`f1baa8b`).
+  - **C — Simple detail and copy:** no pinned hash in Simple; idle Cancel is disabled; uniform Chat receipt times; "—" in the roster;
+    saved Key-pops matches live; stale copy fixed. `3d1daaa` + `e25b045` (`f9a9050`).
+  - **D — tables:** saved tables use their spare width, never saved and never on a mode switch. `e9c9364` (`5dd7903`).
+  - **E — borders and captures:** borderless pages stay boxless through a live theme switch; captures paint, so selections show.
+    `ec9d03e` (`5dbae2c`).
+- **Recovery docs:** refreshed in `ad9501a`. The two "(1)" duplicate docs are deleted.
+- **Runs on `5dbae2c`:**
+  - S8 alone, twice: passed, with every frame p95 at or under about 38 ms.
+  - S6 alone: 31 pages, strict, passed.
+  - Final set alone: 155 captures, none with a failed check.
+  - Full suite: 2,216 tests with 3 failures, the known Quest and two Chat dialog Linux/Xvfb failures. `StatisticsArchiveNativeTest`
+    now passes.
+  - `shadowJar` builds, and the isolated `--help` smoke exits 0 and leaves both folders empty.
+- **Record:** `2026-09-29-p6b-validation.md`.
+
 ## Local validation
 
 | Check | Command | Record |

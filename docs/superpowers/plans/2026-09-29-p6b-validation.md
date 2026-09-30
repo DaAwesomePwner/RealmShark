@@ -93,15 +93,52 @@ All runs were on Linux (JDK 17, Xvfb), with each worker's own build directory.
 | Wave B combined, on `86436b9` | 1,479 tests, 3 failures: `QuestConsistencyTest.nameTypesDialog…` and the two Chat dialog tests. `StatisticsArchiveNativeTest.actualLootFactory…` now passes: with the column tools in ⋯, the details pane is reachable. |
 | Wave C combined, on `33b8521` | 1,682 tests, 3 failures: the same three |
 | `ContentStyleTest` (Task 10) | 10 of 10 alone after the settle change. It did not fail here beforehand, so this is not proof of the fix. |
-| S8 (alone, twice) | _Wave E run; see "S8 page switching"_ |
-| S6 (alone) | _Wave E run; see "S6 filter rows"_ |
-| Final set (alone) | _Wave E run; see "Final screenshot set"_ |
-| Final full suite and `shadowJar` | _Wave E run_ |
-| JAR smoke | _Wave E run_ |
+| S8 (alone, twice), on `5dbae2c` | 3 tests / 0 failures, twice. See "S8 page switching". |
+| S6 (alone), on `5dbae2c` | 1 test / 0 failures: 31 pages, strict. See "S6 filter rows". |
+| Final set (alone), on `5dbae2c` | 1 test / 0 failures: 155 captures, 0 with failed checks, 206 s |
+| Final full suite and `shadowJar`, on `5dbae2c` | 2,216 tests / 3 failures / 0 errors / 6 skipped. The three failures are the known Linux/Xvfb ones: `QuestConsistencyTest.nameTypesDialog…` (owning-window focus without a window manager), `ChatFiltersTest.editorSavesRules…` and `ChatConsistencyTest.nativeFilterDialog…`. The P6a baseline's fourth, `StatisticsArchiveNativeTest.actualLootFactory…`, now passes. The skips are the P6a baseline's five plus the opt-in final set. `shadowJar` builds `RealmShark-v1.2.3.jar`. |
+| JAR smoke | `java -jar RealmShark-v1.2.3.jar --help` with an empty working directory and an empty home (headless): exit 0, usage printed, both folders still empty afterwards |
 
 ## S8 page switching
 
-_Filled in from the Wave E runs._
+`ShellSwitchTimingTest` is unchanged since P6a, and so is its fixture:
+- the real shell in a visible 1240×800 frame;
+- 1,200 saved runs with combat records;
+- Loot › Explore, Chat, the Runs table and Recordings saved over all sessions;
+- a live fight of 300 enemies republished before every Live meter entry;
+- 400 bags saved today.
+
+The frame metric is `select`, layout and dirty-region paint in one EDT turn; the longest follow-up EDT event is bounded too.
+
+Run alone, twice, on `5dbae2c`: both passed. Frame p50 / p95 / max in ms:
+
+| Destination | Run 1 | Run 2 |
+|---|---|---|
+| Home | 6.2 / 13.2 / 27.2 | 6.4 / 26.7 / 32.0 |
+| Characters | 5.5 / 7.1 / 8.7 | 6.3 / 13.5 / 14.1 |
+| Runs & DPS › Feed | 5.1 / 7.6 / 8.7 | 5.9 / 13.2 / 14.0 |
+| Runs & DPS › Live meter | 17.3 / 28.2 / 30.9 | 18.5 / 34.6 / 37.1 |
+| Loot › Highlights | 6.6 / 8.9 / 23.0 | 7.1 / 13.9 / 15.6 |
+| Loot › Explore | 3.0 / 7.7 / 23.7 | 3.1 / 8.3 / 19.3 |
+| Quests | 1.0 / 1.7 / 2.0 | 1.2 / 6.0 / 7.8 |
+| Chat | 1.5 / 1.9 / 4.8 | 1.6 / 3.6 / 6.7 |
+| All core switches (160) | 4.9 / 20.8 / 30.9 | 5.6 / 20.8 / 37.1 |
+
+| Tab | Run 1 | Run 2 |
+|---|---|---|
+| Loot › Highlights | 4.4 / 6.5 / 10.7 | 4.3 / 4.9 / 11.3 |
+| Loot › Explore | 1.6 / 2.8 / 3.0 | 1.6 / 4.0 / 6.5 |
+| Runs & DPS › Feed | 3.6 / 7.6 / 8.4 | 3.6 / 7.0 / 7.3 |
+| Runs & DPS › Dungeons | 2.5 / 3.8 / 3.8 | 2.6 / 10.2 / 11.3 |
+| Runs & DPS › Live meter | 14.5 / 37.7 / 42.1 | 14.3 / 28.4 / 31.9 |
+| Runs & DPS › Recordings | 1.2 / 1.6 / 2.2 | 1.4 / 2.6 / 2.9 |
+
+**Met.** Every destination and tab stays far below 100 ms p95, in line with P6a's record.
+
+The longest follow-up EDT event's p95 was 37.8 ms (run 1) and 41.8 ms (run 2), both on Loot › Explore; P6a recorded 33–34 ms. Its
+largest part is the Swing timer that rebuilds the saved Explore view on every entry, unchanged since P5b (38–43 ms max). Polish D's
+column fill adds one follow-up event: 10–25 ms on Explore, about 10–13 ms elsewhere. Raw logs are in the coordinator's scratchpad
+(`p6b/s8-run1.log`, `p6b/s8-run2.log`).
 
 ## S6 filter rows
 
@@ -119,7 +156,7 @@ _Filled in from the Wave E runs._
   check missed.
 - **The fix (Polish A):** Group by stays visible with an inline label, Sort by and Pinned first move into ⋯, and Analyst's
   Cards|Table sits on the right. The Quests row is 35 px tall in every state.
-- _Wave E result: see below._
+- **Wave E result:** on `5dbae2c`, alone, 1 test / 0 failures. Every row is one row, live and saved, on all 31 pages.
 
 ## S7 core destinations
 
@@ -151,7 +188,16 @@ builds the real shell (`TomatoGUI.createWorkspace`, preview) over one synthetic 
 Captures are root-pane paints, so there is no title band. Since Polish E they use `paintAll`, because `printAll` never draws a
 table's selection.
 
-**First run** (on `c3d4d4c`): 7 failed checks, all the Quests row.
+**Runs:**
+- **First run** (on `c3d4d4c`): 7 failed checks, all the Quests row.
+- **After the polish** (on `5dbae2c`, alone): 155 captures, 0 with failed checks, 206 s.
+  - The coordinator re-checked saved Runs: a selected row now shows its highlight, there is no pinned hash in Simple, Cancel is
+    disabled, and the table reaches the right edge.
+  - Light Party after a live theme switch shows no nested frames.
+  - The Scope menu stays inside the window.
+
+The captures are not committed. The index and contact sheet were sent to the user, and a copy stays in the coordinator's scratchpad
+(`p6b/final2/`).
 
 ## Coordinator review of the final set
 
