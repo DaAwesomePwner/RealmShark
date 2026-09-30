@@ -9,7 +9,8 @@ import java.util.List;
  * unlocked slots in order, locked ones omitted. Not-recorded and unreadable data never claim a rarity. Immutable.
  */
 public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
-    public enum State { RECORDED, NOT_RECORDED, UNREADABLE }
+    /** COUNT_ONLY: the unlocked slot count (so the rarity) is known but not which enchantments were rolled. */
+    public enum State { RECORDED, COUNT_ONLY, NOT_RECORDED, UNREADABLE }
 
     public enum Rarity {
         UNENCHANTED("Unenchanted"), UNCOMMON("Uncommon"), RARE("Rare"), LEGENDARY("Legendary"), DIVINE("Divine"), UNKNOWN("Unknown");
@@ -26,6 +27,19 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
     private static final EnchantInfo NOT_RECORDED = new EnchantInfo(State.NOT_RECORDED, Rarity.UNKNOWN, List.of());
     private static final EnchantInfo UNREADABLE = new EnchantInfo(State.UNREADABLE, Rarity.UNKNOWN, List.of());
 
+    /** The one line a rarity-only record shows in place of its slots. */
+    public static final String NAMES_NOT_AVAILABLE = "Enchant names not available";
+
+    /**
+     * A record that saved only its unlocked slot count (older loot history, or a merged row of several drops): the rarity without
+     * enchant names. Null or negative is not recorded; more than four is unreadable.
+     */
+    public static EnchantInfo ofSlotCount(Integer unlocked) {
+        if (unlocked == null || unlocked < 0) return NOT_RECORDED;
+        if (unlocked > 4) return UNREADABLE;
+        return new EnchantInfo(State.COUNT_ONLY, Rarity.ofSlots(unlocked), List.of());
+    }
+
     public EnchantInfo { slots = List.copyOf(slots); }
 
     public static EnchantInfo notRecorded() { return NOT_RECORDED; }
@@ -41,12 +55,14 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
     public static EnchantInfo ofRetained(String blob) { return blob == null || blob.isEmpty() ? NOT_RECORDED : of(blob); }
 
     public static EnchantInfo fromEvidence(ParseEnchants.Evidence evidence) {
-        if (evidence == null) return NOT_RECORDED;
+        // Saved evidence is Gson-read without constructors, so a partial or hand-edited record may lack any field.
+        if (evidence == null || evidence.state == null) return NOT_RECORDED;
         switch (evidence.state) {
             case RECORDED: case RECORDED_EMPTY: break;
             case INVALID: return UNREADABLE;
             default: return NOT_RECORDED;
         }
+        if (evidence.orderedSlotIds == null) return ofSlotCount(evidence.slots);
         List<Slot> unlocked = new ArrayList<>();
         for (int id : evidence.orderedSlotIds) {
             if (id == -3) break;
@@ -55,21 +71,28 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
         return new EnchantInfo(State.RECORDED, Rarity.ofSlots(unlocked.size()), unlocked);
     }
 
-    /** True when there is a rarity to show: recorded, with at least one unlocked slot. */
-    public boolean enchanted() { return state == State.RECORDED && rarity != Rarity.UNENCHANTED && rarity != Rarity.UNKNOWN; }
+    /** True when there is a rarity to show: recorded or counted, with at least one unlocked slot. */
+    public boolean enchanted() {
+        return (state == State.RECORDED || state == State.COUNT_ONLY) && rarity != Rarity.UNENCHANTED && rarity != Rarity.UNKNOWN;
+    }
 
     /** "Rare · 2 enchant slots", "Unenchanted", "Enchants not recorded" or "Enchant data unreadable". */
     public String summary() {
         switch (state) {
             case NOT_RECORDED: return "Enchants not recorded";
             case UNREADABLE: return "Enchant data unreadable";
-            default: return rarity == Rarity.UNENCHANTED ? "Unenchanted"
-                : rarity.label + " · " + slots.size() + (slots.size() == 1 ? " enchant slot" : " enchant slots");
+            default: {
+                // Rarity constants are declared in slot-count order, so a count-only record's count is its rarity's ordinal.
+                int count = state == State.COUNT_ONLY ? rarity.ordinal() : slots.size();
+                return rarity == Rarity.UNENCHANTED ? "Unenchanted"
+                    : rarity.label + " · " + count + (count == 1 ? " enchant slot" : " enchant slots");
+            }
         }
     }
 
     /** Each unlocked slot in order: "Attack Bonus I — Increases Attack by 1.4", the name alone without a description, or "(empty slot)". */
     public List<String> slotLines() {
+        if (state == State.COUNT_ONLY) return rarity == Rarity.UNENCHANTED ? List.of() : List.of(NAMES_NOT_AVAILABLE);
         List<String> lines = new ArrayList<>(slots.size());
         for (Slot slot : slots) {
             if (slot.empty()) { lines.add("(empty slot)"); continue; }

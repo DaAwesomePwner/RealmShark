@@ -104,6 +104,34 @@ public class EnchantInfoTest {
         assertSame(EnchantInfo.notRecorded(), capture.info(3));
     }
 
+    @Test public void aSlotCountAloneGivesTheRarityWithoutNames() {
+        EnchantInfo legendary = EnchantInfo.ofSlotCount(3);
+        assertEquals(State.COUNT_ONLY, legendary.state());
+        assertEquals(Rarity.LEGENDARY, legendary.rarity());
+        assertEquals(List.of(), legendary.slots());
+        assertTrue("A known rarity shows its gem", legendary.enchanted());
+        assertEquals("Legendary · 3 enchant slots", legendary.summary());
+        assertEquals(List.of(EnchantInfo.NAMES_NOT_AVAILABLE), legendary.slotLines());
+        assertEquals("Legendary · 3 enchant slots\n  Enchant names not available", legendary.text());
+        assertEquals("Uncommon · 1 enchant slot", EnchantInfo.ofSlotCount(1).summary());
+        EnchantInfo none = EnchantInfo.ofSlotCount(0);
+        assertEquals("Unenchanted", none.summary());
+        assertEquals("Nothing to name on an unenchanted item", List.of(), none.slotLines());
+        assertFalse(none.enchanted());
+        assertSame(EnchantInfo.notRecorded(), EnchantInfo.ofSlotCount(null));
+        assertSame(EnchantInfo.notRecorded(), EnchantInfo.ofSlotCount(-1));
+        assertSame(EnchantInfo.unreadable(), EnchantInfo.ofSlotCount(5));
+    }
+
+    @Test public void partialEvidenceNeverThrows() throws Exception {
+        ParseEnchants.Evidence noState = tomato.history.SessionStore.JSON.fromJson("{\"slots\":2,\"applied\":1}", ParseEnchants.Evidence.class);
+        assertSame("No state: not recorded", EnchantInfo.notRecorded(), EnchantInfo.fromEvidence(noState));
+        ParseEnchants.Evidence noIds = tomato.history.SessionStore.JSON.fromJson("{\"state\":\"RECORDED\",\"slots\":2,\"applied\":1}", ParseEnchants.Evidence.class);
+        EnchantInfo fallback = EnchantInfo.fromEvidence(noIds);
+        assertEquals("No ordered ids: the saved slot count still gives the rarity", State.COUNT_ONLY, fallback.state());
+        assertEquals(Rarity.RARE, fallback.rarity());
+    }
+
     private static String encode(int... entries) {
         ByteBuffer buffer = ByteBuffer.allocate(3 + entries.length * 2).order(ByteOrder.LITTLE_ENDIAN);
         buffer.put((byte) 0);
