@@ -3,6 +3,7 @@ package tomato.gui.glance.character;
 import java.util.List;
 import java.util.Objects;
 import tomato.gui.kit.DisplayValue;
+import tomato.realmshark.EnchantInfo;
 
 /**
  * Immutable character sheet view model (spec §6.2), built off the EDT by SheetModelBuilder and applied on the EDT. Per-stat
@@ -36,10 +37,9 @@ public record SheetModel(String key, Identity identity, Stats stats, Gear gear, 
     /**
      * 28 slots (0-3 equipped, 4-11 inventory, 12-27 backpack): item id > 0, 0 empty, -1 not captured. {@code tiers}: each slot's
      * tier label ("UT", "ST", "T12"), "" for an empty, uncaptured or unlabeled slot, from the definitions the build was given (so
-     * the section changes when they finish loading). {@code hasBackpack} null unknown. {@code enchants}: unlocked enchant slots of
-     * the 4 equipped items (0 Common … 4 Divine), -1 unknown; null unless playing.
+     * the section changes when they finish loading). {@code hasBackpack} null unknown. {@code enchants}: the 4 equipped items' enchantments; null unless playing.
      */
-    public record Gear(List<Integer> slots, List<String> tiers, Boolean hasBackpack, List<Integer> enchants) {
+    public record Gear(List<Integer> slots, List<String> tiers, Boolean hasBackpack, List<EnchantInfo> enchants) {
         /** The tier label of {@code slot}; "" when none (or when {@code tiers} does not reach it). */
         public String tier(int slot) {
             return tiers == null || slot < 0 || slot >= tiers.size() || tiers.get(slot) == null ? "" : tiers.get(slot);

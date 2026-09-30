@@ -46,6 +46,18 @@ public class ParseEnchants {
     private static volatile HashMap<Short, Float> ENCHANT_LOOT_BONUS =
         new HashMap<>();
 
+    // Maps enchant type ID -> what a tooltip shows: the game's display name and description
+    public static volatile HashMap<Short, Definition> ENCHANT_DEFINITIONS = new HashMap<>();
+
+    /** An enchantment as the game describes it; {@code description} is "" when the definition has none. */
+    public record Definition(String displayName, String description) {}
+
+    /** The definition of an enchantment type; unknown types, and all types before definitions load, name the raw type in hex. */
+    public static Definition definition(int typeId) {
+        Definition known = ENCHANT_DEFINITIONS.get((short) typeId);
+        return known != null ? known : new Definition(String.format("Unknown enchant (0x%x)", typeId), "");
+    }
+
     static {
         reload();
         ENCHANTS.put((short) -1, "[empty]");
@@ -63,6 +75,7 @@ public class ParseEnchants {
         HashMap<Short, EnchantEffect> effects = new HashMap<>();
         HashMap<Short, RegenEffect> regeneration = new HashMap<>();
         HashMap<Short, Float> loot = new HashMap<>();
+        HashMap<Short, Definition> definitions = new HashMap<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(path.toFile())))) {
             String result = reader.lines().collect(Collectors.joining("\n"));
             StringXML base = StringXML.getParsedXML(result);
@@ -172,6 +185,7 @@ public class ParseEnchants {
                 }
 
                 if (enchantType != null) {
+                    definitions.put(enchantType, readDefinition(xml));
                     if (enchantName != null) {
                         names.put(enchantType, enchantName);
                     }
@@ -181,7 +195,7 @@ public class ParseEnchants {
                 }
             }
             names.put((short) -1, "[empty]");
-            return () -> { ENCHANTS = names; ENCHANT_EFFECTS = effects; ENCHANT_REGEN = regeneration; ENCHANT_LOOT_BONUS = loot; };
+            return () -> { ENCHANTS = names; ENCHANT_EFFECTS = effects; ENCHANT_REGEN = regeneration; ENCHANT_LOOT_BONUS = loot; ENCHANT_DEFINITIONS = definitions; };
         } catch (
             ParserConfigurationException
             | SAXException
@@ -369,13 +383,10 @@ public class ParseEnchants {
 
         public CaptureState state(int slot) { return states[slot]; }
 
-        /** Unlocked enchant slots of one equipped item (0 Common … 4 Divine, as Summary.rarity() names them); -1 unless KNOWN. */
-        public int unlockedSlots(int slot) { return states[slot] == CaptureState.KNOWN ? summarize(codes[slot]).slots : -1; }
-
-        public String description(int slot) {
-            if (states[slot] == CaptureState.MISSING) return "Enchant data not captured.";
-            if (states[slot] == CaptureState.MALFORMED) return "Malformed enchant data; effects unavailable.";
-            return parse(codes[slot]);
+        /** The slot's enchantments: not recorded while MISSING, unreadable while MALFORMED. */
+        public EnchantInfo info(int slot) {
+            return states[slot] == CaptureState.MISSING ? EnchantInfo.notRecorded()
+                : states[slot] == CaptureState.MALFORMED ? EnchantInfo.unreadable() : EnchantInfo.of(codes[slot]);
         }
 
         /** Null means the four-slot total is unknown, even if some individual effects are valid. */
@@ -793,6 +804,24 @@ public class ParseEnchants {
     }
 
     // ===== Helpers =====
+
+    /** One {@code <Enchantment>}'s display name (its DisplayId, else its internal id) and description. */
+    static Definition readDefinition(StringXML enchantment) {
+        String id = null, display = null, description = null;
+        for (StringXML node : enchantment) {
+            if (Objects.equals(node.name, "id")) id = node.value;
+            else if (Objects.equals(node.name, "DisplayId")) display = text(node);
+            else if (Objects.equals(node.name, "Description")) description = text(node);
+        }
+        String name = display != null && !display.isEmpty() ? display : id != null ? id : "Unnamed enchant";
+        return new Definition(name, description == null ? "" : description);
+    }
+
+    /** An element's text; StringXML keeps it as a "#text" child. Null when the element is empty. */
+    private static String text(StringXML node) {
+        for (StringXML child : node) if (Objects.equals(child.name, "#text") && child.value != null) return child.value.trim();
+        return null;
+    }
 
     private static String getEnchantmentString(short enchantID) {
         String name = ENCHANTS.get(enchantID);

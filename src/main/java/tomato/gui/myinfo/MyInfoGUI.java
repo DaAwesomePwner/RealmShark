@@ -12,8 +12,10 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.EnchantIconLabel;
 import tomato.gui.kit.KitButton;
 import tomato.gui.kit.StatTile;
 import tomato.gui.kit.Tokens;
@@ -42,7 +44,7 @@ public class MyInfoGUI extends JPanel {
     /** The shown weapon DPS estimate as a number (null when unavailable), for the recorded-DPS comparison. */
     private Double weaponDps;
     private RecordedDpsPanel recordedDps;
-    private final JLabel[] icons = new JLabel[4];
+    private final EnchantIconLabel[] icons = new EnchantIconLabel[4];
     private final JLabel[] equipmentNames = new JLabel[4];
     private final JCheckBox outOfCombatCheck = new JCheckBox("Estimate scenario: out of combat");
     private final JComboBox<String> evidence = new JComboBox<>(new String[] {"All evidence", "Captured", "Estimated", "Unavailable"});
@@ -393,7 +395,7 @@ public class MyInfoGUI extends JPanel {
         JPanel equipment = ContentStyle.responsiveGrid(4, 155, 8);
         for (int i = 0; i < 4; i++) {
             JPanel slot = new JPanel(new BorderLayout(8, 3));
-            icons[i] = new JLabel();
+            icons[i] = new EnchantIconLabel();
             slot.add(icons[i], BorderLayout.WEST);
             JLabel caption = new JLabel(SLOT_NAMES[i]); caption.setFont(ContentStyle.metadata(ContentStyle.body()));
             slot.add(caption, BorderLayout.NORTH);
@@ -598,7 +600,7 @@ public class MyInfoGUI extends JPanel {
         weaponDps = null;
         DisplayValue[] shown = new DisplayValue[4];
         Arrays.fill(shown, DisplayValue.unknown(NO_BUILD));
-        for (int i = 0; i < 4; i++) { icons[i].setIcon(null); equipmentNames[i].setText("Awaiting capture"); }
+        for (int i = 0; i < 4; i++) { icons[i].clear(); equipmentNames[i].setText("Awaiting capture"); }
         if (player != null) {
             StatData name = player.stat.get(StatType.NAME_STAT);
             status.setText(name == null || name.stringStatValue == null ? "Captured character" : name.stringStatValue + " • Captured build");
@@ -620,10 +622,10 @@ public class MyInfoGUI extends JPanel {
             for (int i = 0; i < 4; i++) {
                 Double id = stat(player, slots[i]);
                 String item = id == null ? "Not captured" : id < 0 ? "Empty slot" : itemName(id.intValue());
+                EnchantInfo enchant = enchants.info(i);
                 equipmentNames[i].setText(item); equipmentNames[i].setToolTipText(item);
-                if (id != null && id >= 0) displayImg(icons[i], id.intValue());
-                String enchant = enchants.description(i);
-                add("Equipment", SLOT_NAMES[i], id, "item ID", item + (enchant.isEmpty() ? "" : "\n" + enchant));
+                if (id != null && id >= 0) icons[i].setItem(loadIcon(id.intValue()), item, enchant);
+                add("Equipment", SLOT_NAMES[i], id, "item ID", item + "\n" + enchant.text());
                 if (i == 0) weapon = BuildEstimates.weapon(player);
             }
             List<String> dpsMissing = damage(weapon), manaMissing = recovery(enchants);
@@ -765,9 +767,9 @@ public class MyInfoGUI extends JPanel {
         return "Item " + id;
     }
 
-    public void displayImg(JLabel label, int id) {
-        try { label.setIcon(ImageBuffer.getOutlinedIcon(id, 28)); }
-        catch (RuntimeException e) { label.setIcon(null); }
+    private static Icon loadIcon(int id) {
+        try { return ImageBuffer.getOutlinedIcon(id, 28); }
+        catch (RuntimeException e) { return null; }
     }
 
     private static String format(double value) {

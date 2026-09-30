@@ -57,7 +57,7 @@ public class EquippedEnchantCaptureTest {
     @Test public void validUnpaddedCodesAreNormalizedForTheLegacyEffectDecoder() {
         ParseEnchants.EquippedCapture capture = capture("AAIE_wU,,,"); // Flat Mana Regeneration I (0x5ff).
         assertEquals(KNOWN, capture.state(0));
-        assertFalse(capture.description(0).isEmpty());
+        assertEquals(java.util.List.of(new EnchantInfo.Slot(0x5ff)), capture.info(0).slots());
         assertEquals(2f, ParseEnchants.getManaRegenPerSecondFromEnchants(capture.completeCodes(), 400, false), .001f);
     }
 

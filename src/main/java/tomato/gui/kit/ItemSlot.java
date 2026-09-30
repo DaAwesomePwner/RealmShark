@@ -6,8 +6,9 @@ import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
 import javax.swing.*;
+import tomato.realmshark.EnchantInfo;
 
-/** One equipment or inventory slot. Empty and not-captured are drawn differently; items show their sprite and tier edge. */
+/** One equipment or inventory slot. Empty and not-captured are drawn differently; items show their sprite, tier edge and, where the surface knows it, an enchant rarity gem. */
 public class ItemSlot extends JComponent implements Accessible {
     /** UNKNOWN is a slot that was not captured ("Slot not captured"), never an empty one. */
     public enum State { ITEM, EMPTY, UNKNOWN }
@@ -26,6 +27,8 @@ public class ItemSlot extends JComponent implements Accessible {
     private State state = State.UNKNOWN;
     private int itemId = -1;
     private String tier = "";
+    /** The item's enchantments where this surface knows them; null otherwise (and always null unless an item is shown). */
+    private EnchantInfo enchant;
 
     /**
      * The slot as a painted {@link Icon} for table and list renderers, drawn exactly as an {@code ItemSlot(size)} component and as
@@ -97,31 +100,39 @@ public class ItemSlot extends JComponent implements Accessible {
     /** The description last announced to assistive technology; a refill that reads the same announces nothing. */
     private String described;
 
-    public void setItem(int objectId, String tierLabel) {
+    public void setItem(int objectId, String tierLabel) { setItem(objectId, tierLabel, null); }
+
+    /** As {@link #setItem(int, String)}, with the item's enchantments (null when this surface has none): a gem and the enchant tooltip. */
+    public void setItem(int objectId, String tierLabel, EnchantInfo enchantments) {
         if (objectId <= 0) { setEmpty(); return; }
-        show(State.ITEM, objectId, tierLabel == null ? "" : tierLabel);
+        show(State.ITEM, objectId, tierLabel == null ? "" : tierLabel, enchantments);
     }
 
-    public void setEmpty() { show(State.EMPTY, -1, ""); }
-    public void setUnknown() { show(State.UNKNOWN, -1, ""); }
+    public void setEmpty() { show(State.EMPTY, -1, "", null); }
+    public void setUnknown() { show(State.UNKNOWN, -1, "", null); }
     public State state() { return state; }
     public int itemId() { return itemId; }
+    public EnchantInfo enchant() { return enchant; }
 
-    /** The slot's description with the item's current name; "Unknown item #id" only while assets cannot name it. */
+    /** The item's name and tier; "Unknown item #id" only while assets cannot name it. */
+    private String itemText() { String name = Sprites.name(itemId); return tier.isEmpty() ? name : name + " · " + tier; }
+
+    /** The slot's description with the item's current name, and its enchant summary when known. */
     private String text() {
         switch (state) {
-            case ITEM: { String name = Sprites.name(itemId); return tier.isEmpty() ? name : name + " · " + tier; }
+            case ITEM: return enchant == null ? itemText() : itemText() + " · " + enchant.summary();
             case EMPTY: return "Empty slot";
             default: return "Slot not captured";
         }
     }
 
     /** Refilling a slot with what it already shows repaints and announces nothing (pages refresh slots every second). */
-    private void show(State next, int id, String label) {
-        boolean redraw = state != next || itemId != id || !tier.equals(label);
+    private void show(State next, int id, String label, EnchantInfo enchantments) {
+        boolean redraw = state != next || itemId != id || !tier.equals(label) || !Objects.equals(enchant, enchantments);
         state = next;
         itemId = id;
         tier = label;
+        enchant = enchantments;
         describe();
         if (redraw) repaint();
     }
@@ -137,7 +148,10 @@ public class ItemSlot extends JComponent implements Accessible {
         }
     }
 
-    @Override public String getToolTipText() { return text(); }
+    /** Built when the tooltip is asked for, so its colors follow the theme and nothing is built per paint. */
+    @Override public String getToolTipText() {
+        return state == State.ITEM && enchant != null ? EnchantTooltip.html(itemText(), enchant) : text();
+    }
 
     @Override public Dimension getPreferredSize() { return new Dimension(size + 6, size + 6); }
     @Override public Dimension getMinimumSize() { return getPreferredSize(); }
@@ -148,6 +162,7 @@ public class ItemSlot extends JComponent implements Accessible {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int side = Math.min(getWidth(), getHeight()) - 1, x = (getWidth() - 1 - side) / 2, y = (getHeight() - 1 - side) / 2;
         paint(this, g, state, state == State.ITEM ? Sprites.sprite(itemId, size) : null, tier, x, y, side);
+        if (state == State.ITEM) EnchantGem.paint(g, enchant, x, y, side);
         g.dispose();
     }
 }

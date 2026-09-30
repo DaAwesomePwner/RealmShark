@@ -12,10 +12,11 @@ import tomato.backend.data.CharacterJournal;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.character.CharacterEquipmentPanel;
 import tomato.gui.kit.*;
+import tomato.realmshark.EnchantInfo;
 import static tomato.gui.glance.character.SheetViews.*;
 
 /**
- * Sheet › Gear (spec §6.2): four large equipped slots with tier labels and, for the character in game only, enchant rarity dots;
+ * Sheet › Gear (spec §6.2): four large equipped slots with tier labels and, for the character in game only, an enchant rarity gem and enchant tooltip;
  * then the inventory (8) and backpack (16) as a sprite grid. Unknown and empty slots stay distinct; each slot's tooltip names its
  * item. Tier labels come from the model (computed off the EDT with the build's definitions). The 28-row slot table with field
  * evidence is an Analyst-only Collapsible. EDT only.
@@ -24,7 +25,6 @@ final class GearTab extends JPanel {
     private static final Object NOT_SHOWN = new Object();
     private final ItemSlot[] slots = new ItemSlot[28];
     private final KitText[] tiers = new KitText[4];
-    private final EnchantDots[] dots = new EnchantDots[4];
     private final JPanel backpack = named(row(), "character-gear-backpack");
     private final KitText noBackpack = named(KitText.caption("No backpack"), "character-gear-no-backpack");
     private final KitText backpackUnknown = named(KitText.caption("Backpack contents not captured yet"), "character-gear-backpack-unknown");
@@ -59,8 +59,7 @@ final class GearTab extends JPanel {
         for (int i = 0; i < 4; i++) {
             slots[i] = named(new ItemSlot(48), "character-gear-slot-" + i);
             tiers[i] = named(KitText.caption(SLOTS[i]), "character-gear-tier-" + i);
-            dots[i] = named(new EnchantDots(), "character-gear-enchant-" + i);
-            equipped.add(beside(slots[i], clear(new FlowLayout(FlowLayout.CENTER, Tokens.XS, 0), tiers[i], dots[i]), BorderLayout.SOUTH, 2));
+            equipped.add(beside(slots[i], clear(new FlowLayout(FlowLayout.CENTER, Tokens.XS, 0), tiers[i]), BorderLayout.SOUTH, 2));
         }
         JPanel inventory = row();
         for (int i = 4; i < 12; i++) inventory.add(slots[i] = named(new ItemSlot(32), "character-gear-slot-" + i));
@@ -81,13 +80,11 @@ final class GearTab extends JPanel {
         for (int i = 0; i < 28; i++) {
             int id = gear == null ? -1 : gear.slots().get(i);
             String tier = id > 0 ? gear.tier(i) : "";
-            if (id > 0) slots[i].setItem(id, tier); else if (id == 0) slots[i].setEmpty(); else slots[i].setUnknown();
+            // Enchantments are decoded from the character in game only; saved records show no gem.
+            EnchantInfo enchant = i < 4 && gear != null && gear.enchants() != null ? gear.enchants().get(i) : null;
+            if (id > 0) slots[i].setItem(id, tier, enchant); else if (id == 0) slots[i].setEmpty(); else slots[i].setUnknown();
             if (i >= 12 && id >= 0) backpackCaptured = true;
-            if (i < 4) {
-                tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);
-                // Enchant rarity is decoded from the character in game only; saved records never show dots.
-                dots[i].set(gear == null || gear.enchants() == null || id <= 0 ? -1 : gear.enchants().get(i));
-            }
+            if (i < 4) tiers[i].setText(tier.isEmpty() ? SLOTS[i] : tier);
         }
         Boolean has = gear == null ? null : gear.hasBackpack();
         noBackpack.setVisible(Boolean.FALSE.equals(has));

@@ -15,10 +15,11 @@ import tomato.gui.kit.Collapsible;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.myinfo.BuildEstimates;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
-/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity dots only for the live character. */
+/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity gems only for the live character. */
 public class GearTabTest {
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
     private static ItemSlot slot(JComponent tab, int index) { return named(tab, "character-gear-slot-" + index, ItemSlot.class); }
@@ -64,7 +65,7 @@ public class GearTabTest {
         });
     }
 
-    @Test public void enchantDotsShowOnlyForTheLiveCharacter() throws Exception {
+    @Test public void enchantGemsShowOnlyForTheLiveCharacter() throws Exception {
         Entity player = new Entity(null, 1, 0);
         StatData enchants = new StatData();
         enchants.stringStatValue = "AAIE_wU,AAIE,,!!!"; // weapon 1 unlocked slot, ability 0, armor 0, ring malformed
@@ -72,20 +73,25 @@ public class GearTabTest {
         BuildEstimates.Inputs inputs = BuildEstimates.Inputs.detach(player, null, TomatoData.PetAvailability.UNKNOWN);
         SheetModel playing = model(record(), account(), live(ACCOUNT, 7, "Sharkbait", inputs));
         SheetModel other = model(record(), account(), live(ACCOUNT, 8, "Ann", inputs));
-        assertEquals(List.of(1, 0, 0, -1), playing.gear().enchants());
+        List<EnchantInfo> equipped = playing.gear().enchants();
+        assertEquals(EnchantInfo.Rarity.UNCOMMON, equipped.get(0).rarity());
+        assertEquals(EnchantInfo.Rarity.UNENCHANTED, equipped.get(1).rarity());
+        assertEquals(EnchantInfo.Rarity.UNENCHANTED, equipped.get(2).rarity());
+        assertSame(EnchantInfo.unreadable(), equipped.get(3));
         assertNull("Another character's enchants never describe this one", other.gear().enchants());
         SwingUtilities.invokeAndWait(() -> {
             GearTab tab = new GearTab(mode);
             tab.apply(playing.gear());
-            EnchantDots weapon = named(tab, "character-gear-enchant-0", EnchantDots.class);
-            assertTrue(weapon.isVisible());
-            assertEquals(1, weapon.slots());
-            assertEquals("Uncommon · 1 enchant slot", weapon.getToolTipText());
-            assertFalse("Empty slot: no dots", named(tab, "character-gear-enchant-1", EnchantDots.class).isVisible());
-            assertEquals("Common · 0 enchant slots", named(tab, "character-gear-enchant-2", EnchantDots.class).getToolTipText());
-            assertFalse("Malformed data: unknown, no dots", named(tab, "character-gear-enchant-3", EnchantDots.class).isVisible());
+            // The live equipped four are 2001 (UT), empty, 2003 and 2004 (SheetFixtures.live).
+            assertEquals(equipped.get(0), slot(tab, 0).enchant());
+            String weapon = slot(tab, 0).getAccessibleContext().getAccessibleName();
+            assertTrue(weapon, weapon.endsWith(" · UT · Uncommon · 1 enchant slot"));
+            assertTrue(slot(tab, 0).getToolTipText().contains("Uncommon · 1 enchant slot"));
+            assertNull("Empty slot: no enchant", slot(tab, 1).enchant());
+            assertTrue(slot(tab, 2).getAccessibleContext().getAccessibleName().endsWith("Unenchanted"));
+            assertTrue(slot(tab, 3).getAccessibleContext().getAccessibleName().endsWith("Enchant data unreadable"));
             tab.apply(other.gear());
-            for (int i = 0; i < 4; i++) assertFalse(named(tab, "character-gear-enchant-" + i, EnchantDots.class).isVisible());
+            for (int i = 0; i < 4; i++) assertNull(slot(tab, i).enchant());
         });
     }
 

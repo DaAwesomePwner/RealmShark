@@ -13,7 +13,7 @@ import org.w3c.dom.*;
  * Pet names from the selected game assets. Family names come only from {@code <assetRoot>/xml/pets.xml}: the {@code <Family>} text
  * of the object whose {@code type} is the pet's type ({@code PetRecord.type}, PET_TYPE_STAT 83). The file's structure cannot be
  * verified in the repo, so every tag is optional and anything unreadable stays unknown. The numeric PET_FAMILY_STAT (86) is never
- * decoded to a name. Rarity (0-based, as EnchantDots names item rarity) and ability names are fixed tables. Loads like
+ * decoded to a name. Rarity (0-based, in the order EnchantInfo.Rarity lists item rarity) and ability names are fixed tables. Loads like
  * PlanningMetadata: lazily on one background reader, keyed on AssetCache.root(), re-read when the root changes.
  */
 public final class PetDefinitions {

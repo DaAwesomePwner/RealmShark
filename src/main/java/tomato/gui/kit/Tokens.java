@@ -9,6 +9,7 @@ import javax.swing.UIManager;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.Themes;
 import tomato.gui.modern.VioletTheme;
+import tomato.realmshark.EnchantInfo;
 
 /** Semantic colors and spacing for kit components. Resolve colors when painting or in updateUI; they follow the theme. */
 public final class Tokens {
@@ -120,6 +121,17 @@ public final class Tokens {
             case "ST": return color(Role.BAD);
             case "CONSUMABLE": return color(Role.INFO);
             default: return color(Role.BORDER);
+        }
+    }
+
+    /** Enchant rarity gem color: Uncommon mint, Rare blue, Legendary violet, Divine amber; null for Unenchanted and Unknown (no gem). */
+    public static Color rarity(EnchantInfo.Rarity rarity) {
+        switch (rarity) {
+            case UNCOMMON: return color(Role.GOOD);
+            case RARE: return color(Role.INFO);
+            case LEGENDARY: return color(Role.ACCENT_TEXT);
+            case DIVINE: return color(Role.WARN);
+            default: return null;
         }
     }
 
