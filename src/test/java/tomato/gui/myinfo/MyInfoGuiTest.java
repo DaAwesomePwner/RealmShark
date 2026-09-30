@@ -151,7 +151,7 @@ public class MyInfoGuiTest {
                 string(player, StatType.UNIQUE_DATA_STRING, String.join(",", codes)); MyInfoGUI.updatePlayer(player);
                 assertRecovery(view[0], null, null);
                 final String name = new String[] {"Weapon", "Ability", "Armor", "Ring"}[slot];
-                SwingUtilities.invokeAndWait(() -> assertTrue(notes(view[0], name).contains("Malformed enchant data")));
+                SwingUtilities.invokeAndWait(() -> assertTrue(notes(view[0], name).contains("Enchant data unreadable")));
             }
         }
         for (String empty : new String[] {"", ",,,", enchant() + ",,,", "AAIE_f_9__3__f8=,,,"}) {

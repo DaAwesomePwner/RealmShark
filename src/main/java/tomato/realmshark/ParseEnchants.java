@@ -389,12 +389,6 @@ public class ParseEnchants {
                 : states[slot] == CaptureState.MALFORMED ? EnchantInfo.unreadable() : EnchantInfo.of(codes[slot]);
         }
 
-        public String description(int slot) {
-            if (states[slot] == CaptureState.MISSING) return "Enchant data not captured.";
-            if (states[slot] == CaptureState.MALFORMED) return "Malformed enchant data; effects unavailable.";
-            return parse(codes[slot]);
-        }
-
         /** Null means the four-slot total is unknown, even if some individual effects are valid. */
         public String[] completeCodes() {
             for (CaptureState state : states) if (state != CaptureState.KNOWN) return null;

@@ -12,8 +12,11 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.KitButton;
 import tomato.gui.kit.StatTile;
 import tomato.gui.kit.Tokens;
@@ -598,7 +601,7 @@ public class MyInfoGUI extends JPanel {
         weaponDps = null;
         DisplayValue[] shown = new DisplayValue[4];
         Arrays.fill(shown, DisplayValue.unknown(NO_BUILD));
-        for (int i = 0; i < 4; i++) { icons[i].setIcon(null); equipmentNames[i].setText("Awaiting capture"); }
+        for (int i = 0; i < 4; i++) { icons[i].setIcon(null); icons[i].setToolTipText(null); equipmentNames[i].setText("Awaiting capture"); }
         if (player != null) {
             StatData name = player.stat.get(StatType.NAME_STAT);
             status.setText(name == null || name.stringStatValue == null ? "Captured character" : name.stringStatValue + " • Captured build");
@@ -620,10 +623,11 @@ public class MyInfoGUI extends JPanel {
             for (int i = 0; i < 4; i++) {
                 Double id = stat(player, slots[i]);
                 String item = id == null ? "Not captured" : id < 0 ? "Empty slot" : itemName(id.intValue());
+                EnchantInfo enchant = enchants.info(i);
                 equipmentNames[i].setText(item); equipmentNames[i].setToolTipText(item);
-                if (id != null && id >= 0) displayImg(icons[i], id.intValue());
-                String enchant = enchants.description(i);
-                add("Equipment", SLOT_NAMES[i], id, "item ID", item + (enchant.isEmpty() ? "" : "\n" + enchant));
+                if (id != null && id >= 0) displayImg(icons[i], id.intValue(), enchant);
+                icons[i].setToolTipText(EnchantTooltip.html(item, enchant));
+                add("Equipment", SLOT_NAMES[i], id, "item ID", item + "\n" + enchant.text());
                 if (i == 0) weapon = BuildEstimates.weapon(player);
             }
             List<String> dpsMissing = damage(weapon), manaMissing = recovery(enchants);
@@ -765,8 +769,8 @@ public class MyInfoGUI extends JPanel {
         return "Item " + id;
     }
 
-    public void displayImg(JLabel label, int id) {
-        try { label.setIcon(ImageBuffer.getOutlinedIcon(id, 28)); }
+    public void displayImg(JLabel label, int id, EnchantInfo enchant) {
+        try { label.setIcon(EnchantGem.decorate(ImageBuffer.getOutlinedIcon(id, 28), enchant)); }
         catch (RuntimeException e) { label.setIcon(null); }
     }
 
