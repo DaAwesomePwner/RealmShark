@@ -1,8 +1,10 @@
 package util;
 
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -316,13 +318,47 @@ public class PreferencesStoreTest {
     @Test public void blockingStartupAndShutdownAreRejectedOnEdtButFlushIsNonblocking() throws Exception {
         PreferencesStore store = new PreferencesStore(temp.getRoot().toPath().resolve("prefs.properties"));
         try {
+            assertFalse(PreferencesStore.isEventDispatchThread(Thread.currentThread()));
             edt(() -> {
+                assertTrue(PreferencesStore.isEventDispatchThread(Thread.currentThread()));
                 assertThrows(IllegalStateException.class, store::preload);
                 assertThrows(IllegalStateException.class, () -> store.shutdown(1, TimeUnit.SECONDS, message -> { }));
                 assertNotNull(store.flush());
             });
             assertTrue(result(store.flush()).isSuccess());
         } finally { store.shutdown(2, TimeUnit.SECONDS, message -> { }); }
+    }
+
+    @Test public void shutdownHookInAJvmThatNeverStartedAwtSavesAndExits() throws Exception {
+        // A worker/launch that never touched AWT must not initialize the toolkit during JVM shutdown.
+        File directory = temp.newFolder();
+        File output = new File(directory, "shutdown-probe.txt");
+        String classes = new File(PreferencesStore.class.getProtectionDomain().getCodeSource().getLocation().toURI())
+            .getAbsolutePath() + File.pathSeparator + new File(ShutdownProbe.class.getProtectionDomain()
+            .getCodeSource().getLocation().toURI()).getAbsolutePath();
+        Process child = new ProcessBuilder(
+            new File(System.getProperty("java.home"), "bin/" + (File.separatorChar == '\\' ? "java.exe" : "java")).getAbsolutePath(),
+            "-cp", classes, ShutdownProbe.class.getName(), new File(directory, "prefs.properties").getAbsolutePath())
+            .directory(directory).redirectErrorStream(true).redirectOutput(output).start();
+        try {
+            boolean exited = child.waitFor(20, TimeUnit.SECONDS);
+            String transcript = new String(Files.readAllBytes(output.toPath()), StandardCharsets.UTF_8);
+            assertTrue("JVM did not exit after the preferences shutdown hook\n" + transcript, exited);
+            assertEquals(transcript, 0, child.exitValue());
+            assertTrue(transcript, transcript.contains("SHUTDOWN_SAVED=true"));
+            assertEquals("synthetic", read(directory.toPath().resolve("prefs.properties")).getProperty("value"));
+        } finally {
+            if (child.isAlive()) { child.destroyForcibly(); child.waitFor(5, TimeUnit.SECONDS); }
+        }
+    }
+
+    public static final class ShutdownProbe {
+        public static void main(String[] args) {
+            PreferencesStore store = new PreferencesStore(java.nio.file.Paths.get(args[0]));
+            store.setProperties("value", "synthetic");
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> System.out.println("SHUTDOWN_SAVED="
+                + store.shutdown(5, TimeUnit.SECONDS, System.out::println).isSuccess()), "preferences-shutdown"));
+        }
     }
 
     private static PreferencesStore store(Path path, PreferencesStore.Storage storage) {
