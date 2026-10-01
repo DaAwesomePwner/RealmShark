@@ -111,6 +111,9 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     private final Map<LocalDate, Section> sections = new HashMap<>();
     private List<LocalDate> order = List.of();
     private Consumer<VisitRef> open = ref -> { };
+    private final boolean picker;
+    private Consumer<RunCardModel> select = card -> { };
+    private Consumer<List<RunCardModel>> loaded = cards -> { };
     private RunFeedQuery query = RunFeedQuery.all();
     private RunFeedSource.Page page;
     private Object loadedStamp;
@@ -134,10 +137,28 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         this(table, sources(store), ZoneId.systemDefault(), DisplayModeModel.application(), PropertiesManager::getProperty, PropertiesManager::setProperties);
     }
 
+    /**
+     * A run picker over saved history from {@code store} (Loot › Explore's Runs): the Cards view alone, with no Table view, view
+     * toggle or view preference. Selecting a card reports it ({@link #onSelect}).
+     */
+    public static RunFeedView picker(Supplier<SessionStore> store) {
+        return new RunFeedView(new JPanel(), sources(store), ZoneId.systemDefault(), DisplayModeModel.application(),
+            key -> null, (key, value) -> { }, true);
+    }
+
     /** As above with the reader, the zone cards are dated in, the display mode and the preference store (tests). */
     RunFeedView(JComponent table, Supplier<Feed> feeds, ZoneId zone, DisplayModeModel mode, Function<String, String> read, BiConsumer<String, String> write) {
+        this(table, feeds, zone, mode, read, write, false);
+    }
+
+    /**
+     * As above; a {@code picker} is the Cards view alone: no view toggle, no "Table view" item, and {@code read}/{@code write} are
+     * not used for the view preference ({@link #picker(Supplier)}).
+     */
+    RunFeedView(JComponent table, Supplier<Feed> feeds, ZoneId zone, DisplayModeModel mode, Function<String, String> read, BiConsumer<String, String> write, boolean picker) {
         super(new BorderLayout(0, Tokens.S));
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Build the run feed on the EDT");
+        this.picker = picker;
         this.table = Objects.requireNonNull(table, "table");
         this.feeds = Objects.requireNonNull(feeds, "feeds");
         this.zone = Objects.requireNonNull(zone, "zone");
@@ -234,7 +255,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         }
         add(viewRow, BorderLayout.NORTH);
         add(views, BorderLayout.CENTER);
-        show(TABLE.equals(read.apply(VIEW_KEY)), false);
+        show(!picker && TABLE.equals(read.apply(VIEW_KEY)), false);
         mode.bind(this, this::modeChanged);
         render();
     }
@@ -259,6 +280,40 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     }
     /** What Enter, Space or a double-click on a card runs (the run's exact reference). */
     public void onOpen(Consumer<VisitRef> action) { open = Objects.requireNonNull(action, "action"); }
+    /** What selecting a card runs: a click, arrow keys, Tab into a day, or {@link #select}. A reload keeping the selection does not report it. */
+    public void onSelect(Consumer<RunCardModel> action) { select = Objects.requireNonNull(action, "action"); }
+    /** What runs after each read that applied new runs, with every loaded run, newest first. */
+    public void onLoaded(Consumer<List<RunCardModel>> action) { loaded = Objects.requireNonNull(action, "action"); }
+
+    /**
+     * Selects {@code ref}'s card when it is loaded, scrolls it into view and reports it ({@link #onSelect}) unless it was already
+     * selected; false when that run is not loaded. EDT.
+     */
+    public boolean select(VisitRef ref) {
+        Objects.requireNonNull(ref, "ref");
+        String key = ref.sessionId + "/" + ref.visitId;
+        for (Section section : sections.values())
+            for (RunCardModel card : section.list().items())
+                if (key.equals(key(card))) { section.list().selectKey(key, true); return true; }
+        return false;
+    }
+
+    /** Whether {@code ref}'s card is the selected one. EDT. */
+    public boolean isSelected(VisitRef ref) {
+        Objects.requireNonNull(ref, "ref");
+        String key = ref.sessionId + "/" + ref.visitId;
+        for (Section section : sections.values()) {
+            RunCardModel card = section.list().getSelectedValue();
+            if (card != null && key.equals(key(card))) return true;
+        }
+        return false;
+    }
+
+    /** Clears the selected card without reporting it. EDT. */
+    public void clearSelection() {
+        selecting = true;
+        try { for (Section section : sections.values()) section.list().clearSelection(); } finally { selecting = false; }
+    }
     /** The query the cards show (or are loading). */
     public RunFeedQuery query() { return query; }
     /** Reads the feed again now, keeping as many runs loaded (⋯ Refresh). EDT. */
@@ -299,8 +354,8 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     /** Analyst: the Cards/Table toggle above both views; Simple: the other view in each view's ⋯ menu. */
     private void modeChanged(DisplayModeModel.Mode value) {
         boolean analyst = value == DisplayModeModel.Mode.ANALYST;
-        viewRow.setVisible(analyst);
-        viewItem.setVisible(!analyst);
+        viewRow.setVisible(analyst && !picker);
+        viewItem.setVisible(!analyst && !picker);
         if (cardsItem != null) { cardsItem.setVisible(!analyst); cardsSeparator.setVisible(!analyst); }
         if (liveCardsItem != null) { liveCardsItem.setVisible(!analyst); liveCardsSeparator.setVisible(!analyst); }
         revalidate();
@@ -471,6 +526,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         if (page.query().map() == null) for (String dungeon : result.dungeons()) added |= maps.add(dungeon);
         if (added) rebuildMaps();
         render();
+        loaded.accept(page.model().cards());
     }
 
     /** EDT: the days, summary, warn line, "Load more" and empty state for the current state. */
@@ -596,6 +652,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
             if (e.getValueIsAdjusting() || selecting || list.getSelectedValue() == null) return;
             selecting = true;   // one selected card in the whole feed
             try { for (Section other : sections.values()) if (other.list() != list) other.list().clearSelection(); } finally { selecting = false; }
+            select.accept(list.getSelectedValue());
         });
         list.addFocusListener(new FocusAdapter() {
             // Tab into a day selects its first run, so Enter opens something and a reader announces a card.

@@ -38,6 +38,43 @@ import static org.junit.Assert.*;
 
 /** The feed's Cards/Table views, filters, paging, empty states, reads only on new data, keyboard and activation, and its fit at 680 px. */
 public class RunFeedViewTest {
+    /** A picker (Loot › Explore's Runs) is the Cards view alone and reports what is loaded and what is selected. */
+    @Test public void aPickerIsTheCardsAloneAndReportsLoadsAndSelections() throws Exception {
+        Counting feed = scenario();
+        RunFeedView view = edt(() -> new RunFeedView(new JPanel(), () -> feed, HomeHistoryFixture.ZONE, mode, prefs::get,
+            (key, value) -> writes.add(key + "=" + value), true));
+        views.add(view);
+        List<List<VisitRef>> loads = new ArrayList<>();
+        List<VisitRef> selected = new ArrayList<>();
+        edt(() -> {
+            view.onLoaded(cards -> loads.add(cards.stream().map(RunCardModel::ref).toList()));
+            view.onSelect(card -> selected.add(card.ref()));
+            return null;
+        });
+        load(view);
+        await("the loaded runs", () -> !loads.isEmpty());
+        edt(() -> {
+            assertEquals(view.model().cards().stream().map(RunCardModel::ref).toList(), loads.get(0));
+            assertTrue(view.select(RunFixtures.A1));
+            assertTrue(view.isSelected(RunFixtures.A1));
+            assertEquals(List.of(RunFixtures.A1), selected);
+            assertTrue("Selecting the selected card again reports nothing", view.select(RunFixtures.A1));
+            assertEquals(1, selected.size());
+            assertFalse("A run that is not loaded is not selected", view.select(new VisitRef(RunFixtures.A, "missing")));
+            view.clearSelection();
+            assertFalse(view.isSelected(RunFixtures.A1));
+            assertEquals("Clearing reports nothing", 1, selected.size());
+            assertTrue("A cleared card can be selected again", view.select(RunFixtures.A1));
+            assertEquals(2, selected.size());
+            assertFalse("Simple: no Table view item", view.filterBar().overflow().item("Table view").isVisible());
+            mode.set(DisplayModeModel.Mode.ANALYST);
+            assertFalse("Analyst: no Cards/Table toggle", named(view, "run-feed-view-row", JComponent.class).isVisible());
+            assertFalse(view.tableShown());
+            assertTrue("A picker writes no view preference", writes.isEmpty());
+            return null;
+        });
+    }
+
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     @Rule public VisualEvidence evidence = new VisualEvidence("redesign-p5a-runs");
     private static final String DRAWER = "ui.filters.run-feed.open";
