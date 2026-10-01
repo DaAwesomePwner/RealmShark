@@ -141,6 +141,29 @@ public class EnchantPipsTest {
         });
     }
 
+    @Test public void halosAreReusedUntilTheSpritesPixelsOrTheInkChange() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            int[] side = {4};
+            Icon sprite = new Icon() {
+                @Override public int getIconWidth() { return 20; }
+                @Override public int getIconHeight() { return 20; }
+                @Override public void paintIcon(Component c, Graphics g, int x, int y) {
+                    g.setColor(Color.WHITE); g.fillRect(x + 8, y + 8, side[0], side[0]);
+                }
+            };
+            int blue = 0x3366ff, violet = 0x9966ff;
+            BufferedImage first = EnchantPips.halo(null, sprite, blue);
+            assertSame("A repaint of the same sprite and ink reuses the halo", first, EnchantPips.halo(null, sprite, blue));
+            assertNotSame("A new ink (theme or rarity) gets its own halo", first, EnchantPips.halo(null, sprite, violet));
+            side[0] = 6;   // the artwork changed, as when assets reload behind a retained LiveSprite
+            BufferedImage reloaded = EnchantPips.halo(null, sprite, blue);
+            assertNotSame("Changed pixels get a fresh halo", first, reloaded);
+            assertNotEquals("…shaped by the new pixels", first.getRGB(16, 16) >>> 24, reloaded.getRGB(16, 16) >>> 24);
+            for (int i = 0; i < 400; i++) EnchantPips.halo(null, sprite, i);
+            assertTrue("The cache stays bounded", EnchantPips.haloCacheSize() <= 256);
+        });
+    }
+
     @Test public void wideLootIconsKeepPipsInTheirRightHandSquare() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Icon base = new ImageIcon(new BufferedImage(60, 21, BufferedImage.TYPE_INT_ARGB));

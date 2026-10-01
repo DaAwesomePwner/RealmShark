@@ -2,6 +2,9 @@ package tomato.gui.kit;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import javax.swing.Icon;
 import tomato.realmshark.EnchantInfo;
 
@@ -105,8 +108,8 @@ public final class EnchantPips {
     }
 
     /**
-     * The unchanged sprite over a soft two-pixel alpha dilation. No artwork is retained: small loot sprites are sampled in memory,
-     * placeholders bypass the halo on every paint, and a retained LiveSprite can therefore acquire its glow once assets arrive.
+     * The unchanged sprite over a soft two-pixel alpha dilation ({@link #halo}). The sprite is sampled on every paint and the halo
+     * is cached by what was sampled, so placeholders bypass it and a retained LiveSprite acquires its glow once assets arrive.
      * Dimensions stay unchanged; the halo may extend two pixels into the well's padding.
      */
     public static Icon glow(Icon sprite, EnchantInfo info) {
@@ -115,27 +118,66 @@ public final class EnchantPips {
             @Override public int getIconWidth() { return sprite.getIconWidth(); }
             @Override public int getIconHeight() { return sprite.getIconHeight(); }
             @Override public void paintIcon(Component c, Graphics graphics, int x, int y) {
-                if (!Sprites.isPlaceholder(sprite) && getIconWidth() > 0 && getIconHeight() > 0) {
-                    int w = getIconWidth() + 4, h = getIconHeight() + 4;
-                    BufferedImage mask = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-                    Graphics2D sample = mask.createGraphics();
-                    try { sprite.paintIcon(c, sample, 2, 2); } finally { sample.dispose(); }
-                    BufferedImage halo = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-                    int rgb = Tokens.rarity(info.rarity()).getRGB() & 0xffffff;
-                    for (int py = 0; py < h; py++) for (int px = 0; px < w; px++) {
-                        int alpha = 0;
-                        for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) {
-                            int sx = px + dx, sy = py + dy, distance = dx * dx + dy * dy;
-                            if (distance == 0 || distance > 5 || sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
-                            alpha = Math.max(alpha, (mask.getRGB(sx, sy) >>> 24) * (6 - distance) / 12);
-                        }
-                        // Leave the sprite's own pixels alone, including translucent antialiased edges.
-                        if ((mask.getRGB(px, py) >>> 24) == 0) halo.setRGB(px, py, (alpha << 24) | rgb);
-                    }
-                    graphics.drawImage(halo, x - 2, y - 2, null);
-                }
+                if (!Sprites.isPlaceholder(sprite) && getIconWidth() > 0 && getIconHeight() > 0)
+                    graphics.drawImage(halo(c, sprite, Tokens.rarity(info.rarity()).getRGB() & 0xffffff), x - 2, y - 2, null);
                 sprite.paintIcon(c, graphics, x, y);
             }
         };
     }
+
+    /** Halos kept for reuse: a slot repaints on every hover, scroll and live refresh, but its sprite and ink rarely change. */
+    private static final int HALO_CACHE = 256;
+    private static final Map<HaloKey, BufferedImage> halos = new LinkedHashMap<>(64, .75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<HaloKey, BufferedImage> eldest) { return size() > HALO_CACHE; }
+    };
+
+    /**
+     * A halo's inputs: the ink and the sprite's sampled alpha, not the Icon's identity, so a LiveSprite whose assets reload or a
+     * theme switch that changes the ink gets a fresh halo without any invalidation hook.
+     */
+    private record HaloKey(int rgb, int width, int height, byte[] alpha, int hash) {
+        static HaloKey of(int rgb, int width, int height, byte[] alpha) {
+            return new HaloKey(rgb, width, height, alpha, 31 * (31 * (31 * rgb + width) + height) + Arrays.hashCode(alpha));
+        }
+        @Override public boolean equals(Object other) {
+            return other instanceof HaloKey key && key.hash == hash && key.rgb == rgb && key.width == width && key.height == height
+                && Arrays.equals(key.alpha, alpha);
+        }
+        @Override public int hashCode() { return hash; }
+    }
+
+    /**
+     * The halo for {@code sprite} in {@code rgb}, two pixels larger on every side: a soft two-pixel alpha dilation that leaves the
+     * sprite's own pixels (antialiased edges included) clear. Sampling the sprite each paint is cheap; only the dilation is cached.
+     */
+    static synchronized BufferedImage halo(Component c, Icon sprite, int rgb) {
+        int w = sprite.getIconWidth() + 4, h = sprite.getIconHeight() + 4;
+        BufferedImage mask = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sample = mask.createGraphics();
+        try { sprite.paintIcon(c, sample, 2, 2); } finally { sample.dispose(); }
+        int[] pixels = mask.getRGB(0, 0, w, h, null, 0, w);
+        byte[] alpha = new byte[pixels.length];
+        for (int i = 0; i < pixels.length; i++) alpha[i] = (byte) (pixels[i] >>> 24);
+        HaloKey key = HaloKey.of(rgb, w, h, alpha);
+        BufferedImage cached = halos.get(key);
+        if (cached != null) return cached;
+        int[] out = new int[pixels.length];
+        for (int py = 0; py < h; py++) for (int px = 0; px < w; px++) {
+            if (alpha[py * w + px] != 0) continue;   // the sprite's own pixel stays clear
+            int strength = 0;
+            for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) {
+                int sx = px + dx, sy = py + dy, distance = dx * dx + dy * dy;
+                if (distance == 0 || distance > 5 || sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+                strength = Math.max(strength, (alpha[sy * w + sx] & 0xff) * (6 - distance) / 12);
+            }
+            out[py * w + px] = (strength << 24) | rgb;
+        }
+        BufferedImage halo = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        halo.setRGB(0, 0, w, h, out, 0, w);
+        halos.put(key, halo);
+        return halo;
+    }
+
+    /** Cached halos (tests). */
+    static synchronized int haloCacheSize() { return halos.size(); }
 }
