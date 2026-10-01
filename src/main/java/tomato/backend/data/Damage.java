@@ -222,7 +222,7 @@ public class Damage implements Serializable {
                 // Entity doesn't have inventory (pet, minion, etc.)
                 ownerInvntory = new int[] { -1, -1, -1, -1 };
             }
-            ownerEnchants = ParseEnchants.getEnchantStrings(o);
+            ownerEnchants = ParseEnchants.equippedCapture(o).retained();
 
             // Generic: clear any scaling stat snapshot here. Specific constructors that know the projectile
             // will populate ownerScalingStatType and ownerScalingStatValue after this call.

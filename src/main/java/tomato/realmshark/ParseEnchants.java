@@ -31,6 +31,12 @@ import util.StringXML;
  */
 public class ParseEnchants {
 
+    /**
+     * A known-unenchanted equipped entry (header and type, no slots). DPS hits save it for an empty entry, because older hits
+     * saved a missing stat as "" and "" therefore stays "not recorded".
+     */
+    public static final String UNENCHANTED_ENTRY = "AAIE";
+
     // Maps enchant type ID -> display name
     public static volatile HashMap<Short, String> ENCHANTS = new HashMap<>();
 
@@ -394,6 +400,14 @@ public class ParseEnchants {
             List<EnchantInfo> slots = new ArrayList<>(4);
             for (int i = 0; i < 4; i++) slots.add(info(i));
             return List.copyOf(slots);
+        }
+
+        /** The four slots' entries as DPS hits keep them: null when not recorded, {@link #UNENCHANTED_ENTRY} when known empty, else as captured. */
+        public String[] retained() {
+            String[] entries = new String[4];
+            for (int i = 0; i < 4; i++)
+                entries[i] = states[i] == CaptureState.MISSING ? null : codes[i].isEmpty() ? UNENCHANTED_ENTRY : codes[i];
+            return entries;
         }
 
         /** Null means the four-slot total is unknown, even if some individual effects are valid. */
