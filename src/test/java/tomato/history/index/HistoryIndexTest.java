@@ -157,6 +157,77 @@ public class HistoryIndexTest {
         HistoryIndex changed=index(false); assertEquals(1,changed.replacementCount()); assertEquals(4,count(changed,"timeline"));
         assertEquals(0,changed.sessionState(A).skipped());
     }
+    @Test public void malformedLiveOfferDoesNotFailGoodOffersFromEitherSession() throws Exception {
+        session(A,1,10); session(B,20,30);
+        HistoryIndex index=index(true);
+        assertTrue(index.ready(A)); assertTrue(index.ready(B));
+        String goodA="{kind:'Boss',detail:'First boss'}\n", bad="[]\n", goodB="{kind:'Boss',detail:'Second boss'}\n";
+        journal(A,"timeline",goodA+bad); journal(B,"timeline",goodB);
+        index.offer(A,"timeline",0,null,ProjectionsTest.json(goodA));
+        index.offer(A,"timeline",goodA.getBytes(StandardCharsets.UTF_8).length,null,ProjectionsTest.json(bad));
+        index.offer(B,"timeline",0,null,ProjectionsTest.json(goodB));
+        flush(index);
+        assertTrue(index.ready(A)); assertTrue(index.ready(B));
+        assertEquals(2,count(index,"timeline"));
+        assertEquals(1,index.sessionState(A).skipped()); assertEquals(0,index.sessionState(B).skipped());
+        assertEquals("1",scalar(index,"SELECT skipped FROM sessions WHERE id='"+A+"'"));
+        assertEquals(2,index.search("boss",Set.of(Kind.TIMELINE),10).size());
+    }
+    @Test public void malformedLiveCheckpointReplacementRemovesItsPreviousRowsAndSearchHits() throws Exception {
+        session(A,1,10);
+        HistoryIndex index=index(true);
+        String valid="{id:'visit',map:'Obsolete sanctuary',playerDamage:{'player:Oldplayer':12}}";
+        checkpoint(A,"runs","visit",valid);
+        index.offer(A,"runs",-1,"visit",ProjectionsTest.json(valid)); flush(index);
+        assertEquals(1,count(index,"runs"));
+        assertEquals(1,index.search("Obsolete",Set.of(Kind.RUN),10).size());
+        assertEquals(1,index.search("Oldplayer",Set.of(Kind.PLAYER),10).size());
+        checkpoint(A,"runs","visit","[]");
+        index.offer(A,"runs",-1,"visit",ProjectionsTest.json("[]")); flush(index);
+        assertTrue(index.ready(A)); assertEquals(1,index.sessionState(A).skipped());
+        assertEquals(0,count(index,"runs")); assertEquals(0,count(index,"players"));
+        assertTrue(index.search("Obsolete",Set.of(Kind.RUN),10).isEmpty());
+        assertTrue(index.search("Oldplayer",Set.of(Kind.PLAYER),10).isEmpty());
+        index.markSessionChanged(A); flush(index);
+        assertEquals(0,count(index,"runs")); assertEquals(1,index.sessionState(A).skipped());
+    }
+    @Test public void nonSqlLiveStorageFailureRetriesEverySessionInTheBatchFromFiles() throws Exception {
+        session(A,1,10); session(B,20,30);
+        AtomicLong clock=new AtomicLong();
+        HistoryIndex index=new HistoryIndex(store,file,true,8,HistoryIndexTest::nativeLoad,id -> {},clock::get);
+        opened.add(index); ready(index);
+        String first="{kind:'Boss',detail:'First saved boss'}\n", second="{kind:'Boss',detail:'Second saved boss'}\n";
+        journal(A,"timeline",first); journal(B,"timeline",second);
+        java.lang.reflect.Field writerField=HistoryIndex.class.getDeclaredField("writer"); writerField.setAccessible(true);
+        java.lang.reflect.Field dbField=HistoryIndex.class.getDeclaredField("db"); dbField.setAccessible(true);
+        AtomicBoolean fail=new AtomicBoolean(true);
+        // Install the fault and queue both sessions together on the writer, without racing its periodic drain.
+        ((ExecutorService)writerField.get(index)).submit(() -> {
+            Connection connection=(Connection)dbField.get(index);
+            Connection faulty=(Connection)java.lang.reflect.Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                    new Class<?>[]{Connection.class},(proxy,method,args) -> {
+                        if (method.getName().equals("prepareStatement") && args[0] instanceof String sql
+                                && sql.startsWith("INSERT INTO timeline(") && fail.compareAndSet(true,false))
+                            throw new IllegalStateException("Synthetic non-SQL storage failure");
+                        try { return method.invoke(connection,args); }
+                        catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                    });
+            dbField.set(index,faulty);
+            index.offer(A,"timeline",0,null,ProjectionsTest.json(first));
+            index.offer(B,"timeline",0,null,ProjectionsTest.json(second));
+            return null;
+        }).get(10,TimeUnit.SECONDS);
+        flush(index);
+        assertFalse("Storage fault was exercised",fail.get());
+        for (String id:List.of(A,B)) {
+            assertEquals(HistoryIndex.Readiness.FAILED,index.sessionState(id).readiness());
+            assertTrue(index.sessionState(id).reason().contains("IllegalStateException"));
+        }
+        assertEquals("Failed transaction rolls back the whole batch",0,count(index,"timeline"));
+        clock.addAndGet(TimeUnit.SECONDS.toNanos(1)); flush(index);
+        assertTrue(index.ready(A)); assertTrue(index.ready(B)); assertEquals(2,count(index,"timeline"));
+        assertEquals(2,index.search("saved",Set.of(Kind.TIMELINE),10).size());
+    }
     @Test public void replacementFailureRollsBackOldRowsAndDocuments() throws Exception {
         session(A,1,10); checkpoint(A,"runs","r","{id:'r',map:'Old Oryx'}"); AtomicBoolean fail=new AtomicBoolean();
         HistoryIndex index=new HistoryIndex(store,file,true,8,HistoryIndexTest::nativeLoad,id -> { if (fail.get()) throw new java.io.IOException("Synthetic failure"); });

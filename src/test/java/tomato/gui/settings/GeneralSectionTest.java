@@ -8,6 +8,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import tomato.gui.kit.SectionHeader;
 import tomato.history.encounter.CombatSettings;
+import tomato.history.index.HistoryIndex;
+import tomato.history.index.SearchSettings;
+import java.util.function.Consumer;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
 import static tomato.gui.settings.SettingsPageTest.named;
@@ -20,6 +23,91 @@ public class GeneralSectionTest {
 
     private GeneralSection section() {
         return new GeneralSection(store::get, (key, value) -> { writes.add(key + "=" + value); store.put(key, value); }, () -> changed++);
+    }
+    private static final class SearchStub implements GeneralSection.SearchControl {
+        volatile HistoryIndex.State state = new HistoryIndex.State(HistoryIndex.Phase.READY, "", 0, 0);
+        Consumer<HistoryIndex.State> listener;
+        int rebuilds, chatChanges, subscriptions;
+        boolean chat = true;
+        public HistoryIndex.State state() { return state; }
+        public AutoCloseable listen(Consumer<HistoryIndex.State> listener) {
+            this.listener = listener; subscriptions++;
+            return () -> { this.listener = null; subscriptions--; };
+        }
+        public void rebuild() { rebuilds++; }
+        public void setIncludeChat(boolean value) { chat = value; chatChanges++; }
+        void publish(HistoryIndex.State state) { this.state = state; if (listener != null) listener.accept(state); }
+    }
+    @Test public void historySearchRestoresPersistsAndInvokesActions() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            SearchStub search = new SearchStub();
+            GeneralSection section = new GeneralSection(store::get, store::put, () -> {}, search, false);
+            assertNotNull(VisualEvidence.find(section, SectionHeader.class, header -> "History search".equals(header.title())));
+            assertEquals("Ready", named(section, "settings-search-status", JLabel.class).getText());
+            JCheckBox chat = named(section, "settings-search-include-chat", JCheckBox.class);
+            assertTrue(chat.isSelected()); assertTrue(store.isEmpty());
+            chat.doClick();
+            assertEquals("false", store.get(SearchSettings.INCLUDE_CHAT));
+            assertFalse(search.chat); assertEquals(1, search.chatChanges);
+            GeneralSection restored = new GeneralSection(store::get, store::put, () -> {}, search, false);
+            assertFalse(named(restored, "settings-search-include-chat", JCheckBox.class).isSelected());
+            assertEquals(1, search.chatChanges);
+            chat.doClick();
+            assertEquals("true", store.get(SearchSettings.INCLUDE_CHAT)); assertTrue(search.chat);
+            named(section, "settings-search-rebuild", JButton.class).doClick();
+            assertEquals(1, search.rebuilds);
+            String help = named(section, "settings-search-include-chat-help", JTextArea.class).getText();
+            assertTrue(help.contains("removes chat from the search index"));
+            assertTrue(help.contains("Saved chat history itself is unaffected"));
+            store.put(SearchSettings.INCLUDE_CHAT, "invalid");
+            assertTrue(SearchSettings.includeChat(store::get));
+        });
+    }
+    @Test public void searchStatusFollowsWorkerUpdatesOnEdtAndUnsubscribes() throws Exception {
+        SearchStub search = new SearchStub();
+        GeneralSection[] section = new GeneralSection[1];
+        List<Boolean> edt = new java.util.concurrent.CopyOnWriteArrayList<>();
+        SwingUtilities.invokeAndWait(() -> {
+            section[0] = new GeneralSection(store::get, store::put, () -> {}, search, false);
+            section[0].addNotify();
+            named(section[0], "settings-search-status", JLabel.class).addPropertyChangeListener("text",
+                event -> edt.add(SwingUtilities.isEventDispatchThread()));
+            assertEquals(1, search.subscriptions);
+        });
+        try {
+            search.publish(new HistoryIndex.State(HistoryIndex.Phase.BUILDING, "", 3, 9));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("Indexing history\u2026 3 of 9 sessions", named(section[0], "settings-search-status", JLabel.class).getText());
+                assertTrue(named(section[0], "settings-search-rebuild", JButton.class).isEnabled());
+            });
+            search.publish(new HistoryIndex.State(HistoryIndex.Phase.UNAVAILABLE, "Synthetic reason", 0, 0));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("Search unavailable: Synthetic reason", named(section[0], "settings-search-status", JLabel.class).getText());
+                JButton rebuild = named(section[0], "settings-search-rebuild", JButton.class);
+                assertFalse(rebuild.isEnabled()); rebuild.doClick(); assertEquals(0, search.rebuilds);
+            });
+            search.publish(new HistoryIndex.State(HistoryIndex.Phase.READY, "", 9, 9));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("Ready", named(section[0], "settings-search-status", JLabel.class).getText());
+                assertTrue(named(section[0], "settings-search-rebuild", JButton.class).isEnabled());
+                assertEquals(List.of(true, true, true), edt);
+                section[0].removeNotify(); assertEquals(0, search.subscriptions);
+                search.state = new HistoryIndex.State(HistoryIndex.Phase.BUILDING, "", 1, 2);
+                section[0].addNotify(); assertEquals(1, search.subscriptions);
+                assertEquals("Indexing history\u2026 1 of 2 sessions", named(section[0], "settings-search-status", JLabel.class).getText());
+            });
+        } finally { SwingUtilities.invokeAndWait(() -> section[0].removeNotify()); }
+        assertEquals(0, search.subscriptions);
+    }
+    @Test public void previewSearchIsOffAndControlsDoNotWrite() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            GeneralSection section = new GeneralSection(store::get, store::put, () -> {}, null, true);
+            assertEquals("Off in preview", named(section, "settings-search-status", JLabel.class).getText());
+            JButton rebuild = named(section, "settings-search-rebuild", JButton.class);
+            JCheckBox chat = named(section, "settings-search-include-chat", JCheckBox.class);
+            assertFalse(rebuild.isEnabled()); assertFalse(chat.isEnabled());
+            rebuild.doClick(); chat.doClick(); assertTrue(store.isEmpty());
+        });
     }
 
     @SuppressWarnings("unchecked")
@@ -155,6 +243,8 @@ public class GeneralSectionTest {
                 assertTrue(control.getName() + " is whole: " + control.getSize(), control.getWidth() >= control.getPreferredSize().width);
                 VisualEvidence.reachable(control);
             }
+            VisualEvidence.completeButton(named(section, "settings-search-rebuild", JButton.class));
+            VisualEvidence.completeButton(named(section, "settings-search-include-chat", JCheckBox.class));
             for (JTextArea note : notes(section)) VisualEvidence.completeText(note);
             assertNotNull(named(section, "settings-combat-full-detail-help", JTextArea.class));
             assertNotNull(named(section, "settings-combat-summaries-help", JTextArea.class));
