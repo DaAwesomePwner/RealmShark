@@ -43,6 +43,12 @@ the user's usual folder with their real history) and starting live capture are a
 when no other RealmShark instance is running; check the running processes first. Do not
 send bridge deliveries.
 
+On macOS, use `./gradlew` with JDK 17 in `JAVA_HOME`. Sessions that reach the Mac over SSH
+are headless, so run UI tests and launches through `scripts/mac/gui-gradle.sh <gradle args>`
+(outside the command sandbox). It runs the build in the desktop session, keeps those Gradle
+daemons apart from headless ones, and serializes desktop runs across worktrees. Builds without
+UI work over plain SSH.
+
 Use `apply_patch` for source edits. Keep changes compatible with existing data, unknown
 states, asynchronous persistence and EDT rules. Reviewers inspect actual code and fresh
 evidence; tests and screenshots are not successful merely because they were generated.
