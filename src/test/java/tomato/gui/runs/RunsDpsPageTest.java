@@ -17,7 +17,7 @@ import static org.junit.Assert.*;
 import static tomato.gui.runs.RunFeedViewTest.edt;
 
 /**
- * Page 10, Runs & DPS: the four tabs, explicit navigation bringing a tab forward (even a hidden one), and the tab-aware route
+ * Page 10, Runs & DPS: the five tabs, explicit navigation bringing a tab forward (even a hidden one), and the tab-aware route
  * wrappers that give every page-10 target one composite Back state (the front tab and that tab's owner state).
  */
 public class RunsDpsPageTest {
@@ -77,10 +77,10 @@ public class RunsDpsPageTest {
         @Override public void close() { closed++; if (failure != null) throw failure; }
     }
 
-    @Test public void theFourTabsFollowRunsTabOrderAndTheFeedShowsFirst() throws Exception {
-        assertEquals(Arrays.asList(RunsTab.FEED, RunsTab.DUNGEONS, RunsTab.LIVE_METER, RunsTab.RECORDINGS), Arrays.asList(RunsTab.values()));
-        assertEquals(Arrays.asList("feed", "dungeons", "live-meter", "recordings"),
-            Arrays.asList(RunsTab.FEED.id(), RunsTab.DUNGEONS.id(), RunsTab.LIVE_METER.id(), RunsTab.RECORDINGS.id()));
+    @Test public void theFiveTabsFollowRunsTabOrderAndTheFeedShowsFirst() throws Exception {
+        assertEquals(Arrays.asList(RunsTab.FEED, RunsTab.DUNGEONS, RunsTab.LIVE_METER, RunsTab.RESOURCES, RunsTab.RECORDINGS), Arrays.asList(RunsTab.values()));
+        assertEquals(Arrays.asList("feed", "dungeons", "live-meter", "resources", "recordings"),
+            Arrays.asList(RunsTab.FEED.id(), RunsTab.DUNGEONS.id(), RunsTab.LIVE_METER.id(), RunsTab.RESOURCES.id(), RunsTab.RECORDINGS.id()));
         assertEquals("Live meter", RunsTab.LIVE_METER.title());
         assertSame(RunsTab.RECORDINGS, RunsTab.of("recordings"));
         assertNull("An unknown id is no tab", RunsTab.of("meters"));
@@ -92,12 +92,12 @@ public class RunsDpsPageTest {
             JTabbedPane tabs = page.tabs().component();
             assertEquals("runs-tabs", tabs.getName());
             assertSame(tabs, page.getComponent(0));
-            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Recordings"), titles(tabs));
+            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Resources & buffs", "Recordings"), titles(tabs));
             assertSame("The Feed is the Runs page, unchanged", page.feed(), tabs.getComponentAt(0));
             assertEquals("runs-page", page.feed().getName());
             assertSame(meter, tabs.getComponentAt(2));
             assertEquals(RunsTab.FEED, page.selectedTab());
-            assertEquals("No tab is Analyst-only", Arrays.asList("feed", "dungeons", "live-meter", "recordings"), page.tabs().visibleIds());
+            assertEquals("No tab is Analyst-only", Arrays.asList("feed", "dungeons", "live-meter", "resources", "recordings"), page.tabs().visibleIds());
             assertSame("Hierarchy walkers reach the tabs, hidden ones too", page.tabs(), tabs.getClientProperty(CustomizableTabs.class));
             assertEquals("Building the page writes no tab preference", "", PropertiesManager.getProperty(ORDER));
             return null;
@@ -108,14 +108,17 @@ public class RunsDpsPageTest {
         PropertiesManager.setProperties(ORDER, "live-meter,feed,dungeons,recordings|");
         RunsDpsPage moved = page();
         edt(() -> {
-            assertEquals(Arrays.asList("Live meter", "Feed", "Dungeons", "Recordings"), titles(moved.tabs().component()));
+            assertEquals(Arrays.asList("Live meter", "Resources & buffs", "Feed", "Dungeons", "Recordings"), titles(moved.tabs().component()));
             assertEquals("The page opens on its first visible tab; no selected tab is persisted", RunsTab.LIVE_METER, moved.selectedTab());
+            assertEquals("Adding Resources in memory does not save the order", "live-meter,feed,dungeons,recordings|", PropertiesManager.getProperty(ORDER));
+            moved.tabs().move("resources", 1);
+            assertEquals("A user move saves the complete order", "live-meter,feed,resources,dungeons,recordings|", PropertiesManager.getProperty(ORDER));
             return null;
         });
         PropertiesManager.setProperties(ORDER, "recordings,feed,dungeons,live-meter|feed,live-meter");
         RunsDpsPage hidden = page();
         edt(() -> {
-            assertEquals(Arrays.asList("Recordings", "Dungeons"), titles(hidden.tabs().component()));
+            assertEquals(Arrays.asList("Recordings", "Dungeons", "Resources & buffs"), titles(hidden.tabs().component()));
             assertEquals(RunsTab.RECORDINGS, hidden.selectedTab());
             assertEquals(new LinkedHashSet<>(Arrays.asList("feed", "live-meter")), hidden.tabs().hiddenIds());
             assertEquals("Startup only selects: the saved hidden set is untouched", "recordings,feed,dungeons,live-meter|feed,live-meter",
@@ -124,14 +127,69 @@ public class RunsDpsPageTest {
         });
     }
 
+    @Test public void resourcesAppendsWithoutASavedLiveMeterAndKeepsAnExistingPosition() throws Exception {
+        PropertiesManager.setProperties(ORDER, "feed|dungeons");
+        RunsDpsPage withoutMeter = page();
+        edt(() -> {
+            assertEquals(Arrays.asList("feed", "dungeons", "live-meter", "recordings", "resources"), withoutMeter.tabs().order());
+            assertEquals(Arrays.asList("Feed", "Live meter", "Recordings", "Resources & buffs"), titles(withoutMeter.tabs().component()));
+            assertEquals(Collections.singleton("dungeons"), withoutMeter.tabs().hiddenIds());
+            assertEquals("A partial saved layout is not rewritten on read", "feed|dungeons", PropertiesManager.getProperty(ORDER));
+            return null;
+        });
+        PropertiesManager.setProperties(ORDER, "resources,recordings,live-meter,feed,dungeons|resources");
+        RunsDpsPage positioned = page();
+        edt(() -> {
+            assertEquals(Arrays.asList("resources", "recordings", "live-meter", "feed", "dungeons"), positioned.tabs().order());
+            assertEquals(Collections.singleton("resources"), positioned.tabs().hiddenIds());
+            assertEquals(RunsTab.RECORDINGS, positioned.selectedTab());
+            assertEquals("An existing Resources position is left alone", "resources,recordings,live-meter,feed,dungeons|resources", PropertiesManager.getProperty(ORDER));
+            return null;
+        });
+    }
+
+    @Test public void resourcesIsAvailableInBothModesAndRoutesRestoreItsOwnState() throws Exception {
+        RunsDpsPage page = page();
+        edt(() -> {
+            DisplayModeModel mode = DisplayModeModel.application();
+            DisplayModeModel.Mode before = mode.mode();
+            String preference = PropertiesManager.getProperty(DisplayModeModel.KEY);
+            try {
+                for (DisplayModeModel.Mode value : DisplayModeModel.Mode.values()) {
+                    mode.set(value);
+                    assertTrue("Resources is available in " + value, page.tabs().visibleIds().contains("resources"));
+                }
+                Target resources = new Target(Destination.RESOURCES, "resources-1");
+                resources.page = page;
+                page.owner(RunsTab.RESOURCES, resources);
+                RouteTarget route = page.routes(RunsTab.RESOURCES, resources);
+                assertTrue(page.tabs().hide("resources"));
+                route.open(Route.to(Destination.RESOURCES));
+                assertEquals(RunsTab.RESOURCES, page.selectedTab());
+                assertEquals(List.of(RunsTab.RESOURCES), resources.frontAtOpen);
+                Object state = page.tabTarget().captureState();
+                assertEquals(new RunsDpsPage.PageState(RunsTab.RESOURCES, "resources-1"), state);
+                page.bring(RunsTab.LIVE_METER);
+                page.liveMeterTarget(() -> {}).restoreState(state);
+                assertEquals(RunsTab.RESOURCES, page.selectedTab());
+                assertEquals(List.of("resources-1"), resources.restored);
+                assertEquals(List.of(RunsTab.RESOURCES), resources.frontAtRestore);
+            } finally {
+                mode.set(before);
+                PropertiesManager.setProperties(DisplayModeModel.KEY, preference == null ? "" : preference);
+            }
+            return null;
+        });
+    }
+
     @Test public void bringShowsAHiddenTabAndSetContentFillsAHolderInPlace() throws Exception {
         PropertiesManager.setProperties(ORDER, "feed,dungeons,live-meter,recordings|live-meter");
         RunsDpsPage page = page();
         edt(() -> {
-            assertEquals(Arrays.asList("Feed", "Dungeons", "Recordings"), titles(page.tabs().component()));
+            assertEquals(Arrays.asList("Feed", "Dungeons", "Resources & buffs", "Recordings"), titles(page.tabs().component()));
             page.bring(RunsTab.LIVE_METER);
             assertEquals("Explicit navigation shows a hidden tab", RunsTab.LIVE_METER, page.selectedTab());
-            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Recordings"), titles(page.tabs().component()));
+            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Resources & buffs", "Recordings"), titles(page.tabs().component()));
             assertTrue(page.tabs().hiddenIds().isEmpty());
             page.bring(RunsTab.FEED);
             assertEquals(RunsTab.FEED, page.selectedTab());
@@ -147,12 +205,12 @@ public class RunsDpsPageTest {
             assertNull(first.getParent());
             assertSame(holder, second.getParent());
             assertEquals(1, holder.getComponentCount());
-            assertEquals(4, tabs.getTabCount());
+            assertEquals(5, tabs.getTabCount());
             assertEquals("Filling a holder does not bring its tab forward", RunsTab.FEED, page.selectedTab());
             page.setContent(RunsTab.DUNGEONS, null);
             assertEquals(0, holder.getComponentCount());
             page.setContent(RunsTab.RECORDINGS, first);
-            assertSame(tabs.getComponentAt(3), first.getParent());
+            assertSame(tabs.getComponentAt(4), first.getParent());
             try { page.setContent(RunsTab.FEED, new JPanel()); fail("The Feed is fixed at construction"); } catch (IllegalArgumentException expected) { }
             try { page.setContent(RunsTab.LIVE_METER, new JPanel()); fail("So is the Live meter"); } catch (IllegalArgumentException expected) { }
             return null;
@@ -223,8 +281,8 @@ public class RunsDpsPageTest {
             catch (IllegalArgumentException expected) { }
             assertEquals("A rejected route changes no tab", RunsTab.DUNGEONS, page.selectedTab());
             assertEquals(Collections.singleton("live-meter"), page.tabs().hiddenIds());
-            assertEquals(Arrays.asList("Feed", "Dungeons", "Recordings"), titles(page.tabs().component()));
-            assertEquals("…nor the saved hidden set", "feed,dungeons,live-meter,recordings|live-meter", PropertiesManager.getProperty(ORDER));
+            assertEquals(Arrays.asList("Feed", "Dungeons", "Resources & buffs", "Recordings"), titles(page.tabs().component()));
+            assertEquals("…nor the saved hidden set", "feed,dungeons,live-meter,resources,recordings|live-meter", PropertiesManager.getProperty(ORDER));
 
             page.bring(RunsTab.LIVE_METER);
             page.bring(RunsTab.RECORDINGS);
@@ -333,7 +391,7 @@ public class RunsDpsPageTest {
 
     @Test public void closeReachesEveryTabContentIncludingHiddenTabsOnce() throws Exception {
         PropertiesManager.setProperties(ORDER, "feed,dungeons,live-meter,recordings|feed,live-meter,recordings");
-        Closing meter = new Closing(), recordings = new Closing(), dungeons = new Closing(), replaced = new Closing();
+        Closing meter = new Closing(), recordings = new Closing(), dungeons = new Closing(), resources = new Closing(), replaced = new Closing();
         RunsDpsPage page = page(meter);
         int[] feedClosed = {0};
         edt(() -> {
@@ -341,6 +399,8 @@ public class RunsDpsPageTest {
             page.setContent(RunsTab.RECORDINGS, replaced);
             page.setContent(RunsTab.RECORDINGS, recordings);
             page.setContent(RunsTab.DUNGEONS, dungeons);
+            page.setContent(RunsTab.RESOURCES, resources);
+            assertTrue(page.tabs().hide("resources"));
             assertEquals(Collections.singletonList("dungeons"), page.tabs().visibleIds());
             dungeons.failure = new IllegalStateException("dungeons failed");
             try { page.close(); fail("A failed close is reported"); }
@@ -348,10 +408,12 @@ public class RunsDpsPageTest {
             assertEquals("A hidden Feed is closed", 1, feedClosed[0]);
             assertEquals("A hidden Live meter is closed", 1, meter.closed);
             assertEquals("A hidden holder's content is closed", 1, recordings.closed);
+            assertEquals("Hidden Resources closes too", 1, resources.closed);
             assertEquals(1, dungeons.closed);
             assertEquals("Replaced content belongs to the caller", 0, replaced.closed);
             page.close();
             assertEquals("Closing is idempotent", 1, feedClosed[0]);
+            assertEquals(1, resources.closed);
             assertEquals(1, meter.closed);
             assertEquals(1, recordings.closed);
             assertEquals(1, dungeons.closed);

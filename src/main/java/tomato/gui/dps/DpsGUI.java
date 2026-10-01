@@ -10,7 +10,6 @@ import tomato.backend.data.TomatoData;
 import util.PropertiesManager;
 import tomato.gui.history.FilterChips;
 import tomato.gui.history.WrapRow;
-import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.kit.DisplayModeModel;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.KitLayouts;
@@ -106,9 +105,10 @@ public class DpsGUI extends JPanel {
     private EncounterCatalog.Entry selectedEncounter;
     private boolean selectionChosen;
     boolean hasSelectionIntent() { return selectionChosen; }
-    private final CustomizableTabs combatViews = new CustomizableTabs("dps");
-    private final JTabbedPane combatTabs = combatViews.component();
     private final JComponent resourcesWorkspace;
+    private enum ResourcesFocus { SAVED }
+    /** The existing resource workspace, hosted by Runs & DPS as its own tab. */
+    public JComponent resourcesWorkspace() { return resourcesWorkspace; }
     public EncounterCatalog encounters() { return encounterCatalog; }
     public String currentEncounterId() { return liveUpdates || selectedEncounter == null ? null : selectedEncounter.id; }
     /** EDT action: select the exact local library entry; a missing ID leaves the current view intact. */
@@ -250,8 +250,7 @@ public class DpsGUI extends JPanel {
         JScrollPane damageScroll = new JScrollPane(damagePage, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         damageScroll.setName("dps-damage-scroll"); damageScroll.setBorder(BorderFactory.createEmptyBorder());
         damageScroll.getVerticalScrollBar().setUnitIncrement(24);
-        combatViews.add("meters", "Damage meters", damageScroll).add("resources", "Resources & buffs", resourcesWorkspace);
-        add(combatTabs, BorderLayout.CENTER);
+        add(damageScroll, BorderLayout.CENTER);
 
         setCenterDisplay();
         displayMeter.onFiltersChanged(this::updateChips);
@@ -261,19 +260,22 @@ public class DpsGUI extends JPanel {
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) refreshLiveView();
         });
-        combatTabs.addChangeListener(e -> { if (!combatViews.isRebuilding()) refreshLiveView(); });
         INSTANCE = this;
     }
 
     /** History-open callback for the Resources workspace; never routes a saved request into live data. */
     public boolean browseSavedResources() {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open saved resources on the EDT");
+        return Navigator.current().open(Route.to(Destination.RESOURCES).withPayload(ResourcesFocus.SAVED));
+    }
+
+    private boolean hasSavedResources() {
+        return resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace;
+    }
+
+    private void selectSavedResources() {
         if (resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace)
             ((tomato.gui.history.ArchiveWorkspace<?, ?, ?>)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
-        else if (resourcesWorkspace instanceof tomato.gui.history.SessionPanel)
-            ((tomato.gui.history.SessionPanel)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
-        else return false;
-        showCombat("resources"); return true;
     }
 
     @Override public void addNotify() { super.addNotify(); refreshTimer.start(); }
@@ -354,7 +356,7 @@ public class DpsGUI extends JPanel {
         OverflowMenu more = filterBar.overflow();
         JMenuItem savedResources = more.add("Saved resources…", this::browseSavedResources);
         savedResources.setName("dps-open-saved-resources");
-        boolean savedHistory = resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel;
+        boolean savedHistory = hasSavedResources();
         savedResources.setEnabled(savedHistory);
         savedResources.setToolTipText(savedHistory ? "Resources & buffs over every saved session" : "Unavailable: no saved history is open");
         more.add("Edit DPS filters…", this::openFilter).setName("dps-edit-filters");
@@ -715,19 +717,16 @@ public class DpsGUI extends JPanel {
 
     /** Detached origin/destination state of the Live meter (Runs & DPS › Live meter) for Back. */
     private static final class RouteState {
-        final String tab; final boolean live; final String entry; final Object resources;
-        RouteState(String tab, boolean live, String entry, Object resources) { this.tab = tab; this.live = live; this.entry = entry; this.resources = resources; }
+        final boolean live; final String entry;
+        RouteState(boolean live, String entry) { this.live = live; this.entry = entry; }
     }
-    private RouteState captureRouteState(RouteTarget resources) {
-        return new RouteState(combatViews.selectedId(), liveUpdates, selectedEncounter == null ? null : selectedEncounter.id,
-            resources == null ? null : resources.captureState());
+    private RouteState captureRouteState() {
+        return new RouteState(liveUpdates, selectedEncounter == null ? null : selectedEncounter.id);
     }
-    private void restoreRouteState(Object value, RouteTarget resources) {
+    private void restoreRouteState(Object value) {
         if (!(value instanceof RouteState)) throw new IllegalArgumentException("Not a Live meter route state");
         RouteState state = (RouteState) value;
-        if (resources != null && state.resources != null) resources.restoreState(state.resources);
         if (state.live || state.entry == null || !showEncounter(state.entry)) { if (!liveUpdates) setIndex(-1); }
-        if (state.tab != null) showCombat(state.tab);
     }
 
     /** Resolves exactly one library recording; an ambiguous recording or unverified local object is rejected. */
@@ -749,24 +748,22 @@ public class DpsGUI extends JPanel {
      * route carries the verified local object ID, selects that row with a historical-recording notice.
      */
     public RouteTarget encounterRouteTarget() {
-        RouteTarget resources = resourcesRouteTarget();
         return new RouteTarget() {
             public Destination destination() { return Destination.ENCOUNTER; }
             public boolean accepts(Route route) { return route.destination == destination() && routedEncounter(route) != null; }
-            public Object captureState() { return captureRouteState(resources); }
+            public Object captureState() { return captureRouteState(); }
             public void open(Route route) {
                 EncounterCatalog.Entry entry = routedEncounter(route);
                 if (entry == null) throw new IllegalArgumentException("Recording is not in this library");
                 viewMode.setSelectedIndex(0);
                 if (!showEncounter(entry.id)) throw new IllegalArgumentException("Recording is not in this library");
-                showCombat("meters");
                 if (route.localObjectId != null) {
                     String notice = historicalNotice(entry, route.localObjectId);
                     if (!displayMeter.focusPlayer(route.localObjectId, notice))
                         displayMeter.focusPlayer(-1, notice + " The local row is not shown: clear the DPS filter preset, or it dealt no recorded damage in this encounter.");
                 }
             }
-            public void restoreState(Object state) { restoreRouteState(state, resources); }
+            public void restoreState(Object state) { restoreRouteState(state); }
         };
     }
     static String historicalNotice(EncounterCatalog.Entry entry, int objectId) {
@@ -777,21 +774,27 @@ public class DpsGUI extends JPanel {
             + "first-to-last hit window and the build recorded then; it is not your current-build estimate.";
     }
 
-    /** RESOURCES destination: the saved Resources workspace with an exact visit, on its tab; null without saved history. */
+    /** RESOURCES destination: plain navigation, all saved sessions, or an exact visit. The Runs page selects its tab. */
     public RouteTarget resourcesRouteTarget() {
         tomato.gui.activity.ActivityRouteTarget delegate = tomato.gui.activity.ActivityRouteTarget.of(Destination.RESOURCES, resourcesWorkspace);
-        if (delegate == null) return null;
         return new RouteTarget() {
             public Destination destination() { return Destination.RESOURCES; }
-            public boolean accepts(Route route) { return delegate.accepts(route); }
-            public Object captureState() { return captureRouteState(delegate); }
-            public void open(Route route) { delegate.open(route); showCombat("resources"); }
-            public void restoreState(Object state) { restoreRouteState(state, delegate); }
+            public boolean accepts(Route route) {
+                if (delegate != null && delegate.accepts(route)) return true;
+                return route.destination == destination() && route.query == null && route.visit == null && route.record == null
+                    && route.recordingId == null && route.localObjectId == null && route.from == null && route.until == null
+                    && (route.payload == null || route.payload == ResourcesFocus.SAVED && hasSavedResources());
+            }
+            public Object captureState() { return delegate == null ? null : delegate.captureState(); }
+            public void open(Route route) {
+                if (!accepts(route)) throw new IllegalArgumentException("Unsupported Resources route: " + route);
+                if (route.payload == ResourcesFocus.SAVED) selectSavedResources();
+                else if (route.visit != null) delegate.open(route);
+            }
+            public void restoreState(Object state) { if (delegate != null && state != null) delegate.restoreState(state); }
         };
     }
     MeterDpsGUI meter() { return displayMeter; }
-    JTabbedPane combatTabs() { return combatTabs; }
-    private void showCombat(String id) { combatViews.show(id); combatViews.select(id); }
 
     private List<Entity> getSortedEntityList(Entity[] entityHitList) {
         if (DpsDisplayOptions.sortOption == 1) {

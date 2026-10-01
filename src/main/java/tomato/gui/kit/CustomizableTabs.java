@@ -9,6 +9,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import util.PropertiesManager;
@@ -79,6 +80,15 @@ public class CustomizableTabs {
     }
 
     public JTabbedPane component() { return tabs; }
+
+    /** Adjusts the loaded order before adding tabs, without writing preferences or changing hidden choices. */
+    public void initializeOrder(UnaryOperator<List<String>> migration) {
+        if (!entries.isEmpty()) throw new IllegalStateException("Initialize tab order before adding tabs");
+        List<String> order = new ArrayList<>(migration.apply(Collections.unmodifiableList(new ArrayList<>(savedOrder))));
+        for (String id : order) if (!ID.matcher(id).matches()) throw new IllegalArgumentException("Invalid tab ID " + id);
+        savedOrder.clear();
+        savedOrder.addAll(order);
+    }
 
     /**
      * Every tab's component in the user's order, including hidden, Analyst-only and conditional tabs that are not in the strip

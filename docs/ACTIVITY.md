@@ -8,13 +8,14 @@ Activity export uses the last displayed history revision, including while frozen
 
 ## Runs & DPS
 
-**Runs & DPS** has its own sidebar entry and Alt+R shortcut. It holds four tabs:
+**Runs & DPS** has its own sidebar entry and Alt+R shortcut. It holds five tabs, available in both Simple and Analyst:
 
 | Tab | What it shows |
 | --- | --- |
 | **Feed** | Every saved dungeon run of every session as a card, grouped by day, and each run's recap ([below](#run-feed)) |
 | **Dungeons** | One card per dungeon over all saved runs, and in Analyst the session comparison and cohorts ([below](#dungeons)) |
-| **Live meter** | The single damage meter and its Resources & buffs tab ([DPS meters](DPS-METERS.md)); **Alt+8** opens it |
+| **Live meter** | The single damage meter ([DPS meters](DPS-METERS.md)); **Alt+8** opens it |
+| **Resources & buffs** | Local HP/MP, buff intervals, observed uptime and saved resource history |
 | **Recordings** | Every combat recording: this app run's, saved summaries, kept full detail and imports ([DPS meters › Recordings](DPS-METERS.md#recordings)) |
 
 The page starts on its first visible tab (Feed by default); the tab in front is not saved between launches. Tabs can be reordered (drag, the tab menu, or Ctrl+Shift+Left/Right) and hidden like the app's other customizable tabs (`ui.tabs.runs`). Only explicit navigation brings a hidden tab forward: a route from another page, Back, a Settings search entry, **Alt+8** (Live meter), **Alt+5** (Dungeons) or a card's action. Back returns to the tab you left, as it was. There are no DPS Logger or Statistics pages any more (P6a removed both): Alt+8 opens the Live meter and Alt+5 opens Dungeons; see [the interface guide](UI-REDESIGN.md) and [where Statistics went](STATISTICS.md).
@@ -136,9 +137,9 @@ Saved Timeline supports multiple event types and Assigned / Unassigned filters a
 
 The timeline includes observed party changes, progression, equipment, inventory activity, resources, and capture events. Item/ability requests do not prove that the action succeeded.
 
-## Live meter: Resources & buffs
+## Resources & buffs
 
-**Resources & buffs** is the second tab inside **Runs & DPS › Live meter**, beside Damage meters; a route to it (such as the meter's **Resources** action for a linked run) brings the Live meter tab forward. It stays nested in the Live meter (a P6 decision). The Damage meters tab retains the existing live/saved encounter controls. Resources & buffs has its own filter row, status line and ⋯, as Timeline's, with its visit choice in the Filters drawer (a chip shows while it is not the newest visit). Selecting a gameplay visit does not change the damage encounter. In its saved view, the detail tabs (**Resources & buffs**, **Uptime summary**, **Coverage** and **Selected window**) can be reordered and hidden like other customizable tabs (`ui.tabs.saved-resources`); a restored view never shows a tab you hid.
+**Resources & buffs** is its own **Runs & DPS** tab, after **Live meter** in the default order. Routes to it (such as the meter's **Resources** action for a linked run and **Saved resources…**) open that tab; Back returns to the tab and state you left. Saved tab layouts missing Resources gain it immediately after Live meter, or at the end if their saved order has no Live meter. Existing tabs keep their relative order and hidden choices, and loading the layout does not write preferences. The Live meter directly shows damage meters with its existing live/saved encounter controls. Resources & buffs has its own filter row, status line and ⋯, as Timeline's, with its visit choice in the Filters drawer (a chip shows while it is not the newest visit). Selecting a gameplay visit does not change the damage encounter. In its saved view, the detail tabs (**Resources & buffs**, **Uptime summary**, **Coverage** and **Selected window**) can be reordered and hidden like other customizable tabs (`ui.tabs.saved-resources`); a restored view never shows a tab you hid.
 
 The chart aligns local HP/MP samples and condition lanes on an elapsed-time axis. Hover for values; Ctrl+mouse wheel zooms the horizontal axis. Scroll to see additional lanes. Search filters condition lanes. Drag the divider to give the chart or visit details more room.
 

@@ -68,6 +68,17 @@ public class SessionStoreTest {
             assertEquals("",store.error());assertEquals("must survive",store.read(store.currentId(),"chat",Event.class).get(0).text);
         }finally{store.close();}
     }
+    @Test public void collectorFailuresStayVisibleAfterASuccessfulSaveUntilACollectionSucceeds()throws Exception{
+        SessionStore store=new SessionStore(temp.getRoot().toPath().resolve("collecting"),true,"test");
+        try{
+            store.collect("failing",()->{throw new IllegalStateException("synthetic");});
+            store.append("chat",new Event("saved anyway"));store.flush();
+            assertEquals(SessionStore.SNAPSHOT_FAILED+"IllegalStateException",store.error());
+            assertEquals("saved anyway",store.read(store.currentId(),"chat",Event.class).get(0).text);
+            store.collect("failing",()->{});store.flush();
+            assertEquals("",store.error());
+        }finally{store.close();}
+    }
     @Test public void catalogKeepsCurrentSessionReadableUntilInitialMetadataIsPublished()throws Exception{
         Path root=temp.getRoot().toPath().resolve("starting-profile");Files.write(root,new byte[]{1});
         SessionStore store=new SessionStore(root,true,"test");

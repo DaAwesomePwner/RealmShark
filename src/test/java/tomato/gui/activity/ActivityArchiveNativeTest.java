@@ -34,7 +34,7 @@ public class ActivityArchiveNativeTest {
 
     @Test public void runsShowGlobalFilteredPagesAndPreviewTheExactLinkedPopulation() throws Exception { exercise(ActivityPanel.Mode.RUNS,"runs","runs"); }
     @Test public void timelineShowsGlobalTypeMatchesAndPreservesExactEventDetails() throws Exception { exercise(ActivityPanel.Mode.TIMELINE,"timeline","timeline"); }
-    @Test public void resourcesRestoreSavedUptimeTabAndSelectedPinnedVisit() throws Exception { exercise(ActivityPanel.Mode.COMBAT,"combat","runs"); } // Resources & buffs is nested in the Live meter tab of Runs & DPS
+    @Test public void resourcesRestoreSavedUptimeTabAndSelectedPinnedVisit() throws Exception { exercise(ActivityPanel.Mode.COMBAT,"combat","runs"); } // Resources & buffs is its own tab of Runs & DPS
 
     private void exercise(ActivityPanel.Mode mode, String key, String page) throws Exception {
         Path root = temp.newFolder().toPath(), scratch = temp.newFolder().toPath(), output = temp.newFolder().toPath();

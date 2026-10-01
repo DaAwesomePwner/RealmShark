@@ -109,18 +109,6 @@ public class ArchiveWorkspaceTest {
             }finally{release.countDown();edt(()->{workspace.close();return null;});}
         }finally{preferences.shutdown(5,TimeUnit.SECONDS,message->{});}
     }
-    @Test public void originalConstructorAndFourArgumentLoaderStillLoadOffEdt()throws Exception{
-        Path root=temp.newFolder().toPath();session(root,3);
-        try(SessionStore store=new SessionStore(root,false,"test")){
-            AtomicBoolean onWorker=new AtomicBoolean();SessionPanel panel=edt(()->new SessionPanel(store,"legacy",new JLabel("live"),(history,scope,page,text)->{
-                onWorker.set(!SwingUtilities.isEventDispatchThread());List<Event> values=history.read(scope,"chat",Event.class);
-                return new SessionPanel.Loaded(()->{JLabel label=new JLabel("loaded "+values.size());label.setName("legacy-loaded");return label;},false,"legacy");
-            }));
-            edt(()->{panel.selectSession(SessionStore.ALL);return null;});
-            await(()->named(panel,"legacy-loaded")!=null);assertTrue(onWorker.get());
-            assertEquals("loaded 3",edt(()->((JLabel)named(panel,"legacy-loaded")).getText()));
-        }
-    }
     private static class Reference implements ArchiveClient<Event,Facets,Sort> {
         final String scope;final Path scratch;JSpinner minimum;JTable table;Binding<Facets,Sort> binding;
         Reference(String scope,Path scratch){this.scope=scope;this.scratch=scratch;}

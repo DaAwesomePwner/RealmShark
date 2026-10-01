@@ -34,6 +34,8 @@ public final class AppearanceSection extends JPanel {
     private final JCheckBox contrast = new JCheckBox("Increase contrast");
     private final JCheckBox reduceMotion = new JCheckBox("Reduce motion");
     private final SegmentedControl display = new SegmentedControl("settings-display-mode", "Simple", "Analyst");
+    private final JComboBox<Integer> fontSize = new JComboBox<>();
+    private boolean syncing;
 
     /** @param afterThemeChange refreshes fonts and shell colors after a new look and feel is installed */
     public AppearanceSection(Runnable afterThemeChange) {
@@ -44,6 +46,12 @@ public final class AppearanceSection extends JPanel {
     AppearanceSection(Consumer<Themes.Choice> selectTheme, Supplier<Themes.Choice> installedTheme,
                       Function<String, String> read, BiConsumer<String, String> write,
                       DisplayModeModel mode, Runnable afterThemeChange) {
+        this(selectTheme, installedTheme, read, write, mode, afterThemeChange, tomato.gui.TomatoGUI::fontSizeTextAreas);
+    }
+
+    AppearanceSection(Consumer<Themes.Choice> selectTheme, Supplier<Themes.Choice> installedTheme,
+                      Function<String, String> read, BiConsumer<String, String> write,
+                      DisplayModeModel mode, Runnable afterThemeChange, Consumer<Integer> applyFontSize) {
         super(new BorderLayout());
         this.selectTheme = selectTheme;
         this.installedTheme = installedTheme;
@@ -58,6 +66,17 @@ public final class AppearanceSection extends JPanel {
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
         body.add(group("Theme", theme, null));
         body.add(group(null, contrast, "Stronger outlines, dividers and secondary text."));
+        fontSize.setName("settings-font-size");
+        fontSize.getAccessibleContext().setAccessibleName("Text size");
+        body.add(group("Text size", fontSize,
+            "Body text size. Edit › Font has the same sizes, plus font face and style."));
+        fontSize.addActionListener(e -> {
+            if (syncing || fontSize.getSelectedItem() == null) return;
+            int size = (Integer) fontSize.getSelectedItem();
+            applyFontSize.accept(size);
+            write.accept("fontSize", Integer.toString(size));
+            sync();
+        });
         body.add(group("Motion", reduceMotion,
             "Turns off the short expand and collapse animations. They are also off when Windows animations are turned off."));
         body.add(group("Display mode", display,
@@ -107,6 +126,17 @@ public final class AppearanceSection extends JPanel {
     }
 
     private void sync() {
+        syncing = true;
+        try {
+            int size = ContentStyle.FONT_SIZE;
+            try { size = Integer.parseInt(read.apply("fontSize")); }
+            catch (NumberFormatException ignored) { }
+            if (size < 1 || size > 1000) size = ContentStyle.FONT_SIZE;
+            java.util.SortedSet<Integer> sizes = new java.util.TreeSet<>(java.util.List.of(8, 12, 13, 14, 16, 24, 48));
+            sizes.add(size);
+            fontSize.setModel(new DefaultComboBoxModel<>(sizes.toArray(new Integer[0])));
+            fontSize.setSelectedItem(size);
+        } finally { syncing = false; }
         Themes.Choice current = installedTheme.get();
         theme.setSelected(current.variant == Themes.Variant.LIGHT ? 1 : 0);
         contrast.setSelected(current.increaseContrast);

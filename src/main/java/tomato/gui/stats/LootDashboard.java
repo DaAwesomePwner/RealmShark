@@ -22,10 +22,10 @@ import tomato.gui.history.FilterChips;
 import tomato.gui.history.LiveFilterHost;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.DisplayValue;
+import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.ItemIcon;
 import tomato.gui.kit.ItemTiers;
-import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.StatTile;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.ViewSelector;
@@ -468,7 +468,9 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
      */
     static ItemIcon rowIcon(Icon base, String name, int count, Item item) {
         EnchantInfo enchant = count == 1 ? item.enchantInfo() : item.potion ? EnchantInfo.notRecorded() : EnchantInfo.ofSlotCount(item.enchants == null ? null : item.enchants.slots);
-        return new ItemIcon(base, count == 1 ? name : name + " · " + count + " drops", enchant, ItemTiers.label(item.id));
+        String tier = item.tier == null || item.tier.isBlank() || "—".equals(item.tier) ? "" : item.tier;
+        return new ItemIcon(base, count == 1 ? EnchantTooltip.heading(name, tier) : name + " · " + count + " drops", enchant,
+            tier.isEmpty() ? ItemTiers.label(item.id) : tier);
     }
     private static void addOption(JComboBox<String> combo, String value) {
         for (int i = 0; i < combo.getItemCount(); i++) if (value.equals(combo.getItemAt(i))) return;

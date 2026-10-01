@@ -167,6 +167,7 @@ public class TomatoGUI {
         // of one page. The library is the Recordings tab, no longer a modal dialog: the meter's library button opens it through
         // the navigator, so Back returns to the meter. Their open actions are wired once the navigator exists (below).
         runsDps = new tomato.gui.runs.RunsDpsPage(runsPage, dpsPanel);
+        runsDps.setContent(tomato.gui.runs.RunsTab.RESOURCES, ((DpsGUI) dpsPanel).resourcesWorkspace());
         tomato.gui.dps.DungeonListGUI recordings = new tomato.gui.dps.DungeonListGUI((DpsGUI) dpsPanel, data);
         runsDps.setContent(tomato.gui.runs.RunsTab.RECORDINGS, recordings);
         ((DpsGUI) dpsPanel).onOpenLibrary(TomatoGUI::openRecordings);
@@ -212,6 +213,8 @@ public class TomatoGUI {
         // DpsGUI's encounter target, which is therefore tried first: exact recording routes keep resolving there.
         navigator.register(page.liveMeterTarget(() -> page.tabs().component().requestFocusInWindow()));
         registerRetainedPage(Destination.HOME);
+        registerRetainedPage(Destination.CHAT);
+        registerRetainedPage(Destination.KEYPOPS);
         // Build is a tab on the character sheet (spec §6.2) with no page of its own. The Build route, Settings search, the Home
         // hero and Alt+7 open it for the character in game, else the most recent one; with no character yet they open the
         // Characters list ("No characters yet").
@@ -256,10 +259,10 @@ public class TomatoGUI {
         navigator.register(page.tabTarget());
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.TIMELINE, timelineWorkspace));
         registerIfPresent(navigator, tomato.gui.activity.ActivityRouteTarget.of(Destination.INSPECT, inspectWorkspace));
-        // Resources & buffs stays nested in the meter (dps-tabs › resources), so both meter targets bring the Live meter forward; the
-        // encounter target owns that tab's Back state (the nested tab, live or the chosen entry, and the resources archive state).
+        // Each sibling tab owns its Back state: the chosen encounter for Live meter and the archive view for Resources.
         RouteTarget resources = ((DpsGUI) dpsPanel).resourcesRouteTarget(), encounter = ((DpsGUI) dpsPanel).encounterRouteTarget();
-        if (resources != null) navigator.register(page.routes(tomato.gui.runs.RunsTab.LIVE_METER, resources));
+        if (resources != null) navigator.register(page.routes(tomato.gui.runs.RunsTab.RESOURCES, resources));
+        page.owner(tomato.gui.runs.RunsTab.RESOURCES, resources);
         navigator.register(page.routes(tomato.gui.runs.RunsTab.LIVE_METER, encounter));
         page.owner(tomato.gui.runs.RunsTab.LIVE_METER, encounter);
         Navigator.install(navigator);
@@ -322,20 +325,8 @@ public class TomatoGUI {
             tomato.gui.notifications.NotificationsGUI notifications) {
         RouteTarget delegate = tomato.gui.notifications.AlertRouteTargets.notifications(notifications,
                 () -> page.showSection(SettingsPage.NOTIFICATIONS));
-        navigator.register(new RouteTarget() {
-            public Destination destination() { return delegate.destination(); }
-            public boolean accepts(tomato.gui.route.Route route) { return delegate.accepts(route); }
-            public Object captureState() { return new SettingsRouteState(page.currentSection(), delegate.captureState()); }
-            public void open(tomato.gui.route.Route route) { delegate.open(route); }
-            public void restoreState(Object state) {
-                SettingsRouteState saved = (SettingsRouteState) state;
-                delegate.restoreState(saved.notifications());
-                page.showSection(saved.section());
-            }
-        });
+        for (RouteTarget target : tomato.gui.settings.SettingsRouteTargets.of(page, delegate)) navigator.register(target);
     }
-
-    private record SettingsRouteState(String section, Object notifications) { }
 
     private static void registerIfPresent(ShellNavigator navigator, RouteTarget target) {
         if (target != null) navigator.register(target);
@@ -433,7 +424,7 @@ public class TomatoGUI {
         frame.setVisible(true);
     }
 
-    /** Releases saved readers, including nested Resources, without closing capture or history writers. */
+    /** Releases saved readers, including Resources, without closing capture or history writers. */
     public void closeWorkspace() {
         // AppHistory's shutdown hook still checkpoints DiscoveryLog before closing SessionStore.
         onEdt(() -> {
@@ -448,8 +439,8 @@ public class TomatoGUI {
 
     /**
      * Closes every saved-history reader under {@code root}. A hidden tab of a {@link tomato.gui.kit.CustomizableTabs} is detached
-     * from the tree, so the walk also visits each tab pane's contents (through its client property): a hidden Feed or Live meter
-     * tab, the meter's hidden Resources & buffs tab inside, a hidden Loot tab or the Fame history tab Simple skips still releases
+     * from the tree, so the walk also visits each tab pane's contents (through its client property): a hidden Feed or Resources
+     * tab, a hidden Loot tab or the Fame history tab Simple skips still releases
      * its workspaces and readers. Each component is visited once.
      */
     private static void closeArchiveWorkspaces(Component root) {
@@ -564,8 +555,6 @@ public class TomatoGUI {
             if (shell != null) shell.select("runs");
             if (runsWorkspace instanceof ArchiveWorkspace)
                 ((ArchiveWorkspace<?, ?, ?>) runsWorkspace).selectSession(SessionStore.ALL);
-            else if (runsWorkspace instanceof tomato.gui.history.SessionPanel)
-                ((tomato.gui.history.SessionPanel) runsWorkspace).selectSession(SessionStore.ALL);
         });
     }
     public static void assetsReloaded() {
@@ -588,8 +577,8 @@ public class TomatoGUI {
     }
     private void registerSearchControls() {
         tomato.gui.search.ActionRegistry.application().clear();
-        registerSearch("appearance.font", "Font and text size", "font appearance typography size", "Edit > Font",
-            "App-folder realmShark.properties", () -> menuBar.focusSetting("font"));
+        registerSearch("appearance.font", "Text size", "font appearance typography size", "Settings > Appearance",
+            "App-folder realmShark.properties", () -> openSettings(tomato.gui.settings.SettingsPage.APPEARANCE));
         registerSearch("appearance.theme", "Theme", "appearance dark violet contrast", "Edit > Theme",
             "App-folder realmShark.properties", () -> menuBar.focusSetting("theme"));
         registerSearch("capture.controls", "Capture connection controls", "capture start stop connection", "File > Capture",
@@ -758,7 +747,7 @@ public class TomatoGUI {
             public Destination destination() { return destination; }
             public boolean accepts(tomato.gui.route.Route route) {
                 return route.destination == destination && route.query == null && route.visit == null && route.record == null
-                    && route.recordingId == null && route.payload == null && route.from == null && route.until == null;
+                    && route.recordingId == null && route.localObjectId == null && route.payload == null && route.from == null && route.until == null;
             }
             // These pages stay mounted; plain navigation does not change their selections, filters or drafts.
             public Object captureState() { return null; }
@@ -772,8 +761,12 @@ public class TomatoGUI {
      */
     /** Opens Settings on one of its sections, such as {@link SettingsPage#APPEARANCE}. */
     public static void openSettings(String section) {
-        if (shell != null) shell.select(WorkspaceShell.pageOf(Destination.NOTIFICATIONS));
-        if (settings != null) settings.showSection(section);
+        if (navigator != null) navigator.open(tomato.gui.route.Route.to(Destination.SETTINGS)
+            .withPayload(new tomato.gui.settings.SettingsFocus(section)));
+        else {
+            if (shell != null) shell.select(WorkspaceShell.pageOf(Destination.SETTINGS));
+            if (settings != null) settings.showSection(section);
+        }
     }
 
     public static void openNotifications() { openNotifications(null); }

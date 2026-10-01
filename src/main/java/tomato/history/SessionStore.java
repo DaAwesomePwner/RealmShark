@@ -15,6 +15,10 @@ import java.util.stream.Stream;
 /** Per-launch append journals and atomic run checkpoints. Producers never wait for disk. */
 public final class SessionStore implements AutoCloseable {
     public static final String ALL = "*";
+    public static final String SAVE_FAILED = "History could not be saved; pending data will retry. Check ";
+    public static final String SNAPSHOT_FAILED = "A history snapshot could not be collected: ";
+    public static final String UNSAVED_ON_CLOSE = "History has unsaved data: ";
+    public static final String IMPORT_FAILED = "Some existing history could not be imported. Originals are kept; use Import old folder to retry.";
     public static final Gson JSON = new GsonBuilder()
         .registerTypeAdapter(Instant.class, (JsonSerializer<Instant>)(v,t,c) -> new JsonPrimitive(v.toString()))
         .registerTypeAdapter(Instant.class, (JsonDeserializer<Instant>)(v,t,c) -> Instant.parse(v.getAsString()))
@@ -30,6 +34,8 @@ public final class SessionStore implements AutoCloseable {
     private final Map<String, Write> checkpoints = new LinkedHashMap<>();
     private final Map<String, Runnable> collectors = new ConcurrentHashMap<>();
     private volatile String error = "";
+    /** The last collection round's failure; kept until a round succeeds, since a successful drain follows each round. */
+    private volatile String collectError = "";
     private volatile String importError = "";
     private volatile boolean closing;
     private volatile Thread ioThread;
@@ -58,12 +64,14 @@ public final class SessionStore implements AutoCloseable {
     public String currentId() { return current.id; }
     public long started() { return current.started; }
     public boolean writable() { return writable; }
-    public String error() { return error.isEmpty() ? importError : error; }
+    public String error() { return !error.isEmpty() ? error : !collectError.isEmpty() ? collectError : importError; }
     public void importError(String message) { importError=message; }
     public void collect(String key, Runnable collector) { collectors.put(key, collector); }
     private void collect() {
+        String failure = "";
         for (Runnable collector : collectors.values()) try { collector.run(); }
-        catch (RuntimeException e) { error = "A history snapshot could not be collected: " + e.getClass().getSimpleName(); }
+        catch (RuntimeException e) { failure = SNAPSHOT_FAILED + e.getClass().getSimpleName(); }
+        collectError = failure;
     }
     public void append(String module, Object detached) { offer(new Write(current.id, module, null, detached)); }
     public void put(String module, String key, Object detached) { offer(new Write(current.id, module, key, detached)); }
@@ -104,7 +112,7 @@ public final class SessionStore implements AutoCloseable {
                 }
             }
             error = "";
-        } catch (Exception e) { error = "History could not be saved; pending data will retry. Check " + root; }
+        } catch (Exception e) { error = SAVE_FAILED + root; }
     }
     private void persist(Write write) throws IOException {
         Path session = sessionPath(write.session);
@@ -361,7 +369,7 @@ public final class SessionStore implements AutoCloseable {
                     if(fileLock!=null)fileLock.release();if(lockChannel!=null)lockChannel.close();
                 }catch(IOException e){throw new UncheckedIOException(e);}
             }).get(5,TimeUnit.SECONDS);
-        } catch (Exception e) { error = "History has unsaved data: " + root; }
+        } catch (Exception e) { error = UNSAVED_ON_CLOSE + root; }
         finally {
             try { worker.submit(()->{
                 try{if(fileLock!=null&&fileLock.isValid())fileLock.release();if(lockChannel!=null&&lockChannel.isOpen())lockChannel.close();}

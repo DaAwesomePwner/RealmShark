@@ -30,7 +30,7 @@ public final class AppHistory {
         if (!preview) {
             Thread migration = new Thread(() -> {
                 try { importLegacy(store, Paths.get(".")); }
-                catch (Exception e) { store.importError("Some existing history could not be imported. Originals are kept; use Import old folder to retry."); }
+                catch (Exception e) { store.importError(SessionStore.IMPORT_FAILED); }
             }, "Import legacy history"); migration.setDaemon(true); migration.start();
         }
     }
