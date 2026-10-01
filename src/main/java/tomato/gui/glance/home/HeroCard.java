@@ -203,7 +203,7 @@ final class HeroCard extends HomeCard {
         for (int i = 0; i < gear.length; i++) {
             int id = equipment != null && i < equipment.length ? equipment[i] : -1;
             String tier = id > 0 ? HomeViews.tier(id) : "";
-            EnchantInfo enchant = enchants == null || enchants.get(i).state() == EnchantInfo.State.NOT_RECORDED ? null : enchants.get(i);
+            EnchantInfo enchant = enchants == null || i >= enchants.size() || enchants.get(i).state() == EnchantInfo.State.NOT_RECORDED ? null : enchants.get(i);
             if (id > 0) gear[i].setItem(id, tier, enchant);
             else if (id == 0) gear[i].setEmpty();
             else gear[i].setUnknown();

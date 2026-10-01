@@ -54,6 +54,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     private final LongSupplier now;
     private HighlightsModel.Notable drop;
     private Lines lines;
+    private String enchantHeading;
     private boolean selected, focused;
     private List<String> painted = List.of();
 
@@ -85,14 +86,17 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
      * and when it dropped, its bag and whether it links to a run, in words. Enchanted drops include their recorded rarity,
      * for example "enchanted, rare or better (Rare · 2 enchant slots)".
      */
-    static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) {
+    static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) { return facts(drop, zone, now, true); }
+
+    /** The drop's facts in words; {@code withEnchant} adds the enchant summary after the kind (the enchant tooltip has its own line for it). */
+    private static String facts(HighlightsModel.Notable drop, ZoneId zone, long now, boolean withEnchant) {
         String kind = switch (drop.kind()) {
             case UT -> "UT";
             case ST -> "ST";
             case POTION -> "stat potion";
             case ENCHANTED -> "enchanted, rare or better";
         };
-        if (drop.enchant().state() != EnchantInfo.State.NOT_RECORDED) kind += " (" + drop.enchant().summary() + ")";
+        if (withEnchant && drop.enchant().state() != EnchantInfo.State.NOT_RECORDED) kind += " (" + drop.enchant().summary() + ")";
         return Sprites.name(drop.itemId()) + ", " + kind + "; " + LootFacts.areaLabel(drop.dungeon())
             + ", " + spokenTime(drop.time(), zone, now) + "; " + (drop.bag() == null ? "bag not saved" : drop.bag() + " bag") + "; "
             + (drop.visit() == null ? "not linked to a run" : "Enter opens the run recap");
@@ -143,6 +147,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         focused = cellHasFocus;
         long at = now.getAsLong();
         lines = value == null ? null : lines(value, zone, at);
+        enchantHeading = value == null ? null : facts(value, zone, at, false) + " · " + HighlightsModel.OBSERVED;
         String name = value == null ? null : accessibleName(value, zone, at);
         getAccessibleContext().setAccessibleName(name);
         getAccessibleContext().setAccessibleDescription(value == null ? null
@@ -155,7 +160,8 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     @Override public String getToolTipText() {
         String facts = super.getToolTipText();
         if (facts == null || drop == null || drop.enchant().state() == EnchantInfo.State.NOT_RECORDED) return facts;
-        return EnchantTooltip.html(facts, drop.enchant());
+        // The enchant tooltip says the rarity on its own line, so its heading leaves it out.
+        return EnchantTooltip.html(enchantHeading, drop.enchant());
     }
 
     @Override protected void paintComponent(Graphics graphics) {

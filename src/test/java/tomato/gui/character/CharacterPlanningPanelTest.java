@@ -15,10 +15,11 @@ import tomato.realmshark.EnchantInfo;
 
 public class CharacterPlanningPanelTest {
     @Test public void equippedSlotsShowTheEnchantsLastObservedLive() {
-        CharacterJournal.CharacterRecord r = record("A"); r.equipment[0] = 123; r.equipmentEnchants = new String[] {"AAIE_wU", "", "", ""};
+        CharacterJournal.CharacterRecord r = record("A"); r.equipment[0] = 123; r.equipmentEnchants = new String[] {"AAIE__8=", "", "", ""};
         java.util.List<CharacterEquipmentPanel.Slot> rows = CharacterEquipmentPanel.project(r, RosterDefinitions.empty());
         assertEquals(EnchantInfo.Rarity.UNCOMMON, rows.get(0).enchant.rarity());
-        assertTrue(rows.get(0).detail, rows.get(0).detail.contains("Enchantment effects: Uncommon · 1 enchant slot"));
+        assertTrue(rows.get(0).detail, rows.get(0).detail.contains("Enchantment effects: Uncommon · 1 enchant slot\n  (empty slot)"));
+        assertFalse("Enchant lines are indented once", rows.get(0).detail.contains("\n    (empty slot)"));
         assertNull("Inventory slots carry no enchant data", rows.get(4).enchant);
         assertTrue(rows.get(4).detail.contains("Enchantment effects: Not recorded"));
         assertNull("A record without saved enchants carries none", CharacterEquipmentPanel.project(record("B"), RosterDefinitions.empty()).get(0).enchant);

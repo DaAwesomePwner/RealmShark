@@ -48,6 +48,36 @@ public class RunCardRendererTest {
         });
     }
 
+    @Test public void theGemSitsInTheTopRightCornerOfItsItemsWell() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RunCardModel plain = linked();
+            RunCardModel.LootItem first = plain.loot().get(0);
+            String otherBag = "White".equals(first.bag()) ? "Orange" : "White";
+            Rectangle well = changed(card(plain), card(withFirst(new RunCardModel.LootItem(first.id(), otherBag, first.tier()))));
+            Rectangle gem = changed(card(plain), card(withFirst(new RunCardModel.LootItem(first.id(), first.bag(), first.tier(), EnchantInfo.ofSlotCount(3)))));
+            assertNotNull("The bag colour tints the first well", well);
+            assertNotNull("The gem is painted", gem);
+            assertTrue("Gem " + gem + " in the right half of well " + well, gem.x >= well.x + well.width / 2 && gem.x + gem.width <= well.x + well.width);
+            assertTrue("Gem " + gem + " in the top half of well " + well, gem.y >= well.y && gem.y + gem.height <= well.y + well.height / 2 + 1);
+        });
+    }
+
+    /** linked() with its first loot item replaced. */
+    private static RunCardModel withFirst(RunCardModel.LootItem item) {
+        List<RunCardModel.LootItem> loot = new ArrayList<>(linked().loot());
+        loot.set(0, item);
+        return new RunCardModel(REF, "Lost Halls", "Lost Halls", 0, RunOutcome.COMPLETED, at(0, 8, 5), 25 * MINUTE, 6,
+            new RunCardModel.Combat("r-v1-long", 2, 6_000L, 20d, 2, 6, 30d, 1, null), null, loot, 6, "1 UT · 1 ST · 2 potions", null, 240L, 2);
+    }
+
+    /** The bounds of the pixels that differ between two same-size images; null when none do. */
+    private static Rectangle changed(BufferedImage a, BufferedImage b) {
+        Rectangle bounds = null;
+        for (int y = 0; y < a.getHeight(); y++) for (int x = 0; x < a.getWidth(); x++)
+            if (a.getRGB(x, y) != b.getRGB(x, y)) { Rectangle p = new Rectangle(x, y, 1, 1); bounds = bounds == null ? p : bounds.union(p); }
+        return bounds;
+    }
+
     private static BufferedImage card(RunCardModel model) {
         RunCardRenderer renderer = new RunCardRenderer(ZONE, () -> NOW);
         Component painted = renderer.getListCellRendererComponent(new JList<>(), model, 0, false, false);
