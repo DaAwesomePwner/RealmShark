@@ -29,7 +29,7 @@ public final class AssetDictionary {
 
     static Loaded load() {
         String stamp=AssetCache.stamp();
-        if (stamp==null || stamp.isBlank()) return new Loaded(IndexDictionary.NONE,0,0,0);
+        // Class initialization loads from AssetCache.root(), including the legacy assets/ layout without a pointer.
         Map<Integer,String> objects=IdToAsset.objectNames();
         Map<Integer,String> classes=new HashMap<>();
         for (CharacterClass cls:CharacterClass.CHAR_CLASS_LIST) classes.put(cls.id,cls.name);
@@ -43,13 +43,13 @@ public final class AssetDictionary {
 
     static IndexDictionary snapshot(String stamp,Map<Integer,String> objects,Map<Integer,String> classes,
                                     Map<Short,ParseEnchants.Definition> definitions) {
-        if (stamp==null || stamp.isBlank() || objects.isEmpty() || classes.isEmpty() || definitions.isEmpty()) return IndexDictionary.NONE;
+        if (objects.isEmpty() || classes.isEmpty() || definitions.isEmpty()) return IndexDictionary.NONE;
         Map<Integer,String> objectNames=Map.copyOf(objects), classNames=Map.copyOf(classes);
         Map<Short,ParseEnchants.Definition> enchants=Map.copyOf(definitions);
         MessageDigest digest;
         try { digest=MessageDigest.getInstance("SHA-256"); }
         catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
-        add(digest,stamp);
+        add(digest,stamp==null || stamp.isBlank()?"":stamp);
         // Sorting and length framing make the version independent of map order and text delimiters.
         for (Map.Entry<Short,ParseEnchants.Definition> entry:new TreeMap<>(enchants).entrySet()) {
             add(digest,Short.toString(entry.getKey())); add(digest,entry.getValue().displayName()); add(digest,entry.getValue().description());

@@ -38,12 +38,33 @@ public class AssetDictionaryTest {
         assertNull(first.enchantName(999)); assertNull(first.enchantName(65937)); assertNull(first.objectName(999)); assertNull(first.className(999));
         assertNotEquals(first.version(),AssetDictionary.snapshot("generation-a",Map.of(101,"New Blade"),Map.of(301,"Mage"),reversed).version());
     }
-    @Test public void missingGenerationOrAnyEmptyDictionaryIsNone() {
+    @Test public void legacyLayoutWithoutStampProducesCountsVersionAndEnrichment() {
         Map<Short,ParseEnchants.Definition> enchants=Map.of((short)401,new ParseEnchants.Definition("Blessing",""));
-        assertSame(IndexDictionary.NONE,snapshot(null,enchants));
-        assertSame(IndexDictionary.NONE,snapshot("",enchants));
-        assertSame(IndexDictionary.NONE,snapshot("a",Map.of()));
-        assertSame(IndexDictionary.NONE,AssetDictionary.snapshot("a",Map.of(),Map.of(301,"Mage"),enchants));
-        assertSame(IndexDictionary.NONE,AssetDictionary.snapshot("a",Map.of(101,"Blade"),Map.of(),enchants));
+        AssetDictionary.Loaded loaded=AssetDictionary.load(null,Map.of(101,"Blade"),Map.of(301,"Mage"),enchants);
+        IndexDictionary dictionary=loaded.dictionary();
+        assertNotEquals("none",dictionary.version());
+        assertEquals(1,loaded.objectNames()); assertEquals(1,loaded.enchantNames()); assertEquals(1,loaded.classNames());
+        assertEquals(dictionary.version(),snapshot("",enchants).version());
+        assertEquals(dictionary.version(),snapshot("  \t",enchants).version());
+        assertNotEquals(dictionary.version(),snapshot("generation-a",enchants).version());
+        assertNotEquals(dictionary.version(),snapshot(null,Map.of((short)401,new ParseEnchants.Definition("New Blessing",""))).version());
+        Projections.Context runContext=new Projections.Context(new Locator(ProjectionsTest.SESSION,"runs",0,null,-1),500,false,"test",dictionary);
+        Projections.Row run=Projections.project(runContext,ProjectionsTest.json("{id:'r',requestedItems:{101:1},inspectedPlayers:{'player:alice':{objectType:301}}}")).get(0);
+        assertTrue(run.body().contains("Blade")); assertTrue(run.names().contains("Blade"));
+        assertTrue(run.body().contains("Mage")); assertTrue(run.names().contains("Mage"));
+        Projections.Context lootContext=new Projections.Context(new Locator(ProjectionsTest.SESSION,"loot",0,null,-1),500,false,"test",dictionary);
+        Projections.Row loot=Projections.project(lootContext,ProjectionsTest.json("{items:[{name:'Blade',enchantEvidence:{orderedSlotIds:[401]}}]}")).get(1);
+        assertTrue(loot.body().contains("Blessing")); assertTrue(loot.names().contains("Blessing"));
+    }
+    @Test public void anyEmptyDictionaryIsNoneWithOrWithoutStamp() {
+        Map<Short,ParseEnchants.Definition> enchants=Map.of((short)401,new ParseEnchants.Definition("Blessing",""));
+        for (String stamp:Arrays.asList(null,"","a")) {
+            assertSame(IndexDictionary.NONE,snapshot(stamp,Map.of()));
+            assertSame(IndexDictionary.NONE,AssetDictionary.snapshot(stamp,Map.of(),Map.of(301,"Mage"),enchants));
+            assertSame(IndexDictionary.NONE,AssetDictionary.snapshot(stamp,Map.of(101,"Blade"),Map.of(),enchants));
+            AssetDictionary.Loaded empty=AssetDictionary.load(stamp,Map.of(),Map.of(),Map.of());
+            assertSame(IndexDictionary.NONE,empty.dictionary());
+            assertEquals(0,empty.objectNames()); assertEquals(0,empty.enchantNames()); assertEquals(0,empty.classNames());
+        }
     }
 }
