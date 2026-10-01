@@ -76,7 +76,7 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
      * One loot sprite: the item, its bag's name ({@code Tokens.bag}; null when not saved) and its tier label: the saved UT/ST
      * classification, else the definitions' label when the card was read; "" while unknown (a renderer may then ask
      * {@code ItemTiers.label} at paint time, for definitions that load later).
-     * {@code enchant} drives the loot well's rarity gem (not recorded = no gem).
+     * {@code enchant} drives the loot well's rarity pips and glow (not recorded = tier text when space permits).
      */
     public record LootItem(int id, String bag, String tier, EnchantInfo enchant) {
         public LootItem {

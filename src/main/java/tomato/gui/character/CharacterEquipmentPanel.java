@@ -12,7 +12,7 @@ import tomato.backend.data.FieldCapture;
 import tomato.backend.data.RosterDefinitions;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.stats.Formatters;
-import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantPips;
 import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.ItemTiers;
 import tomato.realmshark.EnchantInfo;
@@ -45,7 +45,9 @@ public final class CharacterEquipmentPanel extends JPanel {
             public Component getTableCellRendererComponent(JTable t, Object v, boolean s, boolean f, int row, int col) {
                 super.getTableCellRendererComponent(t, v, s, f, row, col); current = shown.get(t.convertRowIndexToModel(row));
                 Icon icon = current.item == null || current.item < 0 ? null : ImageBuffer.getOutlinedIcon(current.item, 24);
-                setIcon(EnchantGem.decorate(icon, current.enchant)); return this;
+                setIcon(EnchantPips.decorate(icon, current.enchant, current.item == null ? "" : ItemTiers.label(current.item)));
+                setText(EnchantTooltip.itemName(Objects.toString(v, ""), current.item == null || current.item < 0 ? null : current.enchant));
+                return this;
             }
             /** Built when the table asks (on hover): the slot's enchant lines, when its enchantments were recorded. */
             @Override public String getToolTipText() {

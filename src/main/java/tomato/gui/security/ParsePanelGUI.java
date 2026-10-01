@@ -14,7 +14,6 @@ import tomato.gui.kit.ColumnKind;
 import tomato.gui.history.WrapRow;
 import tomato.gui.kit.Banner;
 import tomato.gui.kit.FilterBar;
-import tomato.gui.kit.EnchantGem;
 import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.ItemSlot;
 import tomato.gui.kit.ItemTiers;
@@ -1023,7 +1022,7 @@ public class ParsePanelGUI extends JPanel {
         final Long damage;
         final Double dps;
         final String[] equipmentLabels = new String[4], equipmentDetails = new String[4], equipmentTooltips = new String[4];
-        /** Painted gear wells (tier edge, rarity gem in the corner); rebuilt with the row on a theme change. */
+        /** Painted gear wells (tier edge, rarity pips and glow); rebuilt with the row on a theme change. */
         final Icon[] icons = new Icon[4];
         /** The Class cell's sprite: the captured skin, else the class's own sprite. */
         final Icon classIcon;
@@ -1060,9 +1059,7 @@ public class ParsePanelGUI extends JPanel {
                 String heading = state == ItemSlot.State.ITEM
                         ? EnchantTooltip.heading(player.itemName[i] == null ? "Unrecognized item" : player.itemName[i], tier) : equipmentLabels[i];
                 equipmentTooltips[i] = EnchantTooltip.html(heading, enchant);
-                Icon well = ItemSlot.icon(state == ItemSlot.State.ITEM ? Sprites.sprite(player.inv[i], 20) : null, tier, state, 20);
-                // Only a captured item carries a rarity gem; a well that shows no item claims none.
-                icons[i] = state == ItemSlot.State.ITEM ? EnchantGem.decorate(well, enchant) : well;
+                icons[i] = ItemSlot.icon(state == ItemSlot.State.ITEM ? Sprites.sprite(player.inv[i], 20) : null, tier, state, 20, enchant);
             }
         }
     }

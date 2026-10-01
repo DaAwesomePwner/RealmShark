@@ -5,7 +5,7 @@ import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 
 /**
- * The shared item tooltip: the item heading, the rarity line in its gem color, then each unlocked slot's display name with its
+ * The shared item tooltip: the item heading, the rarity line in its pip color, then each unlocked slot's display name with its
  * effect beneath, and "(empty slot)" for empty ones. Colors come from the current theme, so build it when the tooltip is asked
  * for (or with a row that is rebuilt on theme changes), never while painting.
  */
@@ -20,7 +20,7 @@ public final class EnchantTooltip {
 
     public static String html(String heading, EnchantInfo info) {
         StringBuilder html = new StringBuilder("<html><b>").append(escape(heading)).append("</b><br>");
-        Color ink = EnchantGem.ink(info);
+        Color ink = EnchantPips.ink(info);
         if (ink == null) html.append(escape(info.summary()));
         else html.append("<span style='color:").append(hex(ink)).append("'>").append(escape(info.summary())).append("</span>");
         String muted = hex(Tokens.color(Tokens.Role.TEXT_MUTED));
@@ -38,6 +38,12 @@ public final class EnchantTooltip {
         if (info.state() == EnchantInfo.State.COUNT_ONLY && info.rarity() != EnchantInfo.Rarity.UNENCHANTED)
             html.append("<br><span style='color:").append(muted).append("'>").append(EnchantInfo.NAMES_NOT_AVAILABLE).append("</span>");
         return html.append("</html>").toString();
+    }
+
+    /** Plain item-name cell text: ContentStyle cells disable HTML to keep asset names literal. */
+    public static String itemName(String name, EnchantInfo info) {
+        if (info == null || !info.enchanted()) return name;
+        return name + " · " + info.rarity().label;
     }
 
     private static String escape(String text) {

@@ -19,7 +19,7 @@ import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 import static tomato.gui.glance.character.SheetFixtures.*;
 
-/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity gems from the live character or, when not in game, the enchants last observed live. */
+/** Gear: unknown vs empty vs no backpack, tier labels, and enchant rarity pips from the live character or the enchants last observed live. */
 public class GearTabTest {
     private final DisplayModeModel mode = new DisplayModeModel(key -> null, (key, value) -> {});
     private static ItemSlot slot(JComponent tab, int index) { return named(tab, "character-gear-slot-" + index, ItemSlot.class); }
@@ -76,7 +76,7 @@ public class GearTabTest {
         });
     }
 
-    @Test public void liveEnchantGemsShowAndARecordWithoutSavedEnchantsShowsNone() throws Exception {
+    @Test public void liveEnchantPipsShowAndARecordWithoutSavedEnchantsShowsNone() throws Exception {
         Entity player = new Entity(null, 1, 0);
         StatData enchants = new StatData();
         enchants.stringStatValue = "AAIE_wU,AAIE,,!!!"; // weapon 1 unlocked slot, ability 0, armor 0, ring malformed
@@ -98,6 +98,14 @@ public class GearTabTest {
             String weapon = slot(tab, 0).getAccessibleContext().getAccessibleName();
             assertTrue(weapon, weapon.endsWith(" · UT · Uncommon · 1 enchant slot"));
             assertTrue(slot(tab, 0).getToolTipText().contains("Uncommon · 1 enchant slot"));
+            ItemSlot weaponSlot = slot(tab, 0);
+            weaponSlot.setSize(weaponSlot.getPreferredSize());
+            java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(weaponSlot.getWidth(), weaponSlot.getHeight(), java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D graphics = image.createGraphics(); weaponSlot.paint(graphics); graphics.dispose();
+            int ink = tomato.gui.kit.Tokens.rarity(EnchantInfo.Rarity.UNCOMMON).getRGB(), colored = 0;
+            for (int y = image.getHeight() / 2; y < image.getHeight() - 1; y++) for (int x = 1; x < image.getWidth() - 1; x++)
+                if (image.getRGB(x, y) == ink) colored++;
+            assertTrue("Live weapon paints its rarity pip inside the bottom half", colored > 0);
             assertNull("Empty slot: no enchant", slot(tab, 1).enchant());
             assertTrue(slot(tab, 2).getAccessibleContext().getAccessibleName().endsWith("Unenchanted"));
             assertTrue(slot(tab, 3).getAccessibleContext().getAccessibleName().endsWith("Enchant data unreadable"));

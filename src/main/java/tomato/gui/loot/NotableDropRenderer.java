@@ -186,7 +186,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             Rectangle well = well(getWidth(), getHeight());
             Sprites.paintWell(this, g, EnchantPips.glow(Sprites.sprite(drop.itemId(), SPRITE), drop.enchant()), drop.bag(), well.x, well.y, well.width);
             // paintWell's side covers side px; the pip painter takes ItemSlot's side + 1 convention.
-            EnchantPips.paint(g, drop.enchant(), well.x, well.y, well.width - 1);
+            EnchantPips.paintCorner(g, drop.enchant(), ItemTiers.label(drop.itemId()), well.x, well.y, well.width - 1);
             Font titleFont = Type.emphasis(), captionFont = Type.caption();
             FontMetrics title = g.getFontMetrics(titleFont), caption = g.getFontMetrics(captionFont);
             int left = well.x + well.width + Tokens.S, right = x + w - PAD;

@@ -48,17 +48,24 @@ public class RunCardRendererTest {
         });
     }
 
-    @Test public void theGemSitsInTheTopRightCornerOfItsItemsWell() throws Exception {
+    @Test public void thePipsSitInTheBottomRowOfTheirItemsWell() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             RunCardModel plain = linked();
             RunCardModel.LootItem first = plain.loot().get(0);
             String otherBag = "White".equals(first.bag()) ? "Orange" : "White";
             Rectangle well = changed(card(plain), card(withFirst(new RunCardModel.LootItem(first.id(), otherBag, first.tier()))));
-            Rectangle gem = changed(card(plain), card(withFirst(new RunCardModel.LootItem(first.id(), first.bag(), first.tier(), EnchantInfo.ofSlotCount(3)))));
+            BufferedImage enchanted = card(withFirst(new RunCardModel.LootItem(first.id(), first.bag(), first.tier(), EnchantInfo.ofSlotCount(3))));
+            Rectangle gem = changed(card(plain), enchanted);
             assertNotNull("The bag colour tints the first well", well);
             assertNotNull("The gem is painted", gem);
-            assertTrue("Gem " + gem + " in the right half of well " + well, gem.x >= well.x + well.width / 2 && gem.x + gem.width <= well.x + well.width);
-            assertTrue("Gem " + gem + " in the top half of well " + well, gem.y >= well.y && gem.y + gem.height <= well.y + well.height / 2 + 1);
+            assertTrue("Enchant drawing stays inside its well", well.contains(gem));
+            int ink = Tokens.rarity(EnchantInfo.Rarity.LEGENDARY).getRGB(), pips = 0;
+            for (int y = well.y; y < well.y + well.height; y++) for (int x = well.x; x < well.x + well.width; x++)
+                if (enchanted.getRGB(x, y) == ink) {
+                    pips++;
+                    assertTrue("Rarity pips stay in the bottom row", y > well.y + well.height / 2);
+                }
+            assertTrue("Pips paint the rarity color", pips > 0);
         });
     }
 

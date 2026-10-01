@@ -26,6 +26,23 @@ public class CharacterPlanningPanelTest {
     }
 
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+
+    @Test public void equipmentItemCellsAppendRarityAndClearItForTheNextRow() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            CharacterJournal.CharacterRecord record = record("A");
+            record.equipment[0] = 123; record.equipment[1] = 456;
+            record.equipmentEnchants = new String[] {"AAIE__8=", "", "", ""};
+            CharacterEquipmentPanel panel = new CharacterEquipmentPanel();
+            panel.showRecord(record, RosterDefinitions.empty());
+            JTable table = named(panel, "character-equipment", JTable.class);
+            JLabel enchanted = (JLabel) table.prepareRenderer(table.getCellRenderer(0, 3), 0, 3);
+            assertEquals(table.getValueAt(0, 3) + " · Uncommon", enchanted.getText());
+            assertTrue(enchanted.getToolTipText().contains("Uncommon"));
+            assertNotNull(enchanted.getIcon());
+            JLabel plain = (JLabel) table.prepareRenderer(table.getCellRenderer(1, 3), 1, 3);
+            assertEquals(table.getValueAt(1, 3), plain.getText());
+        });
+    }
     private static <T extends Component> T named(Container root, String name, Class<T> type) {
         for (Component c : root.getComponents()) { if (name.equals(c.getName()) && type.isInstance(c)) return type.cast(c); if (c instanceof Container) { T found = named((Container)c, name, type); if (found != null) return found; } } return null;
     }

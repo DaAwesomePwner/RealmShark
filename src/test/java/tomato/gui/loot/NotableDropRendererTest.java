@@ -10,6 +10,7 @@ import javax.swing.SwingUtilities;
 import org.junit.Rule;
 import org.junit.Test;
 import tomato.gui.kit.Sprites;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.Type;
 import tomato.gui.modern.ContentStyle;
@@ -104,6 +105,36 @@ public class NotableDropRendererTest {
             assertTrue("The pips are painted", changed > 8);
             assertTrue("…in the Legendary ink", inked);
         });
+    }
+
+    @Test public void anUnenchantedUtDropPaintsTierTextInsideItsFortyPixelWell() throws Exception {
+        try (AutoCloseable restore = tomato.gui.glance.character.CharacterFixtures.installDefinitions()) {
+            var definitions = tomato.backend.data.RosterDefinitions.parse(null, new java.io.StringReader(
+                "<Objects><Object type='987654321'><Labels>UT</Labels></Object></Objects>"));
+            var current = tomato.backend.data.RosterDefinitions.class.getDeclaredField("current");
+            current.setAccessible(true);
+            current.set(null, definitions);
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("The renderer receives a real tier label from the fixture definitions", "UT", ItemTiers.label(987_654_321));
+                HighlightsModel.Notable drop = new HighlightsModel.Notable(987_654_321, "White", "Lost Halls", NOON, RUN,
+                    HighlightsModel.Kind.UT, EnchantInfo.ofSlotCount(0));
+                NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+                renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
+                Dimension size = renderer.getPreferredSize();
+                BufferedImage painted = image(renderer, size);
+                Rectangle well = NotableDropRenderer.well(size.width, size.height);
+                assertEquals(40, well.width); assertEquals(40, well.height);
+                int warn = Tokens.color(Tokens.Role.WARN).getRGB(), textPixels = 0;
+                // Inspect only the well's interior, so neither its bag border nor the separate UT chip can satisfy this test.
+                for (int y = well.y + 4; y < well.y + well.height - 4; y++)
+                    for (int x = well.x + 4; x < well.x + well.width - 4; x++) if (painted.getRGB(x, y) == warn) {
+                        textPixels++;
+                        assertTrue("UT text stays in the well's bottom-right quarter",
+                            x >= well.x + well.width / 2 && y >= well.y + well.height / 2);
+                    }
+                assertTrue("The unenchanted UT drop paints WARN-colored tier text", textPixels > 0);
+            });
+        }
     }
 
     private static BufferedImage image(JComponent c, Dimension size) {

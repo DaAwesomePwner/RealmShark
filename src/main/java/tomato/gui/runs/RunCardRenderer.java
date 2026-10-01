@@ -17,7 +17,8 @@ import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
 import javax.swing.*;
-import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantPips;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.KitFormat;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
@@ -267,8 +268,8 @@ public final class RunCardRenderer extends JComponent implements ListCellRendere
                 Strip strip = strip(lines, caption, right - left);
                 int well = LOOT + WELL, slotX = left;
                 for (RunCardModel.LootItem item : lines.loot()) {
-                    Sprites.paintWell(this, g, Sprites.sprite(item.id(), LOOT), item.bag(), slotX, row + strip.wellTop(), well);
-                    EnchantGem.paint(g, item.enchant(), slotX, row + strip.wellTop(), well - 1);
+                    Sprites.paintWell(this, g, EnchantPips.glow(Sprites.sprite(item.id(), LOOT), item.enchant()), item.bag(), slotX, row + strip.wellTop(), well);
+                    EnchantPips.paintCorner(g, item.enchant(), item.tier() == null || item.tier().isEmpty() ? ItemTiers.label(item.id()) : item.tier(), slotX, row + strip.wellTop(), well - 1);
                     slotX += well + Tokens.XS;
                 }
                 text(g, lines.lootMore(), captionFont, caption, muted, left + strip.moreX(), row + strip.moreBaseline(), right - left - strip.moreX());

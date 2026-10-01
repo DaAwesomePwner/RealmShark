@@ -16,7 +16,7 @@ import tomato.realmshark.EnchantInfo;
 import static tomato.gui.glance.character.SheetViews.*;
 
 /**
- * Sheet › Gear (spec §6.2): four large equipped slots with tier labels, an enchant rarity gem and enchant tooltip when recorded;
+ * Sheet › Gear (spec §6.2): four large equipped slots with tier labels or enchant rarity pips, glow and tooltip when recorded;
  * then the inventory (8) and backpack (16) as a sprite grid. Unknown and empty slots stay distinct; each slot's tooltip names its
  * item. Tier labels come from the model (computed off the EDT with the build's definitions). The 28-row slot table with field
  * evidence is an Analyst-only Collapsible. EDT only.

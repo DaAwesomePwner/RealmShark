@@ -150,6 +150,8 @@ public class LootDashboardTest {
                 assertEquals("4 drops shown · Unenchanted (0 slots): 0 · Uncommon (1): 0 · Rare (2): 1 · Legendary (3): 0 · Divine (4): 0 · Unknown: 1"
                     + " · 2 stat potions (no enchant slots)", named(panel[0], "loot-enchant-totals", JTextArea.class).getText());
                 int blade = row(items, 1, "Synthetic blade");
+                assertEquals("Synthetic blade · Rare", text(items, blade, 1));
+                assertEquals("Synthetic bow", text(items, row(items, 1, "Synthetic bow"), 1));
                 assertEquals("Unknown", items.getValueAt(blade, 3));
                 assertEquals(tomato.gui.stats.LootFacts.UNKNOWN_AREA, text(items, blade, 3));
                 assertEquals("Lost Halls", text(items, row(items, 1, "Synthetic bow"), 3));
