@@ -107,6 +107,8 @@ There is one database: `%LOCALAPPDATA%\RealmShark\history\index\search-v1.db`, w
 | first Runs page | 2.2 ms | under 150 ms |
 | one run's recap facts | 1.3 ms | under 100 ms |
 
+With D2 name enrichment (36,408 object names, 1,016 enchants and 19 classes, schema v6), the same copy measured **55.5 MiB** and a **8.6 s** backfill, with queries of 1.4–9.3 ms.
+
 The first layout used text keys and a separate locator table, and measured 189 MB. Integer keys and contentless FTS5 brought it to the size above. Compressing closed sessions (G) shrinks the raw history, but not the index.
 
 ## How data gets in
