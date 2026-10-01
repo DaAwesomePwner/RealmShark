@@ -134,7 +134,7 @@ public final class HistoryIndex implements AutoCloseable {
     }
     public void markSessionChanged(String session) {
         synchronized (ingestionLock) {
-            if (!closing.get() && state.phase!=Phase.UNAVAILABLE && validSession(session) && !removed.contains(session)) stale.put(session,revision.incrementAndGet());
+            if (!closing.get() && state.phase!=Phase.UNAVAILABLE && validSession(session)) stale.put(session,revision.incrementAndGet());
         }
     }
     public void removeSession(String session) {
@@ -267,12 +267,13 @@ public final class HistoryIndex implements AutoCloseable {
                 synchronized (ingestionLock) {
                     // The tombstone lasts through commit. Purge all pre-removal offers before accepting a re-import.
                     offers.removeIf(offer -> offer.session.equals(session));
-                    stale.remove(session); sessions.remove(session); retries.remove(session); removed.remove(session);
+                    // Preserve changes after removal was requested, including an immediate re-import of the same UUID.
+                    sessions.remove(session); retries.remove(session); removed.remove(session);
                 }
             }
             drainOffers();
             for (Map.Entry<String,Long> entry:List.copyOf(stale.entrySet())) {
-                if (removed.contains(entry.getKey())) { stale.remove(entry.getKey()); continue; }
+                if (removed.contains(entry.getKey())) continue;
                 if (due(retries.get(entry.getKey())) && indexSession(entry.getKey(),true)) stale.remove(entry.getKey(),entry.getValue());
             }
             for (Map.Entry<String,SessionState> entry:List.copyOf(sessions.entrySet()))

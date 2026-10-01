@@ -80,7 +80,9 @@ stamp changes during reading; offers arriving during replacement remain queued f
 still require a stable post-read stamp. Failed sessions and SQLITE_BUSY/LOCKED work retry with exponential delays of
 1, 2, 4 seconds up to 60 seconds; incoming offers do not reset that delay. Contention does not disable the index.
 Matching schema versions do not perform schema writes. Removal holds a tombstone only until the deletion commits and
-pre-removal queued offers are discarded, so the same UUID can subsequently be re-imported. Turning chat off deletes its
+pre-removal queued offers are discarded, so the same UUID can subsequently be re-imported.
+Change marks made after removal is requested are kept and processed after deletion commits, allowing an immediate re-import
+of the same UUID to be indexed, while offers are still rejected as long as the tombstone stands. Turning chat off deletes its
 rows/postings and refreshes affected players without invalidating stamps; turning it on invalidates and backfills.
 
 Prepared statements and intern caches are reused throughout each writer transaction, then closed/discarded on either commit

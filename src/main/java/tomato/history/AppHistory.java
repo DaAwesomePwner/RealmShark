@@ -52,6 +52,10 @@ public final class AppHistory {
         if (preview) return null;
         HistoryIndex search = new HistoryIndex(target, SearchSettings.includeChat());
         target.setPersistenceListener(search::offer);
+        target.setLifecycleListener(new SessionStore.LifecycleListener() {
+            @Override public void sessionRemoved(String id) { search.removeSession(id); }
+            @Override public void sessionChanged(String id) { search.markSessionChanged(id); }
+        });
         search.start();
         return search;
     }
