@@ -270,14 +270,12 @@ public class DpsGUI extends JPanel {
     }
 
     private boolean hasSavedResources() {
-        return resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel;
+        return resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace;
     }
 
     private void selectSavedResources() {
         if (resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace)
             ((tomato.gui.history.ArchiveWorkspace<?, ?, ?>)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
-        else if (resourcesWorkspace instanceof tomato.gui.history.SessionPanel)
-            ((tomato.gui.history.SessionPanel)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
     }
 
     @Override public void addNotify() { super.addNotify(); refreshTimer.start(); }

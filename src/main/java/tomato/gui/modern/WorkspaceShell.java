@@ -87,6 +87,8 @@ public final class WorkspaceShell extends JPanel {
     private final JLabel brand = new JLabel("RealmShark"), eyebrow = new JLabel("WORKSPACE");
     private final JLabel status = new JLabel("Capture is off"), hint = new JLabel("Start capture, then enter the Realm to see activity.");
     private final JLabel preferencesStatus = new JLabel();
+    private final JLabel historyStatus = new JLabel();
+    private final java.util.function.Supplier<String> historyError;
     private final Timer preferencesTimer = new Timer(250, e -> refreshPreferencesStatus());
     private final JLabel sideFooter = new JLabel("Powered by RealmShark");
     private final KitButton capture = KitButton.primary("Start capture");
@@ -132,7 +134,17 @@ public final class WorkspaceShell extends JPanel {
      */
     public WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview,
                           Runnable choose, Runnable retry, Runnable browse, NavLayout layout, DisplayModeModel mode) {
+        this(panels, toggleCapture, preview, choose, retry, browse, layout, mode, () -> {
+            tomato.history.SessionStore store = tomato.history.AppHistory.store();
+            return store == null ? "" : store.error();
+        });
+    }
+
+    WorkspaceShell(Map<String, ? extends JComponent> panels, Runnable toggleCapture, boolean preview,
+                   Runnable choose, Runnable retry, Runnable browse, NavLayout layout, DisplayModeModel mode,
+                   java.util.function.Supplier<String> historyError) {
         super(new BorderLayout());
+        this.historyError = Objects.requireNonNull(historyError, "historyError");
         this.preview = preview;
         this.layout = Objects.requireNonNull(layout, "layout");
         this.mode = Objects.requireNonNull(mode, "mode");
@@ -309,7 +321,13 @@ public final class WorkspaceShell extends JPanel {
         footer.add(status, BorderLayout.WEST); footer.add(hint, BorderLayout.CENTER);
         preferencesStatus.setName("preferences-status");
         preferencesStatus.setFont(ContentStyle.metadata(ContentStyle.body()));
-        footer.add(preferencesStatus, BorderLayout.EAST);
+        historyStatus.setName("history-status");
+        historyStatus.setFont(preferencesStatus.getFont());
+        JPanel persistence = new JPanel(new BorderLayout(12, 0));
+        persistence.setOpaque(false);
+        persistence.add(historyStatus, BorderLayout.CENTER);
+        persistence.add(preferencesStatus, BorderLayout.EAST);
+        footer.add(persistence, BorderLayout.EAST);
         captureFailure.setName("capture-failure");
         captureFailure.setEditable(false); captureFailure.setLineWrap(true); captureFailure.setWrapStyleWord(true);
         captureFailure.setOpaque(false);
@@ -360,6 +378,7 @@ public final class WorkspaceShell extends JPanel {
     }
 
     private void refreshPreferencesStatus() {
+        refreshHistoryStatus();
         PreferencesStore.Status saving = PropertiesManager.status();
         switch (saving.state) {
             case LOADING: preferencesStatus.setText("Preferences loading…"); break;
@@ -369,6 +388,28 @@ public final class WorkspaceShell extends JPanel {
         }
         preferencesStatus.setToolTipText(saving.detail);
         preferencesStatus.setForeground(Tokens.color(saving.state == PreferencesStore.State.FAILED ? Tokens.Role.BAD : Tokens.Role.TEXT_MUTED));
+    }
+
+    void refreshHistoryStatus() {
+        String error = historyError.get();
+        boolean failed = error != null && !error.isBlank();
+        historyStatus.setVisible(failed);
+        historyStatus.setForeground(Tokens.color(Tokens.Role.BAD));
+        String text = "History not saved, retrying";
+        String detail = "History could not be saved; pending data will retry. Check the history folder.";
+        if (failed && error.startsWith(tomato.history.SessionStore.IMPORT_FAILED)) {
+            text = "Some history could not be imported";
+            detail = tomato.history.SessionStore.IMPORT_FAILED;
+        } else if (failed && error.startsWith(tomato.history.SessionStore.SNAPSHOT_FAILED)) {
+            text = "History snapshot could not be collected";
+            detail = "A history snapshot could not be collected. Collection will retry.";
+        } else if (failed && error.startsWith(tomato.history.SessionStore.UNSAVED_ON_CLOSE)) {
+            text = "History has unsaved data";
+            detail = "History has unsaved data; check the history folder.";
+        }
+        // Use cause-specific display text, never exception messages or absolute storage paths.
+        historyStatus.setText(failed ? text : "");
+        historyStatus.setToolTipText(failed ? detail : null);
     }
 
     /** Refreshes explicit shell colors from the active LAF rather than retaining a dark sidebar. */
