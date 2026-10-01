@@ -1157,6 +1157,8 @@ public class ShellHookIntegrationTest {
         tomato.backend.data.DpsData unique = tomato.history.encounter.CombatFixtures.typical(live, now - 600_000, 10, 2, 3);
         tomato.backend.data.DpsData twin = tomato.history.encounter.CombatFixtures.typical(live, now - 300_000, 10, 2, 3);
         tomato.backend.data.DpsData twinCopy = twin.getSaveFile(false);   // an in-memory copy: the same recording ID, another entry
+        // Closed fights the app keeps, as in capture: the meter shows only recordings TomatoData still holds (storage PR B).
+        synchronized (data.dpsData) { Collections.addAll(data.dpsData, unique, twin, twinCopy); }
         tomato.gui.dps.DungeonListGUI library = edt(() -> {
             tomato.gui.dps.DpsGUI dps = find(shell, tomato.gui.dps.DpsGUI.class);
             dps.encounters().captured(new tomato.backend.data.DpsData[]{unique, twin, twinCopy});
@@ -1278,10 +1280,11 @@ public class ShellHookIntegrationTest {
     }
 
     /**
-     * The loot page is Loot with the tabs Highlights · Explore (P6a): Highlights is the view over saved history, Explore the Loot
-     * workspace whose live card attaches to the app's loot capture (which the shell binds to the game data), and Highlights' ⋯
-     * holds "Loot sharing status…" and "Loot filter settings…". A plain Loot page opens on Highlights; Explore still holds the
-     * workspace every Loot route and the S8 check reach.
+     * The loot page is Loot with the tabs Highlights · Explore (P6a): Highlights is the view over saved history; Explore, with
+     * saved history, is Pictures | Table (Loot Explore pictures P2), whose Table is the Loot workspace whose live card attaches to
+     * the app's loot capture (which the shell binds to the game data); and Highlights' ⋯ holds "Loot sharing status…" and "Loot
+     * filter settings…". A plain Loot page opens on Highlights; Explore still holds the workspace every Loot query route and the
+     * S8 check reach.
      */
     @Test public void lootIsAPageWithHighlightsAndExploreOverTheAppsLootCapture() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
@@ -1291,7 +1294,9 @@ public class ShellHookIntegrationTest {
             assertEquals("Loot opens on Highlights", tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
             tomato.gui.loot.LootHighlights highlights = named(page, "loot-highlights", tomato.gui.loot.LootHighlights.class);
             assertSame(highlights, tabs.getComponentAt(0));
-            assertSame("Explore is the Loot workspace", workspace("loot"), tabs.getComponentAt(1));
+            tomato.gui.loot.explore.LootExplorePage explore = named(page, "loot-explore", tomato.gui.loot.explore.LootExplorePage.class);
+            assertSame("Explore is the Pictures | Table page", explore, tabs.getComponentAt(1));
+            assertSame("…whose Table is the Loot workspace", workspace("loot"), explore.table());
             tomato.gui.stats.LootDashboard live = find(workspace("loot"), tomato.gui.stats.LootDashboard.class);
             assertSame("Explore's live card is attached to the app's loot capture",
                 field(tomato.gui.stats.LootCapture.get().feed(), "state"), field(live, "state"));
@@ -1310,8 +1315,8 @@ public class ShellHookIntegrationTest {
     }
 
     /**
-     * A Loot visit route (the recap's and the workbench's "Open Loot") brings Explore forward with the workspace's drill, and Back
-     * returns to the tab it left, from Loot's own Highlights or from another page.
+     * A Loot visit route (the recap's and the workbench's "Open Loot") brings Explore forward on Pictures at that exact run (Loot
+     * Explore pictures P2), and Back returns to the tab it left, from Loot's own Highlights or from another page.
      */
     @Test public void aLootVisitRouteBringsExploreAndBackReturnsToTheTabLeft() throws Exception {
         tomato.history.link.VisitRef visit = new tomato.history.link.VisitRef(store.currentId(), "journal:1");
@@ -1323,7 +1328,9 @@ public class ShellHookIntegrationTest {
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.LOOT).withVisit(visit)));
             assertEquals("loot", shell.selectedPage());
             assertEquals("A visit route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, page.selectedTab());
-            assertEquals("…on the exact visit", "journal:1", ((tomato.gui.stats.LootQuery.Facets) workspace("loot").state().query.facets()).visitId);
+            tomato.gui.loot.explore.LootExplorePage explore = named(page, "loot-explore", tomato.gui.loot.explore.LootExplorePage.class);
+            assertFalse("…on Pictures", explore.tableShown());
+            assertEquals("…at the exact run", visit, explore.pictures().selectedRun());
             assertTrue(navigator.back());
             assertEquals("loot", shell.selectedPage());
             assertEquals("Back returns to Highlights", tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());

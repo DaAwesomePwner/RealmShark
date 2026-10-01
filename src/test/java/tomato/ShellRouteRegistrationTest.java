@@ -180,18 +180,16 @@ public class ShellRouteRegistrationTest {
                 assertTrue(navigator.open(Route.to(Destination.LOOT).withVisit(visit)));
                 assertEquals("A visit route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, loot.selectedTab());
             });
-            // The visit route's drill summary is read off the EDT; it sits in the Explore tab.
-            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(20);
-            JTextArea[] summary = new JTextArea[1];
-            while (summary[0] == null && System.nanoTime() < deadline) {
-                SwingUtilities.invokeAndWait(() -> summary[0] = named(shell.get(), "loot-drill-summary", JTextArea.class));
-                if (summary[0] == null) Thread.sleep(20);
-            }
-            assertNotNull("The Loot visit route shows its drill summary", summary[0]);
+            // Loot Explore pictures P2: with saved history Explore is the Pictures | Table page, and an exact-run route opens
+            // Pictures on that run (a query route opens Table, the Loot workspace).
             SwingUtilities.invokeAndWait(() -> {
                 tomato.gui.loot.LootPage loot = find(shell.get(), tomato.gui.loot.LootPage.class);
                 java.awt.Component explore = loot.tabs().component().getComponentAt(loot.tabs().visibleIds().indexOf(tomato.gui.loot.LootTab.EXPLORE.id()));
-                assertTrue("loot-drill-summary sits inside Explore", SwingUtilities.isDescendingFrom(summary[0], explore));
+                assertTrue("Explore is the Pictures | Table page", explore instanceof tomato.gui.loot.explore.LootExplorePage);
+                tomato.gui.loot.explore.LootExplorePage page = (tomato.gui.loot.explore.LootExplorePage) explore;
+                assertEquals("…whose Table is the Loot workspace", "loot-session-view", page.table().getName());
+                assertFalse("The visit route opens Pictures", page.tableShown());
+                assertEquals("…on that exact run", visit, page.pictures().selectedRun());
                 Navigator navigator = Navigator.current();
                 tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
                 assertTrue(navigator.back());
@@ -222,13 +220,6 @@ public class ShellRouteRegistrationTest {
         return null;
     }
 
-    private static <T extends java.awt.Component> T named(java.awt.Container root, String name, Class<T> type) {
-        for (java.awt.Component child : root.getComponents()) {
-            if (type.isInstance(child) && name.equals(child.getName())) return type.cast(child);
-            if (child instanceof java.awt.Container) { T found = named((java.awt.Container) child, name, type); if (found != null) return found; }
-        }
-        return null;
-    }
 
     private static tomato.gui.runs.RunsPage runsPage(java.awt.Container root) {
         for (java.awt.Component child : root.getComponents()) {
