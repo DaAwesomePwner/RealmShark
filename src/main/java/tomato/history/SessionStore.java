@@ -48,6 +48,7 @@ public final class SessionStore implements AutoCloseable {
     private volatile boolean closing;
     private volatile Thread ioThread;
     private volatile boolean currentMetadataPublished;
+    private volatile PersistenceListener persistenceListener;
     private FileChannel lockChannel;
     private FileLock fileLock;
 
@@ -70,6 +71,22 @@ public final class SessionStore implements AutoCloseable {
         }
     }
     public Path directory() { return root; }
+    /** Called on the history worker after a successful live write. Implementations must not block. */
+    @FunctionalInterface public interface PersistenceListener {
+        void persisted(String session, String module, long offsetOrMinusOne, String keyOrNull, Object value);
+    }
+    public synchronized void setPersistenceListener(PersistenceListener listener) {
+        if (persistenceListener != null) throw new IllegalStateException("Persistence listener already installed");
+        persistenceListener = Objects.requireNonNull(listener);
+    }
+    private void persisted(Write write, long offset) {
+        PersistenceListener listener = persistenceListener;
+        if (listener != null) try { listener.persisted(write.session, write.module, offset, write.key, write.value); }
+        catch (Throwable failure) {
+            // A derived consumer must not cancel periodic saving; fatal VM failures still propagate.
+            if (failure instanceof VirtualMachineError fatal && !(fatal instanceof StackOverflowError)) throw fatal;
+        }
+    }
     /**
      * The current session's folder for side files the store cannot write itself (binary full combat detail, written
      * atomically by their owner in a module-named subfolder); empty in preview and once closing. The folder may not exist
@@ -142,7 +159,7 @@ public final class SessionStore implements AutoCloseable {
                 }
                 if (write == null) break;
                 String json = serialize(write);
-                if (json != null) persistCheckpoint(write, json);
+                if (json != null) { persistCheckpoint(write, json); persisted(write, -1); }
                 synchronized (pendingLock) {
                     checkpoints.remove(write.session + "/" + write.module + "/" + write.key, write);
                 }
@@ -164,10 +181,12 @@ public final class SessionStore implements AutoCloseable {
         }
     }
     private void appendBatch(Path file, List<Write> batch, Set<Write> completed) throws IOException {
-        List<String> lines = new ArrayList<>();
+        List<byte[]> lines = new ArrayList<>();
+        List<Write> saved = new ArrayList<>();
         for (Write write : batch) {
             String json = serialize(write);
-            if (json == null) completed.add(write); else lines.add(json);
+            if (json == null) completed.add(write);
+            else { lines.add(json.getBytes(StandardCharsets.UTF_8)); saved.add(write); }
         }
         if (lines.isEmpty()) return;
         try (FileChannel channel = journalChannels.open(file)) {
@@ -177,7 +196,7 @@ public final class SessionStore implements AutoCloseable {
             rollbacks.put(file, before);
             try {
                 BufferedOutputStream output = new BufferedOutputStream(Channels.newOutputStream(channel));
-                for (String json : lines) { output.write(json.getBytes(StandardCharsets.UTF_8)); output.write('\n'); }
+                for (byte[] line : lines) { output.write(line); output.write('\n'); }
                 output.flush();
             } catch (IOException failure) {
                 try { channel.truncate(before); rollbacks.remove(file); }
@@ -186,6 +205,11 @@ public final class SessionStore implements AutoCloseable {
             }
             rollbacks.remove(file); completed.addAll(batch);
             touchedJournals.add(file);
+            long offset = before;
+            for (int i = 0; i < saved.size(); i++) {
+                persisted(saved.get(i), offset);
+                offset += lines.get(i).length + 1;
+            }
         }
     }
     private void persist(Write write) throws IOException { persistCheckpoint(write, JSON.toJson(write.value)); }

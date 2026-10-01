@@ -137,8 +137,8 @@ public record RunRecapModel(VisitRef ref, String unavailable, long capturedAt, H
     public record Loot(List<Bag> bags, int count, String summary, String reason) {
         public Loot { bags = List.copyOf(bags); Objects.requireNonNull(summary, "summary"); }
 
-        /** One bag; {@code bag} is its saved bag name ("White", "Orange", …) or null when none was saved. */
-        public record Bag(String bag, long time, List<LootFacts.Item> items) {
+        /** One bag; {@code bag} is its saved bag name ("White", "Orange", …) or null when none was saved; {@code dropper} the enemy that dropped it, or null when unknown. */
+        public record Bag(String bag, long time, String dropper, List<LootFacts.Item> items) {
             public Bag { items = List.copyOf(items); }
         }
     }

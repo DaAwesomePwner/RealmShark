@@ -2,15 +2,23 @@ package tomato.history;
 
 import packets.packetcapture.logger.ActivityJournal;
 import tomato.history.link.VisitRef;
+import tomato.history.index.HistoryIndex;
+import tomato.history.index.SearchSettings;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 
 /** The shared user profile is independent of the folder/version of the portable application. */
 public final class AppHistory {
     private static volatile SessionStore store;
+    private static volatile HistoryIndex index;
     private static final java.util.Queue<Runnable> shutdownFlushes = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private AppHistory() { }
     public static SessionStore store() { return store; }
+    public static HistoryIndex index() { return index; }
     public static void onShutdown(Runnable flush) { shutdownFlushes.add(flush); }
     public static Path directory() {
         String override = System.getProperty("realmshark.historyDir");
@@ -21,6 +29,7 @@ public final class AppHistory {
     public static synchronized void start(boolean preview) {
         if (store != null) return;
         store = new SessionStore(directory(), !preview, realmshark.version.Version.VERSION);
+        index = startIndex(store, preview);
         packets.packetcapture.logger.DiscoveryLog.INSTANCE.attachHistory(store);
         // Saves each fight capture closes (preview: nothing), prunes combat history now and after a Combat history change.
         tomato.gui.dps.CombatAutosave combat = tomato.gui.dps.CombatAutosave.start(store);
@@ -29,6 +38,7 @@ public final class AppHistory {
             packets.packetcapture.logger.DiscoveryLog.INSTANCE.close();
             for (Runnable flush : shutdownFlushes) flush.run();
             store.close();
+            closeIndex(index);
         }, "Session history shutdown"));
         if (!preview) {
             Housekeeping.startHistory(directory(), store.currentId(), false);
@@ -37,6 +47,21 @@ public final class AppHistory {
                 catch (Exception e) { store.importError(SessionStore.IMPORT_FAILED); }
             }, "Import legacy history"); migration.setDaemon(true); migration.start();
         }
+    }
+    static HistoryIndex startIndex(SessionStore target, boolean preview) {
+        if (preview) return null;
+        HistoryIndex search = new HistoryIndex(target, SearchSettings.includeChat());
+        target.setPersistenceListener(search::offer);
+        search.start();
+        return search;
+    }
+    static void closeIndex(HistoryIndex search) {
+        if (search != null) awaitIndexClose(search.closeAsync());
+    }
+    static void awaitIndexClose(CompletableFuture<Void> closed) {
+        try { closed.get(1500, TimeUnit.MILLISECONDS); }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        catch (ExecutionException | TimeoutException ignored) { /* Source files recover unfinished index work on next start. */ }
     }
     public static void append(String module, Object snapshot) { SessionStore s=store; if(s!=null)s.append(module,snapshot); }
     public static void run(ActivityJournal.Visit visit) { SessionStore s=store; if(s!=null)s.put("runs",visit.id,visit); }

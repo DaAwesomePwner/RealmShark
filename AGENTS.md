@@ -37,8 +37,11 @@ Main checks: `gradlew.bat test shadowJar`; scaled checks use
 `-I scripts/typography-validation.gradle test testUi150 testUi200`.
 Use unique `realmSharkBuildDir` and project-cache directories per worker. Serialize
 desktop/focus-sensitive validation and packaging. Never run `Set-CiDisplay.ps1` on this
-workstation; it is CI-only. Use synthetic fixtures, isolated working directories/history,
-and explicit preference isolation. Do not start live capture or send bridge deliveries.
+workstation; it is CI-only. Automated tests use synthetic fixtures, isolated working
+directories/history, and explicit preference isolation. Launching the app (including from
+the user's usual folder with their real history) and starting live capture are allowed
+when no other RealmShark instance is running; check the running processes first. Do not
+send bridge deliveries.
 
 Use `apply_patch` for source edits. Keep changes compatible with existing data, unknown
 states, asynchronous persistence and EDT rules. Reviewers inspect actual code and fresh
