@@ -159,6 +159,8 @@ public class SettingsPageTest {
             SettingsPage page = new SettingsPage(new JPanel(), () -> {}, new JPanel(), new JPanel(),
                 new JPanel(), new JPanel(), new JPanel());
             JTextField search = named(page, "settings-search", JTextField.class);
+            assertTrue(search.getClientProperty("JTextField.leadingIcon") instanceof com.formdev.flatlaf.icons.FlatSearchIcon);
+            assertEquals(true, search.getClientProperty("JTextField.showClearButton"));
             search.setText("  FONT size ");
             assertEquals(java.util.List.of("settings-section-appearance"), buttons(page));
             assertEquals(SettingsPage.APPEARANCE, page.currentSection());

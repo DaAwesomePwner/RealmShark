@@ -420,6 +420,7 @@ public class MyInfoGUI extends JPanel {
         };
         search.putClientProperty("JTextField.placeholderText", "Search build details…");
         search.getAccessibleContext().setAccessibleName("Search build details");
+        tomato.gui.modern.TextSearchBar.decorateSearch(search);
         category.getAccessibleContext().setAccessibleName("Detail category");
         evidence.setName("myinfo-evidence");
         evidence.getAccessibleContext().setAccessibleName("Build evidence filter");

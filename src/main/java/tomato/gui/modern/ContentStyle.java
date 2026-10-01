@@ -63,11 +63,13 @@ public final class ContentStyle {
             else if (name.endsWith(".acceleratorFont")) defaults.put(key, new FontUIResource(metadata(body())));
         }
         defaults.put("defaultFont", body);
+        defaults.put("TabbedPane.font", new FontUIResource(tabFont()));
         defaults.put("TableHeader.font", new FontUIResource(emphasis(metadata(body()))));
         defaults.put("ToolTip.font", new FontUIResource(metadata(body())));
     }
 
     public static Font body() { return new RoleFont(contentFont, new FontRole(1f, Font.PLAIN, null)); }
+    static Font tabFont() { return body().deriveFont(body().getSize2D() * 1.08f); }
     public static Font emphasis(Font base) {
         FontRole role = helperRole(base);
         return new RoleFont(base.deriveFont(base.getStyle() | Font.BOLD),
@@ -168,12 +170,17 @@ public final class ContentStyle {
         }
         if (component instanceof JComponent && component.getFont() != null) {
             JComponent control = (JComponent) component;
-            FontRole role = (FontRole) control.getClientProperty(FONT_ROLE);
-            if (role == null) {
-                role = roleOf(control.getFont());
-                control.putClientProperty(FONT_ROLE, role);
+            // Tab labels keep their theme role when the body font or look and feel changes.
+            Font font;
+            if (control instanceof JTabbedPane) font = new FontUIResource(tabFont());
+            else {
+                FontRole role = (FontRole) control.getClientProperty(FONT_ROLE);
+                if (role == null) {
+                    role = roleOf(control.getFont());
+                    control.putClientProperty(FONT_ROLE, role);
+                }
+                font = role.resolve();
             }
-            Font font = role.resolve();
             if (!font.equals(control.getFont())) control.setFont(font);
             if (control instanceof JTable) {
                 JTable table = (JTable) control;
