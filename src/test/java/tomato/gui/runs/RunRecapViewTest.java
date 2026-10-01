@@ -80,8 +80,8 @@ public class RunRecapViewTest {
 
     static RunRecapModel full(VisitRef ref, RunOutcome outcome, int recordings) {
         RunRecapModel.Header header = new RunRecapModel.Header("Lost Halls", "Lost Halls", 0, outcome, T0, 591_000L, 4, "Wizard #3");
-        RunRecapModel.Loot loot = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0 + 300_000, List.of(new LootFacts.Item(101, true, false, false, false, 2, 0))),
-            new RunRecapModel.Loot.Bag("Purple", T0 + 400_000, List.of(potion(102), potion(103)))), 3, "1 UT · 2 potions", null);
+        RunRecapModel.Loot loot = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0 + 300_000, "Synthetic boss", List.of(new LootFacts.Item(101, true, false, false, false, 2, 0))),
+            new RunRecapModel.Loot.Bag("Purple", T0 + 400_000, null, List.of(potion(102), potion(103)))), 3, "1 UT · 2 potions", null);
         RunRecapModel.Players players = new RunRecapModel.Players(List.of(
             new RunRecapModel.Players.Player(1, "Alpha", "Wizard", 782, Arrays.asList(2001, 2002, null, -1), 700L, T0 + 10_000,
                 List.of(EnchantInfo.ofSlotCount(2), EnchantInfo.notRecorded(), EnchantInfo.notRecorded(), EnchantInfo.notRecorded())),
@@ -155,16 +155,20 @@ public class RunRecapViewTest {
             assertFalse("Evidence is Analyst only", section(view, "evidence").isVisible());
 
             assertEquals("3 items in 2 bags · 1 UT · 2 potions", text(view, "run-recap-loot-summary"));
-            List<Integer> loot = new ArrayList<>();
-            collect(named(view, "run-recap-loot-bags", JComponent.class), c -> { if (c instanceof ItemSlot) loot.add(((ItemSlot) c).itemId()); });
-            assertEquals(List.of(101, 102, 103), loot);
-            List<ItemSlot> slots = new ArrayList<>();
-            collect(named(view, "run-recap-loot-bags", JComponent.class), c -> { if (c instanceof ItemSlot) slots.add((ItemSlot) c); });
+            tomato.gui.loot.haul.HaulView haul = named(view, "loot-haul", tomato.gui.loot.haul.HaulView.class);
+            assertNull("The recap has its own header", haul.model().header());
+            List<String> bags = new ArrayList<>();
+            collect(haul, c -> { if ("loot-haul-bag".equals(c.getName())) bags.add(((JComponent) c).getToolTipText()); });
+            assertEquals("Most valuable bag first", List.of("White bag: 1 bag, 1 item", "Purple bag: 1 bag, 2 items"), bags);
+            assertEquals("The UT's bag opens first", 0, haul.openGroup());
+            List<ItemSlot> slots = itemSlots(haul);
+            assertEquals(List.of(101), slots.stream().map(ItemSlot::itemId).toList());
             assertEquals(tomato.realmshark.EnchantInfo.ofSlotCount(2), slots.get(0).enchant());
             assertTrue(slots.get(0).getAccessibleContext().getAccessibleName().endsWith("Rare · 2 enchant slots"));
-            assertNull("A potion shows no enchant line", slots.get(1).enchant());
-            assertEquals(List.of("White bag", "Purple bag"), texts(view, "run-recap-loot-bag-name"));
-            assertEquals(List.of("1 UT", "2 potions"), texts(view, "run-recap-loot-bag-kinds"));
+            haul.openGroup(1);
+            slots = itemSlots(haul);
+            assertEquals(List.of(102, 103), slots.stream().map(ItemSlot::itemId).toList());
+            assertNull("A potion shows no enchant line", slots.get(0).enchant());
 
             assertEquals(RunRecapModel.Players.INSPECT_DAMAGE, text(view, "run-recap-players-damage-label"));
             assertEquals(List.of("Alpha", "Unnamed player"), texts(view, "run-recap-player-name"));
@@ -333,22 +337,14 @@ public class RunRecapViewTest {
             assertFalse(shows(view, "run-recap-unavailable"));
             assertTrue("An in-progress run says when it was read", shows(view, "run-recap-asof"));
             assertEquals("In progress", named(view, "run-recap-outcome", Chip.class).getText());
-            Component bag = named(view, "run-recap-loot-bags", JComponent.class).getComponent(0);
+            Component bag = named(view, "loot-haul-bag", JComponent.class);
             view.show(full(REF, RunOutcome.IN_PROGRESS, 1));
-            assertSame("An equal model rebuilds nothing", bag, named(view, "run-recap-loot-bags", JComponent.class).getComponent(0));
+            assertSame("An equal model rebuilds nothing", bag, named(view, "loot-haul-bag", JComponent.class));
 
             view.showLoading(new VisitRef(REF.sessionId, "v2"));
             assertFalse("Nothing of the previous run stays while another loads", shows(view, "run-recap-content"));
             assertNull(view.model());
         });
-    }
-
-    @Test public void lootLinesUseOneWording() {
-        assertEquals("1 UT · 2 potions", RunRecapView.LootLine.kinds(List.of(ut(1), potion(2), potion(3))));
-        assertEquals("1 ST · 1 potion", RunRecapView.LootLine.kinds(List.of(new LootFacts.Item(4, false, true, false, false), potion(5))));
-        assertEquals("", RunRecapView.LootLine.kinds(List.of(new LootFacts.Item(6, false, false, true, false))));
-        assertEquals("3 items in 2 bags · 1 UT · 2 potions", RunRecapView.LootLine.section(3, 2, "1 UT · 2 potions"));
-        assertEquals("1 item in 1 bag", RunRecapView.LootLine.section(1, 1, ""));
     }
 
     /** The header writes the entry time and the observed span as the run's card does; the tooltips keep the exact values. */
@@ -394,7 +390,7 @@ public class RunRecapViewTest {
     @Test public void theLootLineAddsOnlyNotableKinds() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             RunRecapModel base = full(REF, RunOutcome.COMPLETED, 1);
-            RunRecapModel.Loot plain = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0, List.of(new LootFacts.Item(7, false, false, false, false)))),
+            RunRecapModel.Loot plain = new RunRecapModel.Loot(List.of(new RunRecapModel.Loot.Bag("White", T0, null, List.of(new LootFacts.Item(7, false, false, false, false)))),
                 1, "1 item", null);
             RunRecapView view = view(new RunRecapModel(REF, null, base.capturedAt(), base.header(), base.tiles(), base.damage(), plain,
                 base.players(), base.resources(), base.timeline(), base.evidence()));
@@ -404,7 +400,7 @@ public class RunRecapViewTest {
         });
     }
 
-    /** Loot and Players rows give their labels the section's widest label width, so the item slots line up from row to row. */
+    /** Players rows give their labels the section's widest label width, so the item slots line up from row to row; the open Loot haul never scrolls sideways. */
     @Test public void itemSlotsLineUpFromRowToRow() throws Exception {
         for (String id : new String[] {"loot", "players"}) PropertiesManager.setProperties(Collapsible.PREFIX + "run-recap-" + id, "true");
         RunRecapView[] view = new RunRecapView[1];
@@ -413,7 +409,7 @@ public class RunRecapViewTest {
             SwingUtilities.invokeAndWait(() -> evidence.show(view[0], "Run recap", size[0], size[1], size[2]));
             evidence.settle();
             SwingUtilities.invokeAndWait(() -> {
-                for (String[] rows : new String[][] {{"run-recap-loot-bags", "run-recap-loot-bag"}, {"run-recap-player-rows", "run-recap-player"}}) {
+                for (String[] rows : new String[][] {{"run-recap-player-rows", "run-recap-player"}}) {
                     JComponent column = named(view[0], rows[0], JComponent.class);
                     List<Integer> starts = new ArrayList<>();
                     for (Component row : column.getComponents()) {
@@ -715,6 +711,13 @@ public class RunRecapViewTest {
         Rectangle placed = SwingUtilities.convertRectangle(part.getParent(), part.getBounds(), viewport.getView());
         int y = Math.max(0, Math.min(placed.y, viewport.getView().getHeight() - viewport.getHeight()));
         viewport.setViewPosition(new Point(0, y));
+    }
+
+    /** The item slots holding an item under {@code root}, in order. */
+    private static List<ItemSlot> itemSlots(JComponent root) {
+        List<ItemSlot> slots = new ArrayList<>();
+        collect(root, c -> { if (c instanceof ItemSlot slot && slot.state() == ItemSlot.State.ITEM) slots.add(slot); });
+        return slots;
     }
 
     private static List<String> texts(Container root, String name) {

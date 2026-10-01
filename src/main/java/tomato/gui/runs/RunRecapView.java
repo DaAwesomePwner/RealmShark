@@ -20,7 +20,8 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.route.Destination;
 import tomato.gui.route.Route;
-import tomato.gui.stats.LootFacts;
+import tomato.gui.loot.haul.HaulModel;
+import tomato.gui.loot.haul.HaulView;
 import tomato.history.link.VisitRef;
 import tomato.realmshark.EnchantInfo;
 import util.PropertiesManager;
@@ -101,6 +102,7 @@ public final class RunRecapView extends JPanel {
     private final KitText lootSummary = KitText.caption(" ");
     private final JTextArea lootReason = reason("run-recap-loot-reason");
     private final JPanel lootBags = column("run-recap-loot-bags");
+    private final HaulView lootHaul = new HaulView(HaulView.Mode.COMPACT);
     // Players
     private final KitText playersCount = KitText.caption(" "), playersDamageLabel = KitText.caption(RunRecapModel.Players.INSPECT_DAMAGE);
     private final JTextArea playersReason = reason("run-recap-players-reason"), playersDamageReason = reason("run-recap-players-damage-reason");
@@ -204,6 +206,7 @@ public final class RunRecapView extends JPanel {
         evidenceText.getAccessibleContext().setAccessibleName("Run evidence");
 
         lootSummary.setName("run-recap-loot-summary");
+        rebuild(lootBags, rows -> rows.add(lootHaul));
         playersCount.setName("run-recap-players-count");
         playersDamageLabel.setName("run-recap-players-damage-label");
         section(DAMAGE, "Damage", KitLayouts.stack(Tokens.S, damage), true);
@@ -568,48 +571,15 @@ public final class RunRecapView extends JPanel {
         if (loot.equals(shownLoot)) return;
         shownLoot = loot;
         boolean any = !loot.bags().isEmpty();
-        // Only the notable kinds follow "N items in M bags" (the run summary's "N items" fallback would repeat the count).
-        List<LootFacts.Item> items = new ArrayList<>();
-        for (RunRecapModel.Loot.Bag bag : loot.bags()) items.addAll(bag.items());
-        lootSummary.setText(any ? LootLine.section(loot.count(), loot.bags().size(), LootLine.kinds(items)) : " ");
+        List<HaulModel.Bag> bags = new ArrayList<>();
+        for (RunRecapModel.Loot.Bag bag : loot.bags()) bags.add(new HaulModel.Bag(bag.bag(), bag.time(), bag.dropper(), bag.items()));
+        HaulModel haul = HaulModel.of(null, bags);
+        lootSummary.setText(any ? haul.tally() : " ");
         lootSummary.setVisible(any);
         text(lootReason, any ? null : loot.reason());
-        SlotColumns columns = new SlotColumns();
-        rebuild(lootBags, rows -> { for (RunRecapModel.Loot.Bag bag : loot.bags()) rows.add(bagRow(bag, columns)); });
+        lootHaul.show(haul, null);
+        lootBags.setVisible(any);
         title(LOOT, any ? "Loot · " + loot.count() + (loot.count() == 1 ? " item" : " items") : "Loot");
-    }
-
-    private static JComponent bagRow(RunRecapModel.Loot.Bag bag, SlotColumns columns) {
-        KitText name = KitText.body(bag.bag() == null ? "Bag" : bag.bag() + " bag");
-        name.setName("run-recap-loot-bag-name");
-        name.setIcon(new Dot(bag.bag()));
-        name.setIconTextGap(Tokens.XS + 2);
-        name.setToolTipText(bag.bag() == null ? "The bag's color was not recorded" : null);
-        KitText time = KitText.caption("at " + DisplayFormat.formatTimestamp(Instant.ofEpochMilli(bag.time()), DisplayFormat.TimestampMode.TIME));
-        time.setName("run-recap-loot-bag-time");
-        JPanel lead = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.S, 0));
-        lead.setOpaque(false);
-        lead.add(name);
-        lead.add(time);
-        JPanel slots = new JPanel(new FlowLayout(FlowLayout.LEADING, Tokens.XS, 0));
-        slots.setOpaque(false);
-        List<String> names = new ArrayList<>();
-        for (LootFacts.Item item : bag.items()) {
-            ItemSlot slot = new ItemSlot(24);
-            EnchantInfo enchant = item.enchant().state() == EnchantInfo.State.NOT_RECORDED ? null : item.enchant();
-            slot.setItem(item.id(), item.untiered() ? "UT" : item.setTiered() ? "ST" : ItemTiers.label(item.id()), enchant);
-            slots.add(slot);
-            names.add(Sprites.name(item.id()));
-        }
-        String kinds = LootLine.kinds(bag.items());
-        KitText summary = KitText.caption(kinds);
-        summary.setName("run-recap-loot-bag-kinds");
-        summary.setVisible(!kinds.isEmpty());
-        JPanel row = columns.row(lead, slots, summary);
-        row.setName("run-recap-loot-bag");
-        row.getAccessibleContext().setAccessibleName(name.getText() + " " + time.getText() + ": " + String.join(", ", names)
-            + (kinds.isEmpty() ? "" : " (" + kinds + ")"));
-        return row;
     }
 
     private void applyPlayers(RunRecapModel.Players players) {
@@ -988,52 +958,6 @@ public final class RunRecapView extends JPanel {
             if (parent == null) return 0;
             Insets insets = parent.getInsets();
             return Math.max(0, parent.getWidth() - insets.left - insets.right);
-        }
-    }
-
-    /** A bag-colored dot beside the bag name (muted when the bag was not recorded); the name says the color too. */
-    private static final class Dot implements Icon {
-        private final String bag;
-        Dot(String bag) { this.bag = bag; }
-        @Override public int getIconWidth() { return 10; }
-        @Override public int getIconHeight() { return 10; }
-        @Override public void paintIcon(Component c, Graphics graphics, int x, int y) {
-            Graphics2D g = (Graphics2D) graphics.create();
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setColor(bag == null ? Tokens.color(Tokens.Role.TEXT_MUTED) : Tokens.bag(bag));
-            g.fillOval(x + 1, y + 1, 8, 8);
-            g.setColor(Tokens.color(Tokens.Role.BORDER));
-            g.drawOval(x + 1, y + 1, 8, 8);
-            g.dispose();
-        }
-    }
-
-    /**
-     * The loot wording of the recap ("1 UT · 2 potions", "3 items in 2 bags · …"), kept in one place so it can be unified with the
-     * run feed's card line, which follows the same rule: untiered, then set-tiered, then potions; nothing else is counted by kind.
-     */
-    static final class LootLine {
-        private LootLine() {}
-
-        /** "1 UT · 2 potions" for these items; "" when none is untiered, set-tiered or a potion. */
-        static String kinds(List<LootFacts.Item> items) {
-            int untiered = 0, setTiered = 0, potions = 0;
-            for (LootFacts.Item item : items) {
-                if (item.untiered()) untiered++;
-                if (item.setTiered()) setTiered++;
-                if (item.potion()) potions++;
-            }
-            List<String> parts = new ArrayList<>();
-            if (untiered > 0) parts.add(untiered + " UT");
-            if (setTiered > 0) parts.add(setTiered + " ST");
-            if (potions > 0) parts.add(potions + (potions == 1 ? " potion" : " potions"));
-            return String.join(" · ", parts);
-        }
-
-        /** "3 items in 2 bags · 1 UT · 2 potions" ({@code kinds} as {@link #kinds} words it; "" leaves it out). */
-        static String section(int items, int bags, String kinds) {
-            String line = items + (items == 1 ? " item" : " items") + " in " + bags + (bags == 1 ? " bag" : " bags");
-            return kinds == null || kinds.isEmpty() ? line : line + " · " + kinds;
         }
     }
 }
