@@ -5,6 +5,7 @@ import java.io.*;
 import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -284,14 +285,22 @@ public final class SessionStore implements AutoCloseable {
             if (Files.isDirectory(snapshots)) try (DirectoryStream<Path> files = Files.newDirectoryStream(snapshots, "*.json")) {
                 List<Path> ordered=new ArrayList<>();for(Path path:files)ordered.add(path);
                 if("runs".equals(module)){
-                    Map<Path,Long> starts=new HashMap<>();
-                    for(Path path:ordered)try(com.google.gson.stream.JsonReader reader=new com.google.gson.stream.JsonReader(Files.newBufferedReader(path,StandardCharsets.UTF_8))){
-                        reader.beginObject();long start=0;
-                        while(reader.hasNext()){if("started".equals(reader.nextName())){start=reader.nextLong();break;}reader.skipValue();}
-                        starts.put(path,start);
+                    List<SavedCheckpoint<T>> parsed=new ArrayList<>();
+                    for(Path path:ordered){
+                        String saved=new String(Files.readAllBytes(path),StandardCharsets.UTF_8);
+                        // Preserve beginObject's empty/non-object failures without parsing the checkpoint twice.
+                        try(com.google.gson.stream.JsonReader reader=new com.google.gson.stream.JsonReader(new StringReader(saved))){
+                            reader.beginObject();
+                        }
+                        JsonObject json=JsonParser.parseString(saved).getAsJsonObject();
+                        long start=json.has("started")?json.get("started").getAsLong():0;
+                        parsed.add(new SavedCheckpoint<>(path,start,JSON.fromJson(json,type)));
                     }
-                    ordered.sort(Comparator.comparingLong((Path p)->starts.get(p)).reversed().thenComparing(Path::toString));
-                }else ordered.sort(Comparator.comparing(Path::toString));
+                    parsed.sort(Comparator.comparingLong((SavedCheckpoint<T> p)->p.started).reversed().thenComparing(p->p.path.toString()));
+                    for(SavedCheckpoint<T> saved:parsed)if(saved.value!=null)consumer.accept(session,finishSavedVisit(session,saved.value));
+                    continue;
+                }
+                ordered.sort(Comparator.comparing(Path::toString));
                 for (Path path : ordered) {
                     T value = JSON.fromJson(new String(Files.readAllBytes(path), StandardCharsets.UTF_8), type);
                     if (value != null) consumer.accept(session, finishSavedVisit(session,value));
@@ -301,6 +310,89 @@ public final class SessionStore implements AutoCloseable {
     }
     public <T> List<T> read(String scope, String module, Class<T> type) throws IOException {
         List<T> result = new ArrayList<>(); read(scope, module, type, (s,v) -> result.add(v)); return result;
+    }
+    private record SavedCheckpoint<T>(Path path,long started,T value) {}
+    private static final int JOURNAL_WINDOW = 4096;
+
+    /** Caller-owned position and identity of a journal prefix; null starts a new read at byte zero. */
+    public static final class JournalCursor {
+        private final Path file;
+        private final long offset;
+        private final BasicFileAttributes attributes;
+        private final byte[] window;
+        private JournalCursor(Path file,long offset,BasicFileAttributes attributes,byte[] window){
+            this.file=file;this.offset=offset;this.attributes=attributes;this.window=window;
+        }
+        public long offset(){return offset;}
+        public Object fileKey(){return attributes==null?null:attributes.fileKey();}
+    }
+    /** The caller must discard its accumulated records and restart from zero. */
+    public static final class JournalChangedException extends IOException {
+        JournalChangedException(){super("History journal changed; restart from zero");}
+    }
+    /**
+     * Reads only newline-terminated records in the initial byte prefix, starting at the supplied cursor. Off the EDT only.
+     * The returned cursor is committed only after a successful read; callers must also discard any emitted records on failure.
+     * Shrinkage, a changed file key or changed bytes in the last 4096 consumed bytes invalidate the cursor. Checkpoints are
+     * not read by this method. A replacement preserving that window cannot be distinguished from an append without a file key.
+     */
+    public <T> JournalCursor readJournalFrom(Session session,String module,JournalCursor cursor,Class<T> type,
+            Consumer<T> consumer,tomato.history.archive.Cancellation cancel)throws IOException{
+        if(javax.swing.SwingUtilities.isEventDispatchThread())throw new IllegalStateException("Read history off the EDT");
+        checkModule(module);cancel.check();
+        Path file=sessionPath(session.id).resolve(module+".jsonl");
+        if(cursor!=null&&!cursor.file.equals(file))throw new JournalChangedException();
+        BasicFileAttributes before;
+        try{before=Files.readAttributes(file,BasicFileAttributes.class);}
+        catch(NoSuchFileException absent){
+            if(cursor!=null&&cursor.attributes!=null)throw new JournalChangedException();
+            return new JournalCursor(file,0,null,new byte[0]);
+        }
+        if(!before.isRegularFile())throw new IOException("History journal is not a regular file");
+        if(cursor!=null&&cursor.attributes!=null)checkJournalIdentity(cursor.attributes,before);
+        long offset=cursor==null?0:cursor.offset,consumed=offset;
+        if(before.size()<offset)throw new JournalChangedException();
+        ByteArrayOutputStream line=new ByteArrayOutputStream();
+        byte[] window;
+        try(FileChannel channel=FileChannel.open(file,StandardOpenOption.READ)){
+            if(cursor!=null)checkJournalWindow(channel,cursor);
+            channel.position(offset);
+            try(InputStream input=new BufferedInputStream(new JournalPrefix(Channels.newInputStream(channel),before.size()-offset))){
+                for(int value;(value=input.read())>=0;){
+                    if((offset++&4095)==0)cancel.check();
+                    if(value=='\n'){
+                        T parsed;
+                        try{parsed=JSON.fromJson(line.toString(StandardCharsets.UTF_8),type);}
+                        catch(JsonParseException failure){throw new IOException("Unreadable history: "+file,failure);}
+                        if(parsed!=null)consumer.accept(finishSavedVisit(session,parsed));
+                        consumed=offset;line.reset();
+                    }else line.write(value);
+                }
+                if(cursor!=null)checkJournalWindow(channel,cursor);
+                window=journalWindow(channel,consumed);
+            }
+        }
+        if(offset<before.size())throw new JournalChangedException();
+        BasicFileAttributes after;
+        try{after=Files.readAttributes(file,BasicFileAttributes.class);}
+        catch(NoSuchFileException absent){throw new JournalChangedException();}
+        checkJournalIdentity(before,after);cancel.check();
+        return new JournalCursor(file,consumed,before,window);
+    }
+    private static void checkJournalIdentity(BasicFileAttributes before,BasicFileAttributes after)throws JournalChangedException{
+        if(!after.isRegularFile()||after.size()<before.size()
+                ||before.fileKey()!=null&&!Objects.equals(before.fileKey(),after.fileKey()))throw new JournalChangedException();
+    }
+    private static void checkJournalWindow(FileChannel channel,JournalCursor cursor)throws IOException{
+        if(!Arrays.equals(cursor.window,journalWindow(channel,cursor.offset)))throw new JournalChangedException();
+    }
+    private static byte[] journalWindow(FileChannel channel,long offset)throws IOException{
+        byte[] bytes=new byte[(int)Math.min(JOURNAL_WINDOW,offset)];
+        java.nio.ByteBuffer buffer=java.nio.ByteBuffer.wrap(bytes);
+        long start=offset-bytes.length;
+        while(buffer.hasRemaining())
+            if(channel.read(buffer,start+buffer.position())<0)throw new JournalChangedException();
+        return bytes;
     }
     /**
      * One checkpoint of a session exactly as {@link #put} wrote it ({@code <session>/<module>/<uuid(key)>.json}), or empty

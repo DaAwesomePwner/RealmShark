@@ -103,6 +103,15 @@ public final class LootFacts {
         }
     }
 
+    /** Incremental journal projection using exactly the same bag construction as a full saved-history read. */
+    public static SessionStore.JournalCursor readJournalFrom(SessionStore store, SessionStore.Session session,
+            SessionStore.JournalCursor cursor, Consumer<Bag> sink, tomato.history.archive.Cancellation cancel) throws IOException {
+        try {
+            return store.readJournalFrom(session, "loot", cursor, LootDashboard.Drop.class,
+                drop -> sink.accept(bag(session.id, drop)), cancel);
+        } catch (UncheckedIOException failure) { throw failure.getCause(); }
+    }
+
     /** One drop as saved or as the live dashboard holds it (the same class): both projections apply the same rules. */
     static Bag bag(String session, LootDashboard.Drop drop) {
         if (drop.items == null) throw new UncheckedIOException(new IOException("A saved loot bag has no item list; its contents are unknown"));

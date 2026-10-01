@@ -43,6 +43,102 @@ public class HighlightsSourceTest {
     private static HighlightsModel read(HighlightsSource source, HighlightsModel.Window window) { return source.read(window, new Cancellation()); }
     private static List<Integer> ids(HighlightsModel model) { return model.notable().stream().map(HighlightsModel.Notable::itemId).collect(Collectors.toList()); }
 
+    private static void assertFullReadParity(SessionStore store, long now, HighlightsModel actual) throws Exception {
+        List<LootFacts.Bag> bags = new ArrayList<>();
+        LootFacts.read(store, store.currentId(), bags::add);
+        HighlightsModel full = HighlightsModel.of(SESSION, HighlightsModel.Source.SAVED, bags, !bags.isEmpty(), 0, false, now);
+        assertEquals(SessionStore.JSON.toJson(full), SessionStore.JSON.toJson(actual));
+    }
+
+    @Test public void appendedDropsMatchFullReadsAndRecoverAfterReplacementShrinkAndSessionChange() throws Exception {
+        Path root = temp.newFolder("incremental").toPath();
+        try (SessionStore store = new SessionStore(root, false, "fixture");
+             SessionStore other = new SessionStore(root, false, "fixture")) {
+            long now = store.started() + HOUR;
+            AtomicReference<SessionStore> selected = new AtomicReference<>(store);
+            HighlightsSource source = new HighlightsSource(selected::get, new LootDashboard.Feed(), ZONE, () -> now);
+            session(root, store.currentId(), store.started(), 0);
+            Path file = Files.createDirectories(root.resolve(store.currentId())).resolve("loot.jsonl");
+            for (int i = 0; i < 12; i++) {
+                Files.writeString(file, drop(i % 2 == 0 ? "White" : "Orange", "Lost Halls", store.started() + i * 1000,
+                    ref(store.currentId(), "v" + i), ut(700 + i, i % 4), potion(LIFE), st(800 + i, null)) + "\n",
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                assertFullReadParity(store, now, read(source, SESSION));
+                assertFullReadParity(store, now, read(source, SESSION));   // no new bytes, no duplicated bags
+            }
+            Path replacement = file.resolveSibling("replacement.jsonl");
+            String newDrop = drop("B.White", "Snake Pit", now - 1000, null, st(999, 3)) + "\n";
+            Files.writeString(replacement, newDrop.repeat(100));   // larger: replacement cannot be mistaken for shrinkage
+            assertTrue(Files.size(replacement) > Files.size(file));
+            Files.setAttribute(replacement, "basic:creationTime", FileTime.fromMillis(1000));
+            Files.move(replacement, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            HighlightsModel replaced = read(source, SESSION);
+            assertEquals(100, replaced.bags()); assertFullReadParity(store, now, replaced);
+            Files.writeString(file, newDrop);
+            HighlightsModel shrunk = read(source, SESSION);
+            assertEquals(1, shrunk.bags()); assertFullReadParity(store, now, shrunk);
+            selected.set(other);
+            assertFullReadParity(other, now, read(source, SESSION));
+            selected.set(store);
+            assertFullReadParity(store, now, read(source, SESSION));
+        }
+    }
+
+    @Test public void incompleteTailCancellationAndFailedIncrementalReadsNeverDuplicateBags() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder("tails").toPath(), false, "fixture")) {
+            long now = store.started() + HOUR;
+            HighlightsSource source = source(store, now);
+            session(store.directory(), store.currentId(), store.started(), 0);
+            Path file = Files.createDirectories(store.directory().resolve(store.currentId())).resolve("loot.jsonl");
+            String first = drop("White", "Lost Halls", now - 1000, null, ut(701, 2)).toString();
+            Files.writeString(file, first + "\n" + first);
+            assertEquals(1, read(source, SESSION).bags());   // valid JSON without its final newline is still a tail
+            Files.writeString(file, "\n", java.nio.file.StandardOpenOption.APPEND);
+            assertFullReadParity(store, now, read(source, SESSION));
+            Files.writeString(file, (first + "\n").repeat(50), java.nio.file.StandardOpenOption.APPEND);
+            java.util.concurrent.atomic.AtomicInteger checks = new java.util.concurrent.atomic.AtomicInteger();
+            Cancellation midway = new Cancellation(() -> checks.incrementAndGet() > 8);
+            assertThrows(CancellationException.class, () -> source.read(SESSION, midway));
+            assertFullReadParity(store, now, read(source, SESSION));
+            Files.writeString(file, "{broken\n" + first + "\n", java.nio.file.StandardOpenOption.APPEND);
+            assertEquals(1, read(source, SESSION).sessionsSkipped());
+            Files.writeString(file, first + "\n");
+            assertFullReadParity(store, now, read(source, SESSION));
+        }
+    }
+
+    @Test public void aDamagedMiddleLineAtOffsetZeroUsesOneIncrementalAttemptAndOneFullRead() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder("damaged-middle").toPath(), false, "fixture")) {
+            long now = store.started() + HOUR;
+            HighlightsSource source = source(store, now);
+            session(store.directory(), store.currentId(), store.started(), 0);
+            Path file = store.directory().resolve(store.currentId()).resolve("loot.jsonl");
+            String bag = drop("White", "Lost Halls", now - 1000, null, ut(701, 2)).toString();
+            Files.writeString(file, bag + "\n{broken\n" + bag + "\n");
+            for (int attempt = 0; attempt < 2; attempt++) {
+                int before = source.sessionReads();
+                HighlightsModel model = read(source, SESSION);
+                assertEquals(1, model.sessionsSkipped()); assertEquals(0, model.bags());
+                assertEquals("One incremental attempt plus its full-read fallback", before + 2, source.sessionReads());
+            }
+            Files.writeString(file, bag + "\n");
+            assertFullReadParity(store, now, read(source, SESSION));
+        }
+    }
+
+    @Test public void currentSessionLootCheckpointsRetainFullReadSemantics() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder("checkpoints").toPath(), false, "fixture")) {
+            long now = store.started() + HOUR;
+            HighlightsSource source = source(store, now);
+            session(store.directory(), store.currentId(), store.started(), 0);
+            Path folder = Files.createDirectories(store.directory().resolve(store.currentId()).resolve("loot"));
+            Files.writeString(folder.resolve("bag.json"), drop("White", "Lost Halls", now - 1000, null, ut(701, 2)).toString());
+            assertFullReadParity(store, now, read(source, SESSION));
+            Files.delete(folder.resolve("bag.json")); Files.delete(folder);
+            assertFullReadParity(store, now, read(source, SESSION));
+        }
+    }
+
     /** The tiles show exactly Home's counts for the same history and window, and are unknown exactly when Home's are. */
     private static void assertHomeParity(String what, HomeArchive.Totals home, HighlightsModel model) {
         if (!home.lootRecorded()) {

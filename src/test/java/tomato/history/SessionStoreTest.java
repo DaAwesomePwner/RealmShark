@@ -14,6 +14,129 @@ import static org.junit.Assert.*;
 
 public class SessionStoreTest {
     @Rule public TemporaryFolder temp=new TemporaryFolder();
+    @Test public void runsCheckpointOrderAndContentsUseStartedThenPathWithEndedFixup()throws Exception{
+        Path root=temp.newFolder().toPath();
+        String id=UUID.randomUUID().toString();Path folder=Files.createDirectories(root.resolve(id).resolve("runs"));
+        SessionStore.Session metadata=new SessionStore.Session(id,1,"","test");metadata.ended=900;
+        Files.writeString(folder.getParent().resolve("session.json"),SessionStore.JSON.toJson(metadata));
+        Map<String,packets.packetcapture.logger.ActivityJournal.Visit> visits=new HashMap<>();
+        for(String name:List.of("c","a","b")){
+            packets.packetcapture.logger.ActivityJournal.Visit visit=new packets.packetcapture.logger.ActivityJournal.Visit();
+            visit.id=name;visit.map="Lost Halls";visit.started=name.equals("b")?100:200;visit.lastSeen=500;
+            Files.writeString(folder.resolve(name+".json"),SessionStore.JSON.toJson(visit));
+            visit.ended=visit.lastSeen;visit.endReason="App ended";visits.put(name,visit);
+        }
+        try(SessionStore store=new SessionStore(root,false,"test")){
+            List<packets.packetcapture.logger.ActivityJournal.Visit> actual=store.read(id,"runs",packets.packetcapture.logger.ActivityJournal.Visit.class);
+            assertEquals(List.of("a","c","b"),actual.stream().map(v->v.id).toList());
+            assertEquals(SessionStore.JSON.toJson(List.of(visits.get("a"),visits.get("c"),visits.get("b"))),SessionStore.JSON.toJson(actual));
+            Files.writeString(folder.resolve("bad.json"),"{\"started\":300,broken");
+            assertThrows(RuntimeException.class,()->store.read(id,"runs",packets.packetcapture.logger.ActivityJournal.Visit.class));
+        }
+    }
+    @Test public void runsCheckpointsReplaceMalformedUtf8AndKeepEmptyAndNonObjectFailureKinds()throws Exception{
+        Path root=temp.newFolder().toPath();String id=UUID.randomUUID().toString();
+        Path folder=Files.createDirectories(root.resolve(id).resolve("runs")),file=folder.resolve("run.json");
+        SessionStore.Session metadata=new SessionStore.Session(id,1,"","test");
+        Files.writeString(folder.getParent().resolve("session.json"),SessionStore.JSON.toJson(metadata));
+        byte[] saved=("{\"started\":1,\"text\":\""+"x".repeat(9000)+"?\"}").getBytes(StandardCharsets.UTF_8);
+        assertTrue(saved.length-3>8192);saved[saved.length-3]=(byte)0x80;
+        Files.write(file,saved);
+        try(SessionStore store=new SessionStore(root,false,"test")){
+            List<Event> values=store.read(id,"runs",Event.class);
+            assertEquals(1,values.size());assertEquals("x".repeat(9000)+"\uFFFD",values.get(0).text);
+            for(String empty:List.of(""," \r\n")){
+                Files.writeString(file,empty);
+                assertThrows(java.io.EOFException.class,()->store.read(id,"runs",Event.class));
+            }
+            for(String nonObject:List.of("[]","null","123","\"string\"")){
+                Files.writeString(file,nonObject);
+                assertThrows(IllegalStateException.class,()->store.read(id,"runs",Event.class));
+            }
+        }
+    }
+    @Test public void incrementalJournalConsumesOnlyCompleteUtf8LinesAndDetectsShrinkAndReplacement()throws Exception{
+        Path root=temp.newFolder().toPath();
+        try(SessionStore store=new SessionStore(root,false,"test")){
+            SessionStore.Session session=store.sessions().get(0);
+            Path file=Files.createDirectories(root.resolve(session.id)).resolve("chat.jsonl");
+            String first=SessionStore.JSON.toJson(new Event("snow 雪"))+"\r\n",second=SessionStore.JSON.toJson(new Event("next"));
+            Files.writeString(file,first+second);
+            List<Event> values=new ArrayList<>();
+            SessionStore.JournalCursor cursor=store.readJournalFrom(session,"chat",null,Event.class,values::add,new tomato.history.archive.Cancellation());
+            assertEquals(first.getBytes(StandardCharsets.UTF_8).length,cursor.offset());assertEquals(1,values.size());
+            Files.writeString(file,"\n",StandardOpenOption.APPEND);
+            cursor=store.readJournalFrom(session,"chat",cursor,Event.class,values::add,new tomato.history.archive.Cancellation());
+            assertEquals(Files.size(file),cursor.offset());assertEquals(List.of("snow 雪","next"),values.stream().map(v->v.text).toList());
+            SessionStore.JournalCursor complete=cursor;
+            store.readJournalFrom(session,"chat",complete,Event.class,v->fail("No records repeated"),new tomato.history.archive.Cancellation());
+            Files.writeString(file,first);
+            assertThrows(SessionStore.JournalChangedException.class,()->store.readJournalFrom(session,"chat",complete,Event.class,values::add,new tomato.history.archive.Cancellation()));
+            SessionStore.JournalCursor beforeReplace=store.readJournalFrom(session,"chat",null,Event.class,v->{},new tomato.history.archive.Cancellation());
+            Path replacement=file.resolveSibling("replacement.jsonl");Files.writeString(replacement,second+"\n"+first);
+            assertTrue(Files.size(replacement)>=beforeReplace.offset());
+            Files.move(replacement,file,StandardCopyOption.REPLACE_EXISTING);
+            assertThrows(SessionStore.JournalChangedException.class,()->store.readJournalFrom(session,"chat",beforeReplace,Event.class,values::add,new tomato.history.archive.Cancellation()));
+            SessionStore.JournalCursor restarted=store.readJournalFrom(session,"chat",null,Event.class,v->{},new tomato.history.archive.Cancellation());
+            assertEquals(Files.size(file),restarted.offset());
+            // Without a changed file key, an identical consumed prefix is safe to continue as an append.
+            String retained=Files.readString(file);
+            if(restarted.fileKey()==null){
+                Files.writeString(replacement,retained+first);Files.move(replacement,file,StandardCopyOption.REPLACE_EXISTING);
+            }else Files.writeString(file,retained+first);
+            values.clear();
+            SessionStore.JournalCursor continued=store.readJournalFrom(session,"chat",restarted,Event.class,values::add,new tomato.history.archive.Cancellation());
+            assertEquals(1,values.size());assertEquals(SessionStore.JSON.fromJson(first,Event.class).text,values.get(0).text);
+            assertEquals(Files.size(file),continued.offset());
+            Throwable[] edt=new Throwable[1];
+            SwingUtilities.invokeAndWait(()->{try{store.readJournalFrom(session,"chat",restarted,Event.class,v->{},new tomato.history.archive.Cancellation());}catch(Throwable failure){edt[0]=failure;}});
+            assertTrue(edt[0] instanceof IllegalStateException);
+        }
+    }
+    @Test public void incrementalJournalDetectsChangedConsumedWindowBeyondAnIdenticalLeadingBlock()throws Exception{
+        Path root=temp.newFolder().toPath();
+        try(SessionStore store=new SessionStore(root,false,"test")){
+            SessionStore.Session session=store.sessions().get(0);
+            Path file=Files.createDirectories(root.resolve(session.id)).resolve("chat.jsonl");
+            String prefix=(SessionStore.JSON.toJson(new Event("unchanged"))+"\n").repeat(100);
+            String old=SessionStore.JSON.toJson(new Event("old"))+"\n",changed=SessionStore.JSON.toJson(new Event("new"))+"\n";
+            assertTrue(prefix.getBytes(StandardCharsets.UTF_8).length>4096);
+            assertEquals(old.getBytes(StandardCharsets.UTF_8).length,changed.getBytes(StandardCharsets.UTF_8).length);
+            Files.writeString(file,prefix+old);
+            SessionStore.JournalCursor cursor=store.readJournalFrom(session,"chat",null,Event.class,v->{},new tomato.history.archive.Cancellation());
+            Path replacement=file.resolveSibling("replacement.jsonl");Files.writeString(replacement,prefix+changed);
+            Files.move(replacement,file,StandardCopyOption.REPLACE_EXISTING);
+            assertEquals(cursor.offset(),Files.size(file));
+            assertThrows(SessionStore.JournalChangedException.class,()->store.readJournalFrom(session,"chat",cursor,Event.class,
+                v->fail("A changed consumed prefix must be rejected before any new records are emitted"),new tomato.history.archive.Cancellation()));
+            // An in-place same-length rewrite leaves file identity unchanged on every provider, exercising the content check.
+            SessionStore.JournalCursor replaced=store.readJournalFrom(session,"chat",null,Event.class,v->{},new tomato.history.archive.Cancellation());
+            Files.writeString(file,prefix+old);
+            assertThrows(SessionStore.JournalChangedException.class,()->store.readJournalFrom(session,"chat",replaced,Event.class,v->{},new tomato.history.archive.Cancellation()));
+            List<Event> values=new ArrayList<>();
+            SessionStore.JournalCursor restarted=store.readJournalFrom(session,"chat",null,Event.class,values::add,new tomato.history.archive.Cancellation());
+            assertEquals(101,values.size());assertEquals("old",values.get(100).text);
+            Files.writeString(file,changed,StandardOpenOption.APPEND);
+            values.clear();
+            SessionStore.JournalCursor appended=store.readJournalFrom(session,"chat",restarted,Event.class,values::add,new tomato.history.archive.Cancellation());
+            assertEquals(1,values.size());assertEquals("new",values.get(0).text);assertEquals(Files.size(file),appended.offset());
+        }
+    }
+    @Test public void incrementalJournalPinsItsInitialPrefixAndFixesEndedVisits()throws Exception{
+        Path root=temp.newFolder().toPath();
+        try(SessionStore store=new SessionStore(root,false,"test")){
+            SessionStore.Session session=store.sessions().get(0);session.ended=900;
+            Path file=Files.createDirectories(root.resolve(session.id)).resolve("runs.jsonl");
+            String visit="{\"id\":\"v\",\"started\":100,\"lastSeen\":200}";
+            Files.writeString(file,visit+"\n"+visit);
+            List<packets.packetcapture.logger.ActivityJournal.Visit> values=new ArrayList<>();
+            SessionStore.JournalCursor cursor=store.readJournalFrom(session,"runs",null,packets.packetcapture.logger.ActivityJournal.Visit.class,v->{
+                values.add(v);try{Files.writeString(file,"\n",StandardOpenOption.APPEND);}catch(java.io.IOException failure){throw new java.io.UncheckedIOException(failure);}
+            },new tomato.history.archive.Cancellation());
+            assertEquals(1,values.size());assertEquals(200,values.get(0).ended);assertEquals("App ended",values.get(0).endReason);
+            assertEquals(visit.length()+1,cursor.offset());
+        }
+    }
     static final class Event {
         final String text;final Instant time;final LocalDateTime local;
         Event(String text){this.text=text;time=Instant.parse("2026-09-20T12:00:00Z");local=LocalDateTime.of(2026,9,20,12,0);}
