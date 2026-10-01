@@ -151,13 +151,16 @@ public class TomatoGUI {
         LootDashboard exploreLive = new LootDashboard(LootCapture.get().feed());
         JComponent lootWorkspace = store == null ? exploreLive : HistoricalStatistics.lootWorkspace(
             store, exploreLive, scratch.resolve("loot"), states);
+        // Loot › Explore with saved history: Pictures (saved runs and each run's haul) beside the workspace as its Table view.
+        tomato.gui.loot.explore.LootExplorePage explorePage = lootWorkspace instanceof ArchiveWorkspace
+            ? new tomato.gui.loot.explore.LootExplorePage(lootWorkspace, AppHistory::store) : null;
         // Loot › Highlights reads saved history off the EDT when it first shows (the live capture, labeled, without a store).
         LootHighlights highlights = new LootHighlights(new HighlightsSource(AppHistory::store, LootCapture.get().feed(),
             java.time.ZoneId.systemDefault(), System::currentTimeMillis));
         highlights.addOverflowAction("loot-sharing-status", "Loot sharing status…", TomatoGUI::openLootSharingStatus);
         highlights.addOverflowAction("loot-filter-settings", "Loot filter settings…", () -> openSettings(SettingsPage.LOOT_FILTERS));
         // Loot (the loot page, spec §6.4): Highlights · Explore, opening on the first visible tab.
-        LootPage lootPage = new LootPage(highlights, lootWorkspace);
+        LootPage lootPage = new LootPage(highlights, explorePage == null ? lootWorkspace : explorePage);
         // Characters › Fame history (Analyst): saved character fame, built on the tab's first selection.
         if (store != null) characterPanel.hostFame(() -> tomato.gui.stats.CharacterFameHistory.view(
             () -> tomato.gui.stats.CharacterFameHistory.workspace(store, scratch.resolve("character-fame"), states)));
@@ -235,12 +238,14 @@ public class TomatoGUI {
         // target). Without saved history Explore is the live dashboard alone and only the tab target exists.
         RouteTarget lootArchive = lootWorkspace instanceof ArchiveWorkspace ? archiveTarget(Destination.LOOT, (ArchiveWorkspace<?, ?, ?>) lootWorkspace) : null;
         if (lootArchive != null) {
-            navigator.register(lootPage.routes(LootTab.EXPLORE, lootArchive));
-            lootPage.owner(LootTab.EXPLORE, lootArchive);
+            // Explore's view follows the route (an exact run: Pictures; a query: Table), and Back restores it.
+            RouteTarget explore = explorePage == null ? lootArchive : explorePage.routes(lootArchive);
+            navigator.register(lootPage.routes(LootTab.EXPLORE, explore));
+            lootPage.owner(LootTab.EXPLORE, explore);
         }
         // The exact visit/variant target, registered later, so it is tried first.
         RouteTarget lootVisits = lootTarget(Destination.LOOT, lootWorkspace);
-        if (lootVisits != null) navigator.register(lootPage.routes(LootTab.EXPLORE, lootVisits));
+        if (lootVisits != null) navigator.register(lootPage.routes(LootTab.EXPLORE, explorePage == null ? lootVisits : explorePage.routes(lootVisits)));
         // LOOT routes with a LootFocus payload (search, Home's Notable loot tile, Highlights' Unknown area) bring that tab forward.
         navigator.register(lootPage.tabTarget());
         navigator.register(new tomato.gui.logging.LoggingRouteTarget(logging));
@@ -269,6 +274,12 @@ public class TomatoGUI {
         Navigator.install(navigator);
         // A feed card opens its exact run's recap; Back (or "‹ Runs") returns to the feed as it was left.
         runsPage.feed().onOpen(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
+        if (explorePage != null) {
+            // A haul's "Open run" opens the run's recap; an item opens Table on its occurrences in every saved session.
+            explorePage.onOpenRun(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
+            explorePage.onOpenItem(key -> navigator.open(tomato.gui.route.Route.to(Destination.LOOT)
+                .withQuery(tomato.gui.loot.explore.LootExplorePage.variantQuery(key))));
+        }
         // Highlights: a notable drop opens its exact run's recap; a by-dungeon cell opens Explore filtered to that dungeon. Back
         // returns to Highlights.
         highlights.onOpenRun(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
