@@ -396,6 +396,7 @@ public class RunRecapBuilderTest {
         RunRecapModel.Loot loot = model.loot();
         assertEquals("Only the bag recorded inside A/v1: not the unlinked bag, not another session's v1", 1, loot.bags().size());
         assertEquals("White", loot.bags().get(0).bag()); assertEquals(T0 + 9 * MINUTE, loot.bags().get(0).time());
+        assertEquals("The bag keeps the enemy that dropped it", "Synthetic boss", loot.bags().get(0).dropper());
         assertEquals(List.of(101, 102), loot.bags().get(0).items().stream().map(tomato.gui.stats.LootFacts.Item::id).toList());
         assertEquals(2, loot.count()); assertEquals("1 UT · 1 potion", loot.summary()); assertNull(loot.reason());
         RunRecapModel.Tile lootTile = model.tile(RunRecapModel.Tile.LOOT);
