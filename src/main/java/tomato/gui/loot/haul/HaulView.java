@@ -59,7 +59,11 @@ public final class HaulView extends JPanel {
     }
 
     /** Draws {@code model} and opens its default group; {@code run} is the exact run it belongs to (null: no "Open run"). */
-    public void show(HaulModel model, VisitRef run) {
+    public void show(HaulModel model, VisitRef run) { show(model, run, null); }
+
+    /** As {@link #show(HaulModel, VisitRef)}; {@code emptyReason} replaces {@link #EMPTY} when there are no bags (null or blank keeps it). */
+    public void show(HaulModel model, VisitRef run, String emptyReason) {
+        empty.setText(emptyReason == null || emptyReason.isBlank() ? EMPTY : emptyReason);
         this.model = Objects.requireNonNull(model, "model");
         this.run = run;
         boolean full = mode == Mode.FULL, any = !model.shelf().isEmpty();

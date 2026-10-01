@@ -16,6 +16,17 @@ import static org.junit.Assert.*;
 
 /** The haul over synthetic bags (synthetic names only): Compact and Full composition, opening groups, item and run callbacks. */
 public class HaulViewTest {
+    @Test public void anEmptyHaulCanSayWhyItIsEmpty() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HaulView view = new HaulView(HaulView.Mode.FULL);
+            String why = "No loot bag was saved in this run's session, so its loot is unknown.";
+            view.show(HaulModel.of(null, List.of()), null, why);
+            assertEquals(why, text(view, "loot-haul-empty"));
+            view.show(HaulModel.of(null, List.of()), null);
+            assertEquals("The default comes back", HaulView.EMPTY, text(view, "loot-haul-empty"));
+        });
+    }
+
     private static final long T0 = 1_700_000_000_000L;
     static final VisitRef RUN = new VisitRef("00000000-0000-4000-8000-000000000001", "v1");
     private Locale previous;
