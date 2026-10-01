@@ -11,6 +11,10 @@ in historical wave documents. Keep normal PR merges and other branch protections
 
 ## Active UX implementation
 
+The UI redesign P0–P6 is merged. Continue from `docs/superpowers/plans/2026-09-26-redesign-roadmap.md`
+and `docs/superpowers/plans/2026-09-27-redesign-handoff.md`.
+The rest of this section describes the completed earlier UX waves and is history.
+
 Before editing, read `docs/UX-EXECUTION.md` and, if present, `.omc/ux/checkpoint.json`.
 For cross-machine recovery also read `docs/UX-HANDOFF.md` and
 `docs/UX-CHECKPOINT.json`; these tracked files preserve the last published handoff

@@ -23,6 +23,10 @@ public class LootDashboardEnchantTest {
         ItemIcon single = LootDashboard.rowIcon(BASE, "Doom Bow", 1, item);
         assertSame("The cached base icon is reused, never replaced", BASE, single.base());
         assertEquals(item.enchantInfo(), single.enchant());
+        assertTrue(single.tooltip(), single.tooltip().startsWith("<html><b>Doom Bow · UT</b>"));
+        LootDashboard.Item unknownTier = new LootDashboard.Item(11, "Unknown bow", "EQUIPMENT,WEAPON", ParseEnchants.evidence(enchants(-1, 42)));
+        ItemIcon unknown = LootDashboard.rowIcon(BASE, "Unknown bow", 1, unknownTier);
+        assertTrue(unknown.tooltip(), unknown.tooltip().startsWith("<html><b>Unknown bow</b>"));
         ItemIcon merged = LootDashboard.rowIcon(BASE, "Doom Bow", 3, item);
         assertEquals(EnchantInfo.State.COUNT_ONLY, merged.enchant().state());
         assertEquals(EnchantInfo.Rarity.RARE, merged.enchant().rarity());
