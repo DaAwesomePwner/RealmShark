@@ -415,7 +415,8 @@ public class IconDpsGUI extends DisplayDpsGUI {
         for (int i = 0; i < 4; i++) {
             Equipment max = eqAgg.getMostUsedItem(owner.id, i);
             int eq = (max != null) ? max.id : 0;
-            // Retained per-hit strings turn a missing stat into "", so "" reads as not recorded rather than unenchanted.
+            // New hits keep a missing stat as null and a known-unenchanted slot as ParseEnchants.UNENCHANTED_ENTRY.
+            // Only older hits hold "", which reads as not recorded.
             EnchantInfo enchant = EnchantInfo.ofRetained(max != null ? max.enchant : null);
             EnchantIconLabel icon = new EnchantIconLabel();
             icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), EnchantTooltip.heading(IdToAsset.objectName(eq), ItemTiers.label(eq)), enchant);

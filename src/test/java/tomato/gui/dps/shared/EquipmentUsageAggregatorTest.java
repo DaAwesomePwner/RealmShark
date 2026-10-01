@@ -33,6 +33,13 @@ public class EquipmentUsageAggregatorTest {
         assertEquals(90, usage.getSlotTotalDamage(7, 0));
     }
 
+    @Test public void aRecordedVariantWinsOverHigherDamageWithoutEnchantData() {
+        Entity mob = new Entity(null, 1, 0), owner = new Entity(null, 7, 0);
+        mob.getDamageList().add(hit(owner, 50, 100, null));
+        mob.getDamageList().add(hit(owner, 10, 100, UNCOMMON));
+        assertEquals(UNCOMMON, EquipmentUsageAggregator.of(mob).getMostUsedItem(7, 0).enchant);
+    }
+
     @Test public void aTieKeepsTheFirstVariantSeen() {
         Entity mob = new Entity(null, 1, 0), owner = new Entity(null, 7, 0);
         mob.getDamageList().add(hit(owner, 20, 100, UNCOMMON));

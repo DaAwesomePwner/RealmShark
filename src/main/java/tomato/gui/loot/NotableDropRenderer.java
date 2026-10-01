@@ -54,7 +54,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     private final LongSupplier now;
     private HighlightsModel.Notable drop;
     private Lines lines;
-    private String enchantHeading;
+    private long renderedAt;
     private boolean selected, focused;
     private List<String> painted = List.of();
 
@@ -146,8 +146,8 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         selected = isSelected;
         focused = cellHasFocus;
         long at = now.getAsLong();
+        renderedAt = at;
         lines = value == null ? null : lines(value, zone, at);
-        enchantHeading = value == null ? null : facts(value, zone, at, false) + " · " + HighlightsModel.OBSERVED;
         String name = value == null ? null : accessibleName(value, zone, at);
         getAccessibleContext().setAccessibleName(name);
         getAccessibleContext().setAccessibleDescription(value == null ? null
@@ -161,7 +161,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         String facts = super.getToolTipText();
         if (facts == null || drop == null || drop.enchant().state() == EnchantInfo.State.NOT_RECORDED) return facts;
         // The enchant tooltip says the rarity on its own line, so its heading leaves it out.
-        return EnchantTooltip.html(enchantHeading, drop.enchant());
+        return EnchantTooltip.html(facts(drop, zone, renderedAt, false) + " · " + HighlightsModel.OBSERVED, drop.enchant());
     }
 
     @Override protected void paintComponent(Graphics graphics) {
