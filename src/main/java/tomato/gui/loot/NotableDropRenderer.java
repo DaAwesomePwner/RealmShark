@@ -17,7 +17,8 @@ import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
 import javax.swing.*;
-import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantPips;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
@@ -30,10 +31,12 @@ import tomato.realmshark.EnchantInfo;
  * Paints one notable drop of Loot › Highlights (spec §6.4, §9, §10): one component reused for every cell of the grid's TileList,
  * no per-drop component tree. The item's sprite sits in a well tinted and outlined in its bag's color ({@link Sprites#paintWell},
  * shared with the run cards; muted when no bag name was saved); beside it: the item's name on up to two lines (wrapped at its
- * spaces; only a name longer than two lines is cut with "…"; every card keeps room for both, P6b); the kind chip (UT, ST, Potion,
- * Enchanted) with the time ("14:32" today, "Yesterday 22:10", else the date); the area on a line of its own ("Unknown area" when
- * none was recorded, {@link LootFacts#areaLabel}), so no chip cuts it and only an area wider than the card is cut; and "Not linked
- * to a run" when the drop recorded no exact run (the line stays empty otherwise, so every card is the same height). Every fact
+ * spaces; only a name longer than two lines is cut with "…"; every card keeps room for both, P6b); the type chip (UT, ST, Potion,
+ * tier or Gear) and optional rarity chip. Enchanted sprites have a rarity glow and one bottom-right pip per unlocked slot.
+ * The next line starts with the time ("14:32" today, "Yesterday 22:10", else the date), then " · " and the area ("Unknown area"
+ * when none was recorded, {@link LootFacts#areaLabel}); only the end of this combined line is cut when it exceeds the card.
+ * Finally, "Not linked to a run" appears when the drop recorded no exact run (the line stays empty otherwise, so every card is
+ * the same height). Every fact
  * is in the accessible name in words and, in full, in the tooltip. The cell is fixed at 17 em of the body font (five columns at
  * 1240×800 font 13, two at 680 px and font 18); colors come from Tokens at paint time, so both themes and every font work, and
  * the light theme outlines the card ({@link Tokens#outline}).
@@ -47,7 +50,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH),
         DATE = DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.ENGLISH), DATE_YEAR = DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", Locale.ENGLISH);
 
-    /** The text one cell paints (painted text is not in the component tree, so tests read it here). */
+    /** The cell's text fields; when and where paint together as one line, separated by " · ". */
     record Lines(String name, String chip, Tokens.Tone tone, String when, String where, String link) {}
 
     private final ZoneId zone;
@@ -67,35 +70,43 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
 
     static Lines lines(HighlightsModel.Notable drop, ZoneId zone, long now) {
         String area = LootFacts.areaLabel(drop.dungeon());
-        return new Lines(Sprites.name(drop.itemId()), drop.kind().label(), tone(drop.kind()), time(drop.time(), zone, now), area,
+        String type = itemType(drop);
+        return new Lines(Sprites.name(drop.itemId()), type, tone(type), time(drop.time(), zone, now), area,
             drop.visit() == null ? NOT_LINKED : "");
     }
 
-    /** The kind's chip tone: UT and ST as the kit's tier borders ({@link Tokens#tier}), potions INFO, enchanted ACCENT. */
-    static Tokens.Tone tone(HighlightsModel.Kind kind) {
-        switch (kind) {
-            case UT: return Tokens.Tone.WARN;
-            case ST: return Tokens.Tone.BAD;
-            case POTION: return Tokens.Tone.INFO;
-            default: return Tokens.Tone.ACCENT;
+    /** The item's type is independent of the reason it was notable; missing tier definitions never turn enchantment into a type. */
+    static String itemType(HighlightsModel.Notable drop) {
+        if (drop.kind() == HighlightsModel.Kind.POTION) return "Potion";
+        String tier = tier(drop);
+        return !tier.isEmpty() ? tier : drop.kind() == HighlightsModel.Kind.ENCHANTED ? "Gear" : drop.kind().label();
+    }
+
+    /** The tier saved with the drop, else the current definitions' label ("" when neither knows it): old records keep their tier. */
+    static String tier(HighlightsModel.Notable drop) {
+        return drop.tier() != null ? drop.tier() : ItemTiers.label(drop.itemId());
+    }
+
+    /** UT and ST follow tier borders; potions are INFO and tiered gear stays neutral. */
+    static Tokens.Tone tone(String type) {
+        switch (type) {
+            case "UT": return Tokens.Tone.WARN;
+            case "ST": return Tokens.Tone.BAD;
+            case "Potion": return Tokens.Tone.INFO;
+            default: return Tokens.Tone.NEUTRAL;
         }
     }
 
     /**
      * "Potion of Life, stat potion; Lost Halls, today at 09:05; Orange bag; Enter opens the run recap": the item, its kind, where
      * and when it dropped, its bag and whether it links to a run, in words. Enchanted drops include their recorded rarity,
-     * for example "enchanted, rare or better (Rare · 2 enchant slots)".
+     * for example "T12 (Rare · 2 enchant slots)".
      */
     static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) { return facts(drop, zone, now, true); }
 
     /** The drop's facts in words; {@code withEnchant} adds the enchant summary after the kind (the enchant tooltip has its own line for it). */
     private static String facts(HighlightsModel.Notable drop, ZoneId zone, long now, boolean withEnchant) {
-        String kind = switch (drop.kind()) {
-            case UT -> "UT";
-            case ST -> "ST";
-            case POTION -> "stat potion";
-            case ENCHANTED -> "enchanted, rare or better";
-        };
+        String kind = drop.kind() == HighlightsModel.Kind.POTION ? "stat potion" : itemType(drop);
         if (withEnchant && drop.enchant().state() != EnchantInfo.State.NOT_RECORDED) kind += " (" + drop.enchant().summary() + ")";
         return Sprites.name(drop.itemId()) + ", " + kind + "; " + LootFacts.areaLabel(drop.dungeon())
             + ", " + spokenTime(drop.time(), zone, now) + "; " + (drop.bag() == null ? "bag not saved" : drop.bag() + " bag") + "; "
@@ -178,9 +189,9 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             g.fill(shape);
             edge(g, shape, selected, focused);
             Rectangle well = well(getWidth(), getHeight());
-            Sprites.paintWell(this, g, Sprites.sprite(drop.itemId(), SPRITE), drop.bag(), well.x, well.y, well.width);
-            // paintWell's side covers side px; the gem painter takes ItemSlot's side + 1 convention.
-            EnchantGem.paint(g, drop.enchant(), well.x, well.y, well.width - 1);
+            Sprites.paintWell(this, g, EnchantPips.glow(Sprites.sprite(drop.itemId(), SPRITE), drop.enchant()), drop.bag(), well.x, well.y, well.width);
+            // paintWell's side covers side px; the pip painter takes ItemSlot's side + 1 convention.
+            EnchantPips.paintCorner(g, drop.enchant(), tier(drop), well.x, well.y, well.width - 1);
             Font titleFont = Type.emphasis(), captionFont = Type.caption();
             FontMetrics title = g.getFontMetrics(titleFont), caption = g.getFontMetrics(captionFont);
             int left = well.x + well.width + Tokens.S, right = x + w - PAD;
@@ -190,13 +201,20 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             // The name on up to two lines (every card keeps both, so the rows below line up across the grid).
             List<String> name = wrap(lines.name(), title, right - left, NAME_LINES);
             for (int i = 0; i < name.size(); i++) text(g, drawn, name.get(i), titleFont, title, ink, left, top + i * title.getHeight() + title.getAscent(), right - left);
-            // The kind chip and the time; then the area on a line of its own, so a chip never cuts it; then the run link note.
+            // Chips have their own row; time leads the area line below, followed by the run link note.
             int row = top + NAME_LINES * title.getHeight() + Tokens.XS, chipHeight = caption.getHeight() + 2;
-            int chipWidth = chip(g, drawn, lines.chip(), lines.tone(), left, row, caption, right - left);
-            int after = left + chipWidth + (chipWidth > 0 ? Tokens.S : 0);
-            text(g, drawn, lines.when(), captionFont, caption, muted, after, row + 1 + caption.getAscent(), right - after);
+            boolean enchanted = drop.enchant().enchanted();
+            int available = right - left;
+            int chipsRoom = enchanted ? Math.max(0, available - Tokens.XS) : available;
+            int typeRoom = enchanted ? Math.min(caption.stringWidth(lines.chip()) + 14, chipsRoom / 2) : available;
+            int chipWidth = chip(g, drawn, lines.chip(), Tokens.tone(lines.tone()), left, row, caption, typeRoom);
+            if (enchanted) {
+                int after = left + chipWidth + Tokens.XS;
+                chip(g, drawn, drop.enchant().rarity().label, Tokens.rarity(drop.enchant().rarity()),
+                    after, row, caption, chipsRoom - chipWidth);
+            }
             int area = row + chipHeight + LINE;
-            text(g, drawn, lines.where(), captionFont, caption, muted, left, area + caption.getAscent(), right - left);
+            text(g, drawn, lines.when() + " · " + lines.where(), captionFont, caption, muted, left, area + caption.getAscent(), right - left);
             text(g, drawn, lines.link(), captionFont, caption, muted, left, area + caption.getHeight() + caption.getAscent(), right - left);
             painted = drawn;
         } finally {
@@ -204,7 +222,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         }
     }
 
-    /** The lines: the name's two, the chip row (the chip is 2 px taller than the caption), the area and the run link note. */
+    /** The lines: the name's two, the chip row (2 px taller than the caption), time with area, and the run link note. */
     private static int textHeight(FontMetrics title, FontMetrics caption) {
         return NAME_LINES * title.getHeight() + Tokens.XS + caption.getHeight() + 2 + LINE + 2 * caption.getHeight();
     }
@@ -259,14 +277,14 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     }
 
     /** A tinted chip from {@code left}, at most {@code max} wide (its label cut with "…"); returns its width (0 when it does not fit). */
-    private static int chip(Graphics2D g, List<String> drawn, String label, Tokens.Tone tone, int left, int top, FontMetrics metrics, int max) {
+    private static int chip(Graphics2D g, List<String> drawn, String label, Color color, int left, int top, FontMetrics metrics, int max) {
         int width = Math.min(metrics.stringWidth(label), Math.max(0, max - 14)) + 14;
         if (width <= 14) return 0;
         String fitted = fit(label, metrics, width - 14);
-        g.setColor(Tokens.tint(Tokens.tone(tone)));
+        g.setColor(Tokens.tint(color));
         g.fillRoundRect(left, top, width, metrics.getHeight() + 2, Tokens.ARC_CHIP, Tokens.ARC_CHIP);
         g.setFont(metrics.getFont());
-        g.setColor(Tokens.tone(tone));
+        g.setColor(color);
         g.drawString(fitted, left + 7, top + 1 + metrics.getAscent());
         drawn.add(fitted);
         return width;

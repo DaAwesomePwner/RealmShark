@@ -68,6 +68,19 @@ public class EnchantIconLabelTest {
         });
     }
 
+    @Test public void explicitTierDecoratesLargeIconsWithoutChangingTheirDescription() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            EnchantIconLabel label = new EnchantIconLabel();
+            Icon sprite = new javax.swing.ImageIcon(new java.awt.image.BufferedImage(32, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB));
+            label.setItem(sprite, "Doom Bow · UT", null, "UT");
+            assertNotSame(sprite, label.getIcon());
+            assertEquals("Doom Bow · UT", label.getAccessibleContext().getAccessibleName());
+            assertEquals("Doom Bow · UT", label.getToolTipText());
+            label.setItem(sprite, "Potion", null, "");
+            assertSame(sprite, label.getIcon());
+        });
+    }
+
     private static final class Solid implements Icon {
         @Override public int getIconWidth() { return 12; }
         @Override public int getIconHeight() { return 12; }

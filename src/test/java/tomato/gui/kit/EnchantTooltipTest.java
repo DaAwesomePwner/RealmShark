@@ -10,9 +10,15 @@ import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import static org.junit.Assert.*;
 
-/** The shared item tooltip: heading, rarity line in the gem color, then each slot's name and effect, all escaped. */
+/** The shared item tooltip: heading, rarity line in the pip color, then each slot's name and effect, all escaped. */
 public class EnchantTooltipTest {
     private HashMap<Short, ParseEnchants.Definition> saved;
+
+    @Test public void itemNameCellsAppendOnlyKnownEnchantedRarity() {
+        assertEquals("Sword <of> & Things · Legendary", EnchantTooltip.itemName("Sword <of> & Things", EnchantInfo.ofSlotCount(3)));
+        for (EnchantInfo info : new EnchantInfo[] {null, EnchantInfo.notRecorded(), EnchantInfo.unreadable(), EnchantInfo.ofSlotCount(0)})
+            assertEquals("Sword", EnchantTooltip.itemName("Sword", info));
+    }
 
     @After public void restore() throws Exception {
         if (saved != null) ParseEnchants.ENCHANT_DEFINITIONS = saved;

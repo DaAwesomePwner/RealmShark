@@ -25,6 +25,7 @@ import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.ItemIcon;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.StatTile;
 import tomato.gui.kit.Tokens;
 import tomato.gui.kit.ViewSelector;
@@ -116,6 +117,14 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
             if (itemView(i)) {
                 table.getColumnModel().getColumn(0).setMaxWidth(40);
                 table.getColumnModel().getColumn(1).setPreferredWidth(230);
+                table.getColumnModel().getColumn(1).setCellRenderer(new ContentStyle.Cell() {
+                    @Override public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus, int row, int column) {
+                        super.getTableCellRendererComponent(t, value, selected, focus, row, column);
+                        Object icon = t.getModel().getValueAt(t.convertRowIndexToModel(row), 0);
+                        setText(EnchantTooltip.itemName(value == null ? "" : value.toString(), icon instanceof ItemIcon ? ((ItemIcon) icon).enchant() : null));
+                        return this;
+                    }
+                });
                 for (int col : new int[]{2, 4, 6, 7}) {
                     table.getColumnModel().getColumn(col).setMinWidth(65);
                     table.getColumnModel().getColumn(col).setPreferredWidth(75);
@@ -454,13 +463,14 @@ public final class LootDashboard extends JPanel implements LiveFilterHost {
     }
     Icon iconForItem(int id) { return state.icons.computeIfAbsent(id, key -> ImageBuffer.liveOutlinedIcon(key, 24)); }
     /**
-     * The icon cell of one dashboard row: the cached sprite with the row's rarity gem. A row that merges several drops (same item,
+     * The icon cell of one dashboard row: the cached sprite with its tier or rarity pips. A row that merges several drops (same item,
      * slots and applied count) shares their rarity but not necessarily their enchantments, so it names none. Stat potions have no enchant data.
      */
     static ItemIcon rowIcon(Icon base, String name, int count, Item item) {
         EnchantInfo enchant = count == 1 ? item.enchantInfo() : item.potion ? EnchantInfo.notRecorded() : EnchantInfo.ofSlotCount(item.enchants == null ? null : item.enchants.slots);
         String tier = item.tier == null || item.tier.isBlank() || "—".equals(item.tier) ? "" : item.tier;
-        return new ItemIcon(base, count == 1 ? EnchantTooltip.heading(name, tier) : name + " · " + count + " drops", enchant);
+        return new ItemIcon(base, count == 1 ? EnchantTooltip.heading(name, tier) : name + " · " + count + " drops", enchant,
+            tier.isEmpty() ? ItemTiers.label(item.id) : tier);
     }
     private static void addOption(JComboBox<String> combo, String value) {
         for (int i = 0; i < combo.getItemCount(); i++) if (value.equals(combo.getItemAt(i))) return;

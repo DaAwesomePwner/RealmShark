@@ -24,7 +24,7 @@ import tomato.gui.history.WrapRow;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.kit.DisplayModeModel;
-import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantPips;
 import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.FilterBar;
 import tomato.gui.kit.ItemTiers;
@@ -557,7 +557,7 @@ public final class BridgeReviewGUI extends JPanel {
             return shown;
         }
     }
-    /** The item's sprite with its rarity gem, and the shared enchant tooltip (built on hover) for rows that kept enchant data. */
+    /** The item's sprite with its shared corner and rarity word, and the enchant tooltip (built on hover) for recorded rows. */
     private static final class ItemCell extends ContentStyle.Cell {
         private static final int SPRITE=16;
         private final IntFunction<BridgePayload.Item> item; // model row → item; null shows the kit placeholder
@@ -569,7 +569,8 @@ public final class BridgeReviewGUI extends JPanel {
             super.getTableCellRendererComponent(table,value,selected,focus,row,column);
             int model=row<0||row>=table.getRowCount()?-1:table.convertRowIndexToModel(row);
             current=model<0?null:item.apply(model);currentEnchant=model<0?null:enchant.apply(model);
-            if(model>=0){setIcon(EnchantGem.decorate(Sprites.sprite(current==null?0:current.id,SPRITE),currentEnchant));setIconTextGap(Tokens.XS);}
+            if(model>=0){setIcon(EnchantPips.decorate(Sprites.sprite(current==null?0:current.id,SPRITE),currentEnchant,current==null?"":ItemTiers.label(current.id)));setIconTextGap(Tokens.XS);}
+            setText(EnchantTooltip.itemName(value==null?"":value.toString(),currentEnchant));
             return this;
         }
         @Override public String getToolTipText(){

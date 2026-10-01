@@ -419,7 +419,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             // Only older hits hold "", which reads as not recorded.
             EnchantInfo enchant = EnchantInfo.ofRetained(max != null ? max.enchant : null);
             EnchantIconLabel icon = new EnchantIconLabel();
-            icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), EnchantTooltip.heading(IdToAsset.objectName(eq), ItemTiers.label(eq)), enchant);
+            icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), EnchantTooltip.heading(IdToAsset.objectName(eq), ItemTiers.label(eq)), enchant, ItemTiers.label(eq));
             panel.add(icon);
         }
 

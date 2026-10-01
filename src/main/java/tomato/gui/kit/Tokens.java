@@ -124,7 +124,7 @@ public final class Tokens {
         }
     }
 
-    /** Enchant rarity gem color: Uncommon mint, Rare blue, Legendary violet, Divine amber; null for Unenchanted and Unknown (no gem). */
+    /** Enchant rarity color: Uncommon mint, Rare blue, Legendary violet, Divine amber; null for Unenchanted and Unknown. */
     public static Color rarity(EnchantInfo.Rarity rarity) {
         switch (rarity) {
             case UNCOMMON: return color(Role.GOOD);

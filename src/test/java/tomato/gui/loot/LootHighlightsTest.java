@@ -126,6 +126,144 @@ public class LootHighlightsTest {
         return edt(() -> view.notableList().items().stream().map(HighlightsModel.Notable::itemId).collect(Collectors.toList()));
     }
 
+    @Test public void tilesToggleFocusWithMouseKeyboardAndClearAndKeepItAcrossReads() throws Exception {
+        LootHighlights view = view(new Fake(LootHighlightsTest::populated));
+        edt(() -> { view.request(); return null; });
+        loaded(view);
+        List<Integer> all = grid(view);
+        edt(() -> {
+            StatTile enchanted = named(view, "loot-tile-enchanted", StatTile.class);
+            assertEquals("3", enchanted.valueText());
+            assertEquals("1 Rare · 1 Legendary · 1 Divine", subline(enchanted));
+            clickTile(named(view, "loot-tile-ut", StatTile.class));
+            return null;
+        });
+        assertEquals(List.of(1006, 1001), grid(view));
+        edt(() -> {
+            StatTile ut = named(view, "loot-tile-ut", StatTile.class);
+            assertTrue(ut.getAccessibleContext().getAccessibleStateSet().contains(javax.accessibility.AccessibleState.SELECTED));
+            assertEquals("Showing only UT drops", named(view, "loot-notable-focus", KitText.class).getText());
+            clickTile(ut);
+            return null;
+        });
+        assertEquals(all, grid(view));
+        edt(() -> {
+            keyboardTile(named(view, "loot-tile-enchanted", StatTile.class), java.awt.event.KeyEvent.VK_SPACE);
+            return null;
+        });
+        assertEquals(List.of(1006, 1004, 1002), grid(view));
+        edt(() -> { view.refresh(); return null; });
+        loaded(view);
+        assertEquals(List.of(1006, 1004, 1002), grid(view));
+        edt(() -> { view.showWindow(SESSION); return null; });
+        loaded(view);
+        assertEquals(List.of(1006, 1004, 1002), grid(view));
+        edt(() -> {
+            named(view, "loot-notable-focus-clear", KitButton.class).doClick();
+            return null;
+        });
+        assertEquals(all, grid(view));
+        edt(() -> {
+            keyboardTile(named(view, "loot-tile-potions", StatTile.class), java.awt.event.KeyEvent.VK_ENTER);
+            return null;
+        });
+        assertEquals(List.of(GREATER_DEFENSE, MANA, DEFENSE, LIFE, GREATER_LIFE), grid(view));
+        assertEquals("Only the period is persisted", List.of(LootHighlights.WINDOW_KEY + "=session"), writes);
+    }
+
+    @Test public void unknownTilesCannotToggle() throws Exception {
+        LootHighlights view = view(new Fake(LootHighlightsTest::empty));
+        edt(() -> { view.request(); return null; });
+        loaded(view);
+        edt(() -> {
+            for (StatTile tile : tiles(view)) {
+                assertFalse(tile.isEnabled()); assertFalse(tile.isFocusable());
+                clickTile(tile);
+                keyboardTile(tile, java.awt.event.KeyEvent.VK_SPACE);
+                assertFalse(tile.getAccessibleContext().getAccessibleStateSet().contains(javax.accessibility.AccessibleState.SELECTED));
+            }
+            assertEquals("", named(view, "loot-notable-focus", KitText.class).getText());
+            return null;
+        });
+    }
+
+    @Test public void thePotionsFocusSaysWhichCountedPotionsItDoesNotList() throws Exception {
+        LootHighlights view = view(new Fake(window -> HighlightsModel.of(window, SAVED, List.of(bag("Brown", "Lost Halls", NOON, RUN,
+            item(LIFE, false, false, true, null), item(OTHER_POTION, false, false, true, null), item(OTHER_POTION, false, false, true, null))),
+            true, 0, false, NOON)));
+        edt(() -> { view.request(); return null; });
+        loaded(view);
+        edt(() -> {
+            assertEquals("3", named(view, "loot-tile-potions", StatTile.class).valueText());
+            clickTile(named(view, "loot-tile-potions", StatTile.class));
+            assertEquals("Showing only stat potion drops", named(view, "loot-notable-focus", KitText.class).getText());
+            assertEquals(1, view.notableList().items().size());
+            assertTrue(named(view, "loot-notable-notes", KitText.class).getText()
+                .contains("2 other potions on the Potions tile are not stat potions and not listed"));
+            clickTile(named(view, "loot-tile-potions", StatTile.class));
+            assertFalse("Only the potions focus explains them", named(view, "loot-notable-notes", KitText.class).getText().contains("other potion"));
+            return null;
+        });
+    }
+
+    @Test public void activeFilterClearsWhenItsTileBecomesUnknown() throws Exception {
+        Fake reader = new Fake(LootHighlightsTest::populated);
+        LootHighlights view = view(reader);
+        edt(() -> { view.request(); return null; });
+        loaded(view);
+        edt(() -> {
+            clickTile(named(view, "loot-tile-ut", StatTile.class));
+            assertTrue(named(view, "loot-tile-ut", StatTile.class).getAccessibleContext().getAccessibleStateSet()
+                .contains(javax.accessibility.AccessibleState.SELECTED));
+            reader.answer = LootHighlightsTest::empty;
+            view.refresh();
+            return null;
+        });
+        loaded(view);
+        edt(() -> {
+            StatTile tile = named(view, "loot-tile-ut", StatTile.class);
+            assertFalse(tile.isEnabled());
+            assertFalse(tile.getAccessibleContext().getAccessibleStateSet().contains(javax.accessibility.AccessibleState.SELECTED));
+            assertEquals("", named(view, "loot-notable-focus", KitText.class).getText());
+            reader.answer = LootHighlightsTest::populated;
+            view.refresh();
+            return null;
+        });
+        loaded(view);
+        assertEquals("Returning data must not restore the discarded filter", populated(TODAY).notable().size(), grid(view).size());
+    }
+
+    @Test public void focusedEmptyStateDistinguishesNoMatchesFromHiddenMatches() throws Exception {
+        LootHighlights view = view(new Fake(window -> HighlightsModel.of(window, SAVED,
+            List.of(bag("White", "Lost Halls", NOON, RUN, item(1001, true, false, false, 2))), true, 0, false, NOON)));
+        frame(view, 1240, 800);
+        loaded(view);
+        edt(() -> {
+            clickTile(named(view, "loot-tile-st", StatTile.class));
+            assertEquals("No ST drops in this period", named(view, "loot-notable-empty", EmptyState.class).getAccessibleContext().getAccessibleName());
+            clickTile(named(view, "loot-tile-ut", StatTile.class));
+            assertEquals(1, view.notableList().items().size());
+            LootFilters.get().set(LootFilters.Kind.WHITE, false);
+            assertTrue(view.notableList().items().isEmpty());
+            assertEquals("Filter Loot hides all UT drops", named(view, "loot-notable-empty", EmptyState.class).getAccessibleContext().getAccessibleName());
+            assertEquals("1", named(view, "loot-tile-ut", StatTile.class).valueText());
+            LootFilters.get().set(LootFilters.Kind.WHITE, true);
+            assertEquals(1, view.notableList().items().size());
+            return null;
+        });
+    }
+
+    private static void clickTile(StatTile tile) {
+        tile.dispatchEvent(new java.awt.event.MouseEvent(tile, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, 5, 5, 1, false,
+            java.awt.event.MouseEvent.BUTTON1));
+    }
+
+    private static void keyboardTile(StatTile tile, int key) {
+        Object action = tile.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(key, 0));
+        assertNotNull(action);
+        tile.getActionMap().get(action).actionPerformed(new java.awt.event.ActionEvent(tile, 0, "test"));
+    }
+
     @Test public void namesItsPartsAndAddsOverflowActions() throws Exception {
         LootHighlights view = view(new Fake(LootHighlightsTest::populated));
         AtomicInteger ran = new AtomicInteger();
@@ -133,7 +271,7 @@ public class LootHighlightsTest {
             assertEquals("loot-highlights", view.getName());
             named(view, "loot-highlights-window", SegmentedControl.class);
             OverflowMenu more = named(view, "loot-highlights-more", OverflowMenu.class);
-            for (String tile : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) named(view, tile, StatTile.class);
+            for (String tile : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites", "loot-tile-enchanted"}) named(view, tile, StatTile.class);
             assertSame(view.notableList(), named(view, "loot-notable-grid", TileList.class));
             assertSame(view.stripList(), named(view, "loot-dungeon-strip", TileList.class));
             view.addOverflowAction("loot-sharing-status", "Loot sharing status…", ran::incrementAndGet);
@@ -414,7 +552,8 @@ public class LootHighlightsTest {
             JScrollPane scroll = named(view, "loot-highlights-scroll", JScrollPane.class);
             assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, scroll.getHorizontalScrollBarPolicy());
             List<StatTile> tiles = tiles(view);
-            assertEquals("Four tiles in one row at 1240", 1, tiles.stream().map(tile -> tile.getY()).distinct().count());
+            assertEquals(5, tiles.size());
+            assertEquals("Five tiles in one row at 1240", 1, tiles.stream().map(tile -> tile.getY()).distinct().count());
             evidence.capture("loot-highlights-populated-1240x800-font13-dark");
             Themes.install(new Themes.Choice(Themes.Variant.LIGHT, false));
             SwingUtilities.updateComponentTreeUI(SwingUtilities.getWindowAncestor(view));
@@ -467,11 +606,11 @@ public class LootHighlightsTest {
     /**
      * Polish B2 (P6a evidence finding 1): the potions and white-bag sub-lines of the evidence day ("2 Life · 1 Mana · 1 Att · 1 Def
      * · +2 more", "of 9 bags · 1 without a bag name") no longer widen their tiles. At the real shell's content width at 1240×800
-     * font 13 (about 1,010 px) the four tiles share one row and one height; at its 680×520 font 18 width (about 590 px) they wrap
+     * font 13 (about 1,010 px) the five tiles share one row and one height; at its 680×520 font 18 width (about 590 px) they wrap
      * (two by two). At both sizes every tile lies inside the page and each sub-line is whole: painted (wrapped between its parts)
      * or, only if a word cannot wrap, in the tile's tooltip.
      */
-    @Test public void longSubLinesKeepFourTilesInOneRowAtTheShellsDesktopWidth() throws Exception {
+    @Test public void longSubLinesKeepFiveTilesInOneRowAtTheShellsDesktopWidth() throws Exception {
         LootHighlights view = view(new Fake(LootHighlightsTest::longLines));
         // The page as wide as the real shell's content (the sidebar's width is padded at the left).
         JPanel workspace = edt(() -> {
@@ -490,7 +629,8 @@ public class LootHighlightsTest {
                 assertEquals("2 Life · 1 Mana · 1 Att · 1 Def · +2 more", subline(named(view, "loot-tile-potions", StatTile.class)));
                 assertEquals("of 9 bags · 1 without a bag name", subline(named(view, "loot-tile-whites", StatTile.class)));
                 List<StatTile> tiles = tiles(view);
-                assertEquals("Four tiles in one row at 1,010 px: " + bounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
+                assertEquals(5, tiles.size());
+                assertEquals("Five tiles in one row at 1,010 px: " + bounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
                 assertEquals("One height for the row: " + bounds(tiles), 1, tiles.stream().map(Component::getHeight).distinct().count());
                 assertTilesInside(view, tiles);
                 for (String name : new String[] {"loot-tile-potions", "loot-tile-whites"}) assertSubLineWhole(named(view, name, StatTile.class));
@@ -650,7 +790,7 @@ public class LootHighlightsTest {
             List<String> painted = painted(card, grid.getFixedCellWidth(), grid.getFixedCellHeight(), card::painted);
             String name = Sprites.name(drop.itemId());
             for (String line : painted) assertFalse(theme + ": '" + name + "' card cuts nothing: " + painted, line.endsWith("…"));
-            int chip = painted.indexOf(drop.kind().label());
+            int chip = painted.indexOf(NotableDropRenderer.itemType(drop));
             assertEquals(theme + ": the name lines are the whole name: " + painted, name, String.join(" ", painted.subList(0, chip)));
         }
         TileList<HighlightsModel.DungeonCell> strip = view.stripList();
@@ -756,13 +896,14 @@ public class LootHighlightsTest {
             card.paint(g);
             g.dispose();
             String area = drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon();
-            assertTrue(size + ": " + drop.kind() + " card paints '" + area + "' whole: " + card.painted(), card.painted().contains(area));
+            assertTrue(size + ": " + drop.kind() + " card paints time and '" + area + "' whole: " + card.painted(),
+                card.painted().contains(card.shown().when() + " · " + area));
         }
     }
 
     private static List<StatTile> tiles(LootHighlights view) {
         List<StatTile> tiles = new ArrayList<>();
-        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) tiles.add(named(view, name, StatTile.class));
+        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites", "loot-tile-enchanted"}) tiles.add(named(view, name, StatTile.class));
         return tiles;
     }
     private static String subline(StatTile tile) {

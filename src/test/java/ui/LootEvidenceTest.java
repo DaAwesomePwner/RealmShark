@@ -222,11 +222,12 @@ public class LootEvidenceTest {
             assertTile("loot-tile-whites", "2", DisplayValue.State.KNOWN);
             List<String> notable = names(list("loot-notable-grid"));
             assertEquals(notable.toString(), 12, notable.size());
-            assertTrue("Newest first: the ST of this app run's session: " + notable.get(0), notable.get(0).startsWith("Synthetic Crystal Mail, ST; Ice Citadel, "));
-            assertTrue("Enchanted = rare or better (2+ slots): " + notable, notable.stream().anyMatch(n -> n.startsWith("Synthetic Frost Staff, enchanted, rare or better; Ice Citadel")));
-            assertTrue(notable.stream().anyMatch(n -> n.startsWith("Synthetic Tier Sword, enchanted, rare or better; Lost Halls")));
+            assertTrue("Newest first: the ST of this app run's session: " + notable.get(0), notable.get(0).startsWith("Synthetic Crystal Mail, ST (Uncommon · 1 enchant slot); Ice Citadel, "));
+            assertTrue("Enchanted = rare or better (2+ slots): " + notable, notable.stream().anyMatch(n -> n.startsWith("Synthetic Frost Staff, T13 (Rare · 2 enchant slots); Ice Citadel, ")));
+            assertTrue(notable.stream().anyMatch(n -> n.startsWith("Synthetic Tier Sword, T13 (Legendary · 3 enchant slots); Lost Halls, ")));
             assertFalse("An item without recorded enchant slots is never listed as enchanted", notable.stream().anyMatch(n -> n.startsWith("Synthetic Viper Bow")));
-            assertFalse("A 1-slot item is not rare or better", notable.stream().anyMatch(n -> n.startsWith("Synthetic Tidal Dagger, enchanted")));
+            assertTrue("A 1-slot item is not rare or better: the UT dagger is listed as UT only: " + notable, notable.stream().anyMatch(n -> n.startsWith("Synthetic Tidal Dagger, UT (Uncommon · 1 enchant slot); "))
+                && notable.stream().noneMatch(n -> n.startsWith("Synthetic Tidal Dagger, Gear")));
             assertTrue("Other potions are not notable", notable.stream().noneMatch(n -> n.startsWith("Synthetic tonic")));
             assertTrue("A drop without a run says so", notable.stream().anyMatch(n -> n.startsWith("Mana potion") && n.endsWith("not linked to a run")));
             String notes = text("loot-notable-notes");
@@ -791,30 +792,31 @@ public class LootEvidenceTest {
     }
 
     /**
-     * The four tiles are whole (inside the page, never clipped) in at most two rows; the row count is printed. Since Polish B2 a
+     * The five tiles are whole (inside the page, never clipped) in at most three rows; the row count is printed. Since Polish B2 a
      * long potion or white-bag sub-line wraps inside its tile instead of widening it, so at 1240×800 font 13 in the real shell the
      * tiles share one row ({@link #assertTilesInOneRow}; finding 1).
      */
     private void assertTilesWhole(String capture) {
         Set<Integer> rows = new HashSet<>();
         JScrollPane page = VisualEvidence.named(shell, "loot-highlights-scroll", JScrollPane.class);
-        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) {
+        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites", "loot-tile-enchanted"}) {
             StatTile tile = VisualEvidence.named(shell, name, StatTile.class);
             Rectangle bounds = SwingUtilities.convertRectangle(tile.getParent(), tile.getBounds(), page);
             assertTrue(name + " lies inside the page: " + bounds, bounds.x >= 0 && bounds.x + bounds.width <= page.getWidth());
             rows.add(bounds.y);
         }
         System.out.println(capture + ": Loot highlights tiles in " + rows.size() + " row(s)");
-        assertTrue("At most two rows of tiles: " + rows.size(), rows.size() <= 2);
+        assertTrue("Five tiles fit in at most three rows: " + rows.size(), rows.size() <= 3);
     }
 
     /**
-     * Polish B2 (finding 1): at 1240×800 font 13 in the real shell the four tiles share one row and one height, even with the long
+     * Polish B2 (finding 1): at 1240×800 font 13 in the real shell the five tiles share one row and one height, even with the long
      * potion and white-bag sub-lines ("2 Life · 1 Mana · 1 Att · 1 Def · +2 more", "of 9 bags · 1 without a bag name").
      */
     private void assertTilesInOneRow() {
         List<StatTile> tiles = tiles();
-        assertEquals("Four tiles in one row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
+        assertEquals(5, tiles.size());
+        assertEquals("Five tiles in one row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
         assertEquals("One height for the row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getHeight).distinct().count());
         for (StatTile tile : tiles) assertSubLineWhole(tile);
     }
@@ -847,7 +849,7 @@ public class LootEvidenceTest {
 
     private List<StatTile> tiles() {
         List<StatTile> tiles = new ArrayList<>();
-        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) tiles.add(VisualEvidence.named(shell, name, StatTile.class));
+        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites", "loot-tile-enchanted"}) tiles.add(VisualEvidence.named(shell, name, StatTile.class));
         return tiles;
     }
 

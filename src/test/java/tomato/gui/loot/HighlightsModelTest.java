@@ -26,6 +26,34 @@ import static tomato.gui.loot.HighlightsModel.Window.TODAY;
 public class HighlightsModelTest {
     private static final VisitRef RUN = new VisitRef("s", "v1");
 
+    @Test public void focusMatchesKindsWhiteBagNamesAndEnchantmentsAcrossKinds() {
+        HighlightsModel model = model(List.of(
+            bag("White", "Lost Halls", 1_000, RUN, item(1, true, false, false, 2), item(2, false, true, false, 3)),
+            bag("B.White", "Lost Halls", 2_000, RUN, item(LIFE, false, false, true, null)),
+            bag("Orange", "Lost Halls", 3_000, RUN, item(3, false, false, false, 4), item(4, true, false, false, 1)),
+            bag(null, "Lost Halls", 4_000, null, item(5, false, true, false, null))));
+        assertEquals("3", model.enchanted().text());
+        assertEquals("1 Rare · 1 Legendary · 1 Divine", HighlightsModel.enchantLine(model.enchantedByRarity()));
+        assertEquals(List.of(EnchantInfo.Rarity.RARE, EnchantInfo.Rarity.LEGENDARY, EnchantInfo.Rarity.DIVINE),
+            new ArrayList<>(model.enchantedByRarity().keySet()));
+        assertTrue(model.enchanted().tooltip().contains("rare or better: 2+ enchant slots"));
+        assertEquals(List.of(4, 1), focusedIds(model, HighlightsModel.Focus.UT));
+        assertEquals(List.of(5, 2), focusedIds(model, HighlightsModel.Focus.ST));
+        assertEquals(List.of(LIFE), focusedIds(model, HighlightsModel.Focus.POTIONS));
+        assertEquals(List.of(LIFE, 1, 2), focusedIds(model, HighlightsModel.Focus.WHITES));
+        assertEquals(List.of(3, 1, 2), focusedIds(model, HighlightsModel.Focus.ENCHANTED));
+        HighlightsModel.Shown hidden = model.shown(name -> !LootFacts.whiteBag(name), HighlightsModel.Focus.ENCHANTED);
+        assertEquals(1, hidden.total()); assertEquals(2, hidden.hidden());
+        assertEquals(List.of(3), hidden.items().stream().map(HighlightsModel.Notable::itemId).collect(Collectors.toList()));
+        assertFalse(LootFacts.whiteBag(null));
+        assertFalse(LootFacts.whiteBag("Orange"));
+        assertThrows(UnsupportedOperationException.class, () -> model.enchantedByRarity().clear());
+    }
+
+    private static List<Integer> focusedIds(HighlightsModel model, HighlightsModel.Focus focus) {
+        return model.shown(name -> true, focus).items().stream().map(HighlightsModel.Notable::itemId).collect(Collectors.toList());
+    }
+
     private static HighlightsModel model(List<LootFacts.Bag> bags) { return HighlightsModel.of(TODAY, SAVED, bags, true, 0, false, 9_000); }
     private static List<HighlightsModel.Kind> kinds(HighlightsModel model) {
         return model.notable().stream().map(HighlightsModel.Notable::kind).collect(Collectors.toList());
@@ -45,6 +73,14 @@ public class HighlightsModelTest {
         assertNull("No recorded visit: none is guessed", model.notable().get(0).visit());
         assertEquals(4, model.notableTotal());
         assertEquals("UT before ST before POTION before ENCHANTED", List.of(UT, ST, POTION, ENCHANTED), List.of(HighlightsModel.Kind.values()));
+    }
+
+    @Test public void notableDropsKeepTheTierSavedWithTheDrop() {
+        HighlightsModel model = model(List.of(bag("White", "Lost Halls", 1_000, RUN,
+            new LootFacts.Item(7, false, false, false, false, 3, 0, null, "T12"),
+            new LootFacts.Item(8, false, false, false, false, 2, 0, null, "—"))));
+        assertEquals("T12", model.notable().get(0).tier());
+        assertNull("Capture's \"—\" means no tier was saved", model.notable().get(1).tier());
     }
 
     @Test public void onlyStatPotionsAreNotableAndOtherPotionsStillCount() {
@@ -87,14 +123,14 @@ public class HighlightsModelTest {
 
     @Test public void tilesAreUnknownWhenNoBagWasSavedAndARealZeroOtherwise() {
         HighlightsModel none = HighlightsModel.of(TODAY, SAVED, List.of(), false, 0, false, 9_000);
-        for (DisplayValue tile : List.of(none.ut(), none.st(), none.potions(), none.whites())) {
+        for (DisplayValue tile : List.of(none.ut(), none.st(), none.potions(), none.whites(), none.enchanted())) {
             assertEquals("Never 0 when nothing was saved", DisplayValue.State.UNKNOWN, tile.state);
             assertEquals("—", tile.text());
             assertEquals(HighlightsModel.NO_LOOT, tile.detail);
         }
         assertEquals("No loot was saved for this period", HighlightsModel.NO_LOOT);
         HighlightsModel zero = HighlightsModel.of(SESSION, SAVED, List.of(), true, 0, false, 9_000);
-        for (DisplayValue tile : List.of(zero.ut(), zero.st(), zero.potions(), zero.whites())) {
+        for (DisplayValue tile : List.of(zero.ut(), zero.st(), zero.potions(), zero.whites(), zero.enchanted())) {
             assertEquals("Loot was saved in the window's sessions: a real zero", DisplayValue.State.ZERO, tile.state);
             assertTrue(tile.detail, tile.detail.contains(HighlightsModel.OBSERVED));
         }
@@ -146,6 +182,7 @@ public class HighlightsModelTest {
         List<LootFacts.Bag> bags = List.of(bag("White", "Lost Halls", 1_000, null, item(1, true, false, false, 0)));
         HighlightsModel partial = HighlightsModel.of(TODAY, SAVED, bags, true, 2, false, 9_000);
         assertEquals(DisplayValue.State.PARTIAL, partial.ut().state);
+        assertEquals(DisplayValue.State.PARTIAL, partial.enchanted().state);
         assertTrue(partial.ut().detail, partial.ut().detail.startsWith("2 saved sessions could not be read"));
         assertEquals(2, partial.sessionsSkipped());
         assertEquals("Saved history · Today", partial.sourceLabel());
@@ -166,6 +203,8 @@ public class HighlightsModelTest {
         HighlightsModel model = model(bags);
         assertEquals(HighlightsModel.NOTABLE_LIMIT, model.notable().size());
         assertEquals(250, model.notableTotal());
+        assertEquals("Focused totals cover retained matches only", 200, model.shown(name -> true, HighlightsModel.Focus.UT).total());
+        assertEquals(200, model.shown(name -> false, HighlightsModel.Focus.UT).hidden());
         assertEquals("Newest first", 1_249, model.notable().get(0).time());
         assertEquals(1_050, model.notable().get(199).time());
         assertEquals("250", model.ut().text());

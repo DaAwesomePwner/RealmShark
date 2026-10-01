@@ -8,7 +8,7 @@ import javax.swing.Icon;
 import tomato.realmshark.EnchantInfo;
 
 /**
- * An item sprite for table cells: the base icon, the rarity gem over its top-right corner, and the shared enchant tooltip, which
+ * An item sprite for Loot table cells: the base icon with its tier text or rarity glow and bottom-right pips, and the enchant tooltip, which
  * tables built by the stats pages ask the cell value for on hover. Colors resolve while painting and on hover, so it follows the
  * theme. The base is kept as given (callers may cache and reuse it).
  */
@@ -16,11 +16,17 @@ public final class ItemIcon implements Icon {
     private final Icon base;
     private final String heading;
     private final EnchantInfo enchant;
+    private final String tierLabel;
 
     public ItemIcon(Icon base, String heading, EnchantInfo enchant) {
+        this(base, heading, enchant, "");
+    }
+
+    public ItemIcon(Icon base, String heading, EnchantInfo enchant, String tierLabel) {
         this.base = Objects.requireNonNull(base, "base");
         this.heading = heading;
         this.enchant = enchant == null ? EnchantInfo.notRecorded() : enchant;
+        this.tierLabel = tierLabel;
     }
 
     public Icon base() { return base; }
@@ -30,9 +36,9 @@ public final class ItemIcon implements Icon {
     public String tooltip() { return enchant.state() == EnchantInfo.State.NOT_RECORDED ? null : EnchantTooltip.html(heading, enchant); }
 
     @Override public void paintIcon(Component c, Graphics g, int x, int y) {
-        base.paintIcon(c, g, x, y);
+        EnchantPips.glow(base, enchant).paintIcon(c, g, x, y);
         int side = Math.min(getIconWidth(), getIconHeight());
-        EnchantGem.paint((Graphics2D) g, enchant, x + getIconWidth() - side, y, side - 1);
+        EnchantPips.paintCorner((Graphics2D) g, enchant, tierLabel, x + getIconWidth() - side, y, side - 1);
     }
 
     @Override public int getIconWidth() { return base.getIconWidth(); }

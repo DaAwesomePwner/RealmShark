@@ -54,7 +54,7 @@ public final class BridgePayload {
             if(raritySource==null||LEGACY_ENCHANT_COUNT.equals(raritySource)) return shown+" (legacy count)";
             return ENCHANT_DATA_ABSENT.equals(raritySource)?shown+" (no enchant data)":shown;
         }
-        /** The enchantments for the gem and tooltip; null when no entry was kept (older entries, or none in the bag). Decode once per row build. */
+        /** The enchantments for the rarity pips, glow, rarity word and tooltip; null when no entry was kept (older entries, or none in the bag). Decode once per row build. */
         public EnchantInfo enchantInfo() { return enchantData==null?null:EnchantInfo.of(enchantData); }
     }
     /** Immutable capture-thread snapshot; no bag/player references cross onto the worker. */
