@@ -8,9 +8,6 @@ import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ErrorCollector;
-import org.junit.rules.TemporaryFolder;
-import tomato.gui.history.SessionPanel;
-import tomato.history.SessionStore;
 import tomato.realmshark.ParseEnchants;
 import ui.VisualEvidence;
 import static org.junit.Assert.*;
@@ -19,9 +16,7 @@ import static ui.VisualEvidence.*;
 public class LootLayoutEvidenceTest {
     @Rule public VisualEvidence evidence = new VisualEvidence();
     @Rule public ErrorCollector layouts = new ErrorCollector();
-    @Rule public TemporaryFolder temp = new TemporaryFolder();
-    private SessionStore store;
-    private SessionPanel route;
+    private JComponent route;
 
     @After public void closeHistory() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
@@ -30,11 +25,9 @@ public class LootLayoutEvidenceTest {
                 if (window != null) window.dispose();
             }
         });
-        if (store != null) store.close();
     }
 
     @Test public void settledCompactLootRetainsTheEntireGlobalRecencyFooterAndUsefulRows() throws Exception {
-        store = new SessionStore(temp.newFolder().toPath(), true, "synthetic-layout");
         LootDashboard[] panel = new LootDashboard[1];
         SwingUtilities.invokeAndWait(() -> {
             panel[0] = new LootDashboard();
@@ -44,11 +37,7 @@ public class LootLayoutEvidenceTest {
                 new LootDashboard.Drop("Orange", "The Shatters", "Synthetic boss", 2000,
                     Collections.singletonList(new LootDashboard.Item(910002, "Synthetic ring", "EQUIPMENT,RING,UT", ParseEnchants.summarize(null))))));
             named(panel[0], "loot-views", JComboBox.class).setSelectedItem(LootExploreModel.liveView(6));
-            // The live Loot workspace supplies this scrolling route; a bare dashboard omits its minimum-height contract.
-            // The route stays on its live card, so its saved-history loader is never asked for a page.
-            route = new SessionPanel(store, "loot", panel[0], (history, scope, page, query) -> {
-                throw new IllegalStateException("Live-only layout evidence reads no saved history");
-            });
+            route = tomato.gui.modern.ContentStyle.page(null, panel[0], null);
         });
         for (int font : new int[]{13, 24}) for (int width : new int[]{1050, 640}) {
             SwingUtilities.invokeAndWait(() -> evidence.show(route, "Loot scope evidence", width, 700, font));

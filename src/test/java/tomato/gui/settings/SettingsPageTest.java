@@ -123,6 +123,10 @@ public class SettingsPageTest {
         SwingUtilities.invokeAndWait(() -> {
             JComponent sections = named(page[0], "settings-sections", JComponent.class);
             assertEquals(BorderLayout.NORTH, ((BorderLayout) page[0].getLayout()).getConstraints(sections.getParent()));
+            JTextField filter = named(page[0], "settings-search", JTextField.class);
+            assertTrue("Filter stays above the wrapping row", SwingUtilities.convertPoint(filter, 0, filter.getHeight(), page[0]).y
+                <= SwingUtilities.convertPoint(sections, 0, 0, page[0]).y);
+            assertTrue("Filter fits the narrow page", filter.getWidth() > 0 && filter.getWidth() <= page[0].getWidth());
             for (int i = 0; i < SIX.size(); i++) {
                 AbstractButton button = named(page[0], SIX.get(i), AbstractButton.class);
                 Rectangle bounds = button.getBounds();
@@ -148,6 +152,35 @@ public class SettingsPageTest {
         java.util.List<String> order = new java.util.ArrayList<>();
         for (Component button : named(page, "settings-sections", JComponent.class).getComponents()) order.add(button.getName());
         return order;
+    }
+
+    @Test public void filterMatchesAllWordsAndClearsForEscapeAndExternalNavigation() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            SettingsPage page = new SettingsPage(new JPanel(), () -> {}, new JPanel(), new JPanel(),
+                new JPanel(), new JPanel(), new JPanel());
+            JTextField search = named(page, "settings-search", JTextField.class);
+            search.setText("  FONT size ");
+            assertEquals(java.util.List.of("settings-section-appearance"), buttons(page));
+            assertEquals(SettingsPage.APPEARANCE, page.currentSection());
+            search.setText("sound version");
+            assertTrue(buttons(page).isEmpty());
+            assertTrue(named(page, "settings-no-matches", JLabel.class).isVisible());
+            assertEquals(SettingsPage.APPEARANCE, page.currentSection());
+            search.getActionMap().get("clear-filter").actionPerformed(null);
+            assertEquals("", search.getText());
+            assertEquals(SIX, buttons(page));
+            assertFalse(named(page, "settings-no-matches", JLabel.class).isVisible());
+            search.setText("combat history");
+            assertEquals(SettingsPage.GENERAL, page.currentSection());
+            page.showSection(SettingsPage.CHAT);
+            assertEquals("", search.getText());
+            assertEquals(SIX, buttons(page));
+            assertEquals(SettingsPage.CHAT, page.currentSection());
+            search.setText("filter");
+            named(page, "settings-section-loot-filters", AbstractButton.class).doClick();
+            assertEquals("filter", search.getText());
+            assertEquals(SettingsPage.LOOT_FILTERS, page.currentSection());
+        });
     }
 
     static <T> T named(Container root, String name, Class<T> type) {

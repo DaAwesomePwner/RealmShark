@@ -16,9 +16,34 @@ public class AppearanceSectionTest {
     private final List<Themes.Choice> selected = new ArrayList<>();
     private Themes.Choice installed = new Themes.Choice(Themes.Variant.DARK, false);
     private int refreshed;
+    private final List<Integer> fontSizes = new ArrayList<>();
 
     private AppearanceSection section() {
-        return new AppearanceSection(selected::add, () -> installed, store::get, store::put, mode, () -> refreshed++);
+        return new AppearanceSection(selected::add, () -> installed, store::get, store::put, mode, () -> refreshed++, fontSizes::add);
+    }
+
+    @Test public void textSizeAppliesAndSavesWhileSyncIncludesCustomSizesWithoutApplying() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            store.put("fontSize", "18");
+            AppearanceSection section = section();
+            JComboBox<?> sizes = named(section, "settings-font-size", JComboBox.class);
+            assertEquals(18, sizes.getSelectedItem());
+            List<Object> offered = new ArrayList<>();
+            for (int i = 0; i < sizes.getItemCount(); i++) offered.add(sizes.getItemAt(i));
+            assertEquals(List.of(8, 12, 13, 14, 16, 18, 24, 48), offered);
+            assertTrue(fontSizes.isEmpty());
+            sizes.setSelectedItem(24);
+            assertEquals(List.of(24), fontSizes);
+            assertEquals("24", store.get("fontSize"));
+            store.put("fontSize", "12");
+            section.updateUI();
+            assertEquals(12, sizes.getSelectedItem());
+            assertEquals(List.of(24), fontSizes);
+            store.remove("fontSize");
+            section.updateUI();
+            assertEquals(tomato.gui.modern.ContentStyle.FONT_SIZE, sizes.getSelectedItem());
+            assertEquals(List.of(24), fontSizes);
+        });
     }
 
     @Test public void themeAndContrastApplyThroughThemesAndRefreshTheShell() throws Exception {
