@@ -341,7 +341,7 @@ public final class RunRecapBuilder {
         List<RunRecapModel.Loot.Bag> bags = new ArrayList<>();
         int count = 0;
         for (LootFacts.Bag bag : facts.bags) {
-            bags.add(new RunRecapModel.Loot.Bag(bag.bag(), bag.time(), bag.items()));
+            bags.add(new RunRecapModel.Loot.Bag(bag.bag(), bag.time(), bag.dropper(), bag.items()));
             count += bag.items().size();
         }
         String reason = !bags.isEmpty() ? null : facts.lootFailure != null ? facts.lootFailure
