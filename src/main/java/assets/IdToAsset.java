@@ -86,7 +86,7 @@ public class IdToAsset {
     }
 
     public static boolean reloadDefinitions() {
-        try { prepareReload(AssetCache.root()).run(); return true; }
+        try { prepareReload(AssetCache.root()).run(); tomato.history.index.AssetDictionary.changed(); return true; }
         catch (java.io.IOException failure) { return false; }
     }
 
@@ -175,6 +175,13 @@ public class IdToAsset {
         if (i == null) return null;
         if (i.display.equals("")) return i.idName;
         return i.display;
+    }
+
+    /** Detached names from the currently published definitions; no disk access. */
+    public static java.util.Map<Integer, String> objectNames() {
+        java.util.Map<Integer, String> names = new HashMap<>();
+        objectID.forEach((id, asset) -> names.put(id, asset.display.isEmpty() ? asset.idName : asset.display));
+        return names;
     }
 
     /**

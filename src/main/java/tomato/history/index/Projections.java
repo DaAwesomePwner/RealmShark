@@ -13,9 +13,17 @@ import tomato.history.SessionStore;
 import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 
-/** Pure, allowlisted saved-record projections. No assets, UI objects, file reads or account-name inference. */
+/** Pure, allowlisted saved-record projections with injected names. No file reads or account-name inference. */
 public final class Projections {
-    public record Context(Locator locator, long ended, boolean current, String version) {}
+    public record Context(Locator locator, long ended, boolean current, String version, IndexDictionary dictionary) {
+        public Context(Locator locator,long ended,boolean current,String version) {
+            this(locator,ended,current,version,IndexDictionary.NONE);
+        }
+        public Context {
+            if (dictionary==null || "none".equals(dictionary.version())) dictionary=IndexDictionary.NONE;
+        }
+        Context at(int position) { return new Context(locator.at(position),ended,current,version,dictionary); }
+    }
     public record Row(String table, Kind kind, Locator locator, Long time, String visitId,
                       String title, String body, String names, Map<String,Object> columns, Map<String,String> players) {
         public Row {
@@ -31,6 +39,7 @@ public final class Projections {
     }
     private static final Pattern HASH = Pattern.compile("(?i)[0-9a-f]{64}");
     private static final Set<String> DIAGNOSTICS = Set.of("Resources", "Capture issue", "Ownership check");
+    private static final Set<String> EQUIPMENT_STATS = Set.of("INVENTORY_0_STAT", "INVENTORY_1_STAT", "INVENTORY_2_STAT", "INVENTORY_3_STAT");
     private static final Map<String,BiFunction<Context,JsonElement,List<Row>>> PROJECTORS;
     static {
         Map<String,BiFunction<Context,JsonElement,List<Row>>> p = new LinkedHashMap<>();
@@ -68,7 +77,7 @@ public final class Projections {
         Long start = positive(v.started), end = positive(v.lastSeen);
         // ActivityQueries.visit bounds duration by the last observation, not an inferred session duration.
         Long duration = start == null || end == null || end < start ? null : end - start;
-        Map<String,String> people = new LinkedHashMap<>(); List<String> classes = new ArrayList<>();
+        Map<String,String> people = new LinkedHashMap<>(); Set<String> extra = new LinkedHashSet<>();
         JsonObject inspected = object(o,"inspectedPlayers");
         for (Map.Entry<String,JsonElement> entry : inspected.entrySet()) {
             if (!entry.getValue().isJsonObject()) continue;
@@ -76,16 +85,21 @@ public final class Projections {
             for (JsonElement stat : array(player,"stats")) if (stat.isJsonObject()) {
                 JsonObject s = stat.getAsJsonObject();
                 if ("NAME_STAT".equals(text(s,"statType")) || Long.valueOf(31).equals(number(s,"statTypeNum"))) {
-                    name = text(s,"stringStatValue"); break;
+                    name = text(s,"stringStatValue");
                 }
+                Long statType=number(s,"statTypeNum");
+                if (EQUIPMENT_STATS.contains(text(s,"statType")) || statType!=null && statType>=8 && statType<=11)
+                    extra.add(objectName(c,s.get("statValue")));
             }
             if (name.isBlank() && entry.getKey().startsWith("player:")) name = entry.getKey().substring(7);
-            player(people,name); classes.add(text(player,"className"));
+            player(people,name); extra.add(className(c,player,"objectType"));
         }
         for (String key : object(o,"playerDamage").keySet()) if (key.startsWith("player:")) player(people,key.substring(7));
+        for (String id:object(o,"requestedItems").keySet()) extra.add(objectName(c,new JsonPrimitive(id)));
         String roster = String.join(" ", people.values()); String map = text(o,"map");
-        return List.of(row(c,"runs",Kind.RUN,start,v.id,map,join(outcome.label,v.status,v.completionEvidence,v.endReason,roster,String.join(" ",classes)),
-                join(map,roster), fields("map",map,"started",start,"ended",positive(v.ended),"duration",duration,
+        String enrichment=join(extra.toArray(String[]::new));
+        return List.of(row(c,"runs",Kind.RUN,start,v.id,map,join(outcome.label,v.status,v.completionEvidence,v.endReason,roster,enrichment),
+                join(map,roster,enrichment), fields("map",map,"started",start,"ended",positive(v.ended),"duration",duration,
                 "outcome",outcome.label,"damage",v.damageTracked?v.totalDamage:null,"players",v.inspectedPlayerCount,
                 "roster_size",v.rosterSize,"issues",v.issues,"gaps",v.timingGaps,"progress",v.exaltIncrease,
                 "evidence",v.completionEvidence,"status",v.status),people));
@@ -110,9 +124,10 @@ public final class Projections {
                 if (evidence.state!=null && evidence.state!=ParseEnchants.EvidenceState.LEGACY_NOT_RECORDED) enchant=EnchantInfo.fromEvidence(evidence);
             }
             String tier = text(i,"tier"); if (tier.isBlank() || "—".equals(tier)) tier = null;
-            String name = text(i,"name");
-            Context at = new Context(c.locator.at(position++),c.ended,c.current,c.version);
-            rows.add(row(at,"loot_items",Kind.LOOT,time,visitId,name,join(map,dropper,bag,tier),join(name,map,dropper),
+            String name = savedOr(text(i,"name"),objectName(c,i.get("id")));
+            String enchantNames=enchantNames(c,i);
+            Context at = c.at(position++);
+            rows.add(row(at,"loot_items",Kind.LOOT,time,visitId,name,join(name,map,dropper,bag,tier,enchantNames),join(name,map,dropper,enchantNames),
                     fields("item_id",number(i,"id"),"name",name,"dungeon",map,"dropper",dropper,"bag",bag,
                     "tier",tier,"rarity",enchant.rarity().label,
                     "enchant_slots",slots,"enchant_applied",applied,"ut",bool(i,"ut"),"st",bool(i,"st"),
@@ -126,8 +141,15 @@ public final class Projections {
         ActivityJournal.Entry e = SessionStore.JSON.fromJson(o,ActivityJournal.Entry.class);
         String kind = e.kind == null ? "Unknown activity" : e.kind;
         String summary = ActivitySummaries.event(e);
+        JsonObject values=object(o,"values"); String equipment="";
+        if ("Equipment changed".equals(kind)) {
+            equipment=join(objectName(c,values.get("before")),objectName(c,values.get("after")));
+            // Item IDs remain in the source only; neither unknown IDs nor slot numbers are searchable names.
+            summary=join("Observed equipped item",equipment);
+            values=values.deepCopy(); values.remove("before"); values.remove("after"); values.remove("slot");
+        }
         return List.of(row(c,"timeline",Kind.TIMELINE,positive(e.time),blank(e.visitId),kind,
-                join(summary,e.detail,safeValues(object(o,"values"))),e.map,
+                join(summary,e.detail,safeValues(values)),join(e.map,equipment),
                 fields("record_id",e.id,"map",e.map,"kind",kind,"summary",summary,"detail",e.detail),Map.of()));
     }
     private static List<Row> chat(Context c, JsonElement value) {
@@ -165,7 +187,7 @@ public final class Projections {
             for (JsonElement sample : character.getValue().getAsJsonArray()) {
                 JsonObject s = sample.getAsJsonObject().deepCopy(); s.addProperty("character",Integer.parseInt(character.getKey()));
                 if (classes.has(character.getKey())) s.add("className",classes.get(character.getKey()));
-                rows.addAll(fame(new Context(c.locator.at(position++),c.ended,c.current,c.version),s));
+                rows.addAll(fame(c.at(position++),s));
             }
         }
         return rows;
@@ -173,10 +195,14 @@ public final class Projections {
     private static List<Row> combat(Context c, JsonElement value) {
         JsonObject o = value.getAsJsonObject(); String id = text(o,"recordingId");
         if (id.isBlank()) throw new IllegalArgumentException("Combat without recording ID");
-        Map<String,String> people = new LinkedHashMap<>(); List<String> bosses = new ArrayList<>();
-        for (JsonElement p : array(o,"players")) if (p.isJsonObject()) player(people,text(p.getAsJsonObject(),"name"));
-        for (JsonElement b : array(o,"bosses")) if (b.isJsonObject()) bosses.add(text(b.getAsJsonObject(),"name"));
-        String map = text(o,"map"), names = join(map,text(o,"mapName"),String.join(" ",people.values()),String.join(" ",bosses));
+        Map<String,String> people = new LinkedHashMap<>(); Set<String> extra = new LinkedHashSet<>();
+        for (JsonElement p : array(o,"players")) if (p.isJsonObject()) {
+            JsonObject player=p.getAsJsonObject(); player(people,text(player,"name")); extra.add(className(c,player,"classType"));
+        }
+        for (JsonElement b : array(o,"bosses")) if (b.isJsonObject()) {
+            JsonObject boss=b.getAsJsonObject(); extra.add(savedOr(text(boss,"name"),objectName(c,boss.get("type"))));
+        }
+        String map = text(o,"map"), names = join(map,text(o,"mapName"),String.join(" ",people.values()),join(extra.toArray(String[]::new)));
         return List.of(row(c,"combat",Kind.COMBAT,positive(number(o,"startedAt")),exactVisit(c,o,"visitSession"),map,names,names,
                 fields("recording_id",id,"map",map,"started",number(o,"startedAt"),"elapsed",number(o,"elapsedMs"),
                 "damage",number(o,"totalDamage"),"deaths",number(o,"deaths"),"players",number(o,"contributors")),people));
@@ -186,13 +212,46 @@ public final class Projections {
         for (JsonElement element : value.getAsJsonArray()) {
             JsonObject o = element.getAsJsonObject(); String name = text(o,"name");
             long hits = 0, items = 0;
-            for (Map.Entry<String,JsonElement> n : object(o,"hits").entrySet()) hits += n.getValue().getAsLong();
+            Set<String> extra=new LinkedHashSet<>();
+            for (Map.Entry<String,JsonElement> n : object(o,"hits").entrySet()) {
+                hits += n.getValue().getAsLong(); extra.add(objectName(c,new JsonPrimitive(n.getKey())));
+            }
             for (Map.Entry<String,JsonElement> enemy : object(o,"loot").entrySet())
-                for (Map.Entry<String,JsonElement> n : enemy.getValue().getAsJsonObject().entrySet()) items += n.getValue().getAsLong();
-            rows.add(row(new Context(c.locator.at(position++),c.ended,c.current,c.version),"dungeon_totals",Kind.DUNGEON,null,null,name,"",name,
+                for (Map.Entry<String,JsonElement> n : enemy.getValue().getAsJsonObject().entrySet()) {
+                    items += n.getValue().getAsLong(); extra.add(objectName(c,new JsonPrimitive(n.getKey())));
+                }
+            String enrichment=join(extra.toArray(String[]::new));
+            rows.add(row(c.at(position++),"dungeon_totals",Kind.DUNGEON,null,null,name,enrichment,join(name,enrichment),
                     fields("dungeon",name,"visits",number(o,"visits"),"duration",number(o,"time"),"hits",hits,"items",items),Map.of()));
         }
         return rows;
+    }
+    private static String savedOr(String saved,String derived) { return saved==null || saved.isBlank()?derived:saved; }
+    private static Integer id(JsonElement value) {
+        if (value==null || !value.isJsonPrimitive()) return null;
+        try { return Integer.valueOf(value.getAsString()); }
+        catch (NumberFormatException invalid) { return null; }
+    }
+    private static String objectName(Context c,JsonElement value) {
+        Integer id=id(value); return id==null || id<0?null:c.dictionary.objectName(id);
+    }
+    private static String className(Context c,JsonObject player,String field) {
+        Integer id=id(player.get(field));
+        return savedOr(text(player,"className"),id==null || id<0?null:c.dictionary.className(id));
+    }
+    private static String enchantNames(Context c,JsonObject item) {
+        JsonObject evidence=object(item,"enchantEvidence");
+        if (evidence.has("orderedSlotIds") && evidence.get("orderedSlotIds").isJsonArray()) {
+            List<String> names=new ArrayList<>();
+            for (JsonElement slot:array(evidence,"orderedSlotIds")) {
+                Integer id=id(slot); if (id!=null && id==-3) break;
+                if (id!=null && id>=0) names.add(c.dictionary.enchantName(id));
+            }
+            return join(names.toArray(String[]::new));
+        }
+        // Older count-only summaries cannot establish names. Retain saved text when a legacy record has it.
+        JsonElement saved=item.get("enchants");
+        return saved!=null && saved.isJsonPrimitive() && saved.getAsJsonPrimitive().isString()?saved.getAsString():"";
     }
     private static void player(Map<String,String> people, String name) {
         if (name == null || name.split(",",2)[0].isBlank() || HASH.matcher(name).find()) return;

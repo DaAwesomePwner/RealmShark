@@ -263,6 +263,7 @@ public class AssetExtractor {
         Runnable ready = prepareCatalogs(AssetCache.root());
         synchronized (ImageBuffer.class) { ready.run(); }
         SpriteJson.jsonFileReader();
+        tomato.history.index.AssetDictionary.changed();
     }
 
     private static Runnable prepareCatalogs(Path root) throws IOException {

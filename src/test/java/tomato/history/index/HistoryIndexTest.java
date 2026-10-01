@@ -67,10 +67,161 @@ public class HistoryIndexTest {
         Files.createDirectories(directory); System.setProperty("org.sqlite.tmpdir",directory.toString()); Class.forName("org.sqlite.JDBC");
         try (Connection ignored=DriverManager.getConnection("jdbc:sqlite::memory:")) { }
     }
+    private HistoryIndex index(AtomicReference<IndexDictionary> dictionary) throws Exception {
+        HistoryIndex index=new HistoryIndex(store,file,false,8192,HistoryIndexTest::nativeLoad,id -> {},System::nanoTime,() -> {
+            assertEquals("RealmShark search index",Thread.currentThread().getName());
+            return dictionary.get();
+        });
+        opened.add(index); ready(index); return index;
+    }
+    @Test public void dictionaryReadinessChangeAndReopenReprojectOnlyWhenVersionChanges() throws Exception {
+        session(A,1,10);
+        journal(A,"loot","{items:[{id:101,name:'Saved Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n");
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(DictionaryProjectionsTest.dictionary("none","Astral Blessing"));
+        HistoryIndex first=index(dictionary);
+        assertNull(scalar(first,"SELECT value FROM meta WHERE key='dictionary_version'"));
+        assertEquals("none",scalar(first,"SELECT dictionary FROM sessions"));
+        assertTrue(first.search("Astral",Set.of(Kind.LOOT),10).isEmpty());
+        dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        first.dictionaryChanged(); flush(first);
+        assertEquals("v1",scalar(first,"SELECT value FROM meta WHERE key='dictionary_version'"));
+        assertEquals(2,first.replacementCount()); assertTrue(first.ready(A));
+        assertEquals(1,first.search("Astral",Set.of(Kind.LOOT),10).size());
+        assertEquals(1,first.search("tral Bles",Set.of(Kind.LOOT),10).size());
+        first.dictionaryChanged(); flush(first); assertEquals(2,first.replacementCount());
+        first.closeAsync().get(30,TimeUnit.SECONDS);
+        HistoryIndex same=index(dictionary); assertEquals(0,same.replacementCount());
+        assertEquals(1,same.search("Astral",Set.of(Kind.LOOT),10).size());
+        same.closeAsync().get(30,TimeUnit.SECONDS);
+        dictionary.set(DictionaryProjectionsTest.dictionary("v2","Solar Blessing"));
+        HistoryIndex changed=index(dictionary); assertEquals(1,changed.replacementCount());
+        assertTrue(changed.search("Astral",Set.of(Kind.LOOT),10).isEmpty());
+        assertEquals(1,changed.search("Solar",Set.of(Kind.LOOT),10).size());
+        dictionary.set(IndexDictionary.NONE); changed.dictionaryChanged(); flush(changed);
+        assertEquals(1,changed.replacementCount()); assertEquals(1,changed.search("Solar",Set.of(Kind.LOOT),10).size());
+        assertEquals("v2",scalar(changed,"SELECT value FROM meta WHERE key='dictionary_version'"));
+        assertEquals("v2",scalar(changed,"SELECT dictionary FROM sessions"));
+        assertEquals("Saved Blade",changed.search("Saved Blade",Set.of(Kind.LOOT),10).get(0).title());
+    }
+    @Test public void unavailableAssetsOnReopenPreserveEnrichmentAndSameVersionNeedsNoRefresh() throws Exception {
+        session(A,1,10); journal(A,"loot","{items:[{name:'Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n");
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        HistoryIndex first=index(dictionary);
+        String stamp=scalar(first,"SELECT stamp FROM sessions"), row=scalar(first,"SELECT id FROM loot_items");
+        first.closeAsync().get(30,TimeUnit.SECONDS);
+        dictionary.set(IndexDictionary.NONE);
+        HistoryIndex reopened=index(dictionary); flush(reopened);
+        assertEquals(0,reopened.replacementCount()); assertTrue(reopened.ready(A));
+        assertEquals("v1",scalar(reopened,"SELECT value FROM meta WHERE key='dictionary_version'"));
+        assertEquals("v1",scalar(reopened,"SELECT dictionary FROM sessions"));
+        assertEquals(stamp,scalar(reopened,"SELECT stamp FROM sessions")); assertEquals(row,scalar(reopened,"SELECT id FROM loot_items"));
+        assertEquals(1,reopened.search("Astral",Set.of(Kind.LOOT),10).size());
+        dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        reopened.dictionaryChanged(); flush(reopened);
+        assertEquals(0,reopened.replacementCount()); assertEquals(stamp,scalar(reopened,"SELECT stamp FROM sessions"));
+        assertEquals(1,reopened.search("tral Bles",Set.of(Kind.LOOT),10).size());
+    }
+    @Test public void returningAssetsRefreshOnlyUnenrichedSessionsAndNewVersionsRefreshEachOutdatedSessionOnce() throws Exception {
+        String loot="{items:[{name:'Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n";
+        session(A,1,10); journal(A,"loot",loot);
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        HistoryIndex first=index(dictionary); first.closeAsync().get(30,TimeUnit.SECONDS);
+        session(B,20,30); journal(B,"loot",loot);
+        dictionary.set(IndexDictionary.NONE);
+        HistoryIndex reopened=index(dictionary);
+        assertEquals(1,reopened.replacementCount()); assertEquals(1,reopened.search("Astral",Set.of(Kind.LOOT),10).size());
+        assertEquals("v1",scalar(reopened,"SELECT dictionary FROM sessions WHERE id='"+A+"'"));
+        assertEquals("none",scalar(reopened,"SELECT dictionary FROM sessions WHERE id='"+B+"'"));
+        dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        reopened.dictionaryChanged(); flush(reopened);
+        assertEquals(2,reopened.replacementCount()); assertEquals(2,reopened.search("Astral",Set.of(Kind.LOOT),10).size());
+        assertEquals("2",scalar(reopened,"SELECT count(*) FROM sessions WHERE dictionary='v1'"));
+        reopened.dictionaryChanged(); flush(reopened); assertEquals(2,reopened.replacementCount());
+        dictionary.set(DictionaryProjectionsTest.dictionary("v2","Solar Blessing"));
+        reopened.dictionaryChanged(); flush(reopened);
+        assertEquals(4,reopened.replacementCount()); assertEquals(2,reopened.search("Solar",Set.of(Kind.LOOT),10).size());
+        assertTrue(reopened.search("Astral",Set.of(Kind.LOOT),10).isEmpty());
+        assertEquals("2",scalar(reopened,"SELECT count(*) FROM sessions WHERE dictionary='v2'"));
+        reopened.dictionaryChanged(); flush(reopened); assertEquals(4,reopened.replacementCount());
+        reopened.closeAsync().get(30,TimeUnit.SECONDS);
+        HistoryIndex same=index(dictionary); assertEquals(0,same.replacementCount());
+    }
+    @Test public void sourceChangesWhileAssetsAreMissingRecordNoneWithoutInvalidatingOtherSessions() throws Exception {
+        String loot="{items:[{name:'Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n";
+        session(A,1,10); journal(A,"loot",loot); session(B,20,30); journal(B,"loot",loot);
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        HistoryIndex first=index(dictionary); first.closeAsync().get(30,TimeUnit.SECONDS);
+        journal(A,"loot",loot+"{items:[{name:'New item'}]}\n"); dictionary.set(IndexDictionary.NONE);
+        HistoryIndex reopened=index(dictionary);
+        assertEquals(1,reopened.replacementCount()); assertEquals(3,count(reopened,"loot_items"));
+        assertEquals("none",scalar(reopened,"SELECT dictionary FROM sessions WHERE id='"+A+"'"));
+        assertEquals("v1",scalar(reopened,"SELECT dictionary FROM sessions WHERE id='"+B+"'"));
+        assertEquals("v1",scalar(reopened,"SELECT value FROM meta WHERE key='dictionary_version'"));
+        assertEquals(1,reopened.search("Astral",Set.of(Kind.LOOT),10).size());
+        dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        reopened.dictionaryChanged(); flush(reopened);
+        assertEquals(2,reopened.replacementCount()); assertEquals(2,reopened.search("Astral",Set.of(Kind.LOOT),10).size());
+    }
+    @Test public void dictionaryChangesRefreshIndexedOpenSessionsAndLiveOffers() throws Exception {
+        session(A,1,0); checkpoint(A,"runs","r","{id:'r',requestedItems:{101:1}}");
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(IndexDictionary.NONE);
+        HistoryIndex index=index(dictionary); index.markSessionChanged(A); flush(index);
+        assertTrue(index.ready(A)); assertTrue(index.search("Moonblade",Set.of(Kind.RUN),10).isEmpty());
+        dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        index.dictionaryChanged(); flush(index);
+        assertEquals(2,index.replacementCount()); assertEquals(1,index.search("Moonblade",Set.of(Kind.RUN),10).size());
+        String loot="{items:[{name:'Live Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n";
+        journal(A,"loot",loot); index.offer(A,"loot",0,null,ProjectionsTest.json(loot)); flush(index);
+        assertEquals(1,index.search("Astral",Set.of(Kind.LOOT),10).size());
+        index.dictionaryChanged(); flush(index); assertEquals(2,index.replacementCount());
+        dictionary.set(IndexDictionary.NONE); index.dictionaryChanged(); flush(index);
+        assertEquals(2,index.replacementCount()); assertEquals("v1",scalar(index,"SELECT dictionary FROM sessions"));
+        index.offer(A,"loot",0,null,ProjectionsTest.json(loot)); flush(index);
+        assertEquals("none",scalar(index,"SELECT dictionary FROM sessions"));
+        assertTrue(index.search("Astral",Set.of(Kind.LOOT),10).isEmpty());
+        assertEquals(1,index.search("Moonblade",Set.of(Kind.RUN),10).size());
+        dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        index.dictionaryChanged(); flush(index);
+        assertEquals(3,index.replacementCount()); assertEquals("v1",scalar(index,"SELECT dictionary FROM sessions"));
+        assertEquals(1,index.search("Astral",Set.of(Kind.LOOT),10).size());
+        index.dictionaryChanged(); flush(index); assertEquals(3,index.replacementCount());
+    }
+    @Test public void enrichedNamesAreInBothIndexesAndCannotExposeTheAccountHash() throws Exception {
+        session(A,1,10);
+        checkpoint(A,"runs","r","{id:'r',requestedItems:{103:1},inspectedPlayers:{'player:alice':{objectType:301,stats:[{statTypeNum:8,statValue:101}]}}}");
+        checkpoint(A,"encounters","e","{recordingId:'e',players:[{name:'Alice',classType:301}],bosses:[{type:201}]}");
+        checkpoint(A,"dungeon-totals","d","[{hits:{201:1},loot:{201:{102:1}}}]");
+        journal(A,"timeline","{kind:'Equipment changed',values:{before:101,after:102}}\n");
+        journal(A,"loot","{items:[{name:'Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n");
+        journal(A,"fame","{account:'"+HASH+"',character:1,className:'Saved Mage'}\n");
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(DictionaryProjectionsTest.dictionary("v1",HASH));
+        HistoryIndex index=index(dictionary);
+        for (String fts:List.of("docs","names")) {
+            for (String name:List.of("Moonblade","Starcloak","Spellweaver","Ancient Guardian","Sunshield"))
+                assertNotEquals(name,"0",scalar(index,"SELECT count(*) FROM "+fts+" WHERE "+fts+" MATCH '\""+name+"\"'"));
+        }
+        assertEquals(HASH,scalar(index,"SELECT account FROM fame")); scanAccountLeak(index);
+    }
+    @Test public void interruptedDictionaryRefreshRemainsStaleAcrossReopen() throws Exception {
+        session(A,1,10); journal(A,"loot","{items:[{name:'Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n");
+        AtomicReference<IndexDictionary> dictionary=new AtomicReference<>(IndexDictionary.NONE);
+        AtomicBoolean fail=new AtomicBoolean();
+        HistoryIndex first=new HistoryIndex(store,file,false,8192,HistoryIndexTest::nativeLoad,id -> {
+            if (fail.get()) throw new java.io.IOException("Synthetic interruption");
+        },System::nanoTime,dictionary::get);
+        opened.add(first); ready(first);
+        fail.set(true); dictionary.set(DictionaryProjectionsTest.dictionary("v1","Astral Blessing"));
+        first.dictionaryChanged(); flush(first);
+        assertFalse(first.ready(A)); assertEquals("v1",scalar(first,"SELECT value FROM meta WHERE key='dictionary_version'"));
+        assertTrue(first.search("Astral",Set.of(Kind.LOOT),10).isEmpty());
+        first.closeAsync().get(30,TimeUnit.SECONDS);
+        HistoryIndex recovered=index(dictionary); assertEquals(1,recovered.replacementCount()); assertTrue(recovered.ready(A));
+        assertEquals(1,recovered.search("Astral",Set.of(Kind.LOOT),10).size());
+    }
     @Test public void schemaReopenAndVersionRebuild() throws Exception {
         session(A,1,10); checkpoint(A,"runs","r","{id:'r',map:'Oryx',started:2,lastSeen:8}");
         HistoryIndex first=index(true); assertEquals(1,count(first,"runs"));
-        assertEquals("3",scalar(first,"SELECT value FROM meta WHERE key='schema_version'"));
+        assertEquals("5",scalar(first,"SELECT value FROM meta WHERE key='schema_version'"));
         assertEquals("wal",scalar(first,"PRAGMA journal_mode")); assertEquals("1",scalar(first,"PRAGMA secure_delete"));
         assertEquals("5000",scalar(first,"PRAGMA busy_timeout")); assertEquals("1",scalar(first,"PRAGMA foreign_keys"));
         try (Connection c=first.readConnection(); Statement s=c.createStatement()) {
@@ -120,7 +271,7 @@ public class HistoryIndexTest {
         writeSql("INSERT INTO docs(kind,title,body) VALUES('RUN','obsoleteword','obsoleteword')");
         writeSql("INSERT INTO names(name) VALUES('obsoleteword')");
         HistoryIndex index=index(true);
-        assertEquals("3",scalar(index,"SELECT value FROM meta WHERE key='schema_version'"));
+        assertEquals("5",scalar(index,"SELECT value FROM meta WHERE key='schema_version'"));
         assertEquals("integer",scalar(index,"SELECT typeof(sid) FROM sessions"));
         assertEquals("0",scalar(index,"SELECT count(*) FROM sqlite_master WHERE name IN ('doc_ref','docs_content','names_content')"));
         assertEquals("Rebuilt Sanctuary",index.search("Rebuilt",Set.of(Kind.RUN),10).get(0).title());

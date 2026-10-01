@@ -22,7 +22,7 @@ public final class AssetCache {
     private AssetCache() { }
     public static Path root() { return current.root; }
     public static Path path(String relative) { return current.root.resolve(relative); }
-    static String stamp() { return current.stamp; }
+    public static String stamp() { return current.stamp; }
 
     private static Generation readCurrent() {
         try { return readPointer(true); }

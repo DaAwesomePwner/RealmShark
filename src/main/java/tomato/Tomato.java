@@ -60,6 +60,7 @@ public class Tomato {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Setup completion belongs to the EDT");
         assetsReady = ready; setupBusy = false;
         TomatoMenuBar.setCaptureControls(false, ready);
+        if (ready) tomato.history.index.AssetDictionary.changed();
         if (initial && ready && "T".equals(PropertiesManager.getProperty("sniffer"))) startPacketSniffer(factory);
     }
 

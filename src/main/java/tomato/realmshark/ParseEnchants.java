@@ -69,7 +69,11 @@ public class ParseEnchants {
         ENCHANTS.put((short) -1, "[empty]");
     }
 
-    public static boolean reload() { return loadEnchants(assets.AssetCache.path("xml/enchantments.xml").toString()); }
+    public static boolean reload() {
+        boolean ready=loadEnchants(assets.AssetCache.path("xml/enchantments.xml").toString());
+        if (ready) tomato.history.index.AssetDictionary.changed();
+        return ready;
+    }
 
     private static boolean loadEnchants(String path) {
         try { prepareReload(java.nio.file.Paths.get(path)).run(); return true; }
