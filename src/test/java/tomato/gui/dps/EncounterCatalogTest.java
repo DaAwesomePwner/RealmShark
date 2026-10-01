@@ -10,6 +10,60 @@ import tomato.backend.data.*;
 import static org.junit.Assert.*;
 
 public class EncounterCatalogTest {
+    @Test public void twentyFirstCloseDropsOldestCaptureAndItsCheck() {
+        TomatoData data = new TomatoData(); EncounterCatalog catalog = new EncounterCatalog();
+        DpsData first = DpsRetentionTest.close(data, 0, false);
+        catalog.capture(data::closedDpsSnapshot);
+        String firstId = catalog.find(first).id; catalog.check(firstId, true);
+        for (int i = 1; i <= 20; i++) {
+            DpsRetentionTest.close(data, i, false); catalog.capture(data::closedDpsSnapshot);
+        }
+        assertEquals(20, data.dpsData.size()); assertEquals(20, catalog.entries().size());
+        assertFalse(data.dpsData.contains(first)); assertNull(catalog.find(first)); assertNull(catalog.find(firstId));
+        assertTrue(catalog.checkedEntries().isEmpty());
+    }
+
+    @Test public void staleCatalogSelectionCannotPinAnAlreadyEvictedFight() throws Exception {
+        TomatoData data = new TomatoData();
+        DpsData first = DpsRetentionTest.close(data, 0, false);
+        DpsGUI[] view = new DpsGUI[1];
+        javax.swing.SwingUtilities.invokeAndWait(() -> view[0] = new DpsGUI(data));
+        EncounterCatalog.Entry stale = view[0].encounters().find(first);
+        for (int i = 1; i <= 20; i++) DpsRetentionTest.close(data, i, false);
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            assertNotNull("The catalog has not received the next publication yet", view[0].encounters().find(first));
+            assertFalse("A stale lookup must not pin an already evicted recording", view[0].showEncounter(stale.id));
+        });
+        DpsGUI.updateMapPacket(data);
+        assertNull(view[0].encounters().find(first));
+    }
+
+    @Test public void shownCaptureIsProtectedUntilGoingLive() throws Exception {
+        TomatoData data = new TomatoData();
+        DpsData first = DpsRetentionTest.close(data, 0, false);
+        DpsGUI[] view = new DpsGUI[1];
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            view[0] = new DpsGUI(data); assertTrue(view[0].showEncounter(view[0].encounters().find(first).id));
+        });
+        DpsData second = DpsRetentionTest.close(data, 1, false);
+        DpsGUI.updateMapPacket(data);
+        EncounterCatalog.Entry evicted = view[0].encounters().find(second);
+        view[0].encounters().check(evicted.id, true);
+        for (int i = 2; i <= 20; i++) {
+            DpsRetentionTest.close(data, i, false); DpsGUI.updateMapPacket(data);
+        }
+        assertEquals(20, data.dpsData.size()); assertEquals(20, view[0].encounters().entries().size());
+        assertSame(first, data.dpsData.get(0)); assertNotNull(view[0].encounters().find(first));
+        assertFalse(data.dpsData.contains(second)); assertNull(view[0].encounters().find(second));
+        assertFalse(view[0].encounters().checked(evicted.id));
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            assertFalse(view[0].showEncounter(evicted.id)); view[0].setIndex(-1);
+        });
+        DpsRetentionTest.close(data, 21, false); DpsGUI.updateMapPacket(data);
+        assertFalse(data.dpsData.contains(first)); assertNull(view[0].encounters().find(first));
+        javax.swing.SwingUtilities.invokeAndWait(DpsGUI::clearDpsLogs);
+        assertTrue(data.dpsData.isEmpty()); assertTrue(view[0].encounters().entries().isEmpty());
+    }
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     static DpsData encounter(String name) { MapInfoPacket map = new MapInfoPacket(); map.name = map.displayName = name; return new DpsData(map, new HashMap<>(), new ArrayList<>(), 1000, 1000, null); }
     static void write(Path file, DpsData data) throws IOException { try (ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(file))) { out.writeObject(data); } }

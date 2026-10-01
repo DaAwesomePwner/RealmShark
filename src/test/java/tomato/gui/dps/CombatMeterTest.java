@@ -16,6 +16,18 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class CombatMeterTest {
+    @Test public void missingSpawnWarningSurvivesClosedFightPacketRelease() {
+        TomatoData data = new TomatoData();
+        DpsData saved = DpsRetentionTest.close(data, 0, false);
+        packets.incoming.CreateSuccessPacket create = new packets.incoming.CreateSuccessPacket(); create.objectId = 3166;
+        packets.outgoing.EnemyHitPacket hit = new packets.outgoing.EnemyHitPacket(); hit.shooterID = create.objectId;
+        saved.debugPackets.add(create); saved.debugPackets.add(new packets.outgoing.PlayerShootPacket()); saved.debugPackets.add(hit);
+        assertTrue(MeterDpsGUI.missingLocalSpawn(saved));
+        for (int i = 1; i <= TomatoData.DEBUG_DPS_KEPT; i++) DpsRetentionTest.close(data, i, false);
+        assertNull(saved.debugPackets);
+        assertTrue(MeterDpsGUI.missingLocalSpawn(saved));
+    }
+
     @Test public void missingLocalSpawnIsDistinguishedFromAnOrdinaryCompleteRecording() {
         packets.incoming.CreateSuccessPacket create = new packets.incoming.CreateSuccessPacket(); create.objectId = 3166;
         packets.outgoing.PlayerShootPacket shot = new packets.outgoing.PlayerShootPacket();
