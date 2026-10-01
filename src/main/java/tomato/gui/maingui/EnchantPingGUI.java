@@ -75,6 +75,7 @@ public class EnchantPingGUI extends JPanel {
         // Top: search bar
         JPanel topPanel = new JPanel(new BorderLayout());
         JLabel searchLabel = new JLabel("Search enchants: ");
+        tomato.gui.modern.TextSearchBar.decorateSearch(searchField);
         searchLabel.setLabelFor(searchField);
         topPanel.add(searchLabel, BorderLayout.WEST);
         topPanel.add(searchField, BorderLayout.CENTER); topPanel.add(selectedOnly, BorderLayout.SOUTH);

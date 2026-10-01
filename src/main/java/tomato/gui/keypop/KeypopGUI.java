@@ -298,6 +298,7 @@ public class KeypopGUI extends JPanel implements LiveFilterHost {
         JCheckBox missingDungeons = new JCheckBox("Missing dungeon completes on current character", isMissingDungeonsSelected());
         missingDungeons.setToolTipText("Notifies dungeon pops for current character missing dungeon completes");
         JTextField find = new JTextField();
+        tomato.gui.modern.TextSearchBar.decorateSearch(find);
         find.putClientProperty("JTextField.placeholderText", "Find a dungeon…");
         find.getAccessibleContext().setAccessibleName("Find notification dungeon");
 
