@@ -14,6 +14,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
+import util.AtomicFiles;
 import static org.junit.Assert.*;
 
 public class SessionWriteTest {
@@ -140,6 +141,110 @@ public class SessionWriteTest {
             assertEquals("1" + SessionStore.RECORDS_SKIPPED, store.error());
         } finally { store.close(); }
     }
+    @Test public void closeSyncsFinalCheckpointsAndMetadataAndForcesEachTouchedJournalAfterItsLastAppend() throws Exception {
+        List<AtomicSave> saves = new CopyOnWriteArrayList<>();
+        Map<Path, AtomicInteger> forces = new ConcurrentHashMap<>();
+        Map<Path, String> forcedContents = new ConcurrentHashMap<>();
+        List<String> order = new CopyOnWriteArrayList<>();
+        SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test", file ->
+            new FailingChannel(open(file), new AtomicBoolean(), new AtomicBoolean(), metadata -> {
+                assertEquals("RealmShark session history", Thread.currentThread().getName());
+                assertTrue(metadata);
+                forces.computeIfAbsent(file, key -> new AtomicInteger()).incrementAndGet();
+                forcedContents.put(file, Files.readString(file, StandardCharsets.UTF_8));
+                order.add("force");
+            }), (file, bytes, sync) -> {
+                assertEquals("RealmShark session history", Thread.currentThread().getName());
+                saves.add(new AtomicSave(file, bytes, sync));
+                AtomicFiles.write(file, bytes, sync);
+                order.add(file.getFileName().toString());
+            });
+        try {
+            store.append("chat", "first"); store.append("early", "only before close");
+            store.put("runs", "final", Map.of("text", "routine \u96ea")); store.flush();
+            store.append("chat", "second"); store.flush();
+            assertFalse(saves.isEmpty());
+            assertTrue(saves.stream().noneMatch(AtomicSave::sync));
+            assertTrue(forces.isEmpty());
+            Path folder = store.directory().resolve(store.currentId());
+            Files.writeString(folder.resolve("untouched.jsonl"), "\"not appended by the store\"\n");
+            List<String> modules = List.of("runs", "fame-latest", "dungeon-totals", "combat");
+            Map<String, String> finalValue = Map.of("text", "final \u96ea\n\"quoted\"");
+            AtomicBoolean finalCollected = new AtomicBoolean();
+            store.collect("final", () -> {
+                if (!store.closing() || !finalCollected.compareAndSet(false, true)) return;
+                for (String module : modules) store.put(module, "final", finalValue);
+                store.append("chat", "last"); store.append("timeline", "only at close");
+            });
+            store.close();
+            assertEquals("", store.error());
+            Set<Path> expected = Set.of(journal(store, "chat"), journal(store, "early"), journal(store, "timeline"));
+            assertEquals(expected, forces.keySet());
+            for (Path file : expected) {
+                assertEquals(1, forces.get(file).get());
+                assertEquals(Files.readString(file, StandardCharsets.UTF_8), forcedContents.get(file));
+            }
+            assertEquals("\"first\"\n\"second\"\n\"last\"\n", forcedContents.get(journal(store, "chat")));
+            for (String module : modules) {
+                Path file = folder.resolve(module).resolve(SessionStore.checkpointName("final") + ".json");
+                List<AtomicSave> synced = saves.stream().filter(save -> save.file().equals(file) && save.sync()).toList();
+                assertEquals(module, 1, synced.size());
+                byte[] expectedBytes = SessionStore.JSON.toJson(finalValue).getBytes(StandardCharsets.UTF_8);
+                assertArrayEquals(expectedBytes, synced.get(0).bytes());
+                assertArrayEquals(expectedBytes, Files.readAllBytes(file));
+            }
+            AtomicSave finalMetadata = saves.get(saves.size() - 1);
+            assertEquals(folder.resolve("session.json"), finalMetadata.file()); assertTrue(finalMetadata.sync());
+            assertArrayEquals(finalMetadata.bytes(), Files.readAllBytes(finalMetadata.file()));
+            SessionStore.Session session = SessionStore.JSON.fromJson(Files.readString(finalMetadata.file()), SessionStore.Session.class);
+            assertEquals(store.currentId(), session.id); assertTrue(session.ended >= session.started);
+            assertEquals("session.json", order.get(order.size() - 1));
+            assertEquals("force", order.get(order.size() - 2));
+            try (java.util.stream.Stream<Path> files = Files.walk(folder)) {
+                assertFalse(files.anyMatch(file -> file.getFileName().toString().endsWith(".tmp")));
+            }
+            store.close();
+            for (AtomicInteger count : forces.values()) assertEquals(1, count.get());
+        } finally { store.close(); }
+    }
+    @Test public void failedForceDoesNotThrowFromCloseAndOtherTouchedJournalsAreStillForced() throws Exception {
+        Map<Path, AtomicInteger> forces = new ConcurrentHashMap<>();
+        SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test", file ->
+            new FailingChannel(open(file), new AtomicBoolean(), new AtomicBoolean(), metadata -> {
+                assertTrue(metadata);
+                forces.computeIfAbsent(file, key -> new AtomicInteger()).incrementAndGet();
+                if (file.getFileName().toString().equals("chat.jsonl")) throw new IOException("synthetic force failure");
+            }));
+        try {
+            store.append("chat", "first"); store.flush();
+            store.append("timeline", "second"); store.flush();
+            store.close();
+            assertTrue(store.error(), store.error().startsWith(SessionStore.UNSAVED_ON_CLOSE));
+            assertEquals(Set.of(journal(store, "chat"), journal(store, "timeline")), forces.keySet());
+            for (AtomicInteger count : forces.values()) assertEquals(1, count.get());
+            Path metadata = store.directory().resolve(store.currentId()).resolve("session.json");
+            assertTrue(Files.exists(metadata));
+            SessionStore.Session session = SessionStore.JSON.fromJson(Files.readString(metadata), SessionStore.Session.class);
+            assertTrue(session.ended > 0);
+        } finally { store.close(); }
+    }
+    @Test public void failedSyncedCheckpointOrMetadataDoesNotThrowFromClose() throws Exception {
+        for (boolean checkpoint : new boolean[]{true, false}) {
+            SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test", SessionWriteTest::open,
+                (file, bytes, sync) -> {
+                    if (sync && (checkpoint || file.getFileName().toString().equals("session.json")))
+                        throw new IOException("synthetic synced write failure");
+                    AtomicFiles.write(file, bytes, sync);
+                });
+            try {
+                store.flush();
+                if (checkpoint) store.collect("final", () -> { if (store.closing()) store.put("runs", "final", "saved"); });
+                store.close();
+                assertTrue(store.error(), store.error().startsWith(SessionStore.UNSAVED_ON_CLOSE));
+            } finally { store.close(); }
+        }
+    }
+    private record AtomicSave(Path file, byte[] bytes, boolean sync) { }
     @JsonAdapter(BadAdapter.class) private static final class Bad {
         final int kind;
         final AtomicBoolean retryReady = new AtomicBoolean();
@@ -160,8 +265,13 @@ public class SessionWriteTest {
     private static final class FailingChannel extends FileChannel {
         final FileChannel delegate;
         final AtomicBoolean failWrite, failRollback;
+        final AtomicFiles.IOConsumer<Boolean> onForce;
         FailingChannel(FileChannel delegate, AtomicBoolean failWrite, AtomicBoolean failRollback) {
+            this(delegate, failWrite, failRollback, metadata -> { });
+        }
+        FailingChannel(FileChannel delegate, AtomicBoolean failWrite, AtomicBoolean failRollback, AtomicFiles.IOConsumer<Boolean> onForce) {
             this.delegate=delegate; this.failWrite=failWrite; this.failRollback=failRollback;
+            this.onForce=onForce;
         }
         @Override public int write(ByteBuffer src) throws IOException {
             if (!failWrite.get()) return delegate.write(src);
@@ -181,7 +291,7 @@ public class SessionWriteTest {
         @Override public int read(ByteBuffer dst,long position) throws IOException { return delegate.read(dst,position); }
         @Override public long write(ByteBuffer[] src,int offset,int length) throws IOException { return delegate.write(src,offset,length); }
         @Override public int write(ByteBuffer src,long position) throws IOException { return delegate.write(src,position); }
-        @Override public void force(boolean metadata) throws IOException { delegate.force(metadata); }
+        @Override public void force(boolean metadata) throws IOException { onForce.accept(metadata); delegate.force(metadata); }
         @Override public long transferTo(long position,long count,WritableByteChannel target) throws IOException { return delegate.transferTo(position,count,target); }
         @Override public long transferFrom(ReadableByteChannel src,long position,long count) throws IOException { return delegate.transferFrom(src,position,count); }
         @Override public MappedByteBuffer map(MapMode mode,long position,long size) throws IOException { return delegate.map(mode,position,size); }

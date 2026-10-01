@@ -46,6 +46,29 @@ public class HousekeepingTest {
         for (Path retained : new Path[]{young, boundary, other, namedFile, emptyYoung}) assertTrue(Files.exists(retained));
     }
 
+    @Test public void historyAlsoSweepsOnlyOldAtomicJsonStagingFilesOutsideTheCurrentSession() throws Exception {
+        Path root = temp.newFolder().toPath();
+        String checkpoint = ".00000000-0000-0000-0000-000000000000.json-456.tmp";
+        Path metadata = file(root.resolve("old/.session.json-123.tmp"), NOW - 2 * HOUR);
+        Path module = file(root.resolve("old/runs/" + checkpoint), NOW - 2 * HOUR);
+        Path young = file(root.resolve("old/.session.json-124.tmp"), NOW - HOUR + 1);
+        Path boundary = file(root.resolve("old/runs/.run.json-789.tmp"), NOW - HOUR);
+        Path current = file(root.resolve("current/.session.json-123.tmp"), NOW - 2 * HOUR);
+        Path currentModule = file(root.resolve("current/runs/" + checkpoint), NOW - 2 * HOUR);
+        Path deep = file(root.resolve("old/runs/deeper/" + checkpoint), NOW - 2 * HOUR);
+        Path rootTemp = file(root.resolve(".session.json-123.tmp"), NOW - 2 * HOUR);
+        java.util.List<Path> kept = new java.util.ArrayList<>(java.util.List.of(young, boundary, current, currentModule, deep, rootTemp));
+        for (String name : new String[]{".session.json-abc.tmp", ".session.json-.tmp", ".session.json--123.tmp",
+                "session.json-123.tmp", ".session.jsonl-123.tmp", ".session.json-123.tmp.bak", ".json-123.tmp"})
+            kept.add(file(root.resolve("old").resolve(name), NOW - 2 * HOUR));
+        Path directory = Files.createDirectory(root.resolve("old/.session.json-999.tmp"));
+        Files.setLastModifiedTime(directory, FileTime.fromMillis(NOW - 2 * HOUR)); kept.add(directory);
+        Housekeeping.Result result = Housekeeping.sweepHistory(root, "current", NOW);
+        assertEquals(2, result.deleted); assertEquals(0, result.failures);
+        assertFalse(Files.exists(metadata)); assertFalse(Files.exists(module));
+        for (Path retained : kept) assertTrue(retained.toString(), Files.exists(retained));
+    }
+
     @Test public void keepsSymlinksAndNeverSweepsTheirTargets() throws Exception {
         Path root = temp.newFolder().toPath(), outside = temp.newFolder().toPath();
         Path target = file(outside.resolve(".history-outside.tmp"), NOW - 25 * HOUR);
