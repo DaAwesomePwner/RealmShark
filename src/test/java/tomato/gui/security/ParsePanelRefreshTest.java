@@ -58,7 +58,7 @@ public class ParsePanelRefreshTest {
     private static tomato.backend.data.RosterDefinitions fixtureDefinitions;
 
     @Before @SuppressWarnings("unchecked") public void isolatePreferences() throws Exception {
-        fixtureDefinitions = tomato.gui.character.CharacterRosterQueryTest.definitions();
+        fixtureDefinitions = definitionsWithTieredSword();
         oldLookAndFeel = UIManager.getLookAndFeel();
         oldFont = ContentStyle.body();
         oldFilters = PropertiesManager.getProperty("securityFilters");
@@ -85,6 +85,14 @@ public class ParsePanelRefreshTest {
         constructor.setAccessible(true);
         classes.put(782, constructor.newInstance(782, "Wizard", 670, 385, 75, 25, 50, 75, 40, 60, new int[0], new int[0]));
         characterIds.add(782);
+    }
+
+    private static tomato.backend.data.RosterDefinitions definitionsWithTieredSword() throws Exception {
+        return tomato.backend.data.RosterDefinitions.parse(new java.io.StringReader(
+            "<Objects><Object type='782'><MaxHitPoints max='670'/><MaxMagicPoints max='385'/>"
+            + "<Attack max='75'/><Defense max='25'/><Speed max='50'/><Dexterity max='75'/><HpRegen max='40'/><MpRegen max='60'/></Object></Objects>"),
+            new java.io.StringReader("<Objects><Object type='987654'><Tier>12</Tier><SlotType>1</SlotType>"
+                + "<Labels>EQUIPMENT,WEAPON,T12</Labels></Object></Objects>"));
     }
 
     @After public void cleanup() throws Exception {
@@ -619,6 +627,7 @@ public class ParsePanelRefreshTest {
                 JTable table = find(panel, JTable.class);
                 JLabel reused = assertEquipmentText(table, 0, 3, "Weapon: Sword of Acclaim (ID " + itemId + ")", "Test enchant — Does a test thing");
                 assertTrue(reused.getToolTipText(), reused.getToolTipText().startsWith("<html><b>Sword of Acclaim"));
+                assertTrue(reused.getToolTipText(), reused.getToolTipText().startsWith("<html><b>Sword of Acclaim · T12</b>"));
                 assertFalse("An item's tooltip is headed by the item, not its slot", reused.getToolTipText().contains("Weapon:"));
                 assertFocusDistinctFromSelection(table, 0, 3);
 

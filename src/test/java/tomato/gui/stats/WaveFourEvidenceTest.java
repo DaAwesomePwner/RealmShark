@@ -23,7 +23,19 @@ public class WaveFourEvidenceTest {
     private void screens(JComponent panel,String name,Runnable check)throws Exception{
         for(int[] size:new int[][]{{1240,800,13},{680,520,13},{680,520,18}}){
             run(()->evidence.show(panel,name,size[0],size[1],size[2]));evidence.settle();
-            run(()->{check.run();evidence.capture(name+"-"+size[0]+"-font"+size[2]);});
+            run(()->{check.run();evidence.capture(name+"-"+size[0]+"-font"+size[2]);
+                if(name.equals("loot-captured-exact")||name.equals("loot-legacy")){
+                    JTextArea details=named(panel,"loot-archive-details",JTextArea.class);
+                    try{
+                        for(int offset=0;offset<details.getDocument().getLength();offset++){
+                            java.awt.Rectangle glyph=details.modelToView(offset);
+                            String geometry="glyph="+glyph+", text="+details.getSize()+", viewport="+details.getParent().getSize();
+                            assertNotNull("Detail glyph exists: "+geometry,glyph);
+                            assertTrue("Detail glyph fits viewport: "+geometry,glyph.x+glyph.width<=details.getParent().getWidth());
+                        }
+                    }catch(javax.swing.text.BadLocationException failure){throw new AssertionError(failure);}
+                }
+            });
         }
     }
     @Test public void abilityPopulatedEmptyAndOmissions()throws Exception{
@@ -78,6 +90,15 @@ public class WaveFourEvidenceTest {
                     JComboBox<?> views=named(panel,"loot-archive-view",JComboBox.class);
                     assertTrue("Initial view selector remains reachable",views.getVisibleRect().height>0);
                     assertEquals("Initial archive view starts at its header",0,views.getVisibleRect().y);
+                    JTextArea summary=named(panel,"loot-archive-counts",JTextArea.class);
+                    try{
+                        for(int offset=0;offset<summary.getDocument().getLength();offset++){
+                            java.awt.Rectangle glyph=summary.modelToView(offset);
+                            String geometry="glyph="+glyph+", text="+summary.getSize()+", viewport="+summary.getParent().getSize();
+                            assertNotNull("Summary glyph exists: "+geometry,glyph);
+                            assertTrue("Summary glyph remains inside its text width: "+geometry,glyph.x+glyph.width<=summary.getWidth());
+                        }
+                    }catch(javax.swing.text.BadLocationException failure){throw new AssertionError(failure);}
                 });
                 screens(host,"loot-captured-exact",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(0,0);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("Exact enchantment evidence"));reveal(details);});
                 screens(host,"loot-legacy",()->{JTable table=named(panel,"loot-archive-table",JTable.class);table.setRowSelectionInterval(1,1);JTextArea details=named(panel,"loot-archive-details",JTextArea.class);assertTrue(details.getText().contains("LEGACY_NOT_RECORDED"));reveal(details);});
