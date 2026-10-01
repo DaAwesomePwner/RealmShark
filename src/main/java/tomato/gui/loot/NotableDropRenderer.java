@@ -55,6 +55,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
 
     private final ZoneId zone;
     private final LongSupplier now;
+    private final String opens, opensFully;
     private HighlightsModel.Notable drop;
     private Lines lines;
     private long renderedAt;
@@ -63,8 +64,15 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
 
     /** Times are written in {@code zone} against {@code now}'s day there (the view passes its model's read time). */
     public NotableDropRenderer(ZoneId zone, LongSupplier now) {
+        this(zone, now, "Enter opens the run recap", "Enter, double-click or the context menu opens the run recap");
+    }
+
+    /** As above, with the action wording of the view that hosts these drop cards. */
+    public NotableDropRenderer(ZoneId zone, LongSupplier now, String opens, String opensFully) {
         this.zone = Objects.requireNonNull(zone, "zone");
         this.now = Objects.requireNonNull(now, "now");
+        this.opens = Objects.requireNonNull(opens, "opens");
+        this.opensFully = Objects.requireNonNull(opensFully, "opensFully");
         setOpaque(false);
     }
 
@@ -79,7 +87,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     static String itemType(HighlightsModel.Notable drop) {
         if (drop.kind() == HighlightsModel.Kind.POTION) return "Potion";
         String tier = tier(drop);
-        return !tier.isEmpty() ? tier : drop.kind() == HighlightsModel.Kind.ENCHANTED ? "Gear" : drop.kind().label();
+        return !tier.isEmpty() ? tier : drop.kind() == null ? "Item" : drop.kind() == HighlightsModel.Kind.ENCHANTED ? "Gear" : drop.kind().label();
     }
 
     /** The tier saved with the drop, else the current definitions' label ("" when neither knows it): old records keep their tier. */
@@ -100,17 +108,24 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     /**
      * "Potion of Life, stat potion; Lost Halls, today at 09:05; Orange bag; Enter opens the run recap": the item, its kind, where
      * and when it dropped, its bag and whether it links to a run, in words. Enchanted drops include their recorded rarity,
-     * for example "T12 (Rare · 2 enchant slots)".
+     * for example "T12 (Rare · 2 enchant slots)". (public: Explore reuses it)
      */
-    static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) { return facts(drop, zone, now, true); }
+    public static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now) {
+        return accessibleName(drop, zone, now, "Enter opens the run recap");
+    }
+
+    /** The drop's facts with the host view's wording for opening a linked run. */
+    public static String accessibleName(HighlightsModel.Notable drop, ZoneId zone, long now, String opens) {
+        return facts(drop, zone, now, true, opens);
+    }
 
     /** The drop's facts in words; {@code withEnchant} adds the enchant summary after the kind (the enchant tooltip has its own line for it). */
-    private static String facts(HighlightsModel.Notable drop, ZoneId zone, long now, boolean withEnchant) {
+    private static String facts(HighlightsModel.Notable drop, ZoneId zone, long now, boolean withEnchant, String opens) {
         String kind = drop.kind() == HighlightsModel.Kind.POTION ? "stat potion" : itemType(drop);
         if (withEnchant && drop.enchant().state() != EnchantInfo.State.NOT_RECORDED) kind += " (" + drop.enchant().summary() + ")";
         return Sprites.name(drop.itemId()) + ", " + kind + "; " + LootFacts.areaLabel(drop.dungeon())
             + ", " + spokenTime(drop.time(), zone, now) + "; " + (drop.bag() == null ? "bag not saved" : drop.bag() + " bag") + "; "
-            + (drop.visit() == null ? "not linked to a run" : "Enter opens the run recap");
+            + (drop.visit() == null ? "not linked to a run" : opens);
     }
 
     /** "14:32" on {@code now}'s day, "Yesterday 22:10", else "13 Jan 14:32" (with the year when it is not this year's). */
@@ -159,10 +174,10 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         long at = now.getAsLong();
         renderedAt = at;
         lines = value == null ? null : lines(value, zone, at);
-        String name = value == null ? null : accessibleName(value, zone, at);
+        String name = value == null ? null : accessibleName(value, zone, at, opens);
         getAccessibleContext().setAccessibleName(name);
         getAccessibleContext().setAccessibleDescription(value == null ? null
-            : value.visit() == null ? NOT_LINKED : "Enter, double-click or the context menu opens the run recap");
+            : value.visit() == null ? NOT_LINKED : opensFully);
         setToolTipText(name == null ? null : name + " · " + HighlightsModel.OBSERVED);
         return this;
     }
@@ -172,7 +187,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
         String facts = super.getToolTipText();
         if (facts == null || drop == null || drop.enchant().state() == EnchantInfo.State.NOT_RECORDED) return facts;
         // The enchant tooltip says the rarity on its own line, so its heading leaves it out.
-        return EnchantTooltip.html(facts(drop, zone, renderedAt, false) + " · " + HighlightsModel.OBSERVED, drop.enchant());
+        return EnchantTooltip.html(facts(drop, zone, renderedAt, false, opens) + " · " + HighlightsModel.OBSERVED, drop.enchant());
     }
 
     @Override protected void paintComponent(Graphics graphics) {

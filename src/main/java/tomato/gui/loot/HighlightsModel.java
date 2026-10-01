@@ -246,8 +246,8 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
             Objects.requireNonNull(reason, "reason"), 0, 0, 0, 0, Map.of());
     }
 
-    /** The item's notable kind, or null: UT, ST, a stat potion (by id), or enchanted (2+ recorded slots; unknown is never). */
-    static Kind kind(LootFacts.Item item) {
+    /** The item's notable kind, or null: UT, ST, a stat potion (by id), or enchanted (2+ recorded slots; unknown is never). (public: Explore reuses it) */
+    public static Kind kind(LootFacts.Item item) {
         if (item.untiered()) return Kind.UT;
         if (item.setTiered()) return Kind.ST;
         if (LootFacts.potionStat(item.id()) != null) return Kind.POTION;

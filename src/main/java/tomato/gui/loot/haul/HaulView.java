@@ -208,8 +208,8 @@ public final class HaulView extends JPanel {
         return slot;
     }
 
-    /** "UT", "ST", the saved tier ("T12"), else the current definitions' label; "" when none is known. */
-    static String tierLabel(LootFacts.Item item) {
+    /** "UT", "ST", the saved tier ("T12"), else the current definitions' label; "" when none is known. (public: Explore reuses it) */
+    public static String tierLabel(LootFacts.Item item) {
         if (item.untiered()) return "UT";
         if (item.setTiered()) return "ST";
         if (item.tier() != null) return item.tier();
