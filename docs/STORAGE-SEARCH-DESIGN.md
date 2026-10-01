@@ -57,7 +57,7 @@ Each target must still hold at 10× the history.
 | Crash safety | Transactional | Transactional commits | Transactional | Hand-written |
 | Corruption recovery | `quick_check`, then delete and rebuild | Delete and rebuild | Delete and rebuild | Delete and rebuild |
 
-**Recommendation: SQLite FTS5.** It is the only option that gives both real full-text search and the structured filters, counts and group-bys that the Runs, Dungeons, Loot and Home screens need, from one small file. Only the Windows natives ship (plus macOS if wanted; see question 1).
+**Recommendation: SQLite FTS5.** It is the only option that gives both real full-text search and the structured filters, counts and group-bys that the Runs, Dungeons, Loot and Home screens need, from one small file. Only the Windows natives ship.
 
 The native library isn't extracted to `%TEMP%`. `org.sqlite.tmpdir` points at `%LOCALAPPDATA%\RealmShark\native\`. The jlink runtime already includes `java.sql` through `java.se`.
 
@@ -70,7 +70,7 @@ There is one database: `%LOCALAPPDATA%\RealmShark\history\index\search-v1.db`, w
 | `sessions` | `session.json` | session | id, label, version, started, ended, source stamp, index state | label |
 | `runs` | `runs/` checkpoints | visit | session, visit id, map, started, ended, outcome, duration, damage, players, issues | map, status, roster names and classes, equipment names |
 | `loot_bags`, `loot_items` | `loot.jsonl` | bag / item in bag | session, offset (+ item position), visit, time, dungeon, bag, tier, rarity, enchant slots and applied | item name, dungeon, dropper, **enchant names** (today's search lacks these) |
-| `timeline` | `timeline.jsonl` | event | session, offset, visit, time, kind | detail and enriched values, **except** the diagnostic kinds (see question 3) |
+| `timeline` | `timeline.jsonl` | event | session, offset, visit, time, kind | detail and enriched values, **except** the diagnostic kinds |
 | `chat` | `chat.jsonl` | message (UUID) | session, offset, received (local time, as saved), channel, sender, recipient, own / ignored | text, sender, recipient |
 | `chat_stars` | `chat-stars/` | star change | message id, session, changed, starred | — (the cross-session winner is computed by query, so deleting a session correctly restores an older state) |
 | `keypops` | `keypops.jsonl` | pop (UUID) | session, offset, time, kind | player, item |
@@ -139,7 +139,7 @@ The order is from the most painful today to the least:
    - One search box across everything, with type chips (Runs · Loot · Chat · Timeline · Key pops · Players), a date range and a session scope.
    - Results are grouped by run where linked, with highlighted snippets.
    - Every result opens its exact source: the run recap, the chat message in context, the loot row.
-   - Optionally a shell-wide shortcut such as Ctrl+K (see question 5).
+   - A shell-wide Ctrl+K shortcut opens it with the box focused.
 
 Each screen keeps its current reader as the fallback until the index reports ready for its scope. The fallback is removed only after the index path has shipped and been verified.
 
@@ -149,7 +149,7 @@ Each screen keeps its current reader as the fallback until the index reports rea
 
 | PR | Contents | User-visible |
 |---|---|---|
-| D1 | Dependency and native loading; `HistoryIndex` (open, schema, migrate, corruption recovery); writer thread; live feed from `SessionStore`; backfill with stamps; rebuild command; benchmark against a read-only copy of real history | Settings › History: index status + Rebuild |
+| D1 | Dependency and native loading; `HistoryIndex` (all module projections, including the `players` table) (open, schema, migrate, corruption recovery); writer thread; live feed from `SessionStore`; backfill with stamps; rebuild command; benchmark against a read-only copy of real history | Settings › History: index status + Rebuild |
 | D2 | Lifecycle hooks (delete, rename, import, prune, close, stars); dictionary enrichment and versioning; secure-delete; trigram name index | None |
 | E1 | Recap, Runs feed and Dungeons on the index, with fallback | Faster |
 | E2 | Loot Explore, Loot Highlights and Home on the index; enchant-name search | Faster, better loot search |
@@ -167,15 +167,17 @@ Every PR keeps the existing focused tests green and adds its own. D1 records mea
 | The index drifts from the files | Explicit lifecycle hooks, plus the startup stamp check, plus Rebuild. |
 | The index grows large | Diagnostic timeline kinds are excluded; only projections are stored, never full records; size is measured in D1 against the target. |
 | Two instances | WAL, busy timeout, per-session writers and backfill claims. |
-| Chat text in a second file | It lives in the same folder as the chat journal, with the same deletion rules and secure-delete. Optional chat-index setting (question 2). |
+| Chat text in a second file | It lives in the same folder as the chat journal, with the same deletion rules and secure-delete. A setting excludes chat from the index. |
 
-## Questions for the user
+## Decisions (user, 2026-10-01)
 
-1. **Engine:** approve SQLite FTS5? Ship Windows natives only (+2.6 MB), or also macOS (+1.3 MB)?
-2. **Chat:** index chat text for search, local only? Recommended yes, with a Settings switch to exclude chat from the index.
-3. **Timeline diagnostics:** keep "Resources" (HP/MP samples), "Capture issue" and ownership-conflict rows out of search? They stay in the files and in the Timeline table's kind filter. Recommended yes; they are about 40% of timeline rows and not useful to search.
-4. **Search priorities:** which result types matter most for the first Search page? Runs, loot items, chat, players (from rosters and recordings) or key pops. This sets ranking and default chips.
-5. **Search placement:** a Search page in the sidebar only, or also a shell-wide shortcut (Ctrl+K) that opens it from anywhere?
+| Question | Decision |
+|---|---|
+| Engine | **SQLite FTS5**, with **Windows natives only**: `sqlite-jdbc` `without-natives` + `natives-windows` (+2.6 MB). On another OS the native library is missing, the index reports "Search unavailable", and screens use the file readers. |
+| Chat | **Indexed**, local only. Settings › History › **Include chat in search** is on by default. Turning it off deletes chat rows from the index (secure-delete); turning it on backfills them. |
+| Timeline diagnostics | "Resources", "Capture issue" and ownership-conflict rows are **not indexed**. They stay in the files and in the Timeline table's kind filter. |
+| Search priorities | **Runs and players first.** They are the default result types and are ranked first. Players are a derived `players` table built from run rosters (inspected players), combat recordings, key pops and chat senders. Each entry has a name and its occurrences, keyed by name as saved, with no account identifiers. Loot, chat, timeline and key pops follow. |
+| Placement | **Both:** a Search page in the sidebar, and a shell-wide **Ctrl+K** shortcut that opens it with the box focused. |
 
 ## Sources
 
