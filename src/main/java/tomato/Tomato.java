@@ -404,8 +404,7 @@ public class Tomato {
         } catch (RuntimeException failure) {
             String message = "Dungeon history unavailable; dungeon.stats preserved. Dungeon saves are suspended until a successful reload or restart after repairing the file.";
             System.err.println(message);
-            try { packets.packetcapture.CaptureDiagnostics.record(message, failure); }
-            catch (RuntimeException loggingFailure) { System.err.println("Unable to record dungeon history load failure."); }
+            // DungeonStatData records the transition in capture diagnostics, including later save failures.
         }
         data.loadPropList("chatPingMessages");
         data.loadPropList("entityIdPings");

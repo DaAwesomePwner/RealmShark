@@ -500,20 +500,31 @@ public class RunFeedSourceTest {
         }
     }
 
-    @Test public void aDamagedCompleteJournalRecordFailsAndIsNotCached() throws Exception {
+    @Test public void damagedAndNullRecordsAreCountedWhileOtherRunsInTheSessionRemain() throws Exception {
         Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
+        String valid = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
+        Files.writeString(root.resolve(RunFixtures.A).resolve("runs").resolve("bad.json"), "{damaged");
+        Files.writeString(root.resolve(RunFixtures.A).resolve("runs").resolve("null.json"), "null");
         try (SessionStore store = new SessionStore(root, false, "fixture")) {
             RunFeedSource source = source(store, RunFixtures.NOW);
-            for (String text : List.of("{damaged\n", "{damaged\n{}\n")) {
+            for (String text : List.of("{damaged\nnull\n" + valid + "\n", valid + "\n{damaged\nnull\n")) {
                 Files.writeString(journal, text);
                 for (int attempt = 0; attempt < 2; attempt++) {
-                    int reads = source.sessionReads();
-                    try { source.first(RunFeedQuery.all(), new Cancellation()); fail("Damaged complete records fail the read"); }
-                    catch (java.io.IOException expected) { assertTrue(source.sessionReads() > reads); }
+                    int before = source.sessionReads();
+                    try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                        assertEquals(6, page.matches());
+                        assertEquals(List.of(RunFixtures.A + "/runs: 4 unreadable run records skipped"), page.issues());
+                        assertNotNull(card(page.model(), RunFixtures.A1));
+                        if (attempt > 0) assertEquals("Only the current session is re-read; the closed corrupt session and its issues are cached",
+                            before + 1, source.sessionReads());
+                    }
                 }
             }
             Files.writeString(journal, "");
-            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) { assertEquals(5, page.matches()); }
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals(5, page.matches());
+                assertEquals(List.of(RunFixtures.A + "/runs: 2 unreadable run records skipped"), page.issues());
+            }
         }
     }
 
@@ -529,7 +540,7 @@ public class RunFeedSourceTest {
         }
     }
 
-    @Test public void anOversizedCompleteJournalLineFailsWhileAnOversizedTailIsOnlyExcluded() throws Exception {
+    @Test public void oversizedCompleteRecordsAreCountedWhileAnOversizedTailIsOnlyExcluded() throws Exception {
         Path root = scenario(), journal = root.resolve(RunFixtures.A).resolve("runs.jsonl");
         String visit = SessionStore.JSON.toJson(HomeHistoryFixture.visit("journal", "Lost Halls", at(0, 9, 30), at(0, 9, 50), true));
         String huge = "x".repeat(16 * 1024 * 1024 + 1);
@@ -540,9 +551,12 @@ public class RunFeedSourceTest {
                 assertEquals(6, page.matches());
                 assertEquals(List.of(RunFixtures.A + "/runs: unfinished journal tail excluded"), page.issues());
             }
-            Files.writeString(journal, visit + "\n" + huge + "\n");
-            try { source.first(RunFeedQuery.all(), new Cancellation()); fail("An oversized record must fail the read"); }
-            catch (java.io.IOException expected) { assertTrue(expected.toString(), expected.getMessage().contains("16 MiB")); }
+            Files.writeString(journal, huge + "\n" + visit + "\n" + huge + "\n");
+            Files.writeString(root.resolve(RunFixtures.A).resolve("runs").resolve("oversized.json"), huge);
+            try (RunFeedSource.Page page = source.first(RunFeedQuery.all(), new Cancellation())) {
+                assertEquals("The record after an oversized line still parses", 6, page.matches());
+                assertEquals(List.of(RunFixtures.A + "/runs: 3 unreadable run records skipped"), page.issues());
+            }
         }
     }
 

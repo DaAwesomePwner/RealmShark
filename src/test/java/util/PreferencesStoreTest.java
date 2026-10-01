@@ -28,6 +28,28 @@ import org.junit.rules.TemporaryFolder;
 import static org.junit.Assert.*;
 
 public class PreferencesStoreTest {
+    @Test public void unsupportedAtomicMoveFallsBackAndShutdownRequestsSyncedPublication() throws Exception {
+        Path path = temp.getRoot().toPath().resolve("fallback.properties");
+        AtomicInteger atomic = new AtomicInteger(), replacements = new AtomicInteger(), synced = new AtomicInteger();
+        PreferencesStore store = store(path, new PreferencesStore.FileStorage() {
+            @Override void move(Path source, Path target, java.nio.file.CopyOption... options) throws IOException {
+                if (Arrays.asList(options).contains(java.nio.file.StandardCopyOption.ATOMIC_MOVE)) {
+                    atomic.incrementAndGet(); throw new AtomicMoveNotSupportedException(source.toString(), target.toString(), "fixture");
+                }
+                replacements.incrementAndGet(); super.move(source, target, options);
+            }
+            @Override public void writeSynced(Path target, Properties snapshot) throws IOException {
+                synced.incrementAndGet(); super.writeSynced(target, snapshot);
+            }
+        });
+        try {
+            store.preload(); assertTrue(result(store.setProperties("value", "caf\u00e9")).isSuccess());
+            assertEquals("caf\u00e9", read(path).getProperty("value"));
+            assertEquals(1, atomic.get()); assertEquals(1, replacements.get()); assertEquals(0, synced.get());
+            assertTrue(store.shutdown(2, TimeUnit.SECONDS, message -> fail(message)).isSuccess());
+            assertEquals(1, synced.get()); assertEquals(2, atomic.get()); assertEquals(2, replacements.get());
+        } finally { store.shutdown(2, TimeUnit.SECONDS, message -> { }); }
+    }
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     @Test public void stalledWriterAllowsEdtReadsAndCoalescesThousandsOfChangesIntoLatestSnapshot() throws Exception {

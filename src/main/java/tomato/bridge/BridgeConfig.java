@@ -76,11 +76,8 @@ public final class BridgeConfig {
     }
     public void save(Path file) throws IOException {
         Path absolute = file.toAbsolutePath(); Files.createDirectories(absolute.getParent());
-        Path temp = Files.createTempFile(absolute.getParent(), "bridge-", ".tmp");
-        try {
-            try (Writer w = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) { properties().store(w, "RealmShark Bridge - contains your private link token; do not share"); }
-            try { Files.move(temp, absolute, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(temp, absolute, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temp); }
+        util.AtomicFiles.write(absolute, output -> {
+            try (Writer w = new OutputStreamWriter(output, StandardCharsets.UTF_8.newEncoder())) { properties().store(w, "RealmShark Bridge - contains your private link token; do not share"); }
+        }, false);
     }
 }

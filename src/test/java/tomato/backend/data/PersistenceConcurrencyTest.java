@@ -15,6 +15,24 @@ import static org.junit.Assert.*;
 public class PersistenceConcurrencyTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
+    @Test public void journalCloseRequestsSyncEvenAfterRoutinePublication() throws Exception {
+        Path file = temp.getRoot().toPath().resolve("sync-journal.json");
+        AtomicInteger routine = new AtomicInteger(), synced = new AtomicInteger();
+        CharacterJournal journal = new CharacterJournal(file, new CharacterJournal.Store() {
+            public void write(Path target, String json) throws java.io.IOException {
+                routine.incrementAndGet(); Files.writeString(target, json);
+            }
+            public void writeSynced(Path target, String json) throws java.io.IOException {
+                synced.incrementAndGet(); Files.writeString(target, json);
+            }
+        });
+        journal.observe(CharacterJournalTest.player("sync", 782), 1);
+        journal.save(); byte[] saved = Files.readAllBytes(file);
+        assertEquals(1, routine.get()); assertEquals(0, synced.get());
+        journal.close(); assertEquals(1, synced.get()); assertArrayEquals(saved, Files.readAllBytes(file));
+        journal.close(); assertEquals(1, synced.get());
+    }
+
     @Test public void blockedJournalSaveAllowsReadsAndEditsAndKeepsNewRevisionDirty() throws Exception {
         Path file = temp.getRoot().toPath().resolve("journal.json");
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
@@ -70,7 +88,10 @@ public class PersistenceConcurrencyTest {
             read.get(2, TimeUnit.SECONDS);
             release.countDown();
             first.get(2, TimeUnit.SECONDS); second.get(2, TimeUnit.SECONDS); closing.get(2, TimeUnit.SECONDS);
-            assertEquals(Arrays.asList("", "Latest"), savedNotes);
+            // A routine publication before close may be followed by the final forced publication.
+            assertTrue(savedNotes.size() >= 2 && savedNotes.size() <= 3);
+            assertEquals("", savedNotes.get(0));
+            for (String saved : savedNotes.subList(1, savedNotes.size())) assertEquals("Latest", saved);
             assertEquals("Latest", new CharacterJournal(file).characters().get(0).notes);
         } finally { release.countDown(); threads.shutdownNow(); }
     }
@@ -90,7 +111,7 @@ public class PersistenceConcurrencyTest {
         assertEquals("Sample", journal.accounts().get(0).name);
     }
 
-    @Test public void dungeonSaveDoesNotHoldModelLockAndKeepsLegacyCountersAndSynchronousContract() throws Exception {
+    @Test public void dungeonSaveDoesNotHoldCaptureOrModelAndFlushKeepsLegacyCounters() throws Exception {
         Path file = temp.getRoot().toPath().resolve("dungeon.stats");
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         AtomicInteger writes = new AtomicInteger();
@@ -104,14 +125,15 @@ public class PersistenceConcurrencyTest {
         try {
             Future<?> saving = threads.submit(() -> data.updateDungeon("First", 1200));
             assertTrue(entered.await(2, TimeUnit.SECONDS));
-            assertFalse(saving.isDone());
+            saving.get(2, TimeUnit.SECONDS); // Disk remains blocked while the capture caller returns.
             threads.submit(() -> {
                 assertEquals(1, data.snapshot().get(0).visits);
                 data.updateEntityDamage("Second", mob);
                 assertEquals(2, data.snapshot().size());
             }).get(2, TimeUnit.SECONDS);
             Future<?> second = threads.submit(() -> data.updateDungeon("Second", 2400));
-            release.countDown(); saving.get(2, TimeUnit.SECONDS); second.get(2, TimeUnit.SECONDS);
+            second.get(2, TimeUnit.SECONDS);
+            release.countDown(); assertTrue(data.flush());
             String json = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
             assertFalse(json.contains("saveLock")); assertFalse(json.contains("revision"));
             DungeonStatData reopened = new Gson().fromJson(json, DungeonStatData.class);
@@ -119,7 +141,7 @@ public class PersistenceConcurrencyTest {
             assertEquals(1200, reopened.data.get("First").getTotalTime());
             assertEquals(2400, reopened.data.get("Second").getTotalTime());
             assertEquals(Integer.valueOf(1), reopened.data.get("Second").getEntityDamaged().get(100));
-            assertEquals(2, writes.get());
+            assertTrue(writes.get() >= 2 && writes.get() <= 3); // flush can add a final forced publication.
         } finally { release.countDown(); threads.shutdownNow(); }
     }
 
@@ -156,6 +178,7 @@ public class PersistenceConcurrencyTest {
             assertEquals(Integer.valueOf(5), data.info.getLoot(100).getItems().get(500));
             data.updateEntityDamage("Shared", mob);
             data.updateDungeon("Shared", 250);
+            assertTrue(data.flush());
             DungeonStatData saved = new Gson().fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), DungeonStatData.class);
             assertEquals(4, saved.data.get("Shared").getEnteredDungeon());
             assertEquals(1250, saved.data.get("Shared").getTotalTime());
@@ -174,6 +197,7 @@ public class PersistenceConcurrencyTest {
         Entity mob = new Entity(null, 1, 0); mob.objectType=100;
         data.updateEntityDamage("Shared", mob);
         data.updateDungeon("Shared", 200);
+        assertTrue(data.flush());
         DungeonStatData saved = new Gson().fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), DungeonStatData.class);
         assertEquals(4, saved.data.get("Shared").getEnteredDungeon());
         assertEquals(1200, saved.data.get("Shared").getTotalTime());
@@ -190,8 +214,9 @@ public class PersistenceConcurrencyTest {
             path -> { throw new java.io.IOException("Read unavailable"); });
         Entity mob = new Entity(null, 1, 0); mob.objectType=100;
         data.updateEntityDamage("Shared", mob);
-        try { data.updateDungeon("Shared", 200); fail("A failed initial read must prevent saving"); }
-        catch (RuntimeException expected) { assertTrue(expected.getCause() instanceof java.io.IOException); }
+        data.updateDungeon("Shared", 200);
+        assertFalse(data.flush());
+        assertTrue(data.storageStatus().contains("Original preserved"));
         assertEquals(0, writes.get());
         assertEquals(dungeonHistory(), new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
         assertEquals(1, data.data.get("Shared").getEnteredDungeon());

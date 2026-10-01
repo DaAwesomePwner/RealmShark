@@ -18,9 +18,18 @@ public class DungeonStatData {
     private static final String FILE_NAME = "dungeon.stats";
     private static final Gson JSON = new Gson();
     private final transient Object saveLock = new Object();
+    private final transient Object pendingLock = new Object();
+    private transient long requested, completed;
+    private transient boolean writing, syncRequested;
+    private final transient java.util.concurrent.ExecutorService writer = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "dungeon-stats-save"); thread.setDaemon(true); return thread;
+    });
+    private transient volatile String storageStatus = "Saved locally";
+    private transient volatile boolean saveFailed;
     private final transient Path path;
     private final transient Store store;
     private final transient Loader loader;
+    private final transient java.util.function.BiConsumer<String, Throwable> diagnostics;
     // Guarded by saveLock: disk history is incorporated exactly once, before any write.
     private transient boolean historyLoaded;
     private transient boolean historyLoadFailed;
@@ -33,10 +42,16 @@ public class DungeonStatData {
         this(Paths.get(FILE_NAME));
     }
 
-    public DungeonStatData(Path path) { this(path, DungeonStatData::writeFile); }
+    public DungeonStatData(Path path) { this(path, new Store() {
+        public void write(Path path, String json) throws IOException { writeFile(path, json, false); }
+        public void writeSynced(Path path, String json) throws IOException { writeFile(path, json, true); }
+    }); }
 
     @FunctionalInterface
-    interface Store { void write(Path path, String json) throws IOException; }
+    interface Store {
+        void write(Path path, String json) throws IOException;
+        default void writeSynced(Path path, String json) throws IOException { write(path, json); }
+    }
     @FunctionalInterface
     interface Loader { Reader open(Path path) throws IOException; }
 
@@ -45,10 +60,17 @@ public class DungeonStatData {
     }
 
     DungeonStatData(Path path, Store store, Loader loader) {
-        this.path = path; this.store = store; this.loader = loader;
+        this(path, store, loader, packets.packetcapture.CaptureDiagnostics::record);
+    }
+
+    DungeonStatData(Path path, Store store, Loader loader, java.util.function.BiConsumer<String, Throwable> diagnostics) {
+        this.path = path; this.store = store; this.loader = loader; this.diagnostics = diagnostics;
         data = new TreeMap<>();
         tomato.history.SessionStore history = tomato.history.AppHistory.store();
-        if (history != null && history.writable()) history.collect("dungeon-totals", () -> history.put("dungeon-totals", "summary", sessionSnapshot()));
+        if (history != null && history.writable()) {
+            history.collect("dungeon-totals", () -> history.put("dungeon-totals", "summary", sessionSnapshot()));
+            tomato.history.AppHistory.onShutdown(this::flush);
+        }
     }
 
     public synchronized void updateEntityDamage(String dungeon, Entity mob) {
@@ -101,18 +123,80 @@ public class DungeonStatData {
             session.totalTime += Math.max(0, time); session.enteredDungeon++;
             info = null;
         }
-        // Preserve the synchronous save contract, without holding up snapshot readers.
-        save();
+        synchronized (pendingLock) { requestSave(false); }
     }
 
-    private void save() {
+    private void requestSave(boolean sync) {
+        requested++; syncRequested |= sync;
+        if (!saveFailed) storageStatus = "Saving locally";
+        if (writing) return;
+        writing = true;
+        writer.execute(this::runWriter);
+    }
+
+    private void runWriter() {
+        long revision; boolean sync;
+        synchronized (pendingLock) { revision = requested; sync = syncRequested; syncRequested = false; }
+        try {
+            synchronized (saveLock) {
+                try { save(sync); }
+                catch (Throwable failure) { reportFailure(false, failure); }
+            }
+        } finally {
+            synchronized (pendingLock) {
+                completed = revision; writing = false; pendingLock.notifyAll();
+                if (completed < requested) { writing = true; writer.execute(this::runWriter); }
+            }
+        }
+    }
+
+    public String storageStatus() { return storageStatus; }
+
+    /** Bounded off-EDT barrier for reopening the file and the application's shutdown hook. */
+    public boolean flush() {
+        return flush(3, java.util.concurrent.TimeUnit.SECONDS);
+    }
+    boolean flush(long timeout, java.util.concurrent.TimeUnit unit) {
+        if (Thread.currentThread().getClass().getName().equals("java.awt.EventDispatchThread"))
+            throw new IllegalStateException("Dungeon history flush must run off the EDT.");
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        synchronized (pendingLock) {
+            if (requested == 0) return !saveFailed;
+            requestSave(true);
+            long target = requested;
+            while (completed < target) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) { System.err.println("Dungeon history still saving; last durable file is preserved"); return false; }
+                try { java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(pendingLock, remaining); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return false; }
+            }
+            return !saveFailed;
+        }
+    }
+
+    private void save(boolean sync) {
         synchronized (saveLock) {
             if (historyLoadFailed) return;
-            loadHistory();
+            try { loadHistory(); }
+            catch (RuntimeException failure) { historyLoadFailed = true; reportFailure(true, failure); return; }
             Document copy;
             synchronized (this) { copy = copyDocument(); }
-            try { store.write(path, JSON.toJson(copy)); }
-            catch (IOException e) { throw new RuntimeException(e); }
+            try {
+                if (sync) store.writeSynced(path, JSON.toJson(copy)); else store.write(path, JSON.toJson(copy));
+                saveFailed = false; storageStatus = "Saved locally";
+            } catch (IOException | RuntimeException failure) { reportFailure(false, failure); }
+        }
+    }
+
+    private void reportFailure(boolean loading, Throwable failure) {
+        boolean transition = !saveFailed;
+        saveFailed = true;
+        storageStatus = loading ? "Cannot read dungeon.stats. Original preserved; saving disabled."
+            : "Save failed; check access to dungeon.stats and free space. Saving retries on the next dungeon exit or flush.";
+        System.err.println(storageStatus);
+        if (transition) {
+            try { diagnostics.accept(storageStatus, failure); }
+            catch (Throwable loggingFailure) { System.err.println("Unable to record dungeon history failure."); }
         }
     }
 
@@ -121,8 +205,10 @@ public class DungeonStatData {
             try {
                 loadHistory();
                 historyLoadFailed = false;
+                saveFailed = false; storageStatus = "Saved locally";
             } catch (RuntimeException failure) {
                 historyLoadFailed = true;
+                reportFailure(true, failure);
                 throw failure;
             }
         }
@@ -192,13 +278,8 @@ public class DungeonStatData {
         return copy;
     }
 
-    private static void writeFile(Path path, String json) throws IOException {
-        Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
-        try {
-            Files.write(temporary, json.getBytes(Charset.defaultCharset()));
-            try { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temporary); }
+    private static void writeFile(Path path, String json, boolean sync) throws IOException {
+        util.AtomicFiles.write(path, json.getBytes(Charset.defaultCharset()), sync);
     }
 
     /** Copies cumulative counters under the capture lock for safe UI reads. */
@@ -380,7 +461,7 @@ public class DungeonStatData {
 
 //        String json = gson.toJson(data);
 //        System.out.println(json);
-        data.save();
+        data.flush();
 
 //        Gson gson = new Gson();
 //        data = gson.fromJson(json, DungeonStatData.class);

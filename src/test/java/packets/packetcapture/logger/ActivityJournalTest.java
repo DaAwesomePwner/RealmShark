@@ -286,7 +286,8 @@ public class ActivityJournalTest {
     }
     @Test public void failedCheckpointDoesNotAcknowledgeOrDiscardANewerPendingCheckpoint() throws Exception {
         Path directory=Files.createTempDirectory("activity-pending-write-recovery");
-        Path barrier=directory.resolve("activity-history.json.tmp");Files.createDirectory(barrier);
+        Path barrier=directory.resolve("activity-history.json");Files.createDirectory(barrier);
+        Path blocker=Files.createFile(barrier.resolve("blocker"));
         ActivityStore store=new ActivityStore(directory);
         CountDownLatch firstRead=new CountDownLatch(1),releaseFirst=new CountDownLatch(1),secondRead=new CountDownLatch(1),releaseSecond=new CountDownLatch(1);
         AtomicBoolean oldSaved=new AtomicBoolean(),newSaved=new AtomicBoolean();
@@ -298,7 +299,7 @@ public class ActivityJournalTest {
             store.offer(()->{secondRead.countDown();awaitRelease(releaseSecond);return newState;},()->newSaved.set(true));
             releaseFirst.countDown();assertTrue(secondRead.await(5,TimeUnit.SECONDS));
             assertFalse(store.error().isEmpty());assertFalse(oldSaved.get());assertFalse(newSaved.get());
-            Files.delete(barrier);releaseSecond.countDown();store.close();
+            Files.delete(blocker);Files.delete(barrier);releaseSecond.countDown();store.close();
             assertFalse(oldSaved.get());assertTrue(newSaved.get());assertEquals("",store.error());
             ActivityJournal.State saved=new Gson().fromJson(new String(Files.readAllBytes(directory.resolve("activity-history.json")),java.nio.charset.StandardCharsets.UTF_8),ActivityJournal.State.class);
             assertEquals("newer",saved.captureRunId);

@@ -193,7 +193,7 @@ public final class CombatAutosave implements AutoCloseable {
         Optional<Path> session = store.currentDirectory();
         if (session.isEmpty()) return null;   // the store is closing
         Path target = fullDetailFile(session.get(), id);
-        try { write(target, data.getSaveFile(false)); return target; }
+        try { write(target, data.getSaveFile(false), closed); return target; }
         catch (IOException | RuntimeException | StackOverflowError e) { failure("Full combat detail could not be saved", e); return null; }
     }
 
@@ -205,16 +205,13 @@ public final class CombatAutosave implements AutoCloseable {
     }
 
     /** Java serialization of one recording (the {@code .dps} format), staged beside the target and moved into place. */
-    private static void write(Path target, DpsData saved) throws IOException {
-        Path folder = Files.createDirectories(target.getParent());
-        Path staged = Files.createTempFile(folder, ".combat-", ".tmp");
-        try {
-            try (ObjectOutputStream output = new ObjectOutputStream(new BufferedOutputStream(Files.newOutputStream(staged)))) {
+    private static void write(Path target, DpsData saved, boolean sync) throws IOException {
+        Files.createDirectories(target.getParent());
+        util.AtomicFiles.write(target, stream -> {
+            try (ObjectOutputStream output = new ObjectOutputStream(new BufferedOutputStream(stream))) {
                 output.writeObject(saved);
             }
-            try { Files.move(staged, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(staged, target, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(staged); }
+        }, sync);
     }
 
     private void runPrune() {
