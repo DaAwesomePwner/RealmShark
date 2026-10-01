@@ -96,7 +96,18 @@ There is one database: `%LOCALAPPDATA%\RealmShark\history\index\search-v1.db`, w
 - Enchant names (`ParseEnchants`), class names, enemy names and equipment names (`IdToAsset`) are added at index time.
 - `meta` records the asset generation and enchant-definition version. When the game assets update, affected text is re-derived in the background. The stored ids never change.
 
-**Size:** today's history is about 250k records, which is mostly timeline. Excluding diagnostic kinds, the estimate is **25–40 MB**. D1 measures this against a read-only copy of the real history and records the result. Target: the index under 50% of the raw history size.
+**Size (measured in D1a, schema v3, on a read-only copy of the real history: 52 closed sessions, 103 MiB):**
+
+| Measure | Result | Target |
+|---|---|---|
+| Index size | **51.2 MiB** (49.7% of the raw history) | under 50% |
+| Full backfill | **7.8 s** | |
+| search "oryx" | 6.8 ms | under 200 ms |
+| search a frequent player | 4.8 ms | under 200 ms |
+| first Runs page | 2.2 ms | under 150 ms |
+| one run's recap facts | 1.3 ms | under 100 ms |
+
+The first layout used text keys and a separate locator table, and measured 189 MB. Integer keys and contentless FTS5 brought it to the size above. Compressing closed sessions (G) shrinks the raw history, but not the index.
 
 ## How data gets in
 
