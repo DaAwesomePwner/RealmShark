@@ -12,11 +12,14 @@ import tomato.realmshark.EnchantInfo;
  * What Loot › Highlights shows for one window (spec §6.4; P6a decisions), built off the EDT by {@link HighlightsSource} and
  * applied on the EDT as is (immutable).
  * - Tiles use Home's rules so the two agree to the number for the same window: UT and ST by the saved item classification,
- *   potions by the item's potion flag, white bags by the saved bag name. When no bag was saved in the window's sessions the four
+ *   potions by the item's potion flag, white bags by the saved bag name, enchanted by rare-or-better slots regardless of kind.
+ *   When no bag was saved in the window's sessions the five
  *   tiles are unknown ({@link #NO_LOOT}), never 0; a window whose sessions saved loot but none in the period is a real zero.
  *   Sessions that could not be read make the counts partial (◐), as does a live list capped at its latest 1,000 bags.
  * - {@code potionsByStat}: stat → potions (small, greater and soulbound together) in stat order, {@link #OTHER_POTIONS} last;
  *   it sums to the potions tile.
+ * - {@code enchantedByRarity}: counts in rarity order across all item kinds; it sums to the enchanted tile. {@link Focus}
+ *   narrows the notable list after bag visibility, without changing any tile's window-wide count.
  * - {@code notable}: the window's notable drops, newest bag first and each bag's items in notability order (UT, ST, stat potion,
  *   enchanted), each item once under its first kind. Each bag name (null: none saved) keeps its newest {@value #NOTABLE_LIMIT}, so
  *   whichever bag colors Filter Loot hides, {@link #shown} still finds the newest {@value #NOTABLE_LIMIT} visible drops;
@@ -30,6 +33,7 @@ import tomato.realmshark.EnchantInfo;
  * Counts are observed drops, not pickups ({@link #OBSERVED}, in every tile's tooltip).
  */
 public record HighlightsModel(Window window, Source source, DisplayValue ut, DisplayValue st, DisplayValue potions, DisplayValue whites,
+                              DisplayValue enchanted, Map<EnchantInfo.Rarity, Integer> enchantedByRarity,
                               Map<String, Integer> potionsByStat, List<Notable> notable, List<DungeonCell> dungeons, int sessionsSkipped,
                               boolean capped, long capturedAt, String unavailable, int bags, int unnamedBags, int notableTotal,
                               int enchantUnknown, Map<String, Integer> notableByBag) {
@@ -59,6 +63,25 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
 
     /** Saved history, or (no history store open) this app run's live capture, which is not saved. */
     public enum Source { SAVED, LIVE_UNSAVED }
+
+    /** Temporary notable-list focus; enchantment and white bags can overlap any item kind. */
+    public enum Focus {
+        ALL("notable drops"), UT("UT drops"), ST("ST drops"), POTIONS("potion drops"),
+        WHITES("white-bag drops"), ENCHANTED("enchanted drops");
+        private final String label;
+        Focus(String label) { this.label = label; }
+        public String label() { return label; }
+        public boolean test(Notable drop) {
+            return switch (this) {
+                case ALL -> true;
+                case UT -> drop.kind() == Kind.UT;
+                case ST -> drop.kind() == Kind.ST;
+                case POTIONS -> drop.kind() == Kind.POTION;
+                case WHITES -> LootFacts.whiteBag(drop.bag());
+                case ENCHANTED -> drop.enchant().enchanted() && drop.enchant().rarity().ordinal() >= EnchantInfo.Rarity.RARE.ordinal();
+            };
+        }
+    }
 
     /** Notability order: an item that is several kinds is listed once, under the first. */
     public enum Kind {
@@ -96,11 +119,24 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
      * every visible notable drop of the window and {@code hidden} the rest.
      */
     public Shown shown(java.util.function.Predicate<String> showsBag) {
+        return shown(showsBag, Focus.ALL);
+    }
+
+    /**
+     * Bag visibility and focus together. ALL totals include the whole window; focused totals and hidden counts cover matching
+     * retained drops and can undercount only beyond NOTABLE_LIMIT per bag name. The displayed list remains capped at that limit.
+     */
+    public Shown shown(java.util.function.Predicate<String> showsBag, Focus focus) {
         List<Notable> visible = new ArrayList<>();
+        int matching = 0, hidden = 0;
         for (Notable drop : notable) {
-            if (visible.size() == NOTABLE_LIMIT) break;
-            if (showsBag.test(drop.bag())) visible.add(drop);
+            if (!focus.test(drop)) continue;
+            if (showsBag.test(drop.bag())) {
+                matching++;
+                if (visible.size() < NOTABLE_LIMIT) visible.add(drop);
+            } else hidden++;
         }
+        if (focus != Focus.ALL) return new Shown(visible, matching, hidden);
         int total = 0;
         for (Map.Entry<String, Integer> entry : notableByBag.entrySet()) if (showsBag.test(entry.getKey())) total += entry.getValue();
         return new Shown(visible, total, notableTotal - total);
@@ -115,6 +151,10 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
     public HighlightsModel {
         Objects.requireNonNull(window, "window"); Objects.requireNonNull(source, "source");
         Objects.requireNonNull(ut, "ut"); Objects.requireNonNull(st, "st"); Objects.requireNonNull(potions, "potions"); Objects.requireNonNull(whites, "whites");
+        Objects.requireNonNull(enchanted, "enchanted");
+        Map<EnchantInfo.Rarity, Integer> rarities = new EnumMap<>(EnchantInfo.Rarity.class);
+        if (enchantedByRarity != null) rarities.putAll(enchantedByRarity);
+        enchantedByRarity = Collections.unmodifiableMap(rarities);
         potionsByStat = Collections.unmodifiableMap(new LinkedHashMap<>(potionsByStat == null ? Map.of() : potionsByStat));   // keeps the order
         notable = notable == null ? List.of() : List.copyOf(notable);
         // A HashMap: a bag without a saved name counts under the null key.
@@ -136,7 +176,8 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
         List<Integer> order = new ArrayList<>();
         for (int i = 0; i < newest.size(); i++) order.add(i);
         order.sort(Comparator.comparingLong((Integer i) -> newest.get(i).time()).reversed().thenComparing(Comparator.reverseOrder()));
-        int ut = 0, st = 0, potions = 0, whites = 0, unnamed = 0, enchantUnknown = 0;
+        int ut = 0, st = 0, potions = 0, whites = 0, enchanted = 0, unnamed = 0, enchantUnknown = 0;
+        Map<EnchantInfo.Rarity, Integer> byRarity = new EnumMap<>(EnchantInfo.Rarity.class);
         int[] stats = new int[STATS.length + 1];   // the last slot: other potions
         List<Notable> notable = new ArrayList<>();
         Map<String, Integer> notableByBag = new HashMap<>();   // bag name (null: none saved) → notable drops
@@ -152,6 +193,7 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
             cell[0]++;
             List<Notable> listed = new ArrayList<>();
             for (LootFacts.Item item : bag.items()) {
+                if (item.enchanted()) { enchanted++; byRarity.merge(item.enchant().rarity(), 1, Integer::sum); }
                 if (item.untiered()) { ut++; cell[1]++; }
                 if (item.setTiered()) { st++; cell[2]++; }
                 if (item.potion()) { potions++; cell[3]++; stats[stat(item.id())]++; }
@@ -188,13 +230,15 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
             tile(st, "ST drops, " + scope, lootRecorded, none, missing),
             tile(potions, "Potion drops" + (byStat.isEmpty() ? "" : " (" + potionWords(byStat) + ")") + ", " + scope, lootRecorded, none, missing),
             tile(whites, "White bags by their saved bag name, " + scope + whiteNote, lootRecorded, none, missing),
+            tile(enchanted, "Enchanted drops (rare or better: 2+ enchant slots), " + scope
+                + (byRarity.isEmpty() ? "" : " (" + enchantLine(byRarity) + ")"), lootRecorded, none, missing), byRarity,
             byStat, notable, dungeons, sessionsSkipped, capped, capturedAt, null, newest.size(), unnamed, total, enchantUnknown, notableByBag);
     }
 
     /** Saved history could not be read at all: every value unknown with {@code reason}. */
     static HighlightsModel unavailable(Window window, Source source, String reason, long capturedAt) {
         DisplayValue unknown = DisplayValue.unknown(reason);
-        return new HighlightsModel(window, source, unknown, unknown, unknown, unknown, Map.of(), List.of(), List.of(), 0, false, capturedAt,
+        return new HighlightsModel(window, source, unknown, unknown, unknown, unknown, unknown, Map.of(), Map.of(), List.of(), List.of(), 0, false, capturedAt,
             Objects.requireNonNull(reason, "reason"), 0, 0, 0, 0, Map.of());
     }
 
@@ -217,6 +261,14 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
             shown++;
         }
         if (more > 0) parts.add("+" + more + " more");
+        return String.join(" · ", parts);
+    }
+
+    /** Every recorded rare-or-better rarity, in slot-count order, regardless of the item's notable kind. */
+    static String enchantLine(Map<EnchantInfo.Rarity, Integer> byRarity) {
+        List<String> parts = new ArrayList<>();
+        for (EnchantInfo.Rarity rarity : EnchantInfo.Rarity.values())
+            if (byRarity.containsKey(rarity)) parts.add(byRarity.get(rarity) + " " + rarity.label);
         return String.join(" · ", parts);
     }
 

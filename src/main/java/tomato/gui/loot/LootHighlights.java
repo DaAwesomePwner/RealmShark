@@ -30,10 +30,13 @@ import util.PropertiesManager;
  *   {@link #WINDOW_KEY}, Today by default; restoring it only selects; Home's Notable loot tile applies its own through
  *   {@link #showWindow}, as a click would) and ⋯ ({@code loot-highlights-more}: Refresh plus the page's {@link #addOverflowAction}
  *   entries).
- * - Four StatTiles: UT drops, ST drops, potions (the sub-line lists stats, "2 Life · 1 Mana · 3 Def") and white bags (the
+ * - Five toggle tiles: UT drops, ST drops, potions (the sub-line lists stats, "2 Life · 1 Mana · 3 Def"), enchanted (all kinds,
+ *   rare or better, with counts by rarity) and white bags (the
  *   sub-line says of how many bags, and how many had no saved bag name). Unknown is "—" with its reason, never 0; a partial
  *   read (◐) and a stale one are labeled on the tiles and in a warn line above them. One row whenever each tile can be
- *   {@value #TILE_MIN} px wide (a long sub-line wraps inside its tile, {@link SubLine}); else two by two or one per row.
+ *   {@value #TILE_MIN} px wide (a long sub-line wraps inside its tile, {@link SubLine}); else wrap to fit.
+ *   Clicking, Enter or Space toggles a known tile's filter; Show all clears it. Focus survives refresh and period changes,
+ *   stays local to this view, and never changes the tile counts; it clears if its tile becomes unknown.
  * - Notable drops ({@code loot-notable-grid}): a painted TileList ({@link NotableDropRenderer}). Filter Loot ({@link LootFilters})
  *   decides which bag colors are listed, re-filtered on change without a read, and a line says how many drops it hides; the
  *   tiles and the strip still count every observed drop. Enter, Space, a double-click or the context menu's "Open run recap"
@@ -54,7 +57,7 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
     /** The nudge check while showing, the settle delay before a nudged read, and the checks between reads without a nudge (30 s). */
     static final int CHECK_MILLIS = 2_000, SETTLE_MILLIS = 750, PERIODIC_TICKS = 15;
     static final String LOADING = "loading", UNAVAILABLE = "unavailable", CONTENT = "content";
-    /** A tile's narrowest width in px: four tiles share a row whenever each can have this much (Home's tiles use the same). */
+    /** A tile's narrowest width in px: five tiles share a row whenever each can have this much. */
     static final int TILE_MIN = 180;
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
 
@@ -76,8 +79,15 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
     private final JPanel body = new JPanel(cards);
     private final JPanel unavailableHolder = new JPanel(new BorderLayout());
     private final Banner stale = new Banner("loot-highlights-stale"), partial = new Banner("loot-highlights-partial");
-    private final StatTile ut = tile("UT drops", "loot-tile-ut"), st = tile("ST drops", "loot-tile-st"),
-        potions = tile("Potions", "loot-tile-potions"), whites = tile("White bags", "loot-tile-whites");
+    private final HighlightTile ut = tile("UT drops", "loot-tile-ut", HighlightsModel.Focus.UT),
+        st = tile("ST drops", "loot-tile-st", HighlightsModel.Focus.ST),
+        potions = tile("Potions", "loot-tile-potions", HighlightsModel.Focus.POTIONS),
+        whites = tile("White bags", "loot-tile-whites", HighlightsModel.Focus.WHITES),
+        enchanted = tile("Enchanted", "loot-tile-enchanted", HighlightsModel.Focus.ENCHANTED);
+    private HighlightsModel.Focus focus = HighlightsModel.Focus.ALL;
+    private final KitText focusCaption = KitText.caption("");
+    private final KitButton focusClear = KitButton.ghost("Show all");
+    private final JPanel focusLine = KitLayouts.spread(Tokens.S, focusCaption, focusClear);
     private final SectionHeader notableHeader = new SectionHeader("Notable drops"), stripHeader = new SectionHeader("By dungeon");
     private final KitText filtered = KitText.caption(""), notes = KitText.caption(""), stripNote = KitText.caption("");
     private final TileList<HighlightsModel.Notable> notableList;
@@ -135,16 +145,20 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         more.add("Refresh", this::refresh).setName("loot-highlights-refresh");
         add(KitLayouts.spread(Tokens.S, sourceCaption, windowControl, more), BorderLayout.NORTH);
 
-        // Tiles: four across whenever each gets TILE_MIN px (1240×800 font 13 in the shell), else two by two or one per row. A long
+        // Tiles: five across whenever each gets TILE_MIN px (1240×800 font 13 in the shell), else wrap. A long
         // sub-line wraps inside its tile (HighlightTile) rather than widening it, and the grid gives a row one height.
         stale.setTone(Tokens.Tone.WARN);
         partial.setTone(Tokens.Tone.WARN);
         stale.setVisible(false);
         partial.setVisible(false);
-        JPanel tiles = ContentStyle.responsiveGrid(4, TILE_MIN, Tokens.S, true);
+        JPanel tiles = ContentStyle.responsiveGrid(5, TILE_MIN, Tokens.S, true);
         tiles.setName("loot-highlights-tiles");
         tiles.setOpaque(false);
-        for (StatTile tile : new StatTile[] {ut, st, potions, whites}) tiles.add(tile);
+        for (HighlightTile tile : tiles()) tiles.add(tile);
+        focusCaption.setName("loot-notable-focus");
+        focusClear.setName("loot-notable-focus-clear");
+        focusClear.addActionListener(e -> setFocus(HighlightsModel.Focus.ALL));
+        focusLine.setVisible(false);
 
         // Notable drops.
         NotableDropRenderer renderer = new NotableDropRenderer(zone, this::now);
@@ -188,7 +202,7 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         };
         content.setOpaque(false);
         content.add(KitLayouts.stack(Tokens.M, KitLayouts.stack(Tokens.XS, stale, partial), tiles,
-            KitLayouts.stack(Tokens.S, notableHeader, filtered, notes, notableList, notableEmptyHolder),
+            KitLayouts.stack(Tokens.S, notableHeader, focusLine, filtered, notes, notableList, notableEmptyHolder),
             KitLayouts.stack(Tokens.S, stripHeader, stripNote, strip)), BorderLayout.NORTH);
         page = ContentStyle.page(null, content, null);
         page.setName("loot-highlights-scroll");
@@ -416,6 +430,7 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         potions.setValue(staled(shown.potions()), known && !stats.isEmpty() ? stats : null);
         whites.setValue(staled(shown.whites()), known ? "of " + count(shown.bags(), "bag")
             + (shown.unnamedBags() > 0 ? " · " + DisplayFormat.formatInteger(shown.unnamedBags()) + " without a bag name" : "") : null);
+        enchanted.setValue(staled(shown.enchanted()), known ? HighlightsModel.enchantLine(shown.enchantedByRarity()) : null);
         renderNotable();
         strip.setItems(shown.dungeons());   // an equal list fires nothing
         strip.setVisible(!shown.dungeons().isEmpty());
@@ -430,18 +445,27 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
     private void renderNotable() {
         HighlightsModel shown = current();
         if (shown == null || closed) return;
+        // A refresh or period change may make the active tile unknown; no disabled tile can keep a filter active.
+        for (HighlightTile tile : tiles())
+            if (tile.focus == focus && !tile.isEnabled()) { focus = HighlightsModel.Focus.ALL; break; }
         LootFilters filters = LootFilters.get();
         // Filter first, then the newest NOTABLE_LIMIT visible drops: newer drops of a hidden color never crowd out older visible ones.
-        HighlightsModel.Shown filteredDrops = shown.shown(filters::showsBagName);
+        HighlightsModel.Shown filteredDrops = shown.shown(filters::showsBagName, focus);
         List<HighlightsModel.Notable> visible = filteredDrops.items();
-        int all = shown.notableTotal(), hidden = filteredDrops.hidden();
+        boolean focused = focus != HighlightsModel.Focus.ALL;
+        int hidden = filteredDrops.hidden(), all = focused ? filteredDrops.total() + hidden : shown.notableTotal();
+        focusCaption.setText(focused ? "Showing only " + focus.label() : "");
+        focusLine.setVisible(focused);
+        for (HighlightTile tile : tiles()) tile.setSelected(tile.focus == focus);
         notableList.setItems(visible);
         notableList.setVisible(!visible.isEmpty());
-        notableHeader.setCount(all == 0 ? null : DisplayFormat.formatInteger(all));
+        notableHeader.setCount(focused ? DisplayFormat.formatInteger(filteredDrops.total()) : all == 0 ? null : DisplayFormat.formatInteger(all));
         filtered.setText(hidden > 0 ? "Filter Loot hides " + DisplayFormat.formatInteger(hidden) + " of " + DisplayFormat.formatInteger(all)
             + " notable drops; the tiles still count them" : "");
         filtered.setVisible(hidden > 0);
         List<String> lines = new ArrayList<>();
+        if (focused && shown.notable().size() < shown.notableTotal())
+            lines.add("Filter counts cover only the newest " + HighlightsModel.NOTABLE_LIMIT + " notable drops per bag name");
         if (filteredDrops.total() > visible.size())
             lines.add("Showing the newest " + visible.size() + " of " + DisplayFormat.formatInteger(filteredDrops.total()) + " notable drops");
         if (shown.enchantUnknown() > 0) lines.add(count(shown.enchantUnknown(), "item") + " without recorded enchant slots "
@@ -449,7 +473,11 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
         notes.setText(String.join(" · ", lines));
         notes.setVisible(!lines.isEmpty());
         String title = null, text = null;
-        if (visible.isEmpty() && all == 0) {
+        if (visible.isEmpty() && focused) {
+            title = hidden > 0 ? "Filter Loot hides all " + focus.label() : "No " + focus.label() + " in this period";
+            text = hidden > 0 ? count(hidden, "matching drop") + " hidden by Filter Loot (Edit › Filter Loot); the tiles still count them."
+                : "Show all to see other notable drops.";
+        } else if (visible.isEmpty() && all == 0) {
             title = "No notable drops yet";
             boolean nothing = shown.ut().state == DisplayValue.State.UNKNOWN;
             text = nothing ? (shown.source() == HighlightsModel.Source.LIVE_UNSAVED ? "No loot was observed in this app run yet." : HighlightsModel.NO_LOOT + ".")
@@ -499,27 +527,52 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
 
     private static String count(int value, String noun) { return DisplayFormat.formatInteger(value) + " " + noun + (value == 1 ? "" : "s"); }
 
-    private static StatTile tile(String label, String name) {
-        StatTile tile = new HighlightTile(label);
+    private HighlightTile[] tiles() { return new HighlightTile[] {ut, st, potions, whites, enchanted}; }
+
+    private void setFocus(HighlightsModel.Focus next) { focus = next; renderNotable(); }
+
+    private HighlightTile tile(String label, String name, HighlightsModel.Focus kind) {
+        HighlightTile tile = new HighlightTile(label, kind, () -> setFocus(focus == kind ? HighlightsModel.Focus.ALL : kind));
         tile.setName(name);
         return tile;
     }
 
     /**
      * A StatTile whose sub-line wraps ({@link SubLine}) instead of widening the tile (Polish B2): StatTile's own one-line sub-line
-     * made "2 Life · 1 Mana · 1 Att · 1 Def · +2 more" the tile's preferred width, so the four tiles went two by two at desktop
+     * made "2 Life · 1 Mana · 1 Att · 1 Def · +2 more" the tile's preferred width, so the tiles wrapped at desktop
      * width. The wrapping sub-line takes StatTile's place under the value (child 2); StatTile's own stays hidden. The accessible
-     * name is StatTile's ("Potions: 7, 2 Life · …").
+     * name includes StatTile's value and the selected filter state; unknown values cannot toggle.
      */
     static final class HighlightTile extends StatTile {
         /** Null while StatTile's constructor sets the first value. */
         private final SubLine sub;
+        private final HighlightsModel.Focus focus;
+        private boolean selected;
+        private String valueName;
 
-        HighlightTile(String label) {
+        HighlightTile(String label, HighlightsModel.Focus focus, Runnable toggle) {
             super(label);
+            this.focus = focus;
             sub = new SubLine();
             sub.setVisible(false);
             add(sub, 2);
+            MouseAdapter click = new MouseAdapter() {
+                @Override public void mouseClicked(MouseEvent e) {
+                    if (SwingUtilities.isLeftMouseButton(e) && isEnabled()) { requestFocusInWindow(); toggle.run(); }
+                }
+            };
+            addMouseListener(click);
+            for (Component child : getComponents()) child.addMouseListener(click);
+            for (int key : new int[] {KeyEvent.VK_ENTER, KeyEvent.VK_SPACE})
+                getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(key, 0), "toggle-filter");
+            getActionMap().put("toggle-filter", new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) { if (HighlightTile.this.isEnabled()) toggle.run(); }
+            });
+            addFocusListener(new FocusAdapter() {
+                @Override public void focusGained(FocusEvent e) { repaint(); }
+                @Override public void focusLost(FocusEvent e) { repaint(); }
+            });
+            setValue(value(), null);
         }
 
         @Override public void setValue(DisplayValue shown, String subline) {
@@ -529,6 +582,48 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
             sub.setText(has ? subline : "");
             sub.setVisible(has);
             if (has) getAccessibleContext().setAccessibleName(getAccessibleContext().getAccessibleName() + ", " + subline);
+            valueName = getAccessibleContext().getAccessibleName();
+            setEnabled(shown.state != DisplayValue.State.UNKNOWN);
+            setFocusable(isEnabled());
+            setCursor(Cursor.getPredefinedCursor(isEnabled() ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+            setSelected(selected);
+        }
+
+        void setSelected(boolean next) {
+            boolean previous = selected;
+            selected = next && isEnabled();
+            String action = selected ? "Show all notable drops" : "Show only " + focus.label();
+            String tooltip = isEnabled() ? action + " · " + value().tooltip() : value().tooltip();
+            setToolTipText(tooltip);
+            getAccessibleContext().setAccessibleName(valueName + (selected ? ", selected filter" : ", filter"));
+            getAccessibleContext().setAccessibleDescription(isEnabled() ? action + "; Enter or Space toggles this filter" : value().detail);
+            if (previous != selected) getAccessibleContext().firePropertyChange(javax.accessibility.AccessibleContext.ACCESSIBLE_STATE_PROPERTY,
+                previous ? javax.accessibility.AccessibleState.SELECTED : null, selected ? javax.accessibility.AccessibleState.SELECTED : null);
+            repaint();
+        }
+
+        @Override public javax.accessibility.AccessibleContext getAccessibleContext() {
+            if (accessibleContext == null) accessibleContext = new AccessibleJPanel() {
+                @Override public javax.accessibility.AccessibleRole getAccessibleRole() { return javax.accessibility.AccessibleRole.TOGGLE_BUTTON; }
+                @Override public javax.accessibility.AccessibleStateSet getAccessibleStateSet() {
+                    javax.accessibility.AccessibleStateSet states = super.getAccessibleStateSet();
+                    if (selected) states.add(javax.accessibility.AccessibleState.SELECTED);
+                    return states;
+                }
+            };
+            return accessibleContext;
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            if (!selected && !hasFocus()) return;
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(Tokens.color(Tokens.Role.ACCENT));
+                g.setStroke(new BasicStroke(selected ? 2f : 1f));
+                g.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, Tokens.ARC_CARD, Tokens.ARC_CARD);
+            } finally { g.dispose(); }
         }
     }
 
