@@ -120,9 +120,9 @@ public final class HistoryIndex implements AutoCloseable {
     public boolean includeChat() { return includeChat; }
     /** record must be a detached saved value, as in SessionStore's producer contract. No serialization or I/O here. */
     public void offer(String session,String module,long offsetOrMinusOne,String keyOrNull,Object record) {
-        if (closing.get() || !validSession(session) || !Projections.modules().contains(module)) return;
+        if (closing.get() || state.phase==Phase.UNAVAILABLE || !validSession(session) || !Projections.modules().contains(module)) return;
         synchronized (ingestionLock) {
-            if (removed.contains(session)) return;
+            if (state.phase==Phase.UNAVAILABLE || removed.contains(session)) return;
             if (keyOrNull==null && offsetOrMinusOne<0) { markSessionChanged(session); return; }
             if (!offers.offer(new Offer(session,module,offsetOrMinusOne,keyOrNull,record))) {
                 overflows.incrementAndGet(); markSessionChanged(session);
@@ -134,11 +134,11 @@ public final class HistoryIndex implements AutoCloseable {
     }
     public void markSessionChanged(String session) {
         synchronized (ingestionLock) {
-            if (!closing.get() && validSession(session) && !removed.contains(session)) stale.put(session,revision.incrementAndGet());
+            if (!closing.get() && state.phase!=Phase.UNAVAILABLE && validSession(session) && !removed.contains(session)) stale.put(session,revision.incrementAndGet());
         }
     }
     public void removeSession(String session) {
-        synchronized (ingestionLock) { if (validSession(session)) { removed.add(session); stale.remove(session); } }
+        synchronized (ingestionLock) { if (state.phase!=Phase.UNAVAILABLE && validSession(session)) { removed.add(session); stale.remove(session); } }
     }
     /** A completion barrier for background callers/tests. Never waits on the calling thread. */
     public CompletableFuture<Void> flush() {
@@ -159,7 +159,13 @@ public final class HistoryIndex implements AutoCloseable {
         String reason=!System.getProperty("os.name","").toLowerCase(Locale.ROOT).startsWith("windows")
                 ? "Only Windows SQLite native libraries are bundled"
                 : failure instanceof LinkageError ? "SQLite native library could not be loaded" : "SQLite or index storage could not be accessed";
-        publish(new State(Phase.UNAVAILABLE,reason+" ("+failure.getClass().getSimpleName()+")",0,0));
+        State next=new State(Phase.UNAVAILABLE,reason+" ("+failure.getClass().getSimpleName()+")",0,0);
+        synchronized (ingestionLock) {
+            state=next;
+            offers.clear(); stale.clear(); removed.clear();
+        }
+        sessions.clear(); retries.clear();
+        publish(next);
     }
     private void open() throws Exception {
         loader.load(nativeDirectory);
@@ -467,22 +473,36 @@ public final class HistoryIndex implements AutoCloseable {
         if (batch.isEmpty()) return;
         Set<String> changed=new HashSet<>();
         Map<String,SessionStore.Session> metadata=new HashMap<>();
+        for (String id:batch.stream().map(Offer::session).collect(java.util.stream.Collectors.toSet())) {
+            try { metadata.put(id,metadata(store.directory().resolve(id),id)); }
+            catch (IOException | RuntimeException failure) { retrySession(id,failure); }
+        }
+        batch.removeIf(offer -> !metadata.containsKey(offer.session));
+        Map<String,Long> skipped=new HashMap<>();
         try {
             transaction(() -> {
                 for (Offer offer:batch) {
                     if (removed.contains(offer.session) || !appliedChat&&(offer.module.equals("chat")||offer.module.equals("chat-stars"))) continue;
                     changed.add(offer.session);
                     SessionStore.Session session=metadata.get(offer.session);
-                    if (session==null) { session=metadata(store.directory().resolve(offer.session),offer.session); metadata.put(offer.session,session); }
                     Locator locator=Locator.offered(offer.session,offer.module,offer.offset,offer.key);
-                    List<Projections.Row> rows=Projections.project(new Projections.Context(locator,session.ended,offer.session.equals(store.currentId()),session.version),offer.value);
-                    deleteSource(locator);
                     if (!exists(offer.session)) insert(Projections.project(new Projections.Context(new Locator(offer.session,"session",-1,"session",-1),session.ended,true,session.version),session));
+                    deleteSource(locator);
+                    List<Projections.Row> rows;
+                    try {
+                        rows=Projections.project(new Projections.Context(locator,session.ended,offer.session.equals(store.currentId()),session.version),offer.value);
+                    } catch (RuntimeException malformed) {
+                        skipped.merge(offer.session,1L,Long::sum);
+                        execute("UPDATE sessions SET skipped=skipped+1,stamp=NULL WHERE id=?",offer.session);
+                        continue;
+                    }
                     insert(rows);
                     execute("UPDATE sessions SET stamp=NULL,index_state='STALE' WHERE id=?",offer.session);
                 }
                 refreshPlayers();
             });
+            for (Map.Entry<String,Long> entry:skipped.entrySet()) sessions.computeIfPresent(entry.getKey(),(id,known) ->
+                    new SessionState(known.readiness,known.skipped+entry.getValue(),known.reason,known.unindexed));
             // A complete baseline remains usable after exact source upserts. New live sessions need one full baseline.
             for (String session:changed) if (!sessions.containsKey(session)) markSessionChanged(session);
         } catch (Exception failure) {

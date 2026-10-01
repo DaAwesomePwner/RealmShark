@@ -38,6 +38,111 @@ public class SessionWriteTest {
         }
         @Override public void close() { release.countDown(); }
     }
+    private record Persisted(String session, String module, long offset, String key, Object value) { }
+    @Test public void persistenceListenerSeesExactSavedOffsetsAndCheckpointKeysOnWorker() throws Exception {
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test")) {
+            List<Persisted> saved = new CopyOnWriteArrayList<>();
+            Thread caller = Thread.currentThread();
+            store.setPersistenceListener((session, module, offset, key, value) -> {
+                assertNotSame(caller, Thread.currentThread());
+                Path folder = store.directory().resolve(session);
+                try {
+                    if (key == null) {
+                        try (RandomAccessFile file = new RandomAccessFile(folder.resolve(module + ".jsonl").toFile(), "r")) {
+                            file.seek(offset);
+                            ByteArrayOutputStream line = new ByteArrayOutputStream();
+                            int next;
+                            while ((next = file.read()) != -1 && next != '\n') line.write(next);
+                            assertEquals(SessionStore.JSON.toJson(value), line.toString(StandardCharsets.UTF_8));
+                        }
+                    } else {
+                        assertEquals(-1, offset);
+                        assertEquals(SessionStore.JSON.toJson(value), Files.readString(folder.resolve(module)
+                            .resolve(SessionStore.checkpointName(key) + ".json")));
+                    }
+                } catch (IOException failure) { throw new AssertionError(failure); }
+                saved.add(new Persisted(session, module, offset, key, value));
+            });
+            store.append("chat", "prefix"); store.flush();
+            try (Hold hold = new Hold(store)) {
+                store.append("chat", "\u96ea\nquoted");
+                store.append("chat", new Bad(0));
+                store.append("chat", "after");
+                store.append("timeline", "separate");
+                store.put("runs", "original key", Map.of("id", "run"));
+                store.put("runs", "bad", new Bad(0));
+            }
+            store.flush();
+            assertEquals(5, saved.size());
+            List<Persisted> chat = saved.stream().filter(row -> row.module.equals("chat")).toList();
+            long offset = 0;
+            for (Persisted row : chat) {
+                assertEquals(store.currentId(), row.session);
+                assertEquals(offset, row.offset);
+                offset += (SessionStore.JSON.toJson(row.value) + "\n").getBytes(StandardCharsets.UTF_8).length;
+            }
+            assertEquals("original key", saved.get(4).key);
+            // Import notifications belong to D2, not to this live-worker hook.
+            store.importSnapshot("synthetic", "Imported", 1, "runs", "import", Map.of("id", "import"));
+            assertEquals(5, saved.size());
+        }
+    }
+    @Test public void failedBatchReportsNothingAndSuccessfulRetryReportsEachRecordOnce() throws Exception {
+        AtomicBoolean failWrite = new AtomicBoolean(true);
+        List<Object> saved = new CopyOnWriteArrayList<>();
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test", file ->
+                new FailingChannel(open(file), failWrite, new AtomicBoolean()))) {
+            store.setPersistenceListener((session, module, offset, key, value) -> saved.add(value));
+            try (Hold hold = new Hold(store)) { store.append("chat", "first"); store.append("chat", "second"); }
+            try { store.flush(); fail("Expected failed batch"); } catch (IOException expected) { }
+            assertTrue(saved.isEmpty());
+            failWrite.set(false); store.flush(); store.flush();
+            assertEquals(List.of("first", "second"), saved);
+            assertEquals(List.of("first", "second"), store.read(store.currentId(), "chat", String.class));
+        }
+    }
+    @Test public void failedCheckpointIsReportedOnlyAfterRetryAndListenerFailuresDoNotAffectSaving() throws Exception {
+        AtomicBoolean failCheckpoint = new AtomicBoolean(true);
+        List<Object> saved = new CopyOnWriteArrayList<>();
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test", SessionWriteTest::open,
+                (file, bytes, sync) -> {
+                    if (file.getParent().getFileName().toString().equals("notes") && failCheckpoint.get())
+                        throw new IOException("synthetic checkpoint failure");
+                    AtomicFiles.write(file, bytes, sync);
+                })) {
+            store.setPersistenceListener((session, module, offset, key, value) -> {
+                saved.add(value); throw new IllegalStateException("synthetic listener failure");
+            });
+            store.put("notes", "key", "checkpoint");
+            try { store.flush(); fail("Expected failed checkpoint"); } catch (IOException expected) { }
+            assertTrue(saved.isEmpty());
+            failCheckpoint.set(false); store.flush();
+            store.append("chat", "first"); store.append("chat", "second"); store.flush();
+            assertEquals(List.of("checkpoint", "first", "second"), saved);
+            assertEquals(List.of("checkpoint"), store.read(store.currentId(), "notes", String.class));
+            assertEquals(List.of("first", "second"), store.read(store.currentId(), "chat", String.class));
+            assertEquals("", store.error());
+        }
+    }
+    @Test public void listenerStackOverflowDoesNotCancelLaterPeriodicDrains() throws Exception {
+        BlockingQueue<Object> delivered = new LinkedBlockingQueue<>();
+        try (SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test")) {
+            store.setPersistenceListener((session, module, offset, key, value) -> {
+                delivered.add(value);
+                throw new StackOverflowError("Synthetic derived-consumer failure");
+            });
+            // No explicit flush: more rounds than the two periodic tasks expose cancellation of either task.
+            for (String value : List.of("first", "second", "third")) {
+                store.append("chat", value);
+                assertEquals(value, delivered.poll(5, TimeUnit.SECONDS));
+            }
+            store.put("notes", "key", "checkpoint");
+            assertEquals("checkpoint", delivered.poll(5, TimeUnit.SECONDS));
+            assertEquals(List.of("first", "second", "third"), store.read(store.currentId(), "chat", String.class));
+            assertEquals(List.of("checkpoint"), store.read(store.currentId(), "notes", String.class));
+            assertEquals("", store.error());
+        }
+    }
     @Test public void interleavedModulesUseOneOpenEachAndKeepExactJsonLinesAndOrder() throws Exception {
         Map<Path, AtomicInteger> opens = new ConcurrentHashMap<>();
         SessionStore store = new SessionStore(temp.newFolder().toPath(), true, "test", file -> {
