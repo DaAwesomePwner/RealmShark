@@ -472,7 +472,7 @@ public class FilterBarEvidenceTest {
         String[][] drops = {{"Test Sword", "The Shatters"}, {"Unlisted ST", "Lost Halls"}, {"Crystal Wand", "Ice Citadel"}, {"Mystic Blade", "Lost Halls"}};
         List<BridgePayload.Drop> received = new ArrayList<>();
         for (int i = 0; i < drops.length; i++)
-            received.add(new BridgePayload.Drop(new BridgePayload.Item(42 + i, drops[i][0], "EQUIPMENT", "UT", "", false), 7 + i % 2, i % 2 == 0 ? "Example" : "Fixture", "Wizard", drops[i][1], false, false, 9, 0));
+            received.add(new BridgePayload.Drop(new BridgePayload.Item(42 + i, drops[i][0], "EQUIPMENT", "UT", ""), 7 + i % 2, i % 2 == 0 ? "Example" : "Fixture", "Wizard", drops[i][1], false, false, 9, 0));
         service.receive(received);
         service.awaitIdle(3000);
         return service;

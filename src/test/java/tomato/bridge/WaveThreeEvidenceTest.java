@@ -105,8 +105,8 @@ public class WaveThreeEvidenceTest {
         try {
             writer.configure(local, false, false);
             writer.receive(Arrays.asList(
-                new BridgePayload.Drop(new BridgePayload.Item(42, "Test Sword", "EQUIPMENT", "UT", "Damage(3)", false), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0),
-                new BridgePayload.Drop(new BridgePayload.Item(43, "Unlisted Blade", "EQUIPMENT", "UT", "", false), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 1)));
+                new BridgePayload.Drop(new BridgePayload.Item(42, "Test Sword", "EQUIPMENT", "UT", "AAIE_wU="), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0),
+                new BridgePayload.Drop(new BridgePayload.Item(43, "Unlisted Blade", "EQUIPMENT", "UT", ""), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 1)));
             writer.awaitIdle(3000);
         } finally { writer.close(); writer.awaitClosed(3000); }
         Files.write(journal, ("{not json\n{\"journal\":\"" + BridgeJournal.FORMAT + "\",\"version\":2,\"review\":{}}\n").getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND);

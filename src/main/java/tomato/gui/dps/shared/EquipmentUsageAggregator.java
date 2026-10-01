@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,7 +27,7 @@ import tomato.backend.data.Equipment;
  * Notes:
  * - This class performs no UI formatting; it only aggregates data.
  * - Equipment id 0 (empty) is included if present in the damage stream, matching legacy behavior.
- * - The "enchant" string is carried through from the damage events (if provided).
+ * - The "enchant" of each item prefers a recorded variant over not recorded (by damage; the first seen on a tie); null and "" (older files) both count as not recorded, with the first seen kept when none is recorded.
  */
 public final class EquipmentUsageAggregator {
 
@@ -39,8 +40,11 @@ public final class EquipmentUsageAggregator {
      */
     public static final class SlotUsage {
 
+        /** itemId -> usage across all enchant variants; {@code enchant} prefers the most-used recorded variant over not recorded. */
         public final Map<Integer, Equipment> items = new HashMap<>();
         public final AtomicInteger total = new AtomicInteger(0);
+        /** itemId -> enchant entry (null = not recorded) -> damage dealt, in first-seen order; recorded variants are preferred. */
+        private final Map<Integer, Map<String, int[]>> variants = new HashMap<>();
     }
 
     /**
@@ -149,18 +153,21 @@ public final class EquipmentUsageAggregator {
 
                 // Use inventory snapshot stored on the Damage
                 int itemId = d.ownerInvntory[fi];
+                String enchant = d.ownerEnchants == null || fi >= d.ownerEnchants.length ? null : d.ownerEnchants[fi];
 
                 // Ensure Equipment.totalDmg points to the slot total accumulator.
-                Equipment eq = su.items.computeIfAbsent(itemId, id ->
-                    new Equipment(
-                        id,
-                        String.valueOf(d.ownerEnchants[fi]),
-                        su.total
-                    )
-                );
+                Equipment eq = su.items.computeIfAbsent(itemId, id -> new Equipment(id, enchant, su.total));
                 eq.add(d.damage);
+                su.variants.computeIfAbsent(itemId, id -> new LinkedHashMap<>()).computeIfAbsent(enchant, e -> new int[1])[0] += d.damage;
             }
         }
+        // Prefer recorded variants over null and "" (older files), both not recorded, then the most damage (the first seen on a tie).
+        for (OwnerUsage ou : byOwner.values()) for (SlotUsage su : ou.slots)
+            for (Map.Entry<Integer, Equipment> item : su.items.entrySet()) {
+                int best = Integer.MIN_VALUE;
+                for (Map.Entry<String, int[]> variant : su.variants.get(item.getKey()).entrySet())
+                    if (variant.getKey() != null && !variant.getKey().isEmpty() && variant.getValue()[0] > best) { best = variant.getValue()[0]; item.getValue().enchant = variant.getKey(); }
+            }
     }
 
     private static boolean isValidSlot(int slotIndex) {

@@ -14,6 +14,7 @@ import tomato.gui.modern.ContentStyle;
 import tomato.gui.stats.Formatters;
 import tomato.gui.kit.EnchantGem;
 import tomato.gui.kit.EnchantTooltip;
+import tomato.gui.kit.ItemTiers;
 import tomato.realmshark.EnchantInfo;
 
 /** Detached historical slot projection. Never resolves equipment from a current live entity. */
@@ -48,7 +49,8 @@ public final class CharacterEquipmentPanel extends JPanel {
             }
             /** Built when the table asks (on hover): the slot's enchant lines, when its enchantments were recorded. */
             @Override public String getToolTipText() {
-                return current == null || current.enchant == null ? super.getToolTipText() : EnchantTooltip.html(itemName(current.item), current.enchant);
+                return current == null || current.enchant == null ? super.getToolTipText()
+                    : EnchantTooltip.html(EnchantTooltip.heading(itemName(current.item), current.item == null ? "" : ItemTiers.label(current.item)), current.enchant);
             }
         });
         add(ContentStyle.tableScroll(table, 3)); add(status, BorderLayout.SOUTH);
@@ -78,7 +80,7 @@ public final class CharacterEquipmentPanel extends JPanel {
                 + "\nCurrent local item definition (not capture-time data):\nTier: " + (definition == null || definition.tier == null ? "Unknown" : definition.tier)
                 + "\nLabels: " + (definition == null || definition.labels == null ? "Unknown" : definition.labels)
                 + "\nSlot type: " + (definition == null || definition.slotType == null ? "Unknown" : definition.slotType)
-                + "\nEnchantment effects: " + (enchant == null ? "Not recorded in this character snapshot" : enchant.text().replace("\n", "\n  "));
+                + "\nEnchantment effects: " + (enchant == null ? "Not recorded in this character snapshot" : enchant.text());
             result.add(new Slot(i, item, group, name, state, evidence, detail, enchant));
         }
         return Collections.unmodifiableList(result);

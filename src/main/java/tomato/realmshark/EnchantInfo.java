@@ -49,8 +49,8 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
     public static EnchantInfo of(String blob) { return fromEvidence(ParseEnchants.evidence(blob)); }
 
     /**
-     * A blob retained through {@link ParseEnchants#getEnchantStrings}, which turns a missing stat into "": there "" cannot be told
-     * from unenchanted, so it reads as not recorded.
+     * A blob a DPS hit retained. Hits saved before enchant rarity stored a missing stat as "", so "" (like null) reads as not
+     * recorded; newer hits store a known-unenchanted slot as {@link ParseEnchants#UNENCHANTED_ENTRY}.
      */
     public static EnchantInfo ofRetained(String blob) { return blob == null || blob.isEmpty() ? NOT_RECORDED : of(blob); }
 
@@ -84,6 +84,8 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
             case NOT_RECORDED: return "Enchants not recorded";
             case UNREADABLE: return "Enchant data unreadable";
             default: {
+                // No slot count maps to UNKNOWN, so a record built with it has no honest count to show.
+                if (rarity == Rarity.UNKNOWN) return "Enchant data unreadable";
                 // Rarity constants are declared in slot-count order, so a count-only record's count is its rarity's ordinal.
                 int count = state == State.COUNT_ONLY ? rarity.ordinal() : slots.size();
                 return rarity == Rarity.UNENCHANTED ? "Unenchanted"

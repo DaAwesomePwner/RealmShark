@@ -26,6 +26,19 @@ public class HeroCardTest {
     @Before public void usFormat() { previous = Locale.getDefault(Locale.Category.FORMAT); Locale.setDefault(Locale.Category.FORMAT, Locale.US); }
     @After public void restoreFormat() { Locale.setDefault(Locale.Category.FORMAT, previous); }
     private HeroCard card() { return new HeroCard(key -> { opened[0]++; keys.add(key); }, () -> opened[1]++, mode); }
+    @Test public void aShortEnchantListLeavesTheOtherSlotsWithoutAGem() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HeroCard card = card();
+            HomeModel.Hero h = HomeModels.hero(HomeModel.State.STALE, NOW);
+            EnchantInfo uncommon = EnchantInfo.ofSlotCount(1);
+            card.apply(new HomeModel.Hero(h.state(), h.name(), h.classId(), h.className(), h.skin(), h.level(), h.fame(), h.maxed(),
+                h.base(), h.caps(), h.totals(), h.potionsNeeded(), h.needsLine(), h.exaltTiers(), new int[]{2593, 2594, -1, -1},
+                h.weaponDps(), h.mpPerSecond(), h.accountLine(), h.lastSeenAt(), h.evidence(), h.key(), h.petChip(), List.of(uncommon)), NOW);
+            assertEquals(uncommon, named(card, "home-hero-slot-0", ItemSlot.class).enchant());
+            assertNull(named(card, "home-hero-slot-1", ItemSlot.class).enchant());
+        });
+    }
+
     @Test public void liveHeroShowsIdentityChipsGearBarsAndEstimates() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             HeroCard card = card();

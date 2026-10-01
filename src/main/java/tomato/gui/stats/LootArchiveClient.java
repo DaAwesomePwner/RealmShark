@@ -23,6 +23,8 @@ import tomato.history.archive.*;
 
 /** One independently persisted workspace; every inner archive filter sends query intent upstream. */
 public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
+    /** The detail's enchantment lines; the stored text already indents each enchant under its rarity line. */
+    static String enchantmentsLine(String enchantments){return "\nEnchantments: "+(enchantments==null?"Not recorded":enchantments);}
     private final Path scratch;
     /** The views the view selector offers (a routed or restored view outside them is still shown, as its "Current view"). */
     private final Set<View> views;private final ArchiveQuery<Facets,Sort> initial;
@@ -296,7 +298,7 @@ public final class LootArchiveClient implements ArchiveClient<Row,Facets,Sort> {
         private void detail(ArchiveRow<Row> row){StringBuilder text=new StringBuilder("rate".equals(row.value.type)?RateCalculation.describe(row.value)+"\n\n":"");
             if("occurrence".equals(row.value.type)){
                 text.append("Exact enchantment evidence: ").append(row.value.enchantEvidence==null?"Not recorded":row.value.enchantEvidence).append("\nDrop context: ").append(row.value.dropContext==null?"Not recorded":row.value.dropContext).append('\n');
-                text.append("\nEnchantments: ").append(row.value.enchantments==null?"Not recorded":row.value.enchantments.replace("\n","\n  "));
+                text.append(enchantmentsLine(row.value.enchantments));
                 text.append('\n');
             }
             text.append("Origin: ").append(row.ref).append('\n');for(HistoryTables.Column<Row,?> column:columns()){Object value=column.value.apply(row.value);if(value!=null&&!value.toString().isEmpty())text.append(column.label).append(": ").append(value).append(readable(column.id,value)).append('\n');}

@@ -24,6 +24,8 @@ import packets.incoming.NotificationPacket;
 import tomato.backend.data.*;
 import tomato.gui.SmartScroller;
 import tomato.gui.kit.EnchantIconLabel;
+import tomato.gui.kit.EnchantTooltip;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
@@ -413,10 +415,11 @@ public class IconDpsGUI extends DisplayDpsGUI {
         for (int i = 0; i < 4; i++) {
             Equipment max = eqAgg.getMostUsedItem(owner.id, i);
             int eq = (max != null) ? max.id : 0;
-            // Retained per-hit strings turn a missing stat into "", so "" reads as not recorded rather than unenchanted.
+            // New hits keep a missing stat as null and a known-unenchanted slot as ParseEnchants.UNENCHANTED_ENTRY.
+            // Only older hits hold "", which reads as not recorded.
             EnchantInfo enchant = EnchantInfo.ofRetained(max != null ? max.enchant : null);
             EnchantIconLabel icon = new EnchantIconLabel();
-            icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), IdToAsset.objectName(eq), enchant);
+            icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), EnchantTooltip.heading(IdToAsset.objectName(eq), ItemTiers.label(eq)), enchant);
             panel.add(icon);
         }
 

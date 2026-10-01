@@ -76,7 +76,7 @@ public class GearTabTest {
         });
     }
 
-    @Test public void enchantGemsShowOnlyForTheLiveCharacter() throws Exception {
+    @Test public void liveEnchantGemsShowAndARecordWithoutSavedEnchantsShowsNone() throws Exception {
         Entity player = new Entity(null, 1, 0);
         StatData enchants = new StatData();
         enchants.stringStatValue = "AAIE_wU,AAIE,,!!!"; // weapon 1 unlocked slot, ability 0, armor 0, ring malformed

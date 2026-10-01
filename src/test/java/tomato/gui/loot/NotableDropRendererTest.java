@@ -44,6 +44,8 @@ public class NotableDropRendererTest {
             renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
             String tip = renderer.getToolTipText();
             assertTrue(tip, tip.startsWith("<html>") && tip.contains("Legendary · 3 enchant slots") && tip.contains("Enchant names not available"));
+            assertEquals("The tooltip says the rarity once: " + tip, 1, tip.split("Legendary · 3 enchant slots", -1).length - 1);
+            assertTrue("Its heading still gives the facts: " + tip, tip.contains("enchanted, rare or better;"));
             String plain = NotableDropRenderer.accessibleName(enchanted(EnchantInfo.notRecorded()), ZONE_NY, NOON);
             assertFalse("Without enchant data the name adds no rarity: " + plain, plain.contains("enchant slot"));
             renderer.getListCellRendererComponent(new JList<>(), enchanted(EnchantInfo.notRecorded()), 0, false, false);

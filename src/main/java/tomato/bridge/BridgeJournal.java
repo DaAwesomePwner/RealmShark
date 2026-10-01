@@ -156,7 +156,7 @@ public final class BridgeJournal {
         StringBuilder out = new StringBuilder("Journal,Session,Review ID,Line,Format,Time (UTC),Item,Item ID,Rarity,Enchants,Character ID,Character name,Dungeon,Outcome,Status,Details\r\n");
         for (Entry e : entries) {
             BridgeService.Review r = e.review; BridgePayload.Drop d = r.drop;
-            Object[] cells = {e.journal, e.session, e.reviewId, e.line, e.legacy ? "legacy" : "v" + VERSION, r.time, d.item.rawName, d.item.id, d.item.rarity, d.item.enchants,
+            Object[] cells = {e.journal, e.session, e.reviewId, e.line, e.legacy ? "legacy" : "v" + VERSION, r.time, d.item.rawName, d.item.id, d.item.rarityLabel(), d.item.enchants,
                 d.characterId, d.characterName, d.dungeon, r.outcome(), r.status, r.detail};
             for (int i = 0; i < cells.length; i++) { if (i > 0) out.append(','); out.append(cell(cells[i])); }
             out.append("\r\n");

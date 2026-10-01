@@ -16,6 +16,7 @@ import packets.data.StatData;
 import packets.data.enums.StatType;
 import tomato.backend.data.Entity;
 import tomato.gui.bridge.BridgeReviewGUI;
+import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 
 public class BridgeTest {
@@ -23,12 +24,12 @@ public class BridgeTest {
     private static final String SECRET="fixture-private-token";
     private Path csv()throws Exception {Path p=temp.newFile().toPath();Files.write(p,"Loot Type,Item Name,Points,Dungeon\nUT,Test Sword,1,Test\n".getBytes(StandardCharsets.UTF_8));return p;}
     private BridgeConfig config(Path csv,String endpoint){Properties p=new Properties();p.setProperty(BridgeConfig.PREFIX+"enabled","true");p.setProperty(BridgeConfig.PREFIX+"endpoint",endpoint);p.setProperty(BridgeConfig.PREFIX+"guild_id","123456789012345678");p.setProperty(BridgeConfig.PREFIX+"link_token",SECRET);p.setProperty(BridgeConfig.PREFIX+"csv_path",csv.toString());p.setProperty(BridgeConfig.PREFIX+"debug","true");return new BridgeConfig(p);}
-    private BridgePayload.Drop drop(String name,String enchants){return new BridgePayload.Drop(new BridgePayload.Item(42,name,"EQUIPMENT","UT",enchants,false),7,"Example","Wizard","Test Dungeon",true,false,9,0);}
+    private BridgePayload.Drop drop(String name,String enchantData){return new BridgePayload.Drop(new BridgePayload.Item(42,name,"EQUIPMENT","UT",enchantData),7,"Example","Wizard","Test Dungeon",true,false,9,0);}
     private BridgeService service(BridgeService.Transport transport,int capacity){return new BridgeService(temp.getRoot().toPath().resolve("bridge.properties"),false,transport,capacity);}
 
     @Test public void goldenWireFormatMatchesPublicBridgeFieldsAndTypes()throws Exception {
         BridgeConfig c=config(csv(),"https://example.invalid/realmshark/ingest");
-        BridgePayload.Drop d=drop("Test Sword (Shiny)","one\ntwo\nthree\nfour");
+        BridgePayload.Drop d=drop("Test Sword (Shiny)","AAIEAQACAAMABAA=");
         JsonObject expected=JsonParser.parseString("{\"guild_id\":123456789012345678,\"link_token\":\"fixture-private-token\",\"item_name\":\"Test Sword\",\"shiny\":true,\"item_id\":42,\"character_id\":7,\"character_name\":\"Example\",\"character_class\":\"Wizard\",\"item_group\":\"EQUIPMENT\",\"item_label\":\"UT\",\"item_rarity\":\"divine\",\"divine\":true,\"dungeon\":\"Test Dungeon\",\"is_seasonal\":true,\"loot_drop_bonus\":false,\"source\":\"tomato\"}").getAsJsonObject();
         assertEquals(expected,BridgePayload.loot(c,d));
         assertEquals(JsonParser.parseString("{\"guild_id\":123456789012345678,\"link_token\":\"fixture-private-token\",\"event_type\":\"bridge_settings_test\",\"source\":\"tomato\"}"),BridgePayload.settingsPing(c));
@@ -36,14 +37,31 @@ public class BridgeTest {
         BridgePayload.Drop unknown=new BridgePayload.Drop(d.item,-1,null,"","",false,false,1,0);
         JsonObject p=BridgePayload.loot(c,unknown);assertFalse(p.has("character_id"));assertFalse(p.has("character_name"));assertFalse(p.has("dungeon"));
     }
-    @Test public void rarityAndShinyRulesMatchUpstreamIncludingMetadataPrecedence(){
-        String[] rarities={"common","uncommon","rare","legendary","divine"};
-        for(int i=0;i<5;i++)assertEquals(rarities[i],new BridgePayload.Item(1,"Sword","","",String.join("\n",Collections.nCopies(i,"enchant")),false).rarity);
-        assertEquals("common",drop("Sword","[locked]").item.rarity);assertEquals("common",drop("Sword","empty").item.rarity);
-        BridgePayload.Item metadata=new BridgePayload.Item(1,"Sword","SHINY EQUIPMENT","UT RARE","four\nthree\ntwo\none",false);
-        assertEquals("rare",metadata.rarity);assertTrue(metadata.shiny);assertFalse(metadata.divine);
-        assertEquals("unknown",new BridgePayload.Item(1,"Sword","","","malformed",true).rarity);
-        assertTrue(new BridgePayload.Item(1,"Divine Sword","","","",false).divine);
+    @Test public void rarityIsTheUnlockedSlotCountAndMetadataTokensStillTakePrecedence(){
+        String[][] cases={{"AAIE","common","0"},{"AAIE__8=","uncommon","0"},{"AAIEAQD__w==","rare","1"},{"AAIEAQACAP__","legendary","2"},{"AAIEAQACAAMABAA=","divine","4"}};
+        for(String[] c:cases){BridgePayload.Item item=new BridgePayload.Item(1,"Sword","","",c[0]);
+            assertEquals(c[0],c[1],item.rarity);assertEquals(c[0],Integer.parseInt(c[2]),item.enchantCount);assertEquals(BridgePayload.Item.ENCHANT_SLOTS,item.raritySource);assertEquals(c[1],item.rarityLabel());}
+        assertEquals("Locked slots do not count","common",new BridgePayload.Item(1,"Sword","","","AAIE_v_-_w==").rarity);
+        BridgePayload.Item afterEmpty=new BridgePayload.Item(1,"Sword","","","AAIE__8FAA==");
+        assertEquals("An enchant after an empty slot still counts","rare",afterEmpty.rarity);assertEquals(1,afterEmpty.enchantCount);
+        BridgePayload.Item absent=new BridgePayload.Item(1,"Sword","","",null);
+        assertEquals("No entry sends upstream's value","common",absent.rarity);assertEquals(BridgePayload.Item.ENCHANT_DATA_ABSENT,absent.raritySource);
+        assertEquals(0,absent.enchantCount);assertEquals("common (no enchant data)",absent.rarityLabel());assertNull(absent.enchantInfo());
+        BridgePayload.Item metadata=new BridgePayload.Item(1,"Sword","SHINY EQUIPMENT","UT RARE","AAIEAQACAAMABAA=");
+        assertEquals("rare",metadata.rarity);assertEquals(BridgePayload.Item.METADATA_TOKEN,metadata.raritySource);assertTrue(metadata.shiny);assertFalse(metadata.divine);
+        BridgePayload.Item malformed=new BridgePayload.Item(1,"Sword","","","!!!");
+        assertEquals("unknown",malformed.rarity);assertEquals(-1,malformed.enchantCount);assertEquals("Unable to decode enchant data",malformed.enchants);
+        assertEquals(EnchantInfo.State.UNREADABLE,malformed.enchantInfo().state());
+        assertTrue(new BridgePayload.Item(1,"Divine Sword","","","").divine);
+        assertEquals(EnchantInfo.Rarity.UNCOMMON,new BridgePayload.Item(1,"Sword","","","AAIE_wU=").enchantInfo().rarity());
+    }
+    @Test public void savedEntriesFromBeforeSlotRarityKeepTheirValueAndSayLegacyCount(){
+        Gson gson=new Gson();JsonObject json=gson.toJsonTree(new BridgePayload.Item(1,"Sword","","","AAIE")).getAsJsonObject();
+        json.addProperty("rarity","rare");json.addProperty("raritySource","enchant_count");json.remove("enchantData");
+        BridgePayload.Item old=gson.fromJson(json,BridgePayload.Item.class);
+        assertEquals("The stored value is kept","rare",old.rarity);assertEquals("rare (legacy count)",old.rarityLabel());assertNull("No gem",old.enchantInfo());
+        json.remove("raritySource");
+        assertEquals("An entry without a source also came from the line count","rare (legacy count)",gson.fromJson(json,BridgePayload.Item.class).rarityLabel());
     }
     @Test public void snapshotDetachesBagAndPreservesEnchantSlotAlignment(){
         Entity bag=new Entity(null,9,0),player=new Entity(null,8,0);
@@ -52,7 +70,7 @@ public class BridgeTest {
         StatData u=new StatData();u.stringStatValue=Base64.getUrlEncoder().encodeToString(bytes.array())+",bad";bag.stat.set(StatType.UNIQUE_DATA_STRING,u);
         StatData second=new StatData();second.statValue=43;bag.stat.set(StatType.INVENTORY_1_STAT,second);
         List<BridgePayload.Drop> d=BridgePayload.snapshot(null,null,bag,player,0);item.statValue=-1;u.stringStatValue="";
-        assertEquals(2,d.size());assertEquals(42,d.get(0).item.id);assertEquals("divine",d.get(0).item.rarity);assertEquals(-1,d.get(1).item.enchantCount);assertEquals(1,d.get(1).slot);
+        assertEquals(2,d.size());assertEquals(42,d.get(0).item.id);assertEquals("divine",d.get(0).item.rarity);assertEquals(-1,d.get(1).item.enchantCount);assertEquals(1,d.get(1).slot);assertEquals(BridgePayload.Item.ENCHANT_SLOTS,d.get(0).item.raritySource);
     }
     @Test public void csvHandlesBomQuotesMultilineUnicodeAndShinyBaseMatching()throws Exception {
         Path p=temp.newFile().toPath();Files.write(p,("\uFEFF\"Item Name\",Points\r\n\"Oryx’s  Blade – Gold\",1\r\n\"Sword, \"\"Great\"\"\",2\r\n\"Test\nSword\",1\r\n").getBytes(StandardCharsets.UTF_8));
@@ -116,11 +134,18 @@ public class BridgeTest {
         }
     }
     @Test public void reviewAndDiagnosticsExportsKeepEnchantDetailButNeverLinkToken()throws Exception {
-        Path journal=temp.getRoot().toPath().resolve("review.jsonl");Properties p=config(csv(),"https://example.invalid/ingest").properties();p.setProperty(BridgeConfig.PREFIX+"local_review_log",journal.toString());
-        try(BridgeService s=service((u,j)->new BridgeService.Response(403,"{\"ok\":false,\"error\":\"invalid_link_token\",\"message\":\""+SECRET+"\"}"),10)) {
-            s.configure(new BridgeConfig(p),false,false);s.receive(Collections.singletonList(drop("Test Sword","First\nSecond")));s.awaitIdle(3000);assertEquals("Rejected",s.snapshot().reviews.get(0).status);
-            String export=BridgeReviewGUI.reviewCsv(s.snapshot().reviews);assertTrue(export.contains("First\nSecond"));assertFalse(export.contains(SECRET));String disk=new String(Files.readAllBytes(journal),StandardCharsets.UTF_8);assertFalse(disk.contains(SECRET));assertTrue(disk.contains("[redacted]"));for(BridgeService.Log log:s.snapshot().logs)assertFalse(log.message.contains(SECRET));
-        }
+        java.util.HashMap<Short,tomato.realmshark.ParseEnchants.Definition> savedDefinitions=tomato.realmshark.ParseEnchants.ENCHANT_DEFINITIONS;
+        java.util.HashMap<Short,tomato.realmshark.ParseEnchants.Definition> definitions=new java.util.HashMap<>();
+        definitions.put((short)1,new tomato.realmshark.ParseEnchants.Definition("First",""));
+        definitions.put((short)2,new tomato.realmshark.ParseEnchants.Definition("Second",""));
+        tomato.realmshark.ParseEnchants.ENCHANT_DEFINITIONS=definitions;
+        try {
+            Path journal=temp.getRoot().toPath().resolve("review.jsonl");Properties p=config(csv(),"https://example.invalid/ingest").properties();p.setProperty(BridgeConfig.PREFIX+"local_review_log",journal.toString());
+            try(BridgeService s=service((u,j)->new BridgeService.Response(403,"{\"ok\":false,\"error\":\"invalid_link_token\",\"message\":\""+SECRET+"\"}"),10)) {
+                s.configure(new BridgeConfig(p),false,false);s.receive(Collections.singletonList(drop("Test Sword","AAIEAQACAA==")));s.awaitIdle(3000);assertEquals("Rejected",s.snapshot().reviews.get(0).status);
+                String export=BridgeReviewGUI.reviewCsv(s.snapshot().reviews);assertTrue(export.contains("First\nSecond"));assertFalse(export.contains(SECRET));String disk=new String(Files.readAllBytes(journal),StandardCharsets.UTF_8);assertFalse(disk.contains(SECRET));assertTrue(disk.contains("[redacted]"));for(BridgeService.Log log:s.snapshot().logs)assertFalse(log.message.contains(SECRET));
+            }
+        } finally { tomato.realmshark.ParseEnchants.ENCHANT_DEFINITIONS=savedDefinitions; }
     }
     private static byte[] read(InputStream in)throws IOException {ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[1024];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();}
 }

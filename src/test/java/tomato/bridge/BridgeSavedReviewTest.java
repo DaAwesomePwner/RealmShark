@@ -32,7 +32,7 @@ public class BridgeSavedReviewTest {
         return new BridgeConfig(p);
     }
     private static BridgePayload.Drop drop(String name, int id) {
-        return new BridgePayload.Drop(new BridgePayload.Item(id, name, "EQUIPMENT", "UT", "Damage(3)", false), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0);
+        return new BridgePayload.Drop(new BridgePayload.Item(id, name, "EQUIPMENT", "UT", "AAIE_wU="), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0);
     }
     private static final BridgeService.Transport FAIL = (url, json) -> { throw new AssertionError("Saved review must never deliver"); };
 

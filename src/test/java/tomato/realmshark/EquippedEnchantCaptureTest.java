@@ -9,6 +9,15 @@ import static org.junit.Assert.*;
 import static tomato.realmshark.ParseEnchants.CaptureState.*;
 
 public class EquippedEnchantCaptureTest {
+    @Test public void retainedEntriesTellAMissingSlotFromAKnownUnenchantedOne() {
+        assertArrayEquals(new String[] {"AAIE_wU=", ParseEnchants.UNENCHANTED_ENTRY, "!!!", null}, capture("AAIE_wU,,!!!").retained());
+        assertArrayEquals(new String[] {"AAIE", "AAIE", "AAIE", "AAIE"}, capture("").retained());
+        assertArrayEquals(new String[] {null, null, null, null}, ParseEnchants.equippedCapture(null).retained());
+        EnchantInfo unenchanted = EnchantInfo.ofRetained(ParseEnchants.UNENCHANTED_ENTRY);
+        assertEquals(EnchantInfo.State.RECORDED, unenchanted.state());
+        assertEquals(EnchantInfo.Rarity.UNENCHANTED, unenchanted.rarity());
+    }
+
     @Test public void infosListsTheFourEquippedSlots() {
         java.util.List<EnchantInfo> infos = capture("AAIE_wU,,!!!").infos();
         assertEquals(4, infos.size());

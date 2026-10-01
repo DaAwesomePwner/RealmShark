@@ -31,6 +31,12 @@ import util.StringXML;
  */
 public class ParseEnchants {
 
+    /**
+     * A known-unenchanted equipped entry (header and type, no slots). DPS hits save it for an empty entry, because older hits
+     * saved a missing stat as "" and "" therefore stays "not recorded".
+     */
+    public static final String UNENCHANTED_ENTRY = "AAIE";
+
     // Maps enchant type ID -> display name
     public static volatile HashMap<Short, String> ENCHANTS = new HashMap<>();
 
@@ -312,8 +318,8 @@ public class ParseEnchants {
     }
 
     /**
-     * Parse an encoded enchantment string into a human-readable multi-line list of
-     * "DisplayName(id)" entries. Keeps legacy locked/empty handling.
+     * Legacy text decoder, kept only for SendLoot's legacy "sl" wire field (its decoded line count). It stops at the first empty or
+     * locked slot, so never use it for rarity or display: use {@link EnchantInfo}.
      */
     public static String parse(String code) {
         if (code == null || code.isEmpty()) return "";
@@ -396,6 +402,14 @@ public class ParseEnchants {
             return List.copyOf(slots);
         }
 
+        /** The four slots' entries as DPS hits keep them: null when not recorded, {@link #UNENCHANTED_ENTRY} when known empty, else as captured. */
+        public String[] retained() {
+            String[] entries = new String[4];
+            for (int i = 0; i < 4; i++)
+                entries[i] = states[i] == CaptureState.MISSING ? null : codes[i].isEmpty() ? UNENCHANTED_ENTRY : codes[i];
+            return entries;
+        }
+
         /** Null means the four-slot total is unknown, even if some individual effects are valid. */
         public String[] completeCodes() {
             for (CaptureState state : states) if (state != CaptureState.KNOWN) return null;
@@ -433,18 +447,6 @@ public class ParseEnchants {
             slotEnchant[i] = ss[i];
         }
         return slotEnchant;
-    }
-
-    /**
-     * Returns parsed enchant descriptions (multi-line) for 4 equipped slots.
-     */
-    public static String[] extractEnchants(Entity player) {
-        String[] raw = getEnchantStrings(player);
-        String[] parsed = new String[raw.length];
-        for (int i = 0; i < raw.length; i++) {
-            parsed[i] = parse(raw[i]);
-        }
-        return parsed;
     }
 
     /**

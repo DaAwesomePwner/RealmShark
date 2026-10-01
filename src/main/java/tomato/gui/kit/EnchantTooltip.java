@@ -12,6 +12,12 @@ import tomato.realmshark.ParseEnchants;
 public final class EnchantTooltip {
     private EnchantTooltip() {}
 
+    /** The heading every item tooltip uses: "Doom Bow · UT", or the name alone when the item has no tier label. */
+    public static String heading(String name, String tier) {
+        String shown = name == null ? "" : name;
+        return tier == null || tier.isEmpty() ? shown : shown + " · " + tier;
+    }
+
     public static String html(String heading, EnchantInfo info) {
         StringBuilder html = new StringBuilder("<html><b>").append(escape(heading)).append("</b><br>");
         Color ink = EnchantGem.ink(info);

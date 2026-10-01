@@ -1,6 +1,12 @@
 # Enchant rarity — session handoff (after Phase 3)
 
-Date: 2026-09-30. **Next step: write the Phase 4 implementation plan.** Then implement it the same way the earlier phases were implemented (see Workflow below).
+Date: 2026-09-30.
+
+**Update: the Phase 4 plan is written.** It is `docs/superpowers/plans/2026-09-30-enchant-rarity-p4.md`, the first commit on branch `feat/enchant-rarity-p4`.
+
+**Next step: execute it task by task,** the same way the earlier phases were implemented (see Workflow below). Start at Task 1.
+
+The "Phase 4 scope" and deferred-item lists below are what the plan covers. Its "Deliberate refinements of the spec" section records the decisions made while planning.
 
 ## Where things stand
 

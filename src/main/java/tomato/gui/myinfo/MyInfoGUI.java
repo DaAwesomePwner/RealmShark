@@ -16,6 +16,8 @@ import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.ParseEnchants;
 import tomato.gui.kit.DisplayValue;
 import tomato.gui.kit.EnchantIconLabel;
+import tomato.gui.kit.EnchantTooltip;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.KitButton;
 import tomato.gui.kit.StatTile;
 import tomato.gui.kit.Tokens;
@@ -624,7 +626,7 @@ public class MyInfoGUI extends JPanel {
                 String item = id == null ? "Not captured" : id < 0 ? "Empty slot" : itemName(id.intValue());
                 EnchantInfo enchant = enchants.info(i);
                 equipmentNames[i].setText(item); equipmentNames[i].setToolTipText(item);
-                if (id != null && id >= 0) icons[i].setItem(loadIcon(id.intValue()), item, enchant);
+                if (id != null && id >= 0) icons[i].setItem(loadIcon(id.intValue()), EnchantTooltip.heading(item, ItemTiers.label(id.intValue())), enchant);
                 add("Equipment", SLOT_NAMES[i], id, "item ID", item + "\n" + enchant.text());
                 if (i == 0) weapon = BuildEstimates.weapon(player);
             }

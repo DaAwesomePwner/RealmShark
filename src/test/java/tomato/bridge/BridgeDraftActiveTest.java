@@ -109,8 +109,8 @@ public class BridgeDraftActiveTest {
         AtomicInteger audio = new AtomicInteger(); tomato.realmshark.SoundSeam.count(audio);
         try (BridgeService service = new BridgeService(settings, false, (url, json) -> { throw new AssertionError("No delivery expected"); }, 8, storage)) {
             service.awaitReady(3000);
-            service.receive(Arrays.asList(new BridgePayload.Drop(new BridgePayload.Item(42, "Test Sword", "EQUIPMENT", "UT", "", false), 7, "Fixture", "Wizard", "Test", false, false, 1, 0),
-                new BridgePayload.Drop(new BridgePayload.Item(43, "Other Sword", "EQUIPMENT", "UT", "", false), 7, "Fixture", "Wizard", "Test", false, false, 1, 1)));
+            service.receive(Arrays.asList(new BridgePayload.Drop(new BridgePayload.Item(42, "Test Sword", "EQUIPMENT", "UT", ""), 7, "Fixture", "Wizard", "Test", false, false, 1, 0),
+                new BridgePayload.Drop(new BridgePayload.Item(43, "Other Sword", "EQUIPMENT", "UT", ""), 7, "Fixture", "Wizard", "Test", false, false, 1, 1)));
             service.awaitIdle(3000);
             BridgeReviewGUI panel = edt(() -> new BridgeReviewGUI(service));
             List<Object[]> opened = new ArrayList<>();
