@@ -187,6 +187,25 @@ public class LootHighlightsTest {
         });
     }
 
+    @Test public void thePotionsFocusSaysWhichCountedPotionsItDoesNotList() throws Exception {
+        LootHighlights view = view(new Fake(window -> HighlightsModel.of(window, SAVED, List.of(bag("Brown", "Lost Halls", NOON, RUN,
+            item(LIFE, false, false, true, null), item(OTHER_POTION, false, false, true, null), item(OTHER_POTION, false, false, true, null))),
+            true, 0, false, NOON)));
+        edt(() -> { view.request(); return null; });
+        loaded(view);
+        edt(() -> {
+            assertEquals("3", named(view, "loot-tile-potions", StatTile.class).valueText());
+            clickTile(named(view, "loot-tile-potions", StatTile.class));
+            assertEquals("Showing only stat potion drops", named(view, "loot-notable-focus", KitText.class).getText());
+            assertEquals(1, view.notableList().items().size());
+            assertTrue(named(view, "loot-notable-notes", KitText.class).getText()
+                .contains("2 other potions on the Potions tile are not stat potions and not listed"));
+            clickTile(named(view, "loot-tile-potions", StatTile.class));
+            assertFalse("Only the potions focus explains them", named(view, "loot-notable-notes", KitText.class).getText().contains("other potion"));
+            return null;
+        });
+    }
+
     @Test public void activeFilterClearsWhenItsTileBecomesUnknown() throws Exception {
         Fake reader = new Fake(LootHighlightsTest::populated);
         LootHighlights view = view(reader);

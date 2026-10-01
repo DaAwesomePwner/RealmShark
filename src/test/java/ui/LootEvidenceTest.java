@@ -223,8 +223,8 @@ public class LootEvidenceTest {
             List<String> notable = names(list("loot-notable-grid"));
             assertEquals(notable.toString(), 12, notable.size());
             assertTrue("Newest first: the ST of this app run's session: " + notable.get(0), notable.get(0).startsWith("Synthetic Crystal Mail, ST (Uncommon · 1 enchant slot); Ice Citadel, "));
-            assertTrue("Enchanted = rare or better (2+ slots): " + notable, notable.stream().anyMatch(n -> n.startsWith("Synthetic Frost Staff, Gear (Rare · 2 enchant slots); Ice Citadel, ")));
-            assertTrue(notable.stream().anyMatch(n -> n.startsWith("Synthetic Tier Sword, Gear (Legendary · 3 enchant slots); Lost Halls, ")));
+            assertTrue("Enchanted = rare or better (2+ slots): " + notable, notable.stream().anyMatch(n -> n.startsWith("Synthetic Frost Staff, T13 (Rare · 2 enchant slots); Ice Citadel, ")));
+            assertTrue(notable.stream().anyMatch(n -> n.startsWith("Synthetic Tier Sword, T13 (Legendary · 3 enchant slots); Lost Halls, ")));
             assertFalse("An item without recorded enchant slots is never listed as enchanted", notable.stream().anyMatch(n -> n.startsWith("Synthetic Viper Bow")));
             assertTrue("A 1-slot item is not rare or better: the UT dagger is listed as UT only: " + notable, notable.stream().anyMatch(n -> n.startsWith("Synthetic Tidal Dagger, UT (Uncommon · 1 enchant slot); "))
                 && notable.stream().noneMatch(n -> n.startsWith("Synthetic Tidal Dagger, Gear")));

@@ -75,6 +75,14 @@ public class HighlightsModelTest {
         assertEquals("UT before ST before POTION before ENCHANTED", List.of(UT, ST, POTION, ENCHANTED), List.of(HighlightsModel.Kind.values()));
     }
 
+    @Test public void notableDropsKeepTheTierSavedWithTheDrop() {
+        HighlightsModel model = model(List.of(bag("White", "Lost Halls", 1_000, RUN,
+            new LootFacts.Item(7, false, false, false, false, 3, 0, null, "T12"),
+            new LootFacts.Item(8, false, false, false, false, 2, 0, null, "—"))));
+        assertEquals("T12", model.notable().get(0).tier());
+        assertNull("Capture's \"—\" means no tier was saved", model.notable().get(1).tier());
+    }
+
     @Test public void onlyStatPotionsAreNotableAndOtherPotionsStillCount() {
         HighlightsModel model = model(List.of(bag("Brown", "Lost Halls", 1_000, null, item(OTHER_POTION, false, false, true, null))));
         assertTrue("Other potions are not notable", model.notable().isEmpty());

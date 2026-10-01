@@ -78,8 +78,13 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
     /** The item's type is independent of the reason it was notable; missing tier definitions never turn enchantment into a type. */
     static String itemType(HighlightsModel.Notable drop) {
         if (drop.kind() == HighlightsModel.Kind.POTION) return "Potion";
-        String tier = ItemTiers.label(drop.itemId());
+        String tier = tier(drop);
         return !tier.isEmpty() ? tier : drop.kind() == HighlightsModel.Kind.ENCHANTED ? "Gear" : drop.kind().label();
+    }
+
+    /** The tier saved with the drop, else the current definitions' label ("" when neither knows it): old records keep their tier. */
+    static String tier(HighlightsModel.Notable drop) {
+        return drop.tier() != null ? drop.tier() : ItemTiers.label(drop.itemId());
     }
 
     /** UT and ST follow tier borders; potions are INFO and tiered gear stays neutral. */
@@ -186,7 +191,7 @@ public final class NotableDropRenderer extends JComponent implements ListCellRen
             Rectangle well = well(getWidth(), getHeight());
             Sprites.paintWell(this, g, EnchantPips.glow(Sprites.sprite(drop.itemId(), SPRITE), drop.enchant()), drop.bag(), well.x, well.y, well.width);
             // paintWell's side covers side px; the pip painter takes ItemSlot's side + 1 convention.
-            EnchantPips.paintCorner(g, drop.enchant(), ItemTiers.label(drop.itemId()), well.x, well.y, well.width - 1);
+            EnchantPips.paintCorner(g, drop.enchant(), tier(drop), well.x, well.y, well.width - 1);
             Font titleFont = Type.emphasis(), captionFont = Type.caption();
             FontMetrics title = g.getFontMetrics(titleFont), caption = g.getFontMetrics(captionFont);
             int left = well.x + well.width + Tokens.S, right = x + w - PAD;

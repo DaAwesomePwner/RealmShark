@@ -154,6 +154,10 @@ public class NotableDropRendererTest {
         assertEquals("Yesterday 22:10", unlinked.when()); assertEquals("Unknown area", unlinked.where());
         assertEquals("Not linked to a run", unlinked.link());
         assertEquals("Gear", unlinked.chip()); assertEquals(Tokens.Tone.NEUTRAL, unlinked.tone());
+        HighlightsModel.Notable saved = new HighlightsModel.Notable(4242, "White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.ENCHANTED,
+            EnchantInfo.ofSlotCount(3), "T12");
+        assertEquals("The tier saved with the drop names it when the definitions do not", "T12",
+            NotableDropRenderer.lines(saved, ZONE_NY, NOON).chip());
         assertEquals(Tokens.Tone.BAD, NotableDropRenderer.lines(notable("White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.ST), ZONE_NY, NOON).tone());
         assertEquals(Tokens.Tone.INFO, NotableDropRenderer.lines(notable("White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.POTION), ZONE_NY, NOON).tone());
         assertEquals("13 Jan 14:32", NotableDropRenderer.time(at(-2, 14, 32), ZONE_NY, NOON));

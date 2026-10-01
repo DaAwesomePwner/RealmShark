@@ -468,6 +468,11 @@ public final class LootHighlights extends JPanel implements AutoCloseable {
             lines.add("Filter counts cover only the newest " + HighlightsModel.NOTABLE_LIMIT + " notable drops per bag name");
         if (filteredDrops.total() > visible.size())
             lines.add("Showing the newest " + visible.size() + " of " + DisplayFormat.formatInteger(filteredDrops.total()) + " notable drops");
+        // The Potions tile counts every potion; only stat potions are notable, so say what the focus leaves out.
+        int otherPotions = shown.potionsByStat().getOrDefault(HighlightsModel.OTHER_POTIONS, 0);
+        if (focus == HighlightsModel.Focus.POTIONS && otherPotions > 0)
+            lines.add(count(otherPotions, "other potion") + " on the Potions tile "
+                + (otherPotions == 1 ? "is not a stat potion" : "are not stat potions") + " and not listed");
         if (shown.enchantUnknown() > 0) lines.add(count(shown.enchantUnknown(), "item") + " without recorded enchant slots "
             + (shown.enchantUnknown() == 1 ? "is" : "are") + " not listed as enchanted");
         notes.setText(String.join(" · ", lines));

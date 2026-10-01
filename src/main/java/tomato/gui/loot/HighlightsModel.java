@@ -66,7 +66,7 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
 
     /** Temporary notable-list focus; enchantment and white bags can overlap any item kind. */
     public enum Focus {
-        ALL("notable drops"), UT("UT drops"), ST("ST drops"), POTIONS("potion drops"),
+        ALL("notable drops"), UT("UT drops"), ST("ST drops"), POTIONS("stat potion drops"),
         WHITES("white-bag drops"), ENCHANTED("enchanted drops");
         private final String label;
         Focus(String label) { this.label = label; }
@@ -95,11 +95,15 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
     /**
      * One notable drop: {@code bag} as saved (null = no bag name saved), {@code dungeon} null = Unknown area, {@code visit} the exact
      * run recorded at drop time (null = not linked to a run: none is inferred).
-     * {@code enchant} gives the gem, the rarity words and the hover enchant lines (not recorded = none).
+     * {@code enchant} gives the rarity pips and glow, the rarity words and the hover enchant lines (not recorded = none).
+     * {@code tier} is the tier label saved with the drop (null: none saved; the renderer then asks the current definitions).
      */
-    public record Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind, EnchantInfo enchant) {
+    public record Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind, EnchantInfo enchant, String tier) {
         public Notable {
             if (enchant == null) enchant = EnchantInfo.notRecorded();
+        }
+        public Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind, EnchantInfo enchant) {
+            this(itemId, bag, dungeon, time, visit, kind, enchant, null);
         }
         public Notable(int itemId, String bag, String dungeon, long time, VisitRef visit, Kind kind) {
             this(itemId, bag, dungeon, time, visit, kind, null);
@@ -198,7 +202,7 @@ public record HighlightsModel(Window window, Source source, DisplayValue ut, Dis
                 if (item.setTiered()) { st++; cell[2]++; }
                 if (item.potion()) { potions++; cell[3]++; stats[stat(item.id())]++; }
                 Kind kind = kind(item);
-                if (kind != null) listed.add(new Notable(item.id(), bag.bag(), area, bag.time(), bag.visit(), kind, item.enchant()));
+                if (kind != null) listed.add(new Notable(item.id(), bag.bag(), area, bag.time(), bag.visit(), kind, item.enchant(), item.tier()));
                 else if (!item.potion() && !item.enchantKnown()) enchantUnknown++;   // could be enchanted: never counted either way
             }
             listed.sort(Comparator.comparing(Notable::kind));   // stable: drop order within a kind

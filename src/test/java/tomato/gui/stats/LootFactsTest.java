@@ -41,12 +41,12 @@ public class LootFactsTest {
             LootFacts.Bag white = bags.get(0);
             assertEquals(id, white.session()); assertEquals(1_000, white.time()); assertTrue(white.white()); assertEquals(run, white.visit());
             // P6a: items carry their enchant slots and applied count; these recorded empty enchant data (0, 0), the potion none (unknown).
-            assertEquals(List.of(new LootFacts.Item(1, true, false, false, false, 0, 0), new LootFacts.Item(2, false, false, false, true, null, null)), white.items());
+            assertEquals(List.of(new LootFacts.Item(1, true, false, false, false, 0, 0, null, "UT"), new LootFacts.Item(2, false, false, false, true, null, null)), white.items());
             assertTrue("Boosted white bags are white bags", bags.get(1).white());
             assertNull("No recorded visit: none is inferred", bags.get(1).visit());
-            assertEquals(new LootFacts.Item(3, false, true, false, false, 0, 0), bags.get(1).items().get(0));
+            assertEquals(new LootFacts.Item(3, false, true, false, false, 0, 0, null, "ST"), bags.get(1).items().get(0));
             assertFalse(bags.get(2).white());
-            assertEquals(List.of(new LootFacts.Item(4, false, false, true, false, 0, 0), new LootFacts.Item(5, false, false, false, false, 0, 0)), bags.get(2).items());
+            assertEquals(List.of(new LootFacts.Item(4, false, false, true, false, 0, 0, null, "T13"), new LootFacts.Item(5, false, false, false, false, 0, 0, null, "T4")), bags.get(2).items());
         }
     }
 
@@ -174,7 +174,7 @@ public class LootFactsTest {
         LootFacts.Bag bag = LootFacts.bag("live", drop);
         assertEquals("live", bag.session()); assertTrue(bag.white()); assertEquals("B.White", bag.bag());
         assertEquals("Lost Halls", bag.dungeon()); assertEquals("Marble Colossus", bag.dropper());
-        assertEquals(new LootFacts.Item(20, false, true, false, false, 4, 3, EnchantInfo.of(enchants(-1, 42, 7, 0))), bag.items().get(0));
+        assertEquals(new LootFacts.Item(20, false, true, false, false, 4, 3, EnchantInfo.of(enchants(-1, 42, 7, 0)), "ST"), bag.items().get(0));
         LootFacts.Bag unknown = LootFacts.bag("live", new LootDashboard.Drop("Brown", "Unknown", "Unknown", 8_000, List.of(
             new LootDashboard.Item(21, "Potion #21", true))));
         assertNull("No map when the bag dropped: unknown area", unknown.dungeon()); assertNull(unknown.dropper());
