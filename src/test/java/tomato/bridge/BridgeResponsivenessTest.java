@@ -36,7 +36,7 @@ public class BridgeResponsivenessTest {
         return new BridgeConfig(p);
     }
     private static BridgeConfig disabled(){return new BridgeConfig(new Properties());}
-    private static List<BridgePayload.Drop> drop(){return Collections.singletonList(new BridgePayload.Drop(new BridgePayload.Item(42,"Test Sword","EQUIPMENT","UT","",false),7,"Fixture","Wizard","Test",false,false,1,0));}
+    private static List<BridgePayload.Drop> drop(){return Collections.singletonList(new BridgePayload.Drop(new BridgePayload.Item(42,"Test Sword","EQUIPMENT","UT",""),7,"Fixture","Wizard","Test",false,false,1,0));}
     private BridgeService service(Storage storage,BridgeService.Transport transport,int capacity){BridgeService s=new BridgeService(settings,false,transport,capacity,storage);storage.owner.set(s);return s;}
     private Future<?> configure(BridgeService s,BridgeConfig config,boolean persist){return callers.submit(()->{s.configure(config,persist,false);return null;});}
     private static <T> T edt(Callable<T> action)throws Exception {FutureTask<T> task=new FutureTask<>(action);SwingUtilities.invokeLater(task);return task.get(2,TimeUnit.SECONDS);}

@@ -318,8 +318,8 @@ public class ParseEnchants {
     }
 
     /**
-     * Parse an encoded enchantment string into a human-readable multi-line list of
-     * "DisplayName(id)" entries. Keeps legacy locked/empty handling.
+     * Legacy text decoder, kept only for SendLoot's legacy "sl" wire field (its decoded line count). It stops at the first empty or
+     * locked slot, so never use it for rarity or display: use {@link EnchantInfo}.
      */
     public static String parse(String code) {
         if (code == null || code.isEmpty()) return "";
@@ -447,18 +447,6 @@ public class ParseEnchants {
             slotEnchant[i] = ss[i];
         }
         return slotEnchant;
-    }
-
-    /**
-     * Returns parsed enchant descriptions (multi-line) for 4 equipped slots.
-     */
-    public static String[] extractEnchants(Entity player) {
-        String[] raw = getEnchantStrings(player);
-        String[] parsed = new String[raw.length];
-        for (int i = 0; i < raw.length; i++) {
-            parsed[i] = parse(raw[i]);
-        }
-        return parsed;
     }
 
     /**

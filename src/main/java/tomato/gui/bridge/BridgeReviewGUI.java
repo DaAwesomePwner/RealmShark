@@ -16,7 +16,7 @@ import java.util.*;
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
-import java.util.function.IntUnaryOperator;
+import java.util.function.IntFunction;
 import java.util.regex.Pattern;
 import tomato.gui.history.FilterChips;
 import tomato.gui.history.HistoryTables;
@@ -24,13 +24,17 @@ import tomato.gui.history.WrapRow;
 import tomato.gui.kit.ColumnKind;
 import tomato.gui.kit.CustomizableTabs;
 import tomato.gui.kit.DisplayModeModel;
+import tomato.gui.kit.EnchantGem;
+import tomato.gui.kit.EnchantTooltip;
 import tomato.gui.kit.FilterBar;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.kit.KitButton;
 import tomato.gui.kit.KitTables;
 import tomato.gui.kit.Sprites;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
+import tomato.realmshark.EnchantInfo;
 
 /** The same Swing/FlatLaf surface as the surrounding workspace. */
 public final class BridgeReviewGUI extends JPanel {
@@ -88,6 +92,8 @@ public final class BridgeReviewGUI extends JPanel {
     private final javax.swing.Timer timer;
     private BridgeService.Snapshot snapshot;
     private List<BridgeService.Review> rows=Collections.emptyList();
+    // Each row's enchantments, decoded when the rows are rebuilt (never while painting); null where no entry was kept.
+    private List<EnchantInfo> reviewEnchants=Collections.emptyList(), savedEnchants=Collections.emptyList();
     private long revision=-1;
     private boolean rebuilding,resetting;
     private boolean loadingFields,initialSettingsLoaded,saving;
@@ -103,7 +109,7 @@ public final class BridgeReviewGUI extends JPanel {
         // taking height from Settings, Logs and Saved review in short windows.
         totals.setName("bridge-totals");totals.getAccessibleContext().setAccessibleName("Lifetime and shown delivery outcome counts");summary.add(state,BorderLayout.NORTH);add(summary,BorderLayout.NORTH);
         setupTable(review,ContentStyle.Density.COMFORTABLE);setupTable(logs,ContentStyle.Density.DENSE);review.setName("bridge-review-table");logs.setName("bridge-log-table");
-        review.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<rows.size()?rows.get(model).drop.item.id:0));
+        review.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<rows.size()?rows.get(model).drop.item:null,model->model<reviewEnchants.size()?reviewEnchants.get(model):null));
         review.getColumnModel().getColumn(6).setCellRenderer(outcomeBadge());
         // Widths come from the column kinds and follow the font. Review fits its columns to the page while every header and Outcome
         // label stays whole, else it scrolls sideways; on Logs the message takes the room left.
@@ -175,7 +181,7 @@ public final class BridgeReviewGUI extends JPanel {
         saved.setName("bridge-saved-table");savedSummary.setName("bridge-saved-summary");savedProblems.setName("bridge-saved-problems");savedDetails.setName("bridge-saved-details");
         savedProblems.setVisible(false);
         setupTable(saved,ContentStyle.Density.COMFORTABLE);saved.getAccessibleContext().setAccessibleName("Saved review records");
-        saved.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<savedEntries.size()?savedEntries.get(model).review.drop.item.id:0));
+        saved.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<savedEntries.size()?savedEntries.get(model).review.drop.item:null,model->model<savedEnchants.size()?savedEnchants.get(model):null));
         saved.getColumnModel().getColumn(2).setCellRenderer(outcomeBadge());keepWhole(saved,saved.getColumnModel().getColumn(0),saved.getColumnModel().getColumn(2));
         HistoryTables.kinds(saved,kinds(savedModel,ColumnKind.DATE_TIME,ColumnKind.ITEM,ColumnKind.STATUS,ColumnKind.STATUS,ColumnKind.PLAYER,ColumnKind.DUNGEON,ColumnKind.ID,ColumnKind.ID));
         timeColumn(saved);
@@ -210,6 +216,7 @@ public final class BridgeReviewGUI extends JPanel {
     }
     private void showSaved(BridgeJournal.Result result){
         savedResult=result;savedEntries=new ArrayList<>(result.entries);Collections.reverse(savedEntries);
+        List<EnchantInfo> enchants=new ArrayList<>(savedEntries.size());for(BridgeJournal.Entry e:savedEntries)enchants.add(e.review.drop.item.enchantInfo());savedEnchants=enchants;
         List<Object[]> data=new ArrayList<>(savedEntries.size());
         for(BridgeJournal.Entry e:savedEntries){BridgeService.Review r=e.review;data.add(new Object[]{r.time,r.drop.item.rawName,r.outcome().toString(),r.status,characterLabel(r),dungeonLabel(r),e.session,e.journal});}
         savedModel.replace(data);
@@ -228,7 +235,7 @@ public final class BridgeReviewGUI extends JPanel {
         BridgeJournal.Entry e=savedEntries.get(saved.convertRowIndexToModel(row));BridgeService.Review r=e.review;BridgePayload.Item i=r.drop.item;
         savedDetails.setText("Saved record (historical; nothing here is sent or retried)\nIdentity: "+e.identity()+" · line "+e.line+"\nFormat: "+(e.legacy?"legacy journal without a session; restarts are inferred when the review counter restarts":"version "+BridgeJournal.VERSION)
             +(e.appSession==null?"":"\nApp session: "+e.appSession)+"\n\nObservation: "+i.rawName+"  •  ID "+i.id+"\n"+r.time+" | "+characterLabel(r)+" | "+dungeonLabel(r)+" | Bag #"+r.drop.bagId+" slot "+r.drop.slot
-            +"\nRarity: "+i.rarity+" | Enchants: "+(i.enchants==null||i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)
+            +"\nRarity: "+i.rarityLabel()+" | Enchants: "+(i.enchants==null||i.enchants.isEmpty()?"None decoded":i.enchants)+"\n\nLocal choice at observation: "+(r.localChoice==null?"Not recorded":r.localChoice)
             +"\nBot / delivery result: "+r.outcome()+" ["+r.status+"]\n"+r.detail);
         savedDetails.setCaretPosition(0);
     }
@@ -345,8 +352,9 @@ public final class BridgeReviewGUI extends JPanel {
         rebuilding=true;
         state.setText(snapshot.state);
         rows=new ArrayList<>(snapshot.reviews);Collections.reverse(rows);
+        List<EnchantInfo> enchants=new ArrayList<>(rows.size());for(BridgeService.Review r:rows)enchants.add(r.drop.item.enchantInfo());reviewEnchants=enchants;
         List<Object[]> data=new ArrayList<>(rows.size());
-        for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;data.add(new Object[]{r.time,d.item.rawName,d.item.rarity,d.item.shiny?"Yes":"",(d.characterName==null?"":d.characterName)+" #"+d.characterId,d.dungeon,r.outcome().toString(),r.status});}
+        for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;data.add(new Object[]{r.time,d.item.rawName,d.item.rarityLabel(),d.item.shiny?"Yes":"",(d.characterName==null?"":d.characterName)+" #"+d.characterId,d.dungeon,r.outcome().toString(),r.status});}
         reviewModel.replace(data);
         TreeSet<String> characters=new TreeSet<>(),dungeons=new TreeSet<>();for(BridgeService.Review r:rows){characters.add(characterLabel(r));dungeons.add(dungeonLabel(r));}
         updateFacet(character,"All characters",characters);updateFacet(dungeon,"All dungeons",dungeons);
@@ -428,7 +436,7 @@ public final class BridgeReviewGUI extends JPanel {
     /** Danger: asks first; review rows, lifetime counts and saved journals are not affected. */
     private void clearLogs(){if(!confirm.test("Clear Bridge logs","Clear the retained Bridge diagnostic entries?\nReview rows, lifetime counts and saved journals are not affected."))return;bridge.clearLogs();refresh();}
     private void chooseExport(String name,String content){JFileChooser chooser=new JFileChooser();chooser.setSelectedFile(new java.io.File(name));if(chooser.showSaveDialog(this)!=JFileChooser.APPROVE_OPTION)return;Path path=chooser.getSelectedFile().toPath();if(Files.exists(path)&&JOptionPane.showConfirmDialog(this,"Replace the selected file?","Export",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;new SwingWorker<Void,Void>(){protected Void doInBackground()throws Exception{Files.write(path,content.getBytes(StandardCharsets.UTF_8));return null;}protected void done(){try{get();feedback.setText("Exported "+path.getFileName());}catch(Exception ex){feedback.setText("Export failed. Check the chosen folder and permissions.");}}}.execute();}
-    public static String reviewCsv(List<BridgeService.Review> rows){StringBuilder out=new StringBuilder("Time (UTC),Item,Item ID,Rarity,Shiny,Divine,Enchant count,Enchants,Character ID,Character name,Class,Dungeon,Status,Details\r\n");for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;Object[] cells={r.time,d.item.rawName,d.item.id,d.item.rarity,d.item.shiny,d.item.divine,d.item.enchantCount,d.item.enchants,d.characterId,d.characterName,d.characterClass,d.dungeon,r.status,r.detail};for(int i=0;i<cells.length;i++){if(i>0)out.append(',');out.append(csvCell(cells[i]));}out.append("\r\n");}return out.toString();}
+    public static String reviewCsv(List<BridgeService.Review> rows){StringBuilder out=new StringBuilder("Time (UTC),Item,Item ID,Rarity,Shiny,Divine,Enchant count,Enchants,Character ID,Character name,Class,Dungeon,Status,Details\r\n");for(BridgeService.Review r:rows){BridgePayload.Drop d=r.drop;Object[] cells={r.time,d.item.rawName,d.item.id,d.item.rarityLabel(),d.item.shiny,d.item.divine,d.item.enchantCount,d.item.enchants,d.characterId,d.characterName,d.characterClass,d.dungeon,r.status,r.detail};for(int i=0;i<cells.length;i++){if(i>0)out.append(',');out.append(csvCell(cells[i]));}out.append("\r\n");}return out.toString();}
     private static String csvCell(Object value){String s=value==null?"":String.valueOf(value);if(s.matches("(?s)^[=+@\\-\\t\\r].*"))s="'"+s;return '"'+s.replace("\"","\"\"")+'"';}
     private static final class Rows extends DefaultTableModel {
         Rows(String...headers){super(headers,0);}
@@ -542,16 +550,24 @@ public final class BridgeReviewGUI extends JPanel {
             return shown;
         }
     }
-    /** The Item cell: the row's item sprite beside its name. The model keeps the name, so sorting, search and exports are unchanged. */
+    /** The item's sprite with its rarity gem, and the shared enchant tooltip (built on hover) for rows that kept enchant data. */
     private static final class ItemCell extends ContentStyle.Cell {
         private static final int SPRITE=16;
-        private final IntUnaryOperator itemId; // model row → item ID; 0 or less shows the kit placeholder
-        ItemCell(IntUnaryOperator itemId){this.itemId=itemId;}
+        private final IntFunction<BridgePayload.Item> item; // model row → item; null shows the kit placeholder
+        private final IntFunction<EnchantInfo> enchant; // model row → its enchantments as decoded with the rows; null when none were kept
+        private BridgePayload.Item current;
+        private EnchantInfo currentEnchant;
+        ItemCell(IntFunction<BridgePayload.Item> item,IntFunction<EnchantInfo> enchant){this.item=item;this.enchant=enchant;}
         @Override public Component getTableCellRendererComponent(JTable table,Object value,boolean selected,boolean focus,int row,int column){
             super.getTableCellRendererComponent(table,value,selected,focus,row,column);
             int model=row<0||row>=table.getRowCount()?-1:table.convertRowIndexToModel(row);
-            if(model>=0){setIcon(Sprites.sprite(itemId.applyAsInt(model),SPRITE));setIconTextGap(Tokens.XS);}
+            current=model<0?null:item.apply(model);currentEnchant=model<0?null:enchant.apply(model);
+            if(model>=0){setIcon(EnchantGem.decorate(Sprites.sprite(current==null?0:current.id,SPRITE),currentEnchant));setIconTextGap(Tokens.XS);}
             return this;
+        }
+        @Override public String getToolTipText(){
+            return current==null||currentEnchant==null?super.getToolTipText()
+                :EnchantTooltip.html(EnchantTooltip.heading(current.rawName,ItemTiers.label(current.id)),currentEnchant);
         }
     }
 }

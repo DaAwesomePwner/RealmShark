@@ -63,7 +63,14 @@ public class BridgeTableKindsTest {
                     JLabel cell = render(review, row, 1);
                     assertEquals(name, cell.getText());
                     int id = name.equals("Test Sword") ? 42 : name.equals("Unlisted ST") ? 43 : name.equals("Crystal Wand") ? 44 : 45;
-                    assertSame("The row's item sprite", Sprites.sprite(id, 16), cell.getIcon());
+                    Icon sprite = Sprites.sprite(id, 16);
+                    if (name.equals("Test Sword")) {
+                        assertNotSame("An enchanted drop's sprite carries its gem", sprite, cell.getIcon());
+                        assertTrue(cell.getToolTipText(), cell.getToolTipText().contains("Uncommon · 1 enchant slot"));
+                    } else {
+                        assertSame("The row's item sprite", sprite, cell.getIcon());
+                        assertTrue(cell.getToolTipText(), cell.getToolTipText().contains("Unenchanted"));
+                    }
                 }
                 assertNull("Other columns carry no sprite", render(review, 0, 4).getIcon());
                 JTable saved = named(panel, "bridge-saved-table", JTable.class);
@@ -282,7 +289,44 @@ public class BridgeTableKindsTest {
         for (int i = 0; i < times.length; i++) {
             JsonObject review = new JsonObject();
             review.addProperty("id", i + 1); review.addProperty("time", times[i]);
-            review.add("drop", gson.toJsonTree(new BridgePayload.Drop(new BridgePayload.Item(100 + i, "Saved Sword #" + i, "EQUIPMENT", "UT", "", false), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0)));
+            review.add("drop", gson.toJsonTree(new BridgePayload.Drop(new BridgePayload.Item(100 + i, "Saved Sword #" + i, "EQUIPMENT", "UT", ""), 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0)));
+            review.addProperty("status", "Local only"); review.addProperty("detail", "Sending was off."); review.addProperty("payload", "");
+            JsonObject line = new JsonObject();
+            line.addProperty("journal", BridgeJournal.FORMAT); line.addProperty("version", 1); line.addProperty("service", "fixture"); line.add("review", review);
+            lines.append(gson.toJson(line)).append('\n');
+        }
+        Files.write(file, lines.toString().getBytes(StandardCharsets.UTF_8));
+        return file;
+    }
+    @Test public void savedEntriesFromBeforeSlotRaritySayLegacyCountAndShowNoGem() throws Exception {
+        try (BridgeService service = service(temp)) {
+            BridgeReviewGUI panel = edt(() -> new BridgeReviewGUI(service, mode(DisplayModeModel.Mode.ANALYST)));
+            openSaved(panel, legacyJournal());
+            edt(() -> {
+                JTable saved = named(panel, "bridge-saved-table", JTable.class);
+                assertEquals(2, saved.getRowCount());
+                for (int row = 0; row < saved.getRowCount(); row++) {
+                    JLabel item = render(saved, row, 1);
+                    if ("Legacy Bow".equals(saved.getValueAt(row, 1))) assertSame("A legacy entry kept no enchant data, so no gem", Sprites.sprite(7001, 16), item.getIcon());
+                    else assertNotSame("A new entry shows its gem", Sprites.sprite(7002, 16), item.getIcon());
+                }
+                String csv = panel.savedCsv();
+                assertTrue(csv, csv.contains("\"rare (legacy count)\""));
+                assertTrue(csv, csv.contains("\"uncommon\""));
+                return null;
+            });
+        }
+    }
+    /** A journal with one entry saved before slot rarity (rarity from upstream's line count, no enchant data) and one after. */
+    private Path legacyJournal() throws Exception {
+        Path file = temp.getRoot().toPath().resolve("saved").resolve("legacy-review.jsonl"); Files.createDirectories(file.getParent());
+        Gson gson = new Gson(); StringBuilder lines = new StringBuilder();
+        BridgePayload.Item[] items = {new BridgePayload.Item(7001, "Legacy Bow", "EQUIPMENT", "UT", "AAIEAQD__w=="), new BridgePayload.Item(7002, "New Bow", "EQUIPMENT", "UT", "AAIE_wU=")};
+        for (int i = 0; i < items.length; i++) {
+            JsonObject drop = gson.toJsonTree(new BridgePayload.Drop(items[i], 7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 1, 0)).getAsJsonObject();
+            if (i == 0) { JsonObject item = drop.getAsJsonObject("item"); item.remove("enchantData"); item.addProperty("raritySource", "enchant_count"); }
+            JsonObject review = new JsonObject();
+            review.addProperty("id", i + 1); review.addProperty("time", TIMES[i]); review.add("drop", drop);
             review.addProperty("status", "Local only"); review.addProperty("detail", "Sending was off."); review.addProperty("payload", "");
             JsonObject line = new JsonObject();
             line.addProperty("journal", BridgeJournal.FORMAT); line.addProperty("version", 1); line.addProperty("service", "fixture"); line.add("review", review);
