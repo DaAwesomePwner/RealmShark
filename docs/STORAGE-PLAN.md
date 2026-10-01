@@ -34,8 +34,8 @@ Each item below is one PR to `main`.
 |---|---|---|---|
 | A | Write-path fixes | — | Merged (#42) |
 | B | DPS memory cap | — (in parallel with A) | Merged (#42) |
-| C | Read fixes and safety | A | Done; in the C PR |
-| — | Design checkpoint: search index | A, C | Needs user approval |
+| C | Read fixes and safety | A | Merged (#43) |
+| — | Design checkpoint: search index ([design](STORAGE-SEARCH-DESIGN.md)) | A, C | Awaiting user approval |
 | D | Index foundation | design | |
 | E | Move screens to the index (probably 2 PRs) | D | |
 | F | Search page | E | |
