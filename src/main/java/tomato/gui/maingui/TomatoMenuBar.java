@@ -315,6 +315,11 @@ public class TomatoMenuBar implements ActionListener {
         fontSizeCustom = addRadioButtonMenuItem(groupFontSize, fontMenu, "Custom Size");
         fontMenu.add(new JSeparator(SwingConstants.HORIZONTAL));
         setFontSizeRadioButton();
+        ((JMenu) fontMenu).addMenuListener(new javax.swing.event.MenuListener() {
+            public void menuSelected(javax.swing.event.MenuEvent e) { setFontSizeRadioButton(); }
+            public void menuDeselected(javax.swing.event.MenuEvent e) { }
+            public void menuCanceled(javax.swing.event.MenuEvent e) { }
+        });
 
         ButtonGroup groupFontName = new ButtonGroup();
         fontNameMonospaced = addRadioButtonMenuItem(groupFontName, fontMenu, "Monospaced");

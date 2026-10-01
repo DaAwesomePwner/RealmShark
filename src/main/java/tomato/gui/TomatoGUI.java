@@ -564,8 +564,6 @@ public class TomatoGUI {
             if (shell != null) shell.select("runs");
             if (runsWorkspace instanceof ArchiveWorkspace)
                 ((ArchiveWorkspace<?, ?, ?>) runsWorkspace).selectSession(SessionStore.ALL);
-            else if (runsWorkspace instanceof tomato.gui.history.SessionPanel)
-                ((tomato.gui.history.SessionPanel) runsWorkspace).selectSession(SessionStore.ALL);
         });
     }
     public static void assetsReloaded() {
@@ -588,8 +586,8 @@ public class TomatoGUI {
     }
     private void registerSearchControls() {
         tomato.gui.search.ActionRegistry.application().clear();
-        registerSearch("appearance.font", "Font and text size", "font appearance typography size", "Edit > Font",
-            "App-folder realmShark.properties", () -> menuBar.focusSetting("font"));
+        registerSearch("appearance.font", "Text size", "font appearance typography size", "Settings > Appearance",
+            "App-folder realmShark.properties", () -> openSettings(tomato.gui.settings.SettingsPage.APPEARANCE));
         registerSearch("appearance.theme", "Theme", "appearance dark violet contrast", "Edit > Theme",
             "App-folder realmShark.properties", () -> menuBar.focusSetting("theme"));
         registerSearch("capture.controls", "Capture connection controls", "capture start stop connection", "File > Capture",

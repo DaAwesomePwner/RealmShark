@@ -6,12 +6,16 @@ import java.awt.event.ComponentEvent;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Locale;
+import java.awt.event.ActionEvent;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.*;
 import tomato.gui.kit.Tokens;
 
 /**
  * The shell's settings page: a short list of sections beside the chosen section; below 720 px the list moves above
- * it. Sections are fixed (no hiding or reordering), so every setting stays reachable.
+ * it. Filtering sections leaves their contents and saved settings intact.
  */
 public final class SettingsPage extends JPanel {
     public static final String NOTIFICATIONS = "notifications", GENERAL = "general", APPEARANCE = "appearance";
@@ -20,12 +24,18 @@ public final class SettingsPage extends JPanel {
     // Spec §6.7 order.
     private static final String[] IDS = {NOTIFICATIONS, GENERAL, APPEARANCE, LOOT_FILTERS, CHAT, ABOUT};
     private static final String[] TITLES = {"Notifications", "General", "Appearance", "Loot filters", "Chat", "About"};
+    private static final String[] KEYWORDS = {
+        "alerts sound ping notifications", "combat history recording", "theme contrast motion display mode simple analyst font text size",
+        "filter loot bags items", "save chat chat filter", "version license java"
+    };
     private static final int NARROW = 720;
     private final JPanel list = new JPanel(new GridLayout(0, 1, 0, 2));
-    private final JPanel column = new JPanel(new BorderLayout());
+    private final JPanel column = new JPanel(new GridBagLayout());
     private final JPanel content = new JPanel(new CardLayout());
     private final Map<String, JToggleButton> sections = new LinkedHashMap<>();
     private final ButtonGroup group = new ButtonGroup();
+    private final JTextField search = new JTextField(16);
+    private final JLabel noMatches = new JLabel("No settings match");
     private String current;
     private boolean narrow;
 
@@ -61,7 +71,31 @@ public final class SettingsPage extends JPanel {
         list.setOpaque(false);
         list.getAccessibleContext().setAccessibleName("Settings sections");
         column.setOpaque(false);
-        column.add(list, BorderLayout.NORTH);
+        search.setName("settings-search");
+        search.putClientProperty("JTextField.placeholderText", "Filter settings");
+        search.getAccessibleContext().setAccessibleName("Filter settings");
+        noMatches.setName("settings-no-matches");
+        noMatches.setVisible(false);
+        JPanel filter = new JPanel(new BorderLayout(0, Tokens.XS));
+        filter.setOpaque(false);
+        filter.add(search, BorderLayout.NORTH);
+        filter.add(noMatches, BorderLayout.SOUTH);
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0; constraints.gridy = 0; constraints.weightx = 1;
+        constraints.fill = GridBagConstraints.HORIZONTAL; constraints.anchor = GridBagConstraints.NORTH;
+        constraints.insets = new Insets(0, 0, Tokens.XS, 0);
+        column.add(filter, constraints);
+        constraints.gridy = 1; constraints.weighty = 1; constraints.insets = new Insets(0, 0, 0, 0);
+        column.add(list, constraints);
+        search.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { filterSections(); }
+            public void removeUpdate(DocumentEvent e) { filterSections(); }
+            public void changedUpdate(DocumentEvent e) { filterSections(); }
+        });
+        search.getInputMap().put(KeyStroke.getKeyStroke("ESCAPE"), "clear-filter");
+        search.getActionMap().put("clear-filter", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { search.setText(""); }
+        });
         content.setOpaque(false);
         // Spec §6.7 order: Notifications, General, Appearance, Loot filters, Chat, About.
         for (int i = 0; i < contents.length; i++) addSection(IDS[i], TITLES[i], contents[i]);
@@ -79,7 +113,7 @@ public final class SettingsPage extends JPanel {
         button.setName("settings-section-" + id);
         button.setHorizontalAlignment(SwingConstants.LEFT);
         button.putClientProperty("JButton.buttonType", "toolBarButton");
-        button.addActionListener(e -> showSection(id));
+        button.addActionListener(e -> selectSection(id));
         group.add(button);
         sections.put(id, button);
         list.add(button);
@@ -88,6 +122,12 @@ public final class SettingsPage extends JPanel {
 
     /** Shows one section; unknown IDs leave the page as it is. */
     public void showSection(String id) {
+        if (!sections.containsKey(id)) return;
+        search.setText("");
+        selectSection(id);
+    }
+
+    private void selectSection(String id) {
         JToggleButton button = sections.get(id);
         if (button == null) return;
         current = id;
@@ -96,6 +136,26 @@ public final class SettingsPage extends JPanel {
     }
 
     public String currentSection() { return current; }
+
+    private void filterSections() {
+        String[] words = search.getText().trim().toLowerCase(Locale.ROOT).split("\\s+");
+        String first = null;
+        list.removeAll();
+        for (int i = 0; i < IDS.length; i++) {
+            JToggleButton button = sections.get(IDS[i]);
+            if (button == null) continue;
+            String text = (TITLES[i] + " " + KEYWORDS[i]).toLowerCase(Locale.ROOT);
+            boolean matches = true;
+            for (String word : words) if (!text.contains(word)) matches = false;
+            button.setVisible(matches);
+            // GridLayout counts invisible components, so only matching buttons occupy rows.
+            if (matches) { list.add(button); if (first == null) first = IDS[i]; }
+        }
+        noMatches.setVisible(first == null);
+        if (first != null && (current == null || !sections.get(current).isVisible())) selectSection(first);
+        column.revalidate();
+        column.repaint();
+    }
 
     private void adapt() {
         boolean now = getWidth() > 0 && getWidth() < NARROW;

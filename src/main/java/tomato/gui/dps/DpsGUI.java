@@ -270,8 +270,6 @@ public class DpsGUI extends JPanel {
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Open saved resources on the EDT");
         if (resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace)
             ((tomato.gui.history.ArchiveWorkspace<?, ?, ?>)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
-        else if (resourcesWorkspace instanceof tomato.gui.history.SessionPanel)
-            ((tomato.gui.history.SessionPanel)resourcesWorkspace).selectSession(tomato.history.SessionStore.ALL);
         else return false;
         showCombat("resources"); return true;
     }
@@ -354,7 +352,7 @@ public class DpsGUI extends JPanel {
         OverflowMenu more = filterBar.overflow();
         JMenuItem savedResources = more.add("Saved resources…", this::browseSavedResources);
         savedResources.setName("dps-open-saved-resources");
-        boolean savedHistory = resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace || resourcesWorkspace instanceof tomato.gui.history.SessionPanel;
+        boolean savedHistory = resourcesWorkspace instanceof tomato.gui.history.ArchiveWorkspace;
         savedResources.setEnabled(savedHistory);
         savedResources.setToolTipText(savedHistory ? "Resources & buffs over every saved session" : "Unavailable: no saved history is open");
         more.add("Edit DPS filters…", this::openFilter).setName("dps-edit-filters");
