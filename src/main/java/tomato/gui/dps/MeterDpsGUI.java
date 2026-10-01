@@ -21,6 +21,10 @@ import java.math.RoundingMode;
 import java.text.NumberFormat;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import tomato.gui.history.HistoryTables;
 import tomato.gui.kit.Chip;
 import tomato.gui.kit.ColumnKind;
@@ -126,6 +130,18 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     private Object encounter;
     private String inspectOrigin;
     private boolean updating;
+    /** Scheduling state belongs to the EDT. One running build and one replaceable pending scope per meter. */
+    private long generation;
+    private BuildRequest building, pending;
+    private boolean closed;
+    private AtomicBoolean buildClosed = new AtomicBoolean();
+    private Executor buildExecutor;
+    private ExecutorService ownedExecutor;
+    private final MeterBuilder builder;
+    @FunctionalInterface interface MeterBuilder {
+        CombatMeterData build(List<Entity> targets, Entity player, boolean wholeEncounter);
+    }
+    private record BuildRequest(long ticket, List<Entity> targets, Entity player, boolean wholeEncounter) { }
     private String mapName = "No encounter";
     private boolean live;
     private boolean wholeEncounter;
@@ -144,6 +160,12 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     };
 
     public MeterDpsGUI() {
+        this(null);
+    }
+    /** Direct executors keep presentation fixtures deterministic; production always uses the lazy daemon below. */
+    MeterDpsGUI(Executor executor) { this(executor, CombatMeterData::new); }
+    MeterDpsGUI(Executor executor, MeterBuilder builder) {
+        this.buildExecutor = executor; this.builder = Objects.requireNonNull(builder);
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         JPanel controls = new JPanel();
@@ -318,14 +340,16 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         split.setResizeWeight(ENEMY_SHARE); add(split, BorderLayout.CENTER);
         enemySort.addActionListener(e -> rebuildEnemies());
         enemyList.addListSelectionListener(e -> { if (!e.getValueIsAdjusting() && !updating) rebuildScope(); });
-        classes.addActionListener(e -> { if (!updating) filterRows(); });
-        metric.addActionListener(e -> { updateMeterMaximum(); updateRanks(); rank(); showDetails(); table.repaint(); });
+        classes.addActionListener(e -> refreshFilters());
+        metric.addActionListener(e -> {
+            updateMeterMaximum(); updateRanks(); rank(); showDetails(); table.repaint();
+        });
         colors.addActionListener(e -> table.repaint());
         table.getSelectionModel().addListSelectionListener(e -> { if (!updating) showDetails(); });
         search.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { filterRows(); }
-            public void removeUpdate(DocumentEvent e) { filterRows(); }
-            public void changedUpdate(DocumentEvent e) { filterRows(); }
+            public void insertUpdate(DocumentEvent e) { refreshFilters(); }
+            public void removeUpdate(DocumentEvent e) { refreshFilters(); }
+            public void changedUpdate(DocumentEvent e) { refreshFilters(); }
         });
         search.getAccessibleContext().setAccessibleName("Filter player name");
         search.putClientProperty("JTextField.placeholderText", "Search players");
@@ -336,6 +360,29 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         // Object IDs on the enemy cards follow Simple/Analyst; re-measure the cards only when the mode really changed
         // (the binding also runs whenever the meter becomes displayable).
         DisplayModeModel.application().bind(this, mode -> { if (mode != shownMode) { shownMode = mode; enemies.refresh(); } });
+    }
+
+    @Override public void addNotify() {
+        if (closed) { closed = false; buildClosed = new AtomicBoolean(); }
+        super.addNotify();
+    }
+    @Override public void removeNotify() {
+        closed = true; buildClosed.set(true); invalidateBuilds(); building = null;
+        if (ownedExecutor != null) { ownedExecutor.shutdownNow(); ownedExecutor = null; buildExecutor = null; }
+        super.removeNotify();
+    }
+    /** EDT-only injection for host fixtures, before any live request. The caller owns an injected executor. */
+    void setBuildExecutor(Executor executor) {
+        if (building != null || ownedExecutor != null) throw new IllegalStateException("Meter builds already started");
+        buildExecutor = Objects.requireNonNull(executor);
+    }
+    /** EDT: includes a completed build whose apply callback has not run yet. */
+    boolean loading() { return building != null || pending != null; }
+    private void invalidateBuilds() { generation++; pending = null; }
+    private void refreshFilters() {
+        if (updating) return;
+        // Filter the current rows immediately; live results use these same controls when they arrive.
+        filterRows();
     }
 
     /**
@@ -408,6 +455,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     }
     void setContext(Object key, Entity player, DpsData.LocalPlayerContext context) {
         if (encounter != key) {
+            invalidateBuilds();
             encounter = key;
             routeNotice.setText(""); routeNotice.setVisible(false);
             updating = true; enemyList.clearSelection(); updating = false;
@@ -443,9 +491,10 @@ public class MeterDpsGUI extends DisplayDpsGUI {
                 ? "Your character data has not arrived. If personal damage stays missing, change areas or reconnect to start a fresh capture."
                 : "";
         captureWarning.setText(warning); captureWarning.setVisible(!warning.isEmpty());
-        rebuildEnemies();
+        rebuildEnemies(isLive);
     }
-    private void rebuildEnemies() {
+    private void rebuildEnemies() { rebuildEnemies(false); }
+    private void rebuildEnemies(boolean async) {
         Entity selected = enemyList.getSelectedValue();
         List<Entity> sorted = new ArrayList<>(targets);
         Comparator<Entity> comparator = Comparator.comparingInt(Entity::maxHp);
@@ -463,17 +512,53 @@ public class MeterDpsGUI extends DisplayDpsGUI {
         int selection = 0;
         if (selected != null) for(int i=0;i<sorted.size();i++) if(sorted.get(i).id==selected.id) { selection=i+1; break; }
         enemyList.setSelectedIndex(Math.max(0, selection)); updating = false;
-        rebuildScope();
+        rebuildScope(async);
     }
-    private void rebuildScope() {
+    private void rebuildScope() { rebuildScope(false); }
+    private void rebuildScope(boolean async) {
         if (updating) return;
+        // Live ticks only replace the pending scope: a slow build must still apply while ticks keep arriving.
+        // Synchronous changes supersede every older build, including live renders while detached.
+        if (!async || closed) invalidateBuilds();
         Entity enemy = enemyList.getSelectedValue();
         List<Entity> chosen = new ArrayList<>();
         if (enemy != null) chosen.add(enemy);
         else for (int i = 1; i < enemies.size(); i++) chosen.add(enemies.get(i));
-        wholeEncounter = enemy == null && enemySort.getSelectedIndex() != BOSSES_INDEX;
-        snapshot = new CombatMeterData(chosen, localPlayer, wholeEncounter);
-        scopedEnemies = chosen.size();
+        BuildRequest request = new BuildRequest(generation, List.copyOf(chosen), localPlayer,
+            enemy == null && enemySort.getSelectedIndex() != BOSSES_INDEX);
+        // removeNotify also runs during reparenting. Detached renders still apply, without restarting a worker.
+        if (!async || closed) applyScope(request, builder.build(request.targets, request.player, request.wholeEncounter));
+        else if (building != null) pending = request;
+        else startBuild(request);
+    }
+    private void startBuild(BuildRequest request) {
+        building = request;
+        // A per-meter worker avoids one long encounter delaying another meter; created only on the first live tick.
+        if (buildExecutor == null) buildExecutor = ownedExecutor = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "RealmShark meter"); thread.setDaemon(true); return thread;
+        });
+        MeterBuilder build = builder;
+        AtomicBoolean stopped = buildClosed;
+        buildExecutor.execute(() -> {
+            CombatMeterData result = null;
+            try {
+                if (!stopped.get() && !Thread.currentThread().isInterrupted()) result = build.build(request.targets, request.player, request.wholeEncounter);
+            } finally {
+                CombatMeterData completed = result;
+                Runnable apply = () -> finishBuild(request, completed);
+                if (SwingUtilities.isEventDispatchThread()) apply.run(); else SwingUtilities.invokeLater(apply);
+            }
+        });
+    }
+    private void finishBuild(BuildRequest request, CombatMeterData result) {
+        if (closed || building != request) return;
+        building = null;
+        if (request.ticket == generation && result != null) applyScope(request, result);
+        BuildRequest next = pending; pending = null;
+        if (next != null) startBuild(next);
+    }
+    private void applyScope(BuildRequest request, CombatMeterData result) {
+        snapshot = result; wholeEncounter = request.wholeEncounter; scopedEnemies = request.targets.size();
         updateRanks();
         String selectedClass = (String) classes.getSelectedItem();
         TreeSet<String> available = new TreeSet<>(); snapshot.rows.forEach(r -> available.add(r.className()));

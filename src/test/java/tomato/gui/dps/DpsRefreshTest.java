@@ -97,7 +97,7 @@ public class DpsRefreshTest {
         Entity boss=new Entity(data,20,0); hits(data).put(20,boss); boss.genericDamageHit(player,new Projectile(100),1000);
         SwingUtilities.invokeAndWait(()->{
             try {
-                MeterDpsGUI meter=new MeterDpsGUI(); meter.setContext(data.map,player);
+                MeterDpsGUI meter=new MeterDpsGUI(Runnable::run); meter.setContext(data.map,player);
                 DpsSnapshot first=DpsSnapshot.capture(data);
                 meter.renderData(first.map,Arrays.asList(first.targets),first.notifications,0,true);
                 JList<?> list=(JList<?>)field(meter,"enemyList"); list.setSelectedIndex(1);

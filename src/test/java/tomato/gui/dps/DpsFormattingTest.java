@@ -50,7 +50,7 @@ public class DpsFormattingTest {
                     String[][] liveCells = null;
                     for (boolean live : new boolean[]{true, false}) {
                         DpsData data = live ? recording : saved;
-                        MeterDpsGUI view = new MeterDpsGUI(); view.setContext(data, zero);
+                        MeterDpsGUI view = new MeterDpsGUI(Runnable::run); view.setContext(data, zero);
                         view.renderData(data.map, new ArrayList<>(data.hitList.values()), data.deathNotifications, data.totalDungeonPcTime, live);
                         JTable table = field(view, "table", JTable.class);
                         table.getRowSorter().setSortKeys(Collections.singletonList(new RowSorter.SortKey(0, SortOrder.ASCENDING)));

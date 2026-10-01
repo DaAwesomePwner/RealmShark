@@ -54,7 +54,7 @@ public class MeterRestyleTest {
             List<Entity> targets = new ArrayList<>();
             for (int i = 0; i < 300; i++) targets.add(enemy(data, 100 + i, 1000 + i, alpha, 10 + i));
             MapInfoPacket map = map("Synthetic realm");
-            MeterDpsGUI meter = new MeterDpsGUI(); meter.setContext(map, alpha);
+            MeterDpsGUI meter = new MeterDpsGUI(Runnable::run); meter.setContext(map, alpha);
             meter.renderData(map, targets, new ArrayList<>(), 0, true);
             JList<Entity> list = enemyList(meter);
             ListCellRenderer<? super Entity> real = list.getCellRenderer();
@@ -182,7 +182,7 @@ public class MeterRestyleTest {
             boss.genericDamageHit(alpha, new Projectile(41200), 1000);
             boss.updateDamageTaken(1000); boss.updateDamageTaken(13300);
             Entity minion = enemy(data, 11, 900000, alpha, 1200);
-            MeterDpsGUI meter = new MeterDpsGUI();
+            MeterDpsGUI meter = new MeterDpsGUI(Runnable::run);
             meter.renderData(map("Synthetic dungeon"), Arrays.asList(boss, minion), new ArrayList<>(), 0, true);
             JList<Entity> list = enemyList(meter);
             assertSame("Highest enemy HP first", minion, list.getModel().getElementAt(1));
@@ -229,7 +229,7 @@ public class MeterRestyleTest {
             boss.genericDamageHit(alpha, new Projectile(89_400), 1000);
             boss.updateDamageTaken(1000); boss.updateDamageTaken(72_900);
             Entity minion = enemy(data, 11, 1000, alpha, 300);
-            MeterDpsGUI meter = new MeterDpsGUI();
+            MeterDpsGUI meter = new MeterDpsGUI(Runnable::run);
             meter.renderData(map("Synthetic dungeon"), Arrays.asList(boss, minion), new ArrayList<>(), 0, true);
             JList<Entity> list = enemyList(meter);
             assertSame(boss, list.getModel().getElementAt(1));
