@@ -8,36 +8,54 @@ import packets.data.enums.StatType;
 import packets.incoming.MapInfoPacket;
 import tomato.backend.data.Entity;
 import tomato.backend.data.TomatoData;
-import tomato.realmshark.ParseEnchants;
+import tomato.realmshark.EnchantInfo;
 import tomato.realmshark.enums.CharacterClass;
 
 /** Wire contract adapted from LastEternity/RealmShark 25db3791 (MIT; see docs/BRIDGE.md).
- * Deliberately no new fields in HTTP loot payloads: enchant descriptions stay local. */
+ * Deliberately no new fields in HTTP loot payloads: enchant descriptions and the raw entry stay local. */
 public final class BridgePayload {
     private BridgePayload() {}
     public static final class Item {
+        /** Rarity sources. Saved entries may also hold LEGACY_ENCHANT_COUNT (upstream's decoded line count) or none; they are never recomputed. */
+        public static final String METADATA_TOKEN="metadata_token", ENCHANT_SLOTS="enchant_slots", ENCHANT_DATA_ABSENT="enchant_data_absent",
+            UNKNOWN_DEFAULT="fallback_unknown_default", LEGACY_ENCHANT_COUNT="enchant_count";
+        /** The wire's rarity words by unlocked slot count (upstream's vocabulary: an unenchanted item is "common"). */
+        private static final String[] WIRE_RARITIES={"common","uncommon","rare","legendary","divine"};
+        /** enchantCount: applied enchantments, -1 when the entry is unreadable (saved legacy entries hold upstream's line count). */
         public final int id, enchantCount;
         public final String rawName, baseName, group, label, rarity, enchants, raritySource;
+        /** The item's UNIQUE_DATA_STRING entry as captured; null when the bag had none for this slot, and in entries saved before it was kept. */
+        public final String enchantData;
         public final boolean shiny, divine, ut, st;
-        public Item(int id, String name, String group, String label, String enchants, boolean malformed) {
+        public Item(int id, String name, String group, String label, String enchantData) {
             this.id=id; this.rawName=name.trim(); this.group=group==null?"":group; this.label=label==null?"":label;
             boolean suffix=rawName.toLowerCase(Locale.ROOT).endsWith("(shiny)");
             baseName=suffix?rawName.substring(0,rawName.length()-7).trim():rawName;
             List<String> tokens=Arrays.asList((this.label+" "+this.group).toUpperCase(Locale.ROOT).split("[^A-Z0-9]+"));
             shiny=suffix||tokens.contains("SHINY"); ut=tokens.contains("UT"); st=tokens.contains("ST");
-            this.enchants=enchants==null?"":enchants.trim();
-            // Preserve upstream's line-count mapping, including its locked/empty special cases.
-            int count=0;
-            if(malformed) count=-1;
-            else if(!this.enchants.isEmpty() && !this.enchants.equalsIgnoreCase("empty") && !this.enchants.equalsIgnoreCase("[locked]"))
-                for(String line:this.enchants.split("\\R")) if(!line.trim().isEmpty()) count++;
-            enchantCount=count;
+            this.enchantData=enchantData;
+            EnchantInfo info=EnchantInfo.of(enchantData);
+            boolean unreadable=info.state()==EnchantInfo.State.UNREADABLE, absent=info.state()==EnchantInfo.State.NOT_RECORDED;
+            int applied=0; for(EnchantInfo.Slot slot:info.slots()) if(!slot.empty()) applied++;
+            enchantCount=unreadable?-1:applied;
+            enchants=unreadable?"Unable to decode enchant data":String.join("\n",info.slotLines());
             String resolved=null;
             for(String token:tokens) if(Arrays.asList("COMMON","UNCOMMON","RARE","LEGENDARY","DIVINE").contains(token)) {resolved=token.toLowerCase(Locale.ROOT);break;}
-            if(resolved!=null) {rarity=resolved; raritySource="metadata_token";}
-            else {rarity=count>=0&&count<=4?new String[]{"common","uncommon","rare","legendary","divine"}[count]:"unknown"; raritySource=count>=0&&count<=4?"enchant_count":"fallback_unknown_default";}
+            if(resolved!=null) {rarity=resolved; raritySource=METADATA_TOKEN;}
+            else if(unreadable) {rarity="unknown"; raritySource=UNKNOWN_DEFAULT;}
+            // No entry for this slot: upstream sent "common" here, so the wire keeps it; Review says why.
+            else if(absent) {rarity="common"; raritySource=ENCHANT_DATA_ABSENT;}
+            else {rarity=WIRE_RARITIES[info.rarity().ordinal()]; raritySource=ENCHANT_SLOTS;}
             divine=tokens.contains("DIVINE")||Arrays.asList(baseName.toUpperCase(Locale.ROOT).split("[^A-Z0-9]+")).contains("DIVINE")||rarity.equals("divine");
         }
+        /** The rarity as Review and its exports show it: saved entries whose rarity came from upstream's line count say so. */
+        public String rarityLabel() {
+            String shown=rarity==null?"unknown":rarity;
+            if(raritySource==null||LEGACY_ENCHANT_COUNT.equals(raritySource)) return shown+" (legacy count)";
+            return ENCHANT_DATA_ABSENT.equals(raritySource)?shown+" (no enchant data)":shown;
+        }
+        /** The enchantments for the gem and tooltip; null when no entry was kept (older entries, or none in the bag). Decode once per row build. */
+        public EnchantInfo enchantInfo() { return enchantData==null?null:EnchantInfo.of(enchantData); }
     }
     /** Immutable capture-thread snapshot; no bag/player references cross onto the worker. */
     public static final class Drop {
@@ -58,11 +76,7 @@ public final class BridgePayload {
         for(int i=0;i<8;i++) {
             StatData s=bag.stat.get(StatType.INVENTORY_0_STAT.get()+i); if(s==null||s.statValue<1) continue;
             String name=IdToAsset.objectName(s.statValue); if(name==null||name.trim().isEmpty()) name="Unknown item #"+s.statValue;
-            String text=""; boolean malformed=false;
-            if(i<encoded.length&&!encoded[i].isEmpty()&&!encoded[i].equals("AAIE_f_9__3__f8=")) {
-                try {text=ParseEnchants.parse(encoded[i]);} catch(RuntimeException ex) {malformed=true;text="Unable to decode enchant data";}
-            }
-            Item item=new Item(s.statValue,name,IdToAsset.getIdGroup(s.statValue),IdToAsset.getIdLabel(s.statValue),text,malformed);
+            Item item=new Item(s.statValue,name,IdToAsset.getIdGroup(s.statValue),IdToAsset.getIdLabel(s.statValue),i<encoded.length?encoded[i]:null);
             result.add(new Drop(item,data==null?-1:data.getCharId(),player.name(),CharacterClass.isPlayerCharacter(player.objectType)?CharacterClass.getName(player.objectType):"",map==null?"":map.name,seasonal!=null&&seasonal.statValue==1,player.lootDropTime(time)>0,bag.id,i));
         }
         return result;

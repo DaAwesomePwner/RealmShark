@@ -323,13 +323,13 @@ public class BridgeFilterBarTest {
             new BridgeService.Response(200, json.contains("Crystal Wand") ? "{\"ok\":true}"
                 : json.contains("Mystic Blade") ? "{\"result\":{\"logged\":false,\"reason\":\"unmapped_character\"}}" : "{\"ok\":true,\"result\":{\"logged\":true}}"), 20);
         service.configure(new BridgeConfig(p), false, false);
-        service.receive(Arrays.asList(drop(42, "Test Sword", 7, "Example", "The Shatters", "Damage Boost(1)"), drop(43, "Unlisted ST", 7, "Example", "Lost Halls", ""),
+        service.receive(Arrays.asList(drop(42, "Test Sword", 7, "Example", "The Shatters", "AAIE_wU="), drop(43, "Unlisted ST", 7, "Example", "Lost Halls", ""),
             drop(44, "Crystal Wand", 8, "Fixture", "Ice Citadel", ""), drop(45, "Mystic Blade", 8, "Fixture", "Lost Halls", "")));
         service.awaitIdle(3000);
         return service;
     }
-    static BridgePayload.Drop drop(int id, String name, int character, String who, String dungeon, String enchants) {
-        return new BridgePayload.Drop(new BridgePayload.Item(id, name, "EQUIPMENT", "UT", enchants, false), character, who, "Wizard", dungeon, false, false, 9, 0);
+    static BridgePayload.Drop drop(int id, String name, int character, String who, String dungeon, String enchantData) {
+        return new BridgePayload.Drop(new BridgePayload.Item(id, name, "EQUIPMENT", "UT", enchantData), character, who, "Wizard", dungeon, false, false, 9, 0);
     }
     static DisplayModeModel mode(DisplayModeModel.Mode start) {
         return new DisplayModeModel(key -> start == DisplayModeModel.Mode.ANALYST ? "analyst" : "simple", (key, value) -> { });

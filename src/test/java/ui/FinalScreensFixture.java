@@ -572,14 +572,14 @@ public final class FinalScreensFixture {
             new BridgeService.Response(200, json.contains("Synthetic Frost Staff") ? "{\"ok\":true}"
                 : json.contains("Synthetic Tier Sword") ? "{\"result\":{\"logged\":false,\"reason\":\"unmapped_character\"}}" : "{\"ok\":true,\"result\":{\"logged\":true}}"), 20);
         service.configure(new BridgeConfig(p), false, false);
-        service.receive(Arrays.asList(bridgeDrop(42, "Synthetic Voidblade", 7, "Alpha", "Lost Halls", "Damage Boost(1)"),
+        service.receive(Arrays.asList(bridgeDrop(42, "Synthetic Voidblade", 7, "Alpha", "Lost Halls", "AAIE_wU="),
             bridgeDrop(43, "Synthetic Aegis Robe", 7, "Alpha", "Lost Halls", ""), bridgeDrop(44, "Synthetic Frost Staff", 8, "Charlie", "Ice Citadel", ""),
             bridgeDrop(45, "Synthetic Tier Sword", 8, "Charlie", "Lost Halls", "")));
         service.awaitIdle(3000);
         return service;
     }
 
-    private static BridgePayload.Drop bridgeDrop(int id, String name, int character, String who, String dungeon, String enchants) {
-        return new BridgePayload.Drop(new BridgePayload.Item(id, name, "EQUIPMENT", "UT", enchants, false), character, who, "Wizard", dungeon, false, false, 9, 0);
+    private static BridgePayload.Drop bridgeDrop(int id, String name, int character, String who, String dungeon, String enchantData) {
+        return new BridgePayload.Drop(new BridgePayload.Item(id, name, "EQUIPMENT", "UT", enchantData), character, who, "Wizard", dungeon, false, false, 9, 0);
     }
 }

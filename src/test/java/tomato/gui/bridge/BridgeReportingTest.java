@@ -22,7 +22,7 @@ public class BridgeReportingTest {
         p.setProperty(prefix+"enabled","true");p.setProperty(prefix+"send",String.valueOf(sending));p.setProperty(prefix+"endpoint","https://example.invalid/ingest");
         p.setProperty(prefix+"guild_id","123456789012345678");p.setProperty(prefix+"link_token","synthetic-token");p.setProperty(prefix+"csv_path",csv.toString());return new BridgeConfig(p);
     }
-    private static BridgePayload.Drop drop(int id,int character,String name,String map,String enchants){return new BridgePayload.Drop(new BridgePayload.Item(id,name,"EQUIPMENT","UT",enchants,false),character,"Example","Wizard",map,false,false,9,0);}
+    private static BridgePayload.Drop drop(int id,int character,String name,String map,String enchantData){return new BridgePayload.Drop(new BridgePayload.Item(id,name,"EQUIPMENT","UT",enchantData),character,"Example","Wizard",map,false,false,9,0);}
     private BridgeService service(BridgeService.Transport transport,int capacity){return new BridgeService(temp.getRoot().toPath().resolve("bridge.properties"),false,transport,capacity);}
     @Test public void strictResponsesSplitAllOutcomesAndLifetimeCountsSurviveEviction()throws Exception{
         String[] replies={"{\"result\":{\"logged\":true}}","{\"result\":{\"logged\":false,\"reason\":\"unmapped_character\"}}","{}","{\"logged\":\"false\"}","{\"logged\":null}","{\"ok\":false,\"logged\":true}"};AtomicInteger next=new AtomicInteger();
@@ -55,25 +55,31 @@ public class BridgeReportingTest {
         }finally{release.countDown();}
     }
     @Test public void retainedSearchFacetsDetailsAndShownCountsUseTheSameRows()throws Exception{
-        AtomicInteger calls=new AtomicInteger();
-        try(BridgeService s=service((u,j)->{calls.incrementAndGet();return new BridgeService.Response(200,"{\"logged\":false,\"reason\":\"unmapped_character\"}");},16)){
-            s.configure(config(true),false,false);s.receive(Arrays.asList(drop(42,7,"Synthetic Sword","Ice Citadel","Frost +5"),drop(142,8,"Synthetic Sword","Lost Halls","")));
-            BridgePayload.Item malformed=new BridgePayload.Item(242,"Synthetic Sword","EQUIPMENT","UT","Malformed",true);
-            s.receive(Collections.singletonList(new BridgePayload.Drop(malformed,9,"Example","Wizard","Ice Citadel",false,false,10,0)));s.awaitIdle(3000);
-            SwingUtilities.invokeAndWait(()->{
-                BridgeReviewGUI view=new BridgeReviewGUI(s);JTable table=named(view,"bridge-review-table",JTable.class);JTextField search=named(view,"bridge-search",JTextField.class);
-                search.setText("unmapped_character");assertEquals(3,table.getRowCount());search.setText("Frost +5");assertEquals(1,table.getRowCount());
-                table.setRowSelectionInterval(0,0);String details=named(view,"bridge-details",JTextArea.class).getText();assertTrue(details.contains("Observation:"));assertTrue(details.contains("Local choice at observation: Queued"));assertTrue(details.contains("Configure Character"));assertFalse(details.contains("synthetic-token"));
-                search.setText("142");assertEquals(1,table.getRowCount());search.setText("");
-                JComboBox<?> character=named(view,"bridge-character-filter",JComboBox.class);character.setSelectedItem("Example #7");assertEquals(1,table.getRowCount());
-                JComboBox<?> dungeon=named(view,"bridge-dungeon-filter",JComboBox.class);dungeon.setSelectedItem("Lost Halls");assertEquals(0,table.getRowCount());dungeon.setSelectedIndex(0);
-                JComboBox<?> enchants=named(view,"bridge-enchant-filter",JComboBox.class);enchants.setSelectedIndex(2);assertEquals(0,table.getRowCount());enchants.setSelectedIndex(1);assertEquals(1,table.getRowCount());
-                JComboBox<?> outcome=named(view,"bridge-outcome-filter",JComboBox.class);outcome.setSelectedItem(BridgeService.Outcome.LOGGED);assertEquals(0,table.getRowCount());outcome.setSelectedItem(BridgeService.Outcome.NOT_LOGGED);assertEquals(1,table.getRowCount());
-                assertTrue(named(view,"bridge-totals",JTextArea.class).getText().contains("Shown: 1 / 3 retained items"));
-                character.setSelectedIndex(0);enchants.setSelectedIndex(3);assertEquals(1,table.getRowCount());table.setRowSelectionInterval(0,0);
-                assertTrue(named(view,"bridge-details",JTextArea.class).getText().contains("Enchant count: unknown"));
-                enchants.setSelectedIndex(2);assertEquals(1,table.getRowCount());assertEquals("Example #8",table.getValueAt(0,4));
-            });assertEquals(3,calls.get());
-        }
+        java.util.HashMap<Short,tomato.realmshark.ParseEnchants.Definition> savedDefinitions=tomato.realmshark.ParseEnchants.ENCHANT_DEFINITIONS;
+        java.util.HashMap<Short,tomato.realmshark.ParseEnchants.Definition> definitions=new java.util.HashMap<>();
+        definitions.put((short)1535,new tomato.realmshark.ParseEnchants.Definition("Frost +5",""));
+        tomato.realmshark.ParseEnchants.ENCHANT_DEFINITIONS=definitions;
+        try {
+            AtomicInteger calls=new AtomicInteger();
+            try(BridgeService s=service((u,j)->{calls.incrementAndGet();return new BridgeService.Response(200,"{\"logged\":false,\"reason\":\"unmapped_character\"}");},16)){
+                s.configure(config(true),false,false);s.receive(Arrays.asList(drop(42,7,"Synthetic Sword","Ice Citadel","AAIE_wU="),drop(142,8,"Synthetic Sword","Lost Halls","")));
+                BridgePayload.Item malformed=new BridgePayload.Item(242,"Synthetic Sword","EQUIPMENT","UT","!!!");
+                s.receive(Collections.singletonList(new BridgePayload.Drop(malformed,9,"Example","Wizard","Ice Citadel",false,false,10,0)));s.awaitIdle(3000);
+                SwingUtilities.invokeAndWait(()->{
+                    BridgeReviewGUI view=new BridgeReviewGUI(s);JTable table=named(view,"bridge-review-table",JTable.class);JTextField search=named(view,"bridge-search",JTextField.class);
+                    search.setText("unmapped_character");assertEquals(3,table.getRowCount());search.setText("Frost +5");assertEquals(1,table.getRowCount());
+                    table.setRowSelectionInterval(0,0);String details=named(view,"bridge-details",JTextArea.class).getText();assertTrue(details.contains("Observation:"));assertTrue(details.contains("Local choice at observation: Queued"));assertTrue(details.contains("Configure Character"));assertFalse(details.contains("synthetic-token"));
+                    search.setText("142");assertEquals(1,table.getRowCount());search.setText("");
+                    JComboBox<?> character=named(view,"bridge-character-filter",JComboBox.class);character.setSelectedItem("Example #7");assertEquals(1,table.getRowCount());
+                    JComboBox<?> dungeon=named(view,"bridge-dungeon-filter",JComboBox.class);dungeon.setSelectedItem("Lost Halls");assertEquals(0,table.getRowCount());dungeon.setSelectedIndex(0);
+                    JComboBox<?> enchants=named(view,"bridge-enchant-filter",JComboBox.class);enchants.setSelectedIndex(2);assertEquals(0,table.getRowCount());enchants.setSelectedIndex(1);assertEquals(1,table.getRowCount());
+                    JComboBox<?> outcome=named(view,"bridge-outcome-filter",JComboBox.class);outcome.setSelectedItem(BridgeService.Outcome.LOGGED);assertEquals(0,table.getRowCount());outcome.setSelectedItem(BridgeService.Outcome.NOT_LOGGED);assertEquals(1,table.getRowCount());
+                    assertTrue(named(view,"bridge-totals",JTextArea.class).getText().contains("Shown: 1 / 3 retained items"));
+                    character.setSelectedIndex(0);enchants.setSelectedIndex(3);assertEquals(1,table.getRowCount());table.setRowSelectionInterval(0,0);
+                    assertTrue(named(view,"bridge-details",JTextArea.class).getText().contains("Enchant count: unknown"));
+                    enchants.setSelectedIndex(2);assertEquals(1,table.getRowCount());assertEquals("Example #8",table.getValueAt(0,4));
+                });assertEquals(3,calls.get());
+            }
+        } finally { tomato.realmshark.ParseEnchants.ENCHANT_DEFINITIONS=savedDefinitions; }
     }
 }
