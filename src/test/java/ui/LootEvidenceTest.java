@@ -791,30 +791,31 @@ public class LootEvidenceTest {
     }
 
     /**
-     * The four tiles are whole (inside the page, never clipped) in at most two rows; the row count is printed. Since Polish B2 a
+     * The five tiles are whole (inside the page, never clipped) in at most three rows; the row count is printed. Since Polish B2 a
      * long potion or white-bag sub-line wraps inside its tile instead of widening it, so at 1240×800 font 13 in the real shell the
      * tiles share one row ({@link #assertTilesInOneRow}; finding 1).
      */
     private void assertTilesWhole(String capture) {
         Set<Integer> rows = new HashSet<>();
         JScrollPane page = VisualEvidence.named(shell, "loot-highlights-scroll", JScrollPane.class);
-        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) {
+        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites", "loot-tile-enchanted"}) {
             StatTile tile = VisualEvidence.named(shell, name, StatTile.class);
             Rectangle bounds = SwingUtilities.convertRectangle(tile.getParent(), tile.getBounds(), page);
             assertTrue(name + " lies inside the page: " + bounds, bounds.x >= 0 && bounds.x + bounds.width <= page.getWidth());
             rows.add(bounds.y);
         }
         System.out.println(capture + ": Loot highlights tiles in " + rows.size() + " row(s)");
-        assertTrue("At most two rows of tiles: " + rows.size(), rows.size() <= 2);
+        assertTrue("Five tiles fit in at most three rows: " + rows.size(), rows.size() <= 3);
     }
 
     /**
-     * Polish B2 (finding 1): at 1240×800 font 13 in the real shell the four tiles share one row and one height, even with the long
+     * Polish B2 (finding 1): at 1240×800 font 13 in the real shell the five tiles share one row and one height, even with the long
      * potion and white-bag sub-lines ("2 Life · 1 Mana · 1 Att · 1 Def · +2 more", "of 9 bags · 1 without a bag name").
      */
     private void assertTilesInOneRow() {
         List<StatTile> tiles = tiles();
-        assertEquals("Four tiles in one row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
+        assertEquals(5, tiles.size());
+        assertEquals("Five tiles in one row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getY).distinct().count());
         assertEquals("One height for the row: " + tileBounds(tiles), 1, tiles.stream().map(Component::getHeight).distinct().count());
         for (StatTile tile : tiles) assertSubLineWhole(tile);
     }
@@ -847,7 +848,7 @@ public class LootEvidenceTest {
 
     private List<StatTile> tiles() {
         List<StatTile> tiles = new ArrayList<>();
-        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites"}) tiles.add(VisualEvidence.named(shell, name, StatTile.class));
+        for (String name : new String[] {"loot-tile-ut", "loot-tile-st", "loot-tile-potions", "loot-tile-whites", "loot-tile-enchanted"}) tiles.add(VisualEvidence.named(shell, name, StatTile.class));
         return tiles;
     }
 

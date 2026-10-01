@@ -70,6 +70,9 @@ public final class LootFacts {
 
     private LootFacts() {}
 
+    /** Whether a saved bag name is white (including boosted white); unknown names are never inferred. */
+    public static boolean whiteBag(String name) { return LootArchiveAdapter.white(name); }
+
     /**
      * The stat a stat potion raises ("Life", "Mana", "Attack", "Defense", "Speed", "Dexterity", "Vitality", "Wisdom") for its
      * small, greater and soulbound ids ({@link StatPotion}); null for any other id ("Other potions").
