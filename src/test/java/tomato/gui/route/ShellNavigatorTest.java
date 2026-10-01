@@ -50,7 +50,7 @@ public class ShellNavigatorTest {
             runs.state = "changed while away";
             pages.log.clear();
             assertTrue(navigator.back());
-            assertEquals(Arrays.asList("restore RUNS session A · page 3 · row 7", "select runs"), pages.log);
+            assertEquals(Arrays.asList("capture TIMELINE", "restore RUNS session A · page 3 · row 7", "select runs"), pages.log);
             assertEquals("session A · page 3 · row 7", runs.state);
             assertFalse(navigator.canGoBack()); assertFalse(navigator.back());
             return null;

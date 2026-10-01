@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * The shell's {@link Navigator}: a registry of destination adapters plus a bounded Back stack. EDT only. Pages are the shell's
+ * The shell's {@link Navigator}: a registry of destination adapters plus bounded Back and Forward stacks. EDT only. Pages are the shell's
  * destination IDs; this class only compares them.
  * Opening a route captures the origin page and, when that page has a registered target, its detached
  * state before anything changes. A route that no target accepts is rejected without any change.
@@ -26,6 +26,7 @@ public final class ShellNavigator implements Navigator {
     private final List<RouteTarget> targets = new ArrayList<>();
     private final Map<String, RouteTarget> shown = new HashMap<>();
     private final ArrayDeque<Origin> back = new ArrayDeque<>();
+    private final ArrayDeque<Origin> forward = new ArrayDeque<>();
     private final List<Runnable> listeners = new ArrayList<>();
     private long pushes;
 
@@ -46,7 +47,7 @@ public final class ShellNavigator implements Navigator {
         shown.values().removeIf(value -> value == target);
         return targets.remove(target);
     }
-    /** Called after every stack change so the shell can update its visible Back action. */
+    /** Called after every stack change so the shell can update its history actions. */
     public void addChangeListener(Runnable listener) { requireEdt(); listeners.add(Objects.requireNonNull(listener)); }
 
     @Override public boolean canOpen(Route route) { requireEdt(); return route != null && target(route) != null; }
@@ -54,6 +55,10 @@ public final class ShellNavigator implements Navigator {
     /** Shell page Back returns to, or {@link #NO_PAGE} when the stack is empty. */
     public String backPage() { requireEdt(); return back.isEmpty() ? NO_PAGE : back.peekLast().page; }
     public int depth() { requireEdt(); return back.size(); }
+    @Override public boolean canGoForward() { requireEdt(); return !forward.isEmpty(); }
+    /** Shell page Forward returns to, or {@link #NO_PAGE} when the stack is empty. */
+    public String forwardPage() { requireEdt(); return forward.isEmpty() ? NO_PAGE : forward.peekLast().page; }
+    public int forwardDepth() { requireEdt(); return forward.size(); }
     @Override public long backToken() { requireEdt(); return back.isEmpty() ? 0 : back.peekLast().token; }
     @Override public long nextBackToken() { requireEdt(); return pushes + 1; }
 
@@ -83,14 +88,21 @@ public final class ShellNavigator implements Navigator {
             back.addLast(origin);
             while (back.size() > capacity) back.removeFirst();
         }
+        forward.clear();
         changed();
         return true;
     }
 
+    /** Captures Forward state with a consumed token, retaining the popped Back identity for Forward. */
     @Override public boolean back() {
         requireEdt();
         Origin origin = back.pollLast();
         if (origin == null) return false;
+        Origin destination = captureCurrent();
+        destination.token = ++pushes;
+        destination.returnToken = origin.token;
+        forward.addLast(destination);
+        while (forward.size() > capacity) forward.removeFirst();
         try {
             if (origin.target != null && targets.contains(origin.target)) {
                 origin.target.restoreState(origin.state);
@@ -98,6 +110,36 @@ public final class ShellNavigator implements Navigator {
             }
         } finally { select.accept(origin.page); changed(); }
         return true;
+    }
+
+    /** Consumes the capture token, then restores the original Back identity and the next view. */
+    @Override public boolean forward() {
+        requireEdt();
+        Origin destination = forward.pollLast();
+        if (destination == null) return false;
+        Origin origin = captureCurrent();
+        ++pushes;
+        // In-page Back links are keyed to the original route's entry, including after Back then Forward.
+        origin.token = destination.returnToken;
+        back.addLast(origin);
+        while (back.size() > capacity) back.removeFirst();
+        try {
+            if (destination.target != null && targets.contains(destination.target)) {
+                destination.target.restoreState(destination.state);
+                shown.put(destination.page, destination.target);
+            }
+        } finally { select.accept(destination.page); changed(); }
+        return true;
+    }
+
+    private Origin captureCurrent() {
+        String page = selected.get();
+        try {
+            RouteTarget target = shownOn(page);
+            return new Origin(page, target, target == null ? null : target.captureState());
+        } catch (RuntimeException failure) {
+            return new Origin(page, null, null); // A broken snapshot must not trap the user on this page.
+        }
     }
 
     private RouteTarget target(Route route) {
@@ -127,7 +169,7 @@ public final class ShellNavigator implements Navigator {
         final String page;
         final RouteTarget target;
         final Object state;
-        long token;
+        long token, returnToken;
         Origin(String page, RouteTarget target, Object state) { this.page = page; this.target = target; this.state = state; }
     }
 }
