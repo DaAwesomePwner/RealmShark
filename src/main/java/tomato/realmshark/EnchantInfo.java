@@ -49,8 +49,8 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
     public static EnchantInfo of(String blob) { return fromEvidence(ParseEnchants.evidence(blob)); }
 
     /**
-     * A blob retained through {@link ParseEnchants#getEnchantStrings}, which turns a missing stat into "": there "" cannot be told
-     * from unenchanted, so it reads as not recorded.
+     * A blob a DPS hit retained. Hits saved before enchant rarity stored a missing stat as "", so "" (like null) reads as not
+     * recorded; newer hits store a known-unenchanted slot as {@link ParseEnchants#UNENCHANTED_ENTRY}.
      */
     public static EnchantInfo ofRetained(String blob) { return blob == null || blob.isEmpty() ? NOT_RECORDED : of(blob); }
 
