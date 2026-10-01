@@ -53,6 +53,9 @@ dependencies {
     implementation 'com.google.flatbuffers:flatbuffers-java:23.5.26'
     implementation 'com.formdev:flatlaf:3.5.4'
     implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+    // History search index: SQLite with FTS5; Windows natives only (other systems fall back to file readers).
+    implementation 'org.xerial:sqlite-jdbc:3.53.4.0:without-natives'
+    runtimeOnly 'org.xerial:sqlite-jdbc:3.53.4.0:natives-windows'
     runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
     testImplementation 'junit:junit:4.13.2'
 }
