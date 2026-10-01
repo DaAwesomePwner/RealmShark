@@ -2,7 +2,7 @@
 
 **Logging** is under **Advanced** in the sidebar (**Alt+0**). It inspects the same passively decoded traffic used by DPS and loot tracking. It does not inject into the game, modify packets, or make game-server requests. Start capture, enable collection, and enter a fresh area to gather data.
 
-Gameplay history now has dedicated views: **Runs & DPS** (Alt+R), **Timeline** (Alt+T), and **Runs & DPS › Live meter › Resources & buffs**. See [Activity modules](ACTIVITY.md) for their controls and interpretation.
+Gameplay history now has dedicated views: **Runs & DPS** (Alt+R), **Timeline** (Alt+T), and **Runs & DPS › Resources & buffs**. See [Activity modules](ACTIVITY.md) for their controls and interpretation.
 
 ## Diagnostic views
 

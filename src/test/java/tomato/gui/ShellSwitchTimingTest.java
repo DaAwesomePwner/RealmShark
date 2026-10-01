@@ -492,7 +492,7 @@ public class ShellSwitchTimingTest {
      * frame is awaited and measured (its event is a follow-up, bounded like any other) and the canary never races it.
      */
     private boolean renderPending() {
-        return meter.isShowing() && field(DpsGUI.class, "latest", dps) != field(DpsGUI.class, "rendered", dps);
+        return meter.isShowing() && (field(DpsGUI.class, "latest", dps) != field(DpsGUI.class, "rendered", dps) || loading(meter));
     }
 
     /** EDT: a showing archive workspace, run feed, Dungeons view, Recordings tab or Loot highlights has a read in flight. */

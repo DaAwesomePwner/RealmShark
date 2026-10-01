@@ -317,17 +317,17 @@ public class FinalScreensEvidenceTest {
             .when(() -> savedWorkspaceReady("dungeon-analysis-session-view"))
             .then(() -> VisualEvidence.named(shell, "dungeons-view-mode-0", AbstractButton.class).doClick()).take();
         for (DisplayModeModel.Mode m : BOTH) shot("runs", "live-meter", "meters-live-fight", m).tabs("runs-tabs")
-            .go(() -> { open(Route.to(Destination.ENCOUNTER)); tabs("dps-tabs").select("meters"); })
+            .go(() -> open(Route.to(Destination.ENCOUNTER)))
             .when(() -> shown("dps-player-table") != null && ((JTable) shown("dps-player-table")).getRowCount() == 6)
-            .check("nested tab", () -> assertEquals("meters", tabs("dps-tabs").selectedId())).take();
-        for (DisplayModeModel.Mode m : BOTH) shot("runs", "live-meter", "resources-live", m).tabs("runs-tabs")
-            .go(() -> { open(Route.to(Destination.ENCOUNTER)); tabs("dps-tabs").select("resources"); })
+            .check("Live meter tab", () -> assertEquals("live-meter", tabs("runs-tabs").selectedId())).take();
+        for (DisplayModeModel.Mode m : BOTH) shot("runs", "resources", "resources-live", m).tabs("runs-tabs")
+            .go(() -> open(Route.to(Destination.RESOURCES)))
             .when(() -> showingWorkspace() != null)
-            .check("nested tab", () -> assertEquals("resources", tabs("dps-tabs").selectedId())).take();
-        for (DisplayModeModel.Mode m : BOTH) shot("runs", "live-meter", "resources-saved", m).tabs("runs-tabs")
+            .check("Resources tab", () -> assertEquals("resources", tabs("runs-tabs").selectedId())).take();
+        for (DisplayModeModel.Mode m : BOTH) shot("runs", "resources", "resources-saved", m).tabs("runs-tabs")
             .go(() -> scope("all")).when(this::savedReady).go(() -> selectRun("Lost Halls")).check("picked run selected", this::runStaysSelected)
-            .check("nested tab", () -> assertEquals("resources", tabs("dps-tabs").selectedId()))
-            .then(m == ANALYST ? () -> { scope("live"); tabs("dps-tabs").select("meters"); } : null).take();
+            .check("Resources tab", () -> assertEquals("resources", tabs("runs-tabs").selectedId()))
+            .then(m == ANALYST ? () -> { scope("live"); tabs("runs-tabs").select("live-meter"); } : null).take();
         for (DisplayModeModel.Mode m : BOTH) shot("runs", "recordings", "library", m).tabs("runs-tabs")
             .go(() -> open(Route.to(Destination.RUNS).withPayload(RunsFocus.of(RunsTab.RECORDINGS))))
             .when(() -> shown("saved-encounters") != null && ((JTable) shown("saved-encounters")).getRowCount() >= 8).take();

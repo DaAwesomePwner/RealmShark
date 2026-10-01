@@ -25,6 +25,10 @@ public class ShellBackActionTest {
             assertNotNull(back);
             assertFalse("Nothing to return to yet", back.isVisible());
             assertEquals("page-chat", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_1, InputEvent.ALT_DOWN_MASK)));
+            assertEquals("page-key-pops", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_2, InputEvent.ALT_DOWN_MASK)));
+            assertEquals("chat", WorkspaceShell.pageOf(Destination.CHAT));
+            assertEquals("key-pops", WorkspaceShell.pageOf(Destination.KEYPOPS));
+            assertEquals("settings", WorkspaceShell.pageOf(Destination.SETTINGS));
             assertEquals("navigate-back", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK)));
 
             shell.select("quests"); // No Quests target here: only its page is remembered (Statistics, the old fixture, is gone).

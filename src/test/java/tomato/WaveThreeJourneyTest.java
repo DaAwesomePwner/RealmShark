@@ -139,11 +139,11 @@ public class WaveThreeJourneyTest {
 
         assertTrue(open(Route.to(Destination.RESOURCES).withVisit(second)));
         assertEquals(WorkspaceShell.pageOf(Destination.RESOURCES), edt(shell::selectedPage));
-        // Resources & buffs is nested in the Live meter tab of Runs & DPS, the origin's own page (P5b): the route brings that tab
+        // Resources & buffs has its own Runs & DPS tab on the origin's page: the route brings that tab
         // forward, and Back (below) brings the Feed forward before restoring the Runs table.
-        assertEquals("RESOURCES brings the Live meter tab forward", RunsTab.LIVE_METER, edt(() -> runsDps().selectedTab()));
+        assertEquals("RESOURCES brings its own tab forward", RunsTab.RESOURCES, edt(() -> runsDps().selectedTab()));
         assertEquals("…on Resources & buffs", "Resources & buffs", edt(() -> {
-            JTabbedPane nested = named(shell, JTabbedPane.class, "dps-tabs");
+            JTabbedPane nested = named(shell, JTabbedPane.class, "runs-tabs");
             return nested.getTitleAt(nested.getSelectedIndex());
         }));
         ArchiveWorkspace<?, ?, ?> resources = workspace("combat");
