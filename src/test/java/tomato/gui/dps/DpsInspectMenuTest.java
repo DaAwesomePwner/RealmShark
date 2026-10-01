@@ -33,7 +33,7 @@ public class DpsInspectMenuTest {
         SwingUtilities.invokeAndWait(() -> {
             Entity alpha = player(1, "Alpha", 12345), beta = player(2, "Beta", 67890);
             Entity enemy = enemy(alpha, beta);
-            MeterDpsGUI meter = new MeterDpsGUI(); show(meter);
+            MeterDpsGUI meter = new MeterDpsGUI(Runnable::run); show(meter);
             meter.renderData(map("First dungeon"), Collections.singletonList(enemy), new ArrayList<>(), 2000, true);
             JTable table = find(meter, JTable.class, "dps-player-table");
             assertEquals("Beta", table.getValueAt(0, 0));

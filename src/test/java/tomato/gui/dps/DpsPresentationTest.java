@@ -192,7 +192,7 @@ public class DpsPresentationTest {
             boss.genericDamageHit(player, new Projectile(1200), 1000);
             boss.updateDamageTaken(1000); boss.updateDamageTaken(3000);
             MapInfoPacket map = new MapInfoPacket(); map.name = "Test encounter";
-            MeterDpsGUI meter = new MeterDpsGUI();
+            MeterDpsGUI meter = new MeterDpsGUI(Runnable::run);
             meter.renderData(map, Collections.singletonList(boss), new ArrayList<>(), 3000, true);
             JList<Entity> enemies = enemyList(meter);
             enemies.setSize(140, 400);
@@ -282,7 +282,7 @@ public class DpsPresentationTest {
         enemy.genericDamageHit(player, new Projectile(1200), 1000);
         enemy.updateDamageTaken(1000); enemy.updateDamageTaken(3000);
         MapInfoPacket map = new MapInfoPacket(); map.name = "Test encounter";
-        MeterDpsGUI meter = new MeterDpsGUI();
+        MeterDpsGUI meter = new MeterDpsGUI(Runnable::run);
         meter.renderData(map, Collections.singletonList(enemy), new ArrayList<>(), 3000, true);
         return meter;
     }
