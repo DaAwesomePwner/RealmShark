@@ -12,7 +12,7 @@ import tomato.history.SessionStore;
 import tomato.history.archive.Cancellation;
 
 /**
- * Every saved loot bag of every readable session, for Explore's Collection and Item levels. Closed sessions' bags are kept
+ * Every saved loot bag of every readable session, for Explore's dungeon panel, Collection and Item levels. Closed sessions' bags are kept
  * while their loot files are unchanged ({@link SessionStamps}); the current session is read each time. Off the EDT only.
  */
 public final class LootCatalog {

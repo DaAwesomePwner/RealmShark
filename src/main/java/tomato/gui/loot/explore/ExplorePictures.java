@@ -43,10 +43,10 @@ public final class ExplorePictures extends JPanel implements AutoCloseable {
     private IntConsumer openItem = this::openItem;
     private Consumer<VisitRef> openRun = this::openRun;
 
-    /** The production Pictures over saved history from {@code store}: one catalog shared by Collection and the item history. */
+    /** The production Pictures: one saved-loot catalog shared by the dungeon panel, Collection and item history. */
     public static ExplorePictures production(Supplier<SessionStore> store) {
         LootCatalog.Reader catalog = LootCatalog.over(store);
-        return new ExplorePictures(RunsLevel.production(store), CollectionLevel.production(catalog), ItemLevel.production(catalog),
+        return new ExplorePictures(RunsLevel.production(store, catalog), CollectionLevel.production(catalog), ItemLevel.production(catalog),
             Sprites::name, PropertiesManager::getProperty, PropertiesManager::setProperties);
     }
 
@@ -80,6 +80,7 @@ public final class ExplorePictures extends JPanel implements AutoCloseable {
         add(body, BorderLayout.CENTER);
         runs.onShown(this::refreshPath);
         runs.onOpenItem(key -> openItem.accept(itemOf(key)));
+        runs.dungeon().onOpenItem(id -> openItem.accept(id));
         collection.onOpenItem(id -> openItem.accept(id));
         item.onOpenRun(ref -> openRun.accept(ref));
         if (COLLECTION_ENTRY.equals(read.apply(ENTRY_KEY))) showCollection(); else show(Level.RUNS);
