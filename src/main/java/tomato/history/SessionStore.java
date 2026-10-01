@@ -2,7 +2,6 @@ package tomato.history;
 
 import com.google.gson.*;
 import java.io.*;
-import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -19,6 +18,8 @@ public final class SessionStore implements AutoCloseable {
     public static final String SNAPSHOT_FAILED = "A history snapshot could not be collected: ";
     public static final String UNSAVED_ON_CLOSE = "History has unsaved data: ";
     public static final String IMPORT_FAILED = "Some existing history could not be imported. Originals are kept; use Import old folder to retry.";
+    public static final String RECORDS_SKIPPED = " history records could not be saved and were skipped";
+    static final int EVENT_LIMIT = 100000;
     public static final Gson JSON = new GsonBuilder()
         .registerTypeAdapter(Instant.class, (JsonSerializer<Instant>)(v,t,c) -> new JsonPrimitive(v.toString()))
         .registerTypeAdapter(Instant.class, (JsonDeserializer<Instant>)(v,t,c) -> Instant.parse(v.getAsString()))
@@ -29,6 +30,9 @@ public final class SessionStore implements AutoCloseable {
     private final boolean writable;
     private final Session current;
     private final ScheduledExecutorService worker;
+    private final JournalChannels journalChannels;
+    private final Map<Path, Long> rollbacks = new HashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong skipped = new java.util.concurrent.atomic.AtomicLong();
     private final Object pendingLock = new Object();
     private final ArrayDeque<Write> events = new ArrayDeque<>();
     private final Map<String, Write> checkpoints = new LinkedHashMap<>();
@@ -44,7 +48,12 @@ public final class SessionStore implements AutoCloseable {
     private FileLock fileLock;
 
     public SessionStore(Path root, boolean writable, String version) {
+        this(root, writable, version, file -> FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE));
+    }
+    interface JournalChannels { FileChannel open(Path file) throws IOException; }
+    SessionStore(Path root, boolean writable, String version, JournalChannels journalChannels) {
         this.root = root.toAbsolutePath().normalize(); this.writable = writable;
+        this.journalChannels = journalChannels;
         current = new Session(UUID.randomUUID().toString(), System.currentTimeMillis(), "", version);
         worker = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "RealmShark session history"); t.setDaemon(true); ioThread=t;return t; });
         if (writable) {
@@ -64,7 +73,12 @@ public final class SessionStore implements AutoCloseable {
     public String currentId() { return current.id; }
     public long started() { return current.started; }
     public boolean writable() { return writable; }
-    public String error() { return !error.isEmpty() ? error : !collectError.isEmpty() ? collectError : importError; }
+    public String error() {
+        String failure = !error.isEmpty() ? error : !collectError.isEmpty() ? collectError : importError;
+        long count = skipped.get();
+        return count == 0 ? failure : (failure.isEmpty() ? "" : failure + " · ") + count + RECORDS_SKIPPED;
+    }
+    boolean closing() { return closing; }
     public void importError(String message) { importError=message; }
     public void collect(String key, Runnable collector) { collectors.put(key, collector); }
     private void collect() {
@@ -79,7 +93,10 @@ public final class SessionStore implements AutoCloseable {
         if (!writable || (closing && Thread.currentThread()!=ioThread)) return;
         checkModule(write.module);
         synchronized (pendingLock) {
-            if (write.key == null) events.addLast(write);
+            if (write.key == null) {
+                if (events.size() >= EVENT_LIMIT) skipped.incrementAndGet();
+                else events.addLast(write);
+            }
             else checkpoints.put(write.session + "/" + write.module + "/" + write.key, write);
         }
     }
@@ -95,41 +112,77 @@ public final class SessionStore implements AutoCloseable {
     }
     private void drain() {
         if (!writable) return;
+        Set<Write> completed = new HashSet<>();
+        List<Write> selected = new ArrayList<>();
         try {
             ensureCurrent();
             int budget = 2000;
+            synchronized (pendingLock) {
+                for (Write write : events) {
+                    if (budget == 0) break;
+                    selected.add(write); budget--;
+                }
+            }
+            Map<Path, List<Write>> batches = new LinkedHashMap<>();
+            for (Write write : selected)
+                batches.computeIfAbsent(sessionPath(write.session).resolve(write.module + ".jsonl"), key -> new ArrayList<>()).add(write);
+            for (Map.Entry<Path, List<Write>> batch : batches.entrySet()) appendBatch(batch.getKey(), batch.getValue(), completed);
             while (budget-- > 0) {
                 Write write;
                 synchronized (pendingLock) {
-                    write = events.peekFirst();
-                    if (write == null && !checkpoints.isEmpty()) write = checkpoints.values().iterator().next();
+                    write = checkpoints.isEmpty() ? null : checkpoints.values().iterator().next();
                 }
                 if (write == null) break;
-                persist(write);
+                String json = serialize(write);
+                if (json != null) persistCheckpoint(write, json);
                 synchronized (pendingLock) {
-                    if (write.key == null) events.removeFirst();
-                    else checkpoints.remove(write.session + "/" + write.module + "/" + write.key, write);
+                    checkpoints.remove(write.session + "/" + write.module + "/" + write.key, write);
                 }
             }
             error = "";
         } catch (Exception e) { error = SAVE_FAILED + root; }
-    }
-    private void persist(Write write) throws IOException {
-        Path session = sessionPath(write.session);
-        String json = JSON.toJson(write.value);
-        if (write.key == null) {
-            Path file = session.resolve(write.module + ".jsonl");
-            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-                long before = channel.size(); channel.position(before);
-                try {
-                    ByteBuffer bytes = StandardCharsets.UTF_8.encode(json + "\n");
-                    while (bytes.hasRemaining()) channel.write(bytes);
-                } catch (IOException failure) { channel.truncate(before); throw failure; }
+        finally {
+            synchronized (pendingLock) {
+                Iterator<Write> queued = events.iterator();
+                for (int i = 0; i < selected.size() && queued.hasNext(); i++)
+                    if (completed.contains(queued.next())) queued.remove();
             }
-        } else {
-            Path folder = session.resolve(write.module); Files.createDirectories(folder);
-            atomic(folder.resolve(checkpointName(write.key) + ".json"), json);
         }
+    }
+    private String serialize(Write write) {
+        try { return JSON.toJson(write.value); }
+        catch (RuntimeException | StackOverflowError failure) {
+            skipped.incrementAndGet(); return null;
+        }
+    }
+    private void appendBatch(Path file, List<Write> batch, Set<Write> completed) throws IOException {
+        List<String> lines = new ArrayList<>();
+        for (Write write : batch) {
+            String json = serialize(write);
+            if (json == null) completed.add(write); else lines.add(json);
+        }
+        if (lines.isEmpty()) return;
+        try (FileChannel channel = journalChannels.open(file)) {
+            Long rollback = rollbacks.get(file);
+            if (rollback != null) { channel.truncate(rollback); rollbacks.remove(file); }
+            long before = channel.size(); channel.position(before);
+            rollbacks.put(file, before);
+            try {
+                BufferedOutputStream output = new BufferedOutputStream(Channels.newOutputStream(channel));
+                for (String json : lines) { output.write(json.getBytes(StandardCharsets.UTF_8)); output.write('\n'); }
+                output.flush();
+            } catch (IOException failure) {
+                try { channel.truncate(before); rollbacks.remove(file); }
+                catch (IOException rollbackFailure) { failure.addSuppressed(rollbackFailure); }
+                throw failure;
+            }
+            rollbacks.remove(file); completed.addAll(batch);
+        }
+    }
+    private void persist(Write write) throws IOException { persistCheckpoint(write, JSON.toJson(write.value)); }
+    private void persistCheckpoint(Write write, String json) throws IOException {
+        Path folder = sessionPath(write.session).resolve(write.module); Files.createDirectories(folder);
+        atomic(folder.resolve(checkpointName(write.key) + ".json"), json);
     }
     private static void atomic(Path target, String value) throws IOException {
         Path temp = Files.createTempFile(target.getParent(), ".history-", ".tmp");

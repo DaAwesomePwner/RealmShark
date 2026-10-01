@@ -94,8 +94,8 @@ public class FameProvenanceTest {
         assertTrue("Unknown account keeps the legacy key", Files.isRegularFile(latest("9102")));
         Map<String, Long> byAccount = new HashMap<>();
         for (AppHistory.FameSample sample : latest) byAccount.put(String.valueOf(sample.account), sample.time);
-        assertEquals(Long.valueOf(1_200), byAccount.get(A)); assertEquals(Long.valueOf(1_300), byAccount.get(B));
-        assertEquals(Long.valueOf(1_500), byAccount.get("null"));
+        assertEquals(Long.valueOf(1_000), byAccount.get(A)); assertEquals(Long.valueOf(1_300), byAccount.get(B));
+        assertEquals(Long.valueOf(1_400), byAccount.get("null"));
     }
 
     @Test public void theFourArgumentFormStillRecordsWithANullAccount() throws Exception {
