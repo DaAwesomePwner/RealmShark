@@ -1052,11 +1052,14 @@ public class ParsePanelGUI extends JPanel {
                 equipmentLabels[i] = slot + ": " + item;
                 EnchantInfo enchant = capture.info(i);
                 equipmentDetails[i] = equipmentLabels[i] + "\nEnchants: " + enchant.text();
-                // Built with the row, which is rebuilt on a theme change, so the tooltip's colors follow the theme.
-                equipmentTooltips[i] = EnchantTooltip.html(equipmentLabels[i], enchant);
                 // The well says what the slot holds (as its label does): not captured, empty (a negative ID) or an item with its tier.
                 ItemSlot.State state = !player.equipmentCaptured[i] ? ItemSlot.State.UNKNOWN : player.inv[i] < 0 ? ItemSlot.State.EMPTY : ItemSlot.State.ITEM;
                 String tier = state == ItemSlot.State.ITEM && player.inv[i] > 0 && definitions != null ? ItemTiers.label(definitions.item(player.inv[i])) : "";
+                // Built with the row, which is rebuilt on a theme change, so the tooltip's colors follow the theme. An item is headed by its
+                // name and tier, as every item tooltip is; an empty or uncaptured slot keeps its slot label.
+                String heading = state == ItemSlot.State.ITEM
+                        ? EnchantTooltip.heading(player.itemName[i] == null ? "Unrecognized item" : player.itemName[i], tier) : equipmentLabels[i];
+                equipmentTooltips[i] = EnchantTooltip.html(heading, enchant);
                 Icon well = ItemSlot.icon(state == ItemSlot.State.ITEM ? Sprites.sprite(player.inv[i], 20) : null, tier, state, 20);
                 // Only a captured item carries a rarity gem; a well that shows no item claims none.
                 icons[i] = state == ItemSlot.State.ITEM ? EnchantGem.decorate(well, enchant) : well;

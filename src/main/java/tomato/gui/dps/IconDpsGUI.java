@@ -24,6 +24,8 @@ import packets.incoming.NotificationPacket;
 import tomato.backend.data.*;
 import tomato.gui.SmartScroller;
 import tomato.gui.kit.EnchantIconLabel;
+import tomato.gui.kit.EnchantTooltip;
+import tomato.gui.kit.ItemTiers;
 import tomato.gui.modern.ContentStyle;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.dps.shared.EquipmentUsageAggregator;
@@ -416,7 +418,7 @@ public class IconDpsGUI extends DisplayDpsGUI {
             // Retained per-hit strings turn a missing stat into "", so "" reads as not recorded rather than unenchanted.
             EnchantInfo enchant = EnchantInfo.ofRetained(max != null ? max.enchant : null);
             EnchantIconLabel icon = new EnchantIconLabel();
-            icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), IdToAsset.objectName(eq), enchant);
+            icon.setItem(ImageBuffer.getOutlinedIcon(eq, s), EnchantTooltip.heading(IdToAsset.objectName(eq), ItemTiers.label(eq)), enchant);
             panel.add(icon);
         }
 
