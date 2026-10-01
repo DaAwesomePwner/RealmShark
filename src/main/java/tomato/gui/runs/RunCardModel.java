@@ -150,18 +150,10 @@ public record RunCardModel(VisitRef ref, String map, String mapName, int portalI
      * the run recap both use it, so a run's loot reads the same in both.
      */
     static String summary(List<LootFacts.Bag> bags) {
-        int items = 0, untiered = 0, setTiered = 0, potions = 0;
-        for (LootFacts.Bag bag : bags) for (LootFacts.Item item : bag.items()) {
-            items++;
-            if (item.untiered()) untiered++;
-            if (item.setTiered()) setTiered++;
-            if (item.potion()) potions++;
-        }
-        List<String> parts = new ArrayList<>();
-        if (untiered > 0) parts.add(untiered + " UT");
-        if (setTiered > 0) parts.add(setTiered + " ST");
-        if (potions > 0) parts.add(potions + (potions == 1 ? " potion" : " potions"));
-        if (parts.isEmpty() && items > 0) parts.add(items + (items == 1 ? " item" : " items"));
-        return String.join(" · ", parts);
+        List<LootFacts.Item> items = new ArrayList<>();
+        for (LootFacts.Bag bag : bags) items.addAll(bag.items());
+        String kinds = tomato.gui.loot.haul.LootLine.kinds(items);
+        if (!kinds.isEmpty() || items.isEmpty()) return kinds;
+        return items.size() + (items.size() == 1 ? " item" : " items");
     }
 }
