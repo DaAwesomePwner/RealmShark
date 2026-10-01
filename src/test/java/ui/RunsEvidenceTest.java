@@ -326,7 +326,9 @@ public class RunsEvidenceTest {
         recap("recap-loot-players", 1240, 800, 13, SIMPLE, linked, "run-recap-loot", () -> {
             assertTrue(section(RunRecapView.LOOT).expanded() && section(RunRecapView.PLAYERS).expanded());
             assertEquals("Loot · 10 items", section(RunRecapView.LOOT).toggle().getText());
-            assertEquals("Three bags of this exact run", 3, count(shell, "run-recap-loot-bag"));
+            tomato.gui.loot.haul.HaulView haul = VisualEvidence.named(VisualEvidence.named(shell, "run-recap-loot-bags", JComponent.class),
+                "loot-haul", tomato.gui.loot.haul.HaulView.class);
+            assertEquals("Three bags of this exact run", 3, haul.model().shelf().stream().mapToInt(shelf -> shelf.bags().size()).sum());
             assertEquals("Players · 6", section(RunRecapView.PLAYERS).toggle().getText());
             assertEquals("6 players seen in this run", text("run-recap-players-count"));
             assertEquals(6, count(shell, "run-recap-player"));

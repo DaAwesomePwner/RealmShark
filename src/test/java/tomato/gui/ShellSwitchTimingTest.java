@@ -441,7 +441,7 @@ public class ShellSwitchTimingTest {
                 String problem = highlightsProblem();
                 if (problem != null) return problem;
             }
-            if (target.lootTab == LootTab.EXPLORE && !workspace("loot").isShowing()) return "the Loot workspace is not showing";
+            if (target.lootTab == LootTab.EXPLORE && !exploreShowing()) return "Loot › Explore is not showing";
             if (target.tab == RunsTab.LIVE_METER) {
                 if (!meter.isShowing()) return "the meter is not showing";
                 if (field(DpsGUI.class, "rendered", dps) != published) return "the meter did not render the snapshot published before the switch";
@@ -757,6 +757,12 @@ public class ShellSwitchTimingTest {
         Thread[] t = new Thread[1];
         SwingUtilities.invokeAndWait(() -> t[0] = Thread.currentThread());
         return t[0];
+    }
+    /** Loot › Explore's page and the view it shows: Pictures, or the Loot workspace as its Table view. */
+    private boolean exploreShowing() {
+        tomato.gui.loot.explore.LootExplorePage page = named(shell, "loot-explore", tomato.gui.loot.explore.LootExplorePage.class);
+        if (page == null || !page.isShowing()) return false;
+        return page.tableShown() ? workspace("loot").isShowing() : page.pictures().isShowing();
     }
     private ArchiveWorkspace<?, ?, ?> workspace(String module) {
         ArchiveWorkspace<?, ?, ?> result = named(shell, module + "-session-view", ArchiveWorkspace.class);
