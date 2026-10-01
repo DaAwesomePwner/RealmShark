@@ -473,6 +473,23 @@ public class HistoryIndexTest {
         assertTrue(index.ready(A)); assertEquals(1,count(index,"runs")); assertEquals("Reimported",scalar(index,"SELECT map FROM runs"));
         assertTrue(index.search("Queued",EnumSet.allOf(Kind.class),10).isEmpty()); noOrphanFts(index);
     }
+    @Test public void reimportChangeWhileRemovalIsPendingSurvivesTheTombstone() throws Exception {
+        session(A,1,10); checkpoint(A,"runs","r","{id:'r',map:'Original'}");
+        HistoryIndex initial=index(false); initial.closeAsync().get(30,TimeUnit.SECONDS);
+        HistoryIndex index=new HistoryIndex(store,file,false); opened.add(index);
+        // Queue both lifecycle events before starting the writer so deletion cannot win this race by chance.
+        index.offer(A,"runs",-1,"r",ProjectionsTest.json("{id:'r',map:'Obsoletequeued'}"));
+        index.removeSession(A);
+        checkpoint(A,"runs","r","{id:'r',map:'Immediateimport'}");
+        index.markSessionChanged(A);
+        ready(index); flush(index);
+        assertTrue(index.ready(A)); assertEquals(1,count(index,"runs"));
+        assertEquals("Immediateimport",scalar(index,"SELECT map FROM runs"));
+        assertTrue(index.search("Original",Set.of(Kind.RUN),10).isEmpty());
+        assertTrue(index.search("Obsoletequeued",Set.of(Kind.RUN),10).isEmpty());
+        assertEquals(1,index.search("Immediateimport",Set.of(Kind.RUN),10).size()); noOrphanFts(index);
+        long replacements=index.replacementCount(); flush(index); assertEquals(replacements,index.replacementCount());
+    }
     private static void noOrphanFts(HistoryIndex index) throws Exception {
         try (Connection c=index.readConnection(); Statement s=c.createStatement()) {
             for (String fts:List.of("docs","names")) {
