@@ -1,6 +1,7 @@
 package tomato.gui.loot;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -24,8 +25,8 @@ import tomato.history.archive.Cancellation;
  *   folder was last written) with bags kept to the day; This session = the current session, every bag. "Loot was saved" is
  *   Home's rule too (a bag in the window's sessions), so the tiles and Home's agree to the number and to unknown.
  * - Per-session facts are kept with {@link SessionStamps}: a closed session's bags are reused while the name, size and
- *   modification time of its folder's entries and of its loot folder are unchanged; the current session is read every time and
- *   never kept. A session is stamped only when it is in the window (or crashed, for its end).
+ *   modification time of its folder's entries and of its loot folder are unchanged; the current session's journal is read
+ *   incrementally. A session is stamped only when it is in the window (or crashed, for its end).
  * - One session degrades alone: a session whose loot cannot be read, or whose folder cannot be stamped, is left out and counted
  *   in {@link HighlightsModel#sessionsSkipped()}, as are unreadable catalog entries that changed during the day (Home's rule; This
  *   session reads only the current session). A history folder that cannot be listed makes the model unavailable with the
@@ -55,6 +56,9 @@ public final class HighlightsSource {
     private final SessionStamps<Facts> kept = new SessionStamps<>(FOLDERS);
     /** Loot reads from disk (tests: kept sessions are not read again). */
     private final AtomicInteger reads = new AtomicInteger();
+    private SessionStore currentStore;
+    private SessionStore.JournalCursor currentCursor;
+    private final List<LootFacts.Bag> currentBags = new ArrayList<>();
 
     /**
      * {@code store}: the open history store, or null while none is open (the live feed is shown then); {@code live}: the app's
@@ -98,6 +102,7 @@ public final class HighlightsSource {
         cancel.check();
         long now = clock.getAsLong();
         SessionStore store = stores.get();
+        if (currentStore != store) { currentStore = store; currentCursor = null; currentBags.clear(); }
         HighlightsModel model = store == null ? live(window, now) : saved(store, window, now, cancel);
         cancel.check();
         return model;
@@ -106,7 +111,7 @@ public final class HighlightsSource {
     /** Closed sessions whose facts are kept (tests). */
     int cachedSessions() { return kept.size(); }
 
-    /** Loot reads from disk so far, the current session's each time (tests). */
+    /** Loot read attempts so far, including incremental retries and full-read fallbacks (tests). */
     int sessionReads() { return reads.get(); }
 
     /** This app run's retained bags (not saved), kept to the window: Today's local day, or every retained bag. */
@@ -152,7 +157,7 @@ public final class HighlightsSource {
         boolean recorded = false;
         for (SessionStore.Session session : sessions) {
             cancel.check();
-            List<LootFacts.Bag> bags = loot(store, catalog, session.id, checked);
+            List<LootFacts.Bag> bags = loot(store, catalog, session, checked, cancel);
             if (bags == null) { skipped++; continue; }   // this session's loot is unknown; the others still count
             if (!bags.isEmpty()) recorded = true;        // loot was saved in the window's sessions: a count of 0 is a real zero
             for (LootFacts.Bag bag : bags) if (bag.time() >= keepFrom && bag.time() < keepUntil) inWindow.add(bag);
@@ -194,14 +199,17 @@ public final class HighlightsSource {
     }
 
     /** The session's saved bags, or null (unknown) when its folder cannot be stamped or its loot cannot be read. */
-    private List<LootFacts.Bag> loot(SessionStore store, List<SessionStore.SessionEntry> catalog, String session, Map<String, Facts> checked) {
+    private List<LootFacts.Bag> loot(SessionStore store, List<SessionStore.SessionEntry> catalog, SessionStore.Session metadata,
+            Map<String, Facts> checked, Cancellation cancel) {
+        String session = metadata.id;
+        if (session.equals(store.currentId())) return currentLoot(store, catalog, metadata, cancel);
         Facts facts;
         try { facts = facts(store, session, checked); }
         catch (IOException unlisted) { return null; }
         if (facts.loot == null) {
             reads.incrementAndGet();
             List<LootFacts.Bag> bags = new ArrayList<>();
-            try { LootFacts.read(store, catalog, session, bags::add); }
+            try { LootFacts.read(store, catalog, session, bag -> { cancel.check(); bags.add(bag); }); }
             catch (IOException | RuntimeException failure) {
                 if (failure instanceof CancellationException) throw (CancellationException) failure;
                 return null;   // not kept: read again next time
@@ -209,6 +217,36 @@ public final class HighlightsSource {
             facts.loot = List.copyOf(bags);
         }
         return facts.loot;
+    }
+
+    private List<LootFacts.Bag> currentLoot(SessionStore store, List<SessionStore.SessionEntry> catalog,
+            SessionStore.Session session, Cancellation cancel) {
+        // Capture appends loot, but an imported/manually restored checkpoint folder must retain full-read semantics.
+        if (!Files.isDirectory(store.directory().resolve(session.id).resolve("loot"))) {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                List<LootFacts.Bag> tail = new ArrayList<>();
+                SessionStore.JournalCursor cursor = currentCursor;
+                reads.incrementAndGet();
+                try {
+                    SessionStore.JournalCursor next = LootFacts.readJournalFrom(store, session, cursor, tail::add, cancel);
+                    cancel.check();
+                    currentBags.addAll(tail); currentCursor = next;
+                    return currentBags;
+                } catch (CancellationException cancelled) { throw cancelled; }
+                catch (IOException | RuntimeException failure) {
+                    currentCursor = null; currentBags.clear();
+                    if (cursor == null && !(failure instanceof SessionStore.JournalChangedException)) break;
+                }
+            }
+        }
+        currentCursor = null; currentBags.clear();
+        List<LootFacts.Bag> bags = new ArrayList<>();
+        reads.incrementAndGet();
+        try {
+            LootFacts.read(store, catalog, session.id, bag -> { cancel.check(); bags.add(bag); });
+            cancel.check(); return bags;
+        } catch (CancellationException cancelled) { throw cancelled; }
+        catch (IOException | RuntimeException failure) { return null; }
     }
 
     /**

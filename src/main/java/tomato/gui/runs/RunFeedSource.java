@@ -46,8 +46,9 @@ import tomato.realmshark.ParseDungeon;
  * coverage) and combat records ({@link CombatFacts}). A closed session's facts are kept while its stamp is unchanged (the
  * name, size and modification time of every entry of its folder and of its loot, fame, fame-latest and encounters folders;
  * {@link SessionStamps}, as Home's archive and the Dungeons cards keep theirs); the current session is read again every
- * time. Sessions whose metadata cannot be read are left out of the result, and a damaged {@code runs} file fails the read, as
- * the archive does. One session's facts degrade alone: when its loot, fame or combat records cannot be read, its runs' cards
+ * time. Sessions whose metadata cannot be read are left out of the result. Unreadable, null or oversized {@code runs} records
+ * are skipped and counted in the session's issues; only IO or directory-listing failures fail the session read.
+ * One session's facts degrade alone: when its loot, fame or combat records cannot be read, its runs' cards
  * show that fact as unknown with a reason ({@link RunCardModel#LOOT_UNREADABLE}, null fame,
  * {@link RunCardModel#COMBAT_UNREADABLE}); a single damaged combat record is skipped ({@link CombatFacts#read}). Both are
  * named in {@link Page#issues()}, so the feed can say it is partial.
@@ -55,7 +56,7 @@ import tomato.realmshark.ParseDungeon;
 public final class RunFeedSource {
     /** Runs per page. */
     public static final int PAGE = 50;
-    /** The archive's largest record: a bigger checkpoint or journal line fails the read, as the archive pin's did. */
+    /** Largest run record: bigger checkpoints or complete journal lines are skipped and counted in the session's issues. */
     private static final int MAX_RECORD = 16 * 1024 * 1024;
     /** The session folders whose files the kept facts come from (besides the session folder's own entries). */
     private static final String[] FOLDERS = {"loot", "fame", "fame-latest", CombatFacts.RECORDS};
@@ -273,7 +274,7 @@ public final class RunFeedSource {
     /**
      * Reads journal and checkpoints with the same ended-session fix-up as the store. Neither reader deduplicates visits
      * or lets a checkpoint override a journal record. Rows whose sort keys tie keep this read order: checkpoints (by
-     * file name), then journal lines. A non-regular or linked file is skipped, and an empty, null or oversized record fails the read.
+     * file name), then journal lines. A non-regular or linked file is skipped; unreadable records are skipped and counted.
      * Nothing is published to the cache until the whole session succeeds and cancellation is checked.
      */
     private Runs runs(SessionStore.SessionEntry entry, Cancellation cancel) throws IOException {
@@ -283,6 +284,7 @@ public final class RunFeedSource {
         List<ArchiveRow<Projected>> rows = new ArrayList<>();
         SessionStore.Session session = entry.session();
         boolean[] state = SessionFacts.state(session, entry.id.equals(store.currentId()));
+        int skipped = checked.skipped;
         try {
             List<Path> checkpoints = new ArrayList<>();
             Path folder = journal.resolveSibling("runs");
@@ -293,9 +295,10 @@ public final class RunFeedSource {
             int ordinal = 0;
             for (Path file : checkpoints) {
                 cancel.check();
-                if (Files.size(file) > MAX_RECORD) throw new IOException("Checkpoint exceeds the 16 MiB record limit");
-                ActivityJournal.Visit visit = SessionStore.JSON.fromJson(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), ActivityJournal.Visit.class);
-                if (visit == null) throw new IOException("Null archive record in runs");   // as the archive pin read it
+                if (Files.size(file) > MAX_RECORD) { skipped++; continue; }
+                String json = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+                ActivityJournal.Visit visit = visit(json);
+                if (visit == null) { skipped++; continue; }
                 project(rows, session, state, visit, ordinal++);
             }
             for (ActivityJournal.Visit visit : checked.visits) {
@@ -306,7 +309,10 @@ public final class RunFeedSource {
         catch (RuntimeException failure) { throw new IOException("Unreadable runs record in session " + entry.id, failure); }
         unchangedPrefix(journal, checked.attributes);
         cancel.check();
-        return new Runs(List.copyOf(rows), checked.tail ? List.of(entry.id + "/runs: unfinished journal tail excluded") : List.of());
+        List<String> issues = new ArrayList<>();
+        if (checked.tail) issues.add(entry.id + "/runs: unfinished journal tail excluded");
+        if (skipped > 0) issues.add(entry.id + "/runs: " + skipped + " unreadable run records skipped");
+        return new Runs(List.copyOf(rows), List.copyOf(issues));
     }
 
     private static void project(List<ArchiveRow<Projected>> rows, SessionStore.Session session, boolean[] state,
@@ -320,43 +326,42 @@ public final class RunFeedSource {
 
     /**
      * Reads and validates the '\n'-terminated lines of the initial byte prefix as the archive pin did: bytes are streamed and a
-     * line is held only up to {@link #MAX_RECORD} (a longer complete line fails the read without being held whole), and each
+     * line is held only up to {@link #MAX_RECORD} (a longer complete line is skipped without being held whole), and each
      * line is decoded replacing malformed UTF-8. The bytes after the last '\n' are an unfinished tail, excluded even if they
      * hold valid JSON. Appends never enter this read; the resulting visits are reused rather than read again from the store.
      */
     private static Journal journal(Path file, Cancellation cancel) throws IOException {
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return new Journal(null, List.of(), false);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return new Journal(null, List.of(), false, 0);
         BasicFileAttributes attributes = Files.readAttributes(file, BasicFileAttributes.class);
         long bytes = attributes.size();
         List<ActivityJournal.Visit> visits = new ArrayList<>();
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         boolean oversized = false;
+        int skipped = 0;
         int last = '\n';
         try (InputStream input = new BufferedInputStream(new JournalPrefix(Files.newInputStream(file), bytes))) {
             long offset = 0;
             for (int value; (value = input.read()) >= 0; last = value) {
                 if ((offset++ & 4095) == 0) cancel.check();
                 if (value == '\n') {
-                    if (oversized) throw new IOException("Journal record exceeds the 16 MiB record limit");
-                    visits.add(visit(new String(line.toByteArray(), StandardCharsets.UTF_8)));
-                    line.reset();
-                } else if (!oversized) {   // an oversized line is skipped to its end: it fails there, or is the excluded tail
+                    ActivityJournal.Visit visit = oversized ? null : visit(new String(line.toByteArray(), StandardCharsets.UTF_8));
+                    if (visit == null) skipped++; else visits.add(visit);
+                    line.reset(); oversized = false;
+                } else if (!oversized) {   // an oversized line is skipped to its end, or is the excluded tail
                     if (line.size() >= MAX_RECORD) { oversized = true; line.reset(); } else line.write(value);
                 }
             }
         }
         unchangedPrefix(file, attributes);
         cancel.check();
-        return new Journal(attributes, visits, last != '\n');
+        return new Journal(attributes, visits, last != '\n', skipped);
     }
 
-    /** One complete journal line as a visit; an empty, null or damaged line fails the read. */
-    private static ActivityJournal.Visit visit(String json) throws IOException {
-        ActivityJournal.Visit visit;
-        try { visit = SessionStore.JSON.fromJson(json, ActivityJournal.Visit.class); }
-        catch (RuntimeException failure) { throw new IOException("Unreadable runs journal record", failure); }
-        if (visit == null) throw new IOException("Null archive record in runs");
-        return visit;
+    /** One record as a visit; null marks an empty, null or damaged record. */
+    private static ActivityJournal.Visit visit(String json) {
+        try { return SessionStore.JSON.fromJson(json, ActivityJournal.Visit.class); }
+        catch (java.util.concurrent.CancellationException failure) { throw failure; }
+        catch (RuntimeException failure) { return null; }
     }
 
     private static void unchangedPrefix(Path file, BasicFileAttributes before) throws IOException {
@@ -387,5 +392,5 @@ public final class RunFeedSource {
         }
     }
 
-    private record Journal(BasicFileAttributes attributes, List<ActivityJournal.Visit> visits, boolean tail) {}
+    private record Journal(BasicFileAttributes attributes, List<ActivityJournal.Visit> visits, boolean tail, int skipped) {}
 }
