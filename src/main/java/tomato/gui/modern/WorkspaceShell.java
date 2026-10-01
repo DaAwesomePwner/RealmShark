@@ -30,6 +30,7 @@ import util.PropertiesManager;
 public final class WorkspaceShell extends JPanel {
     /** Back label when the routed origin is the page already shown. */
     public static final String BACK_TO_PREVIOUS_VIEW = "Back to previous view";
+    public static final String FORWARD_TO_NEXT_VIEW = "Forward to next view";
     /** Settings sits below the scrolling destination list, so it is always in reach. */
     private static final String SETTINGS = "settings";
     /** Shells open on Chat; the app then shows the landing page ({@link #selectLanding}). */
@@ -95,6 +96,9 @@ public final class WorkspaceShell extends JPanel {
     private final JLabel sideFooter = new JLabel("Powered by RealmShark");
     private final KitButton capture = KitButton.primary("Start capture");
     private final JButton back = new JButton("Back");
+    private final JButton forward = new JButton("Forward");
+    private final AWTEventListener mouseNavigation = this::handleMouseNavigation;
+    private boolean mouseNavigationRegistered;
     private ShellNavigator navigator;
     private final Chip previewLabel = new Chip("Preview", Tokens.Tone.ACCENT);
     private final Chip capturePill = new Chip("Capture off", Tokens.Tone.NEUTRAL);
@@ -254,6 +258,9 @@ public final class WorkspaceShell extends JPanel {
         back.setName("navigate-back");
         back.setVisible(false);
         back.addActionListener(e -> navigateBack());
+        forward.setName("navigate-forward");
+        forward.setVisible(false);
+        forward.addActionListener(e -> navigateForward());
         browseHistory.setName("browse-history");
         browseHistory.setToolTipText("Open every saved session in Runs without starting capture");
         browseHistory.setVisible(browse != null);
@@ -274,7 +281,7 @@ public final class WorkspaceShell extends JPanel {
         JPanel actions = ContentStyle.controls();
         actions.setName("workspace-actions");
         actions.setOpaque(false);
-        for (JComponent action : new JComponent[] {back, browseHistory, previewLabel, capturePill, modeSwitch, capture}) actions.add(action);
+        for (JComponent action : new JComponent[] {back, forward, browseHistory, previewLabel, capturePill, modeSwitch, capture}) actions.add(action);
         JPanel header = new JPanel(new HeaderLayout(12, 6)) {
             @Override public void setBounds(int x, int y, int width, int height) {
                 boolean changed = width != getWidth();
@@ -345,6 +352,10 @@ public final class WorkspaceShell extends JPanel {
         getActionMap().put("navigate-back", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { navigateBack(); }
         });
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK), "navigate-forward");
+        getActionMap().put("navigate-forward", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { navigateForward(); }
+        });
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_M, InputEvent.ALT_DOWN_MASK), "open-navigation");
         getActionMap().put("open-navigation", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { showNavigation(); }
@@ -369,11 +380,20 @@ public final class WorkspaceShell extends JPanel {
 
     @Override public void addNotify() {
         super.addNotify();
+        Toolkit toolkit = Toolkit.getDefaultToolkit();
+        if (!mouseNavigationRegistered && toolkit.areExtraMouseButtonsEnabled()) {
+            toolkit.addAWTEventListener(mouseNavigation, AWTEvent.MOUSE_EVENT_MASK);
+            mouseNavigationRegistered = true;
+        }
         refreshPreferencesStatus();
         preferencesTimer.start();
     }
 
     @Override public void removeNotify() {
+        if (mouseNavigationRegistered) {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(mouseNavigation);
+            mouseNavigationRegistered = false;
+        }
         drag.end();
         preferencesTimer.stop();
         super.removeNotify();
@@ -1010,7 +1030,7 @@ public final class WorkspaceShell extends JPanel {
         return created;
     }
 
-    /** Visible only while a routed origin can be restored; Alt+Left works whenever it is shown. */
+    /** Each action is visible only while its history has a view to restore. */
     private void refreshBack() {
         boolean available = navigator != null && navigator.canGoBack();
         String page = available ? navigator.backPage() : ShellNavigator.NO_PAGE;
@@ -1019,14 +1039,45 @@ public final class WorkspaceShell extends JPanel {
         // view; naming the page the user is already on would read as a no-op.
         String label = page != null && page.equals(selected) ? BACK_TO_PREVIOUS_VIEW : origin != null ? "Back to " + origin.title() : "Back";
         back.setText(label); back.getAccessibleContext().setAccessibleName(label);
-        back.setToolTipText("Return to the view you came from, with its filters and selection (Alt+Left)");
+        back.setToolTipText("Return to the view you came from, with its filters and selection (Alt+Left or mouse Back button)");
         if (back.isVisible() != available) { back.setVisible(available); revalidate(); repaint(); }
+        available = navigator != null && navigator.canGoForward();
+        page = available ? navigator.forwardPage() : ShellNavigator.NO_PAGE;
+        NavEntry destination = page == null ? null : NavEntry.forId(page);
+        label = page != null && page.equals(selected) ? FORWARD_TO_NEXT_VIEW : destination != null ? "Forward to " + destination.title() : "Forward";
+        forward.setText(label); forward.getAccessibleContext().setAccessibleName(label);
+        forward.setToolTipText("Return to the next view, with its filters and selection (Alt+Right or mouse Forward button)");
+        if (forward.isVisible() != available) { forward.setVisible(available); revalidate(); repaint(); }
     }
 
     private void navigateBack() {
         if (navigator == null || !navigator.canGoBack()) return;
         // Focus follows the restored page, as with the Alt destination shortcuts; the hidden page loses it.
         if (navigator.back()) focusPage(selected);
+    }
+
+    private void navigateForward() {
+        if (navigator == null || !navigator.canGoForward()) return;
+        if (navigator.forward()) focusPage(selected);
+    }
+
+    enum MouseNavigation { IGNORE, CONSUME, BACK, FORWARD }
+
+    static MouseNavigation mouseNavigation(int eventId, int button, boolean sameWindow) {
+        if (!sameWindow || (button != 4 && button != 5)) return MouseNavigation.IGNORE;
+        if (eventId == MouseEvent.MOUSE_RELEASED) return button == 4 ? MouseNavigation.BACK : MouseNavigation.FORWARD;
+        return eventId == MouseEvent.MOUSE_PRESSED || eventId == MouseEvent.MOUSE_CLICKED ? MouseNavigation.CONSUME : MouseNavigation.IGNORE;
+    }
+
+    private void handleMouseNavigation(AWTEvent event) {
+        if (!(event instanceof MouseEvent mouse) || !(mouse.getSource() instanceof Component source)) return;
+        Window own = SwingUtilities.getWindowAncestor(this);
+        Window window = source instanceof Window ? (Window) source : SwingUtilities.getWindowAncestor(source);
+        MouseNavigation action = mouseNavigation(mouse.getID(), mouse.getButton(), own != null && own == window);
+        if (action == MouseNavigation.IGNORE) return;
+        mouse.consume();
+        if (action == MouseNavigation.BACK) navigateBack();
+        else if (action == MouseNavigation.FORWARD) navigateForward();
     }
 
     /** Keyboard focus for the page just shown ({@link #focusTarget}). */
