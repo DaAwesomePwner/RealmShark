@@ -14,10 +14,13 @@ import tomato.gui.dps.DpsGUI;
 import tomato.gui.dps.RecordedEncounter;
 import tomato.gui.history.ArchiveWorkspace;
 import tomato.gui.history.ViewState;
+import tomato.gui.loot.explore.LootExplorePage;
+import tomato.gui.loot.haul.HaulModel;
 import tomato.gui.modern.WorkspaceShell;
 import tomato.gui.route.*;
 import tomato.gui.runs.RunsDpsPage;
 import tomato.gui.runs.RunsTab;
+import tomato.gui.stats.LootFacts;
 import tomato.history.AppHistory;
 import tomato.history.SessionStore;
 import tomato.history.archive.ArchiveRow;
@@ -83,7 +86,7 @@ public class WaveThreeJourneyTest {
         store.append("timeline", entry("t1-early", V1, 110_000)); store.append("timeline", entry("t1-late", V1, 150_000));
         store.append("timeline", entry("t2-a", V2, 170_000)); store.append("timeline", entry("t2-b", V2, 200_000));
         store.append("timeline", entry("t2-outside", V2, 205_000));
-        store.append("loot", drop(V1, 120_000, 1, "First visit sword")); store.append("loot", drop(V2, 180_000, 2, "Second visit sword"));
+        store.append("loot", drop(session, V1, 120_000, 1, "First visit sword")); store.append("loot", drop(session, V2, 180_000, 2, "Second visit sword"));
         store.flush();
         storeField.set(null, store);
         TomatoData data = new TomatoData();
@@ -129,12 +132,14 @@ public class WaveThreeJourneyTest {
         backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.LOOT).withVisit(second)));
-        await(() -> settled(loot) && loot.displayedPage().matches == 1);
-        assertEquals(Collections.singletonList(V2), visitIds(loot, row -> field(row, "visitId")));
-        assertEquals(Collections.singletonList("Second visit sword"), visitIds(loot, row -> field(row, "name")));
-        // Loot is a page with Highlights and Explore (P6a): the visit route brings Explore, which holds the Loot workspace, forward.
+        // Loot is a page with Highlights and Explore (P6a); an exact-run route opens Explore on Pictures at that run (Loot Explore
+        // pictures P2), whose haul is read by session and visit: only the second visit's bag.
         assertEquals("The LOOT route brings Explore forward", tomato.gui.loot.LootTab.EXPLORE, edt(() -> lootPage().selectedTab()));
-        assertTrue("…whose content is the Loot workspace", edt(() -> SwingUtilities.isDescendingFrom(loot, exploreTab())));
+        LootExplorePage explore = edt(this::explorePage);
+        assertFalse("…on Pictures", edt(explore::tableShown));
+        await(() -> haulShown(explore, second));
+        assertEquals("Only the second visit's bag", Collections.singletonList(2), edt(() -> itemIds(explore)));
+        assertSame("…while Table holds the Loot workspace", loot, explore.table());
         backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.RESOURCES).withVisit(second)));
@@ -155,7 +160,7 @@ public class WaveThreeJourneyTest {
 
     @Test public void foreignOrDeletedSessionReferencesOpenAnExplicitUnavailableStateNotASubstitute() throws Exception {
         VisitRef foreign = new VisitRef(UUID.randomUUID().toString(), V2); // Same visit ID, absent session.
-        ArchiveWorkspace<?, ?, ?> runs = workspace("runs"), loot = workspace("loot"), timeline = workspace("timeline");
+        ArchiveWorkspace<?, ?, ?> runs = workspace("runs"), timeline = workspace("timeline");
         ViewState<?, ?> origin = reviewQueue(runs);
         assertTrue(open(Route.to(Destination.RUNS).withVisit(foreign)));
         await(() -> settled(runs) && runs.displayedPage().matches == 0);
@@ -169,14 +174,16 @@ public class WaveThreeJourneyTest {
         backTo(runs, origin, "runs");
 
         assertTrue(open(Route.to(Destination.LOOT).withVisit(foreign)));
-        await(() -> settled(loot));
+        // Loot Explore pictures P2: the exact-run route opens Pictures on that run, which says it is unavailable instead of drawing
+        // the same visit ID's loot from the current session.
+        LootExplorePage explore = edt(this::explorePage);
+        JTextArea status = edt(() -> named(explore, JTextArea.class, "loot-runs-status"));
+        await(() -> status.getText().contains("Linked visit unavailable") && detailShows(status));
         edt(() -> {
-            assertEquals("No other session's loot is substituted", 0, loot.displayedPage().matches);
-            assertTrue(named(loot, JTextArea.class, "loot-drill-summary").getText().contains("Linked run unavailable here"));
-            // P6a: the drill summary sits in Loot's Explore tab, which the route brought forward.
             assertEquals(tomato.gui.loot.LootTab.EXPLORE, lootPage().selectedTab());
-            assertTrue("loot-drill-summary sits inside Explore",
-                SwingUtilities.isDescendingFrom(named(shell, JTextArea.class, "loot-drill-summary"), exploreTab()));
+            assertFalse("…on Pictures", explore.tableShown());
+            assertEquals("…at the foreign run", foreign, explore.pictures().selectedRun());
+            assertFalse("No other session's loot is substituted", detailShows(explore.pictures().haul()));
             return null;
         });
         backTo(runs, origin, "runs");
@@ -326,6 +333,27 @@ public class WaveThreeJourneyTest {
         assertNotNull("The loot page is Loot", page);
         return page;
     }
+    /** Loot › Explore with saved history: Pictures, and the Loot workspace as Table (Loot Explore pictures P2). EDT. */
+    private LootExplorePage explorePage() {
+        Component explore = exploreTab();
+        assertTrue("Explore is the Pictures | Table page", explore instanceof LootExplorePage);
+        return (LootExplorePage) explore;
+    }
+    /** Pictures' right side shows {@code part} (its status or its haul). EDT. */
+    private static boolean detailShows(Component part) {
+        return part.getParent() != null && "loot-runs-detail".equals(part.getParent().getName());
+    }
+    /** Pictures shows {@code run}'s haul, read (not its loading or unavailable status). EDT. */
+    private static boolean haulShown(LootExplorePage explore, VisitRef run) {
+        return run.equals(explore.pictures().selectedRun()) && detailShows(explore.pictures().haul());
+    }
+    /** The item IDs in the haul Pictures shows, bag by bag. EDT. */
+    private static List<Integer> itemIds(LootExplorePage explore) {
+        List<Integer> ids = new ArrayList<>();
+        for (HaulModel.Shelf shelf : explore.pictures().haul().model().shelf())
+            for (HaulModel.Bag bag : shelf.bags()) for (LootFacts.Item item : bag.items()) ids.add(item.id());
+        return ids;
+    }
     /** Loot's Explore tab content. EDT. */
     private Component exploreTab() {
         tomato.gui.loot.LootPage page = lootPage();
@@ -361,8 +389,8 @@ public class WaveThreeJourneyTest {
         ActivityJournal.Entry e = new ActivityJournal.Entry(); e.id = id; e.visitId = visit; e.map = "Lost Halls"; e.time = time;
         e.kind = "Equipment changed"; e.detail = "Synthetic"; e.values = new LinkedHashMap<>(); return e;
     }
-    /** A saved loot bag in the journal's JSON shape (LootDashboard.Drop), linked to one visit. */
-    private static JsonObject drop(String visit, long time, int item, String name) {
+    /** A saved loot bag in the journal's JSON shape (LootDashboard.Drop), linked to one visit of {@code session} as capture links it. */
+    private static JsonObject drop(String session, String visit, long time, int item, String name) {
         JsonObject enchants = new JsonObject(); enchants.addProperty("slots", 0); enchants.addProperty("applied", 0);
         JsonObject value = new JsonObject(); value.addProperty("id", item); value.addProperty("name", name); value.addProperty("tier", "UT");
         value.addProperty("potion", false); value.addProperty("ut", true); value.addProperty("st", false); value.addProperty("highTier", false);
@@ -371,6 +399,11 @@ public class WaveThreeJourneyTest {
         JsonArray items = new JsonArray(); items.add(value);
         JsonObject bag = new JsonObject(); bag.addProperty("visitId", visit); bag.addProperty("bag", "White"); bag.addProperty("dungeon", "Lost Halls");
         bag.addProperty("dropper", "Synthetic boss"); bag.addProperty("time", time); bag.add("items", items);
+        JsonObject context = new JsonObject(), ref = new JsonObject();
+        ref.addProperty("sessionId", session); ref.addProperty("visitId", visit);
+        context.addProperty("capturedAt", time); context.add("visit", ref);
+        context.add("modifierIds", new JsonArray()); context.addProperty("unresolvedModifiers", 0); context.addProperty("mapRecorded", false);
+        bag.add("context", context);
         return bag;
     }
 
