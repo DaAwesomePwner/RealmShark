@@ -26,6 +26,57 @@ import static org.junit.Assert.*;
 
 /** The Runs level over the synthetic Runs fixture and a fake haul reader: newest first, picking, routes, stale reads, failures, loot outside runs. */
 public class RunsLevelTest {
+    @Test public void stripIsAboveFullWidthHaulAndDungeonFollowsOnlyTheDrawnRun() throws Exception {
+        FakeLoader loader = new FakeLoader();
+        RunHauls.RunHaul first = haul(RunFixtures.A1, "Display A"), second = haul(RunFixtures.A2, "Display B");
+        loader.runs.put(RunFixtures.A1, new RunHauls.RunHaul(first.ref(), first.haul(), null, null, "Canonical A"));
+        loader.runs.put(RunFixtures.A2, new RunHauls.RunHaul(second.ref(), second.haul(), null, null, "Canonical B"));
+        List<Runnable> hauls = new ArrayList<>(), stats = new ArrayList<>();
+        DungeonPanel dungeon = edt(() -> new DungeonPanel(cancel -> List.of(), stats::add));
+        RunsLevel level = edt(() -> new RunsLevel(RunFeedView.strip(() -> null), loader, hauls::add, dungeon));
+        levels.add(level);
+        edt(() -> {
+            assertTrue(level.feed().stripDisplay());
+            assertSame(level.feed(), ((BorderLayout) level.getLayout()).getLayoutComponent(BorderLayout.NORTH));
+            assertFalse(hasSplit(level));
+            level.openRun(RunFixtures.A1);
+            assertNull(dungeon.dungeon());
+            return null;
+        });
+        hauls.get(0).run();
+        edt(() -> {
+            assertEquals("Canonical A", dungeon.dungeon());
+            assertSame(level.haul(), level.detailShown());
+            assertSame(named(level.haul(), "loot-haul-side", JPanel.class), dungeon.getParent());
+            level.openRun(RunFixtures.A2);
+            assertFalse("No stale summary while a different run loads", dungeon.isVisible());
+            return null;
+        });
+        hauls.get(1).run();
+        edt(() -> {
+            assertEquals("Canonical B", dungeon.dungeon());
+            assertEquals(RunFixtures.A2, level.shownRun());
+            level.openUnlinked();
+            assertFalse(dungeon.isVisible());
+            assertNull(dungeon.getParent());
+            return null;
+        });
+        for (Runnable task : stats) task.run();
+        edt(() -> {
+            assertNull(dungeon.model());
+            assertFalse(dungeon.isVisible());
+            return null;
+        });
+    }
+
+    private static boolean hasSplit(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JSplitPane) return true;
+            if (child instanceof Container container && hasSplit(container)) return true;
+        }
+        return false;
+    }
+
     @Rule public TemporaryFolder temp = new TemporaryFolder();
     private final List<RunsLevel> levels = new ArrayList<>();
     private SessionStore store;

@@ -24,7 +24,8 @@ public class ExplorePicturesTest {
         RunsLevelTest.FakeLoader loader = new RunsLevelTest.FakeLoader();
         loader.runs.put(RunFixtures.A1, RunsLevelTest.haul(RunFixtures.A1, "Synthetic Halls"));
         LootCatalog.Reader catalog = cancel -> List.of(bag(100, ut(1, 2), potion(4)));
-        ExplorePictures pictures = edt(() -> new ExplorePictures(new RunsLevel(RunFeedView.picker(() -> null), loader, Runnable::run),
+        ExplorePictures pictures = edt(() -> new ExplorePictures(new RunsLevel(RunFeedView.picker(() -> null), loader, Runnable::run,
+            new DungeonPanel(catalog, Runnable::run)),
             new CollectionLevel(catalog, Runnable::run, id -> NAMES.getOrDefault(id, "Synthetic item " + id)),
             new ItemLevel(catalog, Runnable::run, ZoneId.of("UTC")), id -> NAMES.getOrDefault(id, "Synthetic item " + id), prefs::get, (key, value) -> { writes.add(key + "=" + value); prefs.put(key, value); }));
         made.add(pictures);
@@ -83,6 +84,21 @@ public class ExplorePicturesTest {
             tomato.gui.kit.ItemSlot slot = (tomato.gui.kit.ItemSlot) named(pictures, "loot-haul-grid", JPanel.class).getComponent(0);
             slot.dispatchEvent(new java.awt.event.MouseEvent(slot, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, 1, 1, 1, false));
             assertEquals(List.of(101), opened);
+            return null;
+        });
+    }
+
+    @Test public void aDungeonItemUsesTheSameItemHistoryRoute() throws Exception {
+        ExplorePictures pictures = pictures();
+        List<Integer> opened = new ArrayList<>();
+        edt(() -> {
+            pictures.onOpenItem(opened::add);
+            pictures.runs().dungeon().showDungeon("Lost Halls");
+            return null;
+        });
+        edt(() -> {
+            named(pictures.runs().dungeon(), "loot-dungeon-item-1", AbstractButton.class).doClick();
+            assertEquals(List.of(1), opened);
             return null;
         });
     }

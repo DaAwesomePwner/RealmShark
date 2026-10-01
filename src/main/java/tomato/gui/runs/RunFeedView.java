@@ -112,6 +112,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     private List<LocalDate> order = List.of();
     private Consumer<VisitRef> open = ref -> { };
     private final boolean picker;
+    private final TileList<RunCardModel> strip;
     private Consumer<RunCardModel> select = card -> { };
     private Consumer<List<RunCardModel>> loaded = cards -> { };
     private RunFeedQuery query = RunFeedQuery.all();
@@ -146,6 +147,12 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
             key -> null, (key, value) -> { }, true);
     }
 
+    /** A picker with all loaded runs in one horizontal row, newest on the left. */
+    public static RunFeedView strip(Supplier<SessionStore> store) {
+        return new RunFeedView(new JPanel(), sources(store), ZoneId.systemDefault(), DisplayModeModel.application(),
+            key -> null, (key, value) -> { }, true, true);
+    }
+
     /** As above with the reader, the zone cards are dated in, the display mode and the preference store (tests). */
     RunFeedView(JComponent table, Supplier<Feed> feeds, ZoneId zone, DisplayModeModel mode, Function<String, String> read, BiConsumer<String, String> write) {
         this(table, feeds, zone, mode, read, write, false);
@@ -156,12 +163,34 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
      * not used for the view preference ({@link #picker(Supplier)}).
      */
     RunFeedView(JComponent table, Supplier<Feed> feeds, ZoneId zone, DisplayModeModel mode, Function<String, String> read, BiConsumer<String, String> write, boolean picker) {
+        this(table, feeds, zone, mode, read, write, picker, false);
+    }
+
+    RunFeedView(JComponent table, Supplier<Feed> feeds, ZoneId zone, DisplayModeModel mode, Function<String, String> read,
+                BiConsumer<String, String> write, boolean picker, boolean stripDisplay) {
         super(new BorderLayout(0, Tokens.S));
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Build the run feed on the EDT");
         this.picker = picker;
         this.table = Objects.requireNonNull(table, "table");
         this.feeds = Objects.requireNonNull(feeds, "feeds");
         this.zone = Objects.requireNonNull(zone, "zone");
+        if (stripDisplay && !picker) throw new IllegalArgumentException("The strip is a picker display");
+        strip = stripDisplay ? new TileList<>("run-feed-strip", new CompactRunCardRenderer(zone, this::capturedAt),
+            RunFeedView::key, card -> CompactRunCardRenderer.accessibleName(card, zone, capturedAt())) : null;
+        if (strip != null) {
+            strip.setSingleRow(true);
+            strip.getAccessibleContext().setAccessibleName("Saved runs, newest first");
+            strip.getAccessibleContext().setAccessibleDescription("Left and Right choose a run; Enter or Space opens it; scroll right for older runs");
+            strip.onOpen(card -> open.accept(card.ref()));
+            strip.addListSelectionListener(e -> {
+                if (!e.getValueIsAdjusting() && !selecting && strip.getSelectedValue() != null) select.accept(strip.getSelectedValue());
+            });
+            strip.addFocusListener(new FocusAdapter() {
+                @Override public void focusGained(FocusEvent e) {
+                    if (strip.isSelectionEmpty() && !strip.items().isEmpty()) strip.setSelectedIndex(0);
+                }
+            });
+        }
         Objects.requireNonNull(mode, "mode");
         this.write = Objects.requireNonNull(write, "write");
         setName("run-feed");
@@ -211,16 +240,34 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         footer.setOpaque(false);
         footer.add(more);
-        cardsPage = ContentStyle.page(KitLayouts.stack(Tokens.S, filterBar, summary, issues), body, footer);
-        cardsPage.setName("run-feed-scroll");
+        cardsPage = strip == null ? ContentStyle.page(KitLayouts.stack(Tokens.S, filterBar, summary, issues), body, footer)
+            : stripScroll(strip);
+        cardsPage.setName(strip == null ? "run-feed-scroll" : "run-feed-strip-scroll");
+        if (strip != null) {
+            cardsPage.setBorder(BorderFactory.createEmptyBorder());
+            cardsPage.setOpaque(false);
+            cardsPage.getViewport().setOpaque(false);
+            cardsPage.getHorizontalScrollBar().setUnitIncrement(strip.getFixedCellWidth());
+            cardsPage.getHorizontalScrollBar().addAdjustmentListener(e -> stripEnd());
+        }
         cardsPage.getVerticalScrollBar().setUnitIncrement(32);
-        cardsPage.getAccessibleContext().setAccessibleName("Saved runs by day; scroll for older runs");
+        cardsPage.getAccessibleContext().setAccessibleName(strip == null ? "Saved runs by day; scroll for older runs"
+            : "Saved runs, newest first; scroll right for older runs");
         cardsPage.addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0) return;
             if (cardsPage.isShowing()) { poll.start(); check(); } else poll.stop();
         });
         views.setOpaque(false);
-        views.add(cardsPage, CARDS);
+        if (strip == null) views.add(cardsPage, CARDS);
+        else {
+            JPanel stripPage = new JPanel(new BorderLayout(0, Tokens.XS));
+            stripPage.setName("run-feed-strip-page");
+            stripPage.setOpaque(false);
+            stripPage.add(KitLayouts.stack(Tokens.XS, filterBar, summary, issues), BorderLayout.NORTH);
+            stripPage.add(cardsPage, BorderLayout.CENTER);
+            stripPage.add(KitLayouts.stack(0, emptyHolder, footer), BorderLayout.SOUTH);
+            views.add(stripPage, CARDS);
+        }
         views.add(table, TABLE);
 
         // The view toggle: Analyst's above both views, Simple's in each view's ⋯ menu.
@@ -285,6 +332,37 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     /** What runs after each read that applied new runs, with every loaded run, newest first. */
     public void onLoaded(Consumer<List<RunCardModel>> action) { loaded = Objects.requireNonNull(action, "action"); }
 
+    /** An action beside the picker's filter controls (Explore uses "Loot outside runs"). */
+    public void setPickerAccessory(JComponent accessory) { if (picker) filterBar.scope(accessory); }
+    public boolean stripDisplay() { return strip != null; }
+    private long capturedAt() { return page == null ? System.currentTimeMillis() : page.model().capturedAt(); }
+
+    /** The feed sits at preferred height above the haul; reserve the scrollbar without taking height from a card. */
+    private static JScrollPane stripScroll(TileList<?> strip) {
+        return new JScrollPane(strip, ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED) {
+            private int stripHeight() {
+                Insets outer = getInsets();
+                Insets inner = getViewportBorder() == null ? new Insets(0, 0, 0, 0) : getViewportBorder().getBorderInsets(this);
+                return strip.getPreferredSize().height + getHorizontalScrollBar().getPreferredSize().height
+                    + outer.top + outer.bottom + inner.top + inner.bottom;
+            }
+            @Override public Dimension getPreferredSize() {
+                Dimension size = super.getPreferredSize();
+                size.height = stripHeight();
+                return size;
+            }
+            @Override public Dimension getMinimumSize() { return new Dimension(0, stripHeight()); }
+        };
+    }
+
+    /** Scrollbar changes and keyboard reveals use the same guarded MORE path as the button. */
+    void stripEnd() {
+        if (strip == null || selecting || loading || loadingMore || failure != null) return;
+        JScrollBar bar = cardsPage.getHorizontalScrollBar();
+        if (bar.getVisibleAmount() > 0 && bar.getMaximum() > bar.getVisibleAmount()
+            && bar.getValue() + bar.getVisibleAmount() >= bar.getMaximum() - 2) request(Kind.MORE);
+    }
+
     /**
      * Selects {@code ref}'s card when it is loaded, scrolls it into view and reports it ({@link #onSelect}) unless it was already
      * selected; false when that run is not loaded. EDT.
@@ -292,6 +370,10 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     public boolean select(VisitRef ref) {
         Objects.requireNonNull(ref, "ref");
         String key = ref.sessionId + "/" + ref.visitId;
+        if (strip != null) {
+            for (RunCardModel card : strip.items()) if (key.equals(key(card))) { strip.selectKey(key, true); return true; }
+            return false;
+        }
         for (Section section : sections.values())
             for (RunCardModel card : section.list().items())
                 if (key.equals(key(card))) { section.list().selectKey(key, true); return true; }
@@ -302,6 +384,7 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     public boolean isSelected(VisitRef ref) {
         Objects.requireNonNull(ref, "ref");
         String key = ref.sessionId + "/" + ref.visitId;
+        if (strip != null) return strip.getSelectedValue() != null && key.equals(key(strip.getSelectedValue()));
         for (Section section : sections.values()) {
             RunCardModel card = section.list().getSelectedValue();
             if (card != null && key.equals(key(card))) return true;
@@ -312,7 +395,10 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
     /** Clears the selected card without reporting it. EDT. */
     public void clearSelection() {
         selecting = true;
-        try { for (Section section : sections.values()) section.list().clearSelection(); } finally { selecting = false; }
+        try {
+            if (strip != null) strip.clearSelection();
+            for (Section section : sections.values()) section.list().clearSelection();
+        } finally { selecting = false; }
     }
     /** The query the cards show (or are loading). */
     public RunFeedQuery query() { return query; }
@@ -535,7 +621,8 @@ public final class RunFeedView extends JPanel implements AutoCloseable {
         List<LocalDate> keys = new ArrayList<>();
         selecting = true;   // setItems keeps a selection by key: not a user's choice
         try {
-            if (model != null && !unavailable) for (RunFeedModel.Day day : model.days()) {
+            if (strip != null) strip.setItems(model == null || unavailable ? List.of() : model.cards());
+            if (strip == null && model != null && !unavailable) for (RunFeedModel.Day day : model.days()) {
                 Section section = sections.computeIfAbsent(day.date(), this::section);
                 section.header().setTitle(day.title());
                 String counts = day.header().substring(day.title().length() + 3);

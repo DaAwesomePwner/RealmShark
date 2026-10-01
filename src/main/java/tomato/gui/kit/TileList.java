@@ -34,6 +34,7 @@ public class TileList<T> extends JList<T> {
     private Consumer<T> open;
     private String command;
     private int measuredWidth = -1;
+    private boolean singleRow;
 
     /**
      * {@code name}: the component name; {@code key}: an item's stable identity (equal keys at the same position update in place);
@@ -80,6 +81,17 @@ public class TileList<T> extends JList<T> {
 
     /** The items shown, in order (an unmodifiable copy of the last {@link #setItems}). */
     public List<T> items() { return tiles.items; }
+
+    /** One horizontal row in a scroll pane, instead of width-driven wrapping. */
+    public void setSingleRow(boolean value) {
+        singleRow = value;
+        setVisibleRowCount(value ? 1 : 0);
+        revalidate();
+    }
+
+    @Override public boolean getScrollableTracksViewportWidth() {
+        return singleRow ? false : super.getScrollableTracksViewportWidth();
+    }
 
     /** Enter, Space or double-click on an item runs the action; a single click only selects. */
     public void onOpen(Consumer<T> action) { onOpen(OPEN, action); }
@@ -141,6 +153,8 @@ public class TileList<T> extends JList<T> {
     @Override public Dimension getPreferredSize() {
         Insets insets = getInsets();
         int count = getModel().getSize(), cellWidth = Math.max(1, getFixedCellWidth()), width = getWidth();
+        if (singleRow) return new Dimension(count * cellWidth + insets.left + insets.right,
+            Math.max(0, getFixedCellHeight()) + insets.top + insets.bottom);
         for (Container parent = getParent(); width <= 0 && parent != null; parent = parent.getParent()) width = parent.getWidth();
         int columns = Math.max(1, (width - insets.left - insets.right) / cellWidth), rows = (count + columns - 1) / columns;
         return new Dimension(Math.min(count, columns) * cellWidth + insets.left + insets.right,

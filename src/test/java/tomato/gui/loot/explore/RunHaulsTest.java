@@ -30,6 +30,7 @@ public class RunHaulsTest {
         assertNull(run.unavailable());
         assertEquals(RunFixtures.A1, run.ref());
         assertEquals("Lost Halls", run.haul().header().mapName());
+        assertEquals("Lost Halls", run.dungeon());
         assertEquals("Completed", run.haul().header().outcome());
         assertEquals("6 items in 2 bags · 1 UT · 1 ST · 2 potions", run.haul().tally());
         assertEquals(List.of("White", "Orange"), run.haul().shelf().stream().map(HaulModel.Shelf::bag).toList());
@@ -40,6 +41,7 @@ public class RunHaulsTest {
     @Test public void aRunNotInSavedHistoryIsUnavailable() throws Exception {
         RunHauls.RunHaul run = RunHauls.over(() -> store).run(new VisitRef(RunFixtures.A, "missing"), new Cancellation());
         assertNotNull(run.unavailable());
+        assertNull(run.dungeon());
         assertTrue(run.haul().shelf().isEmpty());
     }
 

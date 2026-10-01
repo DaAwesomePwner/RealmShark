@@ -38,6 +38,154 @@ import static org.junit.Assert.*;
 
 /** The feed's Cards/Table views, filters, paging, empty states, reads only on new data, keyboard and activation, and its fit at 680 px. */
 public class RunFeedViewTest {
+    @Test public void stripAtTheFeedsPreferredHeightLeavesRoomForWholeCardsAndScrollbar() throws Exception {
+        Path root = temp.newFolder("strip-layout-history").toPath();
+        HomeHistoryFixture.writeLarge(root, 3, 40);
+        Counting feed = feed(store(root), HomeHistoryFixture.NOW);
+        RunFeedView view = edt(() -> new RunFeedView(new JPanel(), () -> feed, HomeHistoryFixture.ZONE, mode, prefs::get,
+            (key, value) -> {}, true, true));
+        views.add(view);
+        load(view);
+        edt(() -> {
+            JPanel host = new JPanel(new BorderLayout());
+            host.add(view, BorderLayout.NORTH); // RunsLevel allocates the feed its preferred height this way.
+            JScrollPane scroll = named(view, "run-feed-strip-scroll", JScrollPane.class);
+            TileList<?> strip = named(view, "run-feed-strip", TileList.class);
+            Dimension originalBarSize = scroll.getHorizontalScrollBar().getPreferredSize();
+            // Also exercise a thicker scrollbar without changing the pane's height or viewport geometry by hand.
+            for (int barHeight : new int[] {originalBarSize.height, originalBarSize.height + 12}) {
+                scroll.getHorizontalScrollBar().setPreferredSize(new Dimension(originalBarSize.width, barHeight));
+                for (int pass = 0; pass < 3; pass++) {
+                    host.setSize(900, view.getPreferredSize().height);
+                    layoutTree(host);
+                }
+                assertEquals(view.getPreferredSize().height, view.getHeight());
+                assertTrue("There are more cards than fit", strip.getWidth() > scroll.getViewport().getExtentSize().width);
+                assertTrue("The horizontal scrollbar is present", scroll.getHorizontalScrollBar().isVisible());
+                assertTrue("The scrollbar must not clip the cards", scroll.getViewport().getExtentSize().height >= strip.getFixedCellHeight());
+                assertTrue("Minimum height also reserves the scrollbar", scroll.getMinimumSize().height >= strip.getFixedCellHeight() + barHeight);
+            }
+            return null;
+        });
+    }
+
+    @Test public void stripKeepsAllDaysInOneRowAndPreservesPickerAndKeyboardActions() throws Exception {
+        Counting feed = scenario();
+        RunFeedView view = edt(() -> new RunFeedView(new JPanel(), () -> feed, HomeHistoryFixture.ZONE, mode, prefs::get,
+            (key, value) -> writes.add(key + "=" + value), true, true));
+        views.add(view);
+        List<VisitRef> selected = new ArrayList<>(), opened = new ArrayList<>();
+        List<List<RunCardModel>> loads = new ArrayList<>();
+        edt(() -> {
+            view.onSelect(card -> selected.add(card.ref()));
+            view.onOpen(opened::add);
+            view.onLoaded(loads::add);
+            return null;
+        });
+        load(view);
+        edt(() -> {
+            TileList<?> strip = named(view, "run-feed-strip", TileList.class);
+            assertTrue(view.stripDisplay());
+            assertEquals(view.model().cards(), strip.items());
+            assertEquals(view.model().cards(), loads.get(0));
+            assertEquals(1, strip.getVisibleRowCount());
+            assertFalse(strip.getScrollableTracksViewportWidth());
+            strip.setSize(strip.getPreferredSize());
+            for (int i = 1; i < strip.items().size(); i++) {
+                assertEquals(strip.getCellBounds(0, 0).y, strip.getCellBounds(i, i).y);
+                assertTrue(strip.getCellBounds(i, i).x > strip.getCellBounds(i - 1, i - 1).x);
+            }
+            assertTrue(view.select(RunFixtures.A1));
+            assertTrue(view.isSelected(RunFixtures.A1));
+            assertTrue(view.select(RunFixtures.A1));
+            assertEquals(List.of(RunFixtures.A1), selected);
+            for (String key : List.of("ENTER", "SPACE")) {
+                Object action = strip.getInputMap(JComponent.WHEN_FOCUSED).get(KeyStroke.getKeyStroke(key));
+                assertNotNull(action);
+                strip.getActionMap().get(action).actionPerformed(new java.awt.event.ActionEvent(strip, 0, null));
+            }
+            Rectangle selectedCell = strip.getCellBounds(strip.getSelectedIndex(), strip.getSelectedIndex());
+            strip.dispatchEvent(new MouseEvent(strip, MouseEvent.MOUSE_CLICKED, 0, 0,
+                selectedCell.x + 2, selectedCell.y + 2, 2, false, MouseEvent.BUTTON1));
+            assertEquals(List.of(RunFixtures.A1, RunFixtures.A1, RunFixtures.A1), opened);
+            view.clearSelection();
+            assertFalse(view.isSelected(RunFixtures.A1));
+            assertEquals(1, selected.size());
+            assertFalse(view.select(new VisitRef(RunFixtures.A, "missing")));
+            return null;
+        });
+    }
+
+    @Test public void reachingStripEndReadsMoreOnlyOnceWhileInFlight() throws Exception {
+        Path root = temp.newFolder("strip-history").toPath();
+        HomeHistoryFixture.writeLarge(root, 3, 40);
+        Counting feed = feed(store(root), HomeHistoryFixture.NOW);
+        CountDownLatch gate = new CountDownLatch(1);
+        AtomicInteger moreReads = new AtomicInteger();
+        RunFeedView.Feed blocked = new RunFeedView.Feed() {
+            public Object stamp(Cancellation token) throws IOException { return feed.stamp(token); }
+            public RunFeedSource.Page first(RunFeedQuery query, Cancellation token) throws IOException { return feed.first(query, token); }
+            public RunFeedSource.Page more(RunFeedSource.Page from, Cancellation token) throws IOException {
+                moreReads.incrementAndGet();
+                try { gate.await(10, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                return feed.more(from, token);
+            }
+        };
+        RunFeedView view = edt(() -> new RunFeedView(new JPanel(), () -> blocked, HomeHistoryFixture.ZONE, mode, prefs::get,
+            (key, value) -> {}, true, true));
+        views.add(view);
+        AtomicReference<VisitRef> picked = new AtomicReference<>();
+        List<VisitRef> selections = new ArrayList<>();
+        try {
+            load(view);
+            edt(() -> {
+                assertEquals(50, view.model().cards().size());
+                assertTrue("The loaded page has older runs", view.model().more());
+                JScrollPane scroll = named(view, "run-feed-strip-scroll", JScrollPane.class);
+                TileList<?> strip = named(view, "run-feed-strip", TileList.class);
+                // Swing derives the scrollbar range from its viewport. An unlaid-out viewport has zero extent,
+                // so assigning a synthetic scrollbar range is immediately undone by the scroll pane UI.
+                scroll.setSize(680, strip.getPreferredSize().height + scroll.getHorizontalScrollBar().getPreferredSize().height);
+                scroll.doLayout();
+                JViewport viewport = scroll.getViewport();
+                viewport.doLayout();
+                int extent = viewport.getExtentSize().width;
+                int end = viewport.getViewSize().width - extent;
+                assertTrue("The laid-out viewport has a visible width", extent > 0);
+                assertTrue("The loaded cards extend beyond the viewport", end > 0);
+                view.onSelect(card -> selections.add(card.ref()));
+                picked.set(view.model().cards().get(0).ref());
+                assertTrue(view.select(picked.get()));
+                assertFalse("The first page has finished reading", view.loading());
+                viewport.setViewPosition(new Point(end, 0));
+                JScrollBar bar = scroll.getHorizontalScrollBar();
+                assertEquals("The scrollbar reflects the viewport's actual end", bar.getMaximum(), bar.getValue() + bar.getVisibleAmount());
+                assertTrue("Scrolling to the end starts MORE through the adjustment listener", view.loading());
+                view.stripEnd();
+                view.stripEnd();
+                assertTrue(view.loading());
+                return null;
+            });
+            await("one MORE read", () -> moreReads.get() == 1);
+            edt(() -> {
+                view.stripEnd();
+                assertEquals(1, moreReads.get());
+                // Move away before the result arrives, so only the first end request is under test.
+                named(view, "run-feed-strip-scroll", JScrollPane.class).getViewport().setViewPosition(new Point(0, 0));
+                return null;
+            });
+        } finally { gate.countDown(); }
+        await("the second page", () -> !view.loading());
+        edt(() -> {
+            assertEquals(100, view.model().cards().size());
+            assertEquals(view.model().cards(), named(view, "run-feed-strip", TileList.class).items());
+            assertEquals(1, moreReads.get());
+            assertTrue(view.isSelected(picked.get()));
+            assertEquals(List.of(picked.get()), selections);
+            return null;
+        });
+    }
+
     /** A picker (Loot › Explore's Runs) is the Cards view alone and reports what is loaded and what is selected. */
     @Test public void aPickerIsTheCardsAloneAndReportsLoadsAndSelections() throws Exception {
         Counting feed = scenario();
@@ -599,6 +747,12 @@ public class RunFeedViewTest {
     }
 
     private static int columns(JList<?> list) { return Math.max(1, list.getWidth() / Math.max(1, list.getFixedCellWidth())); }
+
+    private static void layoutTree(Container root) {
+        root.doLayout();
+        for (Component child : root.getComponents())
+            if (child.isVisible() && child instanceof Container container) layoutTree(container);
+    }
 
     static <T extends Component> T named(Container root, String name, Class<T> type) {
         T found = find(root, name, type);
