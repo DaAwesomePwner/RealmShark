@@ -27,7 +27,7 @@ import tomato.backend.data.Equipment;
  * Notes:
  * - This class performs no UI formatting; it only aggregates data.
  * - Equipment id 0 (empty) is included if present in the damage stream, matching legacy behavior.
- * - The "enchant" of each item prefers a recorded variant over not recorded (by damage; the first seen on a tie); null when none is recorded.
+ * - The "enchant" of each item prefers a recorded variant over not recorded (by damage; the first seen on a tie); null and "" (older files) both count as not recorded, with the first seen kept when none is recorded.
  */
 public final class EquipmentUsageAggregator {
 
@@ -161,12 +161,12 @@ public final class EquipmentUsageAggregator {
                 su.variants.computeIfAbsent(itemId, id -> new LinkedHashMap<>()).computeIfAbsent(enchant, e -> new int[1])[0] += d.damage;
             }
         }
-        // Prefer recorded variants over not recorded, then the most damage (the first seen on a tie).
+        // Prefer recorded variants over null and "" (older files), both not recorded, then the most damage (the first seen on a tie).
         for (OwnerUsage ou : byOwner.values()) for (SlotUsage su : ou.slots)
             for (Map.Entry<Integer, Equipment> item : su.items.entrySet()) {
                 int best = Integer.MIN_VALUE;
                 for (Map.Entry<String, int[]> variant : su.variants.get(item.getKey()).entrySet())
-                    if (variant.getKey() != null && variant.getValue()[0] > best) { best = variant.getValue()[0]; item.getValue().enchant = variant.getKey(); }
+                    if (variant.getKey() != null && !variant.getKey().isEmpty() && variant.getValue()[0] > best) { best = variant.getValue()[0]; item.getValue().enchant = variant.getKey(); }
             }
     }
 
