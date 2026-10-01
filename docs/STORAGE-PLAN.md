@@ -32,8 +32,8 @@ Each item below is one PR to `main`.
 
 | PR | Scope | Depends on | Status |
 |---|---|---|---|
-| A | Write-path fixes | — | In progress |
-| B | DPS memory cap | — (in parallel with A) | In progress |
+| A | Write-path fixes | — | Done; in the A+B PR |
+| B | DPS memory cap | — (in parallel with A) | Done; in the A+B PR |
 | C | Read fixes and safety | A | |
 | — | Design checkpoint: search index | A, C | Needs user approval |
 | D | Index foundation | design | |
