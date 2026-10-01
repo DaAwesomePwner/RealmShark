@@ -293,6 +293,7 @@ public final class NotificationsGUI extends JPanel {
         missing.setToolTipText("Dungeons with zero completes on the currently playing character"); missing.addActionListener(e -> saveDungeons()); header.add(missing);
         dungeonSearch.putClientProperty("JTextField.placeholderText", "Find a dungeon..."); dungeonSearch.setName("sound-dungeon-search");
         dungeonSearch.getAccessibleContext().setAccessibleName("Find notification dungeon"); header.add(dungeonSearch);
+        tomato.gui.modern.TextSearchBar.decorateSearch(dungeonSearch);
         JPanel buttons = ContentStyle.controls();
         JButton select = new JButton("Select shown"), clear = new JButton("Clear shown");
         select.addActionListener(e -> selectShown(true)); clear.addActionListener(e -> selectShown(false));

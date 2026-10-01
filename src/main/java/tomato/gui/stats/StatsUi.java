@@ -59,6 +59,7 @@ final class StatsUi {
 
     static JTextField search(String name, String placeholder, int columns) {
         JTextField field = new JTextField(columns); field.setName(name);
+        tomato.gui.modern.TextSearchBar.decorateSearch(field);
         field.putClientProperty("JTextField.placeholderText", placeholder);
         field.getAccessibleContext().setAccessibleName(placeholder);
         return field;

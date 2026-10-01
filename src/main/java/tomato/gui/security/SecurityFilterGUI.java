@@ -523,6 +523,11 @@ public class SecurityFilterGUI extends JPanel {
 
         // add search bar
         searchField = new JTextField();
+        tomato.gui.modern.TextSearchBar.decorateSearch(searchField);
+        searchField.putClientProperty("JTextField.clearCallback", (Runnable) () -> {
+            searchField.setText("");
+            search(null);
+        });
         searchField.getAccessibleContext().setAccessibleName("Search item names or labels");
         searchField.addActionListener(this::search);
         c.anchor = GridBagConstraints.LINE_END;

@@ -1,6 +1,8 @@
 package tomato.gui.modern;
 
 import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.ui.FlatRoundBorder;
+import com.formdev.flatlaf.ui.FlatTextBorder;
 import java.awt.*;
 import java.util.Properties;
 import javax.swing.*;
@@ -26,7 +28,7 @@ public final class VioletTheme extends FlatDarkLaf {
     static final class Palette {
         final int base, navigation, surface, surfaceAlternate, surfaceRaised;
         final int control, controlHover, controlPressed;
-        final int borderSubtle, border, borderDisabled;
+        final int borderSubtle, border, borderDisabled, fieldBorder;
         final int accent, accentBright, accentWash, selection, selectionText;
         final int text, textMuted, textHeader, scrollThumb, scrollThumbHover;
         /** Increase contrast replaces these three roles and widens focus rings. */
@@ -34,7 +36,7 @@ public final class VioletTheme extends FlatDarkLaf {
 
         Palette(int base, int navigation, int surface, int surfaceAlternate, int surfaceRaised,
                 int control, int controlHover, int controlPressed,
-                int borderSubtle, int border, int borderDisabled,
+                int borderSubtle, int border, int borderDisabled, int fieldBorder,
                 int accent, int accentBright, int accentWash, int selection, int selectionText,
                 int text, int textMuted, int textHeader, int scrollThumb, int scrollThumbHover,
                 int contrastBorder, int contrastSubtle, int contrastMuted) {
@@ -42,6 +44,7 @@ public final class VioletTheme extends FlatDarkLaf {
             this.surfaceAlternate = surfaceAlternate; this.surfaceRaised = surfaceRaised;
             this.control = control; this.controlHover = controlHover; this.controlPressed = controlPressed;
             this.borderSubtle = borderSubtle; this.border = border; this.borderDisabled = borderDisabled;
+            this.fieldBorder = fieldBorder;
             this.accent = accent; this.accentBright = accentBright; this.accentWash = accentWash;
             this.selection = selection; this.selectionText = selectionText;
             this.text = text; this.textMuted = textMuted; this.textHeader = textHeader;
@@ -52,7 +55,7 @@ public final class VioletTheme extends FlatDarkLaf {
         static final Palette DARK = new Palette(
             0x131120, 0x0E0C18, 0x181627, 0x1C1A2D, 0x201D33,
             0x252139, 0x322C4C, 0x1C1930,
-            0x252236, 0x38334F, 0x221F31,
+            0x252236, 0x38334F, 0x221F31, 0x4A4366,
             0xAD8CFF, 0xC4ADFF, 0x2A2142, 0x3B2E5E, 0xF4F0FF,
             0xE9E6F7, 0xA9A4C2, 0xB7B1D0, 0x332E4A, 0x453E63,
             0x5A5378, 0x3D3854, 0xCFCBE0);
@@ -60,7 +63,7 @@ public final class VioletTheme extends FlatDarkLaf {
         static final Palette LIGHT = new Palette(
             0xF5F4F9, 0xEEECF4, 0xFFFFFF, 0xF8F7FB, 0xFAF9FC,
             0xEFEDF5, 0xE5E1F0, 0xDAD5E8,
-            0xE0DDE8, 0xC9C5D6, 0xE6E3EC,
+            0xE0DDE8, 0xC9C5D6, 0xE6E3EC, 0xB3ADC6,
             0x6241AA, 0x4E3291, 0xF0E9FD, 0xE5DCF8, 0x302048,
             0x24222E, 0x626071, 0x4A4757, 0xD3CFE0, 0xBDB7D0,
             0x8C86A3, 0xB9B4C9, 0x4A4757);
@@ -147,6 +150,11 @@ public final class VioletTheme extends FlatDarkLaf {
         color(d, "Component.borderColor", p.border);
         color(d, "Component.disabledBorderColor", p.borderDisabled);
         color(d, "Component.focusedBorderColor", p.accent);
+        color(d, "Violet.fieldBorder", p.fieldBorder);
+        for (String type : new String[]{"TextField", "FormattedTextField", "PasswordField"})
+            d.put(type + ".border", (UIDefaults.LazyValue) defaults -> new FieldTextBorder());
+        for (String type : new String[]{"ComboBox", "Spinner"})
+            d.put(type + ".border", (UIDefaults.LazyValue) defaults -> new FieldRoundBorder());
         color(d, "Separator.foreground", p.borderSubtle);
         color(d, "TableHeader.separatorColor", p.borderSubtle);
         color(d, "TableHeader.bottomSeparatorColor", p.borderSubtle);
@@ -161,6 +169,20 @@ public final class VioletTheme extends FlatDarkLaf {
     private static void interaction(UIDefaults d, Palette p) {
         color(d, "Component.focusColor", p.accent);
         color(d, "Component.accentColor", p.accent);
+        for (String type : new String[]{"TextField", "FormattedTextField", "PasswordField", "ComboBox", "Spinner"}) {
+            color(d, type + ".foreground", p.text);
+            color(d, type + ".focusedBackground", blend(p.surfaceRaised, p.accent, .09f));
+        }
+        color(d, "ComboBox.buttonFocusedBackground", blend(p.surfaceRaised, p.accent, .09f));
+        for (String type : new String[]{"ComboBox", "Spinner"}) {
+            color(d, type + ".buttonArrowColor", p.accent);
+            color(d, type + ".buttonHoverArrowColor", p.accentBright);
+        }
+        color(d, "ComboBox.selectionBackground", p.selection);
+        color(d, "ComboBox.selectionForeground", p.selectionText);
+        color(d, "SearchField.searchIconColor", p.accent);
+        color(d, "SearchField.searchIconHoverColor", p.accentBright);
+        color(d, "SearchField.searchIconPressedColor", p.accentBright);
 
         color(d, "Button.hoverBackground", p.controlHover);
         color(d, "Button.pressedBackground", p.controlPressed);
@@ -200,10 +222,16 @@ public final class VioletTheme extends FlatDarkLaf {
         color(d, "MenuBar.hoverBackground", p.accentWash);
         color(d, "MenuItem.underlineSelectionBackground", p.accentWash);
 
-        color(d, "TabbedPane.underlineColor", p.accent);
-        color(d, "TabbedPane.selectedBackground", p.accentWash);
-        color(d, "TabbedPane.hoverColor", p.surfaceRaised);
-        color(d, "TabbedPane.focusColor", p.accentWash);
+        // FlatLaf gives hover fill priority over focus fill; the brighter bar still marks focus.
+        color(d, "TabbedPane.underlineColor", p.accentBright);
+        color(d, "TabbedPane.inactiveUnderlineColor", p.accent);
+        color(d, "TabbedPane.foreground", p.text);
+        color(d, "TabbedPane.selectedBackground", p.selection);
+        color(d, "TabbedPane.selectedForeground", p.selectionText);
+        color(d, "TabbedPane.hoverColor", p.controlHover);
+        color(d, "TabbedPane.hoverForeground", p.text);
+        color(d, "TabbedPane.focusColor", blend(p.selection, p.accent, .2f));
+        color(d, "TabbedPane.focusForeground", p.selectionText);
         color(d, "TabbedPane.contentAreaColor", p.borderSubtle);
 
         // A track-free scroll bar: the thumb is the only mark, and it brightens under the pointer.
@@ -219,20 +247,18 @@ public final class VioletTheme extends FlatDarkLaf {
         d.put("defaultFont", new FontUIResource(ContentStyle.body()));
         d.put("Table.font", new FontUIResource(ContentStyle.body()));
         d.put("TextArea.font", new FontUIResource(ContentStyle.body()));
+        d.put("TabbedPane.font", new FontUIResource(ContentStyle.tabFont()));
         d.put("TableHeader.font", new FontUIResource(ContentStyle.emphasis(ContentStyle.metadata(ContentStyle.body()))));
     }
 
-    /**
-     * Compact metrics. Corner arcs move from 4 to 6 pixels, which reads as rounded at both
-     * 100% and 200% scaling without spending the vertical space the data views need.
-     */
+    /** Roomier fields and inset tab pills, with compact button metrics preserved. */
     private static void metrics(UIDefaults d) {
         d.put("Button.arc", 6);
         d.put("ToggleButton.arc", 6);
-        d.put("Component.arc", 6);
-        d.put("TextComponent.arc", 6);
+        d.put("Component.arc", 8);
+        d.put("TextComponent.arc", 8);
         d.put("ProgressBar.arc", 6);
-        d.put("Component.focusWidth", 1);
+        d.put("Component.focusWidth", 2);
         d.put("Component.innerFocusWidth", 1);
         d.put("Component.arrowType", "chevron");
         d.put("Button.margin", new Insets(3, 8, 3, 8));
@@ -240,12 +266,22 @@ public final class VioletTheme extends FlatDarkLaf {
         d.put("Button.minimumWidth", 64);
         d.put("Button.minimumHeight", 28);
         d.put("Button.default.boldText", false);
-        d.put("Component.minimumHeight", 26);
-        d.put("TextField.margin", new Insets(3, 6, 3, 6));
-        d.put("ComboBox.padding", new Insets(3, 6, 3, 6));
-        d.put("Spinner.padding", new Insets(3, 6, 3, 6));
-        d.put("TabbedPane.tabHeight", 28);
-        d.put("TabbedPane.tabInsets", new Insets(3, 10, 3, 10));
+        d.put("Component.minimumHeight", 30);
+        for (String type : new String[]{"TextField", "FormattedTextField", "PasswordField"})
+            d.put(type + ".margin", new Insets(4, 10, 4, 10));
+        d.put("ComboBox.padding", new Insets(4, 10, 4, 10));
+        d.put("Spinner.padding", new Insets(4, 10, 4, 10));
+        d.put("ComboBox.selectionArc", 6);
+        d.put("ComboBox.selectionInsets", new Insets(1, 4, 1, 4));
+        d.put("ComboBox.popupInsets", new Insets(4, 0, 4, 0));
+        d.put("TabbedPane.tabHeight", 32);
+        d.put("TabbedPane.tabInsets", new Insets(4, 14, 4, 14));
+        d.put("TabbedPane.tabArc", 8);
+        d.put("TabbedPane.selectedInsets", new Insets(2, 2, 2, 2));
+        d.put("TabbedPane.tabSelectionHeight", 3);
+        d.put("TabbedPane.tabSelectionArc", 3);
+        // Negative top moves the three-pixel underline onto the pill without reducing its height.
+        d.put("TabbedPane.tabSelectionInsets", new Insets(-2, 14, 2, 14));
         d.put("TabbedPane.showTabSeparators", false);
         d.put("Table.rowHeight", 28);
         d.put("Table.cellMargins", new Insets(3, 8, 3, 8));
@@ -257,11 +293,15 @@ public final class VioletTheme extends FlatDarkLaf {
         d.put("ScrollBar.trackArc", 999);
         d.put("SplitPane.dividerSize", 5);
         d.put("PopupMenu.borderInsets", new Insets(4, 1, 4, 1));
+        d.put("Popup.borderCornerRadius", 8);
+        d.put("PopupMenu.borderCornerRadius", 8);
+        d.put("ComboBox.borderCornerRadius", 8);
     }
 
     /** Stronger outlines, dividers and secondary text for the users of the retired high-contrast themes. */
     private static void contrast(UIDefaults d, Palette p) {
         color(d, "Component.borderColor", p.contrastBorder);
+        color(d, "Violet.fieldBorder", p.contrastBorder);
         color(d, "PopupMenu.borderColor", p.contrastBorder);
         color(d, "Separator.foreground", p.contrastSubtle);
         color(d, "TableHeader.separatorColor", p.contrastSubtle);
@@ -270,7 +310,23 @@ public final class VioletTheme extends FlatDarkLaf {
         color(d, "Label.disabledForeground", p.contrastMuted);
         color(d, "TextArea.inactiveForeground", p.contrastMuted);
         color(d, "TableHeader.foreground", p.text);
-        d.put("Component.focusWidth", 2);
+        d.put("Component.focusWidth", 3);
+    }
+
+    /** Resting edge only; public constructors let FlatLaf clone borders for component styles. */
+    public static final class FieldTextBorder extends FlatTextBorder {
+        public FieldTextBorder() { borderColor = UIManager.getColor("Violet.fieldBorder"); }
+    }
+
+    public static final class FieldRoundBorder extends FlatRoundBorder {
+        public FieldRoundBorder() { borderColor = UIManager.getColor("Violet.fieldBorder"); }
+    }
+
+    private static int blend(int base, int tint, float amount) {
+        Color a = new Color(base), b = new Color(tint);
+        return new Color(Math.round(a.getRed() + (b.getRed() - a.getRed()) * amount),
+            Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * amount),
+            Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * amount)).getRGB();
     }
 
     private static void color(UIDefaults d, String key, int rgb) {

@@ -10,10 +10,90 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import javax.swing.*;
 import org.junit.*;
+import tomato.gui.history.WrapRow;
 import tomato.gui.modern.Themes;
 import static org.junit.Assert.*;
 
 public class FilterBarTest {
+    @Test public void searchFindsAFieldInsideAWrappedLabeledPanel() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTextField field = new JTextField();
+            JPanel labeled = new JPanel(); labeled.add(new JLabel("Search")); labeled.add(field);
+            WrapRow slot = new WrapRow(labeled);
+            FilterBar bar = new FilterBar("wrapped", k -> null, (k, v) -> {}).search(slot);
+            assertSame(slot, bar.searchSlot());
+            assertSearchDecorated(field);
+        });
+    }
+
+    @Test public void searchDecoratesOnlyTheFirstFieldInDepthFirstOrder() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTextField message = new JTextField(), sender = new JTextField();
+            JPanel nested = new JPanel(); nested.add(message);
+            new FilterBar("first", k -> null, (k, v) -> {}).search(new WrapRow(nested, sender));
+            assertSearchDecorated(message);
+            assertSearchUndecorated(sender);
+        });
+    }
+
+    @Test public void searchSkipsAnEditableComboBeforeTheRealSearch() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JComboBox<String> combo = new JComboBox<>(new String[]{"All players"}); combo.setEditable(true);
+            JTextField editor = (JTextField) combo.getEditor().getEditorComponent();
+            JPanel selection = new JPanel(); selection.add(combo);
+            JTextField search = new JTextField();
+            new FilterBar("combo", k -> null, (k, v) -> {}).search(new WrapRow(selection, search));
+            assertSearchUndecorated(editor);
+            assertSearchDecorated(search);
+        });
+    }
+
+    @Test public void searchSkipsSpinnerSubtreesAndSpecializedTextFields() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTextField editor = new JTextField();
+            JSpinner spinner = new JSpinner(); spinner.setEditor(new WrapRow(editor));
+            JFormattedTextField formatted = new JFormattedTextField();
+            JPasswordField password = new JPasswordField();
+            JTextField search = new JTextField();
+            FilterBar bar = new FilterBar("editors", k -> null, (k, v) -> {});
+            bar.search(new WrapRow(spinner, formatted, password, search));
+            assertSearchUndecorated(editor);
+            assertSearchUndecorated(formatted);
+            assertSearchUndecorated(password);
+            assertSearchDecorated(search);
+            bar.search(null);
+            assertNull(bar.searchSlot());
+        });
+    }
+
+    private static void assertSearchDecorated(JTextField field) {
+        assertTrue(field.getClientProperty("JTextField.leadingIcon") instanceof com.formdev.flatlaf.icons.FlatSearchIcon);
+        assertEquals(true, field.getClientProperty("JTextField.showClearButton"));
+    }
+
+    private static void assertSearchUndecorated(JTextField field) {
+        assertNull(field.getClientProperty("JTextField.leadingIcon"));
+        assertNull(field.getClientProperty("JTextField.showClearButton"));
+    }
+
+    @Test public void searchAddsAffordancesWithoutReplacingCallerChoices() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            FilterBar bar = new FilterBar("search", k -> null, (k, v) -> {});
+            JTextField field = new JTextField(); bar.search(field);
+            assertTrue(field.getClientProperty("JTextField.leadingIcon") instanceof com.formdev.flatlaf.icons.FlatSearchIcon);
+            assertEquals(true, field.getClientProperty("JTextField.showClearButton"));
+            Icon custom = new ImageIcon(new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB));
+            JTextField customized = new JTextField();
+            customized.putClientProperty("JTextField.leadingIcon", custom);
+            customized.putClientProperty("JTextField.showClearButton", false);
+            bar.search(new WrapRow(customized));
+            assertSame(custom, customized.getClientProperty("JTextField.leadingIcon"));
+            assertEquals(false, customized.getClientProperty("JTextField.showClearButton"));
+            JLabel other = new JLabel("Search unavailable"); bar.search(other);
+            assertSame(other, bar.searchSlot());
+        });
+    }
+
     @Test public void rebuildingDuringLoadKeepsNewChipsAndFacetsDisabled() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             FilterBar bar = new FilterBar("loading", k -> null, (k, v) -> {});

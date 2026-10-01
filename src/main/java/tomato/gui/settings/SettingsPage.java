@@ -72,6 +72,7 @@ public final class SettingsPage extends JPanel {
         list.getAccessibleContext().setAccessibleName("Settings sections");
         column.setOpaque(false);
         search.setName("settings-search");
+        tomato.gui.modern.TextSearchBar.decorateSearch(search);
         search.putClientProperty("JTextField.placeholderText", "Filter settings");
         search.getAccessibleContext().setAccessibleName("Filter settings");
         noMatches.setName("settings-no-matches");
