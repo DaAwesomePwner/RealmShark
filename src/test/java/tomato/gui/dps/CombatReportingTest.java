@@ -58,7 +58,7 @@ public class CombatReportingTest {
                 Filter.disable();TomatoData data=new TomatoData();data.map=new MapInfoPacket();data.map.name="Synthetic first";
                 Entity a=player(data,1,"Alice"),b=player(data,2,"Bob"),enemy=target(data,a,b);data.player=a;
                 Map<Integer,Entity> targets=field(data,"entityHitList");targets.put(enemy.id,enemy);
-                DpsGUI view=new DpsGUI(data);view.setIndex(-1);JCheckBox paused=field(view,"paused");JComboBox<?> modes=field(view,"viewMode");
+                DpsGUI view=new DpsGUI(data);view.meter().setBuildExecutor(Runnable::run);view.setIndex(-1);JCheckBox paused=field(view,"paused");JComboBox<?> modes=field(view,"viewMode");
                 paused.doClick();Object frozen=field(view,"displayed");
                 data.map=new MapInfoPacket();data.map.name="Synthetic second";enemy.genericDamageHit(a,new Projectile(600),4000);
                 DpsGUI.updateMapPacket(data);DpsGUI.update();assertSame(frozen,field(view,"displayed"));

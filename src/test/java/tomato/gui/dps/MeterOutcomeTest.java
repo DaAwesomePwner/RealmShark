@@ -83,6 +83,7 @@ public class MeterOutcomeTest {
                 presence.recordSeen(1, "Alice", 768, 1_000, false); presence.recordSeen(2, "Bob", 775, 1_000, false);
                 MeterDpsGUI meter = new MeterDpsGUI();
                 meter.setPresence(presence, 1_000);
+                meter.setBuildExecutor(Runnable::run);
                 meter.renderData(null, Collections.singletonList(enemy(11, alice, bob)), new ArrayList<>(), 0, true);
                 JTable table = field(meter, "table"); JLabel line = field(meter, "outcomeLine");
                 assertEquals("In progress", outcomesByName(table).get("Bob").toString());

@@ -2,6 +2,7 @@ package tomato.gui.runs;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -9,64 +10,49 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
-import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
-import tomato.gui.kit.CustomizableTabs;
+import tomato.gui.modern.TabbedRoutePage;
 import tomato.gui.route.Destination;
 import tomato.gui.route.Route;
 import tomato.gui.route.RouteTarget;
 
 /**
- * The runs page, "Runs & DPS" (spec §6.3): customizable tabs Feed · Dungeons · Live meter · Recordings ({@link RunsTab}, strip
- * {@code runs-tabs}, order and hidden set in {@code ui.tabs.runs}; none is Analyst-only). The Feed is the {@link RunsPage}
- * unchanged, the Live meter is the app's single DPS meter, and Dungeons and Recordings are holders filled later
- * ({@link #setContent}).
- * - The page opens on its first visible tab: the selected tab is not persisted, and startup only selects, never showing a hidden
- *   tab. Only explicit navigation ({@link #bring}: a route, Back, a search entry, a card action) brings a hidden tab forward.
- * - Back: {@code ShellNavigator} captures one target per page (whichever last opened it, else the newest registered), so every
- *   runs page target is this page's: the wrappers ({@link #routes}), {@link #tabTarget()} and {@link #liveMeterTarget}. Each
- *   captures the same {@link PageState}, the tab in front and the state of that tab's {@link #owner} (Feed: the {@code RUNS}
- *   {@link RunsRouteTarget}; Live meter: the meter's encounter target), and each restores it: the tab comes forward first, then
- *   its owner restores. This is {@link RunsPage#tableRoutes} one level up.
- * - Closing reaches every tab's content, hidden tabs included ({@link CustomizableTabs#contents()}).
- * EDT only.
+ * Runs & DPS: Feed, Dungeons, Live meter, Resources & buffs and Recordings ({@link RunsTab}), with strip {@code runs-tabs}
+ * and preferences {@code ui.tabs.runs}. Feed's Back state belongs to its RUNS target, Live meter's to the encounter target,
+ * and Resources' to the resources target; Dungeons and Recordings restore their tab only. See {@link TabbedRoutePage} for
+ * shared Back, rejected-open rollback and close semantics.
  */
-public final class RunsDpsPage extends JPanel implements AutoCloseable {
-    /**
-     * The detached Back state every runs page target captures: the tab in front, and its owner's own state (null when that tab has
-     * no owner). Restoring brings {@code tab} forward (showing it if it was hidden since), then restores the owner.
-     */
-    public record PageState(RunsTab tab, Object inner) {}
+public final class RunsDpsPage extends TabbedRoutePage<RunsTab, RunsDpsPage.PageState> {
+    /** Detached Back state: the selected Runs tab and its owner's state, or null when it has no owner. */
+    public record PageState(RunsTab tab, Object inner) implements TabState<RunsTab> {}
 
-    private final CustomizableTabs tabs;
     private final RunsPage feed;
-    /** The Dungeons and Recordings tabs: fixed holders whose content {@link #setContent} replaces, and that content. */
+    /** The Dungeons, Resources and Recordings tabs: fixed holders whose content {@link #setContent} replaces, and that content. */
     private final Map<RunsTab, JPanel> holders = new EnumMap<>(RunsTab.class);
     private final Map<RunsTab, JComponent> held = new EnumMap<>(RunsTab.class);
-    private final Map<RunsTab, RouteTarget> owners = new EnumMap<>(RunsTab.class);
     private Consumer<String> feedDungeon;
-    private boolean closed;
 
     /** The page around {@code feed} (the Feed tab, unchanged) and {@code liveMeter} (the Live meter tab). */
     public RunsDpsPage(RunsPage feed, JComponent liveMeter) {
-        if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Build the Runs & DPS page on the EDT");
+        super("runs", "runs-dps-page", "Runs & DPS", RunsTab.class, RunsTab::id, RunsTab::of, PageState.class, PageState::new);
         this.feed = Objects.requireNonNull(feed, "feed");
         Objects.requireNonNull(liveMeter, "liveMeter");
-        tabs = new CustomizableTabs("runs");
-        setName("runs-dps-page");
-        setLayout(new BorderLayout());
-        setOpaque(false);
-        JTabbedPane pane = tabs.component();
-        // One row of tabs at any width: the Live meter nests its own strip, so a wrapped second row would cost the meter height.
-        pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-        for (RunsTab tab : RunsTab.values()) {
-            JComponent content = tab == RunsTab.FEED ? feed : tab == RunsTab.LIVE_METER ? liveMeter : holder(tab);
-            tabs.add(tab.id(), tab.title(), content);
+        tabs().initializeOrder(RunsDpsPage::withResources);
+        populate(RunsTab.values(), RunsTab::title, tab -> tab == RunsTab.FEED ? feed : tab == RunsTab.LIVE_METER ? liveMeter : holder(tab));
+    }
+
+    /** Older layouts gain Resources beside Live meter, or last when they never named Live meter; reads never save. */
+    private static List<String> withResources(List<String> saved) {
+        String resources = RunsTab.RESOURCES.id();
+        if (saved.isEmpty() || saved.contains(resources)) return saved;
+        List<String> order = new ArrayList<>(saved);
+        int meter = order.indexOf(RunsTab.LIVE_METER.id());
+        if (meter >= 0) order.add(meter + 1, resources);
+        else {
+            for (RunsTab tab : RunsTab.values()) if (tab != RunsTab.RESOURCES && !order.contains(tab.id())) order.add(tab.id());
+            order.add(resources);
         }
-        // Adding keeps whichever tab was selected first; the page opens on its first visible tab in the saved order instead.
-        List<String> visible = tabs.visibleIds();
-        if (!visible.isEmpty()) tabs.select(visible.get(0));
-        add(pane, BorderLayout.CENTER);
+        return order;
     }
 
     private JPanel holder(RunsTab tab) {
@@ -78,19 +64,8 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
     }
 
     public RunsPage feed() { return feed; }
-    public CustomizableTabs tabs() { return tabs; }
-    /** The tab in front, or null when none is. */
-    public RunsTab selectedTab() { return RunsTab.of(tabs.selectedId()); }
-
-    /** Explicit navigation to {@code tab}: shows it when hidden (the saved hidden set changes, as the tab menu's Show does), then selects it. */
-    public void bring(RunsTab tab) {
-        String id = Objects.requireNonNull(tab, "tab").id();
-        tabs.show(id);
-        tabs.select(id);
-    }
-
     /**
-     * Puts {@code content} in the Dungeons or Recordings tab's holder in place of what it held (null empties it); the tab itself
+     * Puts {@code content} in the Dungeons, Resources or Recordings tab's holder in place of what it held (null empties it); the tab itself
      * is never re-added and does not come forward. The replaced content is the caller's to close. The Feed and the Live meter
      * are fixed when the page is built.
      */
@@ -103,34 +78,6 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
         else { held.put(tab, content); holder.add(content, BorderLayout.CENTER); }
         holder.revalidate();
         holder.repaint();
-    }
-
-    /**
-     * The target whose state is captured while {@code tab} is in front, and restored when Back returns to it: the tab's own,
-     * unwrapped target (null: none, the tab alone comes back). One of this page's targets is refused, since its capture would
-     * capture the page again.
-     */
-    public void owner(RunsTab tab, RouteTarget owner) {
-        Objects.requireNonNull(tab, "tab");
-        if (owner instanceof PageTarget) throw new IllegalArgumentException("An owner is the tab's own target, not a Runs & DPS page target");
-        if (owner == null) owners.remove(tab); else owners.put(tab, owner);
-    }
-
-    /**
-     * {@code inner} (a target whose view is in {@code tab}) as a runs page target: its destination, {@code accepts} and
-     * {@code redirect} are the inner target's; opening brings {@code tab} forward first, then opens {@code inner}, and a rejected
-     * open brings back the tab that was in front (hiding {@code tab} again if it was hidden) before the rejection reaches the
-     * navigator. Its Back state is the page's {@link PageState}, not the inner target's own.
-     */
-    public RouteTarget routes(RunsTab tab, RouteTarget inner) {
-        Objects.requireNonNull(tab, "tab");
-        Objects.requireNonNull(inner, "inner");
-        return new PageTarget() {
-            @Override public Destination destination() { return inner.destination(); }
-            @Override public boolean accepts(Route route) { return inner.accepts(route); }
-            @Override public Route redirect(Route route) { return inner.redirect(route); }
-            @Override public void open(Route route) { openOn(tab, () -> inner.open(route)); }
-        };
     }
 
     /**
@@ -176,7 +123,7 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
             @Override public void open(Route route) {
                 if (!accepts(route)) throw new IllegalArgumentException("Unsupported Live meter route: " + route);
                 openOn(RunsTab.LIVE_METER, () -> { });
-                SwingUtilities.invokeLater(() -> { if (!closed && selectedTab() == RunsTab.LIVE_METER) focus.run(); });
+                SwingUtilities.invokeLater(() -> { if (!closed() && selectedTab() == RunsTab.LIVE_METER) focus.run(); });
             }
         };
     }
@@ -184,71 +131,8 @@ public final class RunsDpsPage extends JPanel implements AutoCloseable {
     /** Receives the canonical dungeon of a Feed {@link RunsFocus} (the feed's dungeon filter); null removes it. */
     public void onFeedDungeon(Consumer<String> hook) { feedDungeon = hook; }
 
-    /** Brings {@code tab} forward and runs {@code open}; a failure brings back the tab in front before (hiding {@code tab} again) and rethrows. */
-    private void openOn(RunsTab tab, Runnable open) {
-        RunsTab before = selectedTab();
-        boolean hidden = tabs.hiddenIds().contains(tab.id());
-        bring(tab);
-        try { open.run(); }
-        catch (RuntimeException failed) {   // a rejected route changes nothing: the navigator keeps the origin page
-            if (before != null) tabs.select(before.id());
-            if (hidden) tabs.hide(tab.id());
-            throw failed;
-        }
-    }
-
-    /** The page's Back state: the tab in front and its owner's state. */
-    private PageState capture() {
-        RunsTab tab = selectedTab();
-        RouteTarget owner = tab == null ? null : owners.get(tab);
-        return new PageState(tab, owner == null ? null : owner.captureState());
-    }
-
-    /** Back is explicit navigation: the tab comes forward first (hiding a showing workspace cancels its read), then its owner restores. */
-    private void restore(Object state) {
-        if (!(state instanceof PageState)) throw new IllegalArgumentException("Not a Runs & DPS page state");
-        PageState saved = (PageState) state;
-        if (saved.tab() == null) return;
-        bring(saved.tab());
-        RouteTarget owner = owners.get(saved.tab());
-        if (owner != null && saved.inner() != null) owner.restoreState(saved.inner());
-    }
-
-    /** Whether the route carries any reference besides its payload. */
-    private static boolean referenced(Route route) {
-        return route.query != null || route.visit != null || route.record != null || route.recordingId != null
-            || route.localObjectId != null || route.from != null || route.until != null;
-    }
-
-    /** A runs page target: whichever of them the navigator captures or restores, the state is the page's {@link PageState}. */
-    private abstract class PageTarget implements RouteTarget {
-        @Override public final Object captureState() { return capture(); }
-        @Override public final void restoreState(Object state) { restore(state); }
-    }
-
-    /**
-     * Closes every tab's content that has a lifecycle (an {@code AutoCloseable}, such as the feed's {@link RunsPage} or an
-     * {@code ArchiveWorkspace}), the contents of hidden tabs and holders included. The feed's workspace is closed with the other
-     * archive workspaces. Every content is closed even when one fails; the first failure is rethrown afterwards. Idempotent.
-     */
-    @Override public void close() {
-        if (closed) return;
-        closed = true;
-        RuntimeException failure = null;
-        for (Component tab : tabs.contents()) {
-            Component content = contentOf(tab);
-            if (!(content instanceof AutoCloseable)) continue;
-            try { ((AutoCloseable) content).close(); }
-            catch (Exception failed) {
-                if (failure == null) failure = failed instanceof RuntimeException ? (RuntimeException) failed : new IllegalStateException(failed);
-                else failure.addSuppressed(failed);
-            }
-        }
-        if (failure != null) throw failure;
-    }
-
     /** A holder's content, else the tab's component itself. */
-    private Component contentOf(Component tab) {
+    @Override protected Component contentOf(Component tab) {
         for (Map.Entry<RunsTab, JPanel> holder : holders.entrySet()) if (holder.getValue() == tab) return held.get(holder.getKey());
         return tab;
     }

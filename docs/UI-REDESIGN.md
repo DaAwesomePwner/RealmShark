@@ -31,9 +31,8 @@ Tabs have stable IDs. Each group saves its order and its hidden tabs in `ui.tabs
 | --- | --- | --- |
 | Characters | **Roster · Exalts · Pets · Fame history** (A, with saved history) | `characters` |
 | Characters › character sheet | **Overview · Gear · Exalts · Pet · Fame · Build · Goals · Notes · Snapshot evidence** (A) · **Death annotation** (only for a character marked dead) | `character` |
-| Runs & DPS | **Feed · Dungeons · Live meter · Recordings** | `runs` |
-| Runs & DPS › Live meter | **Damage meters · Resources & buffs** | `dps` |
-| Live meter › Resources & buffs | Live: **Buff timeline & resources · Uptime summary · Selected window**. Saved: **Resources & buffs · Uptime summary · Coverage · Selected window** | `activity-combat`, `saved-resources` |
+| Runs & DPS | **Feed · Dungeons · Live meter · Resources & buffs · Recordings** | `runs` |
+| Runs & DPS › Resources & buffs | Live: **Buff timeline & resources · Uptime summary · Selected window**. Saved: **Resources & buffs · Uptime summary · Coverage · Selected window** | `activity-combat`, `saved-resources` |
 | Loot | **Highlights · Explore** | `loot` |
 | Quests | **Board · Planner** | `quests` |
 | Chat | No tabs: channel pills (**All · PM · Party · Guild · World · System · Ignored**) over one message table | — |
@@ -135,7 +134,7 @@ Controls that must stay in view sit in the row too, for example Logging's collec
 
 ### Scope
 
-Seven archive pages choose between the live view and saved history with one **Scope ▾** chip in the filter row: Runs & DPS › Feed's Table view, Timeline, Live meter › Resources & buffs, Party (all three tabs), Loot › Explore, Chat and Key-pops.
+Seven archive pages choose between the live view and saved history with one **Scope ▾** chip in the filter row: Runs & DPS › Feed's Table view, Timeline, Runs & DPS › Resources & buffs, Party (all three tabs), Loot › Explore, Chat and Key-pops.
 
 | Chip | Shows |
 | --- | --- |
@@ -167,8 +166,8 @@ The tooltip and the accessible description give the full wording, and the access
 | Before | Now |
 | --- | --- |
 | Runs (sidebar page) | Runs & DPS › **Feed** (saved-run cards, the run recap, the archive table as its Table view) |
-| DPS Logger › Damage meters | Runs & DPS › **Live meter** › Damage meters, restyled, with one filter row ([DPS meters](DPS-METERS.md)) |
-| DPS Logger › Resources & buffs | Runs & DPS › **Live meter** › Resources & buffs (it stays nested there) |
+| DPS Logger › Damage meters | Runs & DPS › **Live meter**, with one filter row ([DPS meters](DPS-METERS.md)) |
+| DPS Logger › Resources & buffs | Runs & DPS › **Resources & buffs**, in both Simple and Analyst |
 | The Encounter library dialog | Runs & DPS › **Recordings**, which also lists saved summaries and kept full detail |
 | My Info, then the Build pointer page | The character sheet's **Build** tab; its four metric cards are tiles (**Health**, **Mana**, **Weapon DPS**, **MP/sec**) with **Details…** links |
 | Statistics › Loot (Live log, explorer, legacy sharing status) | **Loot › Highlights**, **Loot › Explore** and Highlights' ⋯ › **Loot sharing status…** |
