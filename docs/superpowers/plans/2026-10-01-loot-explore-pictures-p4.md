@@ -26,7 +26,7 @@
 
 - **A dungeon tile opens Runs filtered to that dungeon,** not a separate split view. The strip lists only that dungeon's runs, newest first. Its "Dungeon: X" chip clears the filter, and "This dungeon so far" is beside the haul. Its collection is one click away, through **All items from X** in that panel. This keeps the spec's "that dungeon's runs and its collection" in the strip layout the user chose.
 - **Tile rates are per run with loot:** distinct drop-time runs among the dungeon's bags, the same denominator the dungeon panel shows. A tile also shows the dungeon's total runs from Runs › Dungeons (all saved visits), and reads "—" when only loot knows the dungeon.
-- **Routed moves:** Pictures' level and dungeon moves go through the navigator. That covers the entry switch, breadcrumb links, tiles and "All items from". Run-card picks don't, so Back after picking three runs leaves Pictures rather than stepping through each pick.
+- **Routed moves** (run picks unrouted: user-confirmed 2026-10-01): Pictures' level and dungeon moves go through the navigator. That covers the entry switch, breadcrumb links, tiles and "All items from". Run-card picks don't, so Back after picking three runs leaves Pictures rather than stepping through each pick.
 - **Sorts:** Most runs (default), Whites per run, UTs per run, Recent. A search box filters by dungeon name.
 
 ## Global Constraints
