@@ -852,7 +852,13 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
     }
     SwingWorker<Integer, Void> exportFiles(File folder, boolean debug) {
         requireIdleEdt(); List<DpsData> exports = new ArrayList<>(); List<String> names = new ArrayList<>();
-        for (EncounterCatalog.Entry entry : catalog.checkedEntries()) { exports.add(entry.data.getSaveFile(debug)); names.add(name(entry.data)); }
+        boolean releasedCapturePackets = false;
+        for (EncounterCatalog.Entry entry : catalog.checkedEntries()) {
+            if (entry.kind() == EncounterCatalog.Kind.CAPTURED && entry.data.debugPackets == null) releasedCapturePackets = true;
+            exports.add(entry.data.getSaveFile(debug)); names.add(name(entry.data));
+        }
+        String debugNote = debug && releasedCapturePackets
+            ? " Debug packets are kept only for the " + TomatoData.DEBUG_DPS_KEPT + " most recent fights; older fights were saved without packets." : "";
         setBusy(true, "Saving " + exports.size() + " checked encounters (including hidden checks)…");
         SwingWorker<Integer, Void> worker = new SwingWorker<Integer, Void>() {
             protected Integer doInBackground() throws IOException {
@@ -865,7 +871,7 @@ public class DungeonListGUI extends JPanel implements AutoCloseable {
                 return exports.size();
             }
             protected void done() {
-                try { setBusy(false, "Saved " + get() + " encounters."); }
+                try { setBusy(false, "Saved " + get() + " encounters." + debugNote); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); failed(e); }
                 catch (ExecutionException e) { failed(e.getCause()); }
             }

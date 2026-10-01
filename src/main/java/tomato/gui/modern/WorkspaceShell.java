@@ -34,6 +34,8 @@ public final class WorkspaceShell extends JPanel {
     private static final String SETTINGS = "settings";
     /** Shells open on Chat; the app then shows the landing page ({@link #selectLanding}). */
     private static final String INITIAL = "chat";
+    private static final java.util.regex.Pattern SKIPPED_HISTORY = java.util.regex.Pattern.compile(
+        "(?:^| · )([0-9]+)" + java.util.regex.Pattern.quote(tomato.history.SessionStore.RECORDS_SKIPPED) + "\\z");
     /** Row accessible descriptions follow the Alt key with the keyboard alternatives to dragging ({@link #rowDescription}). */
     private static final String MOVE_HINT = "Ctrl+Shift+Up or Down to move; Shift+F10 for options", MENU_HINT = "Shift+F10 for options";
     /** The sidebar drag's line thickness, and the band at the list's top and bottom edges (half a row) that autoscrolls. */
@@ -406,6 +408,14 @@ public final class WorkspaceShell extends JPanel {
         } else if (failed && error.startsWith(tomato.history.SessionStore.UNSAVED_ON_CLOSE)) {
             text = "History has unsaved data";
             detail = "History has unsaved data; check the history folder.";
+        }
+        if (failed) {
+            java.util.regex.Matcher skipped = SKIPPED_HISTORY.matcher(error);
+            if (skipped.find()) {
+                String sentence = skipped.group(1) + tomato.history.SessionStore.RECORDS_SKIPPED + ".";
+                if (skipped.start() == 0) { text = "Some history records were skipped"; detail = sentence; }
+                else detail += " " + sentence;
+            }
         }
         // Use cause-specific display text, never exception messages or absolute storage paths.
         historyStatus.setText(failed ? text : "");

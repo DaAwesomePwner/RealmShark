@@ -2,10 +2,6 @@ package tomato.gui.dps;
 
 import assets.ImageBuffer;
 import packets.incoming.*;
-import packets.Packet;
-import packets.data.ObjectData;
-import packets.outgoing.PlayerShootPacket;
-import packets.outgoing.EnemyHitPacket;
 import packets.data.enums.StatType;
 import tomato.backend.data.*;
 import javax.swing.*;
@@ -467,18 +463,7 @@ public class MeterDpsGUI extends DisplayDpsGUI {
     /** The shown encounter's presence timeline (null for a recording made before outcome tracking) and its first tick. */
     void setPresence(PresenceTimeline presence, long startedAt) { this.presence = presence; this.startedAt = startedAt; }
     static boolean missingLocalSpawn(DpsData saved) {
-        if (saved.debugPackets == null) return false;
-        int localId = -1;
-        boolean spawned = false, missedShots = false, localHit = false;
-        for (Packet packet : saved.debugPackets) {
-            if (packet instanceof CreateSuccessPacket) localId = ((CreateSuccessPacket)packet).objectId;
-            else if (packet instanceof UpdatePacket && localId >= 0) {
-                for (ObjectData object : ((UpdatePacket)packet).newObjects)
-                    if (object.status.objectId == localId) spawned = true;
-            } else if (packet instanceof PlayerShootPacket && localId >= 0 && !spawned) missedShots = true;
-            else if (packet instanceof EnemyHitPacket && localId >= 0 && ((EnemyHitPacket)packet).shooterID == localId) localHit = true;
-        }
-        return missedShots && localHit;
+        return saved.missingLocalSpawn();
     }
     protected void renderData(MapInfoPacket map, List<Entity> entities, ArrayList<NotificationPacket> notes, long elapsed, boolean isLive) {
         targets = new ArrayList<>(entities); mapName = map == null ? "No encounter" : map.name; live = isLive;

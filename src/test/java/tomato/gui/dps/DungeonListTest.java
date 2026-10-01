@@ -19,6 +19,72 @@ import static tomato.gui.activity.SnapshotTestSupport.await;
 public class DungeonListTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
+    @Test public void importOnlyDebugExportDoesNotReportCaptureRetention() throws Exception {
+        File folder = temporary.newFolder("import-debug-export");
+        File source = temporary.newFile("packetless-import.dps");
+        DpsData original = encounter("Imported fight");
+        EncounterCatalogTest.write(source.toPath(), original);
+        EncounterImport imported = EncounterImport.read(source.toPath());
+        assertNull(imported.data.debugPackets);
+        DungeonListGUI[] chooser = new DungeonListGUI[1]; SwingWorker<?, ?>[] job = new SwingWorker<?, ?>[1];
+        CountDownLatch done = new CountDownLatch(1);
+        SwingUtilities.invokeAndWait(() -> {
+            TomatoData data = new TomatoData(); DpsGUI view = new DpsGUI(data);
+            EncounterCatalog.Entry entry = view.encounters().add(imported).entry;
+            assertEquals(EncounterCatalog.Kind.IMPORTED, entry.kind());
+            view.encounters().check(entry.id, true);
+            chooser[0] = new DungeonListGUI(view, data, null);
+            job[0] = chooser[0].exportFiles(folder, true); onDone(job[0], done);
+        });
+        assertEquals(1, job[0].get(5, TimeUnit.SECONDS)); assertTrue(done.await(5, TimeUnit.SECONDS));
+        File[] files = folder.listFiles((dir, name) -> name.endsWith(".dps"));
+        assertNotNull(files); assertEquals(1, files.length);
+        try (ObjectInputStream input = new ObjectInputStream(new FileInputStream(files[0]))) {
+            DpsData written = (DpsData) input.readObject();
+            assertEquals(original.getRecordingId(), written.getRecordingId()); assertNull(written.debugPackets);
+        }
+        SwingUtilities.invokeAndWait(() -> {
+            JTextArea status = textArea(chooser[0], "encounter-status");
+            assertNotNull(status); assertEquals("Saved 1 encounters.", status.getText());
+        });
+    }
+
+    @Test public void olderFightDebugExportWritesWithoutPacketsAndExplainsRetention() throws Exception {
+        File folder = temporary.newFolder("older-debug");
+        TomatoData data = new TomatoData();
+        DpsData first = DpsRetentionTest.close(data, 0, false);
+        for (int i = 1; i <= TomatoData.DEBUG_DPS_KEPT; i++) DpsRetentionTest.close(data, i, false);
+        assertNull(first.debugPackets);
+        DungeonListGUI[] chooser = new DungeonListGUI[1]; SwingWorker<?, ?>[] job = new SwingWorker<?, ?>[1];
+        CountDownLatch done = new CountDownLatch(1);
+        SwingUtilities.invokeAndWait(() -> {
+            DpsGUI view = new DpsGUI(data);
+            chooser[0] = new DungeonListGUI(view, data, null);
+            view.encounters().check(view.encounters().find(first).id, true);
+            job[0] = chooser[0].exportFiles(folder, true); onDone(job[0], done);
+        });
+        assertEquals(1, job[0].get(5, TimeUnit.SECONDS)); assertTrue(done.await(5, TimeUnit.SECONDS));
+        File[] files = folder.listFiles((dir, name) -> name.endsWith(".dps"));
+        assertNotNull(files); assertEquals(1, files.length);
+        try (ObjectInputStream input = new ObjectInputStream(new FileInputStream(files[0]))) {
+            DpsData written = (DpsData) input.readObject();
+            assertEquals(first.getRecordingId(), written.getRecordingId()); assertNull(written.debugPackets);
+        }
+        SwingUtilities.invokeAndWait(() -> {
+            JTextArea status = textArea(chooser[0], "encounter-status");
+            assertNotNull(status);
+            assertEquals("Saved 1 encounters. Debug packets are kept only for the 3 most recent fights; older fights were saved without packets.", status.getText());
+        });
+    }
+
+    private static JTextArea textArea(Container root, String name) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JTextArea && name.equals(child.getName())) return (JTextArea) child;
+            if (child instanceof Container) { JTextArea found = textArea((Container) child, name); if (found != null) return found; }
+        }
+        return null;
+    }
+
     @Test public void keyboardSelectionAndExportChecksSurviveHistoryRefresh() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             TomatoData data = new TomatoData();

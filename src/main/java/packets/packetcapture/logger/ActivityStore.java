@@ -10,14 +10,12 @@ import java.util.function.Supplier;
 final class ActivityStore implements AutoCloseable {
     private final Path file;
     private final AtomicReference<Checkpoint> pending = new AtomicReference<>();
-    private final Thread worker;
+    private Thread worker;
     private volatile boolean closed;
     private volatile String error = "";
     private boolean preserveUnreadable;
     ActivityStore(Path directory) {
         file = directory.resolve("activity-history.json");
-        worker = new Thread(this::run, "RealmShark activity history writer");
-        worker.setDaemon(true); worker.start();
     }
     ActivityJournal.State load() {
         if (!Files.exists(file)) return null;
@@ -47,8 +45,13 @@ final class ActivityStore implements AutoCloseable {
     }
     void offer(ActivityJournal.State state) { offer(() -> state); }
     void offer(Supplier<ActivityJournal.State> snapshot) { offer(snapshot,()->{}); }
-    void offer(Supplier<ActivityJournal.State> snapshot,Runnable persisted) {
-        if (!closed) pending.set(new Checkpoint(snapshot,persisted));
+    synchronized void offer(Supplier<ActivityJournal.State> snapshot,Runnable persisted) {
+        if (closed) return;
+        pending.set(new Checkpoint(snapshot,persisted));
+        if (worker == null) {
+            worker = new Thread(this::run, "RealmShark activity history writer");
+            worker.setDaemon(true); worker.start();
+        }
     }
     String error() { return error; }
     private void run() {
@@ -80,7 +83,9 @@ final class ActivityStore implements AutoCloseable {
         Checkpoint(Supplier<ActivityJournal.State> snapshot,Runnable persisted) { this.snapshot=snapshot; this.persisted=persisted; }
     }
     @Override public void close() {
-        closed = true;
-        try { worker.join(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        Thread closingWorker;
+        synchronized (this) { closed = true; closingWorker = worker; }
+        if (closingWorker == null) return;
+        try { closingWorker.join(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 }

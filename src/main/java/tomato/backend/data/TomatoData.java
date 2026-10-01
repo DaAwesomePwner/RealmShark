@@ -228,7 +228,39 @@ public class TomatoData {
         }
         characterJournal().exalts(account, RealmCharacter.exalts);
     }
-    public ArrayList<DpsData> dpsData = new ArrayList<>();
+    public static final int CLOSED_DPS_KEPT = 20;
+    public static final int DEBUG_DPS_KEPT = 3;
+    /** Closed recordings; production reads, additions, selection and Clear share this list's monitor. */
+    public final ArrayList<DpsData> dpsData = new ArrayList<>();
+    private DpsData shownDpsEncounter;
+
+    public DpsData[] closedDpsSnapshot() {
+        synchronized (dpsData) { return dpsData.toArray(new DpsData[0]); }
+    }
+
+    /** EDT selection: an entry evicted since the catalog was read cannot become the shown recording. */
+    public boolean showDpsEncounter(DpsData shown) {
+        synchronized (dpsData) {
+            if (shown != null && !dpsData.contains(shown)) return false;
+            shownDpsEncounter = shown;
+            return true;
+        }
+    }
+
+    public void clearDpsHistory() {
+        synchronized (dpsData) { dpsData.clear(); shownDpsEncounter = null; }
+    }
+
+    private void retainClosedEncounter(DpsData closed) {
+        synchronized (dpsData) {
+            dpsData.add(closed);
+            // Release packets even from a shown fight: selection protects the fight, not its debug log.
+            for (int i = 0; i < dpsData.size() - DEBUG_DPS_KEPT; i++) dpsData.get(i).releaseDebugPackets();
+            for (Iterator<DpsData> oldest = dpsData.iterator(); dpsData.size() > CLOSED_DPS_KEPT && oldest.hasNext(); ) {
+                if (oldest.next() != shownDpsEncounter) oldest.remove();
+            }
+        }
+    }
     protected ArrayList<NotificationPacket> deathNotifications =
         new ArrayList<>();
     // Who entered and left view, died, and when the area ended (outcome tracking); reset with the death notifications.
@@ -360,7 +392,7 @@ public class TomatoData {
         DpsData closed = new DpsData(map, hits, new ArrayList<>(deathNotifications), dungeonTime(), timePcFirst,
             new ArrayList<>(dpsPacketLog), closedPlayer, context);
         closed.setPresence(presence);
-        dpsData.add(closed);
+        retainClosedEncounter(closed);
         DpsGUI.updateLabel();
         dungeonTimeBeforeStop += Math.max(0, dungeonTime());
         // The remainder starts from nothing: no hits, deaths or packets, a new tick window, no recorded damage on live objects.
@@ -1257,7 +1289,7 @@ public class TomatoData {
                 context
             );
             closed.setPresence(presence);   // the recording owns it; resetEncounterGraph starts a new one
-            dpsData.add(closed);
+            retainClosedEncounter(closed);
             closedEncounter = closed;   // handed off by setNewRealm once this method has returned
             DpsGUI.updateLabel();
         }
