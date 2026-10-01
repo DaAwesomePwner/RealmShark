@@ -42,13 +42,15 @@ public final class EnchantGem {
         }
     }
 
-    /** {@code base} with the gem over its top-right corner, sized to it; {@code base} itself (even null) when no gem is shown. */
+    /** {@code base} with the gem over its top-right corner, sized to its shorter side; {@code base} itself (even null) when no gem is shown. */
     public static Icon decorate(Icon base, EnchantInfo info) {
         if (base == null || ink(info) == null) return base;
         return new Icon() {
             @Override public void paintIcon(Component c, Graphics g, int x, int y) {
                 base.paintIcon(c, g, x, y);
-                paint((Graphics2D) g, info, x, y, Math.min(getIconWidth(), getIconHeight()) - 1);
+                // Sized to the shorter side and placed at the right edge, so a wide icon's gem is still in its top-right corner.
+                int side = Math.min(getIconWidth(), getIconHeight());
+                paint((Graphics2D) g, info, x + getIconWidth() - side, y, side - 1);
             }
             @Override public int getIconWidth() { return base.getIconWidth(); }
             @Override public int getIconHeight() { return base.getIconHeight(); }

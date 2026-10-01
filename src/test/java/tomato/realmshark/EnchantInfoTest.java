@@ -136,6 +136,13 @@ public class EnchantInfoTest {
         assertSame("A missing id inside the list: unreadable, never a throw", EnchantInfo.unreadable(), EnchantInfo.fromEvidence(nullId));
     }
 
+    @Test public void aRecordWithTheUnknownRarityClaimsNoCount() {
+        assertEquals("Enchant data unreadable", new EnchantInfo(EnchantInfo.State.COUNT_ONLY, EnchantInfo.Rarity.UNKNOWN, List.of()).summary());
+        assertEquals("Enchant data unreadable",
+            new EnchantInfo(EnchantInfo.State.RECORDED, EnchantInfo.Rarity.UNKNOWN, List.of(new EnchantInfo.Slot(-1))).summary());
+        assertFalse(new EnchantInfo(EnchantInfo.State.RECORDED, EnchantInfo.Rarity.UNKNOWN, List.of()).enchanted());
+    }
+
     private static String encode(int... entries) {
         ByteBuffer buffer = ByteBuffer.allocate(3 + entries.length * 2).order(ByteOrder.LITTLE_ENDIAN);
         buffer.put((byte) 0);

@@ -75,6 +75,31 @@ public class EnchantGemTest {
         assertTrue(EnchantGem.size(48 + Sprites.WELL - 1) <= 16);
     }
 
+    @Test public void aRecordedUnknownRarityPaintsNoGem() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Icon base = ItemSlot.icon(null, "UT", ItemSlot.State.ITEM, 20);
+            assertSame(base, EnchantGem.decorate(base, new EnchantInfo(EnchantInfo.State.RECORDED, Rarity.UNKNOWN, java.util.List.of())));
+        });
+    }
+
+    @Test public void aWideIconsGemSitsInItsTopRightCorner() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Icon wide = new Icon() {
+                @Override public void paintIcon(Component c, Graphics g, int x, int y) { }
+                @Override public int getIconWidth() { return 60; }
+                @Override public int getIconHeight() { return 21; }
+            };
+            for (Icon decorated : new Icon[] {EnchantGem.decorate(wide, recorded(Rarity.RARE)), new ItemIcon(wide, "Bow", recorded(Rarity.RARE))}) {
+                int[] pixels = paint(decorated);
+                int minX = Integer.MAX_VALUE, maxY = -1;
+                for (int i = 0; i < pixels.length; i++) if (pixels[i] != 0) { minX = Math.min(minX, i % 60); maxY = Math.max(maxY, i / 60); }
+                assertTrue("The gem is painted", maxY >= 0);
+                assertTrue("The gem is in the right-hand square, not over the icon's left: " + minX, minX >= 60 - 21);
+                assertTrue("The gem is in the top half: " + maxY, maxY < 21 / 2 + 1);
+            }
+        });
+    }
+
     private static int[] paint(Icon icon) {
         BufferedImage image = new BufferedImage(icon.getIconWidth(), icon.getIconHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();

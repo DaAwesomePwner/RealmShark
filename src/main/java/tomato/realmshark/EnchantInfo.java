@@ -84,6 +84,8 @@ public record EnchantInfo(State state, Rarity rarity, List<Slot> slots) {
             case NOT_RECORDED: return "Enchants not recorded";
             case UNREADABLE: return "Enchant data unreadable";
             default: {
+                // No slot count maps to UNKNOWN, so a record built with it has no honest count to show.
+                if (rarity == Rarity.UNKNOWN) return "Enchant data unreadable";
                 // Rarity constants are declared in slot-count order, so a count-only record's count is its rarity's ordinal.
                 int count = state == State.COUNT_ONLY ? rarity.ordinal() : slots.size();
                 return rarity == Rarity.UNENCHANTED ? "Unenchanted"
