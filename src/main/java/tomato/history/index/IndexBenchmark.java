@@ -26,7 +26,13 @@ public final class IndexBenchmark {
             throw new IllegalArgumentException("Native extraction must be outside historyDir");
         System.setProperty("realmshark.indexNativeDir",natives.toString());
         try (SessionStore store=new SessionStore(history,false,"index-benchmark")) {
-            HistoryIndex index=new HistoryIndex(store,output,true);
+            HistoryIndex index=new HistoryIndex(store,output,true,() -> {
+                AssetDictionary.Loaded loaded=AssetDictionary.load();
+                System.out.println("Dictionary version: "+loaded.dictionary().version());
+                System.out.printf(Locale.ROOT,"Dictionary names loaded: objects=%d; enchants=%d; classes=%d%n",
+                        loaded.objectNames(),loaded.enchantNames(),loaded.classNames());
+                return loaded.dictionary();
+            });
             try {
                 long start=System.nanoTime();
                 HistoryIndex.State state=index.start().get(30,TimeUnit.MINUTES);
