@@ -49,6 +49,7 @@ public final class SessionStore implements AutoCloseable {
     private volatile Thread ioThread;
     private volatile boolean currentMetadataPublished;
     private volatile PersistenceListener persistenceListener;
+    private volatile LifecycleListener lifecycleListener;
     private FileChannel lockChannel;
     private FileLock fileLock;
 
@@ -78,6 +79,23 @@ public final class SessionStore implements AutoCloseable {
     public synchronized void setPersistenceListener(PersistenceListener listener) {
         if (persistenceListener != null) throw new IllegalStateException("Persistence listener already installed");
         persistenceListener = Objects.requireNonNull(listener);
+    }
+    /** Called after lifecycle writes on the thread performing the operation. Implementations must not block. */
+    public interface LifecycleListener {
+        void sessionRemoved(String id);
+        void sessionChanged(String id);
+    }
+    public synchronized void setLifecycleListener(LifecycleListener listener) {
+        if (lifecycleListener != null) throw new IllegalStateException("Lifecycle listener already installed");
+        lifecycleListener = Objects.requireNonNull(listener);
+    }
+    private void lifecycle(String id, boolean removed) {
+        LifecycleListener listener = lifecycleListener;
+        if (listener != null) try {
+            if (removed) listener.sessionRemoved(id); else listener.sessionChanged(id);
+        } catch (Throwable failure) {
+            if (failure instanceof VirtualMachineError fatal && !(fatal instanceof StackOverflowError)) throw fatal;
+        }
     }
     private void persisted(Write write, long offset) {
         PersistenceListener listener = persistenceListener;
@@ -460,25 +478,47 @@ public final class SessionStore implements AutoCloseable {
         Path imports=root.resolve("imports").resolve(id);Path marker=imports.resolve(module+"-"+itemId+".json");
         if(Files.exists(marker))return;
         Path path = sessionPath(id); Files.createDirectories(path);
-        if (!Files.exists(path.resolve("session.json"))) {
-            Session imported = new Session(id, started, label, "Imported"); imported.ended = started;
-            writeAtomic(path.resolve("session.json"), JSON.toJson(imported), false);
+        boolean changed = false;
+        try {
+            if (!Files.exists(path.resolve("session.json"))) {
+                Session imported = new Session(id, started, label, "Imported"); imported.ended = started;
+                writeAtomic(path.resolve("session.json"), JSON.toJson(imported), false);
+                changed = true;
+            }
+            Path item = path.resolve(module).resolve(itemId + ".json");
+            if (!Files.exists(item)) { persist(new Write(id, module, key, value)); changed = true; }
+            Files.createDirectories(imports);writeAtomic(marker,"{\"imported\":true}",false);
+        } finally {
+            if (changed) lifecycle(id, false);
         }
-        Path item = path.resolve(module).resolve(itemId + ".json");
-        if (!Files.exists(item)) persist(new Write(id, module, key, value));
-        Files.createDirectories(imports);writeAtomic(marker,"{\"imported\":true}",false);
     }
     public void delete(String id) throws IOException {
+        delete(id, Files::delete);
+    }
+    void delete(String id, AtomicFiles.IOConsumer<Path> deleteFile) throws IOException {
         if (!writable || id.equals(current.id)) throw new IOException("The current session is still recording.");
         Path path = sessionPath(id); if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) return;
-        whileClosed(id, () -> {
-            try (Stream<Path> files = Files.walk(path)) {
-                Iterator<Path> iterator = files.sorted(Comparator.reverseOrder()).iterator();
-                while (iterator.hasNext()) { Path file = iterator.next(); if (!file.equals(path) && !file.equals(path.resolve(".active"))) Files.delete(file); }
-            }
-            return null;
-        });
-        Files.deleteIfExists(path.resolve(".active")); Files.delete(path);
+        boolean[] changed = {false};
+        boolean removed = false;
+        try {
+            whileClosed(id, () -> {
+                try (Stream<Path> files = Files.walk(path)) {
+                    Iterator<Path> iterator = files.sorted(Comparator.reverseOrder()).iterator();
+                    while (iterator.hasNext()) {
+                        Path file = iterator.next();
+                        if (!file.equals(path) && !file.equals(path.resolve(".active"))) {
+                            deleteFile.accept(file); changed[0] = true;
+                        }
+                    }
+                }
+                return null;
+            });
+            if (Files.deleteIfExists(path.resolve(".active"))) changed[0] = true;
+            deleteFile.accept(path); removed = true;
+        } finally {
+            if (!removed && changed[0] && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) lifecycle(id, false);
+        }
+        lifecycle(id, true);
     }
     /**
      * Deletes the regular files directly in {@code <session>/<module>/} that {@code match} accepts (a checkpoint module or a
@@ -497,12 +537,16 @@ public final class SessionStore implements AutoCloseable {
                 for (Path file : listing) if (Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) files.add(file);
             }
             int deleted = 0;
-            for (Path file : files) {
-                if (!match.test(file)) continue;
-                try { if (Files.deleteIfExists(file)) deleted++; }
-                catch (IOException kept) { /* in use or protected: kept, not counted */ }
+            try {
+                for (Path file : files) {
+                    if (!match.test(file)) continue;
+                    try { if (Files.deleteIfExists(file)) deleted++; }
+                    catch (IOException kept) { /* in use or protected: kept, not counted */ }
+                }
+                return deleted;
+            } finally {
+                if (deleted > 0) lifecycle(session, false);
             }
-            return deleted;
         });
     }
     private interface Locked<T> { T run() throws IOException; }
@@ -528,6 +572,7 @@ public final class SessionStore implements AutoCloseable {
             catch(RuntimeException failure){throw new IOException("Unreadable session metadata",failure);}
             if(session==null||!id.equals(session.id)||session.schemaVersion!=1)throw new IOException("Invalid session metadata");
             metadata.addProperty("label",label);writeAtomic(meta,metadata.toString(),false);
+            lifecycle(id, false);
         }catch(OverlappingFileLockException failure){throw new IOException("This session is still open.",failure);}
     }
     public void flush() throws Exception {

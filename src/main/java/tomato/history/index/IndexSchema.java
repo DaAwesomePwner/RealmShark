@@ -4,12 +4,12 @@ import java.sql.*;
 import java.util.*;
 
 final class IndexSchema {
-    static final int VERSION = 3;
+    static final int VERSION = 6;
     static final long ROW_MASK = (1L << 48) - 1;
     static final Map<String,String> TABLES = new LinkedHashMap<>();
     static final List<String> MODULES = List.of("session","runs","loot","timeline","chat","chat-stars","keypops","fame","fame-latest","fame-snapshots","encounters","dungeon-totals");
     static {
-        TABLES.put("sessions","label TEXT,version TEXT,started INTEGER,ended INTEGER,stamp TEXT,index_state TEXT,skipped INTEGER NOT NULL DEFAULT 0,reason TEXT,unindexed TEXT");
+        TABLES.put("sessions","label TEXT,version TEXT,started INTEGER,ended INTEGER,stamp TEXT,dictionary TEXT,index_state TEXT,skipped INTEGER NOT NULL DEFAULT 0,reason TEXT,unindexed TEXT");
         TABLES.put("runs","map TEXT,started INTEGER,ended INTEGER,duration INTEGER,outcome TEXT,damage INTEGER,players INTEGER,roster_size INTEGER,issues INTEGER,gaps INTEGER,progress INTEGER,evidence TEXT,status TEXT,search_text TEXT,player_names TEXT");
         TABLES.put("loot_bags","dungeon TEXT,bag TEXT,dropper TEXT,white INTEGER,items INTEGER");
         TABLES.put("loot_items","item_id INTEGER,name TEXT,dungeon TEXT,dropper TEXT,bag TEXT,tier TEXT,rarity TEXT,enchant_slots INTEGER,enchant_applied INTEGER,ut INTEGER,st INTEGER,high_tier INTEGER,potion INTEGER");

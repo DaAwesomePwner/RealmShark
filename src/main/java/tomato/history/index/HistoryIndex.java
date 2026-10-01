@@ -11,6 +11,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import tomato.history.SessionStamps;
 import tomato.history.SessionStore;
 
@@ -39,6 +40,10 @@ public final class HistoryIndex implements AutoCloseable {
     private final NativeLoader loader;
     private final ReplacementHook replacementHook;
     private final LongSupplier nanoTime;
+    private final Supplier<IndexDictionary> dictionarySource;
+    private IndexDictionary dictionary=IndexDictionary.NONE; // writer only
+    private final AtomicBoolean dictionaryPending=new AtomicBoolean(true);
+    private boolean dictionaryFailureLogged;
     private final ScheduledExecutorService writer;
     private final ArrayBlockingQueue<Offer> offers;
     private final ConcurrentMap<String,Long> stale = new ConcurrentHashMap<>();
@@ -70,11 +75,19 @@ public final class HistoryIndex implements AutoCloseable {
     public HistoryIndex(SessionStore store, Path indexFile, boolean includeChat) {
         this(store,indexFile,includeChat,8192,HistoryIndex::loadNative,session -> {});
     }
+    HistoryIndex(SessionStore store, Path indexFile, boolean includeChat,Supplier<IndexDictionary> dictionarySource) {
+        this(store,indexFile,includeChat,8192,HistoryIndex::loadNative,session -> {},System::nanoTime,dictionarySource);
+    }
     HistoryIndex(SessionStore store, Path indexFile, boolean includeChat, int capacity, NativeLoader loader, ReplacementHook hook) {
         this(store,indexFile,includeChat,capacity,loader,hook,System::nanoTime);
     }
     HistoryIndex(SessionStore store, Path indexFile, boolean includeChat, int capacity, NativeLoader loader, ReplacementHook hook,LongSupplier nanoTime) {
+        this(store,indexFile,includeChat,capacity,loader,hook,nanoTime,AssetDictionary::snapshot);
+    }
+    HistoryIndex(SessionStore store, Path indexFile, boolean includeChat, int capacity, NativeLoader loader, ReplacementHook hook,
+                 LongSupplier nanoTime,Supplier<IndexDictionary> dictionarySource) {
         this.store=Objects.requireNonNull(store); file=indexFile.toAbsolutePath().normalize(); this.includeChat=includeChat;
+        this.dictionarySource=Objects.requireNonNull(dictionarySource);
         this.loader=loader; replacementHook=hook; this.nanoTime=nanoTime; offers=new ArrayBlockingQueue<>(capacity);
         String override=System.getProperty("realmshark.indexNativeDir");
         nativeDirectory=override==null?store.directory().resolveSibling("native"):Path.of(override).toAbsolutePath().normalize();
@@ -116,6 +129,13 @@ public final class HistoryIndex implements AutoCloseable {
         return initial;
     }
     public void rebuild() { rebuild.set(true); }
+    /** Enqueues intent only; dictionary snapshots and invalidation run on the writer. */
+    public void dictionaryChanged() {
+        if (closing.get() || state.phase==Phase.UNAVAILABLE) return;
+        dictionaryPending.set(true);
+        if (started.get()) try { writer.execute(this::tick); }
+        catch (RejectedExecutionException ignored) { }
+    }
     public void setIncludeChat(boolean value) { includeChat=value; }
     public boolean includeChat() { return includeChat; }
     /** record must be a detached saved value, as in SessionStore's producer contract. No serialization or I/O here. */
@@ -134,7 +154,7 @@ public final class HistoryIndex implements AutoCloseable {
     }
     public void markSessionChanged(String session) {
         synchronized (ingestionLock) {
-            if (!closing.get() && state.phase!=Phase.UNAVAILABLE && validSession(session) && !removed.contains(session)) stale.put(session,revision.incrementAndGet());
+            if (!closing.get() && state.phase!=Phase.UNAVAILABLE && validSession(session)) stale.put(session,revision.incrementAndGet());
         }
     }
     public void removeSession(String session) {
@@ -227,6 +247,7 @@ public final class HistoryIndex implements AutoCloseable {
             finally { db.setAutoCommit(true); }
         }
         appliedChat="true".equals(meta("include_chat"));
+        dictionaryPending.set(true);
         readable=true;
     }
     private void quarantine() throws IOException {
@@ -245,7 +266,7 @@ public final class HistoryIndex implements AutoCloseable {
     private void meta(String key,String value) throws SQLException { execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",key,value); }
     private void tick() {
         if (closing.get() || !due(maintenanceRetry)) return;
-        boolean changed=rebuild.get() || appliedChat!=includeChat || !offers.isEmpty() || !stale.isEmpty() || !removed.isEmpty();
+        boolean changed=rebuild.get() || dictionaryPending.get() || appliedChat!=includeChat || !offers.isEmpty() || !stale.isEmpty() || !removed.isEmpty();
         try {
             if (initialPending && state.phase!=Phase.UNAVAILABLE) {
                 if (db==null) open();
@@ -258,21 +279,23 @@ public final class HistoryIndex implements AutoCloseable {
                     transaction(() -> { IndexSchema.drop(db); IndexSchema.create(db); });
                 }
                 catch (Exception failure) { rebuild.set(true); throw failure; }
-                compactNeeded=true; appliedChat=false; initialPending=true; initialBackfill(); initialPending=false;
+                compactNeeded=true; appliedChat=false; dictionaryPending.set(true); initialPending=true; initialBackfill(); initialPending=false;
             }
             if (db==null) return;
+            applyDictionary();
             if (appliedChat!=includeChat) { if (includeChat) backfill(); else applyChatPolicy(); }
             for (String session:List.copyOf(removed)) {
                 transaction(() -> { deleteSession(session); refreshPlayers(); });
                 synchronized (ingestionLock) {
                     // The tombstone lasts through commit. Purge all pre-removal offers before accepting a re-import.
                     offers.removeIf(offer -> offer.session.equals(session));
-                    stale.remove(session); sessions.remove(session); retries.remove(session); removed.remove(session);
+                    // Preserve changes after removal was requested, including an immediate re-import of the same UUID.
+                    sessions.remove(session); retries.remove(session); removed.remove(session);
                 }
             }
             drainOffers();
             for (Map.Entry<String,Long> entry:List.copyOf(stale.entrySet())) {
-                if (removed.contains(entry.getKey())) { stale.remove(entry.getKey()); continue; }
+                if (removed.contains(entry.getKey())) continue;
                 if (due(retries.get(entry.getKey())) && indexSession(entry.getKey(),true)) stale.remove(entry.getKey(),entry.getValue());
             }
             for (Map.Entry<String,SessionState> entry:List.copyOf(sessions.entrySet()))
@@ -319,6 +342,7 @@ public final class HistoryIndex implements AutoCloseable {
         publish(new State(Phase.READY,"",done,catalog.size()));
     }
     private void initialBackfill() throws Exception {
+        applyDictionary();
         IndexSchema.exec(db,"PRAGMA cache_size=-65536"); IndexSchema.exec(db,"PRAGMA temp_store=MEMORY");
         long before=replacements.get();
         long indexed;
@@ -336,6 +360,41 @@ public final class HistoryIndex implements AutoCloseable {
                 IndexSchema.exec(db,"VACUUM"); compactNeeded=false; compactions++;
             }
         } finally { IndexSchema.exec(db,"PRAGMA cache_size=-2000"); IndexSchema.exec(db,"PRAGMA temp_store=DEFAULT"); }
+    }
+    private void applyDictionary() throws Exception {
+        if (!dictionaryPending.getAndSet(false)) return;
+        try {
+            IndexDictionary next;
+            try { next=Objects.requireNonNull(dictionarySource.get()); }
+            catch (RuntimeException failure) {
+                next=IndexDictionary.NONE;
+                if (!dictionaryFailureLogged) {
+                    System.err.println("History index dictionary snapshot failed; enrichment unavailable.");
+                    dictionaryFailureLogged=true;
+                }
+            }
+            if ("none".equals(next.version())) next=IndexDictionary.NONE;
+            String version=next.version();
+            if (next!=IndexDictionary.NONE) {
+                List<String> outdated=new ArrayList<>();
+                try (PreparedStatement p=db.prepareStatement("SELECT id FROM sessions WHERE dictionary IS NOT ?")) {
+                    p.setString(1,version);
+                    try (ResultSet r=p.executeQuery()) { while (r.next()) outdated.add(r.getString(1)); }
+                }
+                boolean changed=!version.equals(meta("dictionary_version"));
+                if (changed || !outdated.isEmpty()) transaction(() -> {
+                    execute("UPDATE sessions SET stamp=NULL,index_state='STALE' WHERE dictionary IS NOT ?",version);
+                    if (changed) meta("dictionary_version",version);
+                });
+                for (String session:outdated) markSessionChanged(session);
+            }
+            // Missing assets do not erase existing enrichment or the last successfully applied version.
+            dictionary=next;
+            // Include previously indexed open sessions, also after interruption between invalidation and replacement.
+            if (initialPending) try (Statement s=db.createStatement(); ResultSet r=s.executeQuery("SELECT id FROM sessions WHERE index_state IN ('STALE','FAILED')")) {
+                while (r.next()) markSessionChanged(r.getString(1));
+            }
+        } catch (Exception failure) { dictionaryPending.set(true); throw failure; }
     }
     private boolean indexSession(String session,boolean force) throws Exception {
         Path folder=store.directory().resolve(session);
@@ -356,7 +415,7 @@ public final class HistoryIndex implements AutoCloseable {
             transaction(() -> {
                 storage.clearSession(session,false); replacementHook.afterDelete(session);
                 Locator source=new Locator(session,"session",-1,"session",-1);
-                insert(Projections.project(new Projections.Context(source,metadata.ended,session.equals(store.currentId()),metadata.version),metadata));
+                insert(Projections.project(new Projections.Context(source,metadata.ended,session.equals(store.currentId()),metadata.version,dictionary),metadata));
                 for (String module:Projections.modules()) {
                     if (module.equals("session") || !appliedChat && (module.equals("chat")||module.equals("chat-stars"))) continue;
                     Path journal=folder.resolve(module+".jsonl");
@@ -381,8 +440,8 @@ public final class HistoryIndex implements AutoCloseable {
                 // Open files are prefix snapshots; later producer offers remain queued as exact source upserts.
                 if (metadata.ended>0 && !session.equals(store.currentId()) && !stamp.equals(stamp(folder)))
                     throw new IOException("Session changed during indexing");
-                execute("UPDATE sessions SET stamp=?,index_state='READY',skipped=?,reason='',unindexed=? WHERE id=?",
-                        stamp,skipped[0],String.join(",",unindexed),session);
+                execute("UPDATE sessions SET stamp=?,dictionary=?,index_state='READY',skipped=?,reason='',unindexed=? WHERE id=?",
+                        stamp,dictionary.version(),skipped[0],String.join(",",unindexed),session);
                 refreshPlayers();
             });
             sessions.put(session,new SessionState(Readiness.READY,skipped[0],"",unindexed)); retries.remove(session);
@@ -410,7 +469,7 @@ public final class HistoryIndex implements AutoCloseable {
         List<Projections.Row> rows;
         try {
             JsonElement json=SessionStore.JSON.fromJson(text,JsonElement.class);
-            rows=Projections.project(new Projections.Context(locator,session.ended,session.id.equals(store.currentId()),session.version),json);
+            rows=Projections.project(new Projections.Context(locator,session.ended,session.id.equals(store.currentId()),session.version,dictionary),json);
         } catch (RuntimeException malformed) { skipped[0]++; return; }
         insert(rows); // database failures abort the whole replacement; they are never counted as malformed records
     }
@@ -486,18 +545,21 @@ public final class HistoryIndex implements AutoCloseable {
                     changed.add(offer.session);
                     SessionStore.Session session=metadata.get(offer.session);
                     Locator locator=Locator.offered(offer.session,offer.module,offer.offset,offer.key);
-                    if (!exists(offer.session)) insert(Projections.project(new Projections.Context(new Locator(offer.session,"session",-1,"session",-1),session.ended,true,session.version),session));
+                    if (!exists(offer.session)) insert(Projections.project(new Projections.Context(new Locator(offer.session,"session",-1,"session",-1),session.ended,true,session.version,dictionary),session));
                     deleteSource(locator);
                     List<Projections.Row> rows;
                     try {
-                        rows=Projections.project(new Projections.Context(locator,session.ended,offer.session.equals(store.currentId()),session.version),offer.value);
+                        rows=Projections.project(new Projections.Context(locator,session.ended,offer.session.equals(store.currentId()),session.version,dictionary),offer.value);
                     } catch (RuntimeException malformed) {
                         skipped.merge(offer.session,1L,Long::sum);
                         execute("UPDATE sessions SET skipped=skipped+1,stamp=NULL WHERE id=?",offer.session);
                         continue;
                     }
                     insert(rows);
-                    execute("UPDATE sessions SET stamp=NULL,index_state='STALE' WHERE id=?",offer.session);
+                    // A partial upsert cannot upgrade a session's dictionary version. Missing names must be
+                    // repaired once assets return, even if the session's other rows still have enrichment.
+                    execute("UPDATE sessions SET stamp=NULL,index_state='STALE',dictionary=CASE WHEN ?='none' THEN 'none' ELSE dictionary END WHERE id=?",
+                            dictionary.version(),offer.session);
                 }
                 refreshPlayers();
             });
