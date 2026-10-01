@@ -22,8 +22,8 @@ import tomato.history.archive.Cancellation;
 import tomato.history.link.VisitRef;
 
 /**
- * Loot › Explore's Runs level: saved runs on the left (the run feed as a picker, newest first, with "Loot outside runs" above it)
- * and the chosen run's haul on the right, drawn Full. The newest run opens when the first runs load; picking a card, Enter on
+ * Loot › Explore's Runs level: saved runs in a horizontal strip above the chosen run's full-width haul and dungeon summary.
+ * The newest run opens when the first runs load; picking a card, Enter on
  * one, or {@link #openRun} (a route) opens another, including a run the feed has not loaded. A run still in progress is read again
  * whenever the feed reads new runs (about every 30 s while it shows). Reads run on one worker; only the newest request's result
  * applies. EDT only, except the reads.
@@ -35,12 +35,14 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
     private final RunFeedView feed;
     private final RunHauls.Loader loader;
     private final Executor worker;
+    private final DungeonPanel dungeon;
     private final HaulView haul = new HaulView(HaulView.Mode.FULL);
     private final JTextArea status = ContentStyle.wrappingText(CHOOSE);
     private final JPanel unlinked = new JPanel();
-    private final JPanel detail = new JPanel(new BorderLayout());
+    private final JPanel detail = new Detail();
     private final KitButton outside = KitButton.ghost("Loot outside runs");
     private Consumer<String> openItem = key -> { };
+    private Runnable shownListener = () -> { };
     /** The run asked for (shown or loading); null while none, or while "Loot outside runs" shows. */
     private VisitRef selected;
     /** The run whose haul is drawn now; null while the status or "Loot outside runs" shows. */
@@ -53,22 +55,31 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
 
     /** The production level over saved history from {@code store}, reading on its own daemon worker. */
     public static RunsLevel production(Supplier<SessionStore> store) {
+        return production(store, LootCatalog.over(store));
+    }
+
+    public static RunsLevel production(Supplier<SessionStore> store, LootCatalog.Reader catalog) {
         ThreadPoolExecutor worker = new ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), task -> {
             Thread thread = new Thread(task, "RealmShark loot explore");
             thread.setDaemon(true);
             return thread;
         });
         worker.allowCoreThreadTimeOut(true);
-        return new RunsLevel(RunFeedView.picker(store), RunHauls.over(store), worker);
+        return new RunsLevel(RunFeedView.strip(store), RunHauls.over(store), worker, DungeonPanel.production(catalog));
     }
 
-    /** The level around {@code feed} (a picker), reading hauls through {@code loader} on {@code worker} (tests pass their own). */
+    /** Test fixture without a saved-loot catalog. Production supplies a dungeon panel through the four-argument constructor. */
     RunsLevel(RunFeedView feed, RunHauls.Loader loader, Executor worker) {
+        this(feed, loader, worker, new DungeonPanel(cancel -> List.of(), Runnable::run));
+    }
+
+    RunsLevel(RunFeedView feed, RunHauls.Loader loader, Executor worker, DungeonPanel dungeon) {
         super(new BorderLayout());
         if (!SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Build the Runs level on the EDT");
         this.feed = Objects.requireNonNull(feed, "feed");
         this.loader = Objects.requireNonNull(loader, "loader");
         this.worker = Objects.requireNonNull(worker, "worker");
+        this.dungeon = Objects.requireNonNull(dungeon, "dungeon");
         setName("loot-runs");
         setOpaque(false);
         status.setName("loot-runs-status");
@@ -78,32 +89,21 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         unlinked.setLayout(new BoxLayout(unlinked, BoxLayout.Y_AXIS));
         detail.setName("loot-runs-detail");
         detail.setOpaque(false);
-        detail.setBorder(BorderFactory.createEmptyBorder(0, Tokens.M, 0, 0));
+        detail.setBorder(BorderFactory.createEmptyBorder(Tokens.S, 0, 0, 0));
         showDetail(status);
 
         outside.setName("loot-runs-unlinked");
         outside.setToolTipText("Bags that recorded no run, by session");
         outside.addActionListener(e -> openUnlinked());
-        JPanel left = new JPanel(new BorderLayout(0, Tokens.S));
-        left.setOpaque(false);
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
-        top.setOpaque(false);
-        top.add(outside);
-        left.add(top, BorderLayout.NORTH);
-        left.add(feed, BorderLayout.CENTER);
+        feed.setPickerAccessory(outside);
         JScrollPane right = new JScrollPane(detail);
         right.setName("loot-runs-detail-scroll");
         right.setBorder(BorderFactory.createEmptyBorder());
         right.setOpaque(false);
         right.getViewport().setOpaque(false);
         right.getVerticalScrollBar().setUnitIncrement(32);
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
-        split.setName("loot-runs-split");
-        split.setResizeWeight(0);
-        split.setContinuousLayout(true);
-        split.setBorder(null);
-        split.setOpaque(false);
-        add(split, BorderLayout.CENTER);
+        add(feed, BorderLayout.NORTH);
+        add(right, BorderLayout.CENTER);
 
         feed.onSelect(card -> openRun(card.ref()));
         feed.onOpen(this::openRun);
@@ -112,9 +112,14 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
 
     public RunFeedView feed() { return feed; }
     public HaulView haul() { return haul; }
+    public DungeonPanel dungeon() { return dungeon; }
     /** The run whose haul shows or is loading; null while none does, or while "Loot outside runs" shows. */
     public VisitRef selectedRun() { return showingUnlinked ? null : selected; }
     public boolean showingUnlinked() { return showingUnlinked; }
+    /** What runs whenever what the level shows changes: a run asked for or drawn, or "Loot outside runs". */
+    public void onShown(Runnable listener) { shownListener = Objects.requireNonNull(listener, "listener"); }
+    /** The run whose haul is drawn now; null while the status or "Loot outside runs" shows. */
+    public VisitRef shownRun() { return shown; }
     /** What the haul's "Open run" runs (the run's recap in production). */
     public void onOpenRun(Consumer<VisitRef> action) { haul.onOpenRun(action); }
     /** What clicking an item runs, with its exact variant key, in the run's haul and under "Loot outside runs". */
@@ -133,12 +138,15 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         // Start the read before selecting: onSelect can re-enter openRun and must see the read already in flight.
         if (!same) load(ref);
         pendingSelect = !feed.select(ref);
+        shownListener.run();
     }
 
     /** Shows the loot saved outside any run, by session; the run cards lose their selection. */
     public void openUnlinked() {
         if (closed) return;
         showingUnlinked = true;
+        dungeon.showDungeon(null);
+        haul.setSide(null);
         pendingSelect = false;
         loading = false;
         selected = null;
@@ -154,11 +162,12 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             String failure = null;
             try { sessions = loader.unlinked(token); }
             catch (CancellationException cancelled) { return; }
-            catch (Exception | Error failed) { failure = message(failed); }
+            catch (Exception | Error failed) { failure = RunsLevelMessages.message(failed); }
             List<RunHauls.UnlinkedSession> done = sessions;
             String why = failure;
             SwingUtilities.invokeLater(() -> applyUnlinked(ticket, done, why));
         });
+        shownListener.run();
     }
 
     /** The feed applied new runs: opens the newest when nothing is chosen, and reads the chosen run again while it is in progress. */
@@ -177,7 +186,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
 
     JTextArea status() { return status; }
     boolean pendingSelect() { return pendingSelect; }
-    /** What the right side shows now: the status, the haul or the "Loot outside runs" list. */
+    /** What shows below the strip: the status, the haul or the "Loot outside runs" list. */
     JComponent detailShown() { return detail.getComponentCount() == 0 ? null : (JComponent) detail.getComponent(0); }
 
     private void load(VisitRef ref) {
@@ -186,6 +195,8 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         cancel.cancel();
         Cancellation token = cancel = new Cancellation();
         if (!ref.equals(shown)) {   // a refresh of the drawn run keeps it in place
+            dungeon.showDungeon(null);
+            haul.setSide(null);
             shown = null;
             status.setText(LOADING);
             showDetail(status);
@@ -195,7 +206,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             String failure = null;
             try { run = loader.run(ref, token); }
             catch (CancellationException cancelled) { return; }
-            catch (Exception | Error failed) { failure = message(failed); }
+            catch (Exception | Error failed) { failure = RunsLevelMessages.message(failed); }
             RunHauls.RunHaul done = run;
             String why = failure;
             SwingUtilities.invokeLater(() -> applyRun(ticket, ref, done, why));
@@ -206,14 +217,20 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         if (closed || ticket != generation) return;
         loading = false;
         if (failure != null || run.unavailable() != null) {
+            dungeon.showDungeon(null);
+            haul.setSide(null);
             status.setText(failure != null ? "This run's loot could not be read: " + failure : run.unavailable());
             shown = null;
             showDetail(status);
+            shownListener.run();
             return;
         }
         haul.show(run.haul(), ref, run.emptyReason());
+        dungeon.showDungeon(run.dungeon());
+        haul.setSide(dungeon.dungeon() == null ? null : dungeon);
         shown = ref;
         showDetail(haul);
+        shownListener.run();
     }
 
     private void applyUnlinked(long ticket, List<RunHauls.UnlinkedSession> sessions, String failure) {
@@ -221,6 +238,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         if (failure != null || sessions.isEmpty()) {
             status.setText(failure != null ? "Loot outside runs could not be read: " + failure : NO_UNLINKED);
             showDetail(status);
+            shownListener.run();
             return;
         }
         unlinked.removeAll();
@@ -244,6 +262,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             stack(unlinked, bags);
         }
         showDetail(unlinked);
+        shownListener.run();
     }
 
     private static void stack(JPanel column, JComponent part) {
@@ -263,12 +282,6 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         try { worker.execute(task); } catch (RejectedExecutionException shutDown) { /* closed: nothing applies */ }
     }
 
-    private static String message(Throwable failure) {
-        Throwable cause = failure;
-        while (cause.getCause() != null) cause = cause.getCause();
-        return cause.getMessage() == null || cause.getMessage().isBlank() ? cause.getClass().getSimpleName() : cause.getMessage();
-    }
-
     /** Stops the reads and the feed's worker. EDT. */
     @Override public void close() {
         if (closed) return;
@@ -276,6 +289,17 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         generation++;
         cancel.cancel();
         feed.close();
+        dungeon.close();
         if (worker instanceof ExecutorService service) service.shutdownNow();
+    }
+
+    /** Full-width content in the vertical viewport, including at the responsive breakpoint. */
+    private static final class Detail extends JPanel implements Scrollable {
+        Detail() { super(new BorderLayout()); }
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 32; }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) { return Math.max(32, visible.height - 32); }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 }

@@ -141,6 +141,52 @@ public class HaulViewTest {
         });
     }
 
+    @Test public void fullShowsEveryGroupAndItsSideMovesBelowAtNarrowWidths() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HaulView view = new HaulView(HaulView.Mode.FULL);
+            view.show(model(null), RUN);
+            assertEquals(-1, view.openGroup());
+            assertEquals(List.of(List.of(101), List.of(104), List.of(102, 103)), grids(view));
+            assertEquals(List.of("White bag ×1", "Purple bag ×2"), all(view, "loot-haul-group", JLabel.class).stream().map(JLabel::getText).toList());
+            view.openGroup(1);
+            assertEquals("Full always keeps every group open", -1, view.openGroup());
+            assertEquals(3, grids(view).size());
+            List<String> opened = new ArrayList<>();
+            view.onOpenItem(opened::add);
+            ItemSlot item = (ItemSlot) all(view, "loot-haul-grid", JPanel.class).get(1).getComponent(0);
+            press(item, "ENTER");
+            press(item, "SPACE");
+            assertEquals(List.of("104/null/null", "104/null/null"), opened);
+            JPanel summary = new JPanel();
+            summary.setPreferredSize(new Dimension(260, 120));
+            view.setSide(summary);
+            List<Long> reparented = new ArrayList<>();
+            summary.addHierarchyListener(event -> {
+                if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.PARENT_CHANGED) != 0) reparented.add(event.getChangeFlags());
+            });
+            view.setSide(summary);
+            assertTrue("Refreshing the same side must not detach focused content", reparented.isEmpty());
+            JPanel columns = named(view, "loot-haul-columns", JPanel.class);
+            JPanel main = named(view, "loot-haul-main", JPanel.class), side = named(view, "loot-haul-side", JPanel.class);
+            view.setSize(900, 800);
+            view.doLayout();
+            columns.doLayout();
+            assertSame(side, summary.getParent());
+            assertEquals(260, side.getWidth());
+            assertTrue(side.getX() >= main.getX() + main.getWidth());
+            int wideHeight = view.getPreferredSize().height;
+            view.setSize(680, 800);
+            view.doLayout();
+            columns.doLayout();
+            assertEquals(0, side.getX());
+            assertEquals(680, side.getWidth());
+            assertTrue(side.getY() >= main.getY() + main.getHeight());
+            assertTrue("The vertical page reserves room for the panel below", view.getPreferredSize().height > wideHeight);
+            view.setSide(null);
+            assertFalse(side.isVisible());
+        });
+    }
+
     // ---- helpers ----
 
     static <T extends Component> List<T> all(Container root, String name, Class<T> type) {

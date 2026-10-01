@@ -22,8 +22,12 @@ public final class RunHauls {
     static final String NOT_OPEN = "Saved history is not open in this app run";
 
     /** One run's haul, or why it cannot be shown: {@code unavailable} (not in saved history), {@code emptyReason} (no bags). */
-    public record RunHaul(VisitRef ref, HaulModel haul, String emptyReason, String unavailable) {
+    public record RunHaul(VisitRef ref, HaulModel haul, String emptyReason, String unavailable, String dungeon) {
         public RunHaul { Objects.requireNonNull(ref, "ref"); Objects.requireNonNull(haul, "haul"); }
+        /** Without a canonical dungeon, leave the dungeon panel unknown; never infer it from the display name. */
+        public RunHaul(VisitRef ref, HaulModel haul, String emptyReason, String unavailable) {
+            this(ref, haul, emptyReason, unavailable, null);
+        }
     }
 
     /** One saved session's bags that recorded no run, oldest first. */
@@ -64,7 +68,7 @@ public final class RunHauls {
     /** A built run recap as a haul: its header facts and its bags, or its unavailable reason. */
     public static RunHaul of(RunRecapModel recap) {
         if (!recap.available()) return new RunHaul(recap.ref(), HaulModel.of(null, List.of()), null, recap.unavailable());
-        return new RunHaul(recap.ref(), haul(recap.header(), recap.loot()), recap.loot().reason(), null);
+        return new RunHaul(recap.ref(), haul(recap.header(), recap.loot()), recap.loot().reason(), null, recap.header().map());
     }
 
     /** {@code header} and {@code loot} as a Full haul. */

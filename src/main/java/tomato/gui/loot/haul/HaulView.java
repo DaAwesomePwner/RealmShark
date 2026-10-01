@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.AbstractBorder;
 import javax.swing.border.EmptyBorder;
+import tomato.gui.history.WrapRow;
 import tomato.gui.kit.*;
 import tomato.gui.modern.DisplayFormat;
 import tomato.gui.stats.LootFacts;
@@ -19,8 +20,8 @@ import tomato.history.link.VisitRef;
 import tomato.realmshark.EnchantInfo;
 
 /**
- * One run's haul drawn the way the game shows loot. FULL (Loot › Explore): header, best drop, the bag shelf and the open group's
- * 8-slot grids. COMPACT (the run recap's Loot section): the shelf and the open group only. One shelf group is open at a time; a
+ * One run's haul drawn the way the game shows loot. FULL (Loot › Explore): header, best drop and every bag group open, with an optional side panel.
+ * COMPACT (the run recap's Loot section) keeps the shelf and one open group's 8-slot grids. In Compact one shelf group is open at a time; a
  * group of several bags shows one grid per bag, newest first. Clicking an item, or Enter/Space on a focused one, reports its exact
  * variant key ({@link HaulModel#variantKey}); Full's "Open run" reports the run.
  */
@@ -32,10 +33,14 @@ public final class HaulView extends JPanel {
     private static final String INDEX = "loot-haul-index", OPEN = "loot-haul-open";
 
     private final Mode mode;
-    private final Line header = new Line("loot-haul-header"), hero = new Line("loot-haul-hero"), shelf = new Line("loot-haul-shelf");
+    private final JPanel header, hero;
+    private final Line shelf = new Line("loot-haul-shelf");
     private final Column grids = new Column("loot-haul-grids");
     private final KitText empty = KitText.caption(EMPTY);
     private final KitButton openRun = KitButton.ghost("Open run");
+    private final Column main = new Column("loot-haul-main");
+    private final JPanel side = new JPanel(new BorderLayout());
+    private final JPanel columns = new JPanel(new ColumnsLayout());
     private HaulModel model;
     private VisitRef run;
     private int open = -1;
@@ -44,6 +49,10 @@ public final class HaulView extends JPanel {
 
     public HaulView(Mode mode) {
         this.mode = Objects.requireNonNull(mode, "mode");
+        header = mode == Mode.FULL ? new WrapRow() : new Line("loot-haul-header");
+        header.setName("loot-haul-header");
+        hero = mode == Mode.FULL ? new WrapRow() : new Line("loot-haul-hero");
+        hero.setName("loot-haul-hero");
         setName("loot-haul");
         setOpaque(false);
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -55,10 +64,26 @@ public final class HaulView extends JPanel {
             part.setBorder(new EmptyBorder(0, 0, Tokens.S, 0));
             add(part);
         }
+        if (mode == Mode.FULL) {
+            removeAll();
+            setLayout(new BorderLayout(0, Tokens.S));
+            side.setName("loot-haul-side");
+            side.setOpaque(false);
+            side.setVisible(false);
+            columns.setName("loot-haul-columns");
+            columns.setOpaque(false);
+            main.add(hero);
+            main.add(grids);
+            main.add(empty);
+            columns.add(main);
+            columns.add(side);
+            add(header, BorderLayout.NORTH);
+            add(columns, BorderLayout.CENTER);
+        }
         show(HaulModel.of(null, List.of()), null);
     }
 
-    /** Draws {@code model} and opens its default group; {@code run} is the exact run it belongs to (null: no "Open run"). */
+    /** Draws {@code model}; Compact opens its default group. {@code run} is its exact run (null: no "Open run"). */
     public void show(HaulModel model, VisitRef run) { show(model, run, null); }
 
     /** As {@link #show(HaulModel, VisitRef)}; {@code emptyReason} replaces {@link #EMPTY} when there are no bags (null or blank keeps it). */
@@ -77,21 +102,35 @@ public final class HaulView extends JPanel {
         header.setVisible(full && model.header() != null);
         hero.setVisible(full && model.hero() != null);
         empty.setVisible(!any);
-        shelf.setVisible(any);
+        shelf.setVisible(any && !full);
         grids.setVisible(any);
-        fillShelf();
-        openGroup(model.openByDefault());
+        if (full) {
+            open = -1;
+            grids.removeAll();
+            for (HaulModel.Shelf group : model.shelf()) {
+                JLabel label = new JLabel(bagLabel(group.bag()) + " ×" + group.bags().size(), BagSprites.sprite(group.bag(), BAG), SwingConstants.LEADING);
+                label.setName("loot-haul-group");
+                label.setFont(Type.emphasis());
+                label.setAlignmentX(LEFT_ALIGNMENT);
+                grids.add(label);
+                for (HaulModel.Bag bag : group.bags()) grids.add(grid(bag));
+            }
+        } else {
+            fillShelf();
+            openGroup(model.openByDefault());
+        }
         revalidate();
         repaint();
     }
 
     public HaulModel model() { return model; }
 
-    /** The open shelf group's index; -1 when none is open. */
+    /** The Compact shelf's open index; always -1 in Full, where every group is open. */
     public int openGroup() { return open; }
 
-    /** Opens shelf group {@code index}: one 8-slot grid per bag, newest first. An index out of range closes every group. */
+    /** Compact opens one shelf group, newest bag first; out of range closes it. Full ignores this call. */
     public void openGroup(int index) {
+        if (mode == Mode.FULL) return;
         List<HaulModel.Shelf> groups = model.shelf();
         open = index >= 0 && index < groups.size() ? index : -1;
         for (Component tile : shelf.getComponents())
@@ -107,6 +146,49 @@ public final class HaulView extends JPanel {
 
     /** Called with the run when Full's "Open run" is clicked. */
     public void onOpenRun(Consumer<VisitRef> action) { onOpenRun = Objects.requireNonNull(action, "action"); }
+
+    /** Full's optional 260 px side panel; below the bags at widths under 720 px. Compact is unaffected. */
+    public void setSide(JComponent component) {
+        if (mode != Mode.FULL) return;
+        if (component != null && side.getComponentCount() == 1 && side.getComponent(0) == component) return;
+        side.removeAll();
+        if (component != null) side.add(component, BorderLayout.NORTH);
+        side.setVisible(component != null);
+        revalidate();
+        repaint();
+    }
+
+    @Override public void setBounds(int x, int y, int width, int height) {
+        boolean resized = width != getWidth();
+        super.setBounds(x, y, width, height);
+        if (resized && mode == Mode.FULL) SwingUtilities.invokeLater(this::revalidate);
+    }
+
+    private final class ColumnsLayout implements LayoutManager {
+        @Override public void addLayoutComponent(String name, Component component) {}
+        @Override public void removeLayoutComponent(Component component) {}
+        private int width() {
+            int width = HaulView.this.getWidth();
+            if (width <= 0) width = columns.getWidth();
+            return width > 0 ? width : 720;
+        }
+        @Override public Dimension preferredLayoutSize(Container parent) {
+            Dimension left = main.getPreferredSize(), right = side.getPreferredSize();
+            if (!side.isVisible()) return left;
+            boolean narrow = width() < 720;
+            return new Dimension(narrow ? Math.max(left.width, right.width) : left.width + Tokens.M + 260,
+                narrow ? left.height + Tokens.M + right.height : Math.max(left.height, right.height));
+        }
+        @Override public Dimension minimumLayoutSize(Container parent) { return new Dimension(0, preferredLayoutSize(parent).height); }
+        @Override public void layoutContainer(Container parent) {
+            int width = parent.getWidth();
+            boolean narrow = width < 720;
+            int mainWidth = !side.isVisible() || narrow ? width : width - 260 - Tokens.M;
+            main.setBounds(0, 0, mainWidth, main.getPreferredSize().height);
+            if (side.isVisible()) side.setBounds(narrow ? 0 : mainWidth + Tokens.M,
+                narrow ? main.getHeight() + Tokens.M : 0, narrow ? width : 260, side.getPreferredSize().height);
+        }
+    }
 
     private void fillHeader() {
         header.removeAll();
@@ -208,8 +290,8 @@ public final class HaulView extends JPanel {
         return slot;
     }
 
-    /** "UT", "ST", the saved tier ("T12"), else the current definitions' label; "" when none is known. */
-    static String tierLabel(LootFacts.Item item) {
+    /** "UT", "ST", the saved tier ("T12"), else the current definitions' label; "" when none is known. (public: Explore reuses it) */
+    public static String tierLabel(LootFacts.Item item) {
         if (item.untiered()) return "UT";
         if (item.setTiered()) return "ST";
         if (item.tier() != null) return item.tier();

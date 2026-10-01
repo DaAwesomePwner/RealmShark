@@ -241,6 +241,7 @@ public class TomatoGUI {
             // Explore's view follows the route (an exact run: Pictures; a query: Table), and Back restores it.
             RouteTarget explore = explorePage == null ? lootArchive : explorePage.routes(lootArchive);
             navigator.register(lootPage.routes(LootTab.EXPLORE, explore));
+            if (explorePage != null) navigator.register(lootPage.routes(LootTab.EXPLORE, explorePage.itemTarget()));
             lootPage.owner(LootTab.EXPLORE, explore);
         }
         // The exact visit/variant target, registered later, so it is tried first.
@@ -275,10 +276,11 @@ public class TomatoGUI {
         // A feed card opens its exact run's recap; Back (or "‹ Runs") returns to the feed as it was left.
         runsPage.feed().onOpen(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
         if (explorePage != null) {
-            // A haul's "Open run" opens the run's recap; an item opens Table on its occurrences in every saved session.
+            // A haul's "Open run" opens the run's recap; an item opens its drops and a drop its run, through the navigator so Back returns.
             explorePage.onOpenRun(visit -> navigator.open(tomato.gui.route.Route.to(Destination.RUN_RECAP).withVisit(visit)));
-            explorePage.onOpenItem(key -> navigator.open(tomato.gui.route.Route.to(Destination.LOOT)
-                .withQuery(tomato.gui.loot.explore.LootExplorePage.variantQuery(key))));
+            explorePage.onOpenItem(id -> navigator.open(tomato.gui.route.Route.to(Destination.LOOT)
+                .withPayload(new tomato.gui.loot.explore.LootExplorePage.ExploreItem(id))));
+            explorePage.onOpenDrop(visit -> navigator.open(tomato.gui.route.Route.to(Destination.LOOT).withVisit(visit)));
         }
         // Highlights: a notable drop opens its exact run's recap; a by-dungeon cell opens Explore filtered to that dungeon. Back
         // returns to Highlights.
