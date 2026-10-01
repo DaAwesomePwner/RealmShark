@@ -31,6 +31,13 @@ import static tomato.gui.activity.ActivityArchiveUiTest.*;
 /** COMBAT-3 link status/actions and COMBAT-4 paged event explorer over synthetic encounters; no capture. */
 public class DpsInvestigationTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
+    @Rule public final tomato.gui.runs.RunsViewRule runsView = new tomato.gui.runs.RunsViewRule();
+    private String savedRuns;
+    @Before public void isolateTabs() {
+        savedRuns = util.PropertiesManager.getProperty("ui.tabs.runs");
+        util.PropertiesManager.setProperties("ui.tabs.runs", "");
+    }
+    @After public void restoreTabs() { util.PropertiesManager.setProperties("ui.tabs.runs", savedRuns == null ? "" : savedRuns); }
     private final String[] page = {"chat"};
 
     @After public void uninstall() throws Exception { edt(() -> { Navigator.install(null); return null; }); }
@@ -152,12 +159,21 @@ public class DpsInvestigationTest {
             ArchiveWorkspace<ActivityQueries.Row, ActivityQueries.Filters, ActivityQueries.Sort> runs =
                 edt(() -> ActivityPanel.workspace(store, new JPanel(), ActivityPanel.Mode.RUNS, scratch, states));
             DpsGUI dps = edt(() -> new DpsGUI(data, DiscoveryLog.historyView(new ActivityJournal.State()), resources));
+            tomato.gui.runs.RunsDpsPage tabs = edt(() -> {
+                tomato.gui.runs.RunsDpsPage created = new tomato.gui.runs.RunsDpsPage(new tomato.gui.runs.RunsPage(runs, () -> store), dps);
+                created.setContent(tomato.gui.runs.RunsTab.RESOURCES, resources);
+                created.owner(tomato.gui.runs.RunsTab.RESOURCES, dps.resourcesRouteTarget());
+                created.owner(tomato.gui.runs.RunsTab.LIVE_METER, dps.encounterRouteTarget());
+                return created;
+            });
             try {
                 ShellNavigator navigator = edt(() -> {
                     ShellNavigator created = new ShellNavigator(() -> page[0], value -> page[0] = value, WorkspaceShell::pageOf, 20);
                     Navigator.install(created);
-                    created.register(ActivityRouteTarget.of(Destination.RUNS, runs));
-                    created.register(dps.resourcesRouteTarget()); created.register(dps.encounterRouteTarget());
+                    created.register(tabs.routes(tomato.gui.runs.RunsTab.FEED, ActivityRouteTarget.of(Destination.RUNS, runs)));
+                    created.register(tabs.routes(tomato.gui.runs.RunsTab.RESOURCES, dps.resourcesRouteTarget()));
+                    created.register(tabs.routes(tomato.gui.runs.RunsTab.LIVE_METER, dps.encounterRouteTarget()));
+                    tabs.bring(tomato.gui.runs.RunsTab.LIVE_METER);
                     // The meter is the origin on its own page (Runs & DPS since P5b), where the navigator captures its state for Back.
                     page[0] = WorkspaceShell.pageOf(Destination.ENCOUNTER); return created;
                 });
@@ -177,11 +193,13 @@ public class DpsInvestigationTest {
                 assertTrue(edt(navigator::back)); assertEquals(WorkspaceShell.pageOf(Destination.ENCOUNTER), page[0]);
                 edt(() -> { button(dps, "dps-open-resources").doClick(); return null; });
                 assertEquals("Resources' page (Runs & DPS since P5b)", WorkspaceShell.pageOf(Destination.RESOURCES), page[0]);
-                assertSame(resources, edt(() -> dps.combatTabs().getSelectedComponent()));
+                assertEquals(tomato.gui.runs.RunsTab.RESOURCES, edt(tabs::selectedTab));
+                assertTrue(edt(() -> SwingUtilities.isDescendingFrom(resources, tabs.tabs().component().getSelectedComponent())));
                 await(() -> !resources.loading() && resources.displayedPage() != null && resources.displayedPage().matches == 1);
                 assertEquals(b.id, edt(() -> resources.displayedPage().rows.get(0).value.visitId));
                 assertTrue(edt(navigator::back));
-                assertEquals("Back restores the damage tab", 0, edt(() -> dps.combatTabs().getSelectedIndex()).intValue());
+                assertEquals("Back restores the Live meter tab", tomato.gui.runs.RunsTab.LIVE_METER, edt(tabs::selectedTab));
+                assertEquals("Back keeps the selected encounter", entry(dps, second), edt(dps::currentEncounterId));
                 edt(() -> {
                     assertTrue(dps.showEncounter(entry(dps, unlinked)));
                     assertEquals(EncounterLink.State.UNLINKED, dps.shownLink().state);
@@ -195,7 +213,7 @@ public class DpsInvestigationTest {
                     assertEquals(EncounterLink.State.LIVE, dps.shownLink().state);
                     return null;
                 });
-            } finally { edt(() -> { resources.close(); runs.close(); return null; }); preferences.shutdown(5, TimeUnit.SECONDS, m -> {}); }
+            } finally { edt(() -> { tabs.close(); return null; }); preferences.shutdown(5, TimeUnit.SECONDS, m -> {}); }
         }
     }
     static ActivityJournal.Visit visit(String id, long start) {

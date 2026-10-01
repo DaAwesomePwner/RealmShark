@@ -924,14 +924,16 @@ public final class WorkspaceShell extends JPanel {
             // Build is a tab of the character sheet: BuildRoute redirects to the sheet, or with no character to the Characters
             // list, so a Build route always lands on Characters, and every routed destination keeps a real page.
             case MY_INFO: return "characters";
-            // The live meter (with Resources & buffs nested in it) is the Live meter tab of Runs & DPS.
+            // The Live meter and Resources & buffs are separate tabs of Runs & DPS.
             case ENCOUNTER: case RESOURCES: return "runs";
             case LOOT: return "loot";
             case LOGGING: return "logging";
             case RUNS: case RUN_RECAP: return "runs"; // The recap is a card on the Runs page, the Feed tab of Runs & DPS.
             case TIMELINE: return "timeline";
             case BRIDGE_REVIEW: return "bridge-review";
-            case NOTIFICATIONS: return "settings";
+            case NOTIFICATIONS: case SETTINGS: return "settings";
+            case CHAT: return "chat";
+            case KEYPOPS: return "key-pops";
             case HOME: return "home";
             default: return ShellNavigator.NO_PAGE; // ALERT_DRAFT opens beside the current page.
         }
