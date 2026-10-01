@@ -32,9 +32,9 @@ Each item below is one PR to `main`.
 
 | PR | Scope | Depends on | Status |
 |---|---|---|---|
-| A | Write-path fixes | — | Done; in the A+B PR |
-| B | DPS memory cap | — (in parallel with A) | Done; in the A+B PR |
-| C | Read fixes and safety | A | |
+| A | Write-path fixes | — | Merged (#42) |
+| B | DPS memory cap | — (in parallel with A) | Merged (#42) |
+| C | Read fixes and safety | A | Done; in the C PR |
 | — | Design checkpoint: search index | A, C | Needs user approval |
 | D | Index foundation | design | |
 | E | Move screens to the index (probably 2 PRs) | D | |
