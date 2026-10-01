@@ -183,7 +183,7 @@ public class WaveThreeJourneyTest {
             assertEquals(tomato.gui.loot.LootTab.EXPLORE, lootPage().selectedTab());
             assertFalse("…on Pictures", explore.tableShown());
             assertEquals("…at the foreign run", foreign, explore.pictures().selectedRun());
-            assertFalse("No other session's loot is substituted", detailShows(explore.pictures().haul()));
+            assertFalse("No other session's loot is substituted", detailShows(explore.pictures().runs().haul()));
             return null;
         });
         backTo(runs, origin, "runs");
@@ -345,12 +345,12 @@ public class WaveThreeJourneyTest {
     }
     /** Pictures shows {@code run}'s haul, read (not its loading or unavailable status). EDT. */
     private static boolean haulShown(LootExplorePage explore, VisitRef run) {
-        return run.equals(explore.pictures().selectedRun()) && detailShows(explore.pictures().haul());
+        return run.equals(explore.pictures().selectedRun()) && detailShows(explore.pictures().runs().haul());
     }
     /** The item IDs in the haul Pictures shows, bag by bag. EDT. */
     private static List<Integer> itemIds(LootExplorePage explore) {
         List<Integer> ids = new ArrayList<>();
-        for (HaulModel.Shelf shelf : explore.pictures().haul().model().shelf())
+        for (HaulModel.Shelf shelf : explore.pictures().runs().haul().model().shelf())
             for (HaulModel.Bag bag : shelf.bags()) for (LootFacts.Item item : bag.items()) ids.add(item.id());
         return ids;
     }
