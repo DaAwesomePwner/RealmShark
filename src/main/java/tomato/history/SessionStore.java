@@ -34,6 +34,8 @@ public final class SessionStore implements AutoCloseable {
     private final Map<String, Write> checkpoints = new LinkedHashMap<>();
     private final Map<String, Runnable> collectors = new ConcurrentHashMap<>();
     private volatile String error = "";
+    /** The last collection round's failure; kept until a round succeeds, since a successful drain follows each round. */
+    private volatile String collectError = "";
     private volatile String importError = "";
     private volatile boolean closing;
     private volatile Thread ioThread;
@@ -62,12 +64,14 @@ public final class SessionStore implements AutoCloseable {
     public String currentId() { return current.id; }
     public long started() { return current.started; }
     public boolean writable() { return writable; }
-    public String error() { return error.isEmpty() ? importError : error; }
+    public String error() { return !error.isEmpty() ? error : !collectError.isEmpty() ? collectError : importError; }
     public void importError(String message) { importError=message; }
     public void collect(String key, Runnable collector) { collectors.put(key, collector); }
     private void collect() {
+        String failure = "";
         for (Runnable collector : collectors.values()) try { collector.run(); }
-        catch (RuntimeException e) { error = SNAPSHOT_FAILED + e.getClass().getSimpleName(); }
+        catch (RuntimeException e) { failure = SNAPSHOT_FAILED + e.getClass().getSimpleName(); }
+        collectError = failure;
     }
     public void append(String module, Object detached) { offer(new Write(current.id, module, null, detached)); }
     public void put(String module, String key, Object detached) { offer(new Write(current.id, module, key, detached)); }
