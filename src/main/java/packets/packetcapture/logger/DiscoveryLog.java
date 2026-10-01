@@ -17,6 +17,8 @@ public final class DiscoveryLog implements AutoCloseable {
     /** History modules this collector produces; their recording intervals are persisted as coverage. */
     public static final String[] RECORDED_MODULES = {"runs", "timeline"};
     private static final long INTERVAL_PERSIST_MILLIS = 60000;
+    static final long ACTIVE_RUN_INTERVAL_MILLIS = 10000;
+    volatile java.util.function.LongSupplier activeRunClock = () -> System.nanoTime() / 1000000;
     /**
      * A silence longer than this splits the recording interval. Connected clients receive several frames per
      * second, so a longer gap means nothing was observed (for example a capture stop that no hook reported);
@@ -79,10 +81,20 @@ public final class DiscoveryLog implements AutoCloseable {
         historySession = history.currentId(); this.history = history;
         activity.archiveTo(visit -> history.put("runs", visit.id, visit));
         activity.archiveEventsTo(entry -> history.append("timeline", entry));
-        history.collect("run", () -> {
-            ActivityJournal.Visit visit;
-            synchronized (DiscoveryLog.this) { visit = activity.activeVisit(); }
-            if (visit != null) history.put("runs", visit.id, visit);
+        history.collect("run", new Runnable() {
+            private String savedId = "";
+            private long savedRevision = -1, savedAt;
+            @Override public void run() {
+                ActivityJournal.Visit visit;
+                synchronized (DiscoveryLog.this) {
+                    String id = activity.currentVisitId(); long revision = activity.activeRevision();
+                    long now = activeRunClock.getAsLong();
+                    if (id.isEmpty() || (id.equals(savedId) && (revision == savedRevision || now - savedAt < ACTIVE_RUN_INTERVAL_MILLIS))) return;
+                    visit = activity.activeVisit();
+                    savedId = id; savedRevision = revision; savedAt = now;
+                }
+                history.put("runs", visit.id, visit);
+            }
         });
     }
     private DiscoveryLog(ActivityJournal.State saved) {

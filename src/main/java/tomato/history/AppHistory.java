@@ -38,6 +38,10 @@ public final class AppHistory {
     public static void run(ActivityJournal.Visit visit) { SessionStore s=store; if(s!=null)s.put("runs",visit.id,visit); }
     /** Last recorded fame per stream: account + ":" + character, or "?:" + character while the account is not known. */
     private static final java.util.Map<String, Long> fameValues = new java.util.HashMap<>();
+    private static SessionStore fameStore;
+    private static FameLatest fameLatest;
+    static java.util.function.LongSupplier fameClock = () -> System.nanoTime() / 1000000;
+    private static final long FAME_INTERVAL = 30000;
     // Replaced only by tests; production reads the collector's exact active visit.
     static volatile java.util.function.Supplier<packets.packetcapture.logger.DiscoveryLog.CurrentVisit> currentVisit =
         packets.packetcapture.logger.DiscoveryLog.INSTANCE::currentVisit;
@@ -61,7 +65,40 @@ public final class AppHistory {
         // the checkpoint keeps its legacy key (the bare character id); the sample's validated account decides both keys.
         Long previous = fameValues.put((sample.account == null ? "?" : sample.account) + ":" + character, fame);
         if (previous == null || previous != fame) s.append("fame", sample);
-        s.put("fame-latest", sample.account == null ? Integer.toString(character) : sample.account + ":" + character, sample);
+        if (fameStore != s) {
+            fameStore = s; fameLatest = new FameLatest(s);
+            FameLatest latest = fameLatest;
+            s.collect("fame-latest", latest::collect);
+        }
+        fameLatest.record(sample.account == null ? Integer.toString(character) : sample.account + ":" + character, sample);
+    }
+    private static final class FameLatest {
+        final SessionStore target;
+        final java.util.Map<String, FameSample> written = new java.util.HashMap<>(), pending = new java.util.HashMap<>();
+        final java.util.Map<String, Long> times = new java.util.HashMap<>();
+        FameLatest(SessionStore target) { this.target = target; }
+        void record(String key, FameSample sample) {
+            long now = fameClock.getAsLong();
+            FameSample previous = written.get(key);
+            if (previous == null || !same(previous, sample) || now - times.get(key) >= FAME_INTERVAL
+                    || sample.time - previous.time >= FAME_INTERVAL) write(key, sample, now);
+            else pending.put(key, sample);
+        }
+        void write(String key, FameSample sample, long now) {
+            target.put("fame-latest", key, sample); written.put(key, sample); times.put(key, now); pending.remove(key);
+        }
+        void collect() {
+            synchronized (AppHistory.class) {
+                long now = fameClock.getAsLong();
+                for (String key : new java.util.ArrayList<>(pending.keySet()))
+                    if (target.closing() || now - times.get(key) >= FAME_INTERVAL) write(key, pending.get(key), now);
+            }
+        }
+        static boolean same(FameSample a, FameSample b) {
+            return a.fame == b.fame && java.util.Objects.equals(a.className, b.className)
+                && java.util.Objects.equals(a.account, b.account) && java.util.Objects.equals(a.visitSession, b.visitSession)
+                && java.util.Objects.equals(a.visitId, b.visitId) && java.util.Objects.equals(a.map, b.map);
+        }
     }
     private static final java.util.regex.Pattern ACCOUNT_KEY = java.util.regex.Pattern.compile("[0-9a-f]{64}");
     public static final class FameSample {

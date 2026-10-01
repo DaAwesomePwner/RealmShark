@@ -169,7 +169,15 @@ public class ActivityJournalTest {
         ActivityJournal j=start(); feed(j,tick(100,114,42),1100);
         ServerPlayerShootPacket shot=new ServerPlayerShootPacket(); shot.ownerId=100; shot.summonerId=42; feed(j,shot,1200); feed(j,shot,1300);
         assertEquals(1,j.snapshot().visits.get(0).ownerMatches);
+        assertFalse(j.snapshot().entries.stream().anyMatch(e -> e.kind.equals("Ownership check")));
         feed(j,tick(100,114,99),1400); assertEquals(1,j.snapshot().visits.get(0).ownerConflicts);
+    }
+    @Test public void ownershipConflictStillProducesATimelineRow() {
+        ActivityJournal j=start(); feed(j,tick(100,114,99),1100);
+        ServerPlayerShootPacket shot=new ServerPlayerShootPacket(); shot.ownerId=100; shot.summonerId=42; feed(j,shot,1200);
+        ActivityJournal.Entry entry=j.snapshot().entries.stream().filter(e -> e.kind.equals("Ownership check")).findFirst().get();
+        assertEquals("Stat 114 conflicts with summon shot",entry.detail);
+        assertEquals(1,j.snapshot().visits.get(0).ownerConflicts); assertEquals(0,j.snapshot().visits.get(0).ownerMatches);
     }
     @Test public void historyPersistsAndRestoredActiveVisitsDoNotContinueOrRestoreBaselines() throws Exception {
         Path directory=Files.createTempDirectory("activity-store"); ActivityJournal j=start(); feed(j,exalt(10),1200);

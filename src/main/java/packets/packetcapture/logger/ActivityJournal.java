@@ -61,6 +61,7 @@ public final class ActivityJournal {
     void archiveTo(java.util.function.Consumer<Visit> consumer) { archive = consumer; }
     void archiveEventsTo(java.util.function.Consumer<Entry> consumer) { archiveEvents = consumer; }
     Visit activeVisit() { return current == null ? null : new Visit(current); }
+    long activeRevision() { return current == null ? -1 : current.revision; }
     String currentVisitId() { return current == null ? "" : current.id; }
     String currentVisitMap() { return current == null ? null : current.map; }
     long currentVisitStarted() { return current == null ? 0 : current.started; }
@@ -295,9 +296,10 @@ public final class ActivityJournal {
         if (matches) current.ownerMatches++; else current.ownerConflicts++;
         // Deduplicate repeated shots after the first cross-check. No damage attribution is changed.
         ownerCandidates.remove(object); shotOwners.remove(object);
+        if (matches) return;
         Map<String, Object> values = new LinkedHashMap<>(); values.put("objectId", object); values.put("ownerId", owner);
         values.put("otherSourceOwner", other);
-        add(now, "Ownership check", matches ? "Stat 114 agrees with summon shot" : "Stat 114 conflicts with summon shot", values);
+        add(now, "Ownership check", "Stat 114 conflicts with summon shot", values);
     }
 
     private void exalts(ExaltationUpdatePacket p, long now) {
