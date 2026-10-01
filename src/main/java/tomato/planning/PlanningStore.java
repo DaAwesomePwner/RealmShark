@@ -29,14 +29,20 @@ public final class PlanningStore implements AutoCloseable {
         public final long revision;
         private SaveResult(boolean saved, String message, long revision) { this.saved = saved; this.message = message; this.revision = revision; }
     }
-    public interface FileWriter { void write(Path path, String json) throws IOException; }
+    public interface FileWriter {
+        void write(Path path, String json) throws IOException;
+        default void writeSynced(Path path, String json) throws IOException { write(path, json); }
+    }
     private final Path path;
     private final FileWriter fileWriter;
     private final ExecutorService writer = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "manual-plans"); t.setDaemon(true); return t; });
     private Document document = new Document();
-    private boolean ready, readOnly, closed;
+    private boolean ready, readOnly, closed, published;
     private String status = "Loading local plans…";
-    public PlanningStore(Path path) { this(path, PlanningStore::writeFile); }
+    public PlanningStore(Path path) { this(path, new FileWriter() {
+        public void write(Path path, String json) throws IOException { writeFile(path, json, false); }
+        public void writeSynced(Path path, String json) throws IOException { writeFile(path, json, true); }
+    }); }
     public PlanningStore(Path path, FileWriter fileWriter) {
         this.path = path; this.fileWriter = fileWriter;
         writer.execute(this::load);
@@ -108,7 +114,7 @@ public final class PlanningStore implements AutoCloseable {
                 synchronized (this) { status = "Save failed; plans exceed 16 MiB. Shorten notes or remove entries; draft retained."; }
                 result.complete(new SaveResult(false, status, revision)); return;
             }
-            if (path != null) fileWriter.write(path, json);
+            if (path != null) { fileWriter.write(path, json); published = true; }
             synchronized (this) { document = next; status = path == null ? "Preview: plans stay in memory" : "Saved locally • Characters/plans.json"; }
             result.complete(new SaveResult(true, status, saved.revision));
         } catch (IOException | RuntimeException failure) {
@@ -116,17 +122,23 @@ public final class PlanningStore implements AutoCloseable {
             result.complete(new SaveResult(false, status, revision));
         }
     }
-    private static void writeFile(Path path, String json) throws IOException {
+    private static void writeFile(Path path, String json, boolean sync) throws IOException {
         Path absolute = path.toAbsolutePath(); Files.createDirectories(absolute.getParent());
-        Path temp = Files.createTempFile(absolute.getParent(), "plans-", ".tmp");
-        try {
-            Files.write(temp, json.getBytes(StandardCharsets.UTF_8));
-            try { Files.move(temp, absolute, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
-            catch (AtomicMoveNotSupportedException unsupported) { Files.move(temp, absolute, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temp); }
+        util.AtomicFiles.write(absolute, json.getBytes(StandardCharsets.UTF_8), sync);
     }
     @Override public void close() {
-        synchronized (this) { if (closed) return; closed = true; writer.shutdown(); }
+        synchronized (this) {
+            if (closed) return; closed = true;
+            writer.execute(() -> {
+                if (!published || readOnly) return;
+                try { fileWriter.writeSynced(path, JSON.toJson(document)); }
+                catch (IOException | RuntimeException failure) {
+                    synchronized (this) { status = "Save failed; draft retained. Check storage access and retry."; }
+                    System.err.println("Manual plans final save failed; last durable file is preserved");
+                }
+            });
+            writer.shutdown();
+        }
         try { if (!writer.awaitTermination(10, TimeUnit.SECONDS)) System.err.println("Manual plans still saving; last durable file is preserved"); }
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
     }

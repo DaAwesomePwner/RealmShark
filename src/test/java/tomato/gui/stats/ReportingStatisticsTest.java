@@ -296,6 +296,7 @@ public class ReportingStatisticsTest {
         assertEquals(1,ended.visits);assertEquals(1000,ended.time);assertEquals(Boolean.FALSE,ended.ongoingActivity);
         DungeonStatData.Snapshot legacy=SessionStore.JSON.fromJson("{\"name\":\"Ice Citadel\",\"visits\":1,\"time\":1000}",DungeonStatData.Snapshot.class);
         assertNull(legacy.ongoingActivity);
+        assertTrue(data.flush()); // Drain the background save before the isolated fixture is removed.
     }
     @Test public void canonicalCountersMergeVerifiedAliasesButPreserveUnrecognizedAreas() {
         DungeonStatData.Snapshot a=new DungeonStatData.Snapshot("Cave of A Thousand Treasures",1,1000);

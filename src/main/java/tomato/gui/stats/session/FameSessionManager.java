@@ -34,7 +34,10 @@ public class FameSessionManager {
         .setPrettyPrinting()
         .create();
 
-    private static final SessionWriter WRITER = new SessionWriter(FameSessionManager::writeFile);
+    private static final SessionWriter WRITER = new SessionWriter(new Store() {
+        public void write(File file, String json) throws IOException { writeFile(file, json, false); }
+        public void writeSynced(File file, String json) throws IOException { writeFile(file, json, true); }
+    });
 
     static { Runtime.getRuntime().addShutdownHook(new Thread(WRITER::close, "fame-session-exit")); }
 
@@ -406,19 +409,17 @@ public class FameSessionManager {
         return copy;
     }
 
-    private static void writeFile(File file, String json) throws IOException {
+    private static void writeFile(File file, String json, boolean sync) throws IOException {
         Path path = file.toPath().toAbsolutePath();
         Files.createDirectories(path.getParent());
-        Path temporary = Files.createTempFile(path.getParent(), ".fame-", ".tmp");
-        try {
-            Files.write(temporary, json.getBytes(Charset.defaultCharset()));
-            try { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temporary); }
+        util.AtomicFiles.write(path, json.getBytes(Charset.defaultCharset()), sync);
     }
 
     @FunctionalInterface
-    interface Store { void write(File file, String json) throws IOException; }
+    interface Store {
+        void write(File file, String json) throws IOException;
+        default void writeSynced(File file, String json) throws IOException { write(file, json); }
+    }
 
     /** One ordered writer; only pending saves to the same file coalesce. Deletes are barriers. */
     static final class SessionWriter implements AutoCloseable {
@@ -429,6 +430,7 @@ public class FameSessionManager {
         private final ArrayDeque<Job> queue = new ArrayDeque<>();
         private final Map<File, Job> pending = new LinkedHashMap<>();
         private boolean running;
+        private volatile boolean closing;
 
         SessionWriter(Store store) { this.store = store; }
 
@@ -467,6 +469,7 @@ public class FameSessionManager {
                 boolean success;
                 try {
                     if (job.snapshot == null) Files.deleteIfExists(job.file.toPath());
+                    else if (closing) store.writeSynced(job.file, GSON.toJson(job.snapshot));
                     else store.write(job.file, GSON.toJson(job.snapshot));
                     success = true;
                 } catch (IOException | RuntimeException e) {
@@ -480,6 +483,7 @@ public class FameSessionManager {
         }
 
         @Override public void close() {
+            closing = true;
             executor.shutdown();
             try { executor.awaitTermination(10, TimeUnit.SECONDS); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); }

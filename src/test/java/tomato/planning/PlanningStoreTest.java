@@ -13,6 +13,21 @@ public class PlanningStoreTest {
     private static PlanData.AccountPlan stock(long n) {
         PlanData.AccountPlan p = new PlanData.AccountPlan(); p.held.put(1, new PlanData.ManualHeld(n, 100, "manual")); return p;
     }
+    @Test public void closeQueuesSyncedPublicationOfTheLastCommittedPlan() throws Exception {
+        Path file = temp.getRoot().toPath().resolve("sync-plans.json");
+        java.util.concurrent.atomic.AtomicInteger synced = new java.util.concurrent.atomic.AtomicInteger();
+        PlanningStore store = new PlanningStore(file, new PlanningStore.FileWriter() {
+            public void write(Path target, String json) throws java.io.IOException { Files.writeString(target, json); }
+            public void writeSynced(Path target, String json) throws java.io.IOException {
+                assertFalse(javax.swing.SwingUtilities.isEventDispatchThread());
+                synced.incrementAndGet(); Files.writeString(target, json);
+            }
+        });
+        assertTrue(store.update("A", 0, stock(4)).get().saved);
+        byte[] saved = Files.readAllBytes(file); assertEquals(0, synced.get());
+        store.close(); assertEquals(1, synced.get()); assertArrayEquals(saved, Files.readAllBytes(file));
+        store.close(); assertEquals(1, synced.get());
+    }
     @Test public void durableSnapshotsAreDetachedAndAccountsIndependent() throws Exception {
         Path file = temp.getRoot().toPath().resolve("plans.json");
         try (PlanningStore store = new PlanningStore(file)) {

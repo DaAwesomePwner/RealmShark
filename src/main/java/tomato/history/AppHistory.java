@@ -8,8 +8,10 @@ import java.nio.file.*;
 /** The shared user profile is independent of the folder/version of the portable application. */
 public final class AppHistory {
     private static volatile SessionStore store;
+    private static final java.util.Queue<Runnable> shutdownFlushes = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private AppHistory() { }
     public static SessionStore store() { return store; }
+    public static void onShutdown(Runnable flush) { shutdownFlushes.add(flush); }
     public static Path directory() {
         String override = System.getProperty("realmshark.historyDir");
         if (override != null) return Paths.get(override);
@@ -25,9 +27,11 @@ public final class AppHistory {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             combat.close();   // queued fights reach the store before it closes
             packets.packetcapture.logger.DiscoveryLog.INSTANCE.close();
+            for (Runnable flush : shutdownFlushes) flush.run();
             store.close();
         }, "Session history shutdown"));
         if (!preview) {
+            Housekeeping.startHistory(directory(), store.currentId(), false);
             Thread migration = new Thread(() -> {
                 try { importLegacy(store, Paths.get(".")); }
                 catch (Exception e) { store.importError(SessionStore.IMPORT_FAILED); }

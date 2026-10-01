@@ -68,10 +68,7 @@ final class ActivityStore implements AutoCloseable {
                     Files.move(file, file.resolveSibling("activity-history-unreadable-" + System.currentTimeMillis() + ".json"));
                     preserveUnreadable = false;
                 }
-                Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-                Files.write(temp, new Gson().toJson(state).getBytes(StandardCharsets.UTF_8));
-                try { Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-                catch (AtomicMoveNotSupportedException e) { Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING); }
+                util.AtomicFiles.write(file, new Gson().toJson(state).getBytes(StandardCharsets.UTF_8), closed);
                 error = "";
                 checkpoint.persisted.run(); // All serialization and filesystem I/O has finished.
             } catch (Exception e) { error = "Activity history could not be saved. Check folder permissions and free space."; }

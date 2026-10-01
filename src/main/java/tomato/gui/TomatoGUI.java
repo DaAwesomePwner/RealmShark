@@ -144,7 +144,8 @@ public class TomatoGUI {
         SessionStore store = AppHistory.store();
         ViewStateStore states = ViewStateStore.application();
         // Queries create private pin/result directories here, outside captured journals.
-        Path scratch = Paths.get(System.getProperty("java.io.tmpdir"), "realmshark-archive");
+        Path scratch = tomato.history.Housekeeping.ARCHIVE_SCRATCH;
+        tomato.history.Housekeeping.startArchive(tomato.Tomato.isPreview() || store == null || !store.writable());
         // Loot › Explore: its own live dashboard on the app's loot capture, with saved loot behind the same view selector when
         // history is open.
         LootDashboard exploreLive = new LootDashboard(LootCapture.get().feed());
