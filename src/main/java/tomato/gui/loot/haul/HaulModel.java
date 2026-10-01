@@ -73,8 +73,8 @@ public record HaulModel(Header header, Hero hero, List<Shelf> shelf, int openByD
     /** item ID/slots/applied: {@code LootQuery}'s exact variant key (unknown counts read "null"). */
     public static String variantKey(LootFacts.Item item) { return item.id() + "/" + item.slots() + "/" + item.applied(); }
 
-    /** Rarity order 0 (Unenchanted) to 4 (Divine); -1 when not recorded, so a known rarity always wins. */
-    static int rarity(LootFacts.Item item) {
+    /** Rarity order 0 (Unenchanted) to 4 (Divine); -1 when not recorded, so a known rarity always wins. (public: Explore reuses it) */
+    public static int rarity(LootFacts.Item item) {
         EnchantInfo.Rarity rarity = item.enchant().rarity();
         return rarity == EnchantInfo.Rarity.UNKNOWN ? -1 : rarity.ordinal();
     }

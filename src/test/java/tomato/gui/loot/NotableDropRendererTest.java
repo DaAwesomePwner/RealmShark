@@ -27,12 +27,34 @@ public class NotableDropRendererTest {
     private static final long NOON = at(0, 12, 0);
     private static final VisitRef RUN = new VisitRef("s", "v1");
 
+    /** A drop that is neither UT, ST, a potion nor enchanted (Explore's item history lists every drop) reads "Item", never throws. */
+    @Test public void aDropWithoutANotableKindReadsItem() {
+        HighlightsModel.Notable plain = new HighlightsModel.Notable(987_654_321, "Brown", "Pirate Cave", NOON, null, null);
+        assertEquals("Item", NotableDropRenderer.itemType(plain));
+        assertTrue(NotableDropRenderer.accessibleName(plain, ZONE_NY, NOON).contains("Item"));
+        assertNull("A plain item is not notable", HighlightsModel.kind(new tomato.gui.stats.LootFacts.Item(5, false, false, false, false)));
+    }
+
     private static HighlightsModel.Notable notable(String bag, String dungeon, long time, VisitRef visit, HighlightsModel.Kind kind) {
         return new HighlightsModel.Notable(4242, bag, dungeon, time, visit, kind);
     }
 
     private static HighlightsModel.Notable enchanted(EnchantInfo enchant) {
         return new HighlightsModel.Notable(4242, "White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.ENCHANTED, enchant);
+    }
+
+    @Test public void aHostCanNameTheRunActionWithoutRecapOrContextMenuWording() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HighlightsModel.Notable drop = enchanted(EnchantInfo.ofSlotCount(2));
+            assertTrue(NotableDropRenderer.accessibleName(drop, ZONE_NY, NOON, "Enter opens the run").endsWith("Enter opens the run"));
+            NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON,
+                "Enter opens the run", "Enter or a double-click opens the run");
+            renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
+            assertTrue(renderer.getAccessibleContext().getAccessibleName().endsWith("Enter opens the run"));
+            assertEquals("Enter or a double-click opens the run", renderer.getAccessibleContext().getAccessibleDescription());
+            assertTrue(renderer.getToolTipText().contains("Enter opens the run"));
+            assertFalse(renderer.getToolTipText().contains("run recap"));
+        });
     }
 
     @Test public void loadedItemTypesStaySeparateFromTheNotabilityReason() throws Exception {

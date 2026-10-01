@@ -43,7 +43,11 @@ public class LootExplorePageTest {
     }
 
     private LootExplorePage page(JComponent table) throws Exception {
-        LootExplorePage page = edt(() -> new LootExplorePage(table, new RunsLevel(RunFeedView.picker(() -> null), new RunsLevelTest.FakeLoader(), Runnable::run),
+        LootCatalog.Reader catalog = cancel -> java.util.List.of(CollectionModelTest.bag(100, CollectionModelTest.ut(1, 2)));
+        LootExplorePage page = edt(() -> new LootExplorePage(table, new ExplorePictures(
+                new RunsLevel(RunFeedView.picker(() -> null), new RunsLevelTest.FakeLoader(), Runnable::run),
+                new CollectionLevel(catalog, Runnable::run, id -> "Synthetic item " + id),
+                new ItemLevel(catalog, Runnable::run, java.time.ZoneId.of("UTC")), id -> "Synthetic item " + id, key -> null, (key, value) -> { }),
             prefs::get, (key, value) -> { writes.add(key + "=" + value); prefs.put(key, value); }));
         pages.add(page);
         return page;
@@ -79,7 +83,8 @@ public class LootExplorePageTest {
             assertTrue("The workspace is left as it was", target.opened.isEmpty());
             Object back = routes.captureState();
 
-            Route query = Route.to(Destination.LOOT).withQuery(LootExplorePage.variantQuery("7/2/1"));
+            ArchiveQuery<LootQuery.Facets, LootQuery.Sort> occurrences = LootQuery.initial(LootQuery.View.OCCURRENCES, SessionStore.ALL);
+            Route query = Route.to(Destination.LOOT).withQuery(occurrences);
             routes.open(query);
             assertTrue("A query opens Table", page.tableShown());
             assertEquals(List.of(query), target.opened);
@@ -116,14 +121,27 @@ public class LootExplorePageTest {
         });
         edt(() -> null);
         assertTrue(edt(() -> page.pictures().showingUnlinked()));
-        assertEquals(RunsLevel.NO_UNLINKED, edt(() -> page.pictures().status().getText()));
+        assertEquals(RunsLevel.NO_UNLINKED, edt(() -> page.pictures().runs().status().getText()));
     }
 
-    @Test public void anItemOpensItsOccurrencesInEverySession() {
-        ArchiveQuery<LootQuery.Facets, LootQuery.Sort> query = LootExplorePage.variantQuery("7/2/1");
-        assertEquals(LootQuery.View.OCCURRENCES, query.facets().view);
-        assertEquals("7/2/1", query.facets().variant);
-        assertEquals(SessionStore.ALL, query.scope());
+    @Test public void anItemRouteOpensTheItemLevelAndBackReturns() throws Exception {
+        LootExplorePage page = page(new Table());
+        edt(() -> {
+            RouteTarget items = page.itemTarget();
+            page.showTable();
+            Object back = items.captureState();
+            Route route = Route.to(Destination.LOOT).withPayload(new LootExplorePage.ExploreItem(1));
+            assertTrue(items.accepts(route));
+            assertFalse("Other Loot routes are not the item target's", items.accepts(Route.to(Destination.LOOT)));
+            items.open(route);
+            assertFalse(page.tableShown());
+            assertEquals(ExplorePictures.Level.ITEM, page.pictures().level());
+            assertEquals(1, page.pictures().itemId());
+            items.restoreState(back);
+            assertTrue("Back returns to Table", page.tableShown());
+            assertEquals(ExplorePictures.Level.RUNS, page.pictures().level());
+            return null;
+        });
     }
 
     @Test public void closingReleasesThePicturesAndTheWorkspaceOnce() throws Exception {

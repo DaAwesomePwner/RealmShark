@@ -41,6 +41,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
     private final JPanel detail = new JPanel(new BorderLayout());
     private final KitButton outside = KitButton.ghost("Loot outside runs");
     private Consumer<String> openItem = key -> { };
+    private Runnable shownListener = () -> { };
     /** The run asked for (shown or loading); null while none, or while "Loot outside runs" shows. */
     private VisitRef selected;
     /** The run whose haul is drawn now; null while the status or "Loot outside runs" shows. */
@@ -115,6 +116,10 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
     /** The run whose haul shows or is loading; null while none does, or while "Loot outside runs" shows. */
     public VisitRef selectedRun() { return showingUnlinked ? null : selected; }
     public boolean showingUnlinked() { return showingUnlinked; }
+    /** What runs whenever what the level shows changes: a run asked for or drawn, or "Loot outside runs". */
+    public void onShown(Runnable listener) { shownListener = Objects.requireNonNull(listener, "listener"); }
+    /** The run whose haul is drawn now; null while the status or "Loot outside runs" shows. */
+    public VisitRef shownRun() { return shown; }
     /** What the haul's "Open run" runs (the run's recap in production). */
     public void onOpenRun(Consumer<VisitRef> action) { haul.onOpenRun(action); }
     /** What clicking an item runs, with its exact variant key, in the run's haul and under "Loot outside runs". */
@@ -133,6 +138,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         // Start the read before selecting: onSelect can re-enter openRun and must see the read already in flight.
         if (!same) load(ref);
         pendingSelect = !feed.select(ref);
+        shownListener.run();
     }
 
     /** Shows the loot saved outside any run, by session; the run cards lose their selection. */
@@ -154,11 +160,12 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             String failure = null;
             try { sessions = loader.unlinked(token); }
             catch (CancellationException cancelled) { return; }
-            catch (Exception | Error failed) { failure = message(failed); }
+            catch (Exception | Error failed) { failure = RunsLevelMessages.message(failed); }
             List<RunHauls.UnlinkedSession> done = sessions;
             String why = failure;
             SwingUtilities.invokeLater(() -> applyUnlinked(ticket, done, why));
         });
+        shownListener.run();
     }
 
     /** The feed applied new runs: opens the newest when nothing is chosen, and reads the chosen run again while it is in progress. */
@@ -195,7 +202,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             String failure = null;
             try { run = loader.run(ref, token); }
             catch (CancellationException cancelled) { return; }
-            catch (Exception | Error failed) { failure = message(failed); }
+            catch (Exception | Error failed) { failure = RunsLevelMessages.message(failed); }
             RunHauls.RunHaul done = run;
             String why = failure;
             SwingUtilities.invokeLater(() -> applyRun(ticket, ref, done, why));
@@ -209,11 +216,13 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             status.setText(failure != null ? "This run's loot could not be read: " + failure : run.unavailable());
             shown = null;
             showDetail(status);
+            shownListener.run();
             return;
         }
         haul.show(run.haul(), ref, run.emptyReason());
         shown = ref;
         showDetail(haul);
+        shownListener.run();
     }
 
     private void applyUnlinked(long ticket, List<RunHauls.UnlinkedSession> sessions, String failure) {
@@ -221,6 +230,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
         if (failure != null || sessions.isEmpty()) {
             status.setText(failure != null ? "Loot outside runs could not be read: " + failure : NO_UNLINKED);
             showDetail(status);
+            shownListener.run();
             return;
         }
         unlinked.removeAll();
@@ -244,6 +254,7 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
             stack(unlinked, bags);
         }
         showDetail(unlinked);
+        shownListener.run();
     }
 
     private static void stack(JPanel column, JComponent part) {
@@ -261,12 +272,6 @@ public final class RunsLevel extends JPanel implements AutoCloseable {
 
     private void submit(Runnable task) {
         try { worker.execute(task); } catch (RejectedExecutionException shutDown) { /* closed: nothing applies */ }
-    }
-
-    private static String message(Throwable failure) {
-        Throwable cause = failure;
-        while (cause.getCause() != null) cause = cause.getCause();
-        return cause.getMessage() == null || cause.getMessage().isBlank() ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
     /** Stops the reads and the feed's worker. EDT. */
