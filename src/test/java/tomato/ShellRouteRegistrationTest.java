@@ -81,6 +81,19 @@ public class ShellRouteRegistrationTest {
                     navigator.canOpen(Route.to(Destination.CHARACTERS).withPayload(new tomato.gui.glance.character.SheetFocus(character, null))));
                 tomato.gui.modern.WorkspaceShell workspace = (tomato.gui.modern.WorkspaceShell) shell.get();
                 String landing = workspace.selectedPage();
+                for (Destination destination : new Destination[]{Destination.CHAT, Destination.KEYPOPS}) {
+                    assertTrue(navigator.open(Route.to(destination)));
+                    assertEquals(destination == Destination.CHAT ? "chat" : "key-pops", workspace.selectedPage());
+                    assertFalse("Retained pages reject payloads", navigator.canOpen(Route.to(destination).withPayload("unexpected")));
+                    assertTrue(navigator.back());
+                    assertEquals(landing, workspace.selectedPage());
+                }
+                TomatoGUI.openSettings(tomato.gui.settings.SettingsPage.APPEARANCE);
+                assertEquals("settings", workspace.selectedPage());
+                assertEquals(tomato.gui.settings.SettingsPage.APPEARANCE,
+                    find(workspace, tomato.gui.settings.SettingsPage.class).currentSection());
+                workspace.getActionMap().get("navigate-back").actionPerformed(null);
+                assertEquals("Settings creates a Back entry", landing, workspace.selectedPage());
                 assertTrue("Build keeps its route although it has no page", navigator.open(Route.to(Destination.MY_INFO)));
                 assertEquals("With no character it opens Characters", "characters", workspace.selectedPage());
                 assertTrue(navigator.open(Route.to(Destination.HOME)));

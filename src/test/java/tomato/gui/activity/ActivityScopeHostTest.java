@@ -122,9 +122,9 @@ public class ActivityScopeHostTest {
     @Test public void everyLiveRowIsOneFilterRowAt1240x800Font13InBothModes() throws Exception {
         try (Fixture f = new Fixture()) {
             JTabbedPane meter = edt(() -> {
-                // The Live meter's nesting (DpsGUI's "Damage meters" and "Resources & buffs" tabs) around the Resources workspace.
+                // The Runs & DPS sibling Live meter and Resources tabs around the Resources workspace.
                 JTabbedPane tabs = new JTabbedPane(); tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-                tabs.addTab("Damage meters", new JPanel()); tabs.addTab("Resources & buffs", f.workspace(ActivityPanel.Mode.COMBAT)); return tabs;
+                tabs.addTab("Live meter", new JPanel()); tabs.addTab("Resources & buffs", f.workspace(ActivityPanel.Mode.COMBAT)); return tabs;
             });
             RunsDpsPage page = edt(() -> new RunsDpsPage(new RunsPage(f.workspace(ActivityPanel.Mode.RUNS), () -> f.store), meter));
             WorkspaceShell shell = edt(() -> {

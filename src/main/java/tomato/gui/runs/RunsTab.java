@@ -9,8 +9,10 @@ public enum RunsTab {
     FEED("feed", "Feed"),
     /** One card per dungeon from exact run, loot and combat links. */
     DUNGEONS("dungeons", "Dungeons"),
-    /** The single DPS meter ({@code DpsGUI}) with its nested Meters and Resources & buffs tabs. */
+    /** The single DPS meter ({@code DpsGUI}). */
     LIVE_METER("live-meter", "Live meter"),
+    /** Live and saved resource use and buff uptime, available in both display modes. */
+    RESOURCES("resources", "Resources & buffs"),
     /** Every combat recording: this app run, saved summaries, kept full detail and imports. */
     RECORDINGS("recordings", "Recordings");
 

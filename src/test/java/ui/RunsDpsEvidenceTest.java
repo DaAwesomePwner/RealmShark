@@ -272,7 +272,7 @@ public class RunsDpsEvidenceTest {
             assertEquals("runs", shell.selectedPage());
             assertEquals("Runs & DPS opens on its first tab", RunsTab.FEED, page().selectedTab());
             JTabbedPane tabs = VisualEvidence.named(shell, "runs-tabs", JTabbedPane.class);
-            assertEquals("The tab strip", List.of("Feed", "Dungeons", "Live meter", "Recordings"), titles(tabs));
+            assertEquals("The tab strip", List.of("Feed", "Dungeons", "Live meter", "Resources & buffs", "Recordings"), titles(tabs));
             assertTrue("The capture shows the strip", inView(tabs));
             assertEquals("Today", VisualEvidence.named(shell, "run-feed-header-" + today, tomato.gui.kit.SectionHeader.class).title());
             String counts = text("run-feed-counts-" + today);
@@ -316,9 +316,10 @@ public class RunsDpsEvidenceTest {
         pause();
         capture("live-meter", 680, 18, ANALYST, () -> {
             liveMeter(false);
-            JTabbedPane nested = VisualEvidence.named(shell, "dps-tabs", JTabbedPane.class);
-            assertTrue("The meter keeps its nested tabs", nested.isShowing() && inView(nested));
-            assertEquals(List.of("Damage meters", "Resources & buffs"), titles(nested));
+            JTabbedPane tabs = VisualEvidence.named(shell, "runs-tabs", JTabbedPane.class);
+            assertTrue("The Runs strip stays visible", tabs.isShowing() && inView(tabs));
+            assertEquals(List.of("Feed", "Dungeons", "Live meter", "Resources & buffs", "Recordings"), titles(tabs));
+            assertNull("The meter has no nested strip", VisualEvidence.named(shell, "dps-tabs", JTabbedPane.class));
             assertFalse("Analyst's View choice is in the closed drawer", VisualEvidence.named(shell, "dps-view-mode-field", JComponent.class).isShowing());
             assertMeterUsable("live-meter-680");
         });

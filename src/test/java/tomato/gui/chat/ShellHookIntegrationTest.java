@@ -717,7 +717,7 @@ public class ShellHookIntegrationTest {
             ArchiveWorkspace<?,?,?> resources = tomato.gui.activity.ActivityPanel.workspace(store, new JLabel("Live resources"),
                 tomato.gui.activity.ActivityPanel.Mode.COMBAT, nestedScratch, ViewStateStore.application());
             JPanel container = new JPanel(new BorderLayout()); container.add(resources);
-            named(shell, "dps-tabs", JTabbedPane.class).addTab("Nested lifecycle fixture", container);
+            named(shell, "runs-tabs", JTabbedPane.class).addTab("Nested lifecycle fixture", container);
             resources.showSaved(); return resources;
         });
         java.util.List<ArchivePage<?>> pages = new ArrayList<>();
@@ -768,7 +768,7 @@ public class ShellHookIntegrationTest {
             JTabbedPane tabs = named(page, "runs-tabs", JTabbedPane.class);
             java.util.List<String> titles = new ArrayList<>();
             for (int i = 0; i < tabs.getTabCount(); i++) titles.add(tabs.getTitleAt(i));
-            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Recordings"), titles);
+            assertEquals(Arrays.asList("Feed", "Dungeons", "Live meter", "Resources & buffs", "Recordings"), titles);
             assertEquals("Runs & DPS opens on the Feed", tomato.gui.runs.RunsTab.FEED, page.selectedTab());
             assertSame("The Feed is the Runs page", named(shell, "runs-page", tomato.gui.runs.RunsPage.class), page.feed());
             assertSame("The Live meter tab is the app's single DPS meter", dps, tabs.getComponentAt(tabs.indexOfTab("Live meter")));
@@ -799,8 +799,8 @@ public class ShellHookIntegrationTest {
             shell.select("chat");
             assertTrue(navigator.open(tomato.gui.route.Route.to(tomato.gui.route.Destination.RESOURCES).withVisit(visit)));
             assertEquals("runs", shell.selectedPage());
-            assertEquals("RESOURCES opens the Live meter", tomato.gui.runs.RunsTab.LIVE_METER, page.selectedTab());
-            JTabbedPane nested = named(dps, "dps-tabs", JTabbedPane.class);
+            assertEquals("RESOURCES opens its own tab", tomato.gui.runs.RunsTab.RESOURCES, page.selectedTab());
+            JTabbedPane nested = page.tabs().component();
             assertEquals("…on its Resources & buffs tab", "Resources & buffs", nested.getTitleAt(nested.getSelectedIndex()));
             assertTrue(navigator.back()); assertEquals("chat", shell.selectedPage());
         });
@@ -1002,8 +1002,7 @@ public class ShellHookIntegrationTest {
     }
 
     /**
-     * A hidden tab is detached from the tree, so closing walks the tabs' contents too: hidden Feed and Live meter tabs (and the
-     * Live meter's hidden Resources & buffs tab inside) still release their saved readers.
+     * A hidden tab is detached from the tree, so closing walks the tabs' contents too: hidden Feed, Live meter and Resources & buffs tabs still release their saved readers.
      */
     @Test public void hiddenFeedAndLiveMeterTabsStillCloseTheirWorkspaces() throws Exception {
         ArchiveWorkspace<?,?,?> runs = workspace("runs"), combat = workspace("combat");
@@ -1012,12 +1011,12 @@ public class ShellHookIntegrationTest {
         java.util.List<ArchivePage<?>> pages = edt(() -> Arrays.asList(runs.displayedPage(), combat.displayedPage()));
         SwingUtilities.invokeAndWait(() -> {
             tomato.gui.runs.RunsDpsPage page = runsDps();
-            JTabbedPane nested = named(shell, "dps-tabs", JTabbedPane.class);
+            JTabbedPane nested = page.tabs().component();
             assertTrue(((tomato.gui.kit.CustomizableTabs) nested.getClientProperty(tomato.gui.kit.CustomizableTabs.class)).hide("resources"));
             assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.FEED.id()));
             assertTrue(page.tabs().hide(tomato.gui.runs.RunsTab.LIVE_METER.id()));
             assertNull("The hidden Feed is detached", named(shell, "runs-session-view", ArchiveWorkspace.class));
-            assertNull("…and so is the hidden Live meter with its Resources workspace", named(shell, "combat-session-view", ArchiveWorkspace.class));
+            assertNull("…and so is the hidden Resources workspace", named(shell, "combat-session-view", ArchiveWorkspace.class));
         });
         for (ArchivePage<?> page : pages) try (ArchiveResult.Lease<?> open = page.lease()) { assertNotNull(open); }
         gui.closeWorkspace();
@@ -1304,6 +1303,9 @@ public class ShellHookIntegrationTest {
             filters.doClick();
             assertEquals("settings", shell.selectedPage());
             assertEquals(tomato.gui.settings.SettingsPage.LOOT_FILTERS, find(shell, tomato.gui.settings.SettingsPage.class).currentSection());
+            assertTrue(tomato.gui.route.Navigator.current().back());
+            assertEquals("The Highlights settings action returns to Loot", "loot", shell.selectedPage());
+            assertEquals(tomato.gui.loot.LootTab.HIGHLIGHTS, page.selectedTab());
         });
     }
 
@@ -1434,6 +1436,8 @@ public class ShellHookIntegrationTest {
                     assertTrue(registry.search(section[0]).get(0).open());
                     assertEquals(section[0], "settings", shell.selectedPage());
                     assertEquals(section[0], section[1], settings.currentSection());
+                    assertTrue(navigator.back());
+                    assertEquals("Settings search creates a Back entry", "chat", shell.selectedPage());
                 }
 
                 JTabbedPane characters = named(shell, "characters-tabs", JTabbedPane.class);
@@ -1466,6 +1470,8 @@ public class ShellHookIntegrationTest {
                 item.doClick();
                 assertEquals(entry[0], "settings", shell.selectedPage());
                 assertEquals(entry[0], entry[1], settings.currentSection());
+                assertTrue(tomato.gui.route.Navigator.current().back());
+                assertEquals("Settings menu creates a Back entry", "chat", shell.selectedPage());
             }
             assertNotNull("Settings hosts Loot filters", named(settings, "settings-loot-filters", JComponent.class));
             assertNotNull("…Chat", named(settings, "settings-chat", JComponent.class));
