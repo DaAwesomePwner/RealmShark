@@ -137,6 +137,8 @@ public final class RunsRouteTarget implements RouteTarget {
         long feedEntry;
         /** Recaps opened from other pages, newest last, while their Back entries may still be on the stack. */
         final ArrayDeque<Away> away = new ArrayDeque<>();
+        /** Away records left by Back, most recently popped last, until Forward or a new route. */
+        final ArrayDeque<Away> left = new ArrayDeque<>();
 
         Controller(RunsPage page, RouteTarget table, Supplier<Recaps> recaps, Supplier<RunRecapView> views, ShellNavigator navigator) {
             this.page = Objects.requireNonNull(page, "page");
@@ -233,8 +235,16 @@ public final class RunsRouteTarget implements RouteTarget {
 
         /** Back left one or more recaps opened from other pages: the page shows what it showed before the oldest of them. */
         void stackChanged() {
+            if (!left.isEmpty() && navigator.backToken() > left.peekLast().entry()) left.clear();
+            // Only Forward reuses an entry token; Back's decreasing tokens make left LIFO-consistent with Forward.
+            while (!left.isEmpty() && navigator.backToken() == left.peekLast().entry()) away.addLast(left.pollLast());
             RunsState before = null;
-            while (!away.isEmpty() && navigator.backToken() < away.peekLast().entry()) before = away.pollLast().before();
+            while (!away.isEmpty() && navigator.backToken() < away.peekLast().entry()) {
+                Away popped = away.pollLast();
+                before = popped.before();
+                left.addLast(popped);
+                while (left.size() > ShellNavigator.DEFAULT_CAPACITY) left.removeFirst();
+            }
             if (before != null && !closed) restore(before);
         }
 
@@ -292,6 +302,7 @@ public final class RunsRouteTarget implements RouteTarget {
 
         private void close() {
             closed = true;
+            away.clear(); left.clear();
             generation++;
             cancel.cancel();
             worker.shutdownNow();

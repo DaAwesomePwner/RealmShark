@@ -22,6 +22,8 @@ public class ShellBackActionTest {
             ShellNavigatorTest.Fake runs = new ShellNavigatorTest.Fake(Destination.RUNS, new ArrayList<>());
             navigator.register(runs);
             JButton back = named(shell, "navigate-back", JButton.class);
+            JButton forward = named(shell, "navigate-forward", JButton.class);
+            assertNotNull(forward); assertFalse(forward.isVisible());
             assertNotNull(back);
             assertFalse("Nothing to return to yet", back.isVisible());
             assertEquals("page-chat", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_1, InputEvent.ALT_DOWN_MASK)));
@@ -38,10 +40,24 @@ public class ShellBackActionTest {
             assertEquals("Back to Quests", back.getText());
             assertEquals("Back to Quests", back.getAccessibleContext().getAccessibleName());
             assertTrue(back.getToolTipText().contains("Alt+Left"));
+            assertTrue(back.getToolTipText().contains("mouse Back button"));
 
             shell.getActionMap().get("navigate-back").actionPerformed(null);
             assertEquals("quests", shell.selectedPage());
             assertFalse(back.isVisible());
+            assertTrue(forward.isVisible());
+            assertEquals("Forward to Runs & DPS", forward.getText());
+            assertEquals(forward.getText(), forward.getAccessibleContext().getAccessibleName());
+            assertTrue(forward.getToolTipText().contains("Alt+Right"));
+            assertTrue(forward.getToolTipText().contains("mouse Forward button"));
+            assertEquals("navigate-forward", shell.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).get(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK)));
+            shell.getActionMap().get("navigate-forward").actionPerformed(null);
+            assertEquals("runs", shell.selectedPage()); assertFalse(forward.isVisible()); assertTrue(back.isVisible());
+            assertTrue(navigator.open(Route.to(Destination.RUNS)));
+            back.doClick();
+            assertEquals(WorkspaceShell.FORWARD_TO_NEXT_VIEW, forward.getText());
+            assertEquals(forward.getText(), forward.getAccessibleContext().getAccessibleName());
+            forward.doClick(); assertFalse(forward.isVisible());
             assertEquals("Unrouted destinations have no shell page", ShellNavigator.NO_PAGE, WorkspaceShell.pageOf(Destination.ALERT_DRAFT));
             for (Destination destination : Destination.values()) {
                 String page = WorkspaceShell.pageOf(destination);

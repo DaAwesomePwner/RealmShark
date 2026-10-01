@@ -206,6 +206,77 @@ public class RunsRouteTargetTest {
         });
     }
 
+    @Test public void recapOpenedFromHomeRestoresFeedOnBothBacksAroundForward() throws Exception {
+        Shell shell = new Shell();
+        assertTrue(shell.open(recap(RunFixtures.A1)));
+        shell.settled(RunFixtures.A1);
+        edt(() -> {
+            assertTrue(shell.navigator.back());
+            assertEquals("home", shell.selected[0]); assertFalse(shell.page.recapShown());
+            assertTrue(shell.navigator.forward());
+            assertEquals("runs", shell.selected[0]); assertTrue(shell.page.recapShown());
+            assertEquals(RunFixtures.A1, shell.view().ref());
+            assertTrue(shell.navigator.back());
+            assertEquals("home", shell.selected[0]);
+            assertFalse("The second Back restores the feed behind Home too", shell.page.recapShown());
+            return null;
+        });
+    }
+
+    @Test public void newRouteAfterLeavingRecapDiscardsItsForwardHistory() throws Exception {
+        Shell shell = new Shell();
+        assertTrue(shell.open(recap(RunFixtures.A1)));
+        shell.settled(RunFixtures.A1);
+        edt(() -> {
+            long recapEntry = shell.navigator.backToken();
+            assertTrue(shell.navigator.back()); assertFalse(shell.page.recapShown());
+            assertTrue(shell.navigator.open(Route.to(Destination.LOOT)));
+            assertTrue(shell.navigator.backToken() > recapEntry);
+            assertFalse("The new route discards the recap's Forward history", shell.navigator.canGoForward());
+            assertTrue(shell.navigator.back()); assertEquals("home", shell.selected[0]);
+            assertTrue(shell.navigator.forward()); assertEquals("loot", shell.selected[0]);
+            assertTrue(shell.navigator.backToken() > recapEntry);
+            assertFalse("Restoring the newer entry never resurrects the old recap", shell.page.recapShown());
+            assertTrue(shell.navigator.back()); assertEquals("home", shell.selected[0]);
+            assertFalse(shell.page.recapShown());
+            return null;
+        });
+    }
+
+    @Test public void recapBackLinkPopsItsOriginalEntryAfterBackAndForward() throws Exception {
+        Shell shell = new Shell();
+        edt(() -> { shell.selected[0] = "runs"; return null; });
+        assertTrue(shell.open(recap(RunFixtures.A1)));
+        shell.settled(RunFixtures.A1);
+        edt(() -> {
+            long entry = shell.navigator.backToken();
+            assertTrue(shell.navigator.back());
+            assertEquals(0, shell.navigator.depth()); assertFalse(shell.page.recapShown());
+            assertTrue(shell.navigator.forward());
+            assertEquals(entry, shell.navigator.backToken()); assertTrue(shell.page.recapShown());
+            named(shell.view(), "run-recap-back", KitButton.class).doClick();
+            assertFalse(shell.page.recapShown());
+            assertEquals("The link pops the restored entry instead of only showing the feed", 0, shell.navigator.depth());
+            assertEquals("runs", shell.selected[0]);
+            return null;
+        });
+    }
+
+    @Test public void backCaptureDoesNotMakeARecapOpenedFromHomeTreatRunsAsItsOrigin() throws Exception {
+        Shell shell = new Shell();
+        assertTrue(shell.open(Route.to(Destination.RUNS)));
+        edt(() -> { assertTrue(shell.navigator.back()); assertEquals("home", shell.selected[0]); return null; });
+        assertTrue(shell.open(recap(RunFixtures.A1)));
+        shell.settled(RunFixtures.A1);
+        edt(() -> {
+            named(shell.view(), "run-recap-back", KitButton.class).doClick();
+            assertFalse(shell.page.recapShown()); assertEquals("runs", shell.selected[0]);
+            assertEquals("The in-page link leaves the Home origin on the stack", 1, shell.navigator.depth());
+            assertEquals("home", shell.navigator.backPage());
+            return null;
+        });
+    }
+
     @Test public void fromTheFeedBackAndTheBackLinkReturnToTheFeedAsLeft() throws Exception {
         Shell shell = new Shell();
         edt(() -> { shell.selected[0] = "runs"; return null; });

@@ -85,7 +85,8 @@ Column widths never change on a mode switch. A saved column layout never records
 | **Alt+7** | The character sheet's Build tab for the character in game, else the last one played; the Characters list ("No characters yet") when there is none (the Build pointer page, earlier My Info, before P6a) |
 | **Alt+8** | Runs & DPS › Live meter (the DPS Logger page before P6a) |
 | **Alt+M** | The labeled page list (navigation menu) |
-| **Alt+Left** | Back |
+| **Alt+Left** | Back (also the mouse Back button) |
+| **Alt+Right** | Forward (also the mouse Forward button) |
 | **Ctrl+K** | Edit › Find settings and actions… |
 | **Ctrl+Shift+A** | Switch Simple and Analyst |
 | **Ctrl+Shift+S** | Start or stop capture (File › Start capture connection) |
@@ -97,6 +98,7 @@ Column widths never change on a mode switch. A saved column layout never records
 | **Esc** | Close an open filter drawer (focus inside its row) and focus **Filters**; cancel a sidebar or tab drag; close the Scope menu; close Quests' details drawer; leave an Exalts class for the grid. A focused control's own Esc comes first: Chat's search, for example, clears its text. |
 
 Alt+5, Alt+7 and Alt+8 go through navigation, so Back returns to where you were. Page-specific keys are in each page's guide.
+Forward restores views left by Back, one step at a time. Opening a new route clears Forward history.
 
 ## Customizing
 
