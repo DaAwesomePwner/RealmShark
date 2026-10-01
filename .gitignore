@@ -61,5 +61,6 @@ DPS-Recovered/
 /docs/INSTANCE-TRANSITION-ANALYSIS-2026-09-12.md
 /docs/INSTANCE-TRANSITION-EVIDENCE-2026-09-12.json
 
-# Local UX execution state, agent worktrees and validation evidence
-/.omc/ux/
+# Local UX execution state, agent worktrees and validation evidence, and agent hook
+# state that lands in whatever folder a session ran from
+.omc/

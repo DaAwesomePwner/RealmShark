@@ -250,7 +250,8 @@ the implementer's page-by-page list, and decided each finding.
 
 ## PR review
 
-_Filled in after the PR._
+PR #28 from `claude/redesign-handoff-next-steps-edrr7w` at head `dfde6cc`. The Codex review left no findings. Merged on
+2026-09-30 as `26a3016`.
 
 ## Deferred scope
 
