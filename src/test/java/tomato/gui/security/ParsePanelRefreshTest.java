@@ -618,6 +618,8 @@ public class ParsePanelRefreshTest {
                 frame = new JFrame(); frame.setContentPane(panel); frame.setSize(800, 600); frame.setVisible(true);
                 JTable table = find(panel, JTable.class);
                 JLabel reused = assertEquipmentText(table, 0, 3, "Weapon: Sword of Acclaim (ID " + itemId + ")", "Test enchant — Does a test thing");
+                assertTrue(reused.getToolTipText(), reused.getToolTipText().startsWith("<html><b>Sword of Acclaim"));
+                assertFalse("An item's tooltip is headed by the item, not its slot", reused.getToolTipText().contains("Weapon:"));
                 assertFocusDistinctFromSelection(table, 0, 3);
 
                 stat(source, StatType.INVENTORY_0_STAT, -1, "");
