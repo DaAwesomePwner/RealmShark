@@ -162,7 +162,11 @@ public record RunRecapModel(VisitRef ref, String unavailable, long capturedAt, H
                              long observedAt, List<EnchantInfo> enchants) {
             public Player {
                 equipment = Collections.unmodifiableList(new ArrayList<>(equipment));
-                enchants = enchants == null ? Collections.nCopies(equipment.size(), EnchantInfo.notRecorded()) : List.copyOf(enchants);
+                // One entry per equipped slot, so views can index them together; a missing or null entry is not recorded.
+                List<EnchantInfo> sized = new ArrayList<>(equipment.size());
+                for (int i = 0; i < equipment.size(); i++)
+                    sized.add(enchants != null && i < enchants.size() && enchants.get(i) != null ? enchants.get(i) : EnchantInfo.notRecorded());
+                enchants = List.copyOf(sized);
             }
             public Player(int objectId, String name, String className, int classType, List<Integer> equipment, Long inspectDamage, long observedAt) {
                 this(objectId, name, className, classType, equipment, inspectDamage, observedAt, null);

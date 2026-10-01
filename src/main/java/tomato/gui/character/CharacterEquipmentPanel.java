@@ -80,7 +80,7 @@ public final class CharacterEquipmentPanel extends JPanel {
                 + "\nCurrent local item definition (not capture-time data):\nTier: " + (definition == null || definition.tier == null ? "Unknown" : definition.tier)
                 + "\nLabels: " + (definition == null || definition.labels == null ? "Unknown" : definition.labels)
                 + "\nSlot type: " + (definition == null || definition.slotType == null ? "Unknown" : definition.slotType)
-                + "\nEnchantment effects: " + (enchant == null ? "Not recorded in this character snapshot" : enchant.text().replace("\n", "\n  "));
+                + "\nEnchantment effects: " + (enchant == null ? "Not recorded in this character snapshot" : enchant.text());
             result.add(new Slot(i, item, group, name, state, evidence, detail, enchant));
         }
         return Collections.unmodifiableList(result);

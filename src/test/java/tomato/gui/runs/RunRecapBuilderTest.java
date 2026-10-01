@@ -46,6 +46,17 @@ import static tomato.gui.stats.LootTestDrops.item;
  * unknowns as reasons, never 0.
  */
 public class RunRecapBuilderTest {
+    @Test public void aPlayersEnchantsAlwaysMatchTheirEquipment() {
+        RunRecapModel.Players.Player shortList = new RunRecapModel.Players.Player(1, "A", "Wizard", 782, Arrays.asList(1, 2, 3, 4), null, 0L,
+            List.of(EnchantInfo.ofSlotCount(2)));
+        assertEquals(4, shortList.enchants().size());
+        assertEquals(EnchantInfo.ofSlotCount(2), shortList.enchants().get(0));
+        assertSame(EnchantInfo.notRecorded(), shortList.enchants().get(3));
+        RunRecapModel.Players.Player nullEntry = new RunRecapModel.Players.Player(1, "A", "Wizard", 782, Arrays.asList(1, 2), null, 0L,
+            Arrays.asList(null, EnchantInfo.unreadable(), EnchantInfo.unreadable()));
+        assertEquals(Arrays.asList(EnchantInfo.notRecorded(), EnchantInfo.unreadable()), nullEntry.enchants());
+    }
+
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
     /** Session A holds the runs under test; B reuses visit id v1 (never joined); C crashed with a visit left open. */
