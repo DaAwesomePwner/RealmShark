@@ -127,7 +127,7 @@ public final class Projections {
             String name = savedOr(text(i,"name"),objectName(c,i.get("id")));
             String enchantNames=enchantNames(c,i);
             Context at = c.at(position++);
-            rows.add(row(at,"loot_items",Kind.LOOT,time,visitId,name,join(name,map,dropper,bag,tier,enchantNames),join(name,map,dropper,enchantNames),
+            rows.add(row(at,"loot_items",Kind.LOOT,time,visitId,name,join(map,dropper,bag,tier,enchantNames),join(name,map,dropper,enchantNames),
                     fields("item_id",number(i,"id"),"name",name,"dungeon",map,"dropper",dropper,"bag",bag,
                     "tier",tier,"rarity",enchant.rarity().label,
                     "enchant_slots",slots,"enchant_applied",applied,"ut",bool(i,"ut"),"st",bool(i,"st"),
@@ -145,7 +145,9 @@ public final class Projections {
         if ("Equipment changed".equals(kind)) {
             equipment=join(objectName(c,values.get("before")),objectName(c,values.get("after")));
             // Item IDs remain in the source only; neither unknown IDs nor slot numbers are searchable names.
-            summary=join("Observed equipped item",equipment);
+            Integer slot=id(values.get("slot"));
+            summary=ActivitySummaries.slot(slot!=null && slot>=0 && slot<4?slot:null)+": "
+                    +equipmentItem(c,values.get("before"))+" → "+equipmentItem(c,values.get("after"));
             values=values.deepCopy(); values.remove("before"); values.remove("after"); values.remove("slot");
         }
         return List.of(row(c,"timeline",Kind.TIMELINE,positive(e.time),blank(e.visitId),kind,
@@ -225,6 +227,10 @@ public final class Projections {
                     fields("dungeon",name,"visits",number(o,"visits"),"duration",number(o,"time"),"hits",hits,"items",items),Map.of()));
         }
         return rows;
+    }
+    private static String equipmentItem(Context c,JsonElement value) {
+        if (Integer.valueOf(-1).equals(id(value))) return "Empty";
+        return savedOr(objectName(c,value),"unknown item");
     }
     private static String savedOr(String saved,String derived) { return saved==null || saved.isBlank()?derived:saved; }
     private static Integer id(JsonElement value) {

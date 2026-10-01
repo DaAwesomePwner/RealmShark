@@ -44,7 +44,7 @@ public final class AssetDictionary {
     static IndexDictionary snapshot(String stamp,Map<Integer,String> objects,Map<Integer,String> classes,
                                     Map<Short,ParseEnchants.Definition> definitions) {
         if (objects.isEmpty() || classes.isEmpty() || definitions.isEmpty()) return IndexDictionary.NONE;
-        Map<Integer,String> objectNames=Map.copyOf(objects), classNames=Map.copyOf(classes);
+        Map<Integer,String> objectNames=copyNames(objects), classNames=copyNames(classes);
         Map<Short,ParseEnchants.Definition> enchants=Map.copyOf(definitions);
         MessageDigest digest;
         try { digest=MessageDigest.getInstance("SHA-256"); }
@@ -66,6 +66,11 @@ public final class AssetDictionary {
                 return definition==null?null:definition.displayName();
             }
         };
+    }
+    private static Map<Integer,String> copyNames(Map<Integer,String> names) {
+        Map<Integer,String> copy=new HashMap<>();
+        names.forEach((id,name) -> { if (name!=null && !name.isBlank()) copy.put(id,name); });
+        return Map.copyOf(copy);
     }
     private static void digestNames(MessageDigest digest,Map<Integer,String> names) {
         for (Map.Entry<Integer,String> entry:new TreeMap<>(names).entrySet()) {

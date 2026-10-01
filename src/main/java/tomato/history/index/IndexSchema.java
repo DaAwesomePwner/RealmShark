@@ -4,7 +4,7 @@ import java.sql.*;
 import java.util.*;
 
 final class IndexSchema {
-    static final int VERSION = 5;
+    static final int VERSION = 6;
     static final long ROW_MASK = (1L << 48) - 1;
     static final Map<String,String> TABLES = new LinkedHashMap<>();
     static final List<String> MODULES = List.of("session","runs","loot","timeline","chat","chat-stars","keypops","fame","fame-latest","fame-snapshots","encounters","dungeon-totals");
