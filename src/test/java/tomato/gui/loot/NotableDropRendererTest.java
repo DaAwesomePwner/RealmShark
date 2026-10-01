@@ -34,18 +34,50 @@ public class NotableDropRendererTest {
         return new HighlightsModel.Notable(4242, "White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.ENCHANTED, enchant);
     }
 
+    @Test public void loadedItemTypesStaySeparateFromTheNotabilityReason() throws Exception {
+        try (AutoCloseable restore = tomato.gui.glance.character.CharacterFixtures.installDefinitions()) {
+            var definitions = tomato.backend.data.RosterDefinitions.parse(null, new java.io.StringReader(
+                "<Objects><Object type='4242'><Tier>12</Tier></Object>"
+                + "<Object type='4243'><Labels>UT</Labels></Object>"
+                + "<Object type='4244'><Labels>ST</Labels></Object></Objects>"));
+            var current = tomato.backend.data.RosterDefinitions.class.getDeclaredField("current");
+            current.setAccessible(true);
+            current.set(null, definitions);
+            SwingUtilities.invokeAndWait(() -> {
+                NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+                for (int id = 4242; id <= 4244; id++) {
+                    HighlightsModel.Notable drop = new HighlightsModel.Notable(id, "White", "Lost Halls", NOON, RUN,
+                        HighlightsModel.Kind.ENCHANTED, EnchantInfo.ofSlotCount(3));
+                    String type = id == 4242 ? "T12" : id == 4243 ? "UT" : "ST";
+                    renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
+                    assertEquals(type, renderer.shown().chip());
+                    assertEquals(id == 4242 ? Tokens.Tone.NEUTRAL : id == 4243 ? Tokens.Tone.WARN : Tokens.Tone.BAD, renderer.shown().tone());
+                    assertTrue(renderer.getAccessibleContext().getAccessibleName().contains(type + " (Legendary · 3 enchant slots)"));
+                    assertTrue(renderer.getToolTipText().contains(type + ";"));
+                    List<String> painted = paint(renderer, renderer.getPreferredSize());
+                    assertTrue(painted.toString(), painted.contains(type) && painted.contains("Legendary"));
+                }
+                assertEquals("Potion", NotableDropRenderer.lines(notable("Orange", "Lost Halls", NOON, RUN,
+                    HighlightsModel.Kind.POTION), ZONE_NY, NOON).chip());
+            });
+        }
+    }
+
     @Test public void anEnchantedDropSaysItsRarityAndShowsTheEnchantTooltipOnHover() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             EnchantInfo legendary = EnchantInfo.ofSlotCount(3);
             HighlightsModel.Notable drop = enchanted(legendary);
             String name = NotableDropRenderer.accessibleName(drop, ZONE_NY, NOON);
-            assertTrue(name, name.contains("enchanted, rare or better (Legendary · 3 enchant slots)"));
+            assertTrue(name, name.contains("Gear (Legendary · 3 enchant slots)"));
             NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
             renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
             String tip = renderer.getToolTipText();
             assertTrue(tip, tip.startsWith("<html>") && tip.contains("Legendary · 3 enchant slots") && tip.contains("Enchant names not available"));
             assertEquals("The tooltip says the rarity once: " + tip, 1, tip.split("Legendary · 3 enchant slots", -1).length - 1);
-            assertTrue("Its heading still gives the facts: " + tip, tip.contains("enchanted, rare or better;"));
+            assertTrue("Its heading still gives the facts: " + tip, tip.contains("Gear;"));
+            assertEquals("Gear", renderer.shown().chip());
+            List<String> painted = paint(renderer, renderer.getPreferredSize());
+            assertTrue(painted.toString(), painted.contains("Legendary"));
             String plain = NotableDropRenderer.accessibleName(enchanted(EnchantInfo.notRecorded()), ZONE_NY, NOON);
             assertFalse("Without enchant data the name adds no rarity: " + plain, plain.contains("enchant slot"));
             renderer.getListCellRendererComponent(new JList<>(), enchanted(EnchantInfo.notRecorded()), 0, false, false);
@@ -53,7 +85,7 @@ public class NotableDropRendererTest {
         });
     }
 
-    @Test public void theGemIsPaintedInsideTheWellsTopRightCorner() throws Exception {
+    @Test public void thePipsArePaintedInsideTheWellsBottomEdge() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
             renderer.getListCellRendererComponent(new JList<>(), enchanted(EnchantInfo.notRecorded()), 0, false, false);
@@ -63,13 +95,13 @@ public class NotableDropRendererTest {
             BufferedImage gem = image(renderer, size);
             Rectangle well = NotableDropRenderer.well(size.width, size.height);
             int ink = Tokens.rarity(EnchantInfo.Rarity.LEGENDARY).getRGB(), changed = 0; boolean inked = false;
-            for (int y = 0; y < size.height; y++) for (int x = 0; x < size.width; x++) {
+            for (int y = well.y; y < well.y + well.height; y++) for (int x = well.x; x < well.x + well.width; x++) {
                 if (plain.getRGB(x, y) == gem.getRGB(x, y)) continue;
                 changed++; inked |= gem.getRGB(x, y) == ink;
-                assertTrue("Changes stay inside the well's top-right quarter at " + x + "," + y,
-                    x > well.x + well.width / 2 && x < well.x + well.width - 1 && y > well.y && y < well.y + well.height / 2);
+                assertTrue("Pips stay inside the well's bottom edge at " + x + "," + y,
+                    x > well.x && x < well.x + well.width - 1 && y > well.y + well.height / 2 && y < well.y + well.height - 1);
             }
-            assertTrue("The gem is painted", changed > 8);
+            assertTrue("The pips are painted", changed > 8);
             assertTrue("…in the Legendary ink", inked);
         });
     }
@@ -90,7 +122,7 @@ public class NotableDropRendererTest {
         NotableDropRenderer.Lines unlinked = NotableDropRenderer.lines(notable(null, null, at(-1, 22, 10), null, HighlightsModel.Kind.ENCHANTED), ZONE_NY, NOON);
         assertEquals("Yesterday 22:10", unlinked.when()); assertEquals("Unknown area", unlinked.where());
         assertEquals("Not linked to a run", unlinked.link());
-        assertEquals("Enchanted", unlinked.chip()); assertEquals(Tokens.Tone.ACCENT, unlinked.tone());
+        assertEquals("Gear", unlinked.chip()); assertEquals(Tokens.Tone.NEUTRAL, unlinked.tone());
         assertEquals(Tokens.Tone.BAD, NotableDropRenderer.lines(notable("White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.ST), ZONE_NY, NOON).tone());
         assertEquals(Tokens.Tone.INFO, NotableDropRenderer.lines(notable("White", "Lost Halls", NOON, RUN, HighlightsModel.Kind.POTION), ZONE_NY, NOON).tone());
         assertEquals("13 Jan 14:32", NotableDropRenderer.time(at(-2, 14, 32), ZONE_NY, NOON));
@@ -141,11 +173,11 @@ public class NotableDropRendererTest {
     }
 
     /**
-     * Polish A: the area has a line of its own under the kind chip and the time, so "Lost Halls" (and "Unknown area") paint whole
+     * Time leads the area on a line below the chips, so "Lost Halls" (and "Unknown area") paint whole
      * beside any chip at font 13 (the 17 em cell of 1240×800) and font 18; "Not linked to a run" keeps its own line; every card is
      * the same size.
      */
-    @Test public void theAreaHasItsOwnLineAndPaintsWholeBesideAnyChip() throws Exception {
+    @Test public void timeAndAreaPaintTogetherBelowAnyChip() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JList<HighlightsModel.Notable> list = new JList<>();
             for (int font : new int[] {13, 18}) {
@@ -162,14 +194,41 @@ public class NotableDropRendererTest {
                             List<String> painted = paint(renderer, size);
                             String area = dungeon == null ? "Unknown area" : dungeon, what = "font " + font + ", " + kind + ", " + area
                                 + (visit == null ? ", not linked" : "") + ": " + painted;
-                            assertTrue(what, painted.contains(area));
-                            assertTrue(what, painted.contains("11:30"));
-                            assertTrue(what, painted.contains(kind.label()));
+                            assertTrue(what, painted.contains("11:30 · " + area));
+                            assertTrue(what, painted.contains(kind == HighlightsModel.Kind.ENCHANTED ? "Gear" : kind.label()));
                             assertTrue(what, painted.contains(Sprites.name(9065)));
                             assertEquals(what, visit == null, painted.contains("Not linked to a run"));
                             for (String text : painted) assertFalse(what + ": nothing is cut", text.endsWith("…"));
                         }
             }
+        });
+    }
+
+    @Test public void enchantedCardsKeepTheFullTimeAtTheStartOfTheAreaLine() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Font previous = ContentStyle.body();
+            try {
+                ContentStyle.setBodyFont(new Font(ContentStyle.FONT_FAMILY, Font.PLAIN, 13));
+                NotableDropRenderer renderer = new NotableDropRenderer(ZONE_NY, () -> NOON);
+                for (int count : new int[] {0, 3}) for (long time : new long[] {at(0, 14, 32), at(-1, 22, 10)}) {
+                    HighlightsModel.Notable drop = new HighlightsModel.Notable(4242, "White", "Lost Halls", time, RUN,
+                        HighlightsModel.Kind.ENCHANTED, EnchantInfo.ofSlotCount(count));
+                    renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
+                    Dimension size = renderer.getPreferredSize();
+                    List<String> painted = paint(renderer, size);
+                    FontMetrics caption = renderer.getFontMetrics(Type.caption());
+                    int width = size.width - NotableDropRenderer.GAP - 2 * NotableDropRenderer.PAD
+                        - NotableDropRenderer.WELL_SIDE - Tokens.S;
+                    String when = NotableDropRenderer.time(time, ZONE_NY, NOON);
+                    String expected = NotableDropRenderer.fit(when + " · Lost Halls", caption, width);
+                    assertTrue(painted.toString(), painted.contains(expected));
+                    assertTrue("The whole time leads the combined line", expected.startsWith(when + " · "));
+                    int typeIndex = painted.indexOf("Gear");
+                    assertTrue(typeIndex >= 0);
+                    if (count > 0) assertEquals("Legendary", painted.get(typeIndex + 1));
+                    assertEquals("Only chips precede the combined line", expected, painted.get(typeIndex + (count > 0 ? 2 : 1)));
+                }
+            } finally { ContentStyle.setBodyFont(previous); }
         });
     }
 
@@ -181,7 +240,8 @@ public class NotableDropRendererTest {
             HighlightsModel.Notable drop = new HighlightsModel.Notable(9065, "White", longArea, at(0, 11, 30), null, HighlightsModel.Kind.POTION);
             renderer.getListCellRendererComponent(new JList<>(), drop, 0, false, false);
             List<String> painted = paint(renderer, renderer.getPreferredSize());
-            assertTrue("The area is cut, not dropped: " + painted, painted.stream().anyMatch(text -> text.endsWith("…") && longArea.startsWith(text.substring(0, text.length() - 1))));
+            assertTrue("The area is cut after the full time: " + painted, painted.stream().anyMatch(text -> text.startsWith("11:30 · ")
+                && text.endsWith("…") && ("11:30 · " + longArea).startsWith(text.substring(0, text.length() - 1))));
             String tip = renderer.getToolTipText();
             for (String fact : new String[] {Sprites.name(9065), "stat potion", longArea, "today at 11:30", "White bag", "not linked to a run", HighlightsModel.OBSERVED})
                 assertTrue("The tooltip says '" + fact + "': " + tip, tip.contains(fact));
@@ -237,7 +297,7 @@ public class NotableDropRendererTest {
                     assertEquals(NotableDropRenderer.accessibleName(drop, ZONE_NY, NOON), renderer.getAccessibleContext().getAccessibleName());
                     int index = painted.indexOf("UT");
                     List<String> nameLines = painted.subList(0, index);
-                    assertTrue(name + " paints its time and area after its name: " + painted, painted.contains("11:30") && painted.contains("Lost Halls"));
+                    assertTrue(name + " paints its time and area after its name: " + painted, painted.contains("11:30 · Lost Halls"));
                     if (id == 9903) assertEquals("A short name keeps one line", List.of("Short"), nameLines);
                     else if (id == 9901) {
                         assertEquals(wraps + " takes two lines: " + nameLines, 2, nameLines.size());
