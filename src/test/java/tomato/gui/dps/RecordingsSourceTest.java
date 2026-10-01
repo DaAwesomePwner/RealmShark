@@ -43,6 +43,27 @@ public class RecordingsSourceTest {
         return result.items().stream().filter(i -> i.key().equals(key)).findFirst().orElseThrow(() -> new AssertionError("No row " + key + " in " + keys(result)));
     }
 
+    @Test public void evictedCaptureReappearsAsItsSavedSummaryAndPreviewDropsIt() throws Exception {
+        SessionStore history = store(temp.newFolder("eviction-history").toPath(), true);
+        TomatoData data = new TomatoData();
+        DpsData first = DpsRetentionTest.close(data, 0, false);
+        history.put(CombatFacts.RECORDS, first.getRecordingId(), record(first)); history.flush();
+        catalog.capture(data::closedDpsSnapshot);
+        RecordingsSource reader = source(history);
+        RecordingItem before = row(reader.read(all(), new Cancellation()), first.getRecordingId());
+        assertEquals(RecordingItem.Kind.THIS_RUN, before.kind()); assertTrue(before.inMemory()); assertTrue(before.summarySaved());
+        for (int i = 1; i <= TomatoData.CLOSED_DPS_KEPT; i++) DpsRetentionTest.close(data, i, false);
+        catalog.capture(data::closedDpsSnapshot);
+        assertNull(catalog.find(first));
+        RecordingsSource.Result result = reader.read(all(), new Cancellation());
+        assertEquals(21, result.items().size());
+        RecordingItem after = row(result, first.getRecordingId());
+        assertEquals(RecordingItem.Kind.SAVED, after.kind()); assertFalse(after.inMemory()); assertTrue(after.summarySaved());
+        assertEquals(history.currentId(), after.session());
+        RecordingsSource.Result preview = source(null).read(all(), new Cancellation());
+        assertEquals(20, preview.items().size()); assertFalse(keys(preview).contains(first.getRecordingId()));
+    }
+
     @Test public void oneRowPerRecordingAcrossMemorySavedHistoryAndImports() throws Exception {
         Path root = temp.newFolder("history").toPath();
         HomeHistoryFixture.session(root, S1, NOW - 6 * HOUR, NOW - HOUR / 2);

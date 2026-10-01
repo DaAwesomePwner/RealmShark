@@ -115,6 +115,7 @@ public class DpsGUI extends JPanel {
     public boolean showEncounter(String entryId) {
         EncounterCatalog.Entry entry = encounterCatalog.find(entryId);
         if (entry == null) return false;
+        if (!data.showDpsEncounter(entry.kind() == EncounterCatalog.Kind.CAPTURED ? entry.data : null)) return false;
         showLoadNotice("");
         paused.setSelected(false); selectedEncounter = entry; selectionChosen = true; liveUpdates = false; updateEncounterLabel(); updateGui(); return true;
     }
@@ -130,7 +131,7 @@ public class DpsGUI extends JPanel {
     DpsGUI(TomatoData data, packets.packetcapture.logger.DiscoveryLog history, JComponent resourcesWorkspace) {
         this.data = data;
         this.resourcesWorkspace = resourcesWorkspace;
-        encounterCatalog.capture(() -> data.dpsData.toArray(new DpsData[0]));
+        encounterCatalog.capture(data::closedDpsSnapshot);
         latest = DpsSnapshot.capture(data);
         displayString = new StringDpsGUI(data);
         displayIcon = new IconDpsGUI(data);
@@ -589,7 +590,7 @@ public class DpsGUI extends JPanel {
         if(view==null || view.data!=data) return;
         long now=System.nanoTime();
         if(!force && now-view.lastSnapshotNanos<1_000_000_000L && view.latest.map==data.map) return;
-        view.encounterCatalog.capture(() -> data.dpsData.toArray(new DpsData[0]));
+        view.encounterCatalog.capture(data::closedDpsSnapshot);
         view.latest=DpsSnapshot.capture(data);
         view.lastSnapshotNanos=now;
     }
@@ -851,7 +852,7 @@ public class DpsGUI extends JPanel {
      * deleted; it is pruned only by the Combat history settings.
      */
     public static void clearDpsLogs() {
-        INSTANCE.data.dpsData.clear();
+        INSTANCE.data.clearDpsHistory();
         INSTANCE.encounterCatalog.clear(); INSTANCE.selectedEncounter = null; INSTANCE.selectionChosen = true;
         INSTANCE.paused.setSelected(false);
         INSTANCE.showLoadNotice("");
@@ -963,6 +964,7 @@ public class DpsGUI extends JPanel {
         this.index = index;
 
         if (index == -1) {
+            data.showDpsEncounter(null);
             liveUpdates = true;
             selectionChosen = true;
             selectedEncounter = null;

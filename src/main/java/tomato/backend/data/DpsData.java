@@ -1,8 +1,13 @@
 package tomato.backend.data;
 
 import packets.Packet;
+import packets.data.ObjectData;
+import packets.incoming.CreateSuccessPacket;
 import packets.incoming.MapInfoPacket;
 import packets.incoming.NotificationPacket;
+import packets.incoming.UpdatePacket;
+import packets.outgoing.EnemyHitPacket;
+import packets.outgoing.PlayerShootPacket;
 import tomato.history.link.EncounterContext;
 import tomato.history.link.VisitRef;
 
@@ -25,7 +30,8 @@ public class DpsData implements Serializable {
     public ArrayList<NotificationPacket> deathNotifications;
     public long totalDungeonPcTime;
     public long dungeonStartTime;
-    public ArrayList<Packet> debugPackets;
+    public volatile ArrayList<Packet> debugPackets;
+    private transient boolean missingLocalSpawnWithoutPackets;
     private LocalPlayerContext localPlayerContext;
     // Optional in old streams. This identifies a recording, never a dungeon name/time match.
     private String recordingId;
@@ -65,10 +71,39 @@ public class DpsData implements Serializable {
         recordingId = java.util.UUID.randomUUID().toString();
     }
 
+    /** Uses retained packets when available; releasing them preserves the verdict for this in-memory fight. */
+    public boolean missingLocalSpawn() {
+        ArrayList<Packet> packets = debugPackets;
+        return packets == null ? missingLocalSpawnWithoutPackets : missingLocalSpawn(packets);
+    }
+
+    /** Producer-only retention: publish the verdict before the volatile packet reference is cleared. */
+    void releaseDebugPackets() {
+        ArrayList<Packet> packets = debugPackets;
+        if (packets == null) return;
+        missingLocalSpawnWithoutPackets = missingLocalSpawn(packets);
+        debugPackets = null;
+    }
+
+    private static boolean missingLocalSpawn(Iterable<Packet> packets) {
+        int localId = -1;
+        boolean spawned = false, missedShots = false, localHit = false;
+        for (Packet packet : packets) {
+            if (packet instanceof CreateSuccessPacket) localId = ((CreateSuccessPacket)packet).objectId;
+            else if (packet instanceof UpdatePacket && localId >= 0) {
+                for (ObjectData object : ((UpdatePacket)packet).newObjects)
+                    if (object.status.objectId == localId) spawned = true;
+            } else if (packet instanceof PlayerShootPacket && localId >= 0 && !spawned) missedShots = true;
+            else if (packet instanceof EnemyHitPacket && localId >= 0 && ((EnemyHitPacket)packet).shooterID == localId) localHit = true;
+        }
+        return missedShots && localHit;
+    }
+
     public DpsData getSaveFile(boolean saveDebugData) {
+        ArrayList<Packet> packets = debugPackets;   // retention may release the log while an export starts
         DpsData copy = new DpsData(map, new HashMap<>(hitList), new ArrayList<>(deathNotifications),
             totalDungeonPcTime, dungeonStartTime,
-            saveDebugData && debugPackets != null ? new ArrayList<>(debugPackets) : null, localPlayerContext);
+            saveDebugData && packets != null ? new ArrayList<>(packets) : null, localPlayerContext);
         copy.recordingId = recordingId;
         copy.visitSessionId = visitSessionId; copy.visitId = visitId;
         copy.localPlayerObjectId = localPlayerObjectId; copy.contextCapturedAt = contextCapturedAt;

@@ -3,7 +3,7 @@ package tomato.gui.dps;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.io.IOException;
-import java.util.List;
+import java.util.ArrayList;
 import java.util.Objects;
 import javax.swing.*;
 import tomato.gui.kit.*;
@@ -111,22 +111,25 @@ public final class RecordingSummaryPanel extends JPanel {
     void hideSummary() { key = null; setVisible(false); }
 
     /**
-     * The Damage section of {@code item}'s saved record in its own session: the record (the first with its recording ID, as the
-     * Recordings list takes it) and its saved detail; null when the record is no longer there. A detail that cannot be read
+     * The Damage section of {@code item}'s saved record in its own session, read directly by recording ID,
+     * and its saved detail; null when the record is no longer there or cannot be read. A detail that cannot be read
      * leaves the rows with its reason. Off the EDT.
      *
-     * @throws IOException when saved history is not open or its catalog cannot be read
+     * @throws IOException when saved history is not open
      */
     static RunRecapModel.Damage read(SessionStore store, RecordingItem item, Cancellation cancel) throws IOException {
         if (SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Read saved history off the EDT");
         if (store == null) throw new IOException(NO_HISTORY);
-        if (item.session() == null || item.recordingId() == null) return null;
-        List<SessionStore.SessionEntry> catalog = store.catalog(cancel);
-        CombatRecord[] found = {null};
-        CombatFacts.read(store, catalog, item.session(), record -> { if (found[0] == null && item.recordingId().equals(record.recordingId)) found[0] = record; });
+        if (item.session() == null || item.recordingId() == null || item.recordingId().isEmpty()) return null;
         cancel.check();
-        if (found[0] == null) return null;
-        try { return RunRecapBuilder.damage(found[0], CombatFacts.detail(store, item.session(), item.recordingId())); }
-        catch (IOException | RuntimeException unreadable) { return RunRecapBuilder.damage(found[0], null, DETAIL_UNREADABLE); }
+        CombatRecord found;
+        try { found = store.readCheckpoint(item.session(), CombatFacts.RECORDS, item.recordingId(), CombatRecord.class).orElse(null); }
+        catch (IOException | RuntimeException unreadable) { return null; } // CombatFacts skips unreadable records too
+        cancel.check();
+        if (found == null || found.schemaVersion > CombatRecord.SCHEMA_VERSION || !item.recordingId().equals(found.recordingId)) return null;
+        if (found.players == null) found.players = new ArrayList<>();
+        if (found.bosses == null) found.bosses = new ArrayList<>();
+        try { return RunRecapBuilder.damage(found, CombatFacts.detail(store, item.session(), item.recordingId())); }
+        catch (IOException | RuntimeException unreadable) { return RunRecapBuilder.damage(found, null, DETAIL_UNREADABLE); }
     }
 }
