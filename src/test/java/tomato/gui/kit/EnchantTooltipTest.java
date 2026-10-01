@@ -62,5 +62,23 @@ public class EnchantTooltipTest {
         assertFalse("Unenchanted needs no names line", EnchantTooltip.html("Old Bow", EnchantInfo.ofSlotCount(0)).contains("not available"));
     }
 
+    @Test public void theHeadingIsTheNameThenTheTier() {
+        assertEquals("Doom Bow · UT", EnchantTooltip.heading("Doom Bow", "UT"));
+        assertEquals("Doom Bow", EnchantTooltip.heading("Doom Bow", ""));
+        assertEquals("Doom Bow", EnchantTooltip.heading("Doom Bow", null));
+        assertEquals("", EnchantTooltip.heading(null, null));
+    }
+
+    @Test public void escapesEnchantNamesAndEffects() {
+        saved = ParseEnchants.ENCHANT_DEFINITIONS;
+        HashMap<Short, ParseEnchants.Definition> definitions = new HashMap<>();
+        definitions.put((short) 9, new ParseEnchants.Definition("<b>Bold</b> & Co", "Adds <i>1</i>"));
+        ParseEnchants.ENCHANT_DEFINITIONS = definitions;
+        String html = EnchantTooltip.html("Bow", new EnchantInfo(EnchantInfo.State.RECORDED, EnchantInfo.Rarity.UNCOMMON, List.of(new EnchantInfo.Slot(9))));
+        assertTrue(html, html.contains("&lt;b&gt;Bold&lt;/b&gt; &amp; Co"));
+        assertTrue(html, html.contains("Adds &lt;i&gt;1&lt;/i&gt;"));
+        assertFalse(html, html.contains("<i>"));
+    }
+
     private static String hex(java.awt.Color color) { return String.format("#%06x", color.getRGB() & 0xFFFFFF); }
 }

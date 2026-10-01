@@ -115,7 +115,7 @@ public class ItemSlot extends JComponent implements Accessible {
     public EnchantInfo enchant() { return enchant; }
 
     /** The item's name and tier; "Unknown item #id" only while assets cannot name it. */
-    private String itemText() { String name = Sprites.name(itemId); return tier.isEmpty() ? name : name + " · " + tier; }
+    private String itemText() { return EnchantTooltip.heading(Sprites.name(itemId), tier); }
 
     /** The slot's description with the item's current name, and its enchant summary when known. */
     private String text() {

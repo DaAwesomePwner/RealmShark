@@ -31,7 +31,8 @@ public final class ItemIcon implements Icon {
 
     @Override public void paintIcon(Component c, Graphics g, int x, int y) {
         base.paintIcon(c, g, x, y);
-        EnchantGem.paint((Graphics2D) g, enchant, x, y, Math.min(getIconWidth(), getIconHeight()) - 1);
+        int side = Math.min(getIconWidth(), getIconHeight());
+        EnchantGem.paint((Graphics2D) g, enchant, x + getIconWidth() - side, y, side - 1);
     }
 
     @Override public int getIconWidth() { return base.getIconWidth(); }
