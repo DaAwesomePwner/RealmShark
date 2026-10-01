@@ -50,6 +50,28 @@ public class DictionaryProjectionsTest {
         assertFalse(other.body().contains("Moonblade")); assertFalse(other.names().contains("Sunshield"));
         assertFalse(other.body().contains("Guardian"));
     }
+    @Test public void equipmentSummaryKeepsSlotDirectionEmptyAndUnknownWithoutIds() {
+        for (IndexDictionary dictionary:List.of(dictionary("v1","Blessing"),IndexDictionary.NONE)) {
+            boolean available=dictionary!=IndexDictionary.NONE;
+            for (int before:new int[]{101,-1,987654}) {
+                Projections.Row row=project("timeline","{kind:'Equipment changed',values:{slot:2,before:"+before+",after:102}}",dictionary).get(0);
+                String first=before==-1?"Empty":before==101 && available?"Moonblade":"unknown item";
+                String summary="Armor: "+first+" → "+(available?"Sunshield":"unknown item");
+                assertEquals(summary,row.columns().get("summary")); assertTrue(row.body().contains(summary));
+                for (String raw:List.of("101","102","987654","-1")) {
+                    assertFalse(summary.contains(raw)); assertFalse(row.title().contains(raw)); assertFalse(row.body().contains(raw));
+                }
+            }
+        }
+    }
+    @Test public void lootNameAppearsOnlyInDocsTitleAndRemainsInNames() {
+        for (String saved:List.of("name:'Saved Blade',","")) {
+            Projections.Row row=project("loot","{dungeon:'Sanctuary',dropper:'Guardian',bag:'White',items:[{"+saved+"id:101,tier:'UT'}]}");
+            String name=saved.isEmpty()?"Moonblade":"Saved Blade";
+            assertEquals(name,row.title()); assertEquals("Sanctuary Guardian White UT",row.body());
+            assertFalse(row.body().contains(name)); assertTrue(row.names().contains(name));
+        }
+    }
     @Test public void combatAndDungeonTotalsAddClassEnemyAndItemNames() {
         searchable(project("encounters","{recordingId:'r',players:[{name:'Alice',classType:301}],bosses:[{type:201}]}"),"Spellweaver","Ancient Guardian");
         Projections.Row saved=project("encounters","{recordingId:'r',players:[{classType:301,className:'Saved Mage'}],bosses:[{type:201,name:'Saved Boss'}]}");

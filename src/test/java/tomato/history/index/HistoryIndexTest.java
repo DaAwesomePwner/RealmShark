@@ -74,6 +74,44 @@ public class HistoryIndexTest {
         });
         opened.add(index); ready(index); return index;
     }
+    @Test public void failingDictionaryDoesNotBlockIndexingAndLogsOnlyOnce() throws Exception {
+        session(A,1,10); journal(A,"loot","{items:[{id:101,name:'Saved Blade'}]}\n");
+        AtomicBoolean fail=new AtomicBoolean(true);
+        HistoryIndex index=new HistoryIndex(store,file,false,8192,HistoryIndexTest::nativeLoad,id -> {},System::nanoTime,() -> {
+            if (fail.get()) throw new IllegalStateException("Synthetic snapshot failure");
+            return DictionaryProjectionsTest.dictionary("v1","Blessing");
+        });
+        opened.add(index);
+        java.io.PrintStream previous=System.err;
+        java.io.ByteArrayOutputStream errors=new java.io.ByteArrayOutputStream();
+        try (java.io.PrintStream captured=new java.io.PrintStream(errors,true,StandardCharsets.UTF_8)) {
+            System.setErr(captured);
+            ready(index); assertTrue(index.ready(A)); assertEquals("none",scalar(index,"SELECT dictionary FROM sessions"));
+            index.dictionaryChanged(); flush(index);
+            assertEquals(HistoryIndex.Phase.READY,index.state().phase());
+            assertEquals("1",scalar(index,"SELECT count(*) FROM docs WHERE docs MATCH 'title:Saved'"));
+            assertEquals("0",scalar(index,"SELECT count(*) FROM docs WHERE docs MATCH 'Moonblade'"));
+            fail.set(false); index.dictionaryChanged(); flush(index);
+            assertEquals("v1",scalar(index,"SELECT dictionary FROM sessions"));
+            fail.set(true); index.dictionaryChanged(); flush(index);
+            assertEquals(HistoryIndex.Phase.READY,index.state().phase());
+            assertEquals(1,errors.toString(StandardCharsets.UTF_8).lines()
+                    .filter(line -> line.equals("History index dictionary snapshot failed; enrichment unavailable.")).count());
+        } finally { System.setErr(previous); }
+    }
+    @Test public void equipmentSlotAndLootTitlesRemainSearchableWithoutDuplicateBodyNames() throws Exception {
+        session(A,1,10);
+        journal(A,"timeline","{kind:'Equipment changed',values:{slot:2,before:101,after:102}}\n");
+        journal(A,"loot","{items:[{id:101},{id:102,name:'Saved Shield'}]}\n");
+        HistoryIndex index=index(new AtomicReference<>(DictionaryProjectionsTest.dictionary("v1","Blessing")));
+        assertEquals("Armor: Moonblade → Sunshield",scalar(index,"SELECT summary FROM timeline"));
+        assertEquals("1",scalar(index,"SELECT count(*) FROM docs WHERE docs MATCH 'Armor'"));
+        for (String name:List.of("Moonblade","Saved")) {
+            assertEquals("1",scalar(index,"SELECT count(*) FROM docs WHERE docs MATCH 'title:"+name+"'"));
+        }
+        assertEquals("0",scalar(index,"SELECT count(*) FROM docs WHERE docs MATCH 'body:Saved'"));
+        assertEquals("1",scalar(index,"SELECT count(*) FROM docs WHERE docs MATCH 'body:Moonblade'"));
+    }
     @Test public void dictionaryReadinessChangeAndReopenReprojectOnlyWhenVersionChanges() throws Exception {
         session(A,1,10);
         journal(A,"loot","{items:[{id:101,name:'Saved Blade',enchantEvidence:{orderedSlotIds:[401]}}]}\n");
@@ -221,7 +259,7 @@ public class HistoryIndexTest {
     @Test public void schemaReopenAndVersionRebuild() throws Exception {
         session(A,1,10); checkpoint(A,"runs","r","{id:'r',map:'Oryx',started:2,lastSeen:8}");
         HistoryIndex first=index(true); assertEquals(1,count(first,"runs"));
-        assertEquals("5",scalar(first,"SELECT value FROM meta WHERE key='schema_version'"));
+        assertEquals(Integer.toString(IndexSchema.VERSION),scalar(first,"SELECT value FROM meta WHERE key='schema_version'"));
         assertEquals("wal",scalar(first,"PRAGMA journal_mode")); assertEquals("1",scalar(first,"PRAGMA secure_delete"));
         assertEquals("5000",scalar(first,"PRAGMA busy_timeout")); assertEquals("1",scalar(first,"PRAGMA foreign_keys"));
         try (Connection c=first.readConnection(); Statement s=c.createStatement()) {
@@ -271,7 +309,7 @@ public class HistoryIndexTest {
         writeSql("INSERT INTO docs(kind,title,body) VALUES('RUN','obsoleteword','obsoleteword')");
         writeSql("INSERT INTO names(name) VALUES('obsoleteword')");
         HistoryIndex index=index(true);
-        assertEquals("5",scalar(index,"SELECT value FROM meta WHERE key='schema_version'"));
+        assertEquals(Integer.toString(IndexSchema.VERSION),scalar(index,"SELECT value FROM meta WHERE key='schema_version'"));
         assertEquals("integer",scalar(index,"SELECT typeof(sid) FROM sessions"));
         assertEquals("0",scalar(index,"SELECT count(*) FROM sqlite_master WHERE name IN ('doc_ref','docs_content','names_content')"));
         assertEquals("Rebuilt Sanctuary",index.search("Rebuilt",Set.of(Kind.RUN),10).get(0).title());

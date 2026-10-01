@@ -6,6 +6,17 @@ import tomato.realmshark.ParseEnchants;
 import static org.junit.Assert.*;
 
 public class AssetDictionaryTest {
+    @Test public void nullAndBlankObjectAndClassNamesAreSkipped() {
+        Map<Integer,String> objects=new HashMap<>(), classes=new HashMap<>();
+        objects.put(101,"Blade"); objects.put(102,null); objects.put(103," \t");
+        classes.put(301,"Mage"); classes.put(302,null); classes.put(303,"");
+        Map<Short,ParseEnchants.Definition> enchants=Map.of((short)401,new ParseEnchants.Definition("Blessing",""));
+        IndexDictionary dictionary=AssetDictionary.snapshot("a",objects,classes,enchants);
+        assertEquals("Blade",dictionary.objectName(101)); assertEquals("Mage",dictionary.className(301));
+        assertNull(dictionary.objectName(102)); assertNull(dictionary.objectName(103));
+        assertNull(dictionary.className(302)); assertNull(dictionary.className(303));
+        assertEquals(AssetDictionary.snapshot("a",Map.of(101,"Blade"),Map.of(301,"Mage"),enchants).version(),dictionary.version());
+    }
     @Test public void loadedCountsDescribeTheSameSnapshotUsedForProjection() {
         Map<Integer,String> objects=Map.of(101,"Blade",102,"Shield"), classes=Map.of(301,"Mage");
         Map<Short,ParseEnchants.Definition> enchants=Map.of((short)401,new ParseEnchants.Definition("Blessing",""));

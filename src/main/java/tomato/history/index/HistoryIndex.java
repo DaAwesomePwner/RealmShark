@@ -43,6 +43,7 @@ public final class HistoryIndex implements AutoCloseable {
     private final Supplier<IndexDictionary> dictionarySource;
     private IndexDictionary dictionary=IndexDictionary.NONE; // writer only
     private final AtomicBoolean dictionaryPending=new AtomicBoolean(true);
+    private boolean dictionaryFailureLogged;
     private final ScheduledExecutorService writer;
     private final ArrayBlockingQueue<Offer> offers;
     private final ConcurrentMap<String,Long> stale = new ConcurrentHashMap<>();
@@ -363,7 +364,15 @@ public final class HistoryIndex implements AutoCloseable {
     private void applyDictionary() throws Exception {
         if (!dictionaryPending.getAndSet(false)) return;
         try {
-            IndexDictionary next=Objects.requireNonNull(dictionarySource.get());
+            IndexDictionary next;
+            try { next=Objects.requireNonNull(dictionarySource.get()); }
+            catch (RuntimeException failure) {
+                next=IndexDictionary.NONE;
+                if (!dictionaryFailureLogged) {
+                    System.err.println("History index dictionary snapshot failed; enrichment unavailable.");
+                    dictionaryFailureLogged=true;
+                }
+            }
             if ("none".equals(next.version())) next=IndexDictionary.NONE;
             String version=next.version();
             if (next!=IndexDictionary.NONE) {

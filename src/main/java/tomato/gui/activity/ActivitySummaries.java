@@ -35,7 +35,7 @@ public final class ActivitySummaries {
         if(!(v instanceof Number))return "Unknown item";
         int id=((Number)v).intValue();return id==-1?"Empty":"Item "+id;
     }
-    private static String slot(Object v) {
+    public static String slot(Object v) {
         if(!(v instanceof Number))return "Unknown equipment slot";
         int n=((Number)v).intValue();return n>=0&&n<4?new String[]{"Weapon","Ability","Armor","Ring"}[n]:"Slot "+n;
     }
