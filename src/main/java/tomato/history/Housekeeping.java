@@ -50,7 +50,8 @@ public final class Housekeeping {
                 BasicFileAttributes attributes = Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 if (isLink(attributes)) continue;
                 String name = entry.getFileName().toString();
-                if (attributes.isRegularFile() && name.startsWith(".history-") && name.endsWith(".tmp")
+                if (attributes.isRegularFile() && ((name.startsWith(".history-") && name.endsWith(".tmp"))
+                        || name.matches("\\..+\\.json-[0-9]+\\.tmp"))
                         && attributes.lastModifiedTime().toMillis() < cutoff) {
                     if (Files.deleteIfExists(entry)) result.deleted++;
                 } else if (modules && attributes.isDirectory()) historyFolder(entry, cutoff, false, result);

@@ -1,6 +1,7 @@
 package tomato.history;
 
 import com.google.gson.*;
+import util.AtomicFiles;
 import java.io.*;
 import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
@@ -32,6 +33,8 @@ public final class SessionStore implements AutoCloseable {
     private final Session current;
     private final ScheduledExecutorService worker;
     private final JournalChannels journalChannels;
+    private final AtomicWriter atomicWriter;
+    private final Set<Path> touchedJournals = new LinkedHashSet<>();
     private final Map<Path, Long> rollbacks = new HashMap<>();
     private final java.util.concurrent.atomic.AtomicLong skipped = new java.util.concurrent.atomic.AtomicLong();
     private final Object pendingLock = new Object();
@@ -52,14 +55,18 @@ public final class SessionStore implements AutoCloseable {
         this(root, writable, version, file -> FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE));
     }
     interface JournalChannels { FileChannel open(Path file) throws IOException; }
+    interface AtomicWriter { void write(Path file, byte[] bytes, boolean sync) throws IOException; }
     SessionStore(Path root, boolean writable, String version, JournalChannels journalChannels) {
+        this(root, writable, version, journalChannels, AtomicFiles::write);
+    }
+    SessionStore(Path root, boolean writable, String version, JournalChannels journalChannels, AtomicWriter atomicWriter) {
         this.root = root.toAbsolutePath().normalize(); this.writable = writable;
-        this.journalChannels = journalChannels;
+        this.journalChannels = journalChannels; this.atomicWriter = atomicWriter;
         current = new Session(UUID.randomUUID().toString(), System.currentTimeMillis(), "", version);
         worker = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "RealmShark session history"); t.setDaemon(true); ioThread=t;return t; });
         if (writable) {
-            worker.scheduleWithFixedDelay(this::drain, 0, 250, TimeUnit.MILLISECONDS);
-            worker.scheduleWithFixedDelay(() -> { collect(); drain(); }, 2, 2, TimeUnit.SECONDS);
+            worker.scheduleWithFixedDelay(() -> { if (!closing) drain(); }, 0, 250, TimeUnit.MILLISECONDS);
+            worker.scheduleWithFixedDelay(() -> { if (!closing) { collect(); drain(); } }, 2, 2, TimeUnit.SECONDS);
         }
     }
     public Path directory() { return root; }
@@ -108,7 +115,7 @@ public final class SessionStore implements AutoCloseable {
             fileLock = lockChannel.tryLock();
             if (fileLock == null) throw new IOException("Session is already open");
         }
-        if (!Files.exists(sessionPath(current.id).resolve("session.json"))) atomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(current));
+        if (!Files.exists(sessionPath(current.id).resolve("session.json"))) writeAtomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(current), false);
         currentMetadataPublished = true;
     }
     private void drain() {
@@ -178,20 +185,25 @@ public final class SessionStore implements AutoCloseable {
                 throw failure;
             }
             rollbacks.remove(file); completed.addAll(batch);
+            touchedJournals.add(file);
         }
     }
     private void persist(Write write) throws IOException { persistCheckpoint(write, JSON.toJson(write.value)); }
     private void persistCheckpoint(Write write, String json) throws IOException {
         Path folder = sessionPath(write.session).resolve(write.module); Files.createDirectories(folder);
-        atomic(folder.resolve(checkpointName(write.key) + ".json"), json);
+        writeAtomic(folder.resolve(checkpointName(write.key) + ".json"), json, closing);
     }
-    private static void atomic(Path target, String value) throws IOException {
-        Path temp = Files.createTempFile(target.getParent(), ".history-", ".tmp");
-        try {
-            Files.write(temp, value.getBytes(StandardCharsets.UTF_8));
-            try { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temp); }
+    private void writeAtomic(Path target, String value, boolean sync) throws IOException {
+        atomicWriter.write(target, value.getBytes(StandardCharsets.UTF_8), sync);
+    }
+    private void forceJournals() throws IOException {
+        IOException failure = null;
+        for (Path file : touchedJournals) try (FileChannel channel = journalChannels.open(file)) {
+            channel.force(true);
+        } catch (IOException e) {
+            if (failure == null) failure = e; else failure.addSuppressed(e);
+        }
+        if (failure != null) throw failure;
     }
     /** Called by readers on a worker, never on Swing's event thread. */
     public List<Session> sessions() throws IOException {
@@ -426,11 +438,11 @@ public final class SessionStore implements AutoCloseable {
         Path path = sessionPath(id); Files.createDirectories(path);
         if (!Files.exists(path.resolve("session.json"))) {
             Session imported = new Session(id, started, label, "Imported"); imported.ended = started;
-            atomic(path.resolve("session.json"), JSON.toJson(imported));
+            writeAtomic(path.resolve("session.json"), JSON.toJson(imported), false);
         }
         Path item = path.resolve(module).resolve(itemId + ".json");
         if (!Files.exists(item)) persist(new Write(id, module, key, value));
-        Files.createDirectories(imports);atomic(marker,"{\"imported\":true}");
+        Files.createDirectories(imports);writeAtomic(marker,"{\"imported\":true}",false);
     }
     public void delete(String id) throws IOException {
         if (!writable || id.equals(current.id)) throw new IOException("The current session is still recording.");
@@ -491,7 +503,7 @@ public final class SessionStore implements AutoCloseable {
             try{metadata=JsonParser.parseString(new String(Files.readAllBytes(meta),StandardCharsets.UTF_8)).getAsJsonObject();session=JSON.fromJson(metadata,Session.class);}
             catch(RuntimeException failure){throw new IOException("Unreadable session metadata",failure);}
             if(session==null||!id.equals(session.id)||session.schemaVersion!=1)throw new IOException("Invalid session metadata");
-            metadata.addProperty("label",label);atomic(meta,metadata.toString());
+            metadata.addProperty("label",label);writeAtomic(meta,metadata.toString(),false);
         }catch(OverlappingFileLockException failure){throw new IOException("This session is still open.",failure);}
     }
     public void flush() throws Exception {
@@ -510,7 +522,14 @@ public final class SessionStore implements AutoCloseable {
             flush();
             worker.submit(()->{
                 try {
-                    if(writable){current.ended=System.currentTimeMillis();atomic(sessionPath(current.id).resolve("session.json"),JSON.toJson(current));}
+                    if(writable){
+                        IOException failure = null;
+                        try { forceJournals(); } catch (IOException e) { failure = e; }
+                        current.ended=System.currentTimeMillis();
+                        try { writeAtomic(sessionPath(current.id).resolve("session.json"),JSON.toJson(current),true); }
+                        catch (IOException e) { if (failure == null) failure = e; else failure.addSuppressed(e); }
+                        if (failure != null) throw failure;
+                    }
                     if(fileLock!=null)fileLock.release();if(lockChannel!=null)lockChannel.close();
                 }catch(IOException e){throw new UncheckedIOException(e);}
             }).get(5,TimeUnit.SECONDS);
@@ -614,7 +633,7 @@ public final class SessionStore implements AutoCloseable {
                 if (next.availability == null) next.availability = new LinkedHashMap<>();
                 ModuleAvailability prior = next.availability.get(module);
                 next.availability.put(module, update.apply(prior != null && prior.valid() ? prior : null));
-                atomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(next));
+                writeAtomic(sessionPath(current.id).resolve("session.json"), JSON.toJson(next), false);
                 current.availability = next.availability; completion.complete(null);
             } catch (Exception failure) { completion.completeExceptionally(failure); }
         });
