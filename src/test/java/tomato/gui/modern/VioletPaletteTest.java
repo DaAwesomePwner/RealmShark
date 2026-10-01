@@ -55,7 +55,7 @@ public class VioletPaletteTest {
             assertTrue(Themes.increaseContrast());
             assertEquals(new Color(0x5A5378), UIManager.getColor("Component.borderColor"));
             assertEquals(new Color(0xCFCBE0), ContentStyle.color("muted"));
-            assertEquals(2, UIManager.getInt("Component.focusWidth"));
+            assertEquals(3, UIManager.getInt("Component.focusWidth"));
 
             Themes.install(new Themes.Choice(Themes.Variant.LIGHT, true));
             assertEquals(new Color(0x8C86A3), UIManager.getColor("Component.borderColor"));
@@ -64,7 +64,7 @@ public class VioletPaletteTest {
             Themes.install(new Themes.Choice(Themes.Variant.DARK, false));
             assertFalse(Themes.increaseContrast());
             assertEquals(new Color(0x38334F), UIManager.getColor("Component.borderColor"));
-            assertEquals(1, UIManager.getInt("Component.focusWidth"));
+            assertEquals(2, UIManager.getInt("Component.focusWidth"));
         });
     }
 

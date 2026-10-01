@@ -1,5 +1,6 @@
 package tomato.gui.modern;
 
+import com.formdev.flatlaf.icons.FlatSearchIcon;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ public final class TextSearchBar extends JPanel {
         super(new BorderLayout(12, 0)); this.active = active;
         setBorder(BorderFactory.createEmptyBorder(0, 0, 14, 0));
         query.putClientProperty("JTextField.placeholderText", "Find a player or message...");
+        decorateSearch(query);
         query.getAccessibleContext().setAccessibleName("Find in active chat channel");
         query.setToolTipText("Find in this channel (Ctrl+F). Enter: next match; Shift+Enter: previous.");
         add(query, BorderLayout.CENTER);
@@ -48,6 +50,24 @@ public final class TextSearchBar extends JPanel {
         getActionMap().put("focus", new AbstractAction() { public void actionPerformed(ActionEvent e) { focusSearch(); }});
     }
     public void focusSearch() { query.requestFocusInWindow(); query.selectAll(); }
+    /** Shared search affordances, preserving explicit caller choices. */
+    public static void decorateSearch(JTextField field) {
+        if (field.getClientProperty("JTextField.leadingIcon") == null)
+            field.putClientProperty("JTextField.leadingIcon", new ThemeSearchIcon());
+        if (field.getClientProperty("JTextField.showClearButton") == null)
+            field.putClientProperty("JTextField.showClearButton", true);
+    }
+
+    /** Client-property icons survive updateUI, so resolve their colors from the current theme. */
+    public static final class ThemeSearchIcon extends FlatSearchIcon {
+        public ThemeSearchIcon() {}
+        @Override protected void paintIcon(Component c, Graphics2D g) {
+            searchIconColor = UIManager.getColor("SearchField.searchIconColor");
+            searchIconHoverColor = UIManager.getColor("SearchField.searchIconHoverColor");
+            searchIconPressedColor = UIManager.getColor("SearchField.searchIconPressedColor");
+            super.paintIcon(c, g);
+        }
+    }
     private static void bind(JComponent c, KeyStroke key, String name, Runnable action) {
         c.getInputMap().put(key, name); c.getActionMap().put(name, new AbstractAction() { public void actionPerformed(ActionEvent e) { action.run(); }});
     }

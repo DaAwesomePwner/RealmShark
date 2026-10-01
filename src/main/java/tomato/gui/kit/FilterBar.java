@@ -113,11 +113,25 @@ public class FilterBar extends JPanel {
 
     /** Search and scope are added once and never re-parented by rebuild(), so typing keeps focus. */
     public FilterBar search(JComponent field) {
+        JTextField input = firstSearchField(field);
+        if (input != null) tomato.gui.modern.TextSearchBar.decorateSearch(input);
         if (search != null) leading.remove(search);
         search = field;
         if (field != null) leading.add(field, 0);
         rebuild();
         return this;
+    }
+
+    /** Wrapped rows may include secondary fields; decorate only the first search, never control editors. */
+    private static JTextField firstSearchField(Component component) {
+        if (component instanceof JComboBox || component instanceof JSpinner
+                || component instanceof JFormattedTextField || component instanceof JPasswordField) return null;
+        if (component instanceof JTextField) return (JTextField) component;
+        if (component instanceof Container) for (Component child : ((Container) component).getComponents()) {
+            JTextField field = firstSearchField(child);
+            if (field != null) return field;
+        }
+        return null;
     }
 
     public FilterBar scope(JComponent value) {
