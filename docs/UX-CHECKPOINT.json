@@ -57,12 +57,8 @@
       "Session-only bounded ability evidence",
       "Exact enchantment and presence-verified drop context"
     ],
-    "remainingGates": [
-      "Independent final PR head review",
-      "Required Windows PR CI",
-      "Normal merge and main CI verification"
-    ],
-    "nextAction": "Reconcile local checkpoint and actual Git state; continue earliest unfinished Wave 4 package or gate.",
+    "remainingGates": [],
+    "nextAction": "None (historical). Wave 4 is complete; the current next action is under \"redesign\".",
     "pullRequest": "https://github.com/DaAwesomePwner/RealmShark/pull/15",
     "validationScope": "User approved no repeated local full/scaled/package cycle. Deferred extra native death-action fixture; see UX-WAVE4-VALIDATION.md.",
     "note": "Historical: the four-wave implementation (Waves 1-4) is complete; Wave 4 PR #15 merged as 337c7f0. Current state is under \"redesign\"."
