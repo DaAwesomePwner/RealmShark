@@ -2,11 +2,10 @@ package util;
 
 import java.io.FileNotFoundException;
 import java.io.FileReader;
-import java.io.FileWriter;
+import java.io.OutputStreamWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -61,9 +60,11 @@ public final class PreferencesStore {
     interface Storage {
         Properties read(Path path) throws IOException;
         void write(Path path, Properties snapshot) throws IOException;
+        default void writeSynced(Path path, Properties snapshot) throws IOException { write(path, snapshot); }
     }
 
     static class FileStorage implements Storage {
+        private boolean sync;
         @Override public Properties read(Path path) throws IOException {
             Properties loaded = new Properties();
             try (FileReader reader = new FileReader(path.toFile())) {
@@ -75,24 +76,23 @@ public final class PreferencesStore {
         }
 
         @Override public void write(Path path, Properties snapshot) throws IOException {
-            Path temporary = Files.createTempFile(path.getParent(), ".realmshark-preferences-", ".tmp");
-            try {
+            AtomicFiles.write(path, output -> {
                 // Keep the historical FileReader/FileWriter (platform charset) format.
-                try (FileWriter writer = new FileWriter(temporary.toFile())) {
+                try (OutputStreamWriter writer = new OutputStreamWriter(output, java.nio.charset.Charset.defaultCharset())) {
                     snapshot.store(writer, "RealmShark properties");
                 }
-                replace(temporary, path);
-            } catch (IOException | RuntimeException failure) {
-                try { Files.deleteIfExists(temporary); }
-                catch (IOException | RuntimeException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
-                throw failure;
-            }
+            }, sync, this::replace);
+        }
+
+        @Override public void writeSynced(Path path, Properties snapshot) throws IOException {
+            sync = true;
+            try { write(path, snapshot); } finally { sync = false; }
         }
 
         void replace(Path temporary, Path target) throws IOException {
-            // No truncate/copy fallback: unsupported atomic replacement is a reported failure.
-            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            AtomicFiles.replace(temporary, target, this::move);
         }
+        void move(Path source, Path target, java.nio.file.CopyOption... options) throws IOException { Files.move(source, target, options); }
     }
 
     private final Object lock = new Object();
@@ -176,6 +176,8 @@ public final class PreferencesStore {
         CompletableFuture<SaveResult> completion;
         long target;
         synchronized (lock) {
+            // Even an already published routine save needs a final forced publication.
+            if (!closing && generation > 0 && pending == null) pending = new CompletableFuture<>();
             closing = true;
             target = generation;
             completion = flushLocked();
@@ -246,6 +248,7 @@ public final class PreferencesStore {
         for (;;) {
             Properties snapshot;
             long writingGeneration;
+            boolean sync;
             CompletableFuture<SaveResult> completion;
             synchronized (lock) {
                 while (pending == null) {
@@ -257,6 +260,7 @@ public final class PreferencesStore {
                 pending = null;
                 inFlight = completion;
                 writingGeneration = generation;
+                sync = closing;
                 snapshot = new Properties();
                 snapshot.putAll(properties);
             }
@@ -264,7 +268,7 @@ public final class PreferencesStore {
             try {
                 if (loadFailure != null) result = SaveResult.failed(writingGeneration, loadFailure);
                 else {
-                    storage.write(path, snapshot);
+                    if (sync) storage.writeSynced(path, snapshot); else storage.write(path, snapshot);
                     result = SaveResult.saved(writingGeneration);
                 }
             } catch (IOException | RuntimeException failure) {

@@ -124,7 +124,7 @@ public final class CharacterJournal implements AutoCloseable {
     private final Object saveLock = new Object();
     private final Store store;
     private Document document = new Document();
-    private boolean dirty, readOnly;
+    private boolean dirty, readOnly, needsSync;
     /** The last save attempt failed (backup or write); cleared by the next successful write. Never inferred from the text. */
     private volatile boolean saveFailed;
     private long revision;
@@ -136,11 +136,17 @@ public final class CharacterJournal implements AutoCloseable {
     private volatile boolean backupPending;
 
     public CharacterJournal(Path path) {
-        this(path, CharacterJournal::writeFile);
+        this(path, new Store() {
+            public void write(Path path, String json) throws IOException { writeFile(path, json, false); }
+            public void writeSynced(Path path, String json) throws IOException { writeFile(path, json, true); }
+        });
     }
 
     @FunctionalInterface
-    interface Store { void write(Path path, String json) throws IOException; }
+    interface Store {
+        void write(Path path, String json) throws IOException;
+        default void writeSynced(Path path, String json) throws IOException { write(path, json); }
+    }
 
     CharacterJournal(Path path, Store store) {
         this.path = path;
@@ -192,7 +198,7 @@ public final class CharacterJournal implements AutoCloseable {
             Thread t = new Thread(r, "character-journal-save"); t.setDaemon(true); return t;
         });
         writer.scheduleWithFixedDelay(this::save, 2, 2, TimeUnit.SECONDS);
-        shutdown = new Thread(this::save, "character-journal-exit");
+        shutdown = new Thread(this::close, "character-journal-exit");
         Runtime.getRuntime().addShutdownHook(shutdown);
     }
 
@@ -665,13 +671,16 @@ public final class CharacterJournal implements AutoCloseable {
     /** "Saving locally…" while changes wait for the saver; otherwise the last load or save status (a failure keeps its text). */
     public synchronized String storageStatus() { return dirty && !readOnly && !saveFailed ? "Saving locally…" : storageStatus; }
     public void save() {
+        save(false);
+    }
+    private void save(boolean sync) {
         // Take the snapshot AFTER acquiring the writer lock, so an older caller cannot
         // overwrite a newer save. Readers/observations never acquire this lock.
         synchronized (saveLock) {
             Document snapshot = new Document();
             long savedRevision;
             synchronized (this) {
-                if (!dirty || readOnly) return;
+                if ((!dirty && !(sync && needsSync)) || readOnly) return;
                 savedRevision = revision;
                 for (CharacterRecord r : document.characters) snapshot.characters.add(copy(r));
                 document.accounts.forEach((key, value) -> snapshot.accounts.put(key, copy(value)));
@@ -693,8 +702,9 @@ public final class CharacterJournal implements AutoCloseable {
                 return;
             }
             try {
-                store.write(path, JSON.toJson(snapshot));
+                if (sync) store.writeSynced(path, JSON.toJson(snapshot)); else store.write(path, JSON.toJson(snapshot));
                 synchronized (this) {
+                    needsSync = !sync;
                     if (revision == savedRevision) dirty = false;
                     saveFailed = false;
                     storageStatus = "Saved locally • Characters/journal.json";
@@ -723,14 +733,11 @@ public final class CharacterJournal implements AutoCloseable {
         backupPending = false;
     }
 
-    private static void writeFile(Path path, String json) throws IOException {
-        Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
-        try {
-            Files.createDirectories(path.toAbsolutePath().getParent());
-            try (Writer out = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) { out.write(json); }
-            try { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temporary); }
+    private static void writeFile(Path path, String json, boolean sync) throws IOException {
+        Files.createDirectories(path.toAbsolutePath().getParent());
+        util.AtomicFiles.write(path, output -> {
+            try (Writer out = new OutputStreamWriter(output, StandardCharsets.UTF_8.newEncoder())) { out.write(json); }
+        }, sync);
     }
     @Override public void close() {
         Thread hook;
@@ -738,7 +745,7 @@ public final class CharacterJournal implements AutoCloseable {
             if (writer != null) writer.shutdown();
             hook = shutdown; shutdown = null;
         }
-        save();
+        save(true);
         if (hook != null) { try { Runtime.getRuntime().removeShutdownHook(hook); } catch (IllegalStateException ignored) {} }
     }
 

@@ -212,23 +212,33 @@ public class DiscoveryLogTest {
     }
     @Test public void failedPausedCheckpointIsRetriedOnCloseWithoutAnyNewFrames() throws Exception {
         Path directory=Files.createTempDirectory("activity-pause-write-recovery");
-        Path file=directory.resolve("activity-history.json"),barrier=directory.resolve("activity-history.json.tmp");
+        Path file=directory.resolve("activity-history.json"),barrier=file;
+        Path previous=directory.resolve("previous-checkpoint.json");
         DiscoveryLog log=new DiscoveryLog(directory);
         try {
             MapInfoPacket map=new MapInfoPacket();map.name="Ice Citadel";observe(log,map);
-            awaitCheckpoint(()->Files.exists(file));
+            awaitCheckpoint(()->Files.exists(barrier));
             byte[] before=Files.readAllBytes(file);
             ActivityJournal.State initial=new Gson().fromJson(new String(before,StandardCharsets.UTF_8),ActivityJournal.State.class);
             assertEquals(0,initial.visits.get(0).ended);
-            // A directory at the temporary-file path deterministically rejects the real write,
-            // while leaving the previous atomic checkpoint readable on both Windows and Unix.
+            // A non-empty destination directory rejects replacement regardless of the staging name.
+            // Keep the previous checkpoint inside it, readable for the preservation assertion below.
+            Files.move(file,previous);
             Files.createDirectory(barrier);
+            file=barrier.resolve("previous-checkpoint.json");Files.move(previous,file);
             log.setEnabled(false);
             ActivityJournal.State paused=log.activityHistory();
             assertTrue(paused.visits.get(0).ended>0);
             awaitCheckpoint(()->!log.diagnosticsSnapshot(null).data.activityWriterError.isEmpty());
             assertArrayEquals("the failed final write must preserve the older checkpoint",before,Files.readAllBytes(file));
-            Files.delete(barrier);
+            try(java.util.stream.Stream<Path> contents=Files.list(barrier)) {
+                assertArrayEquals(new Path[]{file},contents.toArray(Path[]::new));
+            }
+            try(java.util.stream.Stream<Path> contents=Files.list(directory)) {
+                assertFalse(contents.anyMatch(path->path.getFileName().toString().startsWith(".activity-history.json-")
+                    &&path.getFileName().toString().endsWith(".tmp")));
+            }
+            Files.move(file,previous);Files.delete(barrier);Files.move(previous,barrier);file=barrier;
             log.close(); // No packets or further visit boundaries after the failed pause checkpoint.
             ActivityJournal.State saved=new Gson().fromJson(new String(Files.readAllBytes(file),StandardCharsets.UTF_8),ActivityJournal.State.class);
             assertEquals(new Gson().toJson(paused.visits),new Gson().toJson(saved.visits));
@@ -236,7 +246,12 @@ public class DiscoveryLogTest {
             assertEquals("Collection paused / resumed",saved.visits.get(0).status);
             assertEquals("",log.diagnosticsSnapshot(null).data.activityWriterError);
         } finally {
-            if(Files.isDirectory(barrier))Files.delete(barrier);
+            if(Files.isDirectory(barrier)) {
+                Path retained=barrier.resolve("previous-checkpoint.json");
+                if(Files.exists(retained))Files.move(retained,previous);
+                Files.delete(barrier);
+            }
+            if(Files.exists(previous)&&!Files.exists(barrier))Files.move(previous,barrier);
             log.close();
         }
     }

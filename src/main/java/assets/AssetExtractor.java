@@ -244,19 +244,16 @@ public class AssetExtractor {
     }
 
     private static void writeAssetList(Path target, List<String> lines) throws IOException {
-        Path temporary = Files.createTempFile(target.toAbsolutePath().getParent(), "asset-list-", ".tmp");
-        try {
+        util.AtomicFiles.write(target, output -> {
             // IdToAsset reads the lists in the default charset, as existing caches were written; a name it cannot encode
             // (the game has CJK and symbol names) is written with the charset's replacement instead of failing extraction.
             java.nio.charset.CharsetEncoder encoder = java.nio.charset.Charset.defaultCharset().newEncoder()
                 .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
                 .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE);
-            try (java.io.Writer writer = new java.io.OutputStreamWriter(Files.newOutputStream(temporary), encoder)) {
+            try (java.io.Writer writer = new java.io.OutputStreamWriter(output, encoder)) {
                 for (String line : lines) { writer.write(line); writer.write(System.lineSeparator()); }
             }
-            try { Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE); }
-            catch (java.nio.file.AtomicMoveNotSupportedException e) { Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
-        } finally { Files.deleteIfExists(temporary); }
+        }, false);
     }
 
     /**

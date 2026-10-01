@@ -26,6 +26,7 @@ public class StartupInitializationTest {
             Entity mob = new Entity(null, 1, 0); mob.objectType=100;
             history.updateEntityDamage("Shared", mob);
             history.updateDungeon("Shared", 500);
+            assertFalse(history.flush());
             assertEquals(contents, new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
             assertEquals(1, history.data.get("Shared").getEnteredDungeon());
 
@@ -33,6 +34,7 @@ public class StartupInitializationTest {
             history.load();
             history.updateEntityDamage("Shared", mob);
             history.updateDungeon("Shared", 250);
+            assertTrue(history.flush());
             DungeonStatData reopened = new DungeonStatData(file); reopened.load();
             assertEquals(5, reopened.data.get("Shared").getEnteredDungeon());
             assertEquals(1750, reopened.data.get("Shared").getTotalTime());
@@ -46,6 +48,7 @@ public class StartupInitializationTest {
         openThroughStartup(blocked, false);
         Entity mob = new Entity(null, 1, 0); mob.objectType=100;
         blocked.updateEntityDamage("Shared", mob); blocked.updateDungeon("Shared", 100);
+        assertFalse(blocked.flush());
         assertTrue(Files.isDirectory(unreadable));
 
         Path valid = temp.newFile().toPath();
