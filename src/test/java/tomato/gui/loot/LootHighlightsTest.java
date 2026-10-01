@@ -650,7 +650,7 @@ public class LootHighlightsTest {
             List<String> painted = painted(card, grid.getFixedCellWidth(), grid.getFixedCellHeight(), card::painted);
             String name = Sprites.name(drop.itemId());
             for (String line : painted) assertFalse(theme + ": '" + name + "' card cuts nothing: " + painted, line.endsWith("…"));
-            int chip = painted.indexOf(drop.kind().label());
+            int chip = painted.indexOf(NotableDropRenderer.itemType(drop));
             assertEquals(theme + ": the name lines are the whole name: " + painted, name, String.join(" ", painted.subList(0, chip)));
         }
         TileList<HighlightsModel.DungeonCell> strip = view.stripList();
@@ -756,7 +756,8 @@ public class LootHighlightsTest {
             card.paint(g);
             g.dispose();
             String area = drop.dungeon() == null ? HighlightsModel.UNKNOWN_AREA : drop.dungeon();
-            assertTrue(size + ": " + drop.kind() + " card paints '" + area + "' whole: " + card.painted(), card.painted().contains(area));
+            assertTrue(size + ": " + drop.kind() + " card paints time and '" + area + "' whole: " + card.painted(),
+                card.painted().contains(card.shown().when() + " · " + area));
         }
     }
 

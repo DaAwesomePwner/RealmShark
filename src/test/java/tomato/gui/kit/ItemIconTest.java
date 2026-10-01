@@ -10,7 +10,7 @@ import tomato.gui.modern.Themes;
 import tomato.realmshark.EnchantInfo;
 import static org.junit.Assert.*;
 
-/** A table-cell item icon: the base sprite, the rarity gem over its corner, and the shared tooltip built when asked for. */
+/** A table-cell item icon: the base sprite, bottom-right rarity pips, and the shared tooltip built when asked for. */
 public class ItemIconTest {
     private static final EnchantInfo RARE = new EnchantInfo(EnchantInfo.State.RECORDED, EnchantInfo.Rarity.RARE,
         List.of(new EnchantInfo.Slot(-1), new EnchantInfo.Slot(-1)));
@@ -19,7 +19,7 @@ public class ItemIconTest {
         SwingUtilities.invokeAndWait(() -> Themes.install(new Themes.Choice(Themes.Variant.DARK, false)));
     }
 
-    @Test public void paintsTheBaseThenTheGemAndKeepsTheBasesSize() throws Exception {
+    @Test public void paintsTheBaseThenThePipsAndKeepsTheBasesSize() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Icon base = new Solid(24);
             ItemIcon icon = new ItemIcon(base, "Doom Bow", RARE);
@@ -27,8 +27,9 @@ public class ItemIconTest {
             assertEquals(24, icon.getIconWidth()); assertEquals(24, icon.getIconHeight());
             BufferedImage image = new BufferedImage(24, 24, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = image.createGraphics(); icon.paintIcon(new JLabel(), g, 0, 0); g.dispose();
-            int side = 23, gem = EnchantGem.size(side);
-            assertEquals(Tokens.rarity(EnchantInfo.Rarity.RARE).getRGB(), image.getRGB(side - 2 - gem + gem / 2, 2 + gem / 2));
+            int side = 23, pip = EnchantPips.size(side, 2), center = side - 1 - pip + pip / 2;
+            for (int i = 0; i < 2; i++) assertEquals(Tokens.rarity(EnchantInfo.Rarity.RARE).getRGB(),
+                image.getRGB(center - i * (pip + EnchantPips.gap(pip)), center));
             assertEquals("The base shows elsewhere", Solid.INK.getRGB(), image.getRGB(4, 20));
         });
     }

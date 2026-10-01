@@ -89,7 +89,7 @@ public class EnchantGemTest {
                 @Override public int getIconWidth() { return 60; }
                 @Override public int getIconHeight() { return 21; }
             };
-            for (Icon decorated : new Icon[] {EnchantGem.decorate(wide, recorded(Rarity.RARE)), new ItemIcon(wide, "Bow", recorded(Rarity.RARE))}) {
+            for (Icon decorated : new Icon[] {EnchantGem.decorate(wide, recorded(Rarity.RARE))}) {
                 int[] pixels = paint(decorated);
                 int minX = Integer.MAX_VALUE, maxY = -1;
                 for (int i = 0; i < pixels.length; i++) if (pixels[i] != 0) { minX = Math.min(minX, i % 60); maxY = Math.max(maxY, i / 60); }
