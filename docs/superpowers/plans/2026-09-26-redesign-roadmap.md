@@ -17,7 +17,7 @@ This is the execution index for the redesign in `docs/superpowers/specs/2026-09-
 | P5a Runs: combat auto-save, feed, recap | [2026-09-28-p5a-runs.md](2026-09-28-p5a-runs.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #25 (`3ab077c`) |
 | P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | [2026-09-28-p5b-runs-dps.md](2026-09-28-p5b-runs-dps.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #26 (`73400af`) |
 | P6a Structure: destination IDs, retired pages, Loot Highlights and Explore, Statistics removal | [2026-09-29-p6a-structure.md](2026-09-29-p6a-structure.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #27 (`82983c2`) |
-| P6b Consistency: Scope ▾ merge, Advanced restyles, relative times, sidebar drag, final screenshots | [2026-09-29-p6b-consistency.md](2026-09-29-p6b-consistency.md) | `claude/redesign-handoff-next-steps-edrr7w` | Implemented and validated ([record](2026-09-29-p6b-validation.md)); PR open for review |
+| P6b Consistency: Scope ▾ merge, Advanced restyles, relative times, sidebar drag, final screenshots | [2026-09-29-p6b-consistency.md](2026-09-29-p6b-consistency.md) | `claude/redesign-handoff-next-steps-edrr7w` | Merged: PR #28 (`26a3016`) |
 
 Update the State column when a phase's PR merges and `main` is verified.
 

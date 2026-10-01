@@ -21,7 +21,7 @@ This document hands the RealmShark presentation redesign to a new agent session,
 | P5a Runs: combat auto-save, feed, recap | #25 | Merged (Codex fix `21d896e`) | `3ab077c` |
 | P5b Runs & DPS: tabs, Live meter, Recordings, Dungeons, sidebar, S8 | #26 | Merged (Codex fixes `a7b873e`) | `73400af` |
 | P6a Structure: IDs, retired pages, Loot, Statistics removal | #27 | Merged (Codex fix `4a22ce4`) | `82983c2` |
-| P6b Consistency: Scope ▾, Advanced restyles, sidebar drag, final screenshots | PR pending | Implemented and validated ([record](2026-09-29-p6b-validation.md)) | |
+| P6b Consistency: Scope ▾, Advanced restyles, sidebar drag, final screenshots | #28 | Merged (Codex: no findings; [record](2026-09-29-p6b-validation.md)) | `26a3016` |
 
 All phases use the one branch `claude/realmshark-ui-ux-redesign-cb0914`, with one PR per phase against `main`. Merge PRs with a merge commit, not a squash, so the branch can continue. P3b continues from merged `main` (`04a61d4`) on the cloud session branch `claude/redesign-handoff-next-steps-edrr7w`.
 
@@ -53,7 +53,7 @@ Done on 2026-09-27/28 (cloud session):
 
 - P6b implemented with subagent-driven development: 18 tasks in four waves (A: Scope chip core, kit, sidebar drag, tab drag with Notifications, Logging; B: column tools, Party, Bridge, loot polish, Build tiles and cleanups; C: Runs/Timeline/Resources, Chat, Key-pops, Loot Explore; D: strict S6, docs, final screenshots), then five polish tasks from the coordinator's review of the 155 final captures. Final suite 2,216 tests with only the three known Linux/Xvfb failures; S6, S8 and the final set pass; `shadowJar` and the isolated `--help` smoke pass. Record: [2026-09-29-p6b-validation.md](2026-09-29-p6b-validation.md).
 
-1. **Get the P6b PR reviewed and merged** (standing permission: Codex review, fix comments, merge once fixed or none), then verify `main` and record the merge.
+1. **Done:** P6b merged as PR #28 (`26a3016`) on 2026-09-30, completing the redesign (P0–P6b).
 2. **The expiry countdown phase** (open item O1, deferred by user decision): a read-only "Copy expiration samples…" diagnostic with the list's receipt time, then `QuestExpiry.parse` for the confirmed formats, the Board chip, "expiring today", Home's countdown and S3's expiry half. See the P4 plan's "Deferred scope". It needs one live Daily Quest Room visit by the user to collect the samples.
 The P5 and P5b research notes live in the session scratchpad; the plans quote their conclusions. A new session without them should re-run the research questions listed in each plan's "Sources" before implementing.
 

@@ -4,7 +4,9 @@
   "recordedDate": "2026-09-30",
   "redesign": {
     "phase": "P6b",
-    "status": "P6b implemented and validated on the integration branch (Waves A-D + polish A-E merged); PR open for review",
+    "status": "Redesign complete: P6b merged as PR #28 (26a3016); later work (DPS outcomes, asset extraction, enchant rarity P1-P4, runs feed cache) merged through PR #36 (e11cedd)",
+    "p6bMerge": "26a3016",
+    "p6bPullRequest": 28,
     "p1aMerge": "7b3e0c5",
     "p1aFix": "ee8d085",
     "branch": "claude/redesign-handoff-next-steps-edrr7w",
@@ -13,7 +15,7 @@
     "localChecks": "P6b: final full suite 2216 tests / 3 failures (known Linux/Xvfb) / 6 skipped on 5dbae2c; S8 frame p95 <= ~38 ms; S6 31 pages strict pass; final set 155 captures 0 failed checks; shadowJar and isolated --help pass",
     "roadmap": "docs/superpowers/plans/2026-09-26-redesign-roadmap.md",
     "validation": "docs/superpowers/plans/2026-09-29-p6b-validation.md",
-    "nextAction": "Open the P6b PR, handle Codex review, merge once fixed or none, verify main, record the merge",
+    "nextAction": "Quest expiry countdown (open item O1); needs live Daily Quest Room samples from the user",
     "p1bMerge": "0abafe4",
     "p1bFix": "a011bfd",
     "p1bPullRequest": 19,
@@ -44,7 +46,7 @@
   },
   "waves": {
     "phase": "wave-4",
-    "status": "Implementation complete; shortest finish approved; final PR CI/review and merge pending",
+    "status": "Merged: PR #15 (337c7f0); tracking issue #9 closed",
     "branch": "feat/ux-wave-4-planning",
     "base": "dfceefb9ab87dd4d37a2429167d740b7ab0a33ee",
     "mainCi": "36245882529",
