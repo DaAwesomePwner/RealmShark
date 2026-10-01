@@ -42,11 +42,6 @@ public enum RunOutcome {
      * @param sessionCurrent the visit's session is this app run's, still recording
      */
     public static RunOutcome of(ActivityJournal.Visit v, boolean sessionEnded, boolean sessionCurrent) {
-        if (v == null) return UNKNOWN;
-        if (v.completionEvidence != null && !v.completionEvidence.isEmpty() || "Completed".equals(v.status)) return COMPLETED;
-        if (v.ended > 0) return APP_ENDED_REASON.equals(v.endReason) ? APP_ENDED : LEFT;
-        // Unfinished: in progress only while this app run records it; a saved end wins, as the store then closes the visit.
-        if (sessionEnded || !sessionCurrent) return APP_ENDED;
-        return v.started == 0 ? UNKNOWN : IN_PROGRESS;
+        return valueOf(tomato.history.RunOutcomeRule.of(v, sessionEnded, sessionCurrent).name());
     }
 }

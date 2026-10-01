@@ -12,6 +12,10 @@ import tomato.gui.kit.SectionHeader;
 import tomato.gui.kit.Tokens;
 import tomato.gui.modern.ContentStyle;
 import tomato.history.encounter.CombatSettings;
+import tomato.history.AppHistory;
+import tomato.history.index.HistoryIndex;
+import tomato.history.index.SearchSettings;
+import java.util.function.Consumer;
 import util.PropertiesManager;
 
 /**
@@ -36,14 +40,44 @@ public final class GeneralSection extends JPanel {
     private final JCheckBox fullDetail = new JCheckBox("Keep full combat detail");
     private final JComboBox<String> fullDays = new JComboBox<>(DAYS), summaries = new JComboBox<>(SUMMARIES);
     private final JLabel fullDaysLabel = label("Keep full detail for", fullDays);
+    private final JLabel searchStatus = new JLabel();
+    private final JButton rebuildSearch = new JButton("Rebuild search index");
+    private final JCheckBox includeChat = new JCheckBox("Include chat in search");
+    private final SearchControl search;
+    private final boolean preview;
+    private AutoCloseable searchSubscription;
+    private int searchGeneration;
+
+    interface SearchControl {
+        HistoryIndex.State state();
+        AutoCloseable listen(Consumer<HistoryIndex.State> listener);
+        void rebuild();
+        void setIncludeChat(boolean include);
+    }
+    private static SearchControl control(HistoryIndex index) {
+        if (index == null) return null;
+        return new SearchControl() {
+            public HistoryIndex.State state() { return index.state(); }
+            public AutoCloseable listen(Consumer<HistoryIndex.State> listener) { return index.listen(listener); }
+            public void rebuild() { index.rebuild(); }
+            public void setIncludeChat(boolean include) { index.setIncludeChat(include); }
+        };
+    }
 
     public GeneralSection() {
-        this(PropertiesManager::getProperty, PropertiesManager::setProperties, CombatSettings::changed);
+        this(PropertiesManager::getProperty, PropertiesManager::setProperties, CombatSettings::changed,
+            control(AppHistory.index()), AppHistory.store() != null && !AppHistory.store().writable());
     }
 
     /** @param changed runs after each write; production announces it to CombatSettings' listeners */
     GeneralSection(Function<String, String> read, BiConsumer<String, String> write, Runnable changed) {
+        this(read, write, changed, null, false);
+    }
+    GeneralSection(Function<String, String> read, BiConsumer<String, String> write, Runnable changed,
+            SearchControl search, boolean preview) {
         super(new BorderLayout());
+        this.search = search;
+        this.preview = preview;
         setName("settings-general");
         setOpaque(false);
         fullDetail.setName("settings-combat-full-detail");
@@ -58,6 +92,21 @@ public final class GeneralSection extends JPanel {
         JLabel summariesLabel = label("Keep combat summaries", summaries);
         summariesLabel.setName("settings-combat-summaries-label");
         body.add(group(null, SUMMARIES_HELP, summariesLabel, summaries));
+        searchStatus.setName("settings-search-status");
+        rebuildSearch.setName("settings-search-rebuild");
+        includeChat.setName("settings-search-include-chat");
+        body.add(group("History search", null, searchStatus));
+        body.add(group(null, null, rebuildSearch));
+        body.add(group(null, "Turning this off removes chat from the search index. Saved chat history itself is unaffected.", includeChat));
+        includeChat.setSelected(SearchSettings.includeChat(read));
+        includeChat.setEnabled(!preview);
+        includeChat.addActionListener(e -> {
+            boolean include = includeChat.isSelected();
+            write.accept(SearchSettings.INCLUDE_CHAT, Boolean.toString(include));
+            if (search != null) search.setIncludeChat(include);
+        });
+        rebuildSearch.addActionListener(e -> { if (search != null) search.rebuild(); });
+        refreshSearch();
 
         // Restore before listening: showing what is saved never writes or announces anything.
         CombatSettings.Values saved = CombatSettings.read(read);
@@ -85,6 +134,35 @@ public final class GeneralSection extends JPanel {
         });
         add(ContentStyle.page(null, body, null));
         refreshColors();
+    }
+
+    @Override public void addNotify() {
+        super.addNotify();
+        if (search != null && searchSubscription == null) {
+            int generation = ++searchGeneration;
+            searchSubscription = search.listen(state -> SwingUtilities.invokeLater(() -> {
+                if (generation == searchGeneration) refreshSearch();
+            }));
+        }
+        refreshSearch();
+    }
+    @Override public void removeNotify() {
+        ++searchGeneration;
+        if (searchSubscription != null) {
+            try { searchSubscription.close(); } catch (Exception ignored) { }
+            searchSubscription = null;
+        }
+        super.removeNotify();
+    }
+    private void refreshSearch() {
+        HistoryIndex.State state = search == null ? null : search.state();
+        searchStatus.setText(preview ? "Off in preview" : state == null ? "Search unavailable: History is not started" : switch (state.phase()) {
+            case READY -> "Ready";
+            case BUILDING -> "Indexing history\u2026 " + state.done() + " of " + state.total() + " sessions";
+            case UNAVAILABLE -> "Search unavailable: " + state.reason();
+        });
+        searchStatus.setToolTipText(searchStatus.getText());
+        rebuildSearch.setEnabled(!preview && state != null && state.phase() != HistoryIndex.Phase.UNAVAILABLE);
     }
 
     @Override public void updateUI() {

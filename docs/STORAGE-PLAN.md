@@ -34,9 +34,9 @@ Each item below is one PR to `main`.
 |---|---|---|---|
 | A | Write-path fixes | — | Merged (#42) |
 | B | DPS memory cap | — (in parallel with A) | Merged (#42) |
-| C | Read fixes and safety | A | Done; in the C PR |
-| — | Design checkpoint: search index | A, C | Needs user approval |
-| D | Index foundation | design | |
+| C | Read fixes and safety | A | Merged (#43) |
+| — | Design checkpoint: search index ([design](STORAGE-SEARCH-DESIGN.md)) | A, C | Approved 2026-10-01 |
+| D | Index foundation: D1 (D1a index core + D1b live feed and Settings) done in the D1 PR; D2 lifecycle + enrichment next | design | D1 in PR |
 | E | Move screens to the index (probably 2 PRs) | D | |
 | F | Search page | E | |
 | G | Compress closed sessions | D | |
