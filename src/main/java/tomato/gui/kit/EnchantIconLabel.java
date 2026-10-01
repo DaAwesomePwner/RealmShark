@@ -6,7 +6,7 @@ import javax.swing.ToolTipManager;
 import tomato.realmshark.EnchantInfo;
 
 /**
- * An item icon that is not an {@link ItemSlot} (DPS icon view, My Info): the rarity gem on the icon, an accessible name ending
+ * An item icon that is not an {@link ItemSlot} (DPS icon view, My Info): the shared tier or enchant corner, an accessible name ending
  * with the enchant summary, and the shared enchant tooltip built when it is asked for, so its colors follow the theme.
  */
 public class EnchantIconLabel extends JLabel {
@@ -17,9 +17,14 @@ public class EnchantIconLabel extends JLabel {
 
     /** Shows {@code icon} (null shows none) for the item named {@code heading}; a null {@code enchant} means no enchant data. */
     public void setItem(Icon icon, String heading, EnchantInfo enchant) {
+        setItem(icon, heading, enchant, "");
+    }
+
+    /** Shows a known tier inside sufficiently large icons unless enchant pips replace it. */
+    public void setItem(Icon icon, String heading, EnchantInfo enchant, String tierLabel) {
         this.heading = heading;
         this.enchant = enchant;
-        setIcon(EnchantGem.decorate(icon, enchant));
+        setIcon(EnchantPips.decorate(icon, enchant, tierLabel));
         String name = heading == null ? "" : heading;
         getAccessibleContext().setAccessibleName(enchant == null ? name : name.isEmpty() ? enchant.summary() : name + " · " + enchant.summary());
     }

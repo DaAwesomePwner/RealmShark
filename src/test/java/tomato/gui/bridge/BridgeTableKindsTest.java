@@ -62,7 +62,7 @@ public class BridgeTableKindsTest {
                     String name = (String) review.getValueAt(row, 1);
                     assertTrue("The model keeps the item name", name.matches("Test Sword|Unlisted ST|Crystal Wand|Mystic Blade"));
                     JLabel cell = render(review, row, 1);
-                    assertEquals(name, cell.getText());
+                    assertEquals(name.equals("Test Sword") ? name + " · Uncommon" : name, cell.getText());
                     int id = name.equals("Test Sword") ? 42 : name.equals("Unlisted ST") ? 43 : name.equals("Crystal Wand") ? 44 : 45;
                     Icon sprite = Sprites.sprite(id, 16);
                     if (name.equals("Test Sword")) {

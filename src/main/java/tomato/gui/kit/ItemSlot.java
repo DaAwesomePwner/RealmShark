@@ -8,7 +8,7 @@ import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import tomato.realmshark.EnchantInfo;
 
-/** One equipment or inventory slot. Empty and not-captured are drawn differently; items show their sprite, tier edge and, where the surface knows it, an enchant rarity gem. */
+/** One equipment or inventory slot. Empty and not-captured differ; items show their sprite, tier edge and tier text or enchant pips and glow. */
 public class ItemSlot extends JComponent implements Accessible {
     /** UNKNOWN is a slot that was not captured ("Slot not captured"), never an empty one. */
     public enum State { ITEM, EMPTY, UNKNOWN }
@@ -38,6 +38,11 @@ public class ItemSlot extends JComponent implements Accessible {
      * It is a stamp, not a component: it announces nothing to assistive technology, so the renderer's cell must say what it shows.
      */
     public static Icon icon(Icon sprite, String tier, State state, int size) {
+        return icon(sprite, tier, state, size, null);
+    }
+
+    /** The same slot stamp with enchant pips and glow when known; non-item states ignore enchant data. */
+    public static Icon icon(Icon sprite, String tier, State state, int size, EnchantInfo enchant) {
         Objects.requireNonNull(state, "state");
         int side = size + Sprites.WELL;
         return new Icon() {
@@ -47,7 +52,7 @@ public class ItemSlot extends JComponent implements Accessible {
                 Graphics2D g = (Graphics2D) graphics.create();
                 try {
                     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    paint(c, g, state, shown, tier, x, y, side - 1);
+                    paint(c, g, state, shown, tier, enchant, x, y, side - 1);
                 } finally {
                     g.dispose();
                 }
@@ -62,13 +67,14 @@ public class ItemSlot extends JComponent implements Accessible {
      * then the edge: the tier's color for an item with a tier, subtle otherwise), then the sprite centered (scaled down only when
      * it would cover the well's border) or, when not captured, a muted "?".
      */
-    private static void paint(Component owner, Graphics2D g, State state, Icon sprite, String tier, int x, int y, int side) {
+    private static void paint(Component owner, Graphics2D g, State state, Icon sprite, String tier, EnchantInfo enchant, int x, int y, int side) {
         boolean tiered = state == State.ITEM && tier != null && !tier.isEmpty();
         g.setColor(Tokens.color(state == State.EMPTY ? Tokens.Role.SURFACE_ALT : Tokens.Role.RAISED));
         g.fillRoundRect(x, y, side, side, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
         g.setColor(tiered ? Tokens.tier(tier) : Tokens.color(Tokens.Role.BORDER_SUBTLE));
         g.drawRoundRect(x, y, side, side, Tokens.ARC_CONTROL, Tokens.ARC_CONTROL);
         if (state == State.ITEM && sprite != null) {
+            sprite = EnchantPips.glow(sprite, enchant);
             int room = side + 1 - Sprites.WELL, width = sprite.getIconWidth(), height = sprite.getIconHeight();
             if (width <= room && height <= room) {
                 sprite.paintIcon(owner, g, x + (side + 1 - width) / 2, y + (side + 1 - height) / 2);
@@ -83,6 +89,7 @@ public class ItemSlot extends JComponent implements Accessible {
                     icon.dispose();
                 }
             }
+            EnchantPips.paintCorner(g, enchant, tier, x, y, side);
         } else if (state == State.UNKNOWN) {
             g.setColor(Tokens.color(Tokens.Role.TEXT_MUTED));
             g.setFont(Type.caption());
@@ -102,7 +109,7 @@ public class ItemSlot extends JComponent implements Accessible {
 
     public void setItem(int objectId, String tierLabel) { setItem(objectId, tierLabel, null); }
 
-    /** As {@link #setItem(int, String)}, with the item's enchantments (null when this surface has none): a gem and the enchant tooltip. */
+    /** As {@link #setItem(int, String)}, with the item's enchantments (null when this surface has none): pips, glow and the enchant tooltip. */
     public void setItem(int objectId, String tierLabel, EnchantInfo enchantments) {
         if (objectId <= 0) { setEmpty(); return; }
         show(State.ITEM, objectId, tierLabel == null ? "" : tierLabel, enchantments);
@@ -161,8 +168,7 @@ public class ItemSlot extends JComponent implements Accessible {
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int side = Math.min(getWidth(), getHeight()) - 1, x = (getWidth() - 1 - side) / 2, y = (getHeight() - 1 - side) / 2;
-        paint(this, g, state, state == State.ITEM ? Sprites.sprite(itemId, size) : null, tier, x, y, side);
-        if (state == State.ITEM) EnchantGem.paint(g, enchant, x, y, side);
+        paint(this, g, state, state == State.ITEM ? Sprites.sprite(itemId, size) : null, tier, enchant, x, y, side);
         g.dispose();
     }
 }

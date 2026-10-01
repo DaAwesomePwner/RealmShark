@@ -351,8 +351,7 @@ public class PartyRestyleTest {
         return image.getRGB(0, 0, image.getWidth(), image.getHeight(), null, 0, image.getWidth());
     }
     /**
-     * The gem well paints like the plain well except in its top-right quarter, inside the edge (the tier border still reads), and
-     * the gem paints its rarity ink.
+     * Enchantment stays inside the well (the tier border still reads); its pips paint their rarity ink in the bottom row.
      */
     static void assertGemInside(Icon withGem, Icon plain, Color ink, Component owner) {
         int w = withGem.getIconWidth(), h = withGem.getIconHeight();
@@ -360,11 +359,11 @@ public class PartyRestyleTest {
         int[] a = paint(withGem, owner), b = paint(plain, owner); int changed = 0;
         for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
             int i = y * w + x; if (a[i] == b[i]) continue;
-            assertFalse("The gem leaves the well's edge alone at " + x + "," + y, x == 0 || y == 0 || x == w - 1 || y == h - 1);
-            assertTrue("The gem stays in the top-right corner at " + x + "," + y, x >= w / 2 && y < h / 2);
+            assertFalse("The enchant leaves the well's edge alone at " + x + "," + y, x == 0 || y == 0 || x == w - 1 || y == h - 1);
+            if (a[i] == ink.getRGB()) assertTrue("Pips stay in the bottom row at " + x + "," + y, y > h / 2);
             changed++;
         }
-        assertTrue("The well paints a gem", changed > 8);
+        assertTrue("The well paints enchant pips", changed > 8);
         assertPaintsInk(withGem, ink, owner);
     }
 
