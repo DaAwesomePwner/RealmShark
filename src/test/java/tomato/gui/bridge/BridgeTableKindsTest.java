@@ -58,6 +58,7 @@ public class BridgeTableKindsTest {
                 assertKinds(named(panel, "bridge-saved-table", JTable.class), SAVED, SAVED_KINDS);
                 JTable review = named(panel, "bridge-review-table", JTable.class);
                 for (int row = 0; row < review.getRowCount(); row++) {
+                    assertEquals(review.getValueAt(row, 2), render(review, row, 2).getToolTipText());
                     String name = (String) review.getValueAt(row, 1);
                     assertTrue("The model keeps the item name", name.matches("Test Sword|Unlisted ST|Crystal Wand|Mystic Blade"));
                     JLabel cell = render(review, row, 1);
@@ -227,6 +228,24 @@ public class BridgeTableKindsTest {
                     search.setText("");
                     assertEquals(all, table.getRowCount());
                 }
+                return null;
+            });
+        }
+    }
+
+    @Test public void searchFindsTheFullRarityLabelAndItsTooltipKeepsTheSuffix() throws Exception {
+        try (BridgeService service = service(temp)) {
+            service.receive(Collections.singletonList(new BridgePayload.Drop(
+                new BridgePayload.Item(42, "Test Sword", "EQUIPMENT", "UT", null),
+                7, "Fixture", "Wizard", "Synthetic Dungeon", false, false, 9, 0)));
+            service.awaitIdle(3000);
+            BridgeReviewGUI panel = edt(() -> new BridgeReviewGUI(service, mode(DisplayModeModel.Mode.ANALYST)));
+            edt(() -> {
+                named(panel, "bridge-search", JTextField.class).setText("no enchant data");
+                JTable review = named(panel, "bridge-review-table", JTable.class);
+                assertEquals(1, review.getRowCount());
+                assertEquals("common (no enchant data)", review.getValueAt(0, 2));
+                assertEquals("common (no enchant data)", render(review, 0, 2).getToolTipText());
                 return null;
             });
         }

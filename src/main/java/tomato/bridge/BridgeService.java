@@ -58,7 +58,7 @@ public final class BridgeService implements AutoCloseable {
             return "Check endpoint, link token, guild and bot settings in Bridge Settings. Review the bot before any manual resubmission; no automatic retry.";
         }
         public boolean matches(String query){
-            String text=time+" "+drop.item.rawName+" "+drop.item.id+" "+drop.item.rarity+" "+drop.item.enchants+" "+drop.item.enchantCount+" "+drop.characterId+" "+drop.characterName+" "+drop.characterClass+" "+drop.dungeon+" "+status+" "+outcome()+" "+detail+" "+localChoice;
+            String text=time+" "+drop.item.rawName+" "+drop.item.id+" "+drop.item.rarityLabel()+" "+drop.item.enchants+" "+drop.item.enchantCount+" "+drop.characterId+" "+drop.characterName+" "+drop.characterClass+" "+drop.dungeon+" "+status+" "+outcome()+" "+detail+" "+localChoice;
             return text.toLowerCase(Locale.ROOT).contains(query.trim().toLowerCase(Locale.ROOT));
         }
     }

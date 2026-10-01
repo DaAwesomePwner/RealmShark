@@ -27,7 +27,7 @@ import tomato.backend.data.Equipment;
  * Notes:
  * - This class performs no UI formatting; it only aggregates data.
  * - Equipment id 0 (empty) is included if present in the damage stream, matching legacy behavior.
- * - The "enchant" of each item is its most-used variant's entry (by damage; the first seen on a tie); null when not recorded.
+ * - The "enchant" of each item prefers a recorded variant over not recorded (by damage; the first seen on a tie); null when none is recorded.
  */
 public final class EquipmentUsageAggregator {
 
@@ -40,10 +40,10 @@ public final class EquipmentUsageAggregator {
      */
     public static final class SlotUsage {
 
-        /** itemId -> the item's usage across all its enchant variants; its {@code enchant} is the most-used variant's entry. */
+        /** itemId -> usage across all enchant variants; {@code enchant} prefers the most-used recorded variant over not recorded. */
         public final Map<Integer, Equipment> items = new HashMap<>();
         public final AtomicInteger total = new AtomicInteger(0);
-        /** itemId -> enchant entry (null = not recorded) -> damage dealt with that variant, in first-seen order. */
+        /** itemId -> enchant entry (null = not recorded) -> damage dealt, in first-seen order; recorded variants are preferred. */
         private final Map<Integer, Map<String, int[]>> variants = new HashMap<>();
     }
 
@@ -161,12 +161,12 @@ public final class EquipmentUsageAggregator {
                 su.variants.computeIfAbsent(itemId, id -> new LinkedHashMap<>()).computeIfAbsent(enchant, e -> new int[1])[0] += d.damage;
             }
         }
-        // Each item shows the enchant variant that dealt it the most damage (the first seen on a tie).
+        // Prefer recorded variants over not recorded, then the most damage (the first seen on a tie).
         for (OwnerUsage ou : byOwner.values()) for (SlotUsage su : ou.slots)
             for (Map.Entry<Integer, Equipment> item : su.items.entrySet()) {
                 int best = Integer.MIN_VALUE;
                 for (Map.Entry<String, int[]> variant : su.variants.get(item.getKey()).entrySet())
-                    if (variant.getValue()[0] > best) { best = variant.getValue()[0]; item.getValue().enchant = variant.getKey(); }
+                    if (variant.getKey() != null && variant.getValue()[0] > best) { best = variant.getValue()[0]; item.getValue().enchant = variant.getKey(); }
             }
     }
 

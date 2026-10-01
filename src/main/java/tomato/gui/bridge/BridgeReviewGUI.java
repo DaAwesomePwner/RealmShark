@@ -110,6 +110,7 @@ public final class BridgeReviewGUI extends JPanel {
         totals.setName("bridge-totals");totals.getAccessibleContext().setAccessibleName("Lifetime and shown delivery outcome counts");summary.add(state,BorderLayout.NORTH);add(summary,BorderLayout.NORTH);
         setupTable(review,ContentStyle.Density.COMFORTABLE);setupTable(logs,ContentStyle.Density.DENSE);review.setName("bridge-review-table");logs.setName("bridge-log-table");
         review.getColumnModel().getColumn(1).setCellRenderer(new ItemCell(model->model<rows.size()?rows.get(model).drop.item:null,model->model<reviewEnchants.size()?reviewEnchants.get(model):null));
+        review.getColumnModel().getColumn(2).setCellRenderer(new RarityCell());
         review.getColumnModel().getColumn(6).setCellRenderer(outcomeBadge());
         // Widths come from the column kinds and follow the font. Review fits its columns to the page while every header and Outcome
         // label stays whole, else it scrolls sideways; on Logs the message takes the room left.
@@ -538,6 +539,12 @@ public final class BridgeReviewGUI extends JPanel {
             String shown=shownTime(value);
             super.getTableCellRendererComponent(table,value==null?DisplayFormat.UNAVAILABLE:shown==null?value:shown,selected,focus,row,column);
             setToolTipText(zones(value));return this;
+        }
+    }
+    private static final class RarityCell extends ContentStyle.Cell {
+        @Override public Component getTableCellRendererComponent(JTable table,Object value,boolean selected,boolean focus,int row,int column){
+            super.getTableCellRendererComponent(table,value,selected,focus,row,column);
+            setToolTipText(value==null?null:value.toString());return this;
         }
     }
     /** Simple's relative stamp replaces the tooltip with the absolute text; this puts UTC and local time back (KitTables undoes its own stamp). */
