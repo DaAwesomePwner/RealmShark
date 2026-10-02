@@ -2,8 +2,9 @@
 
 ## Current validation policy
 
-User update (2026-09-26): CI is manual-only and is not required for PR merges.
-Prefer focused local checks and relevant build/launch smoke checks on the user's
+User update (2026-10-01): CI runs automatically again on pull requests to main and
+pushes to main (it was manual-only from 2026-09-26). It is still not a required
+merge gate; read its result on the PR instead of re-running it locally. Prefer focused local checks and relevant build/launch smoke checks on the user's
 computer. Do not routinely repeat full suites, scaled UI matrices or packaging
 cycles. Docs/workflow-only changes need diff/config inspection, not application
 tests. This supersedes mandatory CI and broad validation requirements below and

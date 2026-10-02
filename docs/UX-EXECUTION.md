@@ -5,7 +5,7 @@ Current redesign (2026-09-30): phases P0–P6a are merged (PRs #17–#27), and P
 [redesign roadmap](superpowers/plans/2026-09-26-redesign-roadmap.md) and the
 [redesign handoff](superpowers/plans/2026-09-27-redesign-handoff.md). The wave ledger below is completed history.
 
-Current policy (user approved 2026-09-26): CI is manual-only, not a merge gate.
+Current policy (user approved 2026-09-26, CI automatic again 2026-10-01): CI runs on PRs and main pushes, not a merge gate.
 Use focused local checks and relevant build/launch smoke checks; no routine full
 suite/scaled/package cycles. This supersedes historical CI requirements below.
 Wave 4 PR #15 is merged as `337c7f0`; its PR/main CI passed. All waves are complete.
