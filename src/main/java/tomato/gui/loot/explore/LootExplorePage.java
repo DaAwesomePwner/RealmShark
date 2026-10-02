@@ -17,7 +17,7 @@ import tomato.history.link.VisitRef;
 import util.PropertiesManager;
 
 /**
- * Loot › Explore with saved history: Pictures (Runs | Collection with item history, {@link ExplorePictures}) and Table (the Loot workspace, unchanged: its
+ * Loot › Explore with saved history: Pictures (Runs | Dungeons | Collection with item history, {@link ExplorePictures}) and Table (the Loot workspace, unchanged: its
  * views, filters, saved views and exports), behind a Pictures | Table switch above both, remembered in {@link #VIEW_KEY}
  * (Pictures by default; restoring the preference only selects). Routes reach the view they need through {@link #routes}: an
  * exact run opens Pictures on that run, a query opens Table, and an {@link ExploreItem} route opens an item's drops through
@@ -78,6 +78,7 @@ public final class LootExplorePage extends JPanel implements AutoCloseable {
     public void onOpenItem(java.util.function.IntConsumer action) { pictures.onOpenItem(action); }
     /** What opening a drop's run runs (an exact-run Loot route in production). */
     public void onOpenDrop(Consumer<VisitRef> action) { pictures.onOpenRun(action); }
+    public void onNavigate(Consumer<ExplorePictures.Focus> action) { pictures.onNavigate(action); }
 
     /**
      * {@code target} (a Loot workspace target) with the view each route needs: an exact run (a visit and no query) opens Pictures on
@@ -123,6 +124,21 @@ public final class LootExplorePage extends JPanel implements AutoCloseable {
                 if (!accepts(route)) throw new IllegalArgumentException("Unsupported Explore item route: " + route);
                 showPictures();
                 pictures.openItem(((ExploreItem) route.payload).itemId());
+            }
+            @Override public void restoreState(Object state) { restore(state, null); }
+        };
+    }
+
+    /** LOOT routes carrying a Pictures level or dungeon move; Back restores the same state as item routes. */
+    public RouteTarget focusTarget() {
+        return new RouteTarget() {
+            @Override public Destination destination() { return Destination.LOOT; }
+            @Override public boolean accepts(Route route) { return route.destination == Destination.LOOT && route.payload instanceof ExplorePictures.Focus; }
+            @Override public Object captureState() { return new RouteState(tableShown, pictures.state(), null); }
+            @Override public void open(Route route) {
+                if (!accepts(route)) throw new IllegalArgumentException("Unsupported Explore focus route: " + route);
+                showPictures();
+                pictures.go((ExplorePictures.Focus) route.payload);
             }
             @Override public void restoreState(Object state) { restore(state, null); }
         };
