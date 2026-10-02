@@ -559,6 +559,7 @@ public class TomatoData {
         }
         for (int i = 0; i < p.drops.length; i++) {
             int dropId = p.drops[i];
+            tomato.realmshark.WorldBossAlerts.INSTANCE.objectDropped(dropId);
             crystalTracker.remove(dropId);
             Entity e = entityList.get(dropId);
             dropList.put(dropId, e);
@@ -605,8 +606,6 @@ public class TomatoData {
             new Entity(this, idd, timePc)
         );
         int idType = object.objectType;
-        // A hit or tick can create the entity before its first UPDATE gives it a type.
-        boolean firstTyped = newObject || entity.objectType == 0;
         entity.entityUpdate(idType, object.status, timePc);
 
         if (newObject) {
@@ -614,7 +613,8 @@ public class TomatoData {
             SecurityAbilityUseCheck.decoy(entity);
             customSoundAlert(idType);
         }
-        if (firstTyped) tomato.realmshark.WorldBossAlerts.INSTANCE.objectAppeared(id, idType);
+        // Every entry is entering view: a first sighting, a return, or a reused ID the retained entity hides from newObject.
+        tomato.realmshark.WorldBossAlerts.INSTANCE.objectAppeared(id, idType);
         if (petyard) {
             addPet(object);
         }

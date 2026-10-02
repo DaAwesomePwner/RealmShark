@@ -50,6 +50,18 @@ public class WorldBossAlertsTest {
         assertNull(alerts.onQuest(-1, null, 5));
         assertNull("A cleared quest target is no longer pending", alerts.onAppeared(22, LICH, 6));
     }
+    @Test public void aReusedIdIsAFreshObjectAndAStaleQuestTypeIsRechecked() {
+        alerts.enterMap(WorldBossAlerts.REALM);
+        assertNotNull(alerts.onAppeared(70, CUBE, 0));
+        assertNull("Returning to view does not repeat", alerts.onAppeared(70, CUBE, LATER));
+        alerts.objectDropped(70);
+        assertEquals("Grand Sphinx", alerts.onAppeared(70, SPHINX, LATER + 1).name);
+        // The quest arrow names a dropped ID whose last type (Lich) is stale; its real type arrives on return.
+        assertNull(alerts.onAppeared(71, LICH, 0)); alerts.objectDropped(71);
+        assertNull(alerts.onQuest(71, LICH, 1));
+        WorldBossAlerts.Hit hit = alerts.onAppeared(71, TOWER, 2);
+        assertEquals("Pentaract Tower", hit.name); assertEquals(WorldBossAlerts.Signal.QUEST, hit.signal);
+    }
     @Test public void unlistedQuestTargetsAreRecordedWithTheirNameButSilent() {
         alerts.enterMap(WorldBossAlerts.REALM);
         assertNull(alerts.onQuest(30, LICH, 0));
@@ -57,8 +69,10 @@ public class WorldBossAlertsTest {
         assertEquals(AlertDecisions.Source.WORLD_BOSS, d.source); assertEquals(AlertDecisions.Result.NO_MATCH, d.result);
         assertTrue(d.subject, d.subject.startsWith("Lich"));
         assertNull(alerts.onQuest(30, LICH, 1));
+        assertNull(alerts.onQuest(32, LICH, 2)); assertNull(alerts.onQuest(30, LICH, 3));
+        assertEquals("Retargeting back to a recorded target adds nothing", 2, AlertDecisions.INSTANCE.snapshot(true).size());
         assertNull("An unlisted object in view is not even recorded", alerts.onAppeared(31, LICH, 0));
-        assertEquals(1, AlertDecisions.INSTANCE.snapshot(true).size());
+        assertEquals(2, AlertDecisions.INSTANCE.snapshot(true).size());
     }
     @Test public void theSameBossNamePausesForThirtySecondsAndMapsReset() {
         alerts.enterMap(WorldBossAlerts.REALM);
