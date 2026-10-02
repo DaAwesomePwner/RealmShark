@@ -7,8 +7,8 @@
 [P6b](superpowers/plans/2026-09-29-p6b-consistency.md). Everything below this paragraph describes the completed four-wave
 implementation (Waves 1–4) and is history.
 
-Current policy (user approved 2026-09-26): CI is manual-only, not required for
-merges. Follow AGENTS.md for focused local validation; historical CI gates below
+Current policy (user approved 2026-09-26, CI automatic again 2026-10-01): CI runs
+on PRs and main pushes but is not required for merges. Follow AGENTS.md for focused local validation; historical CI gates below
 are superseded. Wave 4 PR #15 merged as `337c7f0` with PR/main CI passing.
 
 ## Current Wave 4 resumption
